@@ -9,9 +9,12 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::storage::state::UpdateState;
 
+// https://core.telegram.org/api/updates#recovering-gaps
 const GAP_TIMEOUT: Duration = Duration::from_millis(500);
-// Telegram asks for getDifference after 15 minutes without updates, in case the server stopped pushing.
+// The same page tells clients to call getDifference after 15 minutes without updates, in case the server
+// stopped pushing.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const MAX_RETRIES: u32 = 5;
 
 pub(super) fn channel_of(update: &base::Update) -> Option<i64> {
     let message = match update {
@@ -59,6 +62,7 @@ pub(super) struct Tracker {
     pub(super) state: UpdateState,
     pub(super) pending: Vec<(Instant, Pending)>,
     pub(super) retries: Vec<(Instant, Key)>,
+    pub(super) failures: Vec<(Key, u32)>,
     pub(super) idle: Option<Instant>,
     pub(super) due: Vec<Key>,
     pub(super) ready: Vec<(base::Update, Arc<Entities>)>,
@@ -102,7 +106,13 @@ impl Tracker {
         if let base::Update::UpdateChannelTooLong(u) = &update {
             return self.mark(Key::Channel(u.channel_id));
         }
-        let (key, before, after) = match (channel_of(&update), update.pts(), update.qts()) {
+        let channel = channel_of(&update);
+        let channel_message =
+            matches!(update, base::Update::UpdateNewChannelMessage(_) | base::Update::UpdateEditChannelMessage(_));
+        if channel.is_none() && channel_message {
+            return;
+        }
+        let (key, before, after) = match (channel, update.pts(), update.qts()) {
             (Some(id), Some((pts, count)), _) => (Key::Channel(id), pts.wrapping_sub(count), pts),
             (Some(_), None, _) => return,
             (None, Some((pts, count)), _) => (Key::Pts, pts.wrapping_sub(count), pts),
@@ -216,21 +226,38 @@ impl Tracker {
             Ok(()) => None,
             // FLOOD_WAIT_X and friends: asking before X seconds pass only fails again.
             Err(Error::Rpc(e)) if e.code == 420 => Some(Duration::from_secs(e.value.unwrap_or(1).into())),
-            Err(Error::Rpc(e)) if !(400..500).contains(&e.code) => Some(GAP_TIMEOUT),
+            Err(Error::Rpc(e)) if !(400..500).contains(&e.code) => self.backoff(key),
             Err(Error::Io(_) | Error::Transport(_) | Error::Disconnected | Error::Timeout | Error::BadMessage(_)) => {
-                Some(GAP_TIMEOUT)
+                self.backoff(key)
             }
             // 4xx refusals and bad answers fail the same way next time, so deliver what we hold and give up on the gap.
             Err(_) => None,
         };
         self.retries.retain(|(_, k)| *k != key);
-        let Some(delay) = delay else { return self.settle(due) };
+        let Some(delay) = delay else {
+            self.failures.retain(|(k, _)| *k != key);
+            return self.settle(due);
+        };
         let deadline = Instant::now() + delay;
         for (d, _) in self.pending.iter_mut().filter(|(_, p)| due(p.key)) {
             *d = deadline;
         }
         // After updatesTooLong nothing may be pending, so the retry keeps its own deadline.
         self.retries.push((deadline, key));
+    }
+
+    fn backoff(&mut self, key: Key) -> Option<Duration> {
+        let n = match self.failures.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, n)) => {
+                *n += 1;
+                *n
+            }
+            None => {
+                self.failures.push((key, 1));
+                1
+            }
+        };
+        (n <= MAX_RETRIES).then(|| GAP_TIMEOUT * 2u32.pow(n - 1))
     }
 
     pub(super) fn settle(&mut self, due: impl Fn(Key) -> bool) {
@@ -410,6 +437,36 @@ mod tests {
         t.recover(&Err(offline()), Key::Pts);
         t.recover(&Ok(()), Key::Pts);
         assert!(t.deadline().is_none());
+    }
+
+    #[test]
+    fn repeated_failures_back_off_then_give_up() {
+        let (mut t, e) = (tracker(10, 0, 0), Arc::default());
+        t.update(delete(12, 1), &e, false);
+        for n in 0..5 {
+            let start = Instant::now();
+            t.recover(&Err(offline()), Key::Pts);
+            assert!(t.deadline() >= Some(start + GAP_TIMEOUT * 2u32.pow(n)));
+        }
+        t.recover(&Err(offline()), Key::Pts);
+        assert_eq!((delivered(&mut t), t.pending.len(), t.deadline()), (vec![12], 0, None));
+    }
+
+    #[test]
+    fn quiet_channel_updates_move_channel_counters() {
+        let (mut t, e) = (tracker(10, 0, 0), Arc::default());
+        t.update(channel(5, 20), &e, true);
+        t.update(channel(5, 21), &e, false);
+        assert_eq!((delivered(&mut t), t.state.channels[&5], t.state.pts), (vec![21], 21, 10));
+    }
+
+    #[test]
+    fn channel_message_without_peer_is_skipped() {
+        let (mut t, e) = (tracker(10, 0, 0), Arc::default());
+        let message = base::Message::MessageEmpty(Box::new(types::MessageEmpty { id: 1, peer_id: None }));
+        let update = types::UpdateNewChannelMessage { message, pts: 11, pts_count: 1 };
+        t.update(base::Update::UpdateNewChannelMessage(Box::new(update)), &e, false);
+        assert_eq!((delivered(&mut t), t.state.pts, t.pending.len()), (vec![], 10, 0));
     }
 
     #[test]

@@ -7,6 +7,7 @@ mod service;
 mod tests;
 pub(crate) mod transfer;
 
+pub(crate) use events::Affected;
 pub use events::Events;
 
 use std::collections::{HashMap, VecDeque};
@@ -61,7 +62,6 @@ pub struct Incoming {
     pub from_request: bool,
 }
 
-/// The session's updates. Ones the runner had to drop on a full channel come back as one `UpdatesTooLong`.
 pub struct UpdatesRx {
     rx: mpsc::Receiver<Incoming>,
     pub(crate) events: Arc<Events>,
@@ -73,6 +73,9 @@ impl UpdatesRx {
         if count > 0 {
             self.events.emit(ClientEvent::UpdatesDropped { count });
             return Some(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
+        }
+        if let Some(affected) = self.events.take_affected() {
+            return Some(Incoming { updates: affected.into_updates(), from_request: true });
         }
         self.rx.recv().await
     }

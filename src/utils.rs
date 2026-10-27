@@ -14,6 +14,10 @@ pub fn get_channel_id(channel_id: i64) -> i64 {
     -CHANNEL_OFFSET - channel_id
 }
 
+pub(crate) fn channel_id_of(chat_id: i64) -> i64 {
+    -CHANNEL_OFFSET - chat_id
+}
+
 pub fn get_peer(chat_id: i64) -> base::Peer {
     if chat_id > 0 {
         base::Peer::PeerUser(Box::new(types::PeerUser { user_id: chat_id }))

@@ -2,9 +2,9 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
 use super::{
-    Answer, Arc, ClientEvent, Connection, Identifiable, Incoming, MAX_CONTAINER_MSGS, Options, Request, Runner,
-    Serializable, UPDATES_BUFFER, UpdatesRx, base, functions, gzip_packed, mpsc, msg_container, mtproto, oneshot,
-    outbox, types,
+    Affected, Answer, Arc, ClientEvent, Connection, Identifiable, Incoming, MAX_CONTAINER_MSGS, Options, Request,
+    Runner, Serializable, UPDATES_BUFFER, UpdatesRx, base, functions, gzip_packed, mpsc, msg_container, mtproto,
+    oneshot, outbox, types,
 };
 use crate::session::internals::data_center::Dc;
 
@@ -196,6 +196,16 @@ async fn dropped_updates_ask_for_a_difference() {
     let second = updates.recv().await.unwrap().updates;
     assert!(matches!((first, second), (base::Updates::UpdatesTooLong, base::Updates::Updates(_))));
     assert!(matches!(events.try_recv(), Ok(ClientEvent::UpdatesDropped { count: 1 })));
+}
+
+#[tokio::test]
+async fn affected_pts_come_back_as_quiet_updates() {
+    let mut updates = UpdatesRx::offline();
+    updates.events.affected(Affected { channel_id: Some(7), pts: 5, pts_count: 1 });
+    let incoming = updates.recv().await.unwrap();
+    let base::Updates::UpdateShort(short) = incoming.updates else { panic!("not a stand-in update") };
+    let channel = matches!(&short.update, base::Update::UpdateDeleteChannelMessages(u) if u.channel_id == 7);
+    assert_eq!((incoming.from_request, channel, short.update.pts()), (true, true, Some((5, 1))));
 }
 
 #[tokio::test]
