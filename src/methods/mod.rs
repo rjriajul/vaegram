@@ -1,3 +1,16 @@
+macro_rules! into_future {
+    ($builder:ident, $output:ty) => {
+        impl<'a> ::std::future::IntoFuture for $builder<'a> {
+            type Output = $crate::Result<$output>;
+            type IntoFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Self::Output> + Send + 'a>>;
+
+            fn into_future(self) -> Self::IntoFuture {
+                Box::pin(self.send())
+            }
+        }
+    };
+}
+
 mod advanced;
 mod auth;
 mod bots;

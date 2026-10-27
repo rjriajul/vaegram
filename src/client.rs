@@ -127,22 +127,19 @@ impl ClientBuilder {
             }
             (result, _) => result?,
         };
-        let client = Client(Arc::new(Inner {
-            session: RwLock::new(session),
-            updates: tokio::sync::Mutex::new(updates),
-            api_id: self.api_id,
-            api_hash: self.api_hash,
-            dcs: RwLock::new(data_center::table(&dc_options, self.ipv6)),
-            test_mode,
-            ipv6: self.ipv6,
-            storage_path,
-            state_file,
-            options: self.options,
-            state: Mutex::new(state),
-            me: Mutex::new(Me { id: user_id, is_bot, username: None }),
-            peers: Mutex::new(peers),
-            handlers: RwLock::new(Vec::new()),
-        }));
+        let mut inner = Inner::new(session, updates);
+        inner.api_id = self.api_id;
+        inner.api_hash = self.api_hash;
+        inner.dcs = RwLock::new(data_center::table(&dc_options, self.ipv6));
+        inner.test_mode = test_mode;
+        inner.ipv6 = self.ipv6;
+        inner.storage_path = storage_path;
+        inner.state_file = state_file;
+        inner.options = self.options;
+        inner.state = Mutex::new(state);
+        inner.me = Mutex::new(Me { id: user_id, is_bot, username: None });
+        inner.peers = Mutex::new(peers);
+        let client = Client(Arc::new(inner));
         client.save()?;
         Ok((client, self.login))
     }
@@ -175,6 +172,25 @@ pub(crate) struct Me {
 }
 
 impl Inner {
+    fn new(session: Session, updates: UpdatesRx) -> Inner {
+        Inner {
+            session: RwLock::new(session),
+            updates: tokio::sync::Mutex::new(updates),
+            api_id: 0,
+            api_hash: String::new(),
+            dcs: RwLock::new(Vec::new()),
+            test_mode: false,
+            ipv6: false,
+            storage_path: None,
+            state_file: None,
+            options: Options::default(),
+            state: Mutex::new(None),
+            me: Mutex::new(Me { id: 0, is_bot: false, username: None }),
+            peers: Mutex::new(HashMap::new()),
+            handlers: RwLock::new(Vec::new()),
+        }
+    }
+
     fn encode_state(&self, file: &StateFile, state: Option<&UpdateState>) -> (u64, Vec<u8>) {
         let user_id = self.me.lock().unwrap_or_else(PoisonError::into_inner).id;
         let peers = self.peers.lock().unwrap_or_else(PoisonError::into_inner);
@@ -210,6 +226,21 @@ impl Client {
             login: Login::default(),
             options: Options::default(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn offline() -> Client {
+        let mut inner = Inner::new(Session::offline(), UpdatesRx::offline());
+        inner.me.get_mut().unwrap().is_bot = true;
+        Client(Arc::new(inner))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn scripted(replies: Vec<Result<Vec<u8>>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
+        let client = Client::offline();
+        let (session, sent) = Session::scripted(replies);
+        *client.0.session.write().unwrap() = session;
+        (client, sent)
     }
 
     pub(crate) fn session(&self) -> Session {

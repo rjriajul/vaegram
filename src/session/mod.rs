@@ -70,6 +70,11 @@ impl UpdatesRx {
         }
         self.rx.recv().await
     }
+
+    #[cfg(test)]
+    pub(crate) fn offline() -> UpdatesRx {
+        UpdatesRx { rx: mpsc::channel(1).1, dropped: Arc::default() }
+    }
 }
 
 #[derive(Clone)]
@@ -100,6 +105,27 @@ impl Session {
         let (runner, updates) = Runner::new(dc, options.clone(), conn, auth_key, salt, time_offset);
         tokio::spawn(runner.run(requests));
         Ok((Session { requests: requests_tx, dc_id: dc.id, auth_key }, updates))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn offline() -> Session {
+        Session { requests: mpsc::unbounded_channel().0, dc_id: 2, auth_key: [0; 256] }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn scripted(replies: Vec<Answer>) -> (Session, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
+        let (bodies, sent) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let mut replies = replies.into_iter();
+            while let Some(request) = rx.recv().await {
+                let _ = bodies.send(request.body);
+                if let Some(reply) = replies.next() {
+                    let _ = request.answer.send(reply);
+                }
+            }
+        });
+        (Session { requests, dc_id: 2, auth_key: [0; 256] }, sent)
     }
 
     pub fn dc_id(&self) -> i32 {

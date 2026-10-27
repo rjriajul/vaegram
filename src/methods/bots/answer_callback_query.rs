@@ -1,6 +1,3 @@
-use std::future::{Future, IntoFuture};
-use std::pin::Pin;
-
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::functions;
@@ -40,22 +37,17 @@ impl AnswerCallbackQuery<'_> {
         self.cache_time = seconds;
         self
     }
-}
 
-impl<'a> IntoFuture for AnswerCallbackQuery<'a> {
-    type Output = Result<bool>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move {
-            let request = functions::messages::SetBotCallbackAnswer {
-                alert: self.alert,
-                query_id: self.query_id,
-                message: self.text,
-                url: self.url,
-                cache_time: self.cache_time,
-            };
-            self.client.invoke(&request).await
-        })
+    async fn send(self) -> Result<bool> {
+        let request = functions::messages::SetBotCallbackAnswer {
+            alert: self.alert,
+            query_id: self.query_id,
+            message: self.text,
+            url: self.url,
+            cache_time: self.cache_time,
+        };
+        self.client.invoke(&request).await
     }
 }
+
+into_future!(AnswerCallbackQuery, bool);

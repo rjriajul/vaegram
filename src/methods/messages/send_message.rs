@@ -34,10 +34,8 @@ impl Client {
         let (text, mut entities) = parser::parse(text, mode);
         for entity in &mut entities {
             if let base::MessageEntity::InputMessageEntityMentionName(m) = entity {
-                if let base::InputUser::InputUser(u) = &mut m.user_id {
-                    if let base::InputPeer::InputPeerUser(p) = self.resolve_peer(u.user_id).await? {
-                        u.access_hash = p.access_hash;
-                    }
+                if let base::InputUser::InputUser(u) = &m.user_id {
+                    m.user_id = self.resolve_user(u.user_id).await?;
                 }
             }
         }

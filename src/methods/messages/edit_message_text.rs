@@ -1,6 +1,3 @@
-use std::future::{Future, IntoFuture};
-use std::pin::Pin;
-
 use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
@@ -72,11 +69,4 @@ impl EditMessageText<'_> {
     }
 }
 
-impl<'a> IntoFuture for EditMessageText<'a> {
-    type Output = Result<Message>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(self.send())
-    }
-}
+into_future!(EditMessageText, Message);

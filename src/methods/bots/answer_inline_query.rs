@@ -1,6 +1,3 @@
-use std::future::{Future, IntoFuture};
-use std::pin::Pin;
-
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
@@ -84,11 +81,4 @@ impl AnswerInlineQuery<'_> {
     }
 }
 
-impl<'a> IntoFuture for AnswerInlineQuery<'a> {
-    type Output = Result<bool>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(self.send())
-    }
-}
+into_future!(AnswerInlineQuery, bool);

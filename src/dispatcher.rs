@@ -444,13 +444,7 @@ impl Dispatcher {
     async fn channel_difference(&mut self, channel_id: i64) -> Result<()> {
         let Some(&local) = self.tracker.state.channels.get(&channel_id) else { return Ok(()) };
         let mut pts = local;
-        let channel = match self.client.resolve_peer(get_channel_id(channel_id)).await? {
-            base::InputPeer::InputPeerChannel(p) => base::InputChannel::InputChannel(Box::new(types::InputChannel {
-                channel_id,
-                access_hash: p.access_hash,
-            })),
-            _ => return Ok(()),
-        };
+        let channel = self.client.resolve_channel(get_channel_id(channel_id)).await?;
         loop {
             let request = functions::updates::GetChannelDifference {
                 force: false,

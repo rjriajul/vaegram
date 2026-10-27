@@ -47,6 +47,7 @@ pub enum Error {
     InvalidDc(i32),
     PeerNotFound(i64),
     Unexpected(&'static str),
+    InvalidArgument(&'static str),
     InvalidSession(&'static str),
     SignUpRequired,
 }
@@ -66,6 +67,7 @@ impl fmt::Display for Error {
             Error::InvalidDc(dc) => write!(f, "unknown data center {dc}"),
             Error::PeerNotFound(id) => write!(f, "chat {id} not found for this account"),
             Error::Unexpected(what) => write!(f, "unexpected answer from Telegram: {what}"),
+            Error::InvalidArgument(what) => write!(f, "invalid argument: {what}"),
             Error::InvalidSession(why) => write!(f, "invalid session string: {why}"),
             Error::SignUpRequired => {
                 f.write_str("this phone number has no Telegram account yet; sign up in an app first")

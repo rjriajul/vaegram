@@ -1,19 +1,16 @@
 use crate::Client;
 use crate::errors::Result;
-use crate::raw::{base, functions, types};
+use crate::raw::functions;
+use crate::utils::CHANNEL_OFFSET;
 
 impl Client {
     pub async fn delete_messages(&self, chat_id: i64, message_ids: &[i32]) -> Result<()> {
         let id = message_ids.to_vec();
-        match self.resolve_peer(chat_id).await? {
-            base::InputPeer::InputPeerChannel(p) => {
-                let channel = types::InputChannel { channel_id: p.channel_id, access_hash: p.access_hash };
-                let channel = base::InputChannel::InputChannel(Box::new(channel));
-                self.invoke(&functions::channels::DeleteMessages { channel, id }).await?;
-            }
-            _ => {
-                self.invoke(&functions::messages::DeleteMessages { revoke: true, id }).await?;
-            }
+        if chat_id <= -CHANNEL_OFFSET {
+            let channel = self.resolve_channel(chat_id).await?;
+            self.invoke(&functions::channels::DeleteMessages { channel, id }).await?;
+        } else {
+            self.invoke(&functions::messages::DeleteMessages { revoke: true, id }).await?;
         }
         Ok(())
     }
