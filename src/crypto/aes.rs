@@ -1,1 +1,1 @@
-pub use warpcrypto::{ige256_decrypt, ige256_encrypt};
+pub use warpcrypto::{ctr256, ige256_decrypt, ige256_encrypt};

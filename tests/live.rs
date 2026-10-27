@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use vaegram::connection::{Options, Proxy, Transport};
 use vaegram::raw::{base, functions, types};
 use vaegram::session::Session;
 use vaegram::types::{
@@ -13,9 +14,51 @@ use vaegram::{Client, filters};
 #[tokio::test]
 #[ignore = "connects to Telegram"]
 async fn creates_auth_key_and_pings() {
-    let (session, _updates) = Session::connect(2, None).await.unwrap();
+    let (session, _updates) = Session::connect(2, None, &Options::default()).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 42 }).await.unwrap();
     assert_eq!(pong.ping_id, 42);
+}
+
+#[tokio::test]
+#[ignore = "connects to Telegram"]
+async fn handshakes_over_every_transport() {
+    for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
+        for obfuscated in [false, true] {
+            let options = Options { transport, obfuscated, proxy: None };
+            let (session, _updates) = Session::connect(2, None, &options).await.unwrap();
+            let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
+            assert_eq!(pong.ping_id, 7, "{options:?}");
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "connects through VAEGRAM_SOCKS5 (host:port[:user:pass]) and VAEGRAM_MTPROXY (host:port:secret)"]
+async fn handshakes_through_proxies() {
+    let mut proxies = Vec::new();
+    if let Ok(s) = std::env::var("VAEGRAM_SOCKS5") {
+        let parts: Vec<&str> = s.split(':').collect();
+        let auth = parts.get(2).zip(parts.get(3)).map(|(u, p)| ((*u).into(), (*p).into()));
+        proxies.push(Proxy::Socks5 { host: parts[0].into(), port: parts[1].parse().unwrap(), auth });
+    }
+    if let Ok(s) = std::env::var("VAEGRAM_MTPROXY") {
+        let parts: Vec<&str> = s.split(':').collect();
+        proxies.push(Proxy::MtProxy {
+            host: parts[0].into(),
+            port: parts[1].parse().unwrap(),
+            secret: parts[2].parse().unwrap(),
+        });
+    }
+    if proxies.is_empty() {
+        eprintln!("skipped: set VAEGRAM_SOCKS5 or VAEGRAM_MTPROXY");
+        return;
+    }
+    for proxy in proxies {
+        let options = Options { proxy: Some(proxy), ..Options::default() };
+        let (session, _updates) = Session::connect(2, None, &options).await.unwrap();
+        let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 9 }).await.unwrap();
+        assert_eq!(pong.ping_id, 9, "{options:?}");
+    }
 }
 
 #[tokio::test]

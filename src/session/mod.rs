@@ -5,12 +5,10 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-use crate::connection::Connection;
-use crate::connection::transport::intermediate;
+use crate::connection::{Connection, Options, Reader, Writer};
 use crate::crypto::{mtproto, random, sha1};
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::core::{gzip_packed, msg_container};
@@ -51,14 +49,18 @@ pub struct Session {
 }
 
 impl Session {
-    pub async fn connect(dc_id: i32, auth_key: Option<[u8; 256]>) -> Result<(Session, mpsc::Receiver<Incoming>)> {
+    pub async fn connect(
+        dc_id: i32,
+        auth_key: Option<[u8; 256]>,
+        options: &Options,
+    ) -> Result<(Session, mpsc::Receiver<Incoming>)> {
         let addr = data_center::address(dc_id).ok_or(Error::InvalidDc(dc_id))?;
         let (conn, auth_key, salt, time_offset) = match auth_key {
-            Some(key) => (Connection::connect(addr).await?, key, 0, 0),
+            Some(key) => (Connection::connect(addr, dc_id, options).await?, key, 0, 0),
             None => {
                 let mut attempt = 1;
                 loop {
-                    let mut conn = Connection::connect(addr).await?;
+                    let mut conn = Connection::connect(addr, dc_id, options).await?;
                     match auth::create(&mut conn, dc_id).await {
                         Ok(c) => break (conn, c.auth_key, c.salt, c.time_offset),
                         Err(e) if attempt == HANDSHAKE_ATTEMPTS => return Err(e),
@@ -73,6 +75,8 @@ impl Session {
         let (updates_tx, updates) = mpsc::channel(UPDATES_BUFFER);
         let runner = Runner {
             addr,
+            dc_id,
+            options: options.clone(),
             writer,
             packets,
             reader,
@@ -106,15 +110,15 @@ impl Session {
     }
 }
 
-fn start_reading(conn: Connection) -> (OwnedWriteHalf, mpsc::Receiver<Result<Vec<u8>>>, JoinHandle<()>) {
+fn start_reading(conn: Connection) -> (Writer, mpsc::Receiver<Result<Vec<u8>>>, JoinHandle<()>) {
     let (reader, writer) = conn.into_split();
     let (packets_tx, packets) = mpsc::channel(64);
     (writer, packets, tokio::spawn(read_packets(reader, packets_tx)))
 }
 
-async fn read_packets(mut reader: OwnedReadHalf, packets: mpsc::Sender<Result<Vec<u8>>>) {
+async fn read_packets(mut reader: Reader, packets: mpsc::Sender<Result<Vec<u8>>>) {
     loop {
-        let packet = intermediate::recv(&mut reader).await;
+        let packet = reader.recv().await;
         let failed = packet.is_err();
         if packets.send(packet).await.is_err() || failed {
             break;
@@ -133,7 +137,9 @@ struct Pending {
 
 struct Runner {
     addr: SocketAddr,
-    writer: OwnedWriteHalf,
+    dc_id: i32,
+    options: Options,
+    writer: Writer,
     packets: mpsc::Receiver<Result<Vec<u8>>>,
     reader: JoinHandle<()>,
     auth_key: [u8; 256],
@@ -188,7 +194,7 @@ impl Runner {
             self.reader.abort();
             tokio::time::sleep(delay).await;
             delay = (delay * 2).min(MAX_RECONNECT_DELAY);
-            let Ok(conn) = Connection::connect(self.addr).await else { continue };
+            let Ok(conn) = Connection::connect(self.addr, self.dc_id, &self.options).await else { continue };
             (self.writer, self.packets, self.reader) = start_reading(conn);
             if self.resend_pending().await.is_ok() {
                 let _ = self.updates.try_send(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
@@ -218,7 +224,7 @@ impl Runner {
         let seq_no = self.seq.next(content_related);
         let packet =
             mtproto::pack(&self.auth_key, &self.auth_key_id, &self.session_id, self.salt, msg_id, seq_no, body);
-        intermediate::send(&mut self.writer, &packet).await?;
+        self.writer.send(&packet).await?;
         Ok(msg_id)
     }
 

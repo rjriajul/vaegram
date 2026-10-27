@@ -1,40 +1,129 @@
-pub mod transport;
+mod obfuscated;
+mod proxy;
+mod transport;
 
+pub use proxy::{Proxy, Secret};
+pub use transport::Transport;
+
+use std::io;
 use std::net::SocketAddr;
+use std::pin::Pin;
+use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::errors::Result;
-use transport::intermediate;
+use obfuscated::Ctr;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+    pub transport: Transport,
+    pub obfuscated: bool,
+    pub proxy: Option<Proxy>,
+}
+
 pub struct Connection {
-    stream: TcpStream,
+    reader: Reader,
+    writer: Writer,
 }
 
 impl Connection {
-    pub async fn connect(addr: SocketAddr) -> Result<Self> {
-        let mut stream = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await.map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::TimedOut, format!("connecting to {addr} timed out"))
-        })??;
+    pub async fn connect(addr: SocketAddr, dc_id: i32, options: &Options) -> Result<Self> {
+        let via = if options.proxy.is_some() { " through the proxy" } else { "" };
+        tokio::time::timeout(CONNECT_TIMEOUT, Self::open(addr, dc_id, options))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, format!("connecting to {addr}{via} timed out")))?
+    }
+
+    async fn open(addr: SocketAddr, dc_id: i32, options: &Options) -> Result<Self> {
+        let (stream, secret) = match &options.proxy {
+            None => (TcpStream::connect(addr).await?, None),
+            Some(Proxy::Socks5 { host, port, auth }) => {
+                let mut stream = TcpStream::connect((host.as_str(), *port)).await?;
+                proxy::socks5(&mut stream, addr, auth.as_ref()).await?;
+                (stream, None)
+            }
+            Some(Proxy::MtProxy { host, port, secret }) => {
+                (TcpStream::connect((host.as_str(), *port)).await?, Some(secret))
+            }
+        };
+        let transport =
+            if secret.is_some_and(|s| s.padded) { Transport::PaddedIntermediate } else { options.transport };
         stream.set_nodelay(true)?;
-        stream.write_all(&intermediate::TAG).await?;
-        Ok(Self { stream })
+        let (read, mut write) = stream.into_split();
+        let tag = transport.tag();
+        let (encrypt, decrypt) = if options.obfuscated || secret.is_some() {
+            let (header, encrypt, decrypt) = obfuscated::init(tag, dc_id as i16, secret.map(|s| &s.key));
+            write.write_all(&header).await?;
+            (Some(encrypt), Some(decrypt))
+        } else {
+            write.write_all(if transport == Transport::Abridged { &tag[..1] } else { &tag[..] }).await?;
+            (None, None)
+        };
+        Ok(Self {
+            reader: Reader { half: read, transport, decrypt },
+            writer: Writer { half: write, transport, encrypt, buf: Vec::new() },
+        })
     }
 
     pub async fn send(&mut self, payload: &[u8]) -> Result<()> {
-        intermediate::send(&mut self.stream, payload).await
+        self.writer.send(payload).await
     }
 
     pub async fn recv(&mut self) -> Result<Vec<u8>> {
-        intermediate::recv(&mut self.stream).await
+        self.reader.recv().await
     }
 
-    pub(crate) fn into_split(self) -> (OwnedReadHalf, OwnedWriteHalf) {
-        self.stream.into_split()
+    pub(crate) fn into_split(self) -> (Reader, Writer) {
+        (self.reader, self.writer)
+    }
+}
+
+pub(crate) struct Reader {
+    half: OwnedReadHalf,
+    transport: Transport,
+    decrypt: Option<Ctr>,
+}
+
+impl Reader {
+    pub(crate) async fn recv(&mut self) -> Result<Vec<u8>> {
+        let transport = self.transport;
+        transport.read(self).await
+    }
+}
+
+impl AsyncRead for Reader {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        let start = buf.filled().len();
+        let this = &mut *self;
+        ready!(Pin::new(&mut this.half).poll_read(cx, buf))?;
+        if let Some(decrypt) = &mut this.decrypt {
+            decrypt.apply(&mut buf.filled_mut()[start..]);
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
+pub(crate) struct Writer {
+    half: OwnedWriteHalf,
+    transport: Transport,
+    encrypt: Option<Ctr>,
+    buf: Vec<u8>,
+}
+
+impl Writer {
+    pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<()> {
+        self.buf.clear();
+        self.transport.encode(payload, &mut self.buf);
+        if let Some(encrypt) = &mut self.encrypt {
+            encrypt.apply(&mut self.buf);
+        }
+        self.half.write_all(&self.buf).await?;
+        Ok(())
     }
 }

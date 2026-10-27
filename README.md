@@ -117,6 +117,7 @@ supergroups start with `-100`.
 - [x] Buttons, edited messages, callback queries, inline queries, `edit_text`, `delete`
 - [x] User login (phone code, 2FA password)
 - [x] Auto-reconnect, short `FLOOD_WAIT`s slept off
+- [ ] Abridged and padded transports, obfuscation, SOCKS5 and MTProxy: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
 - [ ] File upload and download, rich messages
 
 ### Development
