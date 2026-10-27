@@ -88,6 +88,9 @@ let app = Client::builder("my_bot", api_id, api_hash)
     .await?;
 ```
 
+`.session_string(…)` also takes strings exported by wzgram (`WZ_…`) and Pyrogram, so you can move an
+existing login over without signing in again. Exports are always `VAE_…`.
+
 > A session file or string **is** the login: anyone who has it is logged in as that account.
 > Never commit or share it. `*.session` and `*.state` are already in `.gitignore`.
 

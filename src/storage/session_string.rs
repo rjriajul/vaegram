@@ -2,8 +2,10 @@
 //! auth_key (256 bytes), user_id (u64), is_bot (bool), port (u16, 0 when unknown), server IP (16 bytes,
 //! IPv4 as IPv4-mapped IPv6), then a CRC32 of all that (little-endian), base64url without padding.
 //!
-//! Written as `VAE_…`. Also reads V3 (same fields up to is_bot, then an unused port and 48-byte address)
-//! and legacy strings (dc_id, api_id, test_mode, auth_key, user_id, is_bot; no prefix, no CRC).
+//! Written as `VAE_…`. Also reads, with either `VAE_` or wzgram's `WZ_` prefix: V3 and wzgram's V2
+//! (same fields up to the port, then the address as NUL-padded ASCII in 48 or 16 bytes; early wzgram
+//! wrote V2 without the CRC) and Pyrogram's unprefixed legacy strings (no version, no address, no CRC;
+//! the oldest lack api_id).
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
@@ -11,10 +13,13 @@ use super::SessionData;
 use crate::utils::{base64url_decode, base64url_encode};
 
 pub const PREFIX: &str = "VAE_";
+const WZ_PREFIX: &str = "WZ_";
 
 const V4_LEN: usize = 290;
 const V3_LEN: usize = 322;
 const LEGACY_LEN: usize = 271;
+const LEGACY_NO_API_ID_LEN: usize = 267;
+const LEGACY_U32_USER_LEN: usize = 263;
 
 pub fn export(s: &SessionData) -> String {
     let (port, ip) = match s.addr {
@@ -40,38 +45,43 @@ pub fn export(s: &SessionData) -> String {
 
 pub fn parse(s: &str) -> Result<SessionData, &'static str> {
     let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-    let body = s.strip_prefix(PREFIX).unwrap_or(&s);
-    let raw = base64url_decode(body).ok_or("session string has characters outside base64url")?;
+    let body = s.strip_prefix(PREFIX).or_else(|| s.strip_prefix(WZ_PREFIX)).unwrap_or(&s);
+    let raw = base64url_decode(body.trim_end_matches('=')).ok_or("session string has characters outside base64url")?;
     let be_u32 = |b: &[u8]| u32::from_be_bytes(b.try_into().unwrap());
     let be_u64 = |b: &[u8]| u64::from_be_bytes(b.try_into().unwrap());
 
-    let (f, addr) = match raw.len() {
-        LEGACY_LEN => (&raw[..], None),
+    let (f, checked) = match raw.len() {
         n if n == V4_LEN + 4 || n == V3_LEN + 4 => {
             let (body, crc) = raw.split_at(n - 4);
             if crc32fast::hash(body).to_le_bytes() != *crc {
                 return Err("session string is damaged (CRC mismatch); export it again");
             }
-            let addr = match body[0] {
-                3 if n == V3_LEN + 4 => None,
-                4 if n == V4_LEN + 4 => {
-                    let port = u16::from_be_bytes([body[272], body[273]]);
-                    let ip = Ipv6Addr::from(<[u8; 16]>::try_from(&body[274..]).unwrap()).to_canonical();
-                    (port != 0).then_some(SocketAddr::new(ip, port))
-                }
-                _ => return Err("unknown session string version"),
-            };
-            (&body[1..], addr)
+            (body, true)
         }
-        _ => return Err("not a V4, V3 or legacy session string"),
+        _ => (&raw[..], false),
     };
-    Ok(SessionData {
-        dc_id: f[0] as i32,
-        test_mode: f[5] != 0,
-        addr,
-        api_id: be_u32(&f[1..5]) as i32,
-        auth_key: f[6..262].try_into().unwrap(),
-        user_id: be_u64(&f[262..270]) as i64,
-        is_bot: f[270] != 0,
-    })
+    let len = f.len();
+    let (version, mut rest) = match (len, f.first(), checked) {
+        (LEGACY_LEN | LEGACY_NO_API_ID_LEN | LEGACY_U32_USER_LEN, _, false) => (0, f),
+        (V4_LEN, Some(&v @ 2), _) | (V4_LEN, Some(&v @ 4), true) | (V3_LEN, Some(&v @ 3), true) => (v, &f[1..]),
+        _ => return Err("not a V4, V3, V2 or legacy session string"),
+    };
+    let mut take = |n: usize| {
+        let (head, tail) = rest.split_at(n);
+        rest = tail;
+        head
+    };
+    let dc_id = take(1)[0] as i32;
+    let api_id = if len < LEGACY_LEN { 0 } else { be_u32(take(4)) as i32 };
+    let test_mode = take(1)[0] != 0;
+    let auth_key = take(256).try_into().unwrap();
+    let user_id = if len == LEGACY_U32_USER_LEN { be_u32(take(4)) as i64 } else { be_u64(take(8)) as i64 };
+    let is_bot = take(1)[0] != 0;
+    let port = if version == 0 { 0 } else { u16::from_be_bytes(take(2).try_into().unwrap()) };
+    let ip = match version {
+        4 => Some(IpAddr::from(<[u8; 16]>::try_from(rest).unwrap()).to_canonical()),
+        _ => std::str::from_utf8(rest).ok().and_then(|a| a.trim_end_matches('\0').parse().ok()),
+    };
+    let addr = ip.filter(|_| port != 0).map(|ip| SocketAddr::new(ip, port));
+    Ok(SessionData { dc_id, test_mode, addr, api_id, auth_key, user_id, is_bot })
 }
