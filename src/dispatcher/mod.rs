@@ -1,6 +1,7 @@
 mod difference;
 mod entities;
 mod router;
+mod tasks;
 mod tracker;
 
 use std::sync::Arc;
@@ -10,6 +11,7 @@ use tokio::time::Instant;
 
 pub(crate) use entities::Entities;
 pub(crate) use router::{Router, Routes};
+use tasks::Tasks;
 use tracker::{Key, Tracker};
 
 use crate::Client;
@@ -26,6 +28,7 @@ pub(crate) struct Dispatcher {
     saved: (UpdateState, usize),
     router: Arc<Router>,
     generation: u64,
+    tasks: Tasks,
 }
 
 impl Dispatcher {
@@ -43,7 +46,9 @@ impl Dispatcher {
         tracker.touch(Instant::now());
         let generation = client.0.handlers.generation();
         let router = client.0.handlers.current();
-        Dispatcher { client, tracker, saved_at: Instant::now(), saved: Default::default(), router, generation }
+        let mut tasks = Tasks::new(client.0.ordered, client.0.handler_permits.clone());
+        tasks.on_error = router.on_error.clone();
+        Dispatcher { client, tracker, saved_at: Instant::now(), saved: Default::default(), router, generation, tasks }
     }
 
     pub(crate) async fn run(&mut self, updates: &mut UpdatesRx) {
@@ -112,8 +117,9 @@ impl Dispatcher {
         let generation = handlers.generation();
         if generation != self.generation {
             (self.router, self.generation) = (handlers.current(), generation);
+            self.tasks.on_error = self.router.on_error.clone();
         }
-        self.router.dispatch(&self.client, update, entities);
+        self.router.dispatch(&self.client, update, entities, &mut self.tasks);
     }
 }
 

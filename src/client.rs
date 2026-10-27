@@ -3,6 +3,8 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
+use tokio::sync::Semaphore;
+
 use crate::connection::{Options, Proxy, Transport};
 use crate::dispatcher::Routes;
 use crate::enums::ParseMode;
@@ -27,6 +29,8 @@ pub struct ClientBuilder {
     login: Login,
     parse_mode: ParseMode,
     options: Options,
+    ordered: bool,
+    max_concurrent_handlers: Option<usize>,
 }
 
 #[derive(Default)]
@@ -90,6 +94,18 @@ impl ClientBuilder {
         self
     }
 
+    /// Runs one chat's handlers one update at a time, in arrival order (by user for inline
+    /// queries). Off by default: in a big group, one slow handler then holds up every member.
+    pub fn ordered(mut self, ordered: bool) -> Self {
+        self.ordered = ordered;
+        self
+    }
+
+    pub fn max_concurrent_handlers(mut self, n: usize) -> Self {
+        self.max_concurrent_handlers = Some(n);
+        self
+    }
+
     pub fn parse_mode(mut self, mode: ParseMode) -> Self {
         self.parse_mode = mode;
         self
@@ -149,6 +165,8 @@ impl ClientBuilder {
         inner.state = Mutex::new(state);
         inner.me = Mutex::new(Me { id: user_id, is_bot, username: None });
         inner.peers = Mutex::new(peers);
+        inner.ordered = self.ordered;
+        inner.handler_permits = self.max_concurrent_handlers.map(|n| Arc::new(Semaphore::new(n.max(1))));
         let client = Client(Arc::new(inner));
         client.save()?;
         Ok((client, self.login))
@@ -175,6 +193,8 @@ pub(crate) struct Inner {
     pub(crate) me: Mutex<Me>,
     pub(crate) peers: Mutex<HashMap<i64, base::InputPeer>>,
     pub(crate) handlers: Routes,
+    pub(crate) ordered: bool,
+    pub(crate) handler_permits: Option<Arc<Semaphore>>,
 }
 
 pub(crate) struct Me {
@@ -202,6 +222,8 @@ impl Inner {
             me: Mutex::new(Me { id: 0, is_bot: false, username: None }),
             peers: Mutex::new(HashMap::new()),
             handlers: Routes::default(),
+            ordered: false,
+            handler_permits: None,
         }
     }
 
@@ -240,6 +262,8 @@ impl Client {
             login: Login::default(),
             parse_mode: ParseMode::Disabled,
             options: Options::default(),
+            ordered: false,
+            max_concurrent_handlers: None,
         }
     }
 

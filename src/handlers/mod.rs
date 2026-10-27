@@ -3,17 +3,104 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::Client;
-use crate::errors::Result;
+use crate::dispatcher::Router;
+use crate::errors::{Error, Result};
 use crate::raw::base;
+use crate::types::{CallbackQuery, InlineQuery, Message};
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 pub(crate) type Callback<T> = Arc<dyn Fn(T) -> BoxFuture + Send + Sync>;
 pub(crate) type RawCallback = Arc<dyn Fn(Client, base::Update) -> BoxFuture + Send + Sync>;
+pub(crate) type ErrorCallback = Arc<dyn Fn(HandlerError) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
-pub(crate) fn callback<T, F, Fut>(f: F) -> Callback<T>
+pub(crate) fn callback<T, F, Fut, R>(f: F) -> Callback<T>
 where
     F: Fn(T) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<()>> + Send + 'static,
+    Fut: Future<Output = Result<R>> + Send + 'static,
 {
-    Arc::new(move |value| Box::pin(f(value)) as BoxFuture)
+    Arc::new(move |value| {
+        let future = f(value);
+        Box::pin(async move { future.await.map(drop) }) as BoxFuture
+    })
+}
+
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum UpdateKind {
+    Message,
+    EditedMessage,
+    CallbackQuery,
+    InlineQuery,
+    Raw,
+}
+
+#[non_exhaustive]
+#[derive(Debug)]
+pub struct HandlerError {
+    pub kind: UpdateKind,
+    pub chat_id: Option<i64>,
+    pub error: Error,
+}
+
+#[derive(Clone, Copy)]
+pub struct HandlerRef<'a> {
+    client: &'a Client,
+    kind: UpdateKind,
+    id: u32,
+}
+
+impl HandlerRef<'_> {
+    /// Groups run in ascending order, default 0. Within a group the first matching handler
+    /// wins, and every group gets its own turn. Raw handlers always run and ignore this.
+    pub fn group(self, group: i32) -> Self {
+        self.client.0.handlers.add(|r| r.configure(self.kind, self.id, Some(group), false));
+        self
+    }
+
+    /// When this handler matches, the groups after it don't run for that update.
+    pub fn stop(self) -> Self {
+        self.client.0.handlers.add(|r| r.configure(self.kind, self.id, None, true));
+        self
+    }
+}
+
+impl Client {
+    pub(crate) fn register(&self, kind: UpdateKind, add: impl FnOnce(&mut Router, u32)) -> HandlerRef<'_> {
+        let id = self.0.handlers.add(|r| {
+            let id = r.next_id();
+            add(r, id);
+            id
+        });
+        HandlerRef { client: self, kind, id }
+    }
+}
+
+pub(crate) trait Routed: Clone + Send + 'static {
+    fn chat_id(&self) -> Option<i64>;
+
+    fn order_key(&self) -> Option<i64> {
+        self.chat_id()
+    }
+}
+
+impl Routed for Message {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for CallbackQuery {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for InlineQuery {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
 }
