@@ -15,7 +15,7 @@ pub struct Audio {
 }
 
 impl Audio {
-    pub(crate) fn parse(document: Document, audio: &types::DocumentAttributeAudio) -> Audio {
+    pub(crate) fn parse(document: Document, audio: Option<&types::DocumentAttributeAudio>) -> Audio {
         let Document { id, file_name, mime_type, file_size, date, location } = document;
         Audio {
             id,
@@ -23,9 +23,9 @@ impl Audio {
             mime_type,
             file_size,
             date,
-            duration: audio.duration,
-            performer: audio.performer.clone(),
-            title: audio.title.clone(),
+            duration: audio.map_or(0, |a| a.duration),
+            performer: audio.and_then(|a| a.performer.clone()),
+            title: audio.and_then(|a| a.title.clone()),
             location,
         }
     }

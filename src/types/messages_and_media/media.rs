@@ -1,4 +1,5 @@
 use crate::dispatcher::Entities;
+use crate::enums::MediaKind;
 use crate::raw::base;
 use crate::types::{
     Animation, Audio, Contact, Dice, Document, FileLocation, Location, Message, Photo, Poll, Sticker, Venue, Video,
@@ -26,9 +27,10 @@ pub enum Media {
 impl Media {
     pub(crate) fn parse(media: &base::MessageMedia, entities: &Entities) -> Option<Media> {
         use base::MessageMedia as M;
+        let kind = MediaKind::of(media)?;
         Some(match media {
             M::MessageMediaPhoto(m) => Media::Photo(Photo::parse(m.photo.as_ref()?)?),
-            M::MessageMediaDocument(m) => Media::parse_document(m.document.as_ref()?)?,
+            M::MessageMediaDocument(m) => Media::parse_document(kind, m.document.as_ref()?)?,
             M::MessageMediaGeo(m) => Media::Location(Location::parse(&m.geo)?),
             M::MessageMediaGeoLive(m) => Media::Location(Location {
                 live_period: Some(m.period),
@@ -44,31 +46,47 @@ impl Media {
         })
     }
 
-    // A GIF also has a video attribute and a video sticker has both a sticker and a video attribute, so the more
-    // specific attribute wins.
-    fn parse_document(document: &base::Document) -> Option<Media> {
+    /// Builds the type `MediaKind::of` picked, so a filter and the parsed message never disagree.
+    fn parse_document(kind: MediaKind, document: &base::Document) -> Option<Media> {
         let base::Document::Document(raw) = document else { return None };
-        let (mut video, mut audio, mut sticker, mut animated, mut size) = (None, None, None, false, None);
+        let (mut video, mut audio, mut sticker, mut size) = (None, None, None, None);
         for attribute in &raw.attributes {
             match attribute {
                 base::DocumentAttribute::DocumentAttributeVideo(a) => video = Some(&**a),
                 base::DocumentAttribute::DocumentAttributeAudio(a) => audio = Some(&**a),
                 base::DocumentAttribute::DocumentAttributeSticker(a) => sticker = Some(&**a),
-                base::DocumentAttribute::DocumentAttributeAnimated => animated = true,
                 base::DocumentAttribute::DocumentAttributeImageSize(a) => size = Some((a.w, a.h)),
                 _ => {}
             }
         }
         let document = Document::parse(document)?;
-        Some(match (video, audio, sticker) {
-            _ if animated => Media::Animation(Animation::parse(document, video, size)),
-            (_, _, Some(sticker)) => Media::Sticker(Sticker::parse(document, sticker, video, size)),
-            (Some(video), _, _) if video.round_message => Media::VideoNote(VideoNote::parse(document, video)),
-            (Some(video), _, _) => Media::Video(Video::parse(document, video)),
-            (_, Some(audio), _) if audio.voice => Media::Voice(Voice::parse(document, audio)),
-            (_, Some(audio), _) => Media::Audio(Audio::parse(document, audio)),
+        Some(match (kind, sticker) {
+            (MediaKind::Sticker, Some(sticker)) => Media::Sticker(Sticker::parse(document, sticker, video, size)),
+            (MediaKind::Animation, _) => Media::Animation(Animation::parse(document, video, size)),
+            (MediaKind::VideoNote, _) => Media::VideoNote(VideoNote::parse(document, video)),
+            (MediaKind::Video, _) => Media::Video(Video::parse(document, video)),
+            (MediaKind::Voice, _) => Media::Voice(Voice::parse(document, audio)),
+            (MediaKind::Audio, _) => Media::Audio(Audio::parse(document, audio)),
             _ => Media::Document(document),
         })
+    }
+
+    pub fn kind(&self) -> MediaKind {
+        match self {
+            Media::Photo(_) => MediaKind::Photo,
+            Media::Document(_) => MediaKind::Document,
+            Media::Animation(_) => MediaKind::Animation,
+            Media::Audio(_) => MediaKind::Audio,
+            Media::Video(_) => MediaKind::Video,
+            Media::VideoNote(_) => MediaKind::VideoNote,
+            Media::Voice(_) => MediaKind::Voice,
+            Media::Sticker(_) => MediaKind::Sticker,
+            Media::Contact(_) => MediaKind::Contact,
+            Media::Location(_) => MediaKind::Location,
+            Media::Venue(_) => MediaKind::Venue,
+            Media::Dice(_) => MediaKind::Dice,
+            Media::Poll(_) => MediaKind::Poll,
+        }
     }
 
     pub(crate) fn file_location(&self) -> Option<&FileLocation> {
@@ -144,6 +162,7 @@ impl Message {
 pub(crate) mod tests {
     use super::Media;
     use crate::dispatcher::Entities;
+    use crate::enums::MediaKind;
     use crate::raw::{base, types};
 
     pub(crate) fn document_media(mime_type: &str, attributes: Vec<base::DocumentAttribute>) -> base::MessageMedia {
@@ -234,6 +253,18 @@ pub(crate) mod tests {
         assert_eq!(file.file_location().and_then(|l| l.file_size), Some(5));
         let Media::Document(file) = file else { panic!() };
         assert_eq!((file.file_name.as_deref(), file.file_size), (Some("a.pdf"), 5));
+    }
+
+    #[test]
+    fn parsed_kind_matches_the_raw_classifier() {
+        let mut round = document_media("video/mp4", Vec::new());
+        if let base::MessageMedia::MessageMediaDocument(d) = &mut round {
+            d.round = true;
+        }
+        let animated = vec![video(false), base::DocumentAttribute::DocumentAttributeAnimated];
+        for media in [round, document_media("video/mp4", animated), document_media("audio/ogg", vec![audio(true)])] {
+            assert_eq!(Some(parse(media.clone()).kind()), MediaKind::of(&media));
+        }
     }
 
     #[test]

@@ -4,10 +4,13 @@ use std::sync::{Arc, RwLock};
 use super::Entities;
 use super::tasks::Tasks;
 use crate::Client;
-use crate::filters::Filter;
+use crate::client::Me;
+use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
 use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, UpdateKind};
 use crate::raw::base;
 use crate::types::{CallbackQuery, InlineQuery, Message};
+
+type Scan = (Vec<usize>, Option<usize>);
 
 pub(crate) struct Route<T> {
     group: i32,
@@ -38,7 +41,7 @@ impl<T> Clone for Handlers<T> {
     }
 }
 
-impl<T: Routed> Handlers<T> {
+impl<T: Routed + Subject + Inspect> Handlers<T> {
     pub(crate) fn push(&mut self, id: u32, filter: Filter<T>, callback: Callback<T>) {
         self.insert(Route { group: 0, stop: false, id, filter, callback });
     }
@@ -57,27 +60,53 @@ impl<T: Routed> Handlers<T> {
         }
     }
 
-    /// The first match of each group, until a `.stop()` route matches. Parses only when this
-    /// kind has handlers, and allocates only when something matched.
-    fn run(&self, kind: UpdateKind, tasks: &mut Tasks, parse: impl FnOnce() -> Option<T>) {
-        if self.0.is_empty() {
-            return;
-        }
-        let Some(item) = parse() else { return };
-        let mut matched = Vec::new();
-        let mut group = None;
-        for route in &self.0 {
-            if group == Some(route.group) || !route.filter.check(&item) {
+    fn walk(&self, start: usize, matched: &mut Vec<usize>, test: impl Fn(&Filter<T>) -> Option<bool>) -> Option<usize> {
+        let mut group = matched.last().map(|&i| self.0[i].group);
+        for (i, route) in self.0.iter().enumerate().skip(start) {
+            if group == Some(route.group) {
                 continue;
             }
-            matched.push(route.callback.clone());
-            group = Some(route.group);
+            match test(&route.filter) {
+                None => return Some(i),
+                Some(false) => continue,
+                Some(true) => matched.push(i),
+            }
             if route.stop {
                 break;
             }
+            group = Some(route.group);
+        }
+        None
+    }
+
+    /// Walks the raw update's facts. `None` when nothing can match, so the update is never parsed; a miss
+    /// allocates nothing.
+    fn scan(&self, facts: &Facts<'_>) -> Option<Scan> {
+        let mut matched = Vec::new();
+        let resume = self.walk(0, &mut matched, |f| f.decide(facts));
+        (!matched.is_empty() || resume.is_some()).then_some((matched, resume))
+    }
+
+    fn finish(&self, kind: UpdateKind, tasks: &mut Tasks, me: &Me, (mut matched, resume): Scan, item: T) {
+        if let Some(start) = resume {
+            let facts = item.facts(me);
+            self.walk(start, &mut matched, |f| Some(f.eval(&facts, &item)));
         }
         if !matched.is_empty() {
-            tasks.run(kind, item, matched);
+            tasks.run(kind, item, matched.iter().map(|&i| self.0[i].callback.clone()).collect());
+        }
+    }
+}
+
+impl Handlers<Message> {
+    fn run(&self, kind: UpdateKind, tasks: &mut Tasks, client: &Client, raw: base::Message, entities: &Entities) {
+        if self.0.is_empty() {
+            return;
+        }
+        let me = client.0.me.lock().unwrap().clone();
+        let Some(scan) = self.scan(&Facts::message(&raw, PeerKinds::message(&raw, entities), &me)) else { return };
+        if let base::Message::Message(m) = raw {
+            self.finish(kind, tasks, &me, scan, Message::parse(client, m, entities));
         }
     }
 }
@@ -114,24 +143,26 @@ impl Router {
         for callback in &self.raw {
             tasks.raw(callback(client.clone(), update.clone()));
         }
-        let message = |m: base::Message| match m {
-            base::Message::Message(m) => Some(Message::parse(client, m, entities)),
-            _ => None,
-        };
+        let me = || client.0.me.lock().unwrap().clone();
         match update {
-            U::UpdateNewMessage(u) => self.message.run(UpdateKind::Message, tasks, move || message(u.message)),
-            U::UpdateNewChannelMessage(u) => self.message.run(UpdateKind::Message, tasks, move || message(u.message)),
+            U::UpdateNewMessage(u) => self.message.run(UpdateKind::Message, tasks, client, u.message, entities),
+            U::UpdateNewChannelMessage(u) => self.message.run(UpdateKind::Message, tasks, client, u.message, entities),
             U::UpdateEditMessage(u) => {
-                self.edited_message.run(UpdateKind::EditedMessage, tasks, move || message(u.message))
+                self.edited_message.run(UpdateKind::EditedMessage, tasks, client, u.message, entities)
             }
             U::UpdateEditChannelMessage(u) => {
-                self.edited_message.run(UpdateKind::EditedMessage, tasks, move || message(u.message))
+                self.edited_message.run(UpdateKind::EditedMessage, tasks, client, u.message, entities)
             }
-            U::UpdateBotCallbackQuery(u) => self
-                .callback_query
-                .run(UpdateKind::CallbackQuery, tasks, || Some(CallbackQuery::parse(client, &u, entities))),
-            U::UpdateBotInlineQuery(u) => {
-                self.inline_query.run(UpdateKind::InlineQuery, tasks, || Some(InlineQuery::parse(client, &u, entities)))
+            U::UpdateBotCallbackQuery(u) if !self.callback_query.0.is_empty() => {
+                let (me, kinds) = (me(), PeerKinds::callback(&u, entities));
+                if let Some(scan) = self.callback_query.scan(&Facts::callback(&u, kinds, &me)) {
+                    let query = CallbackQuery::parse(client, &u, entities);
+                    self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me, scan, query);
+                }
+            }
+            U::UpdateBotInlineQuery(u) if !self.inline_query.0.is_empty() => {
+                let query = InlineQuery::parse(client, &u, entities);
+                self.inline_query.finish(UpdateKind::InlineQuery, tasks, &me(), (Vec::new(), Some(0)), query);
             }
             _ => {}
         }
@@ -421,24 +452,20 @@ mod tests {
         assert_eq!(running.load(Ordering::SeqCst), 0);
     }
 
-    #[test]
-    fn parses_only_when_the_kind_has_handlers() {
-        let parses = AtomicUsize::new(0);
-        let parse = || {
-            parses.fetch_add(1, Ordering::Relaxed);
-            Some(Message::parse(&Client::offline(), Box::new(bare()), &Entities::default()))
-        };
-        let mut handlers = Handlers::<Message>::default();
-        let mut tasks = Tasks::default();
-        handlers.run(UpdateKind::Message, &mut tasks, parse);
-        assert_eq!(parses.load(Ordering::Relaxed), 0);
-        handlers.push(1, filters::create(|_| false), callback(|_| async { Ok(()) }));
-        handlers.run(UpdateKind::Message, &mut tasks, parse);
-        assert_eq!(parses.load(Ordering::Relaxed), 1);
-    }
-
-    fn bare() -> types::Message {
-        Message::bare(1, get_peer(1), 0)
+    #[tokio::test]
+    async fn closures_decide_on_the_parsed_message_in_their_group() {
+        let log = Log::default();
+        let mut router = Router::default();
+        router.message.push(1, filters::command("start"), record(&log, "start"));
+        router.message.push(2, filters::create(|m: &Message| m.text == "/nope"), record(&log, "nope"));
+        router.message.push(3, filters::private() & filters::create(|m: &Message| m.id == 1), record(&log, "one"));
+        router.message.push(4, filters::all(), record(&log, "all"));
+        router.configure(UpdateKind::Message, 2, Some(1), false);
+        router.configure(UpdateKind::Message, 3, Some(1), false);
+        router.configure(UpdateKind::Message, 4, Some(1), false);
+        dispatch(&router, new_message(1, false));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["start", "one"]);
     }
 
     #[test]

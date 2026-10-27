@@ -24,7 +24,7 @@ impl Chat {
         let id = get_peer_id(peer);
         let mut chat = Chat {
             id,
-            kind: ChatType::Private,
+            kind: Chat::kind_of(peer, entities, is_post),
             title: None,
             username: None,
             first_name: None,
@@ -37,33 +37,44 @@ impl Chat {
         match peer {
             base::Peer::PeerUser(_) => {
                 if let Some(base::User::User(u)) = entities.users.get(&id) {
-                    chat.kind = if u.bot { ChatType::Bot } else { ChatType::Private };
                     chat.username = u.username.clone();
                     chat.first_name = u.first_name.clone();
                     chat.last_name = u.last_name.clone();
                 }
             }
             base::Peer::PeerChat(_) => {
-                chat.kind = ChatType::Group;
                 chat.title = match entities.chats.get(&id) {
                     Some(base::Chat::Chat(c)) => Some(c.title.clone()),
                     Some(base::Chat::ChatForbidden(c)) => Some(c.title.clone()),
                     _ => None,
                 };
             }
-            base::Peer::PeerChannel(_) => {
-                chat.kind = if is_post { ChatType::Channel } else { ChatType::Supergroup };
-                match entities.chats.get(&id) {
-                    Some(base::Chat::Channel(c)) => {
-                        chat.kind = if c.megagroup { ChatType::Supergroup } else { ChatType::Channel };
-                        chat.title = Some(c.title.clone());
-                        chat.username = c.username.clone();
-                    }
-                    Some(base::Chat::ChannelForbidden(c)) => chat.title = Some(c.title.clone()),
-                    _ => {}
+            base::Peer::PeerChannel(_) => match entities.chats.get(&id) {
+                Some(base::Chat::Channel(c)) => {
+                    chat.title = Some(c.title.clone());
+                    chat.username = c.username.clone();
                 }
-            }
+                Some(base::Chat::ChannelForbidden(c)) => chat.title = Some(c.title.clone()),
+                _ => {}
+            },
         }
         chat
+    }
+
+    pub(crate) fn kind_of(peer: &base::Peer, entities: &Entities, is_post: bool) -> ChatType {
+        let id = get_peer_id(peer);
+        match peer {
+            base::Peer::PeerUser(_) => match entities.users.get(&id) {
+                Some(base::User::User(u)) if u.bot => ChatType::Bot,
+                _ => ChatType::Private,
+            },
+            base::Peer::PeerChat(_) => ChatType::Group,
+            base::Peer::PeerChannel(_) => match entities.chats.get(&id) {
+                Some(base::Chat::Channel(c)) if c.megagroup => ChatType::Supergroup,
+                Some(base::Chat::Channel(_)) => ChatType::Channel,
+                _ if is_post => ChatType::Channel,
+                _ => ChatType::Supergroup,
+            },
+        }
     }
 }

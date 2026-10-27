@@ -13,9 +13,10 @@ pub struct VideoNote {
 }
 
 impl VideoNote {
-    pub(crate) fn parse(document: Document, video: &types::DocumentAttributeVideo) -> VideoNote {
+    pub(crate) fn parse(document: Document, video: Option<&types::DocumentAttributeVideo>) -> VideoNote {
         let Document { id, mime_type, file_size, date, location, .. } = document;
-        VideoNote { id, mime_type, file_size, date, length: video.w, duration: video.duration as i32, location }
+        let (length, duration) = video.map_or((0, 0), |v| (v.w, v.duration as i32));
+        VideoNote { id, mime_type, file_size, date, length, duration, location }
     }
 }
 

@@ -5,7 +5,8 @@ use crate::errors::{Error, Result};
 use crate::methods::{DownloadMedia, EditMessageText, SendMessage};
 use crate::raw::{base, types};
 use crate::types::{
-    Chat, ExternalReplyInfo, LinkPreviewOptions, Media, MessageEntity, MessageOrigin, ReplyMarkup, TextQuote, User,
+    Chat, Command, ExternalReplyInfo, LinkPreviewOptions, Media, MessageEntity, MessageOrigin, ReplyMarkup, TextQuote,
+    User,
 };
 use crate::utils::get_peer;
 
@@ -227,9 +228,14 @@ impl Message {
         DownloadMedia::new(&self.client, self.media.as_ref().and_then(Media::file_location).cloned())
     }
 
-    pub fn command(&self) -> Option<Vec<&str>> {
-        let me = self.client.0.me.lock().unwrap();
-        parse_command(self.caption.as_deref().unwrap_or(&self.text), me.username.as_deref())
+    pub fn command(&self) -> Option<Command<'_>> {
+        self.command_with("/")
+    }
+
+    pub fn command_with(&self, prefixes: &str) -> Option<Command<'_>> {
+        let command = Command::parse(self.caption.as_deref().unwrap_or(&self.text), prefixes)?;
+        (command.bot.is_none() || command.is_for(self.client.0.me.lock().unwrap().username.as_deref()))
+            .then_some(command)
     }
 
     pub fn reply(&self, text: impl Into<String>) -> SendMessage<'_> {
@@ -239,20 +245,6 @@ impl Message {
             _ => send.reply_to(self.id),
         }
     }
-}
-
-pub(crate) fn parse_command<'a>(text: &'a str, my_username: Option<&str>) -> Option<Vec<&'a str>> {
-    let body = text.strip_prefix('/')?;
-    let (first, args) = body.split_once(char::is_whitespace).unwrap_or((body, ""));
-    let name = match first.split_once('@') {
-        Some((name, bot)) if my_username.is_some_and(|me| me.eq_ignore_ascii_case(bot)) => name,
-        Some(_) => return None,
-        None => first,
-    };
-    if name.is_empty() {
-        return None;
-    }
-    Some(std::iter::once(name).chain(args.split_whitespace()).collect())
 }
 
 type ReplyFields = (Option<i32>, Option<i32>, bool, Option<TextQuote>, Option<Box<ExternalReplyInfo>>);
@@ -278,24 +270,12 @@ fn reply_fields(raw: &types::Message, entities: &Entities) -> ReplyFields {
 #[cfg(test)]
 mod tests {
     use super::super::media::tests::document_media;
-    use super::{Message, parse_command};
+    use super::Message;
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::raw::{base, types};
     use crate::types::{Media, MessageOrigin};
     use crate::utils::get_peer;
-
-    #[test]
-    fn parses_commands() {
-        assert_eq!(parse_command("/start", None), Some(vec!["start"]));
-        assert_eq!(parse_command("/echo  hi there", None), Some(vec!["echo", "hi", "there"]));
-        assert_eq!(parse_command("/start@MyBot x", Some("mybot")), Some(vec!["start", "x"]));
-        assert_eq!(parse_command("/start@OtherBot", Some("mybot")), None);
-        assert_eq!(parse_command("/start@MyBot", None), None);
-        assert_eq!(parse_command("start", None), None);
-        assert_eq!(parse_command("/", None), None);
-        assert_eq!(parse_command("/ start", None), None);
-    }
 
     fn header() -> types::MessageReplyHeader {
         types::MessageReplyHeader {
@@ -353,7 +333,8 @@ mod tests {
         assert_eq!((media.text.as_str(), media.caption.as_deref()), ("", Some("/start now")));
         let entities = (media.entities.as_ref().map(Vec::len), media.caption_entities.as_ref().map(Vec::len));
         assert_eq!((entities, media.document().is_some()), ((None, Some(1)), true));
-        assert_eq!(media.command(), Some(vec!["start", "now"]));
+        let command = media.command().map(|c| (c.name, c.args().collect::<Vec<_>>()));
+        assert_eq!(command, Some(("start", vec!["now"])));
     }
 
     #[test]

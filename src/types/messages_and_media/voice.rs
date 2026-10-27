@@ -13,9 +13,10 @@ pub struct Voice {
 }
 
 impl Voice {
-    pub(crate) fn parse(document: Document, audio: &types::DocumentAttributeAudio) -> Voice {
+    pub(crate) fn parse(document: Document, audio: Option<&types::DocumentAttributeAudio>) -> Voice {
         let Document { id, mime_type, file_size, date, location, .. } = document;
-        Voice { id, mime_type, file_size, date, duration: audio.duration, waveform: audio.waveform.clone(), location }
+        let (duration, waveform) = audio.map_or((0, None), |a| (a.duration, a.waveform.clone()));
+        Voice { id, mime_type, file_size, date, duration, waveform, location }
     }
 }
 

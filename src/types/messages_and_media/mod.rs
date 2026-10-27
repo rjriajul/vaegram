@@ -1,5 +1,6 @@
 mod animation;
 mod audio;
+mod command;
 mod contact;
 mod dice;
 mod document;
@@ -25,6 +26,7 @@ mod voice;
 
 pub use animation::Animation;
 pub use audio::Audio;
+pub use command::Command;
 pub use contact::Contact;
 pub use dice::Dice;
 pub use document::Document;

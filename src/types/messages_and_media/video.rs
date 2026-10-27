@@ -16,7 +16,7 @@ pub struct Video {
 }
 
 impl Video {
-    pub(crate) fn parse(document: Document, video: &types::DocumentAttributeVideo) -> Video {
+    pub(crate) fn parse(document: Document, video: Option<&types::DocumentAttributeVideo>) -> Video {
         let Document { id, file_name, mime_type, file_size, date, location } = document;
         Video {
             id,
@@ -24,10 +24,10 @@ impl Video {
             mime_type,
             file_size,
             date,
-            width: video.w,
-            height: video.h,
-            duration: video.duration as i32,
-            supports_streaming: video.supports_streaming,
+            width: video.map_or(0, |v| v.w),
+            height: video.map_or(0, |v| v.h),
+            duration: video.map_or(0, |v| v.duration as i32),
+            supports_streaming: video.is_some_and(|v| v.supports_streaming),
             location,
         }
     }

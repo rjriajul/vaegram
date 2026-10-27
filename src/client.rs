@@ -206,10 +206,18 @@ pub(crate) struct Inner {
     pub(crate) events: Arc<Events>,
 }
 
-pub(crate) struct Me {
-    pub(crate) id: i64,
-    pub(crate) is_bot: bool,
-    pub(crate) username: Option<String>,
+pub(crate) use me::Me;
+
+// A public type in a private module, so filters' sealed `Inspect` trait can take it without exporting it.
+mod me {
+    use std::sync::Arc;
+
+    #[derive(Clone, Debug, Default)]
+    pub struct Me {
+        pub(crate) id: i64,
+        pub(crate) is_bot: bool,
+        pub(crate) username: Option<Arc<str>>,
+    }
 }
 
 impl Inner {
@@ -303,7 +311,8 @@ impl Client {
 
     pub(crate) fn set_me(&self, user: &base::User) {
         if let base::User::User(u) = user {
-            *self.0.me.lock().unwrap() = Me { id: u.id, is_bot: u.bot, username: u.username.clone() };
+            let username = u.username.as_deref().map(Arc::from);
+            *self.0.me.lock().unwrap() = Me { id: u.id, is_bot: u.bot, username };
         }
     }
 
