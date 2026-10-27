@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use crate::connection::{Options, Proxy, Transport};
+use crate::dispatcher::Routes;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
-use crate::handlers::Handler;
 use crate::raw::{base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Lease, TransferPool};
@@ -174,7 +174,7 @@ pub(crate) struct Inner {
     pub(crate) state: Mutex<Option<UpdateState>>,
     pub(crate) me: Mutex<Me>,
     pub(crate) peers: Mutex<HashMap<i64, base::InputPeer>>,
-    pub(crate) handlers: RwLock<Vec<Handler>>,
+    pub(crate) handlers: Routes,
 }
 
 pub(crate) struct Me {
@@ -201,7 +201,7 @@ impl Inner {
             state: Mutex::new(None),
             me: Mutex::new(Me { id: 0, is_bot: false, username: None }),
             peers: Mutex::new(HashMap::new()),
-            handlers: RwLock::new(Vec::new()),
+            handlers: Routes::default(),
         }
     }
 

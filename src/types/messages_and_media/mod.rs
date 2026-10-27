@@ -1,6 +1,6 @@
 mod document;
 mod file_location;
-mod message;
+pub(crate) mod message;
 mod photo;
 mod reply_parameters;
 mod suggested_post;

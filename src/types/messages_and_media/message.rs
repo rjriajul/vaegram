@@ -5,7 +5,7 @@ use crate::dispatcher::Entities;
 use crate::enums::ChatType;
 use crate::errors::{Error, Result};
 use crate::methods::{DownloadMedia, EditMessageText, SendMessage};
-use crate::raw::{Serializable, base, types};
+use crate::raw::{base, types};
 use crate::types::{Chat, Document, Photo, ReplyMarkup, User};
 use crate::utils::get_peer;
 
@@ -60,6 +60,60 @@ impl Message {
         }
     }
 
+    pub(crate) fn bare(id: i32, peer_id: base::Peer, date: i32) -> types::Message {
+        types::Message {
+            out: false,
+            mentioned: false,
+            media_unread: false,
+            silent: false,
+            post: false,
+            from_scheduled: false,
+            legacy: false,
+            edit_hide: false,
+            pinned: false,
+            noforwards: false,
+            invert_media: false,
+            offline: false,
+            video_processing_pending: false,
+            paid_suggested_post_stars: false,
+            paid_suggested_post_ton: false,
+            id,
+            from_id: None,
+            from_boosts_applied: None,
+            from_rank: None,
+            peer_id,
+            saved_peer_id: None,
+            fwd_from: None,
+            via_bot_id: None,
+            via_business_bot_id: None,
+            guestchat_via_from: None,
+            reply_to: None,
+            date,
+            message: String::new(),
+            media: None,
+            reply_markup: None,
+            entities: None,
+            views: None,
+            forwards: None,
+            replies: None,
+            edit_date: None,
+            post_author: None,
+            grouped_id: None,
+            reactions: None,
+            restriction_reason: None,
+            ttl_period: None,
+            quick_reply_shortcut_id: None,
+            effect: None,
+            factcheck: None,
+            report_delivery_until_date: None,
+            paid_message_stars: None,
+            suggested_post: None,
+            schedule_repeat_period: None,
+            summary_from_language: None,
+            rich_message: None,
+        }
+    }
+
     pub(crate) fn from_raw(client: &Client, raw: base::Message, entities: &Entities) -> Option<Message> {
         match raw {
             base::Message::Message(m) => Some(Message::parse(client, m, entities)),
@@ -84,10 +138,14 @@ impl Message {
         sent: (String, Option<Vec<base::MessageEntity>>),
     ) -> Result<Message> {
         if let base::Updates::UpdateShortSentMessage(u) = updates {
-            let mut raw = bare_message(u.id, get_peer(chat_id), u.date)?;
-            raw.out = u.out;
-            raw.from_id = u.out.then(|| get_peer(client.0.me.lock().unwrap().id));
-            (raw.message, raw.entities, raw.media) = (sent.0, u.entities.or(sent.1), u.media);
+            let raw = types::Message {
+                out: u.out,
+                from_id: u.out.then(|| get_peer(client.0.me.lock().unwrap().id)),
+                message: sent.0,
+                entities: u.entities.or(sent.1),
+                media: u.media,
+                ..Message::bare(u.id, get_peer(chat_id), u.date)
+            };
             return Ok(Message::parse(client, Box::new(raw), &Entities::default()));
         }
         Message::all_from_updates(client, updates).next().ok_or(Error::Unexpected("Telegram sent no message back"))
@@ -165,17 +223,6 @@ impl fmt::Debug for Message {
             .field("document", &self.document)
             .finish_non_exhaustive()
     }
-}
-
-fn bare_message(id: i32, peer_id: base::Peer, date: i32) -> Result<types::Message> {
-    let mut buf = Vec::new();
-    0u32.serialize(&mut buf);
-    0u32.serialize(&mut buf);
-    id.serialize(&mut buf);
-    peer_id.serialize(&mut buf);
-    date.serialize(&mut buf);
-    String::new().serialize(&mut buf);
-    Ok(types::Message::deserialize_bare(&mut &buf[..])?)
 }
 
 pub(crate) fn parse_command<'a>(text: &'a str, my_username: Option<&str>) -> Option<Vec<&'a str>> {

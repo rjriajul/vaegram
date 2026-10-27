@@ -3,7 +3,76 @@ use std::sync::Arc;
 
 use crate::enums::ChatType;
 use crate::raw::base;
-use crate::types::{CallbackQuery, Message};
+use crate::types::{CallbackQuery, Chat, InlineQuery, Message, User};
+
+/// Updates with a chat, for `private()`, `group()`, `channel()` and `chat(id)`.
+pub trait HasChat {
+    fn chat(&self) -> &Chat;
+}
+
+/// Updates with a sender, for `bot()` and `user(id)`.
+pub trait HasSender {
+    fn sender(&self) -> Option<&User>;
+}
+
+/// Updates with text, for `text()`.
+pub trait HasText {
+    fn text(&self) -> Option<&str>;
+}
+
+/// Updates that can carry a bot command, for `command()` and `commands()`.
+pub trait HasCommand {
+    fn command(&self) -> Option<Vec<&str>>;
+}
+
+impl HasChat for Message {
+    fn chat(&self) -> &Chat {
+        &self.chat
+    }
+}
+
+impl HasSender for Message {
+    fn sender(&self) -> Option<&User> {
+        self.from_user.as_ref()
+    }
+}
+
+impl HasText for Message {
+    fn text(&self) -> Option<&str> {
+        let plain = matches!(self.raw.media, None | Some(base::MessageMedia::MessageMediaWebPage(_)));
+        (plain && !self.text.is_empty()).then_some(&self.text)
+    }
+}
+
+impl HasCommand for Message {
+    fn command(&self) -> Option<Vec<&str>> {
+        Message::command(self)
+    }
+}
+
+impl HasChat for CallbackQuery {
+    fn chat(&self) -> &Chat {
+        &self.chat
+    }
+}
+
+impl HasSender for CallbackQuery {
+    fn sender(&self) -> Option<&User> {
+        Some(&self.from_user)
+    }
+}
+
+impl HasSender for InlineQuery {
+    fn sender(&self) -> Option<&User> {
+        Some(&self.from_user)
+    }
+}
+
+impl HasText for InlineQuery {
+    fn text(&self) -> Option<&str> {
+        Some(self.query.as_str()).filter(|q| !q.is_empty())
+    }
+}
 
 pub struct Filter<T = Message>(Arc<dyn Fn(&T) -> bool + Send + Sync>);
 
@@ -53,22 +122,24 @@ pub fn data(value: impl Into<String>) -> Filter<CallbackQuery> {
     create(move |q: &CallbackQuery| q.data == value)
 }
 
-pub fn text() -> Filter {
-    create(|m: &Message| {
-        !m.text.is_empty() && matches!(m.raw.media, None | Some(base::MessageMedia::MessageMediaWebPage(_)))
-    })
+pub fn text<T: HasText>() -> Filter<T> {
+    create(|m: &T| m.text().is_some())
 }
 
-pub fn private() -> Filter {
-    create(|m: &Message| matches!(m.chat.kind, ChatType::Private | ChatType::Bot))
+fn chat_kind<T: HasChat>(kinds: &'static [ChatType]) -> Filter<T> {
+    create(move |m: &T| kinds.contains(&m.chat().kind))
 }
 
-pub fn group() -> Filter {
-    create(|m: &Message| matches!(m.chat.kind, ChatType::Group | ChatType::Supergroup))
+pub fn private<T: HasChat>() -> Filter<T> {
+    chat_kind(&[ChatType::Private, ChatType::Bot])
 }
 
-pub fn channel() -> Filter {
-    create(|m: &Message| m.chat.kind == ChatType::Channel)
+pub fn group<T: HasChat>() -> Filter<T> {
+    chat_kind(&[ChatType::Group, ChatType::Supergroup])
+}
+
+pub fn channel<T: HasChat>() -> Filter<T> {
+    chat_kind(&[ChatType::Channel])
 }
 
 pub fn incoming() -> Filter {
@@ -79,23 +150,23 @@ pub fn outgoing() -> Filter {
     create(|m: &Message| m.outgoing)
 }
 
-pub fn bot() -> Filter {
-    create(|m: &Message| m.from_user.as_ref().is_some_and(|u| u.is_bot))
+pub fn bot<T: HasSender>() -> Filter<T> {
+    create(|m: &T| m.sender().is_some_and(|u| u.is_bot))
 }
 
-pub fn user(id: i64) -> Filter {
-    create(move |m: &Message| m.from_user.as_ref().is_some_and(|u| u.id == id))
+pub fn user<T: HasSender>(id: i64) -> Filter<T> {
+    create(move |m: &T| m.sender().is_some_and(|u| u.id == id))
 }
 
-pub fn chat(id: i64) -> Filter {
-    create(move |m: &Message| m.chat.id == id)
+pub fn chat<T: HasChat>(id: i64) -> Filter<T> {
+    create(move |m: &T| m.chat().id == id)
 }
 
-pub fn command(name: &str) -> Filter {
+pub fn command<T: HasCommand>(name: &str) -> Filter<T> {
     commands([name])
 }
 
-pub fn commands<S: Into<String>>(names: impl IntoIterator<Item = S>) -> Filter {
+pub fn commands<T: HasCommand, S: Into<String>>(names: impl IntoIterator<Item = S>) -> Filter<T> {
     let names: Vec<String> = names.into_iter().map(Into::into).collect();
-    create(move |m: &Message| m.command().is_some_and(|c| names.iter().any(|n| n.eq_ignore_ascii_case(c[0]))))
+    create(move |m: &T| m.command().is_some_and(|c| names.iter().any(|n| n.eq_ignore_ascii_case(c[0]))))
 }

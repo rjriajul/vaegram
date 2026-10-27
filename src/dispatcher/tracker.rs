@@ -1,71 +1,19 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::time::Instant;
 
-use crate::Client;
+use super::Entities;
 use crate::errors::{Error, Result};
-use crate::handlers::{BoxFuture, Event, Handler};
-use crate::raw::{base, functions, types};
-use crate::session::{Incoming, UpdatesRx};
+use crate::raw::{base, types};
 use crate::storage::state::UpdateState;
-use crate::types::{CallbackQuery, InlineQuery, Message};
-use crate::utils::get_channel_id;
 
-const CHANNEL_DIFFERENCE_LIMIT: i32 = 100;
-const SAVE_EVERY: Duration = Duration::from_secs(10);
 const GAP_TIMEOUT: Duration = Duration::from_millis(500);
 // Telegram asks for getDifference after 15 minutes without updates, in case the server stopped pushing.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
-#[derive(Default)]
-pub(crate) struct Entities {
-    pub(crate) users: HashMap<i64, base::User>,
-    pub(crate) chats: HashMap<i64, base::Chat>,
-}
-
-impl Entities {
-    pub(crate) fn new(client: &Client, users: Vec<base::User>, chats: Vec<base::Chat>) -> Entities {
-        let mut peers = client.0.peers.lock().unwrap();
-        let mut entities = Entities::default();
-        for user in users {
-            if let base::User::User(u) = &user {
-                if let (false, Some(access_hash)) = (u.min, u.access_hash) {
-                    let peer = types::InputPeerUser { user_id: u.id, access_hash };
-                    peers.insert(u.id, base::InputPeer::InputPeerUser(Box::new(peer)));
-                }
-                entities.users.insert(u.id, user);
-            }
-        }
-        for chat in chats {
-            let (id, peer) = match &chat {
-                base::Chat::Chat(c) => (-c.id, None),
-                base::Chat::ChatForbidden(c) => (-c.id, None),
-                base::Chat::Channel(c) => {
-                    let peer = match (c.min, c.access_hash) {
-                        (false, Some(access_hash)) => Some(types::InputPeerChannel { channel_id: c.id, access_hash }),
-                        _ => None,
-                    };
-                    (get_channel_id(c.id), peer)
-                }
-                base::Chat::ChannelForbidden(c) => (
-                    get_channel_id(c.id),
-                    Some(types::InputPeerChannel { channel_id: c.id, access_hash: c.access_hash }),
-                ),
-                _ => continue,
-            };
-            if let Some(peer) = peer {
-                peers.insert(id, base::InputPeer::InputPeerChannel(Box::new(peer)));
-            }
-            entities.chats.insert(id, chat);
-        }
-        entities
-    }
-}
-
-fn channel_of(update: &base::Update) -> Option<i64> {
+pub(super) fn channel_of(update: &base::Update) -> Option<i64> {
     let message = match update {
         base::Update::UpdateNewChannelMessage(u) => &u.message,
         base::Update::UpdateEditChannelMessage(u) => &u.message,
@@ -85,52 +33,44 @@ fn channel_of(update: &base::Update) -> Option<i64> {
     }
 }
 
-fn new_message(message: base::Message) -> base::Update {
-    base::Update::UpdateNewMessage(Box::new(types::UpdateNewMessage { message, pts: 0, pts_count: 0 }))
-}
-
-fn new_channel_message(message: base::Message) -> base::Update {
-    base::Update::UpdateNewChannelMessage(Box::new(types::UpdateNewChannelMessage { message, pts: 0, pts_count: 0 }))
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Key {
+pub(super) enum Key {
     Pts,
     Qts,
     Seq,
     Channel(i64),
 }
 
-enum Item {
+pub(super) enum Item {
     Update(base::Update, Arc<Entities>),
     Batch(Vec<base::Update>, Arc<Entities>, i32, bool),
     Counter,
 }
 
-struct Pending {
-    key: Key,
-    before: i32,
-    after: i32,
-    item: Item,
+pub(super) struct Pending {
+    pub(super) key: Key,
+    pub(super) before: i32,
+    pub(super) after: i32,
+    pub(super) item: Item,
 }
 
 #[derive(Default)]
-struct Tracker {
-    state: UpdateState,
-    pending: Vec<(Instant, Pending)>,
-    retries: Vec<(Instant, Key)>,
-    idle: Option<Instant>,
-    due: Vec<Key>,
-    ready: Vec<(base::Update, Arc<Entities>)>,
+pub(super) struct Tracker {
+    pub(super) state: UpdateState,
+    pub(super) pending: Vec<(Instant, Pending)>,
+    pub(super) retries: Vec<(Instant, Key)>,
+    pub(super) idle: Option<Instant>,
+    pub(super) due: Vec<Key>,
+    pub(super) ready: Vec<(base::Update, Arc<Entities>)>,
 }
 
 impl Tracker {
-    fn set_state(&mut self, s: &types::updates::State) {
+    pub(super) fn set_state(&mut self, s: &types::updates::State) {
         let state = &mut self.state;
         (state.pts, state.qts, state.date, state.seq) = (s.pts, s.qts, s.date, s.seq);
     }
 
-    fn counter(&mut self, key: Key) -> &mut i32 {
+    pub(super) fn counter(&mut self, key: Key) -> &mut i32 {
         match key {
             Key::Pts => &mut self.state.pts,
             Key::Qts => &mut self.state.qts,
@@ -139,26 +79,26 @@ impl Tracker {
         }
     }
 
-    fn mark(&mut self, key: Key) {
+    pub(super) fn mark(&mut self, key: Key) {
         let key = if let Key::Channel(_) = key { key } else { Key::Pts };
         if !self.due.contains(&key) {
             self.due.push(key);
         }
     }
 
-    fn emit(&mut self, update: base::Update, entities: &Arc<Entities>) {
+    pub(super) fn emit(&mut self, update: base::Update, entities: &Arc<Entities>) {
         self.ready.push((update, entities.clone()));
     }
 
-    fn deadline(&self) -> Option<Instant> {
+    pub(super) fn deadline(&self) -> Option<Instant> {
         self.pending.iter().map(|(d, _)| *d).chain(self.retries.iter().map(|(d, _)| *d)).chain(self.idle).min()
     }
 
-    fn touch(&mut self, now: Instant) {
+    pub(super) fn touch(&mut self, now: Instant) {
         self.idle = Some(now + IDLE_TIMEOUT);
     }
 
-    fn update(&mut self, update: base::Update, entities: &Arc<Entities>, quiet: bool) {
+    pub(super) fn update(&mut self, update: base::Update, entities: &Arc<Entities>, quiet: bool) {
         if let base::Update::UpdateChannelTooLong(u) = &update {
             return self.mark(Key::Channel(u.channel_id));
         }
@@ -178,7 +118,7 @@ impl Tracker {
         self.offer(Pending { key, before, after, item });
     }
 
-    fn short(&mut self, pts: i32, count: i32, quiet: bool) {
+    pub(super) fn short(&mut self, pts: i32, count: i32, quiet: bool) {
         let before = pts.wrapping_sub(count);
         if quiet {
             self.offer(Pending { key: Key::Pts, before, after: pts, item: Item::Counter });
@@ -188,7 +128,7 @@ impl Tracker {
         }
     }
 
-    fn batch(
+    pub(super) fn batch(
         &mut self,
         updates: Vec<base::Update>,
         entities: Arc<Entities>,
@@ -205,7 +145,7 @@ impl Tracker {
         }
     }
 
-    fn offer(&mut self, p: Pending) {
+    pub(super) fn offer(&mut self, p: Pending) {
         let local = match p.key {
             Key::Channel(id) => *self.state.channels.entry(id).or_insert(p.before),
             key => *self.counter(key),
@@ -221,7 +161,7 @@ impl Tracker {
         }
     }
 
-    fn drain(&mut self, key: Key) {
+    pub(super) fn drain(&mut self, key: Key) {
         loop {
             let local = *self.counter(key);
             self.pending.retain(|(_, p)| p.key != key || p.before >= local);
@@ -231,7 +171,7 @@ impl Tracker {
         }
     }
 
-    fn apply(&mut self, p: Pending) {
+    pub(super) fn apply(&mut self, p: Pending) {
         let counter = self.counter(p.key);
         *counter = (*counter).max(p.after);
         match p.item {
@@ -246,7 +186,7 @@ impl Tracker {
         }
     }
 
-    fn expire(&mut self, now: Instant) {
+    pub(super) fn expire(&mut self, now: Instant) {
         for i in 0..self.pending.len() {
             if self.pending[i].0 <= now {
                 self.mark(self.pending[i].1.key);
@@ -267,7 +207,7 @@ impl Tracker {
         }
     }
 
-    fn recover(&mut self, result: Result<()>, key: Key) {
+    pub(super) fn recover(&mut self, result: Result<()>, key: Key) {
         let due = |k: Key| match key {
             Key::Channel(_) => k == key,
             _ => !matches!(k, Key::Channel(_)),
@@ -296,7 +236,7 @@ impl Tracker {
         self.retries.push((deadline, key));
     }
 
-    fn settle(&mut self, due: impl Fn(Key) -> bool) {
+    pub(super) fn settle(&mut self, due: impl Fn(Key) -> bool) {
         let (mut settled, rest): (Vec<_>, Vec<_>) =
             std::mem::take(&mut self.pending).into_iter().partition(|(_, p)| due(p.key));
         self.pending = rest;
@@ -307,238 +247,6 @@ impl Tracker {
             }
         }
     }
-}
-
-pub(crate) struct Dispatcher {
-    client: Client,
-    tracker: Tracker,
-    saved_at: Instant,
-    /// What the last save wrote, so an idle client doesn't rewrite the same file. The peer count
-    /// is enough: only non-min peers are cached, and their access hashes don't change.
-    saved: (UpdateState, usize),
-}
-
-impl Dispatcher {
-    pub(crate) fn new(client: Client, state: &types::updates::State) -> Self {
-        let mut tracker = Tracker::default();
-        tracker.set_state(state);
-        tracker.touch(Instant::now());
-        Dispatcher { client, tracker, saved_at: Instant::now(), saved: Default::default() }
-    }
-
-    /// Starts from a saved state; the first pass of `run` fetches what was missed while offline.
-    pub(crate) fn resume(client: Client, state: UpdateState) -> Self {
-        let mut tracker = Tracker { state, due: vec![Key::Pts], ..Tracker::default() };
-        tracker.touch(Instant::now());
-        Dispatcher { client, tracker, saved_at: Instant::now(), saved: Default::default() }
-    }
-
-    pub(crate) async fn run(&mut self, updates: &mut UpdatesRx) {
-        self.resolve().await;
-        loop {
-            for (update, entities) in std::mem::take(&mut self.tracker.ready) {
-                self.dispatch(update, &entities);
-            }
-            // Saved every SAVE_EVERY when something moved, and on drop, so a crash replays at most that much.
-            if self.saved_at.elapsed() >= SAVE_EVERY {
-                self.saved_at = Instant::now();
-                let now = (self.tracker.state.clone(), self.client.0.peers.lock().unwrap().len());
-                if now != self.saved {
-                    self.client.0.save_state_in_background(&now.0);
-                    self.saved = now;
-                }
-            }
-            let next = match self.tracker.deadline() {
-                Some(deadline) => tokio::time::timeout_at(deadline, updates.recv()).await,
-                None => Ok(updates.recv().await),
-            };
-            match next {
-                Ok(Some(incoming)) => self.process(incoming),
-                Ok(None) => return,
-                Err(_) => self.tracker.expire(Instant::now()),
-            }
-            self.resolve().await;
-        }
-    }
-
-    fn process(&mut self, incoming: Incoming) {
-        let quiet = incoming.from_request;
-        let t = &mut self.tracker;
-        if !quiet {
-            t.touch(Instant::now());
-        }
-        match incoming.updates {
-            base::Updates::UpdatesTooLong => t.mark(Key::Pts),
-            base::Updates::UpdateShortMessage(u) => t.short(u.pts, u.pts_count, quiet),
-            base::Updates::UpdateShortChatMessage(u) => t.short(u.pts, u.pts_count, quiet),
-            base::Updates::UpdateShortSentMessage(u) => t.short(u.pts, u.pts_count, true),
-            base::Updates::UpdateShort(u) => t.update(u.update, &Arc::default(), quiet),
-            base::Updates::Updates(u) => {
-                let entities = Arc::new(Entities::new(&self.client, u.users, u.chats));
-                t.batch(u.updates, entities, (u.date, u.seq, u.seq), quiet);
-            }
-            base::Updates::UpdatesCombined(u) => {
-                let entities = Arc::new(Entities::new(&self.client, u.users, u.chats));
-                t.batch(u.updates, entities, (u.date, u.seq_start, u.seq), quiet);
-            }
-        }
-    }
-
-    async fn resolve(&mut self) {
-        while let Some(key) = self.tracker.due.pop() {
-            let result = match key {
-                Key::Channel(id) => self.channel_difference(id).await,
-                _ => self.difference().await,
-            };
-            self.tracker.recover(result, key);
-        }
-    }
-
-    async fn difference(&mut self) -> Result<()> {
-        loop {
-            let t = &mut self.tracker;
-            let request = functions::updates::GetDifference {
-                pts: t.state.pts,
-                pts_limit: None,
-                pts_total_limit: None,
-                date: t.state.date,
-                qts: t.state.qts,
-                qts_limit: None,
-            };
-            let (messages, others, users, chats, state, done) = match self.client.invoke(&request).await? {
-                base::updates::Difference::DifferenceEmpty(d) => {
-                    (t.state.date, t.state.seq) = (d.date, d.seq);
-                    return Ok(());
-                }
-                base::updates::Difference::DifferenceTooLong(d) => {
-                    t.state.pts = d.pts;
-                    return Ok(());
-                }
-                base::updates::Difference::Difference(d) => {
-                    let d = *d;
-                    (d.new_messages, d.other_updates, d.users, d.chats, d.state, true)
-                }
-                base::updates::Difference::DifferenceSlice(d) => {
-                    let d = *d;
-                    (d.new_messages, d.other_updates, d.users, d.chats, d.intermediate_state, false)
-                }
-            };
-            let entities = Arc::new(Entities::new(&self.client, users, chats));
-            for message in messages {
-                t.emit(new_message(message), &entities);
-            }
-            for update in others {
-                if matches!(update, base::Update::UpdateChannelTooLong(_)) || channel_of(&update).is_some() {
-                    t.update(update, &entities, false);
-                } else {
-                    t.emit(update, &entities);
-                }
-            }
-            let base::updates::State::State(state) = state;
-            t.set_state(&state);
-            if done {
-                return Ok(());
-            }
-        }
-    }
-
-    async fn channel_difference(&mut self, channel_id: i64) -> Result<()> {
-        let Some(&local) = self.tracker.state.channels.get(&channel_id) else { return Ok(()) };
-        let mut pts = local;
-        let channel = self.client.resolve_channel(get_channel_id(channel_id)).await?;
-        loop {
-            let request = functions::updates::GetChannelDifference {
-                force: false,
-                channel: channel.clone(),
-                filter: base::ChannelMessagesFilter::ChannelMessagesFilterEmpty,
-                pts,
-                limit: CHANNEL_DIFFERENCE_LIMIT,
-            };
-            match self.client.invoke(&request).await? {
-                base::updates::ChannelDifference::ChannelDifferenceEmpty(d) => {
-                    pts = d.pts;
-                    break;
-                }
-                base::updates::ChannelDifference::ChannelDifferenceTooLong(d) => {
-                    let d = *d;
-                    let entities = Arc::new(Entities::new(&self.client, d.users, d.chats));
-                    for message in d.messages {
-                        self.tracker.emit(new_channel_message(message), &entities);
-                    }
-                    if let base::Dialog::Dialog(dialog) = &d.dialog {
-                        pts = dialog.pts.unwrap_or(pts);
-                    }
-                    break;
-                }
-                base::updates::ChannelDifference::ChannelDifference(d) => {
-                    let d = *d;
-                    let entities = Arc::new(Entities::new(&self.client, d.users, d.chats));
-                    for message in d.new_messages {
-                        self.tracker.emit(new_channel_message(message), &entities);
-                    }
-                    for update in d.other_updates {
-                        self.tracker.emit(update, &entities);
-                    }
-                    pts = d.pts;
-                    if d.r#final {
-                        break;
-                    }
-                }
-            }
-        }
-        self.tracker.state.channels.insert(channel_id, pts);
-        Ok(())
-    }
-
-    fn dispatch(&self, update: base::Update, entities: &Entities) {
-        let handlers = self.client.0.handlers.read().unwrap().clone();
-        let mut event = self.event(&update, entities);
-        for handler in &handlers {
-            match handler {
-                Handler::RawUpdate(callback) => spawn(callback(self.client.clone(), update.clone())),
-                _ => {
-                    if let Some(future) = Event::run(&mut event, handler) {
-                        spawn(future);
-                    }
-                }
-            }
-        }
-    }
-
-    fn event(&self, update: &base::Update, entities: &Entities) -> Option<Event> {
-        let client = &self.client;
-        let message = |m: &base::Message| match m {
-            base::Message::Message(m) => Some(Message::parse(client, m.clone(), entities)),
-            _ => None,
-        };
-        match update {
-            base::Update::UpdateNewMessage(u) => message(&u.message).map(Event::Message),
-            base::Update::UpdateNewChannelMessage(u) => message(&u.message).map(Event::Message),
-            base::Update::UpdateEditMessage(u) => message(&u.message).map(Event::EditedMessage),
-            base::Update::UpdateEditChannelMessage(u) => message(&u.message).map(Event::EditedMessage),
-            base::Update::UpdateBotCallbackQuery(u) => {
-                Some(Event::CallbackQuery(CallbackQuery::parse(client, u, entities)))
-            }
-            base::Update::UpdateBotInlineQuery(u) => Some(Event::InlineQuery(InlineQuery::parse(client, u, entities))),
-            _ => None,
-        }
-    }
-}
-
-impl Drop for Dispatcher {
-    fn drop(&mut self) {
-        if let Ok(mut state) = self.client.0.state.lock() {
-            *state = Some(std::mem::take(&mut self.tracker.state));
-        }
-    }
-}
-
-fn spawn(future: BoxFuture) {
-    tokio::spawn(async move {
-        if let Err(e) = future.await {
-            eprintln!("vaegram: handler failed: {e}");
-        }
-    });
 }
 
 #[cfg(test)]

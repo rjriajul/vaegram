@@ -1,7 +1,7 @@
 mod authorization;
 mod bots_and_keyboards;
 mod inline_mode;
-mod messages_and_media;
+pub(crate) mod messages_and_media;
 mod user_and_chats;
 
 pub use authorization::SentCode;

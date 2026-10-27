@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::Client;
 use crate::errors::Result;
-use crate::handlers::{BoxFuture, Handler};
+use crate::handlers::BoxFuture;
 use crate::raw::base;
 
 impl Client {
@@ -13,6 +13,6 @@ impl Client {
         Fut: Future<Output = Result<()>> + Send + 'static,
     {
         let callback = Arc::new(move |c: Client, u: base::Update| Box::pin(callback(c, u)) as BoxFuture);
-        self.0.handlers.write().unwrap().push(Handler::RawUpdate(callback));
+        self.0.handlers.add(|r| r.raw.push(callback));
     }
 }
