@@ -3,11 +3,17 @@ use crate::raw::{base, types};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InlineKeyboardMarkup {
     pub rows: Vec<Vec<InlineKeyboardButton>>,
+    pub force_reply: bool,
 }
 
 impl InlineKeyboardMarkup {
     pub fn new(rows: impl IntoIterator<Item = Vec<InlineKeyboardButton>>) -> Self {
-        InlineKeyboardMarkup { rows: rows.into_iter().collect() }
+        InlineKeyboardMarkup { rows: rows.into_iter().collect(), force_reply: false }
+    }
+
+    pub fn force_reply(mut self) -> Self {
+        self.force_reply = true;
+        self
     }
 
     pub(crate) fn write(&self) -> base::ReplyMarkup {
@@ -21,7 +27,7 @@ impl InlineKeyboardMarkup {
                 }))
             })
             .collect();
-        base::ReplyMarkup::ReplyInlineMarkup(Box::new(types::ReplyInlineMarkup { force_reply: false, rows }))
+        base::ReplyMarkup::ReplyInlineMarkup(Box::new(types::ReplyInlineMarkup { force_reply: self.force_reply, rows }))
     }
 }
 
@@ -62,6 +68,7 @@ pub enum InlineAction {
     SwitchInlineQuery(String),
     SwitchInlineQueryCurrentChat(String),
     CopyText(String),
+    Disabled,
 }
 
 impl InlineKeyboardButton {
@@ -89,6 +96,10 @@ impl InlineKeyboardButton {
         Self::new(text, InlineAction::CopyText(copy.into()))
     }
 
+    pub fn disabled(text: impl Into<String>) -> Self {
+        Self::new(text, InlineAction::Disabled)
+    }
+
     pub fn style(mut self, style: ButtonStyle) -> Self {
         self.style = style;
         self
@@ -114,8 +125,45 @@ impl InlineKeyboardButton {
             InlineAction::CopyText(copy) => {
                 T::InlineButtonTypeCopy(Box::new(types::InlineButtonTypeCopy { copy_text: copy.clone() }))
             }
+            InlineAction::Disabled => T::InlineButtonTypeDisabled,
         };
         let button = types::KeyboardInlineButton { style: self.style.write(), text: self.text.clone(), r#type: kind };
         base::KeyboardInlineButton::KeyboardInlineButton(Box::new(button))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::raw::Serializable;
+
+    fn inline(markup: base::ReplyMarkup) -> types::ReplyInlineMarkup {
+        match markup {
+            base::ReplyMarkup::ReplyInlineMarkup(m) => *m,
+            other => panic!("expected replyInlineMarkup, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn force_reply_maps_to_raw_flag() {
+        let plain = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("a", "b")]]);
+        assert!(!inline(plain.write()).force_reply);
+        let raw = plain.force_reply().write();
+        assert!(inline(raw.clone()).force_reply);
+        let bytes = raw.to_bytes();
+        assert_eq!(bytes[..4], 0xb2b15770u32.to_le_bytes());
+        assert_eq!(bytes[4..8], (1u32 << 5).to_le_bytes());
+    }
+
+    #[test]
+    fn disabled_button_uses_disabled_type() {
+        let markup = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::disabled("off")]]);
+        let rows = inline(markup.write()).rows;
+        let base::KeyboardInlineButtonRow::KeyboardInlineButtonRow(row) = &rows[0];
+        let base::KeyboardInlineButton::KeyboardInlineButton(button) = &row.buttons[0];
+        assert_eq!(button.text, "off");
+        assert_eq!(button.r#type, base::InlineButtonType::InlineButtonTypeDisabled);
+        assert_eq!(row.buttons[0].to_bytes()[..4], 0x11c1a322u32.to_le_bytes());
+        assert_eq!(button.r#type.to_bytes(), 0xa438619du32.to_le_bytes());
     }
 }
