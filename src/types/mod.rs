@@ -46,5 +46,5 @@ pub use user_and_chats::{
     AcceptedGiftTypes, BusinessBotRights, BusinessConnection, Chat, ChatBoost, ChatBoostRemoved, ChatBoostSource,
     ChatBoostUpdated, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated, ChatPermissions,
     ChatPrivileges, Community, DirectMessagesTopic, ForumTopic, ForumTopicCreated, ForumTopicEdited,
-    PassportElementError, PeerRef, User, UserProfilePhotos, UserStatusUpdated,
+    PassportElementError, PeerRef, User, UserProfileAudios, UserProfilePhotos, UserStatusUpdated,
 };

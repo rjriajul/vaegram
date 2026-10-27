@@ -46,7 +46,7 @@ impl ForwardMessages<'_> {
 
 send_builder!(ForwardMessages, Vec<Message>);
 
-fn request(
+pub(super) fn request(
     from_peer: base::InputPeer,
     to_peer: base::InputPeer,
     ids: &[i32],

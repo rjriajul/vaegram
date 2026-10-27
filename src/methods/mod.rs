@@ -44,14 +44,14 @@ pub use invite_links::{
 };
 pub(crate) use messages::StreamShared;
 pub use messages::{
-    ApproveSuggestedPost, CopyMessage, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage, EditInlineText,
-    EditMessageChecklist, EditMessageReplyMarkup, EditMessageText, ForwardMessages, GetChatHistory, MessageStream,
-    PinChatMessage, SearchMessages, SendChecklist, SendContact, SendDice, SendDocument, SendEphemeralMessage,
-    SendLocation, SendMessage, SendMessageDraft, SendPhoto, SendPoll, SendReaction, SendRichMessage, SendVenue,
-    StopPoll, StreamMessage, UnpinChatMessage,
+    ApproveSuggestedPost, CopyMessage, CopyMessages, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage,
+    EditInlineText, EditMessageChecklist, EditMessageLiveLocation, EditMessageReplyMarkup, EditMessageText,
+    ForwardMessages, GetChatHistory, MessageStream, PinChatMessage, SearchMessages, SendChecklist, SendContact,
+    SendDice, SendDocument, SendEphemeralMessage, SendLocation, SendMessage, SendMessageDraft, SendPhoto, SendPoll,
+    SendReaction, SendRichMessage, SendVenue, StopMessageLiveLocation, StopPoll, StreamMessage, UnpinChatMessage,
 };
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
 };
 pub use stickers::CreateNewStickerSet;
-pub use users::{GetChatPhotos, SetProfilePhoto};
+pub use users::{GetChatPhotos, GetUserProfileAudios, SetProfilePhoto};
