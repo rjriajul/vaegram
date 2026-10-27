@@ -4,16 +4,17 @@ pub(crate) const CHANNEL_OFFSET: i64 = 1_000_000_000_000;
 
 const BASE64URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
+// Ids come from the server and can be anything: wrap like release builds do instead of panicking in debug.
 pub fn get_peer_id(peer: &base::Peer) -> i64 {
     match peer {
         base::Peer::PeerUser(p) => p.user_id,
-        base::Peer::PeerChat(p) => -p.chat_id,
+        base::Peer::PeerChat(p) => p.chat_id.wrapping_neg(),
         base::Peer::PeerChannel(p) => get_channel_id(p.channel_id),
     }
 }
 
 pub fn get_channel_id(channel_id: i64) -> i64 {
-    -CHANNEL_OFFSET - channel_id
+    (-CHANNEL_OFFSET).wrapping_sub(channel_id)
 }
 
 pub(crate) fn channel_id_of(chat_id: i64) -> i64 {
@@ -24,7 +25,7 @@ pub fn get_peer(chat_id: i64) -> base::Peer {
     if chat_id > 0 {
         base::Peer::PeerUser(types::PeerUser { user_id: chat_id })
     } else if chat_id <= -CHANNEL_OFFSET {
-        base::Peer::PeerChannel(types::PeerChannel { channel_id: -chat_id - CHANNEL_OFFSET })
+        base::Peer::PeerChannel(types::PeerChannel { channel_id: -(chat_id + CHANNEL_OFFSET) })
     } else {
         base::Peer::PeerChat(types::PeerChat { chat_id: -chat_id })
     }

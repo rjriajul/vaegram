@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 
 struct Field {
@@ -390,7 +390,7 @@ fn is_inline(d: &Def) -> bool {
     usize::next_multiple_of(size, align) <= 8
 }
 
-fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def]) {
+fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def], recursive: bool) {
     let name = pascal(split_ns(ty).1);
     let variants: Vec<String> = ctors.iter().map(|c| pascal(split_ns(&c.name).1)).collect();
     let unique: HashSet<_> = variants.iter().collect();
@@ -425,8 +425,10 @@ fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def]) {
 
     writeln!(out, "impl crate::raw::Deserializable for {name} {{").unwrap();
     writeln!(out, "    fn deserialize(buf: &mut &[u8]) -> ::std::result::Result<Self, crate::raw::Error> {{").unwrap();
-    writeln!(out, "        let id = <u32 as crate::raw::Deserializable>::deserialize(buf)?;\n        Ok(match id {{")
+    let (open, close) = if recursive { ("crate::raw::core::nested(|| ", ")") } else { ("", "") };
+    writeln!(out, "        {open}{{\n        let id = <u32 as crate::raw::Deserializable>::deserialize(buf)?;")
         .unwrap();
+    writeln!(out, "        Ok(match id {{").unwrap();
     for (c, v) in ctors.iter().zip(&variants) {
         if c.fields.is_empty() {
             writeln!(out, "            {:#010x} => Self::{v},", c.id).unwrap();
@@ -437,7 +439,7 @@ fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def]) {
         }
     }
     writeln!(out, "            _ => return Err(crate::raw::Error::UnexpectedConstructor {{ id }}),").unwrap();
-    writeln!(out, "        }})\n    }}\n}}").unwrap();
+    writeln!(out, "        }})\n        }}{close}\n    }}\n}}").unwrap();
 }
 
 fn gen_counter(out: &mut String, ctors: &[&Def], name: &str, ty: &str, fields: &[&str]) {
@@ -449,6 +451,37 @@ fn gen_counter(out: &mut String, ctors: &[&Def], name: &str, ty: &str, fields: &
         writeln!(out, "            Self::{}(u) => Some({value}),", pascal(split_ns(&c.name).1)).unwrap();
     }
     writeln!(out, "            _ => None,\n        }}\n    }}").unwrap();
+}
+
+// Types that can contain themselves (RichText, PageBlock, JSONValue, ...): hostile data could nest them deep
+// enough to overflow the stack, so their decoding goes through a depth check.
+fn recursive_types(defs: &[Def]) -> HashSet<&str> {
+    let mut edges: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for d in defs.iter().filter(|d| !d.function) {
+        let children = edges.entry(&d.ty).or_default();
+        for f in &d.fields {
+            let mut t = f.ty.as_str();
+            while let Some(inner) = vector_inner(t) {
+                t = inner;
+            }
+            children.insert(t);
+        }
+    }
+    let reaches_itself = |ty: &str| {
+        let (mut seen, mut stack) = (HashSet::new(), vec![ty]);
+        while let Some(t) = stack.pop() {
+            for &c in edges.get(t).into_iter().flatten() {
+                if c == ty {
+                    return true;
+                }
+                if seen.insert(c) {
+                    stack.push(c);
+                }
+            }
+        }
+        false
+    };
+    edges.keys().copied().filter(|ty| reaches_itself(ty)).collect()
 }
 
 fn gen_update_counters(out: &mut String, ctors: &[&Def]) {
@@ -514,9 +547,10 @@ pub fn generate(api: &str, mtproto: &str, json: bool) -> String {
             }
         }
     }
+    let recursive = recursive_types(&defs);
     for (ty, ctors) in &by_type {
         let out = mods.entry(("base", split_ns(ty).0)).or_default();
-        gen_enum(out, ty, ctors);
+        gen_enum(out, ty, ctors, recursive.contains(ty));
         if json {
             gen_enum_json(out, ty, ctors);
         }
