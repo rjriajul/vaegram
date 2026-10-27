@@ -35,6 +35,11 @@ struct Request {
     answer: oneshot::Sender<Answer>,
 }
 
+pub struct Incoming {
+    pub updates: base::Updates,
+    pub from_request: bool,
+}
+
 #[derive(Clone)]
 pub struct Session {
     requests: mpsc::UnboundedSender<Request>,
@@ -43,7 +48,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub async fn connect(dc_id: i32, auth_key: Option<[u8; 256]>) -> Result<(Session, mpsc::Receiver<base::Updates>)> {
+    pub async fn connect(dc_id: i32, auth_key: Option<[u8; 256]>) -> Result<(Session, mpsc::Receiver<Incoming>)> {
         let addr = data_center::address(dc_id).ok_or(Error::InvalidDc(dc_id))?;
         let (conn, auth_key, salt, time_offset) = match auth_key {
             Some(key) => (Connection::connect(addr).await?, key, 0, 0),
@@ -126,7 +131,7 @@ struct Runner {
     seq: SeqNo,
     pending: HashMap<i64, Pending>,
     acks: Vec<i64>,
-    updates: mpsc::Sender<base::Updates>,
+    updates: mpsc::Sender<Incoming>,
 }
 
 impl Runner {
@@ -256,8 +261,8 @@ impl Runner {
                 }
             }
             _ => {
-                if let Ok(u) = base::Updates::from_bytes(body) {
-                    let _ = self.updates.try_send(u);
+                if let Ok(updates) = base::Updates::from_bytes(body) {
+                    let _ = self.updates.try_send(Incoming { updates, from_request: false });
                 }
             }
         }
@@ -283,6 +288,9 @@ impl Runner {
                 Err(e) => Err(e.into()),
             }
         } else {
+            if let Ok(updates) = base::Updates::from_bytes(&result) {
+                let _ = self.updates.try_send(Incoming { updates, from_request: true });
+            }
             Ok(result)
         };
         self.answer(req_msg_id, answer);

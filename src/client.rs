@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 
 use tokio::sync::mpsc;
 
 use crate::errors::{Error, Result};
+use crate::handlers::Handler;
 use crate::raw::{LAYER, base, functions};
-use crate::session::Session;
+use crate::session::{Incoming, Session};
 use crate::storage::{self, SessionData, session_string};
 
 const DEFAULT_DC: i32 = 2;
@@ -44,16 +45,16 @@ impl ClientBuilder {
             None => (DEFAULT_DC, None, 0, false),
         };
         let (session, updates) = connect(dc_id, auth_key, self.api_id).await?;
-        let mut client = Client {
-            session,
+        let client = Client(Arc::new(Inner {
+            session: RwLock::new(session),
             updates: tokio::sync::Mutex::new(updates),
             api_id: self.api_id,
             api_hash: self.api_hash,
             storage_path,
-            user_id,
-            is_bot,
+            me: Mutex::new(Me { id: user_id, is_bot, username: None }),
             peers: Mutex::new(HashMap::new()),
-        };
+            handlers: RwLock::new(Vec::new()),
+        }));
         client.save()?;
         if user_id == 0 {
             if let Some(token) = &self.bot_token {
@@ -64,15 +65,24 @@ impl ClientBuilder {
     }
 }
 
-pub struct Client {
-    pub(crate) session: Session,
-    updates: tokio::sync::Mutex<mpsc::Receiver<base::Updates>>,
+#[derive(Clone)]
+pub struct Client(pub(crate) Arc<Inner>);
+
+pub(crate) struct Inner {
+    session: RwLock<Session>,
+    pub(crate) updates: tokio::sync::Mutex<mpsc::Receiver<Incoming>>,
     pub(crate) api_id: i32,
     pub(crate) api_hash: String,
     storage_path: Option<PathBuf>,
-    pub(crate) user_id: i64,
-    pub(crate) is_bot: bool,
+    pub(crate) me: Mutex<Me>,
     pub(crate) peers: Mutex<HashMap<i64, base::InputPeer>>,
+    pub(crate) handlers: RwLock<Vec<Handler>>,
+}
+
+pub(crate) struct Me {
+    pub(crate) id: i64,
+    pub(crate) is_bot: bool,
+    pub(crate) username: Option<String>,
 }
 
 impl Client {
@@ -80,41 +90,45 @@ impl Client {
         ClientBuilder { name: name.into(), api_id, api_hash: api_hash.into(), bot_token: None, session_string: None }
     }
 
-    pub async fn next_update(&self) -> Option<base::Updates> {
-        self.updates.lock().await.recv().await
+    pub(crate) fn session(&self) -> Session {
+        self.0.session.read().unwrap().clone()
     }
 
-    pub(crate) async fn switch_dc(&mut self, dc_id: i32) -> Result<()> {
-        let (session, updates) = connect(dc_id, None, self.api_id).await?;
-        self.session = session;
-        self.updates = tokio::sync::Mutex::new(updates);
-        self.user_id = 0;
+    pub(crate) fn set_me(&self, user: &base::User) {
+        if let base::User::User(u) = user {
+            *self.0.me.lock().unwrap() = Me { id: u.id, is_bot: u.bot, username: u.username.clone() };
+        }
+    }
+
+    pub(crate) async fn switch_dc(&self, dc_id: i32) -> Result<()> {
+        let (session, updates) = connect(dc_id, None, self.0.api_id).await?;
+        *self.0.session.write().unwrap() = session;
+        *self.0.updates.lock().await = updates;
+        self.0.me.lock().unwrap().id = 0;
         self.save()
     }
 
     pub(crate) fn session_data(&self) -> SessionData {
+        let session = self.session();
+        let me = self.0.me.lock().unwrap();
         SessionData {
-            dc_id: self.session.dc_id(),
-            api_id: self.api_id,
-            auth_key: *self.session.auth_key(),
-            user_id: self.user_id,
-            is_bot: self.is_bot,
+            dc_id: session.dc_id(),
+            api_id: self.0.api_id,
+            auth_key: *session.auth_key(),
+            user_id: me.id,
+            is_bot: me.is_bot,
         }
     }
 
     pub(crate) fn save(&self) -> Result<()> {
-        match &self.storage_path {
+        match &self.0.storage_path {
             Some(path) => Ok(storage::save(path, &self.session_data())?),
             None => Ok(()),
         }
     }
 }
 
-async fn connect(
-    dc_id: i32,
-    auth_key: Option<[u8; 256]>,
-    api_id: i32,
-) -> Result<(Session, mpsc::Receiver<base::Updates>)> {
+async fn connect(dc_id: i32, auth_key: Option<[u8; 256]>, api_id: i32) -> Result<(Session, mpsc::Receiver<Incoming>)> {
     let (session, updates) = Session::connect(dc_id, auth_key).await?;
     let init = functions::InvokeWithLayer {
         layer: LAYER,

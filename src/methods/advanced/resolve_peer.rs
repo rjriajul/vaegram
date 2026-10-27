@@ -1,12 +1,11 @@
 use crate::Client;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
-
-const CHANNEL_OFFSET: i64 = 1_000_000_000_000;
+use crate::utils::CHANNEL_OFFSET;
 
 impl Client {
     pub async fn resolve_peer(&self, chat_id: i64) -> Result<base::InputPeer> {
-        if let Some(peer) = self.peers.lock().unwrap().get(&chat_id) {
+        if let Some(peer) = self.0.peers.lock().unwrap().get(&chat_id) {
             return Ok(peer.clone());
         }
 
@@ -48,7 +47,7 @@ impl Client {
             base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: -chat_id }))
         };
 
-        self.peers.lock().unwrap().insert(chat_id, peer.clone());
+        self.0.peers.lock().unwrap().insert(chat_id, peer.clone());
         Ok(peer)
     }
 }

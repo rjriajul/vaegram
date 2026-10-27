@@ -79,3 +79,23 @@ fn unpacks_gzip() {
     assert_eq!(gzip_packed::unpack(&b).unwrap(), inner);
     assert_eq!(gzip_packed::unpack(&b[..8]), Err(Error::UnexpectedEof));
 }
+
+#[test]
+fn updates_expose_pts_and_qts() {
+    let deleted = base::Update::UpdateDeleteMessages(Box::new(types::UpdateDeleteMessages {
+        messages: vec![1, 2],
+        pts: 40,
+        pts_count: 2,
+    }));
+    assert_eq!((deleted.pts(), deleted.qts()), (Some((40, 2)), None));
+
+    let stopped = base::Update::UpdateBotStopped(Box::new(types::UpdateBotStopped {
+        user_id: 1,
+        date: 0,
+        stopped: true,
+        qts: 7,
+    }));
+    assert_eq!((stopped.pts(), stopped.qts()), (None, Some(7)));
+
+    assert_eq!(base::Update::UpdateConfig.pts(), None);
+}

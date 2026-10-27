@@ -13,7 +13,7 @@
 </div>
 
 ```rust
-use vaegram::Client;
+use vaegram::{Client, filters};
 
 #[tokio::main]
 async fn main() -> vaegram::Result<()> {
@@ -22,8 +22,12 @@ async fn main() -> vaegram::Result<()> {
         .start()
         .await?;
 
-    app.send_message(-1001234567890, "Hello from vaegram!").await?;
-    Ok(())
+    app.on_message(filters::command("start") & filters::private(), |msg| async move {
+        msg.reply("Hello from vaegram!").await?;
+        Ok(())
+    });
+
+    app.run().await
 }
 ```
 
@@ -31,8 +35,8 @@ async fn main() -> vaegram::Result<()> {
 Rust. It talks to the main Telegram API directly, as a user account (custom client) or as a bot
 (an alternative to the Bot API).
 
-> **Status: early.** Bot login, sending messages, raw API calls and sessions work and are tested
-> against Telegram's servers. Handlers, filters and user login are next (see [Roadmap](#roadmap)).
+> **Status: early.** Bot login, handlers and filters, sending messages, raw API calls and sessions
+> work and are tested against Telegram's servers. User login is next (see [Roadmap](#roadmap)).
 
 ### Key Features
 
@@ -55,6 +59,44 @@ Requires Rust 1.85+. Prefer a shorter name? `vae = "0.1"` is the same crate: `us
 
 You need an `api_id` and `api_hash` from [my.telegram.org](https://my.telegram.org), and for a bot,
 a token from [@BotFather](https://t.me/BotFather).
+
+### Handlers and Filters
+
+`app.on_message(filter, callback)` runs `callback` for each new message that passes `filter`.
+The first matching handler wins, so put specific ones first. `app.run()` keeps the bot running.
+
+```rust
+use vaegram::filters::{self, command, private, text};
+
+app.on_message(command("start"), |msg| async move {
+    msg.reply("Hi!").await?;
+    Ok(())
+});
+
+app.on_message(text() & private() & !filters::bot(), |msg| async move {
+    println!("{} said {}", msg.chat.id, msg.text);
+    msg.reply(&msg.text).await?;
+    Ok(())
+});
+```
+
+Filters combine with `&`, `|` and `!`. Built in: `all`, `text`, `private`, `group`, `channel`,
+`incoming`, `outgoing`, `bot`, `user(id)`, `chat(id)`, `command(name)`, `commands([...])`.
+Make your own with `filters::create(|msg| msg.text.len() > 100)`.
+
+A `Message` has `id`, `chat`, `from_user`, `sender_chat`, `date`, `text`, `outgoing`, `raw`
+(the full Telegram object), `command()` (`"/echo hi"` gives `["echo", "hi"]`) and `reply(text)`.
+
+Every update, including the ones without a friendly type yet, reaches `app.on_raw_update`:
+
+```rust
+app.on_raw_update(|app, update| async move {
+    println!("{update:?}");
+    Ok(())
+});
+```
+
+Updates missed while connected (gaps in Telegram's sequence) are fetched again automatically.
 
 ### Sessions
 
@@ -97,8 +139,9 @@ supergroups start with `-100`.
 - [x] TL compiler, transport, auth key handshake, encrypted session
 - [x] Bot login, data center migration, `send_message`, `get_me`, raw `invoke`
 - [x] Session files and session strings
-- [ ] Update handlers and filters: `filters::command("start") & filters::private()`
-- [ ] Friendly types: `msg.text()`, `msg.reply()`, `msg.from_user()`
+- [x] Update handlers and filters: `filters::command("start") & filters::private()`
+- [x] Friendly types: `msg.text`, `msg.reply()`, `msg.from_user`
+- [ ] More friendly types and handlers: edited messages, callback queries, inline queries
 - [ ] User login (phone code, 2FA), auto-reconnect, file upload and download
 
 ### Development

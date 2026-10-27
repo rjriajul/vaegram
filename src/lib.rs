@@ -12,6 +12,7 @@ pub mod raw;
 pub mod session;
 pub mod storage;
 pub mod types;
+pub mod utils;
 
 pub use client::{Client, ClientBuilder};
 pub use errors::{Error, Result, RpcError};

@@ -271,6 +271,24 @@ fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def]) {
     writeln!(out, "        }})\n    }}\n}}").unwrap();
 }
 
+fn gen_counter(out: &mut String, ctors: &[&Def], name: &str, ty: &str, fields: &[&str]) {
+    let has = |c: &Def, n: &str| c.fields.iter().any(|f| f.name == n && f.ty == "int" && f.flag.is_none());
+    let value = fields.iter().map(|f| format!("u.{f}")).collect::<Vec<_>>().join(", ");
+    let value = if fields.len() > 1 { format!("({value})") } else { value };
+    writeln!(out, "    pub fn {name}(&self) -> ::std::option::Option<{ty}> {{\n        match self {{").unwrap();
+    for c in ctors.iter().filter(|c| fields.iter().all(|f| has(c, f))) {
+        writeln!(out, "            Self::{}(u) => Some({value}),", pascal(split_ns(&c.name).1)).unwrap();
+    }
+    writeln!(out, "            _ => None,\n        }}\n    }}").unwrap();
+}
+
+fn gen_update_counters(out: &mut String, ctors: &[&Def]) {
+    writeln!(out, "impl Update {{").unwrap();
+    gen_counter(out, ctors, "pts", "(i32, i32)", &["pts", "pts_count"]);
+    gen_counter(out, ctors, "qts", "i32", &["qts"]);
+    writeln!(out, "}}").unwrap();
+}
+
 fn gen_function(out: &mut String, d: &Def) {
     gen_struct(out, d);
     let name = pascal(split_ns(&d.name).1);
@@ -323,7 +341,11 @@ pub fn generate(api: &str, mtproto: &str) -> String {
         }
     }
     for (ty, ctors) in &by_type {
-        gen_enum(mods.entry(("base", split_ns(ty).0)).or_default(), ty, ctors);
+        let out = mods.entry(("base", split_ns(ty).0)).or_default();
+        gen_enum(out, ty, ctors);
+        if *ty == "Update" {
+            gen_update_counters(out, ctors);
+        }
     }
 
     let mut out = format!("/// The API layer this code was generated from.\npub const LAYER: i32 = {layer};\n");
