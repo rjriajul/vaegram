@@ -1,3 +1,4 @@
+mod fake_tls;
 mod obfuscated;
 mod proxy;
 mod transport;
@@ -18,6 +19,7 @@ use crate::errors::Result;
 use crate::session::Observer;
 use crate::session::internals::data_center::Dc;
 use crate::storage::recording::Recorder;
+use fake_tls::{RecordReader, RecordWriter};
 use obfuscated::Ctr;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -65,33 +67,39 @@ impl Connection {
 
     async fn open(dc: &Dc, options: &Options) -> Result<Self> {
         let addr = dc.addr;
-        let (stream, secret) = match &options.proxy {
-            None => (TcpStream::connect(addr).await?, None),
-            Some(Proxy::Socks5 { host, port, auth }) => {
-                let mut stream = TcpStream::connect((host.as_str(), *port)).await?;
-                proxy::socks5(&mut stream, addr, auth.as_ref()).await?;
-                (stream, None)
+        let stream = match &options.proxy {
+            None => TcpStream::connect(addr).await?,
+            Some(proxy) => {
+                let mut stream = TcpStream::connect(proxy.endpoint()).await?;
+                proxy.handshake(&mut stream, addr).await?;
+                stream
             }
-            Some(Proxy::MtProxy { host, port, secret }) => {
-                (TcpStream::connect((host.as_str(), *port)).await?, Some(secret))
-            }
+        };
+        let secret = match &options.proxy {
+            Some(Proxy::MtProxy { secret, .. }) => Some(secret),
+            _ => None,
         };
         let transport =
             if secret.is_some_and(|s| s.padded) { Transport::PaddedIntermediate } else { options.transport };
         stream.set_nodelay(true)?;
+        let tls = secret.is_some_and(|s| s.domain.is_some());
         let (read, mut write) = stream.into_split();
         let tag = transport.tag();
-        let (encrypt, decrypt) = if options.obfuscated || secret.is_some() {
+        let (encrypt, decrypt, records) = if options.obfuscated || secret.is_some() {
             let (header, encrypt, decrypt) = obfuscated::init(tag, dc.wire_id() as i16, secret.map(|s| &s.key));
-            write.write_all(&header).await?;
-            (Some(encrypt), Some(decrypt))
+            // Behind fake TLS the header rides in the first record together with the first packet.
+            let records = tls.then(|| RecordWriter::new(header));
+            if !tls {
+                write.write_all(&header).await?;
+            }
+            (Some(encrypt), Some(decrypt), records)
         } else {
             write.write_all(if transport == Transport::Abridged { &tag[..1] } else { &tag[..] }).await?;
-            (None, None)
+            (None, None, None)
         };
         Ok(Self {
-            reader: Reader { half: read, transport, decrypt },
-            writer: Writer { half: write, transport, encrypt, buf: Vec::new() },
+            reader: Reader { half: read, transport, decrypt, records: tls.then(RecordReader::default) },
+            writer: Writer { half: write, transport, encrypt, records, buf: Vec::new() },
         })
     }
 
@@ -112,6 +120,7 @@ pub(crate) struct Reader {
     half: OwnedReadHalf,
     transport: Transport,
     decrypt: Option<Ctr>,
+    records: Option<RecordReader>,
 }
 
 impl Reader {
@@ -125,7 +134,10 @@ impl AsyncRead for Reader {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         let start = buf.filled().len();
         let this = &mut *self;
-        ready!(Pin::new(&mut this.half).poll_read(cx, buf))?;
+        match &mut this.records {
+            Some(records) => ready!(records.poll_read(&mut this.half, cx, buf))?,
+            None => ready!(Pin::new(&mut this.half).poll_read(cx, buf))?,
+        }
         if let Some(decrypt) = &mut this.decrypt {
             decrypt.apply(&mut buf.filled_mut()[start..]);
         }
@@ -137,6 +149,7 @@ pub(crate) struct Writer {
     half: OwnedWriteHalf,
     transport: Transport,
     encrypt: Option<Ctr>,
+    records: Option<RecordWriter>,
     buf: Vec<u8>,
 }
 
@@ -147,7 +160,11 @@ impl Writer {
         if let Some(encrypt) = &mut self.encrypt {
             encrypt.apply(&mut self.buf);
         }
-        self.half.write_all(&self.buf).await?;
+        let wire = match &mut self.records {
+            Some(records) => records.wrap(&self.buf),
+            None => &self.buf,
+        };
+        self.half.write_all(wire).await?;
         Ok(())
     }
 }
