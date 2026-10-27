@@ -8,6 +8,7 @@ use crate::types::ChatMember;
 
 const PARTICIPANTS_LIMIT: usize = 200;
 
+#[must_use = "a request does nothing until it is awaited"]
 pub struct GetChatMembers<'a> {
     client: &'a Client,
     chat_id: i64,

@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::ChatPermissions;
 
+#[must_use = "a request does nothing until it is awaited"]
 pub struct RestrictChatMember<'a> {
     client: &'a Client,
     chat_id: i64,

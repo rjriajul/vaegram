@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use crate::connection::{Options, Proxy, Transport};
+use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::handlers::Handler;
 use crate::raw::{LAYER, base, functions};
@@ -14,6 +15,7 @@ use crate::storage::{self, SessionData, session_string};
 
 const DEFAULT_DC: i32 = 2;
 
+#[must_use = "call .start() or .connect() to get a client"]
 pub struct ClientBuilder {
     name: String,
     api_id: i32,
@@ -22,6 +24,7 @@ pub struct ClientBuilder {
     test_mode: bool,
     ipv6: bool,
     login: Login,
+    parse_mode: ParseMode,
     options: Options,
 }
 
@@ -86,6 +89,11 @@ impl ClientBuilder {
         self
     }
 
+    pub fn parse_mode(mut self, mode: ParseMode) -> Self {
+        self.parse_mode = mode;
+        self
+    }
+
     pub async fn start(self) -> Result<Client> {
         let (client, login) = self.open().await?;
         if client.0.me.lock().unwrap().id == 0 {
@@ -136,6 +144,7 @@ impl ClientBuilder {
         inner.storage_path = storage_path;
         inner.state_file = state_file;
         inner.options = self.options;
+        inner.parse_mode = self.parse_mode;
         inner.state = Mutex::new(state);
         inner.me = Mutex::new(Me { id: user_id, is_bot, username: None });
         inner.peers = Mutex::new(peers);
@@ -159,6 +168,7 @@ pub(crate) struct Inner {
     storage_path: Option<PathBuf>,
     state_file: Option<Arc<StateFile>>,
     options: Options,
+    pub(crate) parse_mode: ParseMode,
     pub(crate) state: Mutex<Option<UpdateState>>,
     pub(crate) me: Mutex<Me>,
     pub(crate) peers: Mutex<HashMap<i64, base::InputPeer>>,
@@ -184,6 +194,7 @@ impl Inner {
             storage_path: None,
             state_file: None,
             options: Options::default(),
+            parse_mode: ParseMode::Disabled,
             state: Mutex::new(None),
             me: Mutex::new(Me { id: 0, is_bot: false, username: None }),
             peers: Mutex::new(HashMap::new()),
@@ -224,6 +235,7 @@ impl Client {
             test_mode: false,
             ipv6: false,
             login: Login::default(),
+            parse_mode: ParseMode::Disabled,
             options: Options::default(),
         }
     }

@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::Message;
 
+#[must_use = "call .next() to fetch messages"]
 pub struct GetChatHistory<'a> {
     client: &'a Client,
     chat_id: i64,

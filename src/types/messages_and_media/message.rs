@@ -98,6 +98,7 @@ impl Message {
                 base::Update::UpdateNewChannelMessage(u) => u.message,
                 base::Update::UpdateEditMessage(u) => u.message,
                 base::Update::UpdateEditChannelMessage(u) => u.message,
+                base::Update::UpdateBotNewBusinessMessage(u) => u.message,
                 _ => return None,
             };
             Message::from_raw(client, message, &entities)

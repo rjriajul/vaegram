@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::{InlineQueryResultArticle, ReplyMarkup};
 
+#[must_use = "a request does nothing until it is awaited"]
 pub struct AnswerInlineQuery<'a> {
     client: &'a Client,
     query_id: i64,
@@ -48,7 +49,7 @@ impl AnswerInlineQuery<'_> {
     async fn send(self) -> Result<bool> {
         let mut results = Vec::with_capacity(self.results.len());
         for r in self.results {
-            let (message, entities) = self.client.parse_text(&r.text, r.parse_mode).await?;
+            let (message, entities) = self.client.parse_text(&r.text, Some(r.parse_mode)).await?;
             let send_message = types::InputBotInlineMessageText {
                 no_webpage: false,
                 invert_media: false,

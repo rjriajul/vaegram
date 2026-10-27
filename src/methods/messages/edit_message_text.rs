@@ -1,45 +1,27 @@
+use super::send_options::caption_setters;
 use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, ReplyMarkup};
 
+#[must_use = "a request does nothing until it is awaited"]
 pub struct EditMessageText<'a> {
     client: &'a Client,
     chat_id: i64,
     message_id: i32,
     text: String,
-    parse_mode: ParseMode,
+    parse_mode: Option<ParseMode>,
     reply_markup: Option<ReplyMarkup>,
 }
 
 impl Client {
     pub fn edit_message_text(&self, chat_id: i64, message_id: i32, text: impl Into<String>) -> EditMessageText<'_> {
-        EditMessageText {
-            client: self,
-            chat_id,
-            message_id,
-            text: text.into(),
-            parse_mode: ParseMode::Disabled,
-            reply_markup: None,
-        }
+        EditMessageText { client: self, chat_id, message_id, text: text.into(), parse_mode: None, reply_markup: None }
     }
 }
 
 impl EditMessageText<'_> {
-    pub fn html(self) -> Self {
-        self.parse_mode(ParseMode::Html)
-    }
-
-    pub fn markdown(self) -> Self {
-        self.parse_mode(ParseMode::Markdown)
-    }
-
-    pub fn parse_mode(mut self, mode: ParseMode) -> Self {
-        self.parse_mode = mode;
-        self
-    }
-
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
         self
@@ -69,4 +51,5 @@ impl EditMessageText<'_> {
     }
 }
 
+caption_setters!(EditMessageText);
 into_future!(EditMessageText, Message);

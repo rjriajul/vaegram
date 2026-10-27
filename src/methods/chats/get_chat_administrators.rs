@@ -3,6 +3,7 @@ use crate::enums::{ChatMemberStatus, ChatMembersFilter};
 use crate::errors::Result;
 use crate::types::ChatMember;
 
+#[must_use = "a request does nothing until it is awaited"]
 pub struct GetChatAdministrators<'a> {
     client: &'a Client,
     chat_id: i64,

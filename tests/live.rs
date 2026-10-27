@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
+use vaegram::enums::ParseMode;
 use vaegram::raw::{base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
@@ -140,6 +141,49 @@ async fn bot_sends_and_edits_messages() {
 
 fn entities(message: &Message) -> usize {
     message.raw.entities.as_ref().map_or(0, Vec::len)
+}
+
+#[tokio::test]
+#[ignore = "logs in as a bot and sends polls, dice, venues, contacts and locations"]
+async fn bot_sends_polls_and_media() {
+    if std::env::var("VAEGRAM_BOT_TOKEN").is_err() {
+        eprintln!("skipped: set VAEGRAM_API_ID, VAEGRAM_API_HASH, VAEGRAM_BOT_TOKEN and VAEGRAM_CHAT_ID");
+        return;
+    }
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let app =
+        Client::builder("target/vaegram-live-sends", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+            .bot_token(env("VAEGRAM_BOT_TOKEN"))
+            .start()
+            .await
+            .unwrap();
+    let chat_id = env("VAEGRAM_CHAT_ID").parse().unwrap();
+
+    let dice = app.send_dice(chat_id).emoji("🎯").disable_notification().await.unwrap();
+    let Some(base::MessageMedia::MessageMediaDice(d)) = &dice.raw.media else { panic!("no dice in {dice:?}") };
+    assert_eq!(d.emoticon, "🎯");
+    let venue = app.send_venue(chat_id, 51.5007, -0.1246, "Big Ben", "London SW1A 0AA").await.unwrap();
+    assert!(matches!(venue.raw.media, Some(base::MessageMedia::MessageMediaVenue(_))));
+    let contact = app.send_contact(chat_id, "+15555550100", "Vae").last_name("Gram").await.unwrap();
+    assert!(matches!(contact.raw.media, Some(base::MessageMedia::MessageMediaContact(_))));
+    let location = app.send_location(chat_id, 51.5007, -0.1246).reply_to(contact.id).await.unwrap();
+    assert!(location.raw.reply_to.is_some());
+
+    let quiz = app
+        .send_poll(chat_id, "2 + 2?", ["3", "4"])
+        .quiz([1])
+        .explanation("<b>Basic</b> math")
+        .explanation_parse_mode(ParseMode::Html)
+        .await
+        .unwrap();
+    let stopped = app.stop_poll(chat_id, quiz.id).await.unwrap();
+    let Some(base::MessageMedia::MessageMediaPoll(media)) = &stopped.raw.media else { panic!("no poll") };
+    let base::Poll::Poll(poll) = &media.poll;
+    assert!(poll.closed && poll.quiz);
+
+    for message in [dice, venue, contact, location, stopped] {
+        message.delete().await.unwrap();
+    }
 }
 
 #[tokio::test]

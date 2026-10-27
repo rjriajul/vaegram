@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::Message;
 
+#[must_use = "call .next() to fetch messages"]
 pub struct SearchMessages<'a> {
     client: &'a Client,
     chat_id: i64,

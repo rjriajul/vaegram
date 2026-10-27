@@ -2,6 +2,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::functions;
 
+#[must_use = "a request does nothing until it is awaited"]
 pub struct PinChatMessage<'a> {
     client: &'a Client,
     chat_id: i64,

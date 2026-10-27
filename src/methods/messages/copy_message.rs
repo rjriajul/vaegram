@@ -1,18 +1,19 @@
+use super::send_options::{SendOptions, caption_setters, send_builder};
 use crate::Client;
-use crate::crypto::random;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
-use crate::raw::{base, functions, types};
-use crate::types::{Message, ReplyMarkup};
+use crate::raw::{base, types};
+use crate::types::Message;
 
+#[must_use = "a request does nothing until it is awaited"]
 pub struct CopyMessage<'a> {
     client: &'a Client,
     chat_id: i64,
     from_chat_id: i64,
     message_id: i32,
     caption: Option<String>,
-    parse_mode: ParseMode,
-    reply_markup: Option<ReplyMarkup>,
+    parse_mode: Option<ParseMode>,
+    options: SendOptions,
 }
 
 impl Client {
@@ -23,8 +24,8 @@ impl Client {
             from_chat_id,
             message_id,
             caption: None,
-            parse_mode: ParseMode::Disabled,
-            reply_markup: None,
+            parse_mode: None,
+            options: SendOptions::default(),
         }
     }
 }
@@ -35,98 +36,26 @@ impl CopyMessage<'_> {
         self
     }
 
-    pub fn html(self) -> Self {
-        self.parse_mode(ParseMode::Html)
-    }
-
-    pub fn markdown(self) -> Self {
-        self.parse_mode(ParseMode::Markdown)
-    }
-
-    pub fn parse_mode(mut self, mode: ParseMode) -> Self {
-        self.parse_mode = mode;
-        self
-    }
-
-    pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
-        self.reply_markup = Some(markup.into());
-        self
-    }
-
-    async fn send(self) -> Result<Message> {
+    async fn send(mut self) -> Result<Message> {
         let client = self.client;
         let (mut found, _) = client.get_raw_messages(self.from_chat_id, &[self.message_id]).await?;
         let source = *found.pop().flatten().ok_or(Error::Unexpected("getMessages returned no message to copy"))?;
-        let preview = matches!(source.media, Some(base::MessageMedia::MessageMediaWebPage(_)));
+        self.options.no_webpage = !matches!(source.media, Some(base::MessageMedia::MessageMediaWebPage(_)));
+        self.options.invert_media = source.invert_media;
         let media = source.media.map(input_media).transpose()?.flatten();
-        let (message, entities) = match (&self.caption, media.is_some()) {
+        let text = match (&self.caption, media.is_some()) {
             (Some(caption), true) => {
                 let (text, entities) = client.parse_text(caption, self.parse_mode).await?;
                 (text, (!entities.is_empty()).then_some(entities))
             }
             _ => (source.message, input_entities(client, source.entities).await?),
         };
-        let peer = client.resolve_peer(self.chat_id).await?;
-        let random_id = i64::from_le_bytes(random());
-        let reply_markup = self.reply_markup.as_ref().map(ReplyMarkup::write);
-        let (updates, sent) = match media {
-            Some(media) => {
-                let request = functions::messages::SendMedia {
-                    silent: false,
-                    background: false,
-                    clear_draft: false,
-                    noforwards: false,
-                    update_stickersets_order: false,
-                    invert_media: source.invert_media,
-                    allow_paid_floodskip: false,
-                    peer,
-                    reply_to: None,
-                    media,
-                    message,
-                    random_id,
-                    reply_markup,
-                    entities,
-                    schedule_date: None,
-                    schedule_repeat_period: None,
-                    send_as: None,
-                    quick_reply_shortcut: None,
-                    effect: None,
-                    allow_paid_stars: None,
-                    suggested_post: None,
-                };
-                (client.invoke(&request).await?, (request.message, request.entities))
-            }
-            None => {
-                let request = functions::messages::SendMessage {
-                    no_webpage: !preview,
-                    silent: false,
-                    background: false,
-                    clear_draft: false,
-                    noforwards: false,
-                    update_stickersets_order: false,
-                    invert_media: source.invert_media,
-                    allow_paid_floodskip: false,
-                    peer,
-                    reply_to: None,
-                    message,
-                    random_id,
-                    reply_markup,
-                    entities,
-                    schedule_date: None,
-                    schedule_repeat_period: None,
-                    send_as: None,
-                    quick_reply_shortcut: None,
-                    effect: None,
-                    allow_paid_stars: None,
-                    suggested_post: None,
-                    rich_message: None,
-                };
-                (client.invoke(&request).await?, (request.message, request.entities))
-            }
-        };
-        Message::from_updates(client, updates, self.chat_id, sent)
+        client.send_parsed(self.chat_id, media, text, self.options).await
     }
 }
+
+caption_setters!(CopyMessage);
+send_builder!(CopyMessage);
 
 /// Received mentions carry a bare user id; sending them needs the user's access hash.
 async fn input_entities(
@@ -233,5 +162,3 @@ fn input_geo_point(geo: base::GeoPoint) -> Option<base::InputGeoPoint> {
         base::GeoPoint::GeoPointEmpty => None,
     }
 }
-
-into_future!(CopyMessage, Message);
