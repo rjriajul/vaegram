@@ -3,80 +3,92 @@ use std::sync::Arc;
 
 use crate::enums::ChatType;
 use crate::raw::base;
-use crate::types::Message;
+use crate::types::{CallbackQuery, Message};
 
-#[derive(Clone)]
-pub struct Filter(Arc<dyn Fn(&Message) -> bool + Send + Sync>);
+pub struct Filter<T = Message>(Arc<dyn Fn(&T) -> bool + Send + Sync>);
 
-impl Filter {
-    pub fn check(&self, message: &Message) -> bool {
-        (self.0)(message)
+impl<T> Clone for Filter<T> {
+    fn clone(&self) -> Self {
+        Filter(self.0.clone())
     }
 }
 
-pub fn create(f: impl Fn(&Message) -> bool + Send + Sync + 'static) -> Filter {
+impl<T> Filter<T> {
+    pub fn check(&self, value: &T) -> bool {
+        (self.0)(value)
+    }
+}
+
+pub fn create<T>(f: impl Fn(&T) -> bool + Send + Sync + 'static) -> Filter<T> {
     Filter(Arc::new(f))
 }
 
-impl BitAnd for Filter {
-    type Output = Filter;
-    fn bitand(self, other: Filter) -> Filter {
-        create(move |m| self.check(m) && other.check(m))
+impl<T: 'static> BitAnd for Filter<T> {
+    type Output = Filter<T>;
+    fn bitand(self, other: Filter<T>) -> Filter<T> {
+        create(move |v| self.check(v) && other.check(v))
     }
 }
 
-impl BitOr for Filter {
-    type Output = Filter;
-    fn bitor(self, other: Filter) -> Filter {
-        create(move |m| self.check(m) || other.check(m))
+impl<T: 'static> BitOr for Filter<T> {
+    type Output = Filter<T>;
+    fn bitor(self, other: Filter<T>) -> Filter<T> {
+        create(move |v| self.check(v) || other.check(v))
     }
 }
 
-impl Not for Filter {
-    type Output = Filter;
-    fn not(self) -> Filter {
-        create(move |m| !self.check(m))
+impl<T: 'static> Not for Filter<T> {
+    type Output = Filter<T>;
+    fn not(self) -> Filter<T> {
+        create(move |v| !self.check(v))
     }
 }
 
-pub fn all() -> Filter {
+pub fn all<T>() -> Filter<T> {
     create(|_| true)
 }
 
+pub fn data(value: impl Into<String>) -> Filter<CallbackQuery> {
+    let value = value.into();
+    create(move |q: &CallbackQuery| q.data == value)
+}
+
 pub fn text() -> Filter {
-    create(|m| !m.text.is_empty() && matches!(m.raw.media, None | Some(base::MessageMedia::MessageMediaWebPage(_))))
+    create(|m: &Message| {
+        !m.text.is_empty() && matches!(m.raw.media, None | Some(base::MessageMedia::MessageMediaWebPage(_)))
+    })
 }
 
 pub fn private() -> Filter {
-    create(|m| matches!(m.chat.kind, ChatType::Private | ChatType::Bot))
+    create(|m: &Message| matches!(m.chat.kind, ChatType::Private | ChatType::Bot))
 }
 
 pub fn group() -> Filter {
-    create(|m| matches!(m.chat.kind, ChatType::Group | ChatType::Supergroup))
+    create(|m: &Message| matches!(m.chat.kind, ChatType::Group | ChatType::Supergroup))
 }
 
 pub fn channel() -> Filter {
-    create(|m| m.chat.kind == ChatType::Channel)
+    create(|m: &Message| m.chat.kind == ChatType::Channel)
 }
 
 pub fn incoming() -> Filter {
-    create(|m| !m.outgoing)
+    create(|m: &Message| !m.outgoing)
 }
 
 pub fn outgoing() -> Filter {
-    create(|m| m.outgoing)
+    create(|m: &Message| m.outgoing)
 }
 
 pub fn bot() -> Filter {
-    create(|m| m.from_user.as_ref().is_some_and(|u| u.is_bot))
+    create(|m: &Message| m.from_user.as_ref().is_some_and(|u| u.is_bot))
 }
 
 pub fn user(id: i64) -> Filter {
-    create(move |m| m.from_user.as_ref().is_some_and(|u| u.id == id))
+    create(move |m: &Message| m.from_user.as_ref().is_some_and(|u| u.id == id))
 }
 
 pub fn chat(id: i64) -> Filter {
-    create(move |m| m.chat.id == id)
+    create(move |m: &Message| m.chat.id == id)
 }
 
 pub fn command(name: &str) -> Filter {
@@ -85,5 +97,5 @@ pub fn command(name: &str) -> Filter {
 
 pub fn commands<S: Into<String>>(names: impl IntoIterator<Item = S>) -> Filter {
     let names: Vec<String> = names.into_iter().map(Into::into).collect();
-    create(move |m| m.command().is_some_and(|c| names.iter().any(|n| n.eq_ignore_ascii_case(c[0]))))
+    create(move |m: &Message| m.command().is_some_and(|c| names.iter().any(|n| n.eq_ignore_ascii_case(c[0]))))
 }

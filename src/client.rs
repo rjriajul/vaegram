@@ -16,13 +16,36 @@ pub struct ClientBuilder {
     name: String,
     api_id: i32,
     api_hash: String,
-    bot_token: Option<String>,
     session_string: Option<String>,
+    login: Login,
+}
+
+#[derive(Default)]
+pub(crate) struct Login {
+    pub(crate) bot_token: Option<String>,
+    pub(crate) phone_number: Option<String>,
+    pub(crate) phone_code: Option<String>,
+    pub(crate) password: Option<String>,
 }
 
 impl ClientBuilder {
     pub fn bot_token(mut self, token: impl Into<String>) -> Self {
-        self.bot_token = Some(token.into());
+        self.login.bot_token = Some(token.into());
+        self
+    }
+
+    pub fn phone_number(mut self, phone_number: impl Into<String>) -> Self {
+        self.login.phone_number = Some(phone_number.into());
+        self
+    }
+
+    pub fn phone_code(mut self, phone_code: impl Into<String>) -> Self {
+        self.login.phone_code = Some(phone_code.into());
+        self
+    }
+
+    pub fn password(mut self, password: impl Into<String>) -> Self {
+        self.login.password = Some(password.into());
         self
     }
 
@@ -32,6 +55,18 @@ impl ClientBuilder {
     }
 
     pub async fn start(self) -> Result<Client> {
+        let (client, login) = self.open().await?;
+        if client.0.me.lock().unwrap().id == 0 {
+            client.authorize(login).await?;
+        }
+        Ok(client)
+    }
+
+    pub async fn connect(self) -> Result<Client> {
+        Ok(self.open().await?.0)
+    }
+
+    async fn open(self) -> Result<(Client, Login)> {
         let (storage_path, stored) = match &self.session_string {
             Some(s) => (None, Some(session_string::parse(s).map_err(Error::InvalidSession)?)),
             None => {
@@ -56,12 +91,7 @@ impl ClientBuilder {
             handlers: RwLock::new(Vec::new()),
         }));
         client.save()?;
-        if user_id == 0 {
-            if let Some(token) = &self.bot_token {
-                client.sign_in_bot(token).await?;
-            }
-        }
-        Ok(client)
+        Ok((client, self.login))
     }
 }
 
@@ -87,7 +117,13 @@ pub(crate) struct Me {
 
 impl Client {
     pub fn builder(name: impl Into<String>, api_id: i32, api_hash: impl Into<String>) -> ClientBuilder {
-        ClientBuilder { name: name.into(), api_id, api_hash: api_hash.into(), bot_token: None, session_string: None }
+        ClientBuilder {
+            name: name.into(),
+            api_id,
+            api_hash: api_hash.into(),
+            session_string: None,
+            login: Login::default(),
+        }
     }
 
     pub(crate) fn session(&self) -> Session {

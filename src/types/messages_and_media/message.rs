@@ -3,9 +3,11 @@ use std::fmt;
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::ChatType;
-use crate::errors::Result;
-use crate::raw::{base, types};
+use crate::errors::{Error, Result};
+use crate::methods::{EditMessageText, SendMessage};
+use crate::raw::{Serializable, base, types};
 use crate::types::{Chat, User};
+use crate::utils::get_peer;
 
 #[derive(Clone)]
 pub struct Message {
@@ -16,6 +18,7 @@ pub struct Message {
     pub date: i32,
     pub text: String,
     pub outgoing: bool,
+    pub edit_date: Option<i32>,
     pub raw: Box<types::Message>,
     client: Client,
 }
@@ -42,9 +45,54 @@ impl Message {
             date: raw.date,
             text: raw.message.clone(),
             outgoing: raw.out,
+            edit_date: raw.edit_date,
             raw: Box::new(raw.clone()),
             client: client.clone(),
         }
+    }
+
+    pub(crate) fn from_updates(
+        client: &Client,
+        updates: base::Updates,
+        chat_id: i64,
+        sent: (String, Option<Vec<base::MessageEntity>>),
+    ) -> Result<Message> {
+        let (updates, users, chats) = match updates {
+            base::Updates::UpdateShortSentMessage(u) => {
+                let mut raw = bare_message(u.id, get_peer(chat_id), u.date)?;
+                raw.out = u.out;
+                raw.from_id = u.out.then(|| get_peer(client.0.me.lock().unwrap().id));
+                (raw.message, raw.entities, raw.media) = (sent.0, u.entities.or(sent.1), u.media);
+                return Ok(Message::parse(client, &raw, &Entities::default()));
+            }
+            base::Updates::Updates(u) => (u.updates, u.users, u.chats),
+            base::Updates::UpdatesCombined(u) => (u.updates, u.users, u.chats),
+            base::Updates::UpdateShort(u) => (vec![u.update], Vec::new(), Vec::new()),
+            _ => return Err(Error::Unexpected("Telegram sent no message back")),
+        };
+        let entities = Entities::new(client, users, chats);
+        updates
+            .into_iter()
+            .find_map(|u| match u {
+                base::Update::UpdateNewMessage(u) => Some(u.message),
+                base::Update::UpdateNewChannelMessage(u) => Some(u.message),
+                base::Update::UpdateEditMessage(u) => Some(u.message),
+                base::Update::UpdateEditChannelMessage(u) => Some(u.message),
+                _ => None,
+            })
+            .and_then(|m| match m {
+                base::Message::Message(m) => Some(Message::parse(client, &m, &entities)),
+                _ => None,
+            })
+            .ok_or(Error::Unexpected("Telegram sent no message back"))
+    }
+
+    pub fn edit_text(&self, text: impl Into<String>) -> EditMessageText<'_> {
+        self.client.edit_message_text(self.chat.id, self.id, text)
+    }
+
+    pub async fn delete(&self) -> Result<()> {
+        self.client.delete_messages(self.chat.id, &[self.id]).await
     }
 
     pub fn client(&self) -> &Client {
@@ -56,9 +104,12 @@ impl Message {
         parse_command(&self.text, me.username.as_deref())
     }
 
-    pub async fn reply(&self, text: &str) -> Result<base::Updates> {
-        let quote = !matches!(self.chat.kind, ChatType::Private | ChatType::Bot);
-        self.client.send_text(self.chat.id, text, quote.then_some(self.id)).await
+    pub fn reply(&self, text: impl Into<String>) -> SendMessage<'_> {
+        let send = self.client.send_message(self.chat.id, text);
+        match self.chat.kind {
+            ChatType::Private | ChatType::Bot => send,
+            _ => send.reply_to(self.id),
+        }
     }
 }
 
@@ -72,8 +123,20 @@ impl fmt::Debug for Message {
             .field("date", &self.date)
             .field("text", &self.text)
             .field("outgoing", &self.outgoing)
+            .field("edit_date", &self.edit_date)
             .finish_non_exhaustive()
     }
+}
+
+fn bare_message(id: i32, peer_id: base::Peer, date: i32) -> Result<types::Message> {
+    let mut buf = Vec::new();
+    0u32.serialize(&mut buf);
+    0u32.serialize(&mut buf);
+    id.serialize(&mut buf);
+    peer_id.serialize(&mut buf);
+    date.serialize(&mut buf);
+    String::new().serialize(&mut buf);
+    Ok(types::Message::deserialize_bare(&mut &buf[..])?)
 }
 
 pub(crate) fn parse_command<'a>(text: &'a str, my_username: Option<&str>) -> Option<Vec<&'a str>> {

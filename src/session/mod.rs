@@ -2,6 +2,7 @@ mod auth;
 pub mod internals;
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -27,6 +28,8 @@ const HANDSHAKE_ATTEMPTS: usize = 3;
 const PING_EVERY: Duration = Duration::from_secs(60);
 const ACKS_THRESHOLD: usize = 10;
 const UPDATES_BUFFER: usize = 1024;
+const RECONNECT_DELAY: Duration = Duration::from_millis(500);
+const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(30);
 
 type Answer = Result<Vec<u8>>;
 
@@ -65,13 +68,14 @@ impl Session {
             }
         };
 
-        let (reader, writer) = conn.into_split();
-        let (packets_tx, packets) = mpsc::channel(64);
-        let reader_task = tokio::spawn(read_packets(reader, packets_tx));
+        let (writer, packets, reader) = start_reading(conn);
         let (requests_tx, requests) = mpsc::unbounded_channel();
         let (updates_tx, updates) = mpsc::channel(UPDATES_BUFFER);
         let runner = Runner {
+            addr,
             writer,
+            packets,
+            reader,
             auth_key,
             auth_key_id: sha1(&[&auth_key])[12..].try_into().unwrap(),
             session_id: random(),
@@ -82,7 +86,7 @@ impl Session {
             acks: Vec::new(),
             updates: updates_tx,
         };
-        tokio::spawn(runner.run(packets, requests, reader_task));
+        tokio::spawn(runner.run(requests));
         Ok((Session { requests: requests_tx, dc_id, auth_key }, updates))
     }
 
@@ -100,6 +104,12 @@ impl Session {
         let body = rx.await.map_err(|_| Error::Disconnected)??;
         Ok(R::Return::from_bytes(&body)?)
     }
+}
+
+fn start_reading(conn: Connection) -> (OwnedWriteHalf, mpsc::Receiver<Result<Vec<u8>>>, JoinHandle<()>) {
+    let (reader, writer) = conn.into_split();
+    let (packets_tx, packets) = mpsc::channel(64);
+    (writer, packets, tokio::spawn(read_packets(reader, packets_tx)))
 }
 
 async fn read_packets(mut reader: OwnedReadHalf, packets: mpsc::Sender<Result<Vec<u8>>>) {
@@ -122,7 +132,10 @@ struct Pending {
 }
 
 struct Runner {
+    addr: SocketAddr,
     writer: OwnedWriteHalf,
+    packets: mpsc::Receiver<Result<Vec<u8>>>,
+    reader: JoinHandle<()>,
     auth_key: [u8; 256],
     auth_key_id: [u8; 8],
     session_id: [u8; 8],
@@ -135,12 +148,7 @@ struct Runner {
 }
 
 impl Runner {
-    async fn run(
-        mut self,
-        mut packets: mpsc::Receiver<Result<Vec<u8>>>,
-        mut requests: mpsc::UnboundedReceiver<Request>,
-        reader_task: JoinHandle<()>,
-    ) {
+    async fn run(mut self, mut requests: mpsc::UnboundedReceiver<Request>) {
         let mut ping = tokio::time::interval(PING_EVERY);
         let reason = loop {
             let step = tokio::select! {
@@ -148,18 +156,23 @@ impl Runner {
                     Some(r) => self.send_request(r).await,
                     None => break Error::Disconnected,
                 },
-                packet = packets.recv() => match packet {
+                packet = self.packets.recv() => match packet {
                     Some(Ok(p)) => self.handle_packet(&p).await,
                     Some(Err(e)) => Err(e),
                     None => Err(Error::Disconnected),
                 },
                 _ = ping.tick() => self.ping().await,
             };
-            if let Err(e) = step {
-                break e;
+            match step {
+                Ok(()) => {}
+                Err(e @ Error::Transport(404)) => break e,
+                Err(_) => {
+                    self.reconnect().await;
+                    ping.reset();
+                }
             }
         };
-        reader_task.abort();
+        self.reader.abort();
         let code = match reason {
             Error::Transport(code) => Some(code),
             _ => None,
@@ -167,6 +180,37 @@ impl Runner {
         for (_, p) in self.pending.drain() {
             let _ = p.answer.send(Err(code.map_or(Error::Disconnected, Error::Transport)));
         }
+    }
+
+    async fn reconnect(&mut self) {
+        let mut delay = RECONNECT_DELAY;
+        while !self.updates.is_closed() {
+            self.reader.abort();
+            tokio::time::sleep(delay).await;
+            delay = (delay * 2).min(MAX_RECONNECT_DELAY);
+            let Ok(conn) = Connection::connect(self.addr).await else { continue };
+            (self.writer, self.packets, self.reader) = start_reading(conn);
+            if self.resend_pending().await.is_ok() {
+                let _ = self.updates.try_send(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
+                return;
+            }
+        }
+    }
+
+    async fn resend_pending(&mut self) -> Result<()> {
+        self.acks.clear();
+        let mut pending = std::mem::take(&mut self.pending).into_iter();
+        while let Some((old_msg_id, p)) = pending.next() {
+            match self.send(&p.body, true).await {
+                Ok(msg_id) => self.pending.insert(msg_id, p),
+                Err(e) => {
+                    self.pending.insert(old_msg_id, p);
+                    self.pending.extend(pending);
+                    return Err(e);
+                }
+            };
+        }
+        self.ping().await
     }
 
     async fn send(&mut self, body: &[u8], content_related: bool) -> Result<i64> {

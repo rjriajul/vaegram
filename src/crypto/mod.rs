@@ -1,5 +1,6 @@
 pub mod aes;
 pub mod mtproto;
+pub(crate) mod password;
 pub mod prime;
 pub mod rsa;
 

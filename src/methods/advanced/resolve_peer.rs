@@ -8,6 +8,9 @@ impl Client {
         if let Some(peer) = self.0.peers.lock().unwrap().get(&chat_id) {
             return Ok(peer.clone());
         }
+        if chat_id == self.0.me.lock().unwrap().id {
+            return Ok(base::InputPeer::InputPeerSelf);
+        }
 
         let peer = if chat_id > 0 {
             let input = types::InputUser { user_id: chat_id, access_hash: 0 };

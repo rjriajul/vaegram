@@ -47,6 +47,7 @@ pub enum Error {
     PeerNotFound(i64),
     Unexpected(&'static str),
     InvalidSession(&'static str),
+    SignUpRequired,
 }
 
 impl fmt::Display for Error {
@@ -64,6 +65,9 @@ impl fmt::Display for Error {
             Error::PeerNotFound(id) => write!(f, "chat {id} not found for this account"),
             Error::Unexpected(what) => write!(f, "unexpected answer from Telegram: {what}"),
             Error::InvalidSession(why) => write!(f, "invalid session string: {why}"),
+            Error::SignUpRequired => {
+                f.write_str("this phone number has no Telegram account yet; sign up in an app first")
+            }
         }
     }
 }

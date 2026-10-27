@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use crate::Client;
 use crate::errors::Result;
-use crate::handlers::{BoxFuture, Handler};
+use crate::handlers::{BoxFuture, Event, Handler};
 use crate::raw::{base, functions, types};
 use crate::session::Incoming;
-use crate::types::Message;
+use crate::types::{CallbackQuery, InlineQuery, Message};
 use crate::utils::get_channel_id;
 
 const CHANNEL_DIFFERENCE_LIMIT: i32 = 100;
@@ -16,6 +16,45 @@ const CHANNEL_DIFFERENCE_LIMIT: i32 = 100;
 pub(crate) struct Entities {
     pub(crate) users: HashMap<i64, base::User>,
     pub(crate) chats: HashMap<i64, base::Chat>,
+}
+
+impl Entities {
+    pub(crate) fn new(client: &Client, users: Vec<base::User>, chats: Vec<base::Chat>) -> Entities {
+        let mut peers = client.0.peers.lock().unwrap();
+        let mut entities = Entities::default();
+        for user in users {
+            if let base::User::User(u) = &user {
+                if let (false, Some(access_hash)) = (u.min, u.access_hash) {
+                    let peer = types::InputPeerUser { user_id: u.id, access_hash };
+                    peers.insert(u.id, base::InputPeer::InputPeerUser(Box::new(peer)));
+                }
+                entities.users.insert(u.id, user);
+            }
+        }
+        for chat in chats {
+            let (id, peer) = match &chat {
+                base::Chat::Chat(c) => (-c.id, None),
+                base::Chat::ChatForbidden(c) => (-c.id, None),
+                base::Chat::Channel(c) => {
+                    let peer = match (c.min, c.access_hash) {
+                        (false, Some(access_hash)) => Some(types::InputPeerChannel { channel_id: c.id, access_hash }),
+                        _ => None,
+                    };
+                    (get_channel_id(c.id), peer)
+                }
+                base::Chat::ChannelForbidden(c) => (
+                    get_channel_id(c.id),
+                    Some(types::InputPeerChannel { channel_id: c.id, access_hash: c.access_hash }),
+                ),
+                _ => continue,
+            };
+            if let Some(peer) = peer {
+                peers.insert(id, base::InputPeer::InputPeerChannel(Box::new(peer)));
+            }
+            entities.chats.insert(id, chat);
+        }
+        entities
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -136,7 +175,7 @@ impl Dispatcher {
                 Gap::Apply => {}
             }
         }
-        let entities = Arc::new(self.entities(users, chats));
+        let entities = Arc::new(Entities::new(&self.client, users, chats));
         for update in updates {
             self.update(update, &entities, quiet).await?;
         }
@@ -218,7 +257,7 @@ impl Dispatcher {
                     (d.new_messages, d.other_updates, d.users, d.chats, d.intermediate_state, false)
                 }
             };
-            let entities = Arc::new(self.entities(users, chats));
+            let entities = Arc::new(Entities::new(&self.client, users, chats));
             for message in messages {
                 self.emit(new_message(message), &entities);
             }
@@ -262,7 +301,7 @@ impl Dispatcher {
                 }
                 base::updates::ChannelDifference::ChannelDifferenceTooLong(d) => {
                     let d = *d;
-                    let entities = Arc::new(self.entities(d.users, d.chats));
+                    let entities = Arc::new(Entities::new(&self.client, d.users, d.chats));
                     for message in d.messages {
                         self.emit(new_channel_message(message), &entities);
                     }
@@ -273,7 +312,7 @@ impl Dispatcher {
                 }
                 base::updates::ChannelDifference::ChannelDifference(d) => {
                     let d = *d;
-                    let entities = Arc::new(self.entities(d.users, d.chats));
+                    let entities = Arc::new(Entities::new(&self.client, d.users, d.chats));
                     for message in d.new_messages {
                         self.emit(new_channel_message(message), &entities);
                     }
@@ -291,63 +330,37 @@ impl Dispatcher {
         Ok(())
     }
 
-    fn entities(&self, users: Vec<base::User>, chats: Vec<base::Chat>) -> Entities {
-        let mut peers = self.client.0.peers.lock().unwrap();
-        let mut entities = Entities::default();
-        for user in users {
-            if let base::User::User(u) = &user {
-                if let (false, Some(access_hash)) = (u.min, u.access_hash) {
-                    let peer = types::InputPeerUser { user_id: u.id, access_hash };
-                    peers.insert(u.id, base::InputPeer::InputPeerUser(Box::new(peer)));
-                }
-                entities.users.insert(u.id, user);
-            }
-        }
-        for chat in chats {
-            let (id, peer) = match &chat {
-                base::Chat::Chat(c) => (-c.id, None),
-                base::Chat::ChatForbidden(c) => (-c.id, None),
-                base::Chat::Channel(c) => {
-                    let peer = match (c.min, c.access_hash) {
-                        (false, Some(access_hash)) => Some(types::InputPeerChannel { channel_id: c.id, access_hash }),
-                        _ => None,
-                    };
-                    (get_channel_id(c.id), peer)
-                }
-                base::Chat::ChannelForbidden(c) => (
-                    get_channel_id(c.id),
-                    Some(types::InputPeerChannel { channel_id: c.id, access_hash: c.access_hash }),
-                ),
-                _ => continue,
-            };
-            if let Some(peer) = peer {
-                peers.insert(id, base::InputPeer::InputPeerChannel(Box::new(peer)));
-            }
-            entities.chats.insert(id, chat);
-        }
-        entities
-    }
-
     fn dispatch(&self, update: base::Update, entities: &Entities) {
         let handlers = self.client.0.handlers.read().unwrap().clone();
-        let message = match &update {
-            base::Update::UpdateNewMessage(u) => Some(&u.message),
-            base::Update::UpdateNewChannelMessage(u) => Some(&u.message),
-            _ => None,
-        };
-        let mut message = match message {
-            Some(base::Message::Message(m)) => Some(Message::parse(&self.client, m, entities)),
-            _ => None,
-        };
-        for handler in handlers {
+        let mut event = self.event(&update, entities);
+        for handler in &handlers {
             match handler {
                 Handler::RawUpdate(callback) => spawn(callback(self.client.clone(), update.clone())),
-                Handler::Message(filter, callback) => {
-                    if message.as_ref().is_some_and(|m| filter.check(m)) {
-                        spawn(callback(message.take().unwrap()));
+                _ => {
+                    if let Some(future) = Event::run(&mut event, handler) {
+                        spawn(future);
                     }
                 }
             }
+        }
+    }
+
+    fn event(&self, update: &base::Update, entities: &Entities) -> Option<Event> {
+        let client = &self.client;
+        let message = |m: &base::Message| match m {
+            base::Message::Message(m) => Some(Message::parse(client, m, entities)),
+            _ => None,
+        };
+        match update {
+            base::Update::UpdateNewMessage(u) => message(&u.message).map(Event::Message),
+            base::Update::UpdateNewChannelMessage(u) => message(&u.message).map(Event::Message),
+            base::Update::UpdateEditMessage(u) => message(&u.message).map(Event::EditedMessage),
+            base::Update::UpdateEditChannelMessage(u) => message(&u.message).map(Event::EditedMessage),
+            base::Update::UpdateBotCallbackQuery(u) => {
+                Some(Event::CallbackQuery(CallbackQuery::parse(client, u, entities)))
+            }
+            base::Update::UpdateBotInlineQuery(u) => Some(Event::InlineQuery(InlineQuery::parse(client, u, entities))),
+            _ => None,
         }
     }
 }
