@@ -61,6 +61,54 @@ pub struct Record {
     pub body: Vec<u8>,
 }
 
+#[cfg(feature = "json")]
+impl Record {
+    /// One line for a readable dump: `{"outgoing":true,"msg_id":4,"unix_ms":0,"body":{..}}`, the body in the
+    /// shape of [`ToJson`](crate::raw::ToJson). A body this layer can't decode, such as one cut down to its
+    /// constructor id, is `{"cut":"<TL name>"}`, or `{"cut":<id>}` for an id it doesn't know.
+    pub fn to_json(&self) -> String {
+        use crate::raw::ToJson;
+        let mut out = format!(r#"{{"outgoing":{},"msg_id":"#, self.outgoing);
+        self.msg_id.to_json(&mut out);
+        out.push_str(r#","unix_ms":"#);
+        self.unix_ms.to_json(&mut out);
+        out.push_str(r#","body":"#);
+        body_json(&self.body, &mut out);
+        out.push('}');
+        out
+    }
+}
+
+#[cfg(feature = "json")]
+fn body_json(body: &[u8], out: &mut String) {
+    use crate::raw::ToJson;
+    match constructor_id(body) {
+        Some(gzip_packed::ID) => match gzip_packed::unpack(body) {
+            Ok(plain) => body_json(&plain, out),
+            Err(_) => out.push_str(r#"{"cut":"gzip_packed"}"#),
+        },
+        Some(RPC_RESULT) if body.len() >= 12 => {
+            out.push_str(r#"{"_":"rpc_result","req_msg_id":"#);
+            i64::from_le_bytes(body[4..12].try_into().unwrap()).to_json(out);
+            out.push_str(r#","result":"#);
+            body_json(&body[12..], out);
+            out.push('}');
+        }
+        Some(id) => match crate::raw::json_of(body) {
+            Some(json) => out.push_str(&json),
+            None => match crate::raw::tl_name(id) {
+                Some(name) => {
+                    out.push_str(r#"{"cut":"#);
+                    name.to_json(out);
+                    out.push('}');
+                }
+                None => out.push_str(&format!(r#"{{"cut":{id}}}"#)),
+            },
+        },
+        None => out.push_str("null"),
+    }
+}
+
 // Clones share the file, so every session of a client, including other DCs', lands in one recording.
 #[derive(Clone, Debug)]
 pub struct Recorder(Arc<Mutex<Log>>);

@@ -41,6 +41,16 @@ async fn a_request_past_the_recording_names_itself() {
     assert_eq!((e.name.as_str(), e.value), ("REPLAY_EXHAUSTED", Some(functions::help::GetNearestDc::CONSTRUCTOR_ID)));
 }
 
+#[cfg(feature = "json")]
+#[test]
+fn a_dump_of_the_bot_session_matches_the_golden_file() {
+    // The golden file shows what a recording holds, so the config goes in without the autologin_token the
+    // recorder drops.
+    let base::Config::Config(mut config) = config();
+    config.autologin_token = None;
+    let dump: Vec<String> = bot_session_with(base::Config::Config(config)).iter().map(Record::to_json).collect();
+    assert_eq!(dump, include_str!("data/bot_session.jsonl").lines().collect::<Vec<_>>());
+}
 async fn play(records: &[Record], record: Option<&Path>) -> Vec<String> {
     let replay = Replay::start(records).await.unwrap();
     let mut builder = Client::builder("replay", 1, "replay").session_string(replay.session_string());
@@ -72,11 +82,15 @@ async fn play(records: &[Record], record: Option<&Path>) -> Vec<String> {
 
 /// A bot's first seconds on Telegram: a new session, the startup calls, then two private messages it answers.
 fn bot_session() -> Vec<Record> {
+    bot_session_with(config())
+}
+
+fn bot_session_with(config: base::Config) -> Vec<Record> {
     let mut r = Vec::new();
     let new_session = types::NewSessionCreated { first_msg_id: 4, unique_id: 1, server_salt: 1 };
     unasked(&mut r, base::NewSession::NewSessionCreated(Box::new(new_session)).to_bytes());
     let init = <functions::InvokeWithLayer<functions::help::GetConfig> as Identifiable>::CONSTRUCTOR_ID;
-    call(&mut r, init, config().to_bytes());
+    call(&mut r, init, config.to_bytes());
     call(&mut r, functions::users::GetUsers::CONSTRUCTOR_ID, vec![user(BOT, true)].to_bytes());
     let state = types::updates::State { pts: 10, qts: 0, date: DATE, seq: 0, unread_count: 0 };
     call(&mut r, functions::updates::GetState::CONSTRUCTOR_ID, base::updates::State::State(Box::new(state)).to_bytes());

@@ -268,8 +268,14 @@ fn gen_deserialize_bare(out: &mut String, d: &Def) {
     writeln!(out, "    #[doc(hidden)]").unwrap();
     writeln!(out, "    pub fn deserialize_bare(buf: &mut &[u8]) -> ::std::result::Result<Self, crate::raw::Error> {{")
         .unwrap();
+    let names = gen_reads(out, d);
+    writeln!(out, "        Ok(Self {{ {} }})\n    }}\n}}", names.join(", ")).unwrap();
+}
+
+/// `let` bindings that read `d`'s fields from `buf`, all but a generic query; returns their names.
+fn gen_reads(out: &mut String, d: &Def) -> Vec<String> {
     let mut names = Vec::new();
-    for f in &d.fields {
+    for f in d.fields.iter().filter(|f| !(d.generic && f.ty == "X")) {
         let read = |ty: &str| format!("<{} as crate::raw::Deserializable>::deserialize(buf)?", rust_ty(ty, false));
         match &f.flag {
             _ if f.ty == "#" => {
@@ -294,7 +300,76 @@ fn gen_deserialize_bare(out: &mut String, d: &Def) {
         }
         names.push(ident(&f.name));
     }
-    writeln!(out, "        Ok(Self {{ {} }})\n    }}\n}}", names.join(", ")).unwrap();
+    names
+}
+
+/// `json_of(body)`: any object or call as JSON, picked by its constructor id, and `tl_name(id)`.
+fn gen_json_of(out: &mut String, defs: &[Def]) {
+    writeln!(out, "pub(crate) fn tl_name(id: u32) -> ::std::option::Option<&'static str> {{").unwrap();
+    writeln!(out, "    Some(match id {{").unwrap();
+    for d in defs {
+        writeln!(out, "        {:#010x} => {:?},", d.id, d.name).unwrap();
+    }
+    writeln!(out, "        _ => return None,\n    }})\n}}").unwrap();
+
+    // Each call with fields reads them in its own function, so `?` stops at the call.
+    let call_fn = |d: &Def| format!("__json_call_{:08x}", d.id);
+    for d in defs.iter().filter(|d| d.function && !d.fields.is_empty()) {
+        writeln!(
+            out,
+            "fn {}(buf: &mut &[u8]) -> ::std::result::Result<::std::string::String, crate::raw::Error> {{",
+            call_fn(d)
+        )
+        .unwrap();
+        let names = gen_reads(out, d);
+        if !d.generic {
+            let call = format!("{} {{ {} }}", path("functions", &d.name), names.join(", "));
+            writeln!(out, "        Ok(crate::raw::ToJson::json(&{call}))").unwrap();
+        } else {
+            assert!(d.fields.last().is_some_and(|f| f.ty == "X"), "{}: the query must come last", d.name);
+            writeln!(out, "        let mut out = ::std::string::String::from(r#\"{{\"_\":\"{}\"\"#);", d.name).unwrap();
+            for f in d.fields.iter().filter(|f| f.ty != "#") {
+                let key = format!("r#\",\"{}\":\"#", f.name);
+                if f.ty == "X" {
+                    let query = "json_of(buf).ok_or(crate::raw::Error::UnexpectedEof)?";
+                    writeln!(out, "        out.push_str({key}); out.push_str(&{query});").unwrap();
+                    continue;
+                }
+                let write = format!("{{ out.push_str({key}); crate::raw::ToJson::to_json(v, &mut out); }}");
+                let field = ident(&f.name);
+                if f.flag.is_some() && f.ty != "true" {
+                    writeln!(out, "        if let Some(v) = &{field} {write}").unwrap();
+                } else {
+                    writeln!(out, "        let v = &{field}; {write}").unwrap();
+                }
+            }
+            writeln!(out, "        out.push('}}');\n        Ok(out)").unwrap();
+        }
+        writeln!(out, "}}").unwrap();
+    }
+
+    writeln!(out, "pub(crate) fn json_of(body: &[u8]) -> ::std::option::Option<::std::string::String> {{").unwrap();
+    writeln!(out, "    let id = u32::from_le_bytes(body.get(..4)?.try_into().ok()?);").unwrap();
+    writeln!(out, "    let buf = &mut &body[4..];").unwrap();
+    writeln!(out, "    match id {{").unwrap();
+    let mut by_type: BTreeMap<&str, Vec<u32>> = BTreeMap::new();
+    for d in defs.iter().filter(|d| !d.function) {
+        by_type.entry(&d.ty).or_default().push(d.id);
+    }
+    for (ty, ids) in &by_type {
+        let ids: Vec<String> = ids.iter().map(|id| format!("{id:#010x}")).collect();
+        let read = format!("<{} as crate::raw::Deserializable>::from_bytes(body)", path("base", ty));
+        writeln!(out, "        {} => {read}.ok().map(|v| crate::raw::ToJson::json(&v)),", ids.join(" | ")).unwrap();
+    }
+    for d in defs.iter().filter(|d| d.function) {
+        if d.fields.is_empty() {
+            let call = format!("{} {{}}", path("functions", &d.name));
+            writeln!(out, "        {:#010x} => Some(crate::raw::ToJson::json(&{call})),", d.id).unwrap();
+        } else {
+            writeln!(out, "        {:#010x} => {}(buf).ok(),", d.id, call_fn(d)).unwrap();
+        }
+    }
+    writeln!(out, "        _ => None,\n    }}\n}}").unwrap();
 }
 
 /// Constructors of plain numbers that fit in 8 bytes are stored inline: they're no bigger than the
@@ -454,6 +529,9 @@ pub fn generate(api: &str, mtproto: &str, json: bool) -> String {
     credentials.sort_unstable();
     let mut out = format!("/// The API layer this code was generated from.\npub const LAYER: i32 = {layer};\n");
     writeln!(out, "pub(crate) const CREDENTIALS: [u32; {}] = {credentials:#010x?};", credentials.len()).unwrap();
+    if json {
+        gen_json_of(&mut out, &defs);
+    }
     for kind in ["types", "base", "functions"] {
         writeln!(out, "pub mod {kind} {{").unwrap();
         for ((k, ns), code) in &mods {
