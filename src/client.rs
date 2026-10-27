@@ -3,14 +3,12 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
-use tokio::sync::mpsc;
-
 use crate::connection::{Options, Proxy, Transport};
 use crate::errors::{Error, Result};
 use crate::handlers::Handler;
 use crate::raw::{LAYER, base, functions};
 use crate::session::internals::data_center::{self, Dc};
-use crate::session::{Incoming, Session};
+use crate::session::{Session, UpdatesRx};
 use crate::storage::state::{StateFile, UpdateState};
 use crate::storage::{self, SessionData, session_string};
 
@@ -155,7 +153,7 @@ pub struct Client(pub(crate) Arc<Inner>);
 
 pub(crate) struct Inner {
     session: RwLock<Session>,
-    pub(crate) updates: tokio::sync::Mutex<mpsc::Receiver<Incoming>>,
+    pub(crate) updates: tokio::sync::Mutex<UpdatesRx>,
     pub(crate) api_id: i32,
     pub(crate) api_hash: String,
     dcs: RwLock<Vec<(i32, SocketAddr)>>,
@@ -265,7 +263,7 @@ async fn connect(
     auth_key: Option<[u8; 256]>,
     api_id: i32,
     options: &Options,
-) -> Result<(Session, mpsc::Receiver<Incoming>, Vec<base::DcOption>)> {
+) -> Result<(Session, UpdatesRx, Vec<base::DcOption>)> {
     let (session, updates) = Session::connect(dc, auth_key, options).await?;
     let init = functions::InvokeWithLayer {
         layer: LAYER,

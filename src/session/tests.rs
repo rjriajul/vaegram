@@ -2,14 +2,14 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
 use super::{
-    Answer, Connection, Incoming, MAX_CONTAINER_MSGS, Options, Request, Runner, Serializable, functions, mpsc,
-    msg_container, mtproto, oneshot, outbox, types,
+    Answer, Connection, MAX_CONTAINER_MSGS, Options, Request, Runner, Serializable, UPDATES_BUFFER, UpdatesRx, base,
+    functions, mpsc, msg_container, mtproto, oneshot, outbox, types,
 };
 use crate::session::internals::data_center::Dc;
 
 type Frames = mpsc::UnboundedReceiver<Vec<u8>>;
 
-async fn runner() -> (Runner, Frames, mpsc::Receiver<Incoming>) {
+async fn runner() -> (Runner, Frames, UpdatesRx) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let options = Options { transport: crate::connection::Transport::Intermediate, ..Options::default() };
@@ -173,4 +173,17 @@ async fn answers_msgs_state_req() {
     let msgs = msg_container::parse(&body).unwrap();
     assert_eq!(msgs[1].body, types::MsgsStateInfo { req_msg_id: 101, info: vec![4, 1] }.to_bytes());
     assert_eq!(msgs[1].seq_no % 2, 0);
+}
+
+#[tokio::test]
+async fn dropped_updates_ask_for_a_difference() {
+    let (mut r, _frames, mut updates) = runner().await;
+    let empty = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 0, seq: 0 };
+    let body = base::Updates::Updates(Box::new(empty)).to_bytes();
+    for id in 0..=UPDATES_BUFFER as i64 {
+        r.handle_message(id, 0, &body);
+    }
+    let first = updates.recv().await.unwrap().updates;
+    let second = updates.recv().await.unwrap().updates;
+    assert!(matches!((first, second), (base::Updates::UpdatesTooLong, base::Updates::Updates(_))));
 }

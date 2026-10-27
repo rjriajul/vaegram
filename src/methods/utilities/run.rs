@@ -8,16 +8,13 @@ impl Client {
         self.set_me(&self.get_me().await?);
         let saved = self.0.state.lock().unwrap().take();
         let mut dispatcher = match saved {
-            Some(state) => Dispatcher::resume(self.clone(), state).await,
+            Some(state) => Dispatcher::resume(self.clone(), state),
             None => {
                 let base::updates::State::State(state) = self.invoke(&functions::updates::GetState {}).await?;
                 Dispatcher::new(self.clone(), &state)
             }
         };
-        let mut updates = self.0.updates.lock().await;
-        while let Some(incoming) = updates.recv().await {
-            dispatcher.handle(incoming).await;
-        }
+        dispatcher.run(&mut *self.0.updates.lock().await).await;
         Err(Error::Disconnected)
     }
 }

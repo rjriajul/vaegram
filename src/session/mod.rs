@@ -6,6 +6,8 @@ mod service;
 mod tests;
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
@@ -55,6 +57,21 @@ pub struct Incoming {
     pub from_request: bool,
 }
 
+/// The session's updates. Ones the runner had to drop on a full channel come back as one `UpdatesTooLong`.
+pub struct UpdatesRx {
+    rx: mpsc::Receiver<Incoming>,
+    dropped: Arc<AtomicU32>,
+}
+
+impl UpdatesRx {
+    pub async fn recv(&mut self) -> Option<Incoming> {
+        if self.dropped.swap(0, Ordering::AcqRel) > 0 {
+            return Some(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
+        }
+        self.rx.recv().await
+    }
+}
+
 #[derive(Clone)]
 pub struct Session {
     requests: mpsc::UnboundedSender<Request>,
@@ -63,11 +80,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub async fn connect(
-        dc: Dc,
-        auth_key: Option<[u8; 256]>,
-        options: &Options,
-    ) -> Result<(Session, mpsc::Receiver<Incoming>)> {
+    pub async fn connect(dc: Dc, auth_key: Option<[u8; 256]>, options: &Options) -> Result<(Session, UpdatesRx)> {
         let (conn, auth_key, salt, time_offset) = match auth_key {
             Some(key) => (Connection::connect(&dc, options).await?, key, 0, 0),
             None => {
@@ -153,6 +166,7 @@ struct Runner {
     acks: Vec<i64>,
     buf: Vec<u8>,
     updates: mpsc::Sender<Incoming>,
+    dropped: Arc<AtomicU32>,
 }
 
 impl Runner {
@@ -163,9 +177,10 @@ impl Runner {
         auth_key: [u8; 256],
         salt: i64,
         time_offset: i64,
-    ) -> (Runner, mpsc::Receiver<Incoming>) {
+    ) -> (Runner, UpdatesRx) {
         let (writer, packets, reader) = start_reading(conn);
-        let (updates_tx, updates) = mpsc::channel(UPDATES_BUFFER);
+        let (updates_tx, rx) = mpsc::channel(UPDATES_BUFFER);
+        let dropped = Arc::<AtomicU32>::default();
         let runner = Runner {
             dc,
             options,
@@ -184,8 +199,9 @@ impl Runner {
             acks: Vec::new(),
             buf: Vec::new(),
             updates: updates_tx,
+            dropped: dropped.clone(),
         };
-        (runner, updates)
+        (runner, UpdatesRx { rx, dropped })
     }
 
     async fn run(mut self, mut requests: mpsc::UnboundedReceiver<Request>) {
@@ -253,7 +269,13 @@ impl Runner {
     }
 
     fn request_difference(&self) {
-        let _ = self.updates.try_send(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
+        self.forward(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
+    }
+
+    fn forward(&self, incoming: Incoming) {
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.updates.try_send(incoming) {
+            self.dropped.fetch_add(1, Ordering::Release);
+        }
     }
 
     async fn resend_pending(&mut self) -> Result<()> {
@@ -354,7 +376,7 @@ impl Runner {
             Some(MSG_DETAILED_INFO | MSG_NEW_DETAILED_INFO) => self.handle_detailed_info(body),
             _ => {
                 if let Ok(updates) = base::Updates::from_bytes(body) {
-                    let _ = self.updates.try_send(Incoming { updates, from_request: false });
+                    self.forward(Incoming { updates, from_request: false });
                 }
             }
         }
@@ -380,7 +402,7 @@ impl Runner {
             }
         } else {
             if let Ok(updates) = base::Updates::from_bytes(&result) {
-                let _ = self.updates.try_send(Incoming { updates, from_request: true });
+                self.forward(Incoming { updates, from_request: true });
             }
             Ok(result)
         };
