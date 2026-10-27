@@ -10,4 +10,10 @@ impl SeqNo {
             self.0 * 2
         }
     }
+
+    // bad_msg_notification 32 (too low) or 33 (too high). The server doesn't say which
+    // seqno it expects, so jump by a heuristic margin.
+    pub(crate) fn resync(&mut self, too_low: bool) {
+        self.0 = if too_low { self.0 + 64 } else { (self.0 - 16).max(0) };
+    }
 }

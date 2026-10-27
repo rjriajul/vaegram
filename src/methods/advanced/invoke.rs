@@ -1,18 +1,19 @@
 use std::time::Duration;
 
 use crate::Client;
-use crate::errors::{Error, Result};
+use crate::errors::{Error, Result, RpcError};
 use crate::raw::RemoteCall;
 
 const MAX_MIGRATIONS: usize = 3;
-const FLOOD_SLEEP_THRESHOLD: u32 = 10;
+// FLOOD_WAITs up to this many seconds are slept off and retried; longer ones go to the caller.
+const FLOOD_SLEEP_THRESHOLD: u32 = 60;
 
 impl Client {
     pub async fn invoke<R: RemoteCall>(&self, request: &R) -> Result<R::Return> {
         loop {
             match self.session().invoke(request).await {
-                Err(Error::Rpc(e)) if e.code == 420 && e.value.is_some_and(|wait| wait <= FLOOD_SLEEP_THRESHOLD) => {
-                    tokio::time::sleep(Duration::from_secs(e.value.unwrap_or(0).into())).await;
+                Err(Error::Rpc(RpcError { code: 420, value: Some(wait), .. })) if wait <= FLOOD_SLEEP_THRESHOLD => {
+                    tokio::time::sleep(Duration::from_secs(wait.max(1).into())).await;
                 }
                 result => return result,
             }
