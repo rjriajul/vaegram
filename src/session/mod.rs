@@ -4,6 +4,7 @@ mod outbox;
 mod service;
 #[cfg(test)]
 mod tests;
+pub(crate) mod transfer;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -13,11 +14,11 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-use crate::connection::{Connection, Options, Reader, Writer};
+use crate::connection::{Connection, Options, Proxy, Reader, Writer};
 use crate::crypto::{mtproto, random, sha1};
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::core::{gzip_packed, msg_container};
-use crate::raw::{Deserializable, Identifiable, RemoteCall, Serializable, base, functions, types};
+use crate::raw::{Deserializable, Identifiable, LAYER, RemoteCall, Serializable, base, functions, types};
 use internals::data_center::Dc;
 use internals::{MsgId, SeqNo};
 use outbox::MAX_CONTAINER_MSGS;
@@ -86,25 +87,10 @@ pub struct Session {
 
 impl Session {
     pub async fn connect(dc: Dc, auth_key: Option<[u8; 256]>, options: &Options) -> Result<(Session, UpdatesRx)> {
-        let (conn, auth_key, salt, time_offset) = match auth_key {
-            Some(key) => (Connection::connect(&dc, options).await?, key, 0, 0),
-            None => {
-                let mut attempt = 1;
-                loop {
-                    let mut conn = Connection::connect(&dc, options).await?;
-                    match auth::create(&mut conn, dc).await {
-                        Ok(c) => break (conn, c.auth_key, c.salt, c.time_offset),
-                        Err(e) if attempt == HANDSHAKE_ATTEMPTS => return Err(e),
-                        Err(_) => attempt += 1,
-                    }
-                }
-            }
-        };
-
-        let (requests_tx, requests) = mpsc::unbounded_channel();
-        let (runner, updates) = Runner::new(dc, options.clone(), conn, auth_key, salt, time_offset);
-        tokio::spawn(runner.run(requests));
-        Ok((Session { requests: requests_tx, dc_id: dc.id, auth_key }, updates))
+        let (tx, rx) = mpsc::channel(UPDATES_BUFFER);
+        let dropped = Arc::<AtomicU32>::default();
+        let session = Session::open(dc, auth_key, options, dropped.clone(), Some(tx)).await?;
+        Ok((session, UpdatesRx { rx, dropped }))
     }
 
     #[cfg(test)]
@@ -128,6 +114,26 @@ impl Session {
         (Session { requests, dc_id: 2, auth_key: [0; 256] }, sent)
     }
 
+    /// A connection for file parts only. The server keeps initConnection's client info with the auth key
+    /// (https://core.telegram.org/api/invoking#saving-client-info), so an authorized key needs no second one.
+    pub(crate) async fn connect_transfer(dc: Dc, auth_key: Option<[u8; 256]>, options: &Options) -> Result<Session> {
+        Session::open(dc, auth_key, options, Arc::default(), None).await
+    }
+
+    async fn open(
+        dc: Dc,
+        auth_key: Option<[u8; 256]>,
+        options: &Options,
+        dropped: Arc<AtomicU32>,
+        updates: Option<mpsc::Sender<Incoming>>,
+    ) -> Result<Session> {
+        let (conn, auth_key, salt, time_offset) = handshake(dc, auth_key, options).await?;
+        let (requests_tx, requests) = mpsc::unbounded_channel();
+        let runner = Runner::new(dc, options.clone(), conn, (auth_key, salt, time_offset), dropped, updates);
+        tokio::spawn(runner.run(requests));
+        Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key })
+    }
+
     pub fn dc_id(&self) -> i32 {
         self.dc_id
     }
@@ -136,14 +142,78 @@ impl Session {
         &self.auth_key
     }
 
+    pub(crate) fn downgrade(&self) -> WeakSession {
+        WeakSession { requests: self.requests.downgrade(), dc_id: self.dc_id, auth_key: self.auth_key }
+    }
+
     /// Dropping the future abandons the request.
     pub async fn invoke<R: RemoteCall>(&self, request: &R) -> Result<R::Return> {
+        self.invoke_with_timeout(request, REQUEST_TIMEOUT).await
+    }
+
+    pub(crate) async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
         let (answer, rx) = oneshot::channel();
         self.requests.send(Request { body: request.to_bytes(), answer }).map_err(|_| Error::Disconnected)?;
-        let answer = tokio::time::timeout(REQUEST_TIMEOUT, rx).await.map_err(|_| Error::Timeout)?;
+        let answer = tokio::time::timeout(timeout, rx).await.map_err(|_| Error::Timeout)?;
         let body = answer.map_err(|_| Error::Disconnected)??;
         Ok(R::Return::from_bytes(&body)?)
     }
+}
+
+pub(crate) struct WeakSession {
+    requests: mpsc::WeakUnboundedSender<Request>,
+    dc_id: i32,
+    auth_key: [u8; 256],
+}
+
+impl WeakSession {
+    pub(crate) fn upgrade(&self) -> Option<Session> {
+        let requests = self.requests.upgrade().filter(|r| !r.is_closed())?;
+        Some(Session { requests, dc_id: self.dc_id, auth_key: self.auth_key })
+    }
+}
+
+pub(crate) fn init_connection<X>(
+    api_id: i32,
+    options: &Options,
+    query: X,
+) -> functions::InvokeWithLayer<functions::InitConnection<X>> {
+    functions::InvokeWithLayer {
+        layer: LAYER,
+        query: functions::InitConnection {
+            api_id,
+            device_model: "vaegram".into(),
+            system_version: std::env::consts::OS.into(),
+            app_version: env!("CARGO_PKG_VERSION").into(),
+            system_lang_code: "en".into(),
+            lang_pack: String::new(),
+            lang_code: "en".into(),
+            proxy: options.proxy.as_ref().and_then(Proxy::input_client_proxy),
+            params: None,
+            query,
+        },
+    }
+}
+
+async fn handshake(
+    dc: Dc,
+    auth_key: Option<[u8; 256]>,
+    options: &Options,
+) -> Result<(Connection, [u8; 256], i64, i64)> {
+    Ok(match auth_key {
+        Some(key) => (Connection::connect(&dc, options).await?, key, 0, 0),
+        None => {
+            let mut attempt = 1;
+            loop {
+                let mut conn = Connection::connect(&dc, options).await?;
+                match auth::create(&mut conn, dc).await {
+                    Ok(c) => break (conn, c.auth_key, c.salt, c.time_offset),
+                    Err(e) if attempt == HANDSHAKE_ATTEMPTS => return Err(e),
+                    Err(_) => attempt += 1,
+                }
+            }
+        }
+    })
 }
 
 fn start_reading(conn: Connection) -> (Writer, mpsc::Receiver<Result<Vec<u8>>>, JoinHandle<()>) {
@@ -191,7 +261,7 @@ struct Runner {
     service: VecDeque<(Vec<u8>, bool)>,
     acks: Vec<i64>,
     buf: Vec<u8>,
-    updates: mpsc::Sender<Incoming>,
+    updates: Option<mpsc::Sender<Incoming>>,
     dropped: Arc<AtomicU32>,
 }
 
@@ -200,14 +270,12 @@ impl Runner {
         dc: Dc,
         options: Options,
         conn: Connection,
-        auth_key: [u8; 256],
-        salt: i64,
-        time_offset: i64,
-    ) -> (Runner, UpdatesRx) {
+        (auth_key, salt, time_offset): ([u8; 256], i64, i64),
+        dropped: Arc<AtomicU32>,
+        updates: Option<mpsc::Sender<Incoming>>,
+    ) -> Runner {
         let (writer, packets, reader) = start_reading(conn);
-        let (updates_tx, rx) = mpsc::channel(UPDATES_BUFFER);
-        let dropped = Arc::<AtomicU32>::default();
-        let runner = Runner {
+        Runner {
             dc,
             options,
             writer,
@@ -224,10 +292,9 @@ impl Runner {
             service: VecDeque::new(),
             acks: Vec::new(),
             buf: Vec::new(),
-            updates: updates_tx,
-            dropped: dropped.clone(),
-        };
-        (runner, UpdatesRx { rx, dropped })
+            updates,
+            dropped,
+        }
     }
 
     async fn run(mut self, mut requests: mpsc::UnboundedReceiver<Request>) {
@@ -263,7 +330,7 @@ impl Runner {
                 Ok(()) => {}
                 Err(e @ Error::Transport(404)) => break e,
                 Err(_) => {
-                    self.reconnect().await;
+                    self.reconnect(&requests).await;
                     ping.reset();
                 }
             }
@@ -278,9 +345,9 @@ impl Runner {
         }
     }
 
-    async fn reconnect(&mut self) {
+    async fn reconnect(&mut self, requests: &mpsc::UnboundedReceiver<Request>) {
         let mut delay = RECONNECT_DELAY;
-        while !self.updates.is_closed() {
+        while !requests.is_closed() && self.updates.as_ref().is_none_or(|u| !u.is_closed()) {
             self.reader.abort();
             tokio::time::sleep(delay).await;
             delay = (delay * 2).min(MAX_RECONNECT_DELAY);
@@ -295,11 +362,21 @@ impl Runner {
     }
 
     fn request_difference(&self) {
-        self.forward(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
+        self.push(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
     }
 
-    fn forward(&self, incoming: Incoming) {
-        if let Err(mpsc::error::TrySendError::Full(_)) = self.updates.try_send(incoming) {
+    fn deliver(&self, body: &[u8], from_request: bool) {
+        if self.updates.is_none() {
+            return;
+        }
+        if let Ok(updates) = base::Updates::from_bytes(body) {
+            self.push(Incoming { updates, from_request });
+        }
+    }
+
+    fn push(&self, incoming: Incoming) {
+        let Some(tx) = &self.updates else { return };
+        if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(incoming) {
             self.dropped.fetch_add(1, Ordering::Release);
         }
     }
@@ -400,11 +477,7 @@ impl Runner {
             Some(MSG_RESEND_REQ) => self.handle_resend_req(msg_id, body),
             Some(MSGS_ALL_INFO) => self.handle_all_info(body),
             Some(MSG_DETAILED_INFO | MSG_NEW_DETAILED_INFO) => self.handle_detailed_info(body),
-            _ => {
-                if let Ok(updates) = base::Updates::from_bytes(body) {
-                    self.forward(Incoming { updates, from_request: false });
-                }
-            }
+            _ => self.deliver(body, false),
         }
     }
 
@@ -427,9 +500,7 @@ impl Runner {
                 Err(e) => Err(e.into()),
             }
         } else {
-            if let Ok(updates) = base::Updates::from_bytes(&result) {
-                self.forward(Incoming { updates, from_request: true });
-            }
+            self.deliver(&result, true);
             Ok(result)
         };
         self.answer(req_msg_id, answer);

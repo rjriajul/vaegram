@@ -10,5 +10,7 @@ pub use bots_and_keyboards::{
     ReplyKeyboardMarkup, ReplyKeyboardRemove, ReplyMarkup,
 };
 pub use inline_mode::{InlineQuery, InlineQueryResultArticle};
-pub use messages_and_media::{Message, ReplyParameters, SuggestedPostParameters, SuggestedPostPrice};
+pub use messages_and_media::{
+    Document, FileLocation, Message, Photo, ReplyParameters, SuggestedPostParameters, SuggestedPostPrice, Upload,
+};
 pub use user_and_chats::{Chat, ChatMember, ChatPermissions, ChatPrivileges, User};

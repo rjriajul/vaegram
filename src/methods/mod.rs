@@ -23,6 +23,6 @@ mod utilities;
 pub use bots::{AnswerCallbackQuery, AnswerInlineQuery};
 pub use chats::{BanChatMember, GetChatAdministrators, GetChatMembers, RestrictChatMember};
 pub use messages::{
-    CopyMessage, EditMessageText, ForwardMessages, GetChatHistory, PinChatMessage, SearchMessages, SendContact,
-    SendDice, SendLocation, SendMessage, SendPoll, SendVenue, StopPoll,
+    CopyMessage, DownloadMedia, EditMessageText, ForwardMessages, GetChatHistory, PinChatMessage, SearchMessages,
+    SendContact, SendDice, SendDocument, SendLocation, SendMessage, SendPhoto, SendPoll, SendVenue, StopPoll,
 };

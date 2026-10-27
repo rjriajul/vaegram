@@ -7,9 +7,10 @@ use crate::connection::{Options, Proxy, Transport};
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::handlers::Handler;
-use crate::raw::{LAYER, base, functions};
+use crate::raw::{base, functions};
 use crate::session::internals::data_center::{self, Dc};
-use crate::session::{Session, UpdatesRx};
+use crate::session::transfer::{Lease, TransferPool};
+use crate::session::{Session, UpdatesRx, init_connection};
 use crate::storage::state::{StateFile, UpdateState};
 use crate::storage::{self, SessionData, session_string};
 
@@ -159,6 +160,7 @@ pub struct Client(pub(crate) Arc<Inner>);
 
 pub(crate) struct Inner {
     session: RwLock<Session>,
+    transfers: TransferPool,
     pub(crate) updates: tokio::sync::Mutex<UpdatesRx>,
     pub(crate) api_id: i32,
     pub(crate) api_hash: String,
@@ -195,6 +197,7 @@ impl Inner {
             state_file: None,
             options: Options::default(),
             parse_mode: ParseMode::Disabled,
+            transfers: TransferPool::default(),
             state: Mutex::new(None),
             me: Mutex::new(Me { id: 0, is_bot: false, username: None }),
             peers: Mutex::new(HashMap::new()),
@@ -281,7 +284,13 @@ impl Client {
         *self.0.session.write().unwrap() = session;
         *self.0.updates.lock().await = updates;
         self.0.me.lock().unwrap().id = 0;
+        self.0.transfers.clear();
         self.save()
+    }
+
+    pub(crate) async fn transfer_sessions(&self, dc_id: i32, count: usize) -> Result<Lease> {
+        let dc = self.dc(dc_id)?;
+        self.0.transfers.lease(dc, count, &self.session(), self.0.api_id, &self.0.options).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {
@@ -313,21 +322,7 @@ async fn connect(
     options: &Options,
 ) -> Result<(Session, UpdatesRx, Vec<base::DcOption>)> {
     let (session, updates) = Session::connect(dc, auth_key, options).await?;
-    let init = functions::InvokeWithLayer {
-        layer: LAYER,
-        query: functions::InitConnection {
-            api_id,
-            device_model: "vaegram".into(),
-            system_version: std::env::consts::OS.into(),
-            app_version: env!("CARGO_PKG_VERSION").into(),
-            system_lang_code: "en".into(),
-            lang_pack: String::new(),
-            lang_code: "en".into(),
-            proxy: options.proxy.as_ref().and_then(Proxy::input_client_proxy),
-            params: None,
-            query: functions::help::GetConfig {},
-        },
-    };
+    let init = init_connection(api_id, options, functions::help::GetConfig {});
     let base::Config::Config(config) = session.invoke(&init).await?;
     Ok((session, updates, config.dc_options))
 }

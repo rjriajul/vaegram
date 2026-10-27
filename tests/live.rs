@@ -11,7 +11,7 @@ use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
     ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, KeyboardButton, Message,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove,
+    ReplyKeyboardMarkup, ReplyKeyboardRemove, Upload,
 };
 use vaegram::{Client, filters};
 
@@ -184,6 +184,34 @@ async fn bot_sends_polls_and_media() {
     for message in [dice, venue, contact, location, stopped] {
         message.delete().await.unwrap();
     }
+}
+
+#[tokio::test]
+#[ignore = "logs in as a bot and uploads a file"]
+async fn bot_uploads_and_downloads_a_document() {
+    if std::env::var("VAEGRAM_BOT_TOKEN").is_err() {
+        eprintln!("skipped: set VAEGRAM_API_ID, VAEGRAM_API_HASH, VAEGRAM_BOT_TOKEN and VAEGRAM_CHAT_ID");
+        return;
+    }
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let app =
+        Client::builder("target/vaegram-live-files", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+            .bot_token(env("VAEGRAM_BOT_TOKEN"))
+            .start()
+            .await
+            .unwrap();
+    let chat_id = env("VAEGRAM_CHAT_ID").parse().unwrap();
+
+    let data: Vec<u8> = (0..3_000_000u32).map(|i| (i * 7 + i / 251) as u8).collect();
+    let sent = app.send_document(chat_id, Upload::bytes("vaegram.bin", &data)).caption("a file").await.unwrap();
+    let document = sent.document.as_ref().expect("the message has the document");
+    assert_eq!((document.file_name.as_deref(), document.file_size), (Some("vaegram.bin"), data.len() as i64));
+
+    assert!(sent.download().await.unwrap() == data);
+    let path = std::path::Path::new("target/vaegram-live-download/vaegram.bin");
+    app.download_media(document).file_name(path).await.unwrap();
+    assert!(std::fs::read(path).unwrap() == data);
+    sent.delete().await.unwrap();
 }
 
 #[tokio::test]

@@ -4,9 +4,9 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::ChatType;
 use crate::errors::{Error, Result};
-use crate::methods::{EditMessageText, SendMessage};
+use crate::methods::{DownloadMedia, EditMessageText, SendMessage};
 use crate::raw::{Serializable, base, types};
-use crate::types::{Chat, ReplyMarkup, User};
+use crate::types::{Chat, Document, Photo, ReplyMarkup, User};
 use crate::utils::get_peer;
 
 #[derive(Clone)]
@@ -19,6 +19,8 @@ pub struct Message {
     pub text: String,
     pub outgoing: bool,
     pub edit_date: Option<i32>,
+    pub photo: Option<Photo>,
+    pub document: Option<Document>,
     pub raw: Box<types::Message>,
     client: Client,
 }
@@ -37,6 +39,11 @@ impl Message {
             (None, _) if chat.kind == ChatType::Channel => sender_chat = Some(chat.clone()),
             (None, _) => {}
         }
+        let (photo, document) = match &raw.media {
+            Some(base::MessageMedia::MessageMediaPhoto(m)) => (m.photo.as_ref().and_then(Photo::parse), None),
+            Some(base::MessageMedia::MessageMediaDocument(m)) => (None, m.document.as_ref().and_then(Document::parse)),
+            _ => (None, None),
+        };
         Message {
             id: raw.id,
             chat,
@@ -46,6 +53,8 @@ impl Message {
             text: raw.message.clone(),
             outgoing: raw.out,
             edit_date: raw.edit_date,
+            photo,
+            document,
             raw,
             client: client.clone(),
         }
@@ -121,6 +130,12 @@ impl Message {
         &self.client
     }
 
+    /// Downloads the message's photo or document.
+    pub fn download(&self) -> DownloadMedia<'_> {
+        let location = self.photo.as_ref().map(|p| p.location.clone());
+        DownloadMedia::new(&self.client, location.or_else(|| self.document.as_ref().map(|d| d.location.clone())))
+    }
+
     pub fn command(&self) -> Option<Vec<&str>> {
         let me = self.client.0.me.lock().unwrap();
         parse_command(&self.text, me.username.as_deref())
@@ -146,6 +161,8 @@ impl fmt::Debug for Message {
             .field("text", &self.text)
             .field("outgoing", &self.outgoing)
             .field("edit_date", &self.edit_date)
+            .field("photo", &self.photo)
+            .field("document", &self.document)
             .finish_non_exhaustive()
     }
 }

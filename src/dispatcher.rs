@@ -313,7 +313,8 @@ pub(crate) struct Dispatcher {
     client: Client,
     tracker: Tracker,
     saved_at: Instant,
-    /// What the last save wrote, so an idle client doesn't rewrite the same file.
+    /// What the last save wrote, so an idle client doesn't rewrite the same file. The peer count
+    /// is enough: only non-min peers are cached, and their access hashes don't change.
     saved: (UpdateState, usize),
 }
 

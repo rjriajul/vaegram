@@ -50,6 +50,7 @@ pub enum Error {
     InvalidArgument(&'static str),
     InvalidSession(&'static str),
     SignUpRequired,
+    FileSize { size: u64, limit: u64 },
 }
 
 impl fmt::Display for Error {
@@ -71,6 +72,10 @@ impl fmt::Display for Error {
             Error::InvalidSession(why) => write!(f, "invalid session string: {why}"),
             Error::SignUpRequired => {
                 f.write_str("this phone number has no Telegram account yet; sign up in an app first")
+            }
+            Error::FileSize { size: 0, .. } => f.write_str("can't upload an empty file"),
+            Error::FileSize { size, limit } => {
+                write!(f, "can't upload {size} bytes: this account can send files of up to {} MiB", limit >> 20)
             }
         }
     }

@@ -2,8 +2,8 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
 use super::{
-    Answer, Connection, MAX_CONTAINER_MSGS, Options, Request, Runner, Serializable, UPDATES_BUFFER, UpdatesRx, base,
-    functions, mpsc, msg_container, mtproto, oneshot, outbox, types,
+    Answer, Arc, AtomicU32, Connection, MAX_CONTAINER_MSGS, Options, Request, Runner, Serializable, UPDATES_BUFFER,
+    UpdatesRx, base, functions, mpsc, msg_container, mtproto, oneshot, outbox, types,
 };
 use crate::session::internals::data_center::Dc;
 
@@ -27,8 +27,10 @@ async fn runner() -> (Runner, Frames, UpdatesRx) {
         }
     });
 
-    let (runner, updates) = Runner::new(dc, options, conn, [7; 256], 0, 0);
-    (runner, frames, updates)
+    let (tx, rx) = mpsc::channel(UPDATES_BUFFER);
+    let dropped = Arc::<AtomicU32>::default();
+    let runner = Runner::new(dc, options, conn, ([7; 256], 0, 0), dropped.clone(), Some(tx));
+    (runner, frames, UpdatesRx { rx, dropped })
 }
 
 async fn recv(frames: &mut Frames, r: &Runner) -> (i64, i32, Vec<u8>) {
