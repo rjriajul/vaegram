@@ -1,18 +1,18 @@
 use crate::Client;
 use crate::enums::{ChatMemberStatus, ChatMembersFilter};
 use crate::errors::Result;
-use crate::types::ChatMember;
+use crate::types::{ChatMember, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GetChatAdministrators<'a> {
     client: &'a Client,
-    chat_id: i64,
+    chat_id: PeerRef,
     return_bots: bool,
 }
 
 impl Client {
-    pub fn get_chat_administrators(&self, chat_id: i64) -> GetChatAdministrators<'_> {
-        GetChatAdministrators { client: self, chat_id, return_bots: false }
+    pub fn get_chat_administrators(&self, chat_id: impl Into<PeerRef>) -> GetChatAdministrators<'_> {
+        GetChatAdministrators { client: self, chat_id: chat_id.into(), return_bots: false }
     }
 }
 

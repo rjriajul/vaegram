@@ -2,20 +2,20 @@ use super::send_poll::poll;
 use crate::Client;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
-use crate::types::{Message, ReplyMarkup};
+use crate::types::{Message, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct StopPoll<'a> {
     client: &'a Client,
-    chat_id: i64,
+    chat_id: PeerRef,
     message_id: i32,
     reply_markup: Option<ReplyMarkup>,
 }
 
 impl Client {
     /// Closes a poll and returns the edited message; the final results are in `raw.media`.
-    pub fn stop_poll(&self, chat_id: i64, message_id: i32) -> StopPoll<'_> {
-        StopPoll { client: self, chat_id, message_id, reply_markup: None }
+    pub fn stop_poll(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> StopPoll<'_> {
+        StopPoll { client: self, chat_id: chat_id.into(), message_id, reply_markup: None }
     }
 }
 
@@ -27,9 +27,10 @@ impl StopPoll<'_> {
 
     async fn send(self) -> Result<Message> {
         let client = self.client;
-        let peer = client.resolve_peer(self.chat_id).await?;
+        let chat_id = client.peer_id(self.chat_id).await?;
+        let peer = client.resolve_peer(chat_id).await?;
         // Telegram closes a poll by its id, which only the message carries.
-        let (found, _) = client.get_raw_messages(self.chat_id, &[self.message_id]).await?;
+        let (found, _) = client.get_raw_messages(chat_id, &[self.message_id]).await?;
         let poll_id = found
             .into_iter()
             .flatten()
@@ -66,7 +67,7 @@ impl StopPoll<'_> {
             rich_message: None,
         };
         let updates = client.invoke(&request).await?;
-        Message::from_updates(client, updates, self.chat_id, (String::new(), None))
+        Message::from_updates(client, updates, chat_id, (String::new(), None))
     }
 }
 

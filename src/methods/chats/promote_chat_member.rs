@@ -2,16 +2,21 @@ use crate::Client;
 use crate::errors::Result;
 use crate::methods::advanced::ChatPeer;
 use crate::raw::functions;
-use crate::types::ChatPrivileges;
+use crate::types::{ChatPrivileges, PeerRef};
 
 impl Client {
     /// In basic groups any privilege makes the user a full admin, and `ChatPrivileges::default()` demotes.
-    pub async fn promote_chat_member(&self, chat_id: i64, user_id: i64, privileges: ChatPrivileges) -> Result<()> {
-        match self.resolve_chat(chat_id).await? {
+    pub async fn promote_chat_member(
+        &self,
+        chat_id: impl Into<PeerRef>,
+        user_id: impl Into<PeerRef>,
+        privileges: ChatPrivileges,
+    ) -> Result<()> {
+        match self.resolve_chat(&chat_id.into()).await? {
             ChatPeer::Group(chat_id) => {
                 let request = functions::messages::EditChatAdmin {
                     chat_id,
-                    user_id: self.resolve_user(user_id).await?,
+                    user_id: self.resolve_user(&user_id.into()).await?,
                     is_admin: privileges != ChatPrivileges::default(),
                 };
                 self.invoke(&request).await?;
@@ -19,7 +24,7 @@ impl Client {
             ChatPeer::Channel(channel) => {
                 let request = functions::channels::EditAdmin {
                     channel,
-                    user_id: self.resolve_user(user_id).await?,
+                    user_id: self.resolve_user(&user_id.into()).await?,
                     admin_rights: privileges.write(),
                     rank: None,
                 };

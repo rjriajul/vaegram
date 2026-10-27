@@ -2,27 +2,28 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
-use crate::types::Message;
+use crate::types::{Message, PeerRef};
 use crate::utils::{CHANNEL_OFFSET, get_peer_id};
 
 impl Client {
     /// The result lines up with `message_ids`; missing or service messages are `None`.
-    pub async fn get_messages(&self, chat_id: i64, message_ids: &[i32]) -> Result<Vec<Option<Message>>> {
+    pub async fn get_messages(&self, chat_id: impl Into<PeerRef>, message_ids: &[i32]) -> Result<Vec<Option<Message>>> {
         let (found, entities) = self.get_raw_messages(chat_id, message_ids).await?;
         Ok(found.into_iter().map(|m| m.map(|m| Message::parse(self, m, &entities))).collect())
     }
 
     pub(crate) async fn get_raw_messages(
         &self,
-        chat_id: i64,
+        chat_id: impl Into<PeerRef>,
         message_ids: &[i32],
     ) -> Result<(Vec<Option<Box<types::Message>>>, Entities)> {
+        let chat_id = self.peer_id(chat_id.into()).await?;
         let id = message_ids
             .iter()
             .map(|&id| base::InputMessage::InputMessageID(Box::new(types::InputMessageID { id })))
             .collect();
         let found = if chat_id <= -CHANNEL_OFFSET {
-            let channel = self.resolve_channel(chat_id).await?;
+            let channel = self.resolve_channel(&chat_id.into()).await?;
             self.invoke(&functions::channels::GetMessages { channel, id }).await?
         } else {
             self.invoke(&functions::messages::GetMessages { id }).await?

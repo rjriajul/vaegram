@@ -3,13 +3,13 @@ use crate::Client;
 use crate::crypto::random;
 use crate::errors::Result;
 use crate::raw::{base, functions};
-use crate::types::{Message, SuggestedPostParameters};
+use crate::types::{Message, PeerRef, SuggestedPostParameters};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct ForwardMessages<'a> {
     client: &'a Client,
-    chat_id: i64,
-    from_chat_id: i64,
+    chat_id: PeerRef,
+    from_chat_id: PeerRef,
     message_ids: &'a [i32],
     options: SendOptions,
 }
@@ -17,21 +17,27 @@ pub struct ForwardMessages<'a> {
 impl Client {
     pub fn forward_messages<'a>(
         &'a self,
-        chat_id: i64,
-        from_chat_id: i64,
+        chat_id: impl Into<PeerRef>,
+        from_chat_id: impl Into<PeerRef>,
         message_ids: &'a [i32],
     ) -> ForwardMessages<'a> {
-        ForwardMessages { client: self, chat_id, from_chat_id, message_ids, options: SendOptions::default() }
+        ForwardMessages {
+            client: self,
+            chat_id: chat_id.into(),
+            from_chat_id: from_chat_id.into(),
+            message_ids,
+            options: SendOptions::default(),
+        }
     }
 }
 
 impl ForwardMessages<'_> {
     async fn send(self) -> Result<Vec<Message>> {
         let client = self.client;
-        let to_peer = client.resolve_peer(self.chat_id).await?;
-        let from_peer = client.resolve_peer(self.from_chat_id).await?;
+        let (chat_id, to_peer) = client.resolve(&self.chat_id).await?;
+        let from_peer = client.resolve(&self.from_chat_id).await?.1;
         // Forwards name the topic in top_msg_id, so the reply carries none.
-        let reply_to = self.options.input_reply_to(client, self.chat_id, None).await?;
+        let reply_to = self.options.input_reply_to(client, chat_id, None).await?;
         let request = request(from_peer, to_peer, self.message_ids, reply_to, self.options);
         let updates = client.invoke(&request).await?;
         Ok(Message::all_from_updates(client, updates).collect())

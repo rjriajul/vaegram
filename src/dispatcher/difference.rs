@@ -72,7 +72,7 @@ impl Dispatcher {
     pub(super) async fn channel_difference(&mut self, channel_id: i64) -> Result<()> {
         let Some(&local) = self.tracker.state.channels.get(&channel_id) else { return Ok(()) };
         let mut pts = local;
-        let channel = self.client.resolve_channel(get_channel_id(channel_id)).await?;
+        let channel = self.client.resolve_channel(&get_channel_id(channel_id).into()).await?;
         let bot = self.client.0.me.lock().unwrap().is_bot;
         let limit = if bot { BOT_CHANNEL_DIFFERENCE_LIMIT } else { CHANNEL_DIFFERENCE_LIMIT };
         loop {

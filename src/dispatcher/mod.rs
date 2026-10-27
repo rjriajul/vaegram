@@ -124,6 +124,7 @@ impl Dispatcher {
     }
 
     fn dispatch(&mut self, update: base::Update, entities: &Entities) {
+        entities.remember_min_sender(&self.client, &update);
         let handlers = &self.client.0.handlers;
         let generation = handlers.generation();
         if generation != self.generation {
@@ -144,19 +145,61 @@ impl Drop for Dispatcher {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClientEvent, Dispatcher, types};
+    use super::{ClientEvent, Dispatcher, Entities, base, types};
     use crate::Client;
     use crate::errors::Error;
+    use crate::raw::Serializable;
+    use crate::types::Message;
+    use crate::utils::{get_channel_id, get_peer};
+
+    fn state() -> types::updates::State {
+        types::updates::State { pts: 1, qts: 0, date: 0, seq: 0, unread_count: 0 }
+    }
 
     #[test]
     fn failed_differences_are_reported() {
         let client = Client::offline();
         let events = client.0.events.record();
-        let state = types::updates::State { pts: 1, qts: 0, date: 0, seq: 0, unread_count: 0 };
-        let d = Dispatcher::new(client, &state);
+        let d = Dispatcher::new(client, &state());
         d.report(Ok(()));
         d.report(Err(Error::Disconnected));
         let got: Vec<ClientEvent> = events.try_iter().collect();
         assert!(matches!(got[..], [ClientEvent::DifferenceFailed { error: Error::Disconnected }]), "{got:?}");
+    }
+
+    #[tokio::test]
+    async fn min_senders_are_cached_with_no_handlers() {
+        let client = Client::offline();
+        let channel = get_channel_id(9);
+        let chat = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
+        let chat = base::InputPeer::InputPeerChannel(Box::new(chat));
+        client.0.peers.lock().unwrap().insert(channel, chat.clone());
+        let mut buf = Vec::new();
+        (1u32 << 20).serialize(&mut buf);
+        0u32.serialize(&mut buf);
+        7i64.serialize(&mut buf);
+        let min_user = types::User::deserialize_bare(&mut &buf[..]).unwrap();
+        let entities = Entities::new(&client, vec![base::User::User(Box::new(min_user))], Vec::new());
+        let mut d = Dispatcher::new(client.clone(), &state());
+        let sent_by_7 = || {
+            let mut message = Message::bare(42, get_peer(channel), 0);
+            message.from_id = Some(get_peer(7));
+            let message = base::Message::Message(Box::new(message));
+            let update = types::UpdateNewChannelMessage { message, pts: 0, pts_count: 0 };
+            base::Update::UpdateNewChannelMessage(Box::new(update))
+        };
+
+        d.dispatch(sent_by_7(), &entities);
+        let from_message = types::InputPeerUserFromMessage { peer: chat.clone(), msg_id: 42, user_id: 7 };
+        let from_message = base::InputPeer::InputPeerUserFromMessage(Box::new(from_message));
+        assert_eq!(client.resolve_peer(7).await.unwrap(), from_message);
+        let user = types::InputUserFromMessage { peer: chat, msg_id: 42, user_id: 7 };
+        let user = base::InputUser::InputUserFromMessage(Box::new(user));
+        assert_eq!(client.resolve_user(&7.into()).await.unwrap(), user);
+
+        let full = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 5 }));
+        client.0.peers.lock().unwrap().insert(7, full.clone());
+        d.dispatch(sent_by_7(), &entities);
+        assert_eq!(client.resolve_peer(7).await.unwrap(), full);
     }
 }

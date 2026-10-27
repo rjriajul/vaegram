@@ -2,11 +2,12 @@ use crate::Client;
 use crate::errors::Result;
 use crate::methods::advanced::ChatPeer;
 use crate::raw::functions;
+use crate::types::PeerRef;
 
 impl Client {
-    pub async fn set_chat_title(&self, chat_id: i64, title: impl Into<String>) -> Result<()> {
+    pub async fn set_chat_title(&self, chat_id: impl Into<PeerRef>, title: impl Into<String>) -> Result<()> {
         let title = title.into();
-        match self.resolve_chat(chat_id).await? {
+        match self.resolve_chat(&chat_id.into()).await? {
             ChatPeer::Group(chat_id) => {
                 self.invoke(&functions::messages::EditChatTitle { chat_id, title }).await?;
             }

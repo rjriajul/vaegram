@@ -34,3 +34,18 @@ pub(crate) fn chats_of(chats: base::messages::Chats) -> Vec<base::Chat> {
         base::messages::Chats::ChatsSlice(c) => c.chats,
     }
 }
+
+pub(crate) fn input_user(peer: base::InputPeer) -> Option<base::InputUser> {
+    match peer {
+        base::InputPeer::InputPeerUser(p) => {
+            let user = types::InputUser { user_id: p.user_id, access_hash: p.access_hash };
+            Some(base::InputUser::InputUser(Box::new(user)))
+        }
+        base::InputPeer::InputPeerUserFromMessage(p) => {
+            let user = types::InputUserFromMessage { peer: p.peer, msg_id: p.msg_id, user_id: p.user_id };
+            Some(base::InputUser::InputUserFromMessage(Box::new(user)))
+        }
+        base::InputPeer::InputPeerSelf => Some(base::InputUser::InputUserSelf),
+        _ => None,
+    }
+}

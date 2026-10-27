@@ -3,12 +3,12 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::{base, types};
-use crate::types::Message;
+use crate::types::{Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPoll<'a> {
     client: &'a Client,
-    chat_id: i64,
+    chat_id: PeerRef,
     poll: types::Poll,
     correct_answers: Option<Vec<i32>>,
     explanation: Option<String>,
@@ -19,7 +19,7 @@ pub struct SendPoll<'a> {
 impl Client {
     pub fn send_poll(
         &self,
-        chat_id: i64,
+        chat_id: impl Into<PeerRef>,
         question: impl Into<String>,
         options: impl IntoIterator<Item = impl Into<String>>,
     ) -> SendPoll<'_> {
@@ -32,7 +32,7 @@ impl Client {
             .collect();
         SendPoll {
             client: self,
-            chat_id,
+            chat_id: chat_id.into(),
             poll: poll(0, question.into(), answers),
             correct_answers: None,
             explanation: None,
@@ -100,7 +100,7 @@ impl SendPoll<'_> {
             Some(text) => Some(self.client.parse_text(&text, self.explanation_parse_mode).await?),
             None => None,
         };
-        let (client, chat_id, options) = (self.client, self.chat_id, std::mem::take(&mut self.options));
+        let (client, chat_id, options) = (self.client, self.chat_id.clone(), std::mem::take(&mut self.options));
         client.send_media(chat_id, self.media(solution), "", None, options).await
     }
 

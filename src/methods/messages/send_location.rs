@@ -2,21 +2,21 @@ use super::send_options::{SendOptions, send_builder};
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, types};
-use crate::types::Message;
+use crate::types::{Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendLocation<'a> {
     client: &'a Client,
-    chat_id: i64,
+    chat_id: PeerRef,
     point: types::InputGeoPoint,
     options: SendOptions,
 }
 
 impl Client {
-    pub fn send_location(&self, chat_id: i64, latitude: f64, longitude: f64) -> SendLocation<'_> {
+    pub fn send_location(&self, chat_id: impl Into<PeerRef>, latitude: f64, longitude: f64) -> SendLocation<'_> {
         SendLocation {
             client: self,
-            chat_id,
+            chat_id: chat_id.into(),
             point: types::InputGeoPoint { lat: latitude, long: longitude, accuracy_radius: None },
             options: SendOptions::default(),
         }

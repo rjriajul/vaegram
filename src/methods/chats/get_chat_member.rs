@@ -3,12 +3,17 @@ use crate::dispatcher::Entities;
 use crate::errors::{Error, Result, RpcError};
 use crate::methods::advanced::ChatPeer;
 use crate::raw::{base, functions};
-use crate::types::ChatMember;
+use crate::types::{ChatMember, PeerRef};
 
 impl Client {
-    pub async fn get_chat_member(&self, chat_id: i64, user_id: i64) -> Result<ChatMember> {
-        match self.resolve_chat(chat_id).await? {
+    pub async fn get_chat_member(
+        &self,
+        chat_id: impl Into<PeerRef>,
+        user_id: impl Into<PeerRef>,
+    ) -> Result<ChatMember> {
+        match self.resolve_chat(&chat_id.into()).await? {
             ChatPeer::Group(chat_id) => {
+                let user_id = self.peer_id(user_id.into()).await?;
                 let members = self.basic_group_members(chat_id).await?;
                 members.into_iter().find(|m| m.user.id == user_id).ok_or_else(user_not_participant)
             }

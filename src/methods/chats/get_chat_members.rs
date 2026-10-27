@@ -4,14 +4,14 @@ use crate::enums::ChatMembersFilter;
 use crate::errors::Result;
 use crate::methods::advanced::ChatPeer;
 use crate::raw::{base, functions};
-use crate::types::ChatMember;
+use crate::types::{ChatMember, PeerRef};
 
 const PARTICIPANTS_LIMIT: usize = 200;
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GetChatMembers<'a> {
     client: &'a Client,
-    chat_id: i64,
+    chat_id: PeerRef,
     query: String,
     filter: ChatMembersFilter,
     limit: usize,
@@ -19,10 +19,10 @@ pub struct GetChatMembers<'a> {
 
 impl Client {
     /// Basic groups ignore `query` and `filter`.
-    pub fn get_chat_members(&self, chat_id: i64) -> GetChatMembers<'_> {
+    pub fn get_chat_members(&self, chat_id: impl Into<PeerRef>) -> GetChatMembers<'_> {
         GetChatMembers {
             client: self,
-            chat_id,
+            chat_id: chat_id.into(),
             query: String::new(),
             filter: ChatMembersFilter::Search,
             limit: usize::MAX,
@@ -60,7 +60,7 @@ impl GetChatMembers<'_> {
 
     async fn send(self) -> Result<Vec<ChatMember>> {
         let client = self.client;
-        let channel = match client.resolve_chat(self.chat_id).await? {
+        let channel = match client.resolve_chat(&self.chat_id).await? {
             ChatPeer::Group(chat_id) => {
                 let mut members = client.basic_group_members(chat_id).await?;
                 members.truncate(self.limit);

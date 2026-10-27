@@ -2,19 +2,19 @@ use super::pages::Pages;
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::functions;
-use crate::types::Message;
+use crate::types::{Message, PeerRef};
 
 #[must_use = "call .next() to fetch messages"]
 pub struct GetChatHistory<'a> {
     client: &'a Client,
-    chat_id: i64,
+    chat_id: PeerRef,
     offset_date: i32,
     pages: Pages,
 }
 
 impl Client {
-    pub fn get_chat_history(&self, chat_id: i64) -> GetChatHistory<'_> {
-        GetChatHistory { client: self, chat_id, offset_date: 0, pages: Pages::new() }
+    pub fn get_chat_history(&self, chat_id: impl Into<PeerRef>) -> GetChatHistory<'_> {
+        GetChatHistory { client: self, chat_id: chat_id.into(), offset_date: 0, pages: Pages::new() }
     }
 }
 
@@ -40,8 +40,10 @@ impl GetChatHistory<'_> {
                 return Ok(Some(message));
             }
             let Some(limit) = self.pages.limit() else { return Ok(None) };
+            let (chat_id, peer) = self.client.resolve(&self.chat_id).await?;
+            self.chat_id = PeerRef::Id(chat_id);
             let request = functions::messages::GetHistory {
-                peer: self.client.resolve_peer(self.chat_id).await?,
+                peer,
                 offset_id: self.pages.offset_id,
                 offset_date: self.offset_date,
                 add_offset: 0,

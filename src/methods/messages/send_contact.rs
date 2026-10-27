@@ -2,12 +2,12 @@ use super::send_options::{SendOptions, send_builder};
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, types};
-use crate::types::Message;
+use crate::types::{Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendContact<'a> {
     client: &'a Client,
-    chat_id: i64,
+    chat_id: PeerRef,
     media: types::InputMediaContact,
     options: SendOptions,
 }
@@ -15,7 +15,7 @@ pub struct SendContact<'a> {
 impl Client {
     pub fn send_contact(
         &self,
-        chat_id: i64,
+        chat_id: impl Into<PeerRef>,
         phone_number: impl Into<String>,
         first_name: impl Into<String>,
     ) -> SendContact<'_> {
@@ -25,7 +25,7 @@ impl Client {
             last_name: String::new(),
             vcard: String::new(),
         };
-        SendContact { client: self, chat_id, media, options: SendOptions::default() }
+        SendContact { client: self, chat_id: chat_id.into(), media, options: SendOptions::default() }
     }
 }
 

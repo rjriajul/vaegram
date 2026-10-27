@@ -2,20 +2,20 @@ use crate::Client;
 use crate::errors::Result;
 use crate::methods::advanced::ChatPeer;
 use crate::raw::{base, functions};
-use crate::types::ChatPermissions;
+use crate::types::{ChatPermissions, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct BanChatMember<'a> {
     client: &'a Client,
-    chat_id: i64,
-    user_id: i64,
+    chat_id: PeerRef,
+    user_id: PeerRef,
     until_date: i32,
 }
 
 impl Client {
     /// Basic groups only remove the user; a ban with `until_date` needs a supergroup or channel.
-    pub fn ban_chat_member(&self, chat_id: i64, user_id: i64) -> BanChatMember<'_> {
-        BanChatMember { client: self, chat_id, user_id, until_date: 0 }
+    pub fn ban_chat_member(&self, chat_id: impl Into<PeerRef>, user_id: impl Into<PeerRef>) -> BanChatMember<'_> {
+        BanChatMember { client: self, chat_id: chat_id.into(), user_id: user_id.into(), until_date: 0 }
     }
 }
 
@@ -28,9 +28,9 @@ impl BanChatMember<'_> {
 
     async fn send(self) -> Result<()> {
         let client = self.client;
-        match client.resolve_chat(self.chat_id).await? {
+        match client.resolve_chat(&self.chat_id).await? {
             ChatPeer::Group(chat_id) => {
-                let user_id = client.resolve_user(self.user_id).await?;
+                let user_id = client.resolve_user(&self.user_id).await?;
                 let request = functions::messages::DeleteChatUser { revoke_history: false, chat_id, user_id };
                 client.invoke(&request).await?;
             }

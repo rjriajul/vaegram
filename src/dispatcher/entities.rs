@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::Client;
 use crate::raw::{base, types};
-use crate::utils::get_channel_id;
+use crate::utils::{get_channel_id, get_peer_id};
 
 #[derive(Default)]
 pub(crate) struct Entities {
@@ -46,5 +46,54 @@ impl Entities {
             entities.chats.insert(id, chat);
         }
         entities
+    }
+
+    pub(crate) fn remember_min_sender(&self, client: &Client, update: &base::Update) {
+        let message = match update {
+            base::Update::UpdateNewMessage(u) => &u.message,
+            base::Update::UpdateNewChannelMessage(u) => &u.message,
+            base::Update::UpdateEditMessage(u) => &u.message,
+            base::Update::UpdateEditChannelMessage(u) => &u.message,
+            _ => return,
+        };
+        let base::Message::Message(message) = message else { return };
+        let Some(from) = &message.from_id else { return };
+        let min = match from {
+            base::Peer::PeerUser(p) => matches!(self.users.get(&p.user_id), Some(base::User::User(u)) if u.min),
+            base::Peer::PeerChannel(p) => {
+                matches!(self.chats.get(&get_channel_id(p.channel_id)), Some(base::Chat::Channel(c)) if c.min)
+            }
+            base::Peer::PeerChat(_) => false,
+        };
+        if !min {
+            return;
+        }
+        let id = get_peer_id(from);
+        let mut peers = client.0.peers.lock().unwrap();
+        if matches!(peers.get(&id), Some(base::InputPeer::InputPeerUser(_) | base::InputPeer::InputPeerChannel(_))) {
+            return;
+        }
+        let peer = match &message.peer_id {
+            base::Peer::PeerChat(p) => {
+                base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: p.chat_id }))
+            }
+            chat => match peers.get(&get_peer_id(chat)) {
+                Some(peer) => peer.clone(),
+                None => return,
+            },
+        };
+        let msg_id = message.id;
+        let sender = match from {
+            base::Peer::PeerUser(p) => {
+                let user = types::InputPeerUserFromMessage { peer, msg_id, user_id: p.user_id };
+                base::InputPeer::InputPeerUserFromMessage(Box::new(user))
+            }
+            base::Peer::PeerChannel(p) => {
+                let channel = types::InputPeerChannelFromMessage { peer, msg_id, channel_id: p.channel_id };
+                base::InputPeer::InputPeerChannelFromMessage(Box::new(channel))
+            }
+            base::Peer::PeerChat(_) => return,
+        };
+        peers.insert(id, sender);
     }
 }

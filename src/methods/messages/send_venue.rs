@@ -3,12 +3,12 @@ use super::send_options::{SendOptions, send_builder};
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, types};
-use crate::types::Message;
+use crate::types::{Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendVenue<'a> {
     client: &'a Client,
-    chat_id: i64,
+    chat_id: PeerRef,
     media: types::InputMediaVenue,
     options: SendOptions,
 }
@@ -16,7 +16,7 @@ pub struct SendVenue<'a> {
 impl Client {
     pub fn send_venue(
         &self,
-        chat_id: i64,
+        chat_id: impl Into<PeerRef>,
         latitude: f64,
         longitude: f64,
         title: impl Into<String>,
@@ -30,7 +30,7 @@ impl Client {
             venue_id: String::new(),
             venue_type: String::new(),
         };
-        SendVenue { client: self, chat_id, media, options: SendOptions::default() }
+        SendVenue { client: self, chat_id: chat_id.into(), media, options: SendOptions::default() }
     }
 }
 

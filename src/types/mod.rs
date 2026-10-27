@@ -15,4 +15,4 @@ pub use messages_and_media::{
     Media, Message, MessageEntity, MessageOrigin, Photo, Poll, PollOption, ReplyParameters, Sticker,
     SuggestedPostParameters, SuggestedPostPrice, TextQuote, Upload, Venue, Video, VideoNote, Voice,
 };
-pub use user_and_chats::{Chat, ChatMember, ChatPermissions, ChatPrivileges, User};
+pub use user_and_chats::{Chat, ChatMember, ChatPermissions, ChatPrivileges, PeerRef, User};

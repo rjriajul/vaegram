@@ -157,7 +157,7 @@ async fn bot_sends_polls_and_media() {
             .start()
             .await
             .unwrap();
-    let chat_id = env("VAEGRAM_CHAT_ID").parse().unwrap();
+    let chat_id: i64 = env("VAEGRAM_CHAT_ID").parse().unwrap();
 
     let dice = app.send_dice(chat_id).emoji("🎯").disable_notification().await.unwrap();
     let Some(base::MessageMedia::MessageMediaDice(d)) = &dice.raw.media else { panic!("no dice in {dice:?}") };
@@ -200,7 +200,7 @@ async fn bot_uploads_and_downloads_a_document() {
             .start()
             .await
             .unwrap();
-    let chat_id = env("VAEGRAM_CHAT_ID").parse().unwrap();
+    let chat_id: i64 = env("VAEGRAM_CHAT_ID").parse().unwrap();
 
     let data: Vec<u8> = (0..3_000_000u32).map(|i| (i * 7 + i / 251) as u8).collect();
     let sent = app.send_document(chat_id, Upload::bytes("vaegram.bin", &data)).caption("a file").await.unwrap();

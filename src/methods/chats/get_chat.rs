@@ -2,13 +2,14 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
-use crate::types::{Chat, User};
+use crate::types::{Chat, PeerRef, User};
 use crate::utils::get_peer;
 
 impl Client {
-    pub async fn get_chat(&self, chat_id: i64) -> Result<Chat> {
+    pub async fn get_chat(&self, chat_id: impl Into<PeerRef>) -> Result<Chat> {
+        let chat_id = self.peer_id(chat_id.into()).await?;
         if chat_id > 0 {
-            let id = self.resolve_user(chat_id).await?;
+            let id = self.resolve_user(&chat_id.into()).await?;
             let base::users::UserFull::UserFull(full) = self.invoke(&functions::users::GetFullUser { id }).await?;
             let types::users::UserFull { full_user: base::UserFull::UserFull(user), chats, users } = *full;
             let entities = Entities::new(self, users, chats);
@@ -16,7 +17,7 @@ impl Client {
             chat.bio = user.about.filter(|about| !about.is_empty());
             return Ok(chat);
         }
-        let (full_chat, entities) = self.full_chat(self.resolve_chat(chat_id).await?).await?;
+        let (full_chat, entities) = self.full_chat(self.resolve_chat(&chat_id.into()).await?).await?;
         let mut chat = Chat::parse(&get_peer(chat_id), &entities, false);
         let about = match full_chat {
             base::ChatFull::ChatFull(c) => {
@@ -40,7 +41,7 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use crate::client::sent;
-    use crate::raw::functions::{channels, messages, users};
+    use crate::raw::functions::{channels, contacts, messages, users};
     use crate::raw::{Identifiable, base, types};
     use crate::types::{ChatPermissions, ChatPrivileges};
     use crate::utils::get_channel_id;
@@ -65,7 +66,7 @@ mod tests {
         let muted = ChatPermissions::default();
 
         assert_eq!(sent(rx, client.get_chat(USER)).await, users::GetFullUser::CONSTRUCTOR_ID);
-        assert_eq!(sent(rx, client.get_chat(GROUP)).await, messages::GetFullChat::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_chat(-5)).await, messages::GetFullChat::CONSTRUCTOR_ID);
         assert_eq!(sent(rx, client.get_chat(channel)).await, channels::GetFullChannel::CONSTRUCTOR_ID);
 
         assert_eq!(sent(rx, client.get_chat_member(GROUP, USER)).await, messages::GetFullChat::CONSTRUCTOR_ID);
@@ -98,7 +99,9 @@ mod tests {
         assert_eq!(sent(rx, client.set_chat_title(channel, "t")).await, channels::EditTitle::CONSTRUCTOR_ID);
         assert_eq!(sent(rx, client.set_chat_description(channel, "d")).await, messages::EditChatAbout::CONSTRUCTOR_ID);
         assert_eq!(sent(rx, client.join_chat("t.me/+hash")).await, messages::ImportChatInvite::CONSTRUCTOR_ID);
-        assert_eq!(sent(rx, client.get_users(&[USER, 8, 9])).await, users::GetUsers::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.join_chat("@group")).await, contacts::ResolveUsername::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_users([USER, 8, 9])).await, users::GetUsers::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_users(["me"])).await, users::GetUsers::CONSTRUCTOR_ID);
 
         for result in [
             client.leave_chat(USER).await,

@@ -2,12 +2,12 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::types;
-use crate::types::Message;
+use crate::types::{Message, PeerRef};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplyParameters {
     message_id: i32,
-    chat_id: Option<i64>,
+    chat_id: Option<PeerRef>,
     quote: Option<String>,
     quote_parse_mode: Option<ParseMode>,
     quote_position: Option<i32>,
@@ -26,8 +26,8 @@ impl ReplyParameters {
         }
     }
 
-    pub fn chat_id(mut self, chat_id: i64) -> Self {
-        self.chat_id = Some(chat_id);
+    pub fn chat_id(mut self, chat_id: impl Into<PeerRef>) -> Self {
+        self.chat_id = Some(chat_id.into());
         self
     }
 
@@ -53,9 +53,10 @@ impl ReplyParameters {
     }
 
     pub(crate) async fn write(&self, client: &Client, chat_id: i64) -> Result<types::InputReplyToMessage> {
-        let reply_to_peer_id = match self.chat_id {
-            Some(id) if id != chat_id => Some(client.resolve_peer(id).await?),
-            _ => None,
+        let reply_to_peer_id = match &self.chat_id {
+            Some(PeerRef::Id(id)) if *id == chat_id => None,
+            Some(chat) => Some(client.resolve(chat).await?).filter(|(id, _)| *id != chat_id).map(|(_, peer)| peer),
+            None => None,
         };
         let (quote_text, quote_entities) = match &self.quote {
             Some(quote) => {

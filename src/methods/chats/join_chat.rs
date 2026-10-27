@@ -2,18 +2,18 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
-use crate::types::Chat;
+use crate::types::{Chat, PeerRef};
 use crate::utils::{get_channel_id, get_peer};
 
 impl Client {
-    /// Joins by `@username`, `t.me/username` or an invite link (`t.me/+…`, `t.me/joinchat/…`).
-    pub async fn join_chat(&self, chat: &str) -> Result<Chat> {
-        let (known_id, result) = match invite_hash(chat) {
-            Some(hash) => (None, self.invoke(&functions::messages::ImportChatInvite { hash: hash.into() }).await?),
-            None => {
-                let username = chat.rsplit_once('/').map_or(chat, |(_, username)| username);
-                let chat_id = self.resolve_username(username).await?;
-                let channel = self.resolve_channel(chat_id).await?;
+    pub async fn join_chat(&self, chat_id: impl Into<PeerRef>) -> Result<Chat> {
+        let (known_id, result) = match chat_id.into() {
+            PeerRef::Invite(hash) => {
+                (None, self.invoke(&functions::messages::ImportChatInvite { hash: hash.into() }).await?)
+            }
+            chat => {
+                let chat_id = self.peer_id(chat).await?;
+                let channel = self.resolve_channel(&chat_id.into()).await?;
                 (Some(chat_id), self.invoke(&functions::channels::JoinChannel { channel }).await?)
             }
         };
@@ -36,24 +36,5 @@ impl Client {
             .ok_or(Error::Unexpected("Telegram sent no chat back"))?;
         let entities = Entities::new(self, users, chats);
         Ok(Chat::parse(&get_peer(id), &entities, false))
-    }
-}
-
-fn invite_hash(link: &str) -> Option<&str> {
-    let (_, hash) = link.split_once("joinchat/").or_else(|| link.split_once('+'))?;
-    Some(hash)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::invite_hash;
-
-    #[test]
-    fn finds_invite_hash() {
-        assert_eq!(invite_hash("https://t.me/+AbC-d_1"), Some("AbC-d_1"));
-        assert_eq!(invite_hash("t.me/joinchat/AbC"), Some("AbC"));
-        assert_eq!(invite_hash("+AbC"), Some("AbC"));
-        assert_eq!(invite_hash("@durov"), None);
-        assert_eq!(invite_hash("https://t.me/durov"), None);
     }
 }

@@ -110,7 +110,9 @@ match app.send_message(chat_id, "hi").await {
 ```
 
 Chat ids use the Bot API style: users are positive, groups are negative, and channels and
-supergroups start with `-100`.
+supergroups start with `-100`. Anywhere a method takes a chat or user you can also pass `"me"`, `"@username"`,
+a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`. Invite links (`t.me/+…`) join with
+`join_chat`; other methods accept them once you're a member.
 
 ### Roadmap
 

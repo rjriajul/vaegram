@@ -2,10 +2,11 @@ use crate::Client;
 use crate::errors::Result;
 use crate::methods::advanced::ChatPeer;
 use crate::raw::{base, functions};
+use crate::types::PeerRef;
 
 impl Client {
-    pub async fn leave_chat(&self, chat_id: i64) -> Result<()> {
-        match self.resolve_chat(chat_id).await? {
+    pub async fn leave_chat(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
+        match self.resolve_chat(&chat_id.into()).await? {
             ChatPeer::Group(chat_id) => {
                 let user_id = base::InputUser::InputUserSelf;
                 self.invoke(&functions::messages::DeleteChatUser { revoke_history: false, chat_id, user_id }).await?;

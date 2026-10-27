@@ -3,13 +3,13 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
-use crate::types::Message;
+use crate::types::{Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct CopyMessage<'a> {
     client: &'a Client,
-    chat_id: i64,
-    from_chat_id: i64,
+    chat_id: PeerRef,
+    from_chat_id: PeerRef,
     message_id: i32,
     caption: Option<String>,
     parse_mode: Option<ParseMode>,
@@ -17,11 +17,16 @@ pub struct CopyMessage<'a> {
 }
 
 impl Client {
-    pub fn copy_message(&self, chat_id: i64, from_chat_id: i64, message_id: i32) -> CopyMessage<'_> {
+    pub fn copy_message(
+        &self,
+        chat_id: impl Into<PeerRef>,
+        from_chat_id: impl Into<PeerRef>,
+        message_id: i32,
+    ) -> CopyMessage<'_> {
         CopyMessage {
             client: self,
-            chat_id,
-            from_chat_id,
+            chat_id: chat_id.into(),
+            from_chat_id: from_chat_id.into(),
             message_id,
             caption: None,
             parse_mode: None,
@@ -64,7 +69,7 @@ async fn input_entities(
 ) -> Result<Option<Vec<base::MessageEntity>>> {
     for entity in entities.iter_mut().flatten() {
         if let base::MessageEntity::MessageEntityMentionName(m) = entity {
-            let user_id = client.resolve_user(m.user_id).await?;
+            let user_id = client.resolve_user(&m.user_id.into()).await?;
             let mention = types::InputMessageEntityMentionName { offset: m.offset, length: m.length, user_id };
             *entity = base::MessageEntity::InputMessageEntityMentionName(Box::new(mention));
         }

@@ -1,19 +1,20 @@
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::functions;
-use crate::types::{InlineKeyboardMarkup, Message};
+use crate::types::{InlineKeyboardMarkup, Message, PeerRef};
 
 impl Client {
     pub async fn edit_message_reply_markup(
         &self,
-        chat_id: i64,
+        chat_id: impl Into<PeerRef>,
         message_id: i32,
         reply_markup: Option<InlineKeyboardMarkup>,
     ) -> Result<Message> {
+        let (chat_id, peer) = self.resolve(&chat_id.into()).await?;
         let request = functions::messages::EditMessage {
             no_webpage: false,
             invert_media: false,
-            peer: self.resolve_peer(chat_id).await?,
+            peer,
             id: message_id,
             message: None,
             media: None,

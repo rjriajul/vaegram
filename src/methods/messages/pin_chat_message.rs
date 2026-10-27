@@ -1,11 +1,12 @@
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::functions;
+use crate::types::PeerRef;
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct PinChatMessage<'a> {
     client: &'a Client,
-    chat_id: i64,
+    chat_id: PeerRef,
     message_id: i32,
     disable_notification: bool,
     both_sides: bool,
@@ -13,8 +14,14 @@ pub struct PinChatMessage<'a> {
 
 impl Client {
     /// In private chats the pin is only for you unless [`PinChatMessage::both_sides`] is set.
-    pub fn pin_chat_message(&self, chat_id: i64, message_id: i32) -> PinChatMessage<'_> {
-        PinChatMessage { client: self, chat_id, message_id, disable_notification: false, both_sides: false }
+    pub fn pin_chat_message(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> PinChatMessage<'_> {
+        PinChatMessage {
+            client: self,
+            chat_id: chat_id.into(),
+            message_id,
+            disable_notification: false,
+            both_sides: false,
+        }
     }
 }
 

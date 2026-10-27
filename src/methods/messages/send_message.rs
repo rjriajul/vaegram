@@ -4,20 +4,26 @@ use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::parser;
 use crate::raw::base;
-use crate::types::Message;
+use crate::types::{Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendMessage<'a> {
     client: &'a Client,
-    chat_id: i64,
+    chat_id: PeerRef,
     text: String,
     parse_mode: Option<ParseMode>,
     options: SendOptions,
 }
 
 impl Client {
-    pub fn send_message(&self, chat_id: i64, text: impl Into<String>) -> SendMessage<'_> {
-        SendMessage { client: self, chat_id, text: text.into(), parse_mode: None, options: SendOptions::default() }
+    pub fn send_message(&self, chat_id: impl Into<PeerRef>, text: impl Into<String>) -> SendMessage<'_> {
+        SendMessage {
+            client: self,
+            chat_id: chat_id.into(),
+            text: text.into(),
+            parse_mode: None,
+            options: SendOptions::default(),
+        }
     }
 
     pub(crate) async fn parse_text(
@@ -29,7 +35,7 @@ impl Client {
         for entity in &mut entities {
             if let base::MessageEntity::InputMessageEntityMentionName(m) = entity {
                 if let base::InputUser::InputUser(u) = &m.user_id {
-                    m.user_id = self.resolve_user(u.user_id).await?;
+                    m.user_id = self.resolve_user(&u.user_id.into()).await?;
                 }
             }
         }

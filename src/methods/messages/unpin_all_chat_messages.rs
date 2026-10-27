@@ -2,10 +2,12 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::session::Affected;
+use crate::types::PeerRef;
 use crate::utils::CHANNEL_OFFSET;
 
 impl Client {
-    pub async fn unpin_all_chat_messages(&self, chat_id: i64) -> Result<()> {
+    pub async fn unpin_all_chat_messages(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
+        let chat_id = self.peer_id(chat_id.into()).await?;
         let peer = self.resolve_peer(chat_id).await?;
         loop {
             let request =

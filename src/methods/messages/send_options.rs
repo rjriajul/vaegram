@@ -3,13 +3,13 @@ use crate::crypto::random;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::{RemoteCall, base, functions, types};
-use crate::types::{Message, ReplyMarkup, ReplyParameters, SuggestedPostParameters};
+use crate::types::{Message, PeerRef, ReplyMarkup, ReplyParameters, SuggestedPostParameters};
 
 #[derive(Default)]
 pub(crate) struct SendOptions {
     pub(crate) reply_to: Option<ReplyParameters>,
     pub(crate) message_thread_id: Option<i32>,
-    pub(crate) direct_messages_topic_id: Option<i64>,
+    pub(crate) direct_messages_topic_id: Option<PeerRef>,
     pub(crate) reply_markup: Option<ReplyMarkup>,
     pub(crate) business_connection_id: Option<String>,
     pub(crate) disable_notification: bool,
@@ -51,8 +51,8 @@ macro_rules! send_builder {
                 self
             }
 
-            pub fn direct_messages_topic_id(mut self, user_id: i64) -> Self {
-                self.options.direct_messages_topic_id = Some(user_id);
+            pub fn direct_messages_topic_id(mut self, user_id: impl Into<$crate::types::PeerRef>) -> Self {
+                self.options.direct_messages_topic_id = Some(user_id.into());
                 self
             }
 
@@ -130,8 +130,8 @@ impl SendOptions {
         chat_id: i64,
         thread: Option<i32>,
     ) -> Result<Option<base::InputReplyTo>> {
-        let monoforum_peer_id = match self.direct_messages_topic_id {
-            Some(user_id) => Some(client.resolve_peer(user_id).await?),
+        let monoforum_peer_id = match &self.direct_messages_topic_id {
+            Some(user) => Some(client.resolve(user).await?.1),
             None => None,
         };
         let mut reply = match (&self.reply_to, thread) {
@@ -153,7 +153,7 @@ impl SendOptions {
 impl Client {
     pub(crate) async fn send_media(
         &self,
-        chat_id: i64,
+        chat_id: impl Into<PeerRef>,
         media: base::InputMedia,
         caption: &str,
         parse_mode: Option<ParseMode>,
@@ -165,12 +165,12 @@ impl Client {
 
     pub(crate) async fn send_parsed(
         &self,
-        chat_id: i64,
+        chat_id: impl Into<PeerRef>,
         media: Option<base::InputMedia>,
         (message, entities): (String, Option<Vec<base::MessageEntity>>),
         options: SendOptions,
     ) -> Result<Message> {
-        let peer = self.resolve_peer(chat_id).await?;
+        let (chat_id, peer) = self.resolve(&chat_id.into()).await?;
         let reply_to = options.input_reply_to(self, chat_id, options.thread()).await?;
         // Telegram drops a second message with the same random_id, so retries can't double-send.
         let random_id = i64::from_le_bytes(random());
@@ -322,13 +322,13 @@ mod tests {
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 42, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(42, user.clone());
 
-        let options = SendOptions { direct_messages_topic_id: Some(42), ..Default::default() };
+        let options = SendOptions { direct_messages_topic_id: Some(42.into()), ..Default::default() };
         let topic = types::InputReplyToMonoForum { monoforum_peer_id: user.clone() };
         let expected = base::InputReplyTo::InputReplyToMonoForum(Box::new(topic));
         assert_eq!(written(client, options).await, Some(expected));
 
         let reply_to = Some(ReplyParameters::new(3));
-        let options = SendOptions { reply_to, direct_messages_topic_id: Some(42), ..Default::default() };
+        let options = SendOptions { reply_to, direct_messages_topic_id: Some(42.into()), ..Default::default() };
         let m = message(written(client, options).await);
         assert_eq!((m.reply_to_msg_id, m.monoforum_peer_id), (3, Some(user)));
     }

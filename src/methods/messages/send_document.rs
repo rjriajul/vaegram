@@ -3,12 +3,12 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::{base, types};
-use crate::types::{Message, Upload};
+use crate::types::{Message, PeerRef, Upload};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendDocument<'a> {
     client: &'a Client,
-    chat_id: i64,
+    chat_id: PeerRef,
     document: Upload<'a>,
     caption: String,
     parse_mode: Option<ParseMode>,
@@ -16,10 +16,14 @@ pub struct SendDocument<'a> {
 }
 
 impl Client {
-    pub fn send_document<'a>(&'a self, chat_id: i64, document: impl Into<Upload<'a>>) -> SendDocument<'a> {
+    pub fn send_document<'a>(
+        &'a self,
+        chat_id: impl Into<PeerRef>,
+        document: impl Into<Upload<'a>>,
+    ) -> SendDocument<'a> {
         SendDocument {
             client: self,
-            chat_id,
+            chat_id: chat_id.into(),
             document: document.into(),
             caption: String::new(),
             parse_mode: None,
