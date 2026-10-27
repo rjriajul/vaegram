@@ -15,6 +15,8 @@ use tasks::Tasks;
 use tracker::{Key, Tracker};
 
 use crate::Client;
+use crate::enums::ClientEvent;
+use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::session::{Incoming, UpdatesRx};
 use crate::storage::state::UpdateState;
@@ -48,6 +50,7 @@ impl Dispatcher {
         let router = client.0.handlers.current();
         let mut tasks = Tasks::new(client.0.ordered, client.0.handler_permits.clone());
         tasks.on_error = router.on_error.clone();
+        tasks.events = client.0.events.clone();
         Dispatcher { client, tracker, saved_at: Instant::now(), saved: Default::default(), router, generation, tasks }
     }
 
@@ -108,7 +111,15 @@ impl Dispatcher {
                 Key::Channel(id) => self.channel_difference(id).await,
                 _ => self.difference().await,
             };
-            self.tracker.recover(result, key);
+            self.tracker.recover(&result, key);
+            self.report(result);
+        }
+    }
+
+    fn report(&self, result: Result<()>) {
+        if let Err(error) = result {
+            eprintln!("vaegram: failed to fetch missed updates: {error}");
+            self.client.0.events.emit(ClientEvent::DifferenceFailed { error });
         }
     }
 
@@ -128,5 +139,24 @@ impl Drop for Dispatcher {
         if let Ok(mut state) = self.client.0.state.lock() {
             *state = Some(std::mem::take(&mut self.tracker.state));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ClientEvent, Dispatcher, types};
+    use crate::Client;
+    use crate::errors::Error;
+
+    #[test]
+    fn failed_differences_are_reported() {
+        let client = Client::offline();
+        let events = client.0.events.record();
+        let state = types::updates::State { pts: 1, qts: 0, date: 0, seq: 0, unread_count: 0 };
+        let d = Dispatcher::new(client, &state);
+        d.report(Ok(()));
+        d.report(Err(Error::Disconnected));
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        assert!(matches!(got[..], [ClientEvent::DifferenceFailed { error: Error::Disconnected }]), "{got:?}");
     }
 }

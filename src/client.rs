@@ -13,7 +13,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Lease, TransferPool};
-use crate::session::{Session, UpdatesRx, init_connection};
+use crate::session::{Events, Session, UpdatesRx, init_connection};
 use crate::storage::state::{StateFile, UpdateState};
 use crate::storage::{self, SessionData, session_string};
 
@@ -145,11 +145,12 @@ impl ClientBuilder {
             Some(file) => storage::state::load(&file.path, user_id)?,
             None => Default::default(),
         };
+        let events = Arc::new(Events::default());
         // A saved address comes from help.getConfig and can go stale.
-        let first_try = connect(dc(first), auth_key, self.api_id, &self.options).await;
+        let first_try = connect(dc(first), auth_key, self.api_id, &self.options, events.clone()).await;
         let (session, updates, dc_options) = match (first_try, built_in) {
             (Err(_), Some(built_in)) if built_in != first => {
-                connect(dc(built_in), auth_key, self.api_id, &self.options).await?
+                connect(dc(built_in), auth_key, self.api_id, &self.options, events).await?
             }
             (result, _) => result?,
         };
@@ -202,6 +203,7 @@ pub(crate) struct Inner {
     pub(crate) handlers: Routes,
     pub(crate) ordered: bool,
     pub(crate) handler_permits: Option<Arc<Semaphore>>,
+    pub(crate) events: Arc<Events>,
 }
 
 pub(crate) struct Me {
@@ -214,6 +216,7 @@ impl Inner {
     fn new(session: Session, updates: UpdatesRx) -> Inner {
         Inner {
             session: RwLock::new(session),
+            events: updates.events.clone(),
             updates: tokio::sync::Mutex::new(updates),
             api_id: 0,
             api_hash: String::new(),
@@ -310,7 +313,9 @@ impl Client {
     }
 
     pub(crate) async fn switch_dc(&self, dc_id: i32) -> Result<()> {
-        let (session, updates, dc_options) = connect(self.dc(dc_id)?, None, self.0.api_id, &self.0.options).await?;
+        let events = self.0.events.clone();
+        let (session, updates, dc_options) =
+            connect(self.dc(dc_id)?, None, self.0.api_id, &self.0.options, events).await?;
         *self.0.dcs.write().unwrap() = data_center::table(&dc_options, self.0.ipv6);
         *self.0.session.write().unwrap() = session;
         *self.0.updates.lock().await = updates;
@@ -321,7 +326,7 @@ impl Client {
 
     pub(crate) async fn transfer_sessions(&self, dc_id: i32, count: usize) -> Result<Lease> {
         let dc = self.dc(dc_id)?;
-        self.0.transfers.lease(dc, count, &self.session(), self.0.api_id, &self.0.options).await
+        self.0.transfers.lease(dc, count, &self.session(), self.0.api_id, &self.0.options, &self.0.events).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {
@@ -351,8 +356,9 @@ async fn connect(
     auth_key: Option<[u8; 256]>,
     api_id: i32,
     options: &Options,
+    events: Arc<Events>,
 ) -> Result<(Session, UpdatesRx, Vec<base::DcOption>)> {
-    let (session, updates) = Session::connect(dc, auth_key, options).await?;
+    let (session, updates) = Session::connect(dc, auth_key, options, events).await?;
     let init = init_connection(api_id, options, functions::help::GetConfig {});
     let base::Config::Config(config) = session.invoke(&init).await?;
     Ok((session, updates, config.dc_options))

@@ -207,12 +207,12 @@ impl Tracker {
         }
     }
 
-    pub(super) fn recover(&mut self, result: Result<()>, key: Key) {
+    pub(super) fn recover(&mut self, result: &Result<()>, key: Key) {
         let due = |k: Key| match key {
             Key::Channel(_) => k == key,
             _ => !matches!(k, Key::Channel(_)),
         };
-        let delay = match &result {
+        let delay = match result {
             Ok(()) => None,
             // FLOOD_WAIT_X and friends: asking before X seconds pass only fails again.
             Err(Error::Rpc(e)) if e.code == 420 => Some(Duration::from_secs(e.value.unwrap_or(1).into())),
@@ -223,9 +223,6 @@ impl Tracker {
             // 4xx refusals and bad answers fail the same way next time, so deliver what we hold and give up on the gap.
             Err(_) => None,
         };
-        if let Err(e) = &result {
-            eprintln!("vaegram: failed to fetch missed updates: {e}");
-        }
         self.retries.retain(|(_, k)| *k != key);
         let Some(delay) = delay else { return self.settle(due) };
         let deadline = Instant::now() + delay;
@@ -359,8 +356,8 @@ mod tests {
     fn failed_difference_keeps_the_gap() {
         let (mut t, e) = (tracker(10, 0, 0), Arc::default());
         t.update(delete(12, 1), &e, false);
-        t.recover(Err(offline()), Key::Pts);
-        t.recover(Err(Error::Timeout), Key::Pts);
+        t.recover(&Err(offline()), Key::Pts);
+        t.recover(&Err(Error::Timeout), Key::Pts);
         assert_eq!((delivered(&mut t), t.state.pts, t.pending.len()), (vec![], 10, 1));
         t.update(delete(11, 1), &e, false);
         assert_eq!(delivered(&mut t), [11, 12]);
@@ -370,10 +367,10 @@ mod tests {
     fn refused_difference_delivers_held_updates() {
         let (mut t, e) = (tracker(10, 0, 0), Arc::default());
         t.update(delete(12, 1), &e, false);
-        t.recover(Err(Error::Rpc(RpcError::new(400, "CHANNEL_PRIVATE"))), Key::Pts);
+        t.recover(&Err(Error::Rpc(RpcError::new(400, "CHANNEL_PRIVATE"))), Key::Pts);
         assert_eq!(delivered(&mut t), [12]);
         t.update(delete(14, 1), &e, false);
-        t.recover(Err(Error::Unexpected("bad difference")), Key::Pts);
+        t.recover(&Err(Error::Unexpected("bad difference")), Key::Pts);
         assert_eq!((delivered(&mut t), t.pending.len(), t.deadline()), (vec![14], 0, None));
     }
 
@@ -394,7 +391,7 @@ mod tests {
     fn flood_wait_retries_after_the_wait() {
         let (mut t, e) = (tracker(10, 0, 0), Arc::default());
         t.update(delete(12, 1), &e, false);
-        t.recover(Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_30"))), Key::Pts);
+        t.recover(&Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_30"))), Key::Pts);
         assert!(delivered(&mut t).is_empty());
         t.expire(Instant::now() + GAP_TIMEOUT);
         assert!(t.due.is_empty());
@@ -405,13 +402,13 @@ mod tests {
     #[test]
     fn failed_catch_up_retries_with_nothing_held() {
         let mut t = tracker(10, 0, 0);
-        t.recover(Err(offline()), Key::Pts);
-        t.recover(Err(offline()), Key::Channel(1));
+        t.recover(&Err(offline()), Key::Pts);
+        t.recover(&Err(offline()), Key::Channel(1));
         assert!(t.deadline().is_some());
         t.expire(Instant::now() + GAP_TIMEOUT);
         assert_eq!((t.due.clone(), t.deadline()), (vec![Key::Pts, Key::Channel(1)], None));
-        t.recover(Err(offline()), Key::Pts);
-        t.recover(Ok(()), Key::Pts);
+        t.recover(&Err(offline()), Key::Pts);
+        t.recover(&Ok(()), Key::Pts);
         assert!(t.deadline().is_none());
     }
 

@@ -3,23 +3,26 @@ use std::sync::Arc;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 
+use crate::enums::ClientEvent;
 use crate::handlers::{BoxFuture, Callback, ErrorCallback, HandlerError, Routed, UpdateKind};
+use crate::session::Events;
 
 #[derive(Default)]
 pub(crate) struct Tasks {
     lanes: Option<Lanes>,
     permits: Option<Arc<Semaphore>>,
     pub(crate) on_error: Option<ErrorCallback>,
+    pub(crate) events: Arc<Events>,
 }
 
 impl Tasks {
     pub(crate) fn new(ordered: bool, permits: Option<Arc<Semaphore>>) -> Self {
-        Tasks { lanes: ordered.then(Lanes::default), permits, on_error: None }
+        Tasks { lanes: ordered.then(Lanes::default), permits, on_error: None, events: Arc::default() }
     }
 
     pub(crate) fn run<T: Routed>(&mut self, kind: UpdateKind, item: T, callbacks: Vec<Callback<T>>) {
         let turn = self.lanes.as_mut().zip(item.order_key()).map(|(lanes, key)| lanes.turn(key));
-        let (permits, on_error) = (self.permits.clone(), self.on_error.clone());
+        let (permits, on_error, events) = (self.permits.clone(), self.on_error.clone(), self.events.clone());
         tokio::spawn(async move {
             let _done = match turn {
                 Some((previous, done)) => {
@@ -35,21 +38,21 @@ impl Tasks {
             let Some((last, rest)) = callbacks.split_last() else { return };
             for callback in rest {
                 if let Err(error) = callback(item.clone()).await {
-                    return report(on_error, HandlerError { kind, chat_id, error }).await;
+                    return report(on_error, events, HandlerError { kind, chat_id, error }).await;
                 }
             }
             if let Err(error) = last(item).await {
-                report(on_error, HandlerError { kind, chat_id, error }).await;
+                report(on_error, events, HandlerError { kind, chat_id, error }).await;
             }
         });
     }
 
     pub(crate) fn raw(&self, future: BoxFuture) {
-        let (permits, on_error) = (self.permits.clone(), self.on_error.clone());
+        let (permits, on_error, events) = (self.permits.clone(), self.on_error.clone(), self.events.clone());
         tokio::spawn(async move {
             let _permit = permit(permits).await;
             if let Err(error) = future.await {
-                report(on_error, HandlerError { kind: UpdateKind::Raw, chat_id: None, error }).await;
+                report(on_error, events, HandlerError { kind: UpdateKind::Raw, chat_id: None, error }).await;
             }
         });
     }
@@ -59,13 +62,16 @@ async fn permit(permits: Option<Arc<Semaphore>>) -> Option<OwnedSemaphorePermit>
     Some(permits?.acquire_owned().await.expect("the semaphore is never closed"))
 }
 
-async fn report(on_error: Option<ErrorCallback>, error: HandlerError) {
+async fn report(on_error: Option<ErrorCallback>, events: Arc<Events>, error: HandlerError) {
     match on_error {
         Some(on_error) => on_error(error).await,
-        None => match error.chat_id {
-            Some(chat) => eprintln!("vaegram: {:?} handler failed in chat {chat}: {}", error.kind, error.error),
-            None => eprintln!("vaegram: {:?} handler failed: {}", error.kind, error.error),
-        },
+        None => {
+            match error.chat_id {
+                Some(chat) => eprintln!("vaegram: {:?} handler failed in chat {chat}: {}", error.kind, error.error),
+                None => eprintln!("vaegram: {:?} handler failed: {}", error.kind, error.error),
+            }
+            events.emit(ClientEvent::HandlerFailed { error });
+        }
     }
 }
 
@@ -104,5 +110,31 @@ mod tests {
         }
         assert!(lanes.tails.contains_key(&1000));
         drop(alive);
+    }
+
+    #[tokio::test]
+    async fn errors_go_to_on_error_or_else_to_events() {
+        use crate::errors::Error;
+        let mut tasks = Tasks::default();
+        let events = tasks.events.record();
+        tasks.raw(Box::pin(async { Err::<(), _>(Error::Unexpected("boom")) }));
+        let event = loop {
+            match events.try_recv() {
+                Ok(e) => break e,
+                Err(_) => tokio::task::yield_now().await,
+            }
+        };
+        let failed = HandlerError { kind: UpdateKind::Raw, chat_id: None, error: Error::Unexpected("boom") };
+        assert_eq!(format!("{event:?}"), format!("{:?}", ClientEvent::HandlerFailed { error: failed }));
+
+        let (handled, mut taken) = tokio::sync::mpsc::unbounded_channel();
+        let on_error = move |e: HandlerError| -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> {
+            let _ = handled.send(e.kind);
+            Box::pin(async {})
+        };
+        tasks.on_error = Some(Arc::new(on_error));
+        tasks.raw(Box::pin(async { Err::<(), _>(Error::Unexpected("boom")) }));
+        assert_eq!(taken.recv().await, Some(UpdateKind::Raw));
+        assert!(events.try_recv().is_err());
     }
 }

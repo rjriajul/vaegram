@@ -1,4 +1,5 @@
 mod auth;
+mod events;
 pub mod internals;
 mod outbox;
 mod service;
@@ -6,9 +7,10 @@ mod service;
 mod tests;
 pub(crate) mod transfer;
 
+pub use events::Events;
+
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
@@ -16,6 +18,7 @@ use tokio::task::JoinHandle;
 
 use crate::connection::{Connection, Options, Proxy, Reader, Writer};
 use crate::crypto::{mtproto, random, sha1};
+use crate::enums::ClientEvent;
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::core::{gzip_packed, msg_container};
 use crate::raw::{Deserializable, Identifiable, LAYER, RemoteCall, Serializable, base, functions, types};
@@ -61,12 +64,14 @@ pub struct Incoming {
 /// The session's updates. Ones the runner had to drop on a full channel come back as one `UpdatesTooLong`.
 pub struct UpdatesRx {
     rx: mpsc::Receiver<Incoming>,
-    dropped: Arc<AtomicU32>,
+    pub(crate) events: Arc<Events>,
 }
 
 impl UpdatesRx {
     pub async fn recv(&mut self) -> Option<Incoming> {
-        if self.dropped.swap(0, Ordering::AcqRel) > 0 {
+        let count = self.events.take_dropped();
+        if count > 0 {
+            self.events.emit(ClientEvent::UpdatesDropped { count });
             return Some(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
         }
         self.rx.recv().await
@@ -74,7 +79,7 @@ impl UpdatesRx {
 
     #[cfg(test)]
     pub(crate) fn offline() -> UpdatesRx {
-        UpdatesRx { rx: mpsc::channel(1).1, dropped: Arc::default() }
+        UpdatesRx { rx: mpsc::channel(1).1, events: Arc::default() }
     }
 }
 
@@ -86,11 +91,15 @@ pub struct Session {
 }
 
 impl Session {
-    pub async fn connect(dc: Dc, auth_key: Option<[u8; 256]>, options: &Options) -> Result<(Session, UpdatesRx)> {
+    pub async fn connect(
+        dc: Dc,
+        auth_key: Option<[u8; 256]>,
+        options: &Options,
+        events: Arc<Events>,
+    ) -> Result<(Session, UpdatesRx)> {
         let (tx, rx) = mpsc::channel(UPDATES_BUFFER);
-        let dropped = Arc::<AtomicU32>::default();
-        let session = Session::open(dc, auth_key, options, dropped.clone(), Some(tx)).await?;
-        Ok((session, UpdatesRx { rx, dropped }))
+        let session = Session::open(dc, auth_key, options, events.clone(), Some(tx)).await?;
+        Ok((session, UpdatesRx { rx, events }))
     }
 
     #[cfg(test)]
@@ -116,20 +125,25 @@ impl Session {
 
     /// A connection for file parts only. The server keeps initConnection's client info with the auth key
     /// (https://core.telegram.org/api/invoking#saving-client-info), so an authorized key needs no second one.
-    pub(crate) async fn connect_transfer(dc: Dc, auth_key: Option<[u8; 256]>, options: &Options) -> Result<Session> {
-        Session::open(dc, auth_key, options, Arc::default(), None).await
+    pub(crate) async fn connect_transfer(
+        dc: Dc,
+        auth_key: Option<[u8; 256]>,
+        options: &Options,
+        events: Arc<Events>,
+    ) -> Result<Session> {
+        Session::open(dc, auth_key, options, events, None).await
     }
 
     async fn open(
         dc: Dc,
         auth_key: Option<[u8; 256]>,
         options: &Options,
-        dropped: Arc<AtomicU32>,
+        events: Arc<Events>,
         updates: Option<mpsc::Sender<Incoming>>,
     ) -> Result<Session> {
         let (conn, auth_key, salt, time_offset) = handshake(dc, auth_key, options).await?;
         let (requests_tx, requests) = mpsc::unbounded_channel();
-        let runner = Runner::new(dc, options.clone(), conn, (auth_key, salt, time_offset), dropped, updates);
+        let runner = Runner::new(dc, options.clone(), conn, (auth_key, salt, time_offset), events, updates);
         tokio::spawn(runner.run(requests));
         Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key })
     }
@@ -265,7 +279,7 @@ struct Runner {
     acks: Vec<i64>,
     buf: Vec<u8>,
     updates: Option<mpsc::Sender<Incoming>>,
-    dropped: Arc<AtomicU32>,
+    events: Arc<Events>,
 }
 
 impl Runner {
@@ -274,7 +288,7 @@ impl Runner {
         options: Options,
         conn: Connection,
         (auth_key, salt, time_offset): ([u8; 256], i64, Option<i64>),
-        dropped: Arc<AtomicU32>,
+        events: Arc<Events>,
         updates: Option<mpsc::Sender<Incoming>>,
     ) -> Runner {
         let (writer, packets, reader) = start_reading(conn);
@@ -298,7 +312,7 @@ impl Runner {
             acks: Vec::new(),
             buf: Vec::new(),
             updates,
-            dropped,
+            events,
         }
     }
 
@@ -352,7 +366,9 @@ impl Runner {
 
     async fn reconnect(&mut self, requests: &mpsc::UnboundedReceiver<Request>) {
         let mut delay = RECONNECT_DELAY;
+        let mut attempt = 0;
         while !requests.is_closed() && self.updates.as_ref().is_none_or(|u| !u.is_closed()) {
+            attempt += 1;
             self.reader.abort();
             tokio::time::sleep(delay).await;
             delay = (delay * 2).min(MAX_RECONNECT_DELAY);
@@ -360,6 +376,7 @@ impl Runner {
             let Ok(conn) = Connection::connect(&self.dc, &self.options).await else { continue };
             (self.writer, self.packets, self.reader) = start_reading(conn);
             if self.resend_pending().await.is_ok() {
+                self.events.emit(ClientEvent::Reconnected { dc: self.dc.id, attempt });
                 self.request_difference();
                 return;
             }
@@ -374,16 +391,25 @@ impl Runner {
         if self.updates.is_none() {
             return;
         }
-        if let Ok(updates) = base::Updates::from_bytes(body) {
-            self.push(Incoming { updates, from_request });
+        match base::Updates::from_bytes(body) {
+            Ok(updates) => self.push(Incoming { updates, from_request }),
+            Err(e) if !from_request => self.skip(body, e),
+            Err(_) => {}
         }
     }
 
     fn push(&self, incoming: Incoming) {
         let Some(tx) = &self.updates else { return };
         if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(incoming) {
-            self.dropped.fetch_add(1, Ordering::Release);
+            self.events.drop_updates();
         }
+    }
+
+    fn skip(&self, body: &[u8], error: crate::raw::Error) {
+        self.events.emit(match error {
+            crate::raw::Error::UnexpectedConstructor { id } => ClientEvent::UnknownConstructor { id },
+            _ => ClientEvent::UpdateParseFailed { constructor_id: constructor_id(body).unwrap_or(0), len: body.len() },
+        });
     }
 
     async fn resend_pending(&mut self) -> Result<()> {
@@ -437,16 +463,22 @@ impl Runner {
     async fn handle_packet(&mut self, packet: &[u8]) -> Result<()> {
         // Drop anything that fails decryption or the MTProto checks: it isn't from the server.
         let Ok(msg) = mtproto::unpack(packet, &self.auth_key, &self.auth_key_id, &self.session_id, true) else {
+            self.events.emit(ClientEvent::PacketDropped { reason: "failed decryption or the MTProto checks" });
             return Ok(());
         };
         if !self.fresh(msg.msg_id, &msg.body) {
             return Ok(());
         }
         if constructor_id(&msg.body) == Some(msg_container::ID) {
-            for m in msg_container::parse(&msg.body).unwrap_or_default() {
-                if self.fresh(m.msg_id, m.body) {
-                    self.handle_message(m.msg_id, m.seq_no, m.body);
+            match msg_container::parse(&msg.body) {
+                Ok(messages) => {
+                    for m in messages {
+                        if self.fresh(m.msg_id, m.body) {
+                            self.handle_message(m.msg_id, m.seq_no, m.body);
+                        }
+                    }
                 }
+                Err(_) => self.events.emit(ClientEvent::PacketDropped { reason: "bad msg_container" }),
             }
         } else {
             self.handle_message(msg.msg_id, msg.seq_no, &msg.body);
@@ -475,7 +507,9 @@ impl Runner {
         }
         let unpacked;
         let body = if constructor_id(body) == Some(gzip_packed::ID) {
-            let Ok(b) = gzip_packed::unpack(body) else { return };
+            let Ok(b) = gzip_packed::unpack(body) else {
+                return self.events.emit(ClientEvent::PacketDropped { reason: "bad gzip_packed" });
+            };
             unpacked = b;
             &unpacked[..]
         } else {

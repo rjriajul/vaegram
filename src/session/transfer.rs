@@ -6,7 +6,7 @@ use std::task::Poll;
 use std::time::Duration;
 
 use super::internals::data_center::Dc;
-use super::{Session, WeakSession, init_connection};
+use super::{Events, Session, WeakSession, init_connection};
 use crate::connection::Options;
 use crate::errors::{Error, Result};
 use crate::raw::{RemoteCall, base, functions};
@@ -46,6 +46,7 @@ impl TransferPool {
         home: &Session,
         api_id: i32,
         options: &Options,
+        events: &Arc<Events>,
     ) -> Result<Lease> {
         let slot = self.0.lock().unwrap().entry(dc.id).or_default().clone();
         let _opening = slot.opening.lock().await;
@@ -57,7 +58,7 @@ impl TransferPool {
         let key = match key {
             Some(key) => key,
             None => {
-                let session = Session::connect_transfer(dc, None, options).await?;
+                let session = Session::connect_transfer(dc, None, options, events.clone()).await?;
                 let base::auth::ExportedAuthorization::ExportedAuthorization(e) =
                     home.invoke(&functions::auth::ExportAuthorization { dc_id: dc.id }).await?;
                 let import = functions::auth::ImportAuthorization { id: e.id, bytes: e.bytes };
@@ -69,7 +70,9 @@ impl TransferPool {
             }
         };
         let missing = count.saturating_sub(sessions.len());
-        let opened = try_join_all((0..missing).map(|_| Session::connect_transfer(dc, Some(key), options))).await?;
+        let opened =
+            try_join_all((0..missing).map(|_| Session::connect_transfer(dc, Some(key), options, events.clone())))
+                .await?;
         sessions.extend(opened);
         slot.state.lock().unwrap().sessions = sessions.iter().map(Session::downgrade).collect();
         sessions.truncate(count);
