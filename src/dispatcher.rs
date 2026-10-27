@@ -1,16 +1,19 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::Client;
 use crate::errors::Result;
 use crate::handlers::{BoxFuture, Event, Handler};
 use crate::raw::{base, functions, types};
 use crate::session::Incoming;
+use crate::storage::state::UpdateState;
 use crate::types::{CallbackQuery, InlineQuery, Message};
 use crate::utils::get_channel_id;
 
 const CHANNEL_DIFFERENCE_LIMIT: i32 = 100;
+const SAVE_EVERY: Duration = Duration::from_secs(10);
 
 #[derive(Default)]
 pub(crate) struct Entities {
@@ -108,13 +111,32 @@ pub(crate) struct Dispatcher {
     seq: i32,
     channels: HashMap<i64, i32>,
     ready: Vec<(base::Update, Arc<Entities>)>,
+    saved_at: Instant,
+    saved: (UpdateState, usize),
 }
 
 impl Dispatcher {
     pub(crate) fn new(client: Client, state: &types::updates::State) -> Self {
-        let mut d = Dispatcher { client, pts: 0, qts: 0, date: 0, seq: 0, channels: HashMap::new(), ready: Vec::new() };
-        d.set_state(state);
+        let (pts, qts, date, seq) = (state.pts, state.qts, state.date, state.seq);
+        Self::from_saved(client, UpdateState { pts, qts, date, seq, channels: HashMap::new() })
+    }
+
+    /// Starts from a saved state and fetches what was missed while offline.
+    pub(crate) async fn resume(client: Client, state: UpdateState) -> Self {
+        let mut d = Self::from_saved(client, state);
+        d.handle(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false }).await;
         d
+    }
+
+    fn from_saved(client: Client, s: UpdateState) -> Self {
+        let (pts, qts, date, seq, channels) = (s.pts, s.qts, s.date, s.seq, s.channels);
+        let saved = Default::default();
+        Dispatcher { client, pts, qts, date, seq, channels, ready: Vec::new(), saved_at: Instant::now(), saved }
+    }
+
+    fn snapshot(&self) -> UpdateState {
+        let (pts, qts, date, seq) = (self.pts, self.qts, self.date, self.seq);
+        UpdateState { pts, qts, date, seq, channels: self.channels.clone() }
     }
 
     pub(crate) async fn handle(&mut self, incoming: Incoming) {
@@ -123,6 +145,15 @@ impl Dispatcher {
         }
         for (update, entities) in std::mem::take(&mut self.ready) {
             self.dispatch(update, &entities);
+        }
+        // Saved every SAVE_EVERY when something moved, and on drop, so a crash replays at most that much.
+        if self.saved_at.elapsed() >= SAVE_EVERY {
+            self.saved_at = Instant::now();
+            let now = (self.snapshot(), self.client.0.peers.lock().unwrap().len());
+            if now != self.saved {
+                self.client.0.save_state_in_background(&now.0);
+                self.saved = now;
+            }
         }
     }
 
@@ -361,6 +392,14 @@ impl Dispatcher {
             }
             base::Update::UpdateBotInlineQuery(u) => Some(Event::InlineQuery(InlineQuery::parse(client, u, entities))),
             _ => None,
+        }
+    }
+}
+
+impl Drop for Dispatcher {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.client.0.state.lock() {
+            *state = Some(self.snapshot());
         }
     }
 }

@@ -73,8 +73,11 @@ More in [examples](examples).
 ### Sessions
 
 The first run logs in and writes `my_bot.session`. Later runs reuse it, so you log in once.
+Next to it, `my_bot.state` keeps known chats and the update state, so after a restart you can
+still message chats by id and `run()` delivers the updates you missed while offline.
 
-You can also keep the whole session in one line, in an env var or a database:
+You can also keep the whole session in one line, in an env var or a database (the line holds
+only the login, so known chats and missed updates aren't kept across restarts):
 
 ```rust
 let s = app.export_session_string(); // "VAE_..."
@@ -86,7 +89,7 @@ let app = Client::builder("my_bot", api_id, api_hash)
 ```
 
 > A session file or string **is** the login: anyone who has it is logged in as that account.
-> Never commit or share it. `*.session` is already in `.gitignore`.
+> Never commit or share it. `*.session` and `*.state` are already in `.gitignore`.
 
 `.test_mode()` logs in on Telegram's test servers and `.ipv6()` connects over IPv6. Session strings remember
 the test mode and the data center address.

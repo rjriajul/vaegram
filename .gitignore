@@ -1,2 +1,4 @@
 /target
 *.session
+*.state
+*.state.tmp

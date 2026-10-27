@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use tokio::sync::mpsc;
 
@@ -11,6 +11,7 @@ use crate::handlers::Handler;
 use crate::raw::{LAYER, base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::{Incoming, Session};
+use crate::storage::state::{StateFile, UpdateState};
 use crate::storage::{self, SessionData, session_string};
 
 const DEFAULT_DC: i32 = 2;
@@ -115,6 +116,11 @@ impl ClientBuilder {
         let built_in = data_center::address(dc_id, test_mode, self.ipv6);
         let first = addr.filter(|a| a.is_ipv6() == self.ipv6).or(built_in).ok_or(Error::InvalidDc(dc_id))?;
         let dc = |addr| Dc { id: dc_id, addr, test: test_mode };
+        let state_file = storage_path.as_ref().map(|path| Arc::new(StateFile::new(path.with_extension("state"))));
+        let (peers, state) = match &state_file {
+            Some(file) => storage::state::load(&file.path, user_id)?,
+            None => Default::default(),
+        };
         // A saved address comes from help.getConfig and can go stale.
         let first_try = connect(dc(first), auth_key, self.api_id, &self.options).await;
         let (session, updates, dc_options) = match (first_try, built_in) {
@@ -132,9 +138,11 @@ impl ClientBuilder {
             test_mode,
             ipv6: self.ipv6,
             storage_path,
+            state_file,
             options: self.options,
+            state: Mutex::new(state),
             me: Mutex::new(Me { id: user_id, is_bot, username: None }),
-            peers: Mutex::new(HashMap::new()),
+            peers: Mutex::new(peers),
             handlers: RwLock::new(Vec::new()),
         }));
         client.save()?;
@@ -154,7 +162,9 @@ pub(crate) struct Inner {
     test_mode: bool,
     ipv6: bool,
     storage_path: Option<PathBuf>,
+    state_file: Option<Arc<StateFile>>,
     options: Options,
+    pub(crate) state: Mutex<Option<UpdateState>>,
     pub(crate) me: Mutex<Me>,
     pub(crate) peers: Mutex<HashMap<i64, base::InputPeer>>,
     pub(crate) handlers: RwLock<Vec<Handler>>,
@@ -164,6 +174,30 @@ pub(crate) struct Me {
     pub(crate) id: i64,
     pub(crate) is_bot: bool,
     pub(crate) username: Option<String>,
+}
+
+impl Inner {
+    fn encode_state(&self, file: &StateFile, state: Option<&UpdateState>) -> (u64, Vec<u8>) {
+        let user_id = self.me.lock().unwrap_or_else(PoisonError::into_inner).id;
+        let peers = self.peers.lock().unwrap_or_else(PoisonError::into_inner);
+        (file.ticket(), storage::state::encode(user_id, &peers, state))
+    }
+
+    pub(crate) fn save_state_in_background(&self, state: &UpdateState) {
+        let Some(file) = self.state_file.clone() else { return };
+        let (ticket, bytes) = self.encode_state(&file, Some(state));
+        tokio::task::spawn_blocking(move || file.write(ticket, &bytes));
+    }
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        let state = self.state.get_mut().ok().and_then(Option::take);
+        if let Some(file) = &self.state_file {
+            let (ticket, bytes) = self.encode_state(file, state.as_ref());
+            file.write(ticket, &bytes);
+        }
+    }
 }
 
 impl Client {

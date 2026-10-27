@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -6,6 +7,7 @@ use vaegram::connection::{Options, Proxy, Transport};
 use vaegram::raw::{base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
+use vaegram::storage::state;
 use vaegram::types::{
     ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, KeyboardButton, Message,
     ReplyKeyboardMarkup, ReplyKeyboardRemove,
@@ -274,6 +276,34 @@ async fn user_account_talks_to_bot() {
 
     assert!(raw_updates.load(Ordering::Relaxed) >= 3);
     user.delete_messages(bot_id, &[ping.id, pong.id]).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_keeps_peers_across_restarts() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let (api_id, api_hash): (i32, String) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
+    let name = "target/vaegram-live-restart";
+    let state_path = format!("{name}.state");
+    std::fs::copy(format!("{session}.session"), format!("{name}.session")).unwrap();
+    let _ = std::fs::remove_file(&state_path);
+
+    let user = Client::builder(name, api_id, api_hash.clone()).connect().await.unwrap();
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let id = user.resolve_username("BotFather").await.unwrap();
+    drop(user);
+
+    let (peers, _) = state::load(Path::new(&state_path), me.id).unwrap();
+    let saved = peers.get(&id).cloned().expect("BotFather was saved on drop");
+    let user = Client::builder(name, api_id, api_hash).connect().await.unwrap();
+    assert_eq!(user.resolve_peer(id).await.unwrap(), saved);
+    drop(user);
+    std::fs::remove_file(format!("{name}.session")).unwrap();
+    std::fs::remove_file(state_path).unwrap();
 }
 
 async fn next(rx: &mut tokio::sync::mpsc::UnboundedReceiver<(&'static str, Message)>, kind: &str) -> Message {
