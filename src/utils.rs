@@ -23,3 +23,10 @@ pub fn get_peer(chat_id: i64) -> base::Peer {
         base::Peer::PeerChat(Box::new(types::PeerChat { chat_id: -chat_id }))
     }
 }
+
+pub(crate) fn chats_of(chats: base::messages::Chats) -> Vec<base::Chat> {
+    match chats {
+        base::messages::Chats::Chats(c) => c.chats,
+        base::messages::Chats::ChatsSlice(c) => c.chats,
+    }
+}

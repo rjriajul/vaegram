@@ -236,6 +236,11 @@ impl Client {
     }
 
     #[cfg(test)]
+    pub(crate) fn recording() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
+        Client::scripted(Vec::new())
+    }
+
+    #[cfg(test)]
     pub(crate) fn scripted(replies: Vec<Result<Vec<u8>>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
         let client = Client::offline();
         let (session, sent) = Session::scripted(replies);

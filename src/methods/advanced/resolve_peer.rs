@@ -1,10 +1,11 @@
 use crate::Client;
+use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
-use crate::utils::CHANNEL_OFFSET;
+use crate::utils::{CHANNEL_OFFSET, chats_of};
 
 pub(crate) enum ChatPeer {
-    Group,
+    Group(i64),
     Channel(base::InputChannel),
 }
 
@@ -38,11 +39,7 @@ impl Client {
                     id: vec![base::InputChannel::InputChannel(Box::new(input))],
                 })
                 .await?;
-            let chats = match chats {
-                base::messages::Chats::Chats(c) => c.chats,
-                base::messages::Chats::ChatsSlice(c) => c.chats,
-            };
-            let access_hash = chats
+            let access_hash = chats_of(chats)
                 .iter()
                 .find_map(|c| match c {
                     base::Chat::Channel(c) if c.id == channel_id => c.access_hash,
@@ -72,7 +69,7 @@ impl Client {
 
     pub(crate) async fn resolve_chat(&self, chat_id: i64) -> Result<ChatPeer> {
         match self.resolve_peer(chat_id).await? {
-            base::InputPeer::InputPeerChat(_) => Ok(ChatPeer::Group),
+            base::InputPeer::InputPeerChat(p) => Ok(ChatPeer::Group(p.chat_id)),
             base::InputPeer::InputPeerChannel(p) => {
                 let channel = types::InputChannel { channel_id: p.channel_id, access_hash: p.access_hash };
                 Ok(ChatPeer::Channel(base::InputChannel::InputChannel(Box::new(channel))))
@@ -84,7 +81,16 @@ impl Client {
     pub(crate) async fn resolve_channel(&self, chat_id: i64) -> Result<base::InputChannel> {
         match self.resolve_chat(chat_id).await? {
             ChatPeer::Channel(channel) => Ok(channel),
-            ChatPeer::Group => Err(Error::InvalidArgument("only supergroups and channels have that")),
+            ChatPeer::Group(_) => Err(Error::InvalidArgument("only supergroups and channels have that")),
         }
+    }
+
+    pub(crate) async fn full_chat(&self, chat: ChatPeer) -> Result<(base::ChatFull, Entities)> {
+        let base::messages::ChatFull::ChatFull(full) = match chat {
+            ChatPeer::Group(chat_id) => self.invoke(&functions::messages::GetFullChat { chat_id }).await?,
+            ChatPeer::Channel(channel) => self.invoke(&functions::channels::GetFullChannel { channel }).await?,
+        };
+        let types::messages::ChatFull { full_chat, chats, users } = *full;
+        Ok((full_chat, Entities::new(self, users, chats)))
     }
 }

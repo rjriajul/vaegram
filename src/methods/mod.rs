@@ -14,10 +14,12 @@ macro_rules! into_future {
 mod advanced;
 mod auth;
 mod bots;
+mod chats;
 mod decorators;
 mod messages;
 mod users;
 mod utilities;
 
 pub use bots::{AnswerCallbackQuery, AnswerInlineQuery};
+pub use chats::{BanChatMember, GetChatAdministrators, GetChatMembers, RestrictChatMember};
 pub use messages::{EditMessageText, SendMessage};

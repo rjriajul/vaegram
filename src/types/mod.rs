@@ -11,4 +11,4 @@ pub use bots_and_keyboards::{
 };
 pub use inline_mode::{InlineQuery, InlineQueryResultArticle};
 pub use messages_and_media::Message;
-pub use user_and_chats::{Chat, User};
+pub use user_and_chats::{Chat, ChatMember, ChatPermissions, ChatPrivileges, User};

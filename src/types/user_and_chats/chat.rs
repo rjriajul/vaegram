@@ -1,6 +1,7 @@
 use crate::dispatcher::Entities;
 use crate::enums::ChatType;
 use crate::raw::base;
+use crate::types::User;
 use crate::utils::get_peer_id;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,13 +12,28 @@ pub struct Chat {
     pub username: Option<String>,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
+    pub bio: Option<String>,
+    pub description: Option<String>,
+    pub members_count: Option<i32>,
+    /// The bot answering join request queries; only admins get it from `get_chat`.
+    pub guard_bot: Option<User>,
 }
 
 impl Chat {
     pub(crate) fn parse(peer: &base::Peer, entities: &Entities, is_post: bool) -> Chat {
         let id = get_peer_id(peer);
-        let mut chat =
-            Chat { id, kind: ChatType::Private, title: None, username: None, first_name: None, last_name: None };
+        let mut chat = Chat {
+            id,
+            kind: ChatType::Private,
+            title: None,
+            username: None,
+            first_name: None,
+            last_name: None,
+            bio: None,
+            description: None,
+            members_count: None,
+            guard_bot: None,
+        };
         match peer {
             base::Peer::PeerUser(_) => {
                 if let Some(base::User::User(u)) = entities.users.get(&id) {
