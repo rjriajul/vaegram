@@ -1,6 +1,22 @@
+mod copy_message;
 mod delete_messages;
+mod edit_message_reply_markup;
 mod edit_message_text;
+mod forward_messages;
+mod get_chat_history;
+mod get_messages;
+mod pages;
+mod pin_chat_message;
+mod read_chat_history;
+mod search_messages;
+mod send_chat_action;
 mod send_message;
+mod unpin_all_chat_messages;
+mod unpin_chat_message;
 
+pub use copy_message::CopyMessage;
 pub use edit_message_text::EditMessageText;
+pub use get_chat_history::GetChatHistory;
+pub use pin_chat_message::PinChatMessage;
+pub use search_messages::SearchMessages;
 pub use send_message::SendMessage;

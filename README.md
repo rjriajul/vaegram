@@ -125,6 +125,7 @@ supergroups start with `-100`.
 - [x] Auto-reconnect, short `FLOOD_WAIT`s slept off
 - [ ] Abridged and padded transports, obfuscation, SOCKS5 and MTProxy: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
 - [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat` (not yet tested live)
+- [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)
 - [ ] File upload and download, rich messages
 
 ### Development

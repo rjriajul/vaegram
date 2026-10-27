@@ -6,7 +6,7 @@ use crate::enums::ChatType;
 use crate::errors::{Error, Result};
 use crate::methods::{EditMessageText, SendMessage};
 use crate::raw::{Serializable, base, types};
-use crate::types::{Chat, User};
+use crate::types::{Chat, ReplyMarkup, User};
 use crate::utils::get_peer;
 
 #[derive(Clone)]
@@ -24,7 +24,7 @@ pub struct Message {
 }
 
 impl Message {
-    pub(crate) fn parse(client: &Client, raw: &types::Message, entities: &Entities) -> Message {
+    pub(crate) fn parse(client: &Client, raw: Box<types::Message>, entities: &Entities) -> Message {
         let chat = Chat::parse(&raw.peer_id, entities, raw.post);
         let (mut from_user, mut sender_chat) = (None, None);
         match (&raw.from_id, &raw.peer_id) {
@@ -46,9 +46,26 @@ impl Message {
             text: raw.message.clone(),
             outgoing: raw.out,
             edit_date: raw.edit_date,
-            raw: Box::new(raw.clone()),
+            raw,
             client: client.clone(),
         }
+    }
+
+    pub(crate) fn from_raw(client: &Client, raw: base::Message, entities: &Entities) -> Option<Message> {
+        match raw {
+            base::Message::Message(m) => Some(Message::parse(client, m, entities)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn unpack(client: &Client, messages: base::messages::Messages) -> (Vec<base::Message>, Entities) {
+        let (messages, users, chats) = match messages {
+            base::messages::Messages::Messages(m) => (m.messages, m.users, m.chats),
+            base::messages::Messages::MessagesSlice(m) => (m.messages, m.users, m.chats),
+            base::messages::Messages::ChannelMessages(m) => (m.messages, m.users, m.chats),
+            base::messages::Messages::MessagesNotModified(_) => Default::default(),
+        };
+        (messages, Entities::new(client, users, chats))
     }
 
     pub(crate) fn from_updates(
@@ -57,34 +74,38 @@ impl Message {
         chat_id: i64,
         sent: (String, Option<Vec<base::MessageEntity>>),
     ) -> Result<Message> {
+        if let base::Updates::UpdateShortSentMessage(u) = updates {
+            let mut raw = bare_message(u.id, get_peer(chat_id), u.date)?;
+            raw.out = u.out;
+            raw.from_id = u.out.then(|| get_peer(client.0.me.lock().unwrap().id));
+            (raw.message, raw.entities, raw.media) = (sent.0, u.entities.or(sent.1), u.media);
+            return Ok(Message::parse(client, Box::new(raw), &Entities::default()));
+        }
+        Message::all_from_updates(client, updates).next().ok_or(Error::Unexpected("Telegram sent no message back"))
+    }
+
+    pub(crate) fn all_from_updates(client: &Client, updates: base::Updates) -> impl Iterator<Item = Message> + '_ {
         let (updates, users, chats) = match updates {
-            base::Updates::UpdateShortSentMessage(u) => {
-                let mut raw = bare_message(u.id, get_peer(chat_id), u.date)?;
-                raw.out = u.out;
-                raw.from_id = u.out.then(|| get_peer(client.0.me.lock().unwrap().id));
-                (raw.message, raw.entities, raw.media) = (sent.0, u.entities.or(sent.1), u.media);
-                return Ok(Message::parse(client, &raw, &Entities::default()));
-            }
             base::Updates::Updates(u) => (u.updates, u.users, u.chats),
             base::Updates::UpdatesCombined(u) => (u.updates, u.users, u.chats),
             base::Updates::UpdateShort(u) => (vec![u.update], Vec::new(), Vec::new()),
-            _ => return Err(Error::Unexpected("Telegram sent no message back")),
+            _ => Default::default(),
         };
         let entities = Entities::new(client, users, chats);
-        updates
-            .into_iter()
-            .find_map(|u| match u {
-                base::Update::UpdateNewMessage(u) => Some(u.message),
-                base::Update::UpdateNewChannelMessage(u) => Some(u.message),
-                base::Update::UpdateEditMessage(u) => Some(u.message),
-                base::Update::UpdateEditChannelMessage(u) => Some(u.message),
-                _ => None,
-            })
-            .and_then(|m| match m {
-                base::Message::Message(m) => Some(Message::parse(client, &m, &entities)),
-                _ => None,
-            })
-            .ok_or(Error::Unexpected("Telegram sent no message back"))
+        updates.into_iter().filter_map(move |u| {
+            let message = match u {
+                base::Update::UpdateNewMessage(u) => u.message,
+                base::Update::UpdateNewChannelMessage(u) => u.message,
+                base::Update::UpdateEditMessage(u) => u.message,
+                base::Update::UpdateEditChannelMessage(u) => u.message,
+                _ => return None,
+            };
+            Message::from_raw(client, message, &entities)
+        })
+    }
+
+    pub fn reply_markup(&self) -> Option<ReplyMarkup> {
+        ReplyMarkup::parse(self.raw.reply_markup.as_ref()?)
     }
 
     pub fn edit_text(&self, text: impl Into<String>) -> EditMessageText<'_> {

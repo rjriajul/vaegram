@@ -319,3 +319,10 @@ async fn connect(
     let base::Config::Config(config) = session.invoke(&init).await?;
     Ok((session, updates, config.dc_options))
 }
+
+#[cfg(test)]
+pub(crate) async fn sent<F: IntoFuture>(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>, call: F) -> u32 {
+    let _ = call.await;
+    let body = rx.try_recv().expect("no request sent");
+    u32::from_le_bytes(body[..4].try_into().unwrap())
+}

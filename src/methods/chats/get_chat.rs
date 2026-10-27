@@ -39,10 +39,7 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    use std::future::IntoFuture;
-
-    use tokio::sync::mpsc::UnboundedReceiver;
-
+    use crate::client::sent;
     use crate::raw::functions::{channels, messages, users};
     use crate::raw::{Identifiable, base, types};
     use crate::types::{ChatPermissions, ChatPrivileges};
@@ -51,12 +48,6 @@ mod tests {
 
     const USER: i64 = 7;
     const GROUP: i64 = -5;
-
-    async fn sent<F: IntoFuture>(rx: &mut UnboundedReceiver<Vec<u8>>, call: F) -> u32 {
-        let _ = call.await;
-        let body = rx.try_recv().expect("no request sent");
-        u32::from_le_bytes(body[..4].try_into().unwrap())
-    }
 
     #[tokio::test]
     async fn dispatches_on_chat_id_kind() {

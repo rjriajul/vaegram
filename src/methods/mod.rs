@@ -22,4 +22,4 @@ mod utilities;
 
 pub use bots::{AnswerCallbackQuery, AnswerInlineQuery};
 pub use chats::{BanChatMember, GetChatAdministrators, GetChatMembers, RestrictChatMember};
-pub use messages::{EditMessageText, SendMessage};
+pub use messages::{CopyMessage, EditMessageText, GetChatHistory, PinChatMessage, SearchMessages, SendMessage};

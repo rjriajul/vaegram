@@ -507,7 +507,7 @@ impl Dispatcher {
     fn event(&self, update: &base::Update, entities: &Entities) -> Option<Event> {
         let client = &self.client;
         let message = |m: &base::Message| match m {
-            base::Message::Message(m) => Some(Message::parse(client, m, entities)),
+            base::Message::Message(m) => Some(Message::parse(client, m.clone(), entities)),
             _ => None,
         };
         match update {
