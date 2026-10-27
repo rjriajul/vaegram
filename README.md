@@ -119,6 +119,7 @@ supergroups start with `-100`.
 - [x] Session files and session strings
 - [x] Update handlers and filters: `filters::command("start") & filters::private()`
 - [x] Friendly types: `msg.text`, `msg.reply()`, `msg.from_user`
+- [ ] Message media and metadata: `msg.caption`, `msg.entities`, `msg.photo()`, `msg.poll()`, replies and forwards (not yet tested live)
 - [x] HTML and Markdown formatting: `send_message(chat, "<b>hi</b>").html()`
 - [x] Buttons, edited messages, callback queries, inline queries, `edit_text`, `delete`
 - [x] User login (phone code, 2FA password)

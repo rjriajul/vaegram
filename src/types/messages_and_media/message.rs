@@ -1,15 +1,15 @@
-use std::fmt;
-
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::ChatType;
 use crate::errors::{Error, Result};
 use crate::methods::{DownloadMedia, EditMessageText, SendMessage};
 use crate::raw::{base, types};
-use crate::types::{Chat, Document, Photo, ReplyMarkup, User};
+use crate::types::{
+    Chat, ExternalReplyInfo, LinkPreviewOptions, Media, MessageEntity, MessageOrigin, ReplyMarkup, TextQuote, User,
+};
 use crate::utils::get_peer;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Message {
     pub id: i32,
     pub chat: Chat,
@@ -19,8 +19,21 @@ pub struct Message {
     pub text: String,
     pub outgoing: bool,
     pub edit_date: Option<i32>,
-    pub photo: Option<Photo>,
-    pub document: Option<Document>,
+    pub entities: Option<Vec<MessageEntity>>,
+    pub caption: Option<String>,
+    pub caption_entities: Option<Vec<MessageEntity>>,
+    pub media: Option<Media>,
+    pub link_preview_options: Option<LinkPreviewOptions>,
+    pub reply_to_message_id: Option<i32>,
+    pub message_thread_id: Option<i32>,
+    pub is_topic_message: bool,
+    pub quote: Option<TextQuote>,
+    pub external_reply: Option<Box<ExternalReplyInfo>>,
+    pub forward_origin: Option<MessageOrigin>,
+    pub via_bot: Option<User>,
+    pub media_group_id: Option<i64>,
+    pub author_signature: Option<String>,
+    pub has_protected_content: bool,
     pub raw: Box<types::Message>,
     client: Client,
 }
@@ -39,22 +52,43 @@ impl Message {
             (None, _) if chat.kind == ChatType::Channel => sender_chat = Some(chat.clone()),
             (None, _) => {}
         }
-        let (photo, document) = match &raw.media {
-            Some(base::MessageMedia::MessageMediaPhoto(m)) => (m.photo.as_ref().and_then(Photo::parse), None),
-            Some(base::MessageMedia::MessageMediaDocument(m)) => (None, m.document.as_ref().and_then(Document::parse)),
-            _ => (None, None),
+        // The text of a media message is its caption; a link preview keeps it a text.
+        let has_caption = !matches!(
+            raw.media,
+            None | Some(base::MessageMedia::MessageMediaEmpty | base::MessageMedia::MessageMediaWebPage(_))
+        );
+        let parsed_entities = raw.entities.as_deref().and_then(|e| MessageEntity::parse_all(e, entities));
+        let (text, text_entities, caption, caption_entities) = if has_caption {
+            (String::new(), None, (!raw.message.is_empty()).then(|| raw.message.clone()), parsed_entities)
+        } else {
+            (raw.message.clone(), parsed_entities, None, None)
         };
+        let (reply_to_message_id, message_thread_id, is_topic_message, quote, external_reply) =
+            reply_fields(&raw, entities);
         Message {
             id: raw.id,
             chat,
             from_user,
             sender_chat,
             date: raw.date,
-            text: raw.message.clone(),
+            text,
             outgoing: raw.out,
             edit_date: raw.edit_date,
-            photo,
-            document,
+            entities: text_entities,
+            caption,
+            caption_entities,
+            media: raw.media.as_ref().and_then(|m| Media::parse(m, entities)),
+            link_preview_options: LinkPreviewOptions::parse(raw.media.as_ref(), raw.invert_media),
+            reply_to_message_id,
+            message_thread_id,
+            is_topic_message,
+            quote,
+            external_reply,
+            forward_origin: raw.fwd_from.as_ref().and_then(|h| MessageOrigin::parse(h, entities)),
+            via_bot: raw.via_bot_id.map(|id| User::parse(id, entities)),
+            media_group_id: raw.grouped_id,
+            author_signature: raw.post_author.clone(),
+            has_protected_content: raw.noforwards,
             raw,
             client: client.clone(),
         }
@@ -188,15 +222,14 @@ impl Message {
         &self.client
     }
 
-    /// Downloads the message's photo or document.
+    /// Fails at `.await` for media without a file (contact, location, venue, dice, poll).
     pub fn download(&self) -> DownloadMedia<'_> {
-        let location = self.photo.as_ref().map(|p| p.location.clone());
-        DownloadMedia::new(&self.client, location.or_else(|| self.document.as_ref().map(|d| d.location.clone())))
+        DownloadMedia::new(&self.client, self.media.as_ref().and_then(Media::file_location).cloned())
     }
 
     pub fn command(&self) -> Option<Vec<&str>> {
         let me = self.client.0.me.lock().unwrap();
-        parse_command(&self.text, me.username.as_deref())
+        parse_command(self.caption.as_deref().unwrap_or(&self.text), me.username.as_deref())
     }
 
     pub fn reply(&self, text: impl Into<String>) -> SendMessage<'_> {
@@ -205,23 +238,6 @@ impl Message {
             ChatType::Private | ChatType::Bot => send,
             _ => send.reply_to(self.id),
         }
-    }
-}
-
-impl fmt::Debug for Message {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Message")
-            .field("id", &self.id)
-            .field("chat", &self.chat)
-            .field("from_user", &self.from_user)
-            .field("sender_chat", &self.sender_chat)
-            .field("date", &self.date)
-            .field("text", &self.text)
-            .field("outgoing", &self.outgoing)
-            .field("edit_date", &self.edit_date)
-            .field("photo", &self.photo)
-            .field("document", &self.document)
-            .finish_non_exhaustive()
     }
 }
 
@@ -239,9 +255,35 @@ pub(crate) fn parse_command<'a>(text: &'a str, my_username: Option<&str>) -> Opt
     Some(std::iter::once(name).chain(args.split_whitespace()).collect())
 }
 
+type ReplyFields = (Option<i32>, Option<i32>, bool, Option<TextQuote>, Option<Box<ExternalReplyInfo>>);
+
+fn reply_fields(raw: &types::Message, entities: &Entities) -> ReplyFields {
+    let Some(base::MessageReplyHeader::MessageReplyHeader(reply)) = &raw.reply_to else { return Default::default() };
+    // In a forum, a header without reply_to_top_id points at the topic itself, not at a replied message.
+    let (reply_to_message_id, message_thread_id) = if reply.forum_topic && reply.reply_to_top_id.is_none() {
+        (None, reply.reply_to_msg_id)
+    } else {
+        (reply.reply_to_msg_id.filter(|_| reply.reply_to_peer_id.is_none()), reply.reply_to_top_id)
+    };
+    let quote = reply.quote_text.as_ref().map(|text| TextQuote {
+        text: text.clone(),
+        entities: reply.quote_entities.as_deref().and_then(|e| MessageEntity::parse_all(e, entities)),
+        position: reply.quote_offset.unwrap_or(0),
+        is_manual: reply.quote,
+    });
+    let external_reply = ExternalReplyInfo::parse(reply, entities).map(Box::new);
+    (reply_to_message_id, message_thread_id, reply.forum_topic, quote, external_reply)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_command;
+    use super::super::media::tests::document_media;
+    use super::{Message, parse_command};
+    use crate::Client;
+    use crate::dispatcher::Entities;
+    use crate::raw::{base, types};
+    use crate::types::{Media, MessageOrigin};
+    use crate::utils::get_peer;
 
     #[test]
     fn parses_commands() {
@@ -253,5 +295,107 @@ mod tests {
         assert_eq!(parse_command("start", None), None);
         assert_eq!(parse_command("/", None), None);
         assert_eq!(parse_command("/ start", None), None);
+    }
+
+    fn header() -> types::MessageReplyHeader {
+        types::MessageReplyHeader {
+            reply_to_scheduled: false,
+            forum_topic: false,
+            quote: false,
+            reply_to_ephemeral: false,
+            reply_to_msg_id: None,
+            reply_to_peer_id: None,
+            reply_from: None,
+            reply_media: None,
+            reply_to_top_id: None,
+            quote_text: None,
+            quote_entities: None,
+            quote_offset: None,
+            todo_item_id: None,
+            poll_option: None,
+            quote_rich: None,
+        }
+    }
+
+    fn forward(from_id: Option<base::Peer>, name: Option<&str>, post: Option<i32>) -> base::MessageFwdHeader {
+        base::MessageFwdHeader::MessageFwdHeader(Box::new(types::MessageFwdHeader {
+            imported: false,
+            saved_out: false,
+            from_id,
+            from_name: name.map(Into::into),
+            date: 100,
+            channel_post: post,
+            post_author: None,
+            saved_from_peer: None,
+            saved_from_msg_id: None,
+            saved_from_id: None,
+            saved_from_name: None,
+            saved_date: None,
+            psa_type: None,
+        }))
+    }
+
+    fn parse(raw: &types::Message) -> Message {
+        Message::parse(&Client::offline(), Box::new(raw.clone()), &Entities::default())
+    }
+
+    #[test]
+    fn moves_media_text_to_the_caption() {
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        raw.message = "/start now".into();
+        let bold = types::MessageEntityBold { offset: 0, length: 6 };
+        raw.entities = Some(vec![base::MessageEntity::MessageEntityBold(Box::new(bold))]);
+        let text = parse(&raw);
+        assert_eq!((text.text.as_str(), text.caption, text.entities.map(|e| e.len())), ("/start now", None, Some(1)));
+
+        raw.media = Some(document_media("application/pdf", Vec::new()));
+        let media = parse(&raw);
+        assert_eq!((media.text.as_str(), media.caption.as_deref()), ("", Some("/start now")));
+        let entities = (media.entities.as_ref().map(Vec::len), media.caption_entities.as_ref().map(Vec::len));
+        assert_eq!((entities, media.document().is_some()), ((None, Some(1)), true));
+        assert_eq!(media.command(), Some(vec!["start", "now"]));
+    }
+
+    #[test]
+    fn maps_replies_and_forwards() {
+        let mut raw = Message::bare(1, get_peer(-1000000000005), 0);
+        let topic = types::MessageReplyHeader { forum_topic: true, reply_to_msg_id: Some(10), ..header() };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(topic)));
+        let m = parse(&raw);
+        assert_eq!((m.is_topic_message, m.message_thread_id, m.reply_to_message_id), (true, Some(10), None));
+
+        let quoted = types::MessageReplyHeader {
+            forum_topic: true,
+            quote: true,
+            reply_to_msg_id: Some(12),
+            reply_to_top_id: Some(10),
+            quote_text: Some("hi".into()),
+            quote_offset: Some(3),
+            ..header()
+        };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(quoted)));
+        let m = parse(&raw);
+        assert_eq!((m.message_thread_id, m.reply_to_message_id), (Some(10), Some(12)));
+        let quote = m.quote.unwrap();
+        assert_eq!((quote.text.as_str(), quote.position, quote.is_manual), ("hi", 3, true));
+
+        let dice = types::MessageMediaDice { value: 6, emoticon: "🎲".into(), game_outcome: None };
+        let external = types::MessageReplyHeader {
+            reply_to_msg_id: Some(77),
+            reply_to_peer_id: Some(get_peer(-1000000000003)),
+            reply_from: Some(forward(Some(get_peer(-1000000000003)), None, Some(77))),
+            reply_media: Some(base::MessageMedia::MessageMediaDice(Box::new(dice))),
+            ..header()
+        };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(external)));
+        raw.fwd_from = Some(forward(None, Some("Hidden"), None));
+        let m = parse(&raw);
+        assert_eq!(m.reply_to_message_id, None);
+        let external = m.external_reply.unwrap();
+        assert_eq!((external.chat.as_ref().map(|c| c.id), external.message_id), (Some(-1000000000003), Some(77)));
+        assert!(matches!(external.origin, MessageOrigin::Channel { message_id: 77, .. }));
+        assert!(matches!(&external.media, Some(Media::Dice(d)) if d.value == 6));
+        let hidden = MessageOrigin::HiddenUser { date: 100, sender_user_name: "Hidden".into() };
+        assert_eq!(m.forward_origin, Some(hidden));
     }
 }

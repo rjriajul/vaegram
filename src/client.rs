@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
@@ -175,6 +176,12 @@ impl ClientBuilder {
 
 #[derive(Clone)]
 pub struct Client(pub(crate) Arc<Inner>);
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client").finish_non_exhaustive()
+    }
+}
 
 pub(crate) struct Inner {
     session: RwLock<Session>,

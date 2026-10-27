@@ -1,7 +1,7 @@
 use crate::raw::{base, types};
 use crate::types::FileLocation;
 
-/// Any file sent as a document. Videos, audio and stickers land here too until they get their own types.
+/// A general file: anything that isn't a video, audio, voice, animation, video note or sticker.
 #[derive(Clone, Debug)]
 pub struct Document {
     pub id: i64,

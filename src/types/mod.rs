@@ -11,6 +11,8 @@ pub use bots_and_keyboards::{
 };
 pub use inline_mode::{InlineQuery, InlineQueryResultArticle};
 pub use messages_and_media::{
-    Document, FileLocation, Message, Photo, ReplyParameters, SuggestedPostParameters, SuggestedPostPrice, Upload,
+    Animation, Audio, Contact, Dice, Document, ExternalReplyInfo, FileLocation, LinkPreviewOptions, Location, Media,
+    Message, MessageEntity, MessageOrigin, Photo, Poll, PollOption, ReplyParameters, Sticker, SuggestedPostParameters,
+    SuggestedPostPrice, TextQuote, Upload, Venue, Video, VideoNote, Voice,
 };
 pub use user_and_chats::{Chat, ChatMember, ChatPermissions, ChatPrivileges, User};

@@ -204,7 +204,7 @@ async fn bot_uploads_and_downloads_a_document() {
 
     let data: Vec<u8> = (0..3_000_000u32).map(|i| (i * 7 + i / 251) as u8).collect();
     let sent = app.send_document(chat_id, Upload::bytes("vaegram.bin", &data)).caption("a file").await.unwrap();
-    let document = sent.document.as_ref().expect("the message has the document");
+    let document = sent.document().expect("the message has the document");
     assert_eq!((document.file_name.as_deref(), document.file_size), (Some("vaegram.bin"), data.len() as i64));
 
     assert!(sent.download().await.unwrap() == data);
