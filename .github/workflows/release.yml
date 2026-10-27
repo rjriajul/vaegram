@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+
+  crates:
+    runs-on: ubuntu-latest
+    needs: release
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Find unpublished crates
+        id: todo
+        run: |
+          todo=""
+          for crate in vaegram vae; do
+            version=$(cargo metadata --no-deps --format-version 1 | jq -r ".packages[] | select(.name == \"$crate\") | .version")
+            curl -sf -A "vaegram-release" "https://crates.io/api/v1/crates/$crate/$version" > /dev/null || todo="$todo $crate"
+          done
+          echo "crates=$todo" >> "$GITHUB_OUTPUT"
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        if: steps.todo.outputs.crates != ''
+        id: auth
+
+      - name: Publish to crates.io
+        if: steps.todo.outputs.crates != ''
+        run: for crate in ${{ steps.todo.outputs.crates }}; do cargo publish -p "$crate"; done
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
