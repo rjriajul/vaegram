@@ -30,7 +30,8 @@ async fn invoke_plain<R: RemoteCall>(conn: &mut Connection, msg_ids: &mut MsgId,
     let answer = conn.recv().await?;
     check(answer.len() >= 20 && answer[..8] == [0; 8], "unencrypted answer has a bad header")?;
     let len = u32::from_le_bytes(answer[16..20].try_into().unwrap()) as usize;
-    let body = answer.get(20..20 + len).ok_or(Error::Security("unencrypted answer is shorter than it says"))?;
+    let body =
+        answer.get(20..len.saturating_add(20)).ok_or(Error::Security("unencrypted answer is shorter than it says"))?;
     Ok(R::Return::from_bytes(body)?)
 }
 

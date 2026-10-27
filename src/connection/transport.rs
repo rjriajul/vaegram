@@ -93,7 +93,7 @@ fn unpadded_len(p: &[u8]) -> usize {
     }
     if p[..8] == [0; 8] {
         let body = u32::from_le_bytes([p[16], p[17], p[18], p[19]]) as usize;
-        return p.len().min(20 + body);
+        return p.len().min(body.saturating_add(20));
     }
     24 + (p.len() - 24) / 16 * 16
 }

@@ -17,6 +17,8 @@ use crate::types::FileLocation;
 const CHUNK: i32 = 512 * 1024;
 const IN_FLIGHT: u64 = 2 << 20;
 const MAX_MIGRATIONS: usize = 3;
+// The size comes from the server, so in-memory downloads don't trust it for preallocation.
+const MAX_PREALLOC: usize = 64 << 20;
 
 /// Awaiting it collects the file in memory; `.file_name(path)` streams to disk.
 #[must_use = "a request does nothing until it is awaited"]
@@ -36,7 +38,8 @@ impl<'a> DownloadMedia<'a> {
         DownloadMedia { client, location }
     }
 
-    /// Streams the file to `path` instead, creating missing parent directories.
+    /// Streams the file to `path` instead, creating missing parent directories. Don't pass a name taken from the
+    /// message as is: the sender chose it, and it can contain `..` or an absolute path.
     pub async fn file_name(self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
@@ -57,7 +60,8 @@ impl<'a> DownloadMedia<'a> {
     async fn download(self, sink: &Sink) -> Result<()> {
         let location =
             self.location.ok_or(Error::InvalidArgument("this message has no photo or document to download"))?;
-        let count = chunk_count(location.file_size);
+        let size = location.file_size;
+        let count = chunk_count(size);
         // Without a size the end is only known from a short chunk, so chunks go one at a time.
         let workers = count.map_or(1, |c| workers(c, CHUNK as u64, IN_FLIGHT));
         let request = functions::upload::GetFile {
@@ -80,13 +84,14 @@ impl<'a> DownloadMedia<'a> {
                 first => break (lease, first?),
             }
         };
+        fits(0, &first, size)?;
         sink.write_at(0, &first).await?;
         if first.len() < CHUNK as usize {
             return Ok(());
         }
 
         let (next, sessions) = (AtomicI32::new(1), &lease.sessions);
-        let chunks = (0..workers).map(|i| chunks(&sessions[i % sessions.len()], request.clone(), &next, count, sink));
+        let chunks = (0..workers).map(|i| chunks(&sessions[i % sessions.len()], request.clone(), &next, size, sink));
         try_join_all(chunks).await?;
         Ok(())
     }
@@ -96,12 +101,13 @@ async fn chunks(
     session: &Session,
     mut request: functions::upload::GetFile,
     next: &AtomicI32,
-    count: Option<i32>,
+    size: Option<i64>,
     sink: &Sink,
 ) -> Result<()> {
-    while let Some(n) = take(next, count.unwrap_or(i32::MAX)) {
+    while let Some(n) = take(next, chunk_count(size).unwrap_or(i32::MAX)) {
         (request.offset, request.limit) = chunk(n);
         let bytes = get_file(session, &request).await?;
+        fits(request.offset, &bytes, size)?;
         sink.write_at(request.offset as u64, &bytes).await?;
         if bytes.len() < CHUNK as usize {
             break;
@@ -111,7 +117,15 @@ async fn chunks(
 }
 
 fn chunk_count(size: Option<i64>) -> Option<i32> {
-    size.and_then(|s| u64::try_from(s).ok()).map(|s| s.div_ceil(CHUNK as u64) as i32)
+    size.and_then(|s| u64::try_from(s).ok()).and_then(|s| i32::try_from(s.div_ceil(CHUNK as u64)).ok())
+}
+
+fn fits(offset: i64, bytes: &[u8], size: Option<i64>) -> Result<()> {
+    let end = offset.saturating_add(bytes.len() as i64);
+    if bytes.len() > CHUNK as usize || size.is_some_and(|s| end > s) {
+        return Err(Error::Unexpected("upload.getFile returned more than the file size"));
+    }
+    Ok(())
 }
 
 fn chunk(n: i32) -> (i64, i32) {
@@ -124,7 +138,8 @@ impl<'a> IntoFuture for DownloadMedia<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let capacity = self.location.as_ref().and_then(|l| usize::try_from(l.file_size?).ok()).unwrap_or(0);
+            let capacity =
+                self.location.as_ref().and_then(|l| usize::try_from(l.file_size?).ok()).unwrap_or(0).min(MAX_PREALLOC);
             let sink = Sink::Memory(Mutex::new(Vec::with_capacity(capacity)));
             self.download(&sink).await?;
             let Sink::Memory(out) = sink else { unreachable!() };
@@ -171,7 +186,7 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::AtomicI32;
 
-    use super::{CHUNK, Sink, chunk, chunk_count};
+    use super::{CHUNK, Sink, chunk, chunk_count, fits};
     use crate::session::transfer::take;
 
     #[test]
@@ -193,6 +208,17 @@ mod tests {
         }
         let last = requests.last().unwrap();
         assert!(last.0 < size && size <= last.0 + i64::from(CHUNK));
+    }
+
+    #[test]
+    fn rejects_sizes_and_chunks_a_server_could_inflate() {
+        assert_eq!(chunk_count(Some(i64::MAX)), None);
+        assert_eq!(chunk_count(Some(-1)), None);
+        let chunk = vec![0; CHUNK as usize];
+        assert!(fits(0, &chunk, Some(i64::from(CHUNK))).is_ok());
+        assert!(fits(0, &chunk, None).is_ok());
+        assert!(fits(1, &chunk, Some(i64::from(CHUNK))).is_err());
+        assert!(fits(0, &vec![0; CHUNK as usize + 1], None).is_err());
     }
 
     #[tokio::test]

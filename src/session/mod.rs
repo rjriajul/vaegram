@@ -20,7 +20,7 @@ use crate::errors::{Error, Result, RpcError};
 use crate::raw::core::{gzip_packed, msg_container};
 use crate::raw::{Deserializable, Identifiable, LAYER, RemoteCall, Serializable, base, functions, types};
 use internals::data_center::Dc;
-use internals::{MsgId, SeqNo};
+use internals::{MsgId, SeqNo, ServerMsgIds};
 use outbox::MAX_CONTAINER_MSGS;
 
 const RPC_RESULT: u32 = 0xf35c6d01;
@@ -199,15 +199,16 @@ async fn handshake(
     dc: Dc,
     auth_key: Option<[u8; 256]>,
     options: &Options,
-) -> Result<(Connection, [u8; 256], i64, i64)> {
+) -> Result<(Connection, [u8; 256], i64, Option<i64>)> {
     Ok(match auth_key {
-        Some(key) => (Connection::connect(&dc, options).await?, key, 0, 0),
+        // A stored key brings no server time; the offset is measured once the server complains.
+        Some(key) => (Connection::connect(&dc, options).await?, key, 0, None),
         None => {
             let mut attempt = 1;
             loop {
                 let mut conn = Connection::connect(&dc, options).await?;
                 match auth::create(&mut conn, dc).await {
-                    Ok(c) => break (conn, c.auth_key, c.salt, c.time_offset),
+                    Ok(c) => break (conn, c.auth_key, c.salt, Some(c.time_offset)),
                     Err(e) if attempt == HANDSHAKE_ATTEMPTS => return Err(e),
                     Err(_) => attempt += 1,
                 }
@@ -255,6 +256,8 @@ struct Runner {
     session_id: [u8; 8],
     salt: i64,
     msg_ids: MsgId,
+    clock_synced: bool,
+    server_msg_ids: ServerMsgIds,
     seq: SeqNo,
     pending: HashMap<i64, Pending>,
     queue: VecDeque<Pending>,
@@ -270,7 +273,7 @@ impl Runner {
         dc: Dc,
         options: Options,
         conn: Connection,
-        (auth_key, salt, time_offset): ([u8; 256], i64, i64),
+        (auth_key, salt, time_offset): ([u8; 256], i64, Option<i64>),
         dropped: Arc<AtomicU32>,
         updates: Option<mpsc::Sender<Incoming>>,
     ) -> Runner {
@@ -285,7 +288,9 @@ impl Runner {
             auth_key_id: sha1(&[&auth_key])[12..].try_into().unwrap(),
             session_id: random(),
             salt,
-            msg_ids: MsgId::new(time_offset),
+            msg_ids: MsgId::new(time_offset.unwrap_or(0)),
+            clock_synced: time_offset.is_some(),
+            server_msg_ids: ServerMsgIds::default(),
             seq: SeqNo::default(),
             pending: HashMap::new(),
             queue: VecDeque::new(),
@@ -434,12 +439,14 @@ impl Runner {
         let Ok(msg) = mtproto::unpack(packet, &self.auth_key, &self.auth_key_id, &self.session_id, true) else {
             return Ok(());
         };
-        if msg.msg_id % 2 == 0 {
+        if !self.fresh(msg.msg_id, &msg.body) {
             return Ok(());
         }
         if constructor_id(&msg.body) == Some(msg_container::ID) {
             for m in msg_container::parse(&msg.body).unwrap_or_default() {
-                self.handle_message(m.msg_id, m.seq_no, m.body);
+                if self.fresh(m.msg_id, m.body) {
+                    self.handle_message(m.msg_id, m.seq_no, m.body);
+                }
             }
         } else {
             self.handle_message(msg.msg_id, msg.seq_no, &msg.body);
@@ -448,6 +455,18 @@ impl Runner {
             self.flush().await?;
         }
         Ok(())
+    }
+
+    // Server msg_ids must be odd, recent and never seen before; anything else is dropped as a
+    // possible replay. The time window waits for a measured clock offset, and clock-sync
+    // notifications skip it, since a wrong clock is exactly what they fix.
+    fn fresh(&mut self, msg_id: i64, body: &[u8]) -> bool {
+        if !self.clock_synced && ServerMsgIds::in_window(msg_id, internals::now() + self.msg_ids.time_offset) {
+            self.clock_synced = true;
+        }
+        let now = (self.clock_synced && constructor_id(body) != Some(BAD_MSG_NOTIFICATION))
+            .then(|| internals::now() + self.msg_ids.time_offset);
+        msg_id % 2 != 0 && self.server_msg_ids.accept(msg_id, now)
     }
 
     fn handle_message(&mut self, msg_id: i64, seq_no: i32, body: &[u8]) {

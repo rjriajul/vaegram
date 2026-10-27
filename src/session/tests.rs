@@ -29,7 +29,7 @@ async fn runner() -> (Runner, Frames, UpdatesRx) {
 
     let (tx, rx) = mpsc::channel(UPDATES_BUFFER);
     let dropped = Arc::<AtomicU32>::default();
-    let runner = Runner::new(dc, options, conn, ([7; 256], 0, 0), dropped.clone(), Some(tx));
+    let runner = Runner::new(dc, options, conn, ([7; 256], 0, Some(0)), dropped.clone(), Some(tx));
     (runner, frames, UpdatesRx { rx, dropped })
 }
 
@@ -188,4 +188,48 @@ async fn dropped_updates_ask_for_a_difference() {
     let first = updates.recv().await.unwrap().updates;
     let second = updates.recv().await.unwrap().updates;
     assert!(matches!((first, second), (base::Updates::UpdatesTooLong, base::Updates::Updates(_))));
+}
+
+#[tokio::test]
+async fn drops_replayed_and_stale_server_messages() {
+    let (mut r, _frames, _updates) = runner().await;
+    let now = crate::session::internals::now();
+    let update = ping(1);
+    let id = (now << 32) | 1;
+    assert!(r.fresh(id, &update));
+    assert!(!r.fresh(id, &update));
+    assert!(!r.fresh(id + 3, &update), "even ids are client ids");
+    assert!(!r.fresh(((now - 600) << 32) | 1, &update));
+
+    let sync = types::BadMsgNotification { bad_msg_id: 4, bad_msg_seqno: 0, error_code: 16 }.to_bytes();
+    assert!(r.fresh(((now + 3600) << 32) | 1, &sync));
+}
+
+#[tokio::test]
+async fn stored_key_waits_for_a_measured_clock_before_the_time_window() {
+    let (mut r, mut frames, _updates) = runner().await;
+    r.clock_synced = false;
+    let skewed = crate::session::internals::now() + 3600;
+    assert!(r.fresh((skewed << 32) | 1, &ping(1)));
+    assert!(!r.fresh((skewed << 32) | 1, &ping(1)), "duplicates are still dropped");
+
+    let mut rx = request(&mut r, ping(2));
+    r.flush().await.unwrap();
+    let (bad_msg_id, bad_msg_seqno, _) = recv(&mut frames, &r).await;
+    let notification = types::BadMsgNotification { bad_msg_id, bad_msg_seqno, error_code: 16 };
+    r.handle_message((skewed << 32) | 5, 0, &notification.to_bytes());
+    assert!(r.clock_synced);
+    assert!(r.fresh((skewed << 32) | 9, &ping(1)));
+    assert!(!r.fresh(((skewed - 600) << 32) | 1, &ping(1)));
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn stored_key_with_a_right_clock_turns_the_time_window_on() {
+    let (mut r, _frames, _updates) = runner().await;
+    r.clock_synced = false;
+    let now = crate::session::internals::now();
+    assert!(r.fresh((now << 32) | 1, &ping(1)));
+    assert!(r.clock_synced);
+    assert!(!r.fresh(((now - 600) << 32) | 1, &ping(1)));
 }

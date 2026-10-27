@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -82,7 +82,7 @@ pub fn decode(mut b: &[u8], user_id: i64) -> Option<(Peers, Option<UpdateState>)
         let peer = if id > 0 {
             base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: id, access_hash }))
         } else if id <= -CHANNEL_OFFSET {
-            let channel_id = -id - CHANNEL_OFFSET;
+            let channel_id = id.checked_neg()?.checked_sub(CHANNEL_OFFSET)?;
             base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id, access_hash }))
         } else {
             return None;
@@ -131,25 +131,11 @@ impl StateFile {
         if ticket < *written {
             return;
         }
-        match save(&self.path, bytes) {
+        match super::write_private(&self.path, bytes) {
             Ok(()) => *written = ticket,
             Err(e) => eprintln!("vaegram: failed to save {}: {e}", self.path.display()),
         }
     }
-}
-
-/// Writes a temporary file and renames it over `path`, so a crash never leaves half a file.
-pub fn save(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let tmp = path.with_extension("state.tmp");
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(&tmp)?;
-    file.write_all(bytes)?;
-    // Without this, a power loss after the rename can leave an empty file on ext4 and xfs.
-    file.sync_all()?;
-    fs::rename(&tmp, path)
 }
 
 fn take<const N: usize>(b: &mut &[u8]) -> Option<[u8; N]> {
@@ -160,7 +146,17 @@ fn take<const N: usize>(b: &mut &[u8]) -> Option<[u8; N]> {
 
 #[cfg(test)]
 mod tests {
-    use super::StateFile;
+    use super::{Peers, StateFile, decode, encode};
+
+    #[test]
+    fn min_peer_id_is_damage_not_a_panic() {
+        let mut b = encode(1, &Peers::new(), None);
+        let at = b.len() - 4;
+        b[at..].copy_from_slice(&1u32.to_le_bytes());
+        b.extend_from_slice(&i64::MIN.to_le_bytes());
+        b.extend_from_slice(&0i64.to_le_bytes());
+        assert!(decode(&b, 1).is_none());
+    }
 
     #[test]
     fn older_snapshot_never_replaces_newer() {

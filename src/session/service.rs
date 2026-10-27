@@ -14,6 +14,7 @@ impl Runner {
                 // own msg_id carries its time, so take the offset from it and resend.
                 16 | 17 => {
                     self.msg_ids.time_offset = (server_msg_id >> 32) - internals::now();
+                    self.clock_synced = true;
                     self.resend(b.bad_msg_id);
                 }
                 32 | 33 => {

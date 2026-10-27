@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use vaegram::raw::{base, types};
 use vaegram::storage::state::{self, Peers, UpdateState};
-use vaegram::storage::{SessionData, session_string};
+use vaegram::storage::{SessionData, session_string, write_private};
 
 const V3_STRING: &str = "VAE_AwQAADA5AAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5_gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp-goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2-v8DBwsPExcbHyMnKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OHi4-Tl5ufo6err7O3u7_Dx8vP09fb3-Pn6-_z9_v8AAAAAAAvbKAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYNzrA";
 const LEGACY_STRING: &str = "BAAAMDkAAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn-AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq-wsbKztLW2t7i5uru8vb6_wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t_g4eLj5OXm5-jp6uvs7e7v8PHy8_T19vf4-fr7_P3-_wAAAAAAC9soAQ";
@@ -88,7 +88,7 @@ fn state_file_is_per_account_and_checked() {
 fn state_file_saves_and_ignores_damage() {
     let path = std::env::temp_dir().join(format!("vaegram-{}.state", std::process::id()));
     assert_eq!(state::load(&path, 1).unwrap(), (Peers::new(), None));
-    state::save(&path, &state::encode(1, &peers(), Some(&update_state()))).unwrap();
+    write_private(&path, &state::encode(1, &peers(), Some(&update_state()))).unwrap();
     let loaded = state::load(&path, 1);
     std::fs::write(&path, [1, 2, 3]).unwrap();
     let damaged = state::load(&path, 1);
