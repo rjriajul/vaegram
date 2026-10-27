@@ -100,7 +100,7 @@ pub(crate) mod tests {
             invert_media: false,
             noforwards: false,
             id: 7,
-            from_id: base::Peer::PeerUser(Box::new(types::PeerUser { user_id: 5 })),
+            from_id: base::Peer::PeerUser(types::PeerUser { user_id: 5 }),
             peer_id,
             receiver_id: 1000,
             top_msg_id: None,
@@ -117,7 +117,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn channel() -> base::Peer {
-        base::Peer::PeerChannel(Box::new(types::PeerChannel { channel_id: 42 }))
+        base::Peer::PeerChannel(types::PeerChannel { channel_id: 42 })
     }
 
     #[test]

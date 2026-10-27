@@ -66,7 +66,7 @@ impl InputInvoice {
     pub fn photo(mut self, url: impl Into<String>, width: i32, height: i32) -> Self {
         let size = types::DocumentAttributeImageSize { w: width, h: height };
         let attributes = if width > 0 && height > 0 {
-            vec![base::DocumentAttribute::DocumentAttributeImageSize(Box::new(size))]
+            vec![base::DocumentAttribute::DocumentAttributeImageSize(size)]
         } else {
             Vec::new()
         };

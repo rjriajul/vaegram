@@ -44,6 +44,66 @@ fn updates_bytes(n: usize) -> Vec<u8> {
     b
 }
 
+fn peer_user(b: &mut Vec<u8>, user_id: i64) {
+    types::PeerUser::CONSTRUCTOR_ID.serialize(b);
+    user_id.serialize(b);
+}
+
+fn new_message_updates() -> Vec<u8> {
+    let mut b = Vec::new();
+    types::Updates::CONSTRUCTOR_ID.serialize(&mut b);
+
+    VECTOR.serialize(&mut b);
+    1i32.serialize(&mut b);
+    types::UpdateNewMessage::CONSTRUCTOR_ID.serialize(&mut b);
+    types::Message::CONSTRUCTOR_ID.serialize(&mut b);
+    ((1u32 << 8) | (1 << 7)).serialize(&mut b); // from_id, entities
+    0u32.serialize(&mut b);
+    42i32.serialize(&mut b);
+    peer_user(&mut b, 777000);
+    peer_user(&mut b, 777000);
+    1_700_000_000i32.serialize(&mut b);
+    "hello there, see https://example.com".to_owned().serialize(&mut b);
+    VECTOR.serialize(&mut b);
+    2i32.serialize(&mut b);
+    types::MessageEntityBold::CONSTRUCTOR_ID.serialize(&mut b);
+    0i32.serialize(&mut b);
+    5i32.serialize(&mut b);
+    types::MessageEntityTextUrl::CONSTRUCTOR_ID.serialize(&mut b);
+    17i32.serialize(&mut b);
+    19i32.serialize(&mut b);
+    "https://example.com".to_owned().serialize(&mut b);
+    1000i32.serialize(&mut b);
+    1i32.serialize(&mut b);
+
+    VECTOR.serialize(&mut b);
+    1i32.serialize(&mut b);
+    types::User::CONSTRUCTOR_ID.serialize(&mut b);
+    (1u32 | (1 << 1) | (1 << 3) | (1 << 5) | (1 << 6) | (1 << 22)).serialize(&mut b);
+    (1u32 << 8).serialize(&mut b); // color
+    777000i64.serialize(&mut b);
+    0x1234_5678_9abc_def0i64.serialize(&mut b);
+    "Alice".to_owned().serialize(&mut b);
+    "alice".to_owned().serialize(&mut b);
+    types::UserProfilePhoto::CONSTRUCTOR_ID.serialize(&mut b);
+    (1u32 << 1).serialize(&mut b);
+    5_000_000_000i64.serialize(&mut b);
+    vec![1u8; 33].serialize(&mut b);
+    2i32.serialize(&mut b);
+    types::UserStatusOnline::CONSTRUCTOR_ID.serialize(&mut b);
+    1_700_000_300i32.serialize(&mut b);
+    "en".to_owned().serialize(&mut b);
+    types::PeerColor::CONSTRUCTOR_ID.serialize(&mut b);
+    1u32.serialize(&mut b);
+    3i32.serialize(&mut b);
+
+    VECTOR.serialize(&mut b);
+    0i32.serialize(&mut b);
+    1_700_000_000i32.serialize(&mut b);
+    0i32.serialize(&mut b);
+    b
+}
+
 fn main() {
     timing::header();
 
@@ -70,6 +130,18 @@ fn main() {
     let parsed = base::Message::from_bytes(&msg).unwrap();
     assert_eq!(parsed.to_bytes(), msg);
     bench("message serialize", || {
+        buf.clear();
+        black_box(&parsed).serialize(&mut buf);
+        black_box(&buf);
+    });
+
+    let typical = new_message_updates();
+    let parsed = base::Updates::from_bytes(&typical).unwrap();
+    assert_eq!(parsed.to_bytes(), typical);
+    bench("typical new-message updates deserialize", || {
+        black_box(base::Updates::from_bytes(black_box(&typical)).unwrap());
+    });
+    bench("typical new-message updates serialize", || {
         buf.clear();
         black_box(&parsed).serialize(&mut buf);
         black_box(&buf);

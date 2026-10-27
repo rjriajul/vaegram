@@ -152,7 +152,7 @@ pub struct ReplyKeyboardRemove {
 
 impl ReplyKeyboardRemove {
     pub(crate) fn write(&self) -> base::ReplyMarkup {
-        base::ReplyMarkup::ReplyKeyboardHide(Box::new(types::ReplyKeyboardHide { selective: self.selective }))
+        base::ReplyMarkup::ReplyKeyboardHide(types::ReplyKeyboardHide { selective: self.selective })
     }
 }
 

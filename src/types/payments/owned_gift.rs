@@ -128,7 +128,7 @@ impl Client {
     pub(crate) async fn input_saved_gift(&self, owned_gift_id: &str) -> Result<base::InputSavedStarGift> {
         Ok(match parse_owned_gift_id(owned_gift_id) {
             OwnedGiftRef::Message(msg_id) => {
-                base::InputSavedStarGift::InputSavedStarGiftUser(Box::new(types::InputSavedStarGiftUser { msg_id }))
+                base::InputSavedStarGift::InputSavedStarGiftUser(types::InputSavedStarGiftUser { msg_id })
             }
             OwnedGiftRef::Chat(chat_id, saved_id) => {
                 let peer = self.resolve_peer(chat_id).await?;

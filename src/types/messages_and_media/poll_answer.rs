@@ -37,7 +37,7 @@ mod tests {
     fn parses_user_and_chat_votes() {
         let raw = types::UpdateMessagePollVote {
             poll_id: 9,
-            peer: base::Peer::PeerUser(Box::new(types::PeerUser { user_id: 7 })),
+            peer: base::Peer::PeerUser(types::PeerUser { user_id: 7 }),
             options: vec![vec![0], vec![2]],
             positions: vec![0, 2],
             qts: 1,
@@ -46,7 +46,7 @@ mod tests {
         assert_eq!((answer.poll_id, answer.user.map(|u| u.id), answer.voter_chat), (9, Some(7), None));
         assert_eq!(answer.option_ids, [0, 2]);
 
-        let peer = base::Peer::PeerChannel(Box::new(types::PeerChannel { channel_id: 42 }));
+        let peer = base::Peer::PeerChannel(types::PeerChannel { channel_id: 42 });
         let raw = types::UpdateMessagePollVote { peer, options: Vec::new(), positions: Vec::new(), ..raw };
         let answer = PollAnswer::parse(&Client::offline(), raw, &Entities::default());
         assert_eq!((answer.user, answer.voter_chat.map(|c| c.id)), (None, Some(-1000000000042)));

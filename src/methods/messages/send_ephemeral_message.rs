@@ -93,7 +93,7 @@ impl<'a> SendEphemeralMessage<'a> {
             }
             Some(ReplyTo::Ephemeral(id)) => {
                 let reply = types::InputReplyToEphemeralMessage { id };
-                Some(base::InputReplyTo::InputReplyToEphemeralMessage(Box::new(reply)))
+                Some(base::InputReplyTo::InputReplyToEphemeralMessage(reply))
             }
             None => None,
         };
@@ -164,7 +164,7 @@ mod tests {
             (Some(peer()), receiver(), Some(55), "hi", true)
         );
         let reply_to = types::InputReplyToEphemeralMessage { id: 3 };
-        let reply_to = Some(base::InputReplyTo::InputReplyToEphemeralMessage(Box::new(reply_to)));
+        let reply_to = Some(base::InputReplyTo::InputReplyToEphemeralMessage(reply_to));
         assert_eq!((request.reply_to, request.rich_message), (reply_to, None));
     }
 

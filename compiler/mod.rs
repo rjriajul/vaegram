@@ -255,7 +255,8 @@ fn gen_enum_json(out: &mut String, ty: &str, ctors: &[&Def]) {
         if c.fields.is_empty() {
             writeln!(out, "            Self::{v} => out.push_str(r#\"{{\"_\":\"{}\"}}\"#),", c.name).unwrap();
         } else {
-            writeln!(out, "            Self::{v}(x) => crate::raw::ToJson::to_json(&**x, out),").unwrap();
+            let x = if is_inline(c) { "x" } else { "&**x" };
+            writeln!(out, "            Self::{v}(x) => crate::raw::ToJson::to_json({x}, out),").unwrap();
         }
     }
     writeln!(out, "        }}\n    }}\n}}").unwrap();
@@ -296,6 +297,24 @@ fn gen_deserialize_bare(out: &mut String, d: &Def) {
     writeln!(out, "        Ok(Self {{ {} }})\n    }}\n}}", names.join(", ")).unwrap();
 }
 
+/// Constructors of plain numbers that fit in 8 bytes are stored inline: they're no bigger than the
+/// `Box` they replace. A base type never qualifies, so no enum can contain itself.
+fn is_inline(d: &Def) -> bool {
+    let (mut size, mut align) = (0, 1);
+    for f in d.fields.iter().filter(|f| f.ty != "#") {
+        let n = match f.ty.as_str() {
+            "true" | "Bool" => 1,
+            "int" => 4,
+            "long" | "double" => 8,
+            _ => return false,
+        };
+        // An `Option<bool>` hides its tag in the bool; other options pad the tag out to the alignment.
+        size += if f.flag.is_some() && n > 1 { 2 * n } else { n };
+        align = align.max(n);
+    }
+    usize::next_multiple_of(size, align) <= 8
+}
+
 fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def]) {
     let name = pascal(split_ns(ty).1);
     let variants: Vec<String> = ctors.iter().map(|c| pascal(split_ns(&c.name).1)).collect();
@@ -306,11 +325,15 @@ fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def]) {
     for (c, v) in ctors.iter().zip(&variants) {
         if c.fields.is_empty() {
             writeln!(out, "    {v},").unwrap();
+        } else if is_inline(c) {
+            writeln!(out, "    {v}({}),", path("types", &c.name)).unwrap();
         } else {
             writeln!(out, "    {v}(::std::boxed::Box<{}>),", path("types", &c.name)).unwrap();
         }
     }
     writeln!(out, "}}").unwrap();
+    // `is_inline` guesses Rust's layout; this makes rustc check that no enum grew past a tag plus a box.
+    writeln!(out, "const _: () = assert!(::std::mem::size_of::<{name}>() <= 16);").unwrap();
 
     writeln!(out, "impl crate::raw::Serializable for {name} {{").unwrap();
     writeln!(out, "    fn serialize(&self, buf: &mut ::std::vec::Vec<u8>) {{\n        match self {{").unwrap();
@@ -319,7 +342,8 @@ fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def]) {
             writeln!(out, "            Self::{v} => crate::raw::Serializable::serialize(&{:#010x}u32, buf),", c.id)
                 .unwrap();
         } else {
-            writeln!(out, "            Self::{v}(x) => crate::raw::Serializable::serialize(&**x, buf),").unwrap();
+            let x = if is_inline(c) { "x" } else { "&**x" };
+            writeln!(out, "            Self::{v}(x) => crate::raw::Serializable::serialize({x}, buf),").unwrap();
         }
     }
     writeln!(out, "        }}\n    }}\n}}").unwrap();
@@ -332,13 +356,9 @@ fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def]) {
         if c.fields.is_empty() {
             writeln!(out, "            {:#010x} => Self::{v},", c.id).unwrap();
         } else {
-            writeln!(
-                out,
-                "            {:#010x} => Self::{v}(::std::boxed::Box::new({}::deserialize_bare(buf)?)),",
-                c.id,
-                path("types", &c.name)
-            )
-            .unwrap();
+            let read = format!("{}::deserialize_bare(buf)?", path("types", &c.name));
+            let read = if is_inline(c) { read } else { format!("::std::boxed::Box::new({read})") };
+            writeln!(out, "            {:#010x} => Self::{v}({read}),", c.id).unwrap();
         }
     }
     writeln!(out, "            _ => return Err(crate::raw::Error::UnexpectedConstructor {{ id }}),").unwrap();

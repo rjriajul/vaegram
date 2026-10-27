@@ -122,7 +122,7 @@ pub(crate) mod tests {
     }
 
     fn size(w: i32, h: i32) -> base::DocumentAttribute {
-        base::DocumentAttribute::DocumentAttributeImageSize(Box::new(types::DocumentAttributeImageSize { w, h }))
+        base::DocumentAttribute::DocumentAttributeImageSize(types::DocumentAttributeImageSize { w, h })
     }
 
     #[test]
@@ -177,6 +177,6 @@ pub(crate) mod tests {
         assert_eq!((input.id, input.access_hash, input.file_reference.as_slice()), (9, 2, &[3][..]));
 
         assert!(Sticker::parse(&document(4, "application/pdf", vec![size(1, 1)])).is_none());
-        assert!(Sticker::parse(&base::Document::DocumentEmpty(Box::new(types::DocumentEmpty { id: 4 }))).is_none());
+        assert!(Sticker::parse(&base::Document::DocumentEmpty(types::DocumentEmpty { id: 4 })).is_none());
     }
 }

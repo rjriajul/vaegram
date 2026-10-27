@@ -18,10 +18,8 @@ impl Client {
         message_ids: &[i32],
     ) -> Result<(Vec<Option<Box<types::Message>>>, Entities)> {
         let chat_id = self.peer_id(chat_id.into()).await?;
-        let id = message_ids
-            .iter()
-            .map(|&id| base::InputMessage::InputMessageID(Box::new(types::InputMessageID { id })))
-            .collect();
+        let id =
+            message_ids.iter().map(|&id| base::InputMessage::InputMessageID(types::InputMessageID { id })).collect();
         let found = if chat_id <= -CHANNEL_OFFSET {
             let channel = self.resolve_channel(&chat_id.into()).await?;
             self.invoke(&functions::channels::GetMessages { channel, id }).await?

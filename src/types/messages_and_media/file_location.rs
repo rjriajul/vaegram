@@ -50,7 +50,7 @@ impl From<&FileId> for FileLocation {
                     let peer = types::InputPeerChannel { channel_id, access_hash: chat_access_hash };
                     base::InputPeer::InputPeerChannel(Box::new(peer))
                 } else {
-                    base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: -chat_id }))
+                    base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: -chat_id })
                 };
                 let big = matches!(id.thumbnail_source, Some(S::ChatPhotoBig { .. } | S::ChatPhotoBigLegacy { .. }));
                 let location = types::InputPeerPhotoFileLocation { big, peer, photo_id: id.media_id };

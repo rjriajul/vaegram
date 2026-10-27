@@ -11,13 +11,13 @@ pub struct AcceptedGiftTypes {
 
 impl AcceptedGiftTypes {
     pub(crate) fn write(self) -> base::DisallowedGiftsSettings {
-        base::DisallowedGiftsSettings::DisallowedGiftsSettings(Box::new(types::DisallowedGiftsSettings {
+        base::DisallowedGiftsSettings::DisallowedGiftsSettings(types::DisallowedGiftsSettings {
             disallow_unlimited_stargifts: !self.unlimited_gifts,
             disallow_limited_stargifts: !self.limited_gifts,
             disallow_unique_stargifts: !self.unique_gifts,
             disallow_premium_gifts: !self.premium_subscription,
             disallow_stargifts_from_channels: !self.gifts_from_channels,
-        }))
+        })
     }
 }
 

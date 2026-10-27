@@ -89,7 +89,7 @@ mod tests {
         invite: base::ExportedChatInvite,
     ) -> types::UpdateBotChatInviteRequester {
         types::UpdateBotChatInviteRequester {
-            peer: base::Peer::PeerChannel(Box::new(types::PeerChannel { channel_id: 42 })),
+            peer: base::Peer::PeerChannel(types::PeerChannel { channel_id: 42 }),
             date: 1_700_000_000,
             user_id: 7,
             about: about.into(),

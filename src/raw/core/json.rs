@@ -137,7 +137,7 @@ mod tests {
         let media = base::MessageMedia::MessageMediaPhoto(Box::new(types::MessageMediaPhoto {
             spoiler: true,
             live_photo: false,
-            photo: Some(base::Photo::PhotoEmpty(Box::new(types::PhotoEmpty { id: 5 }))),
+            photo: Some(base::Photo::PhotoEmpty(types::PhotoEmpty { id: 5 })),
             ttl_seconds: None,
             video: None,
         }));

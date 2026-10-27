@@ -76,9 +76,7 @@ impl Entities {
             return;
         }
         let peer = match &message.peer_id {
-            base::Peer::PeerChat(p) => {
-                base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: p.chat_id }))
-            }
+            base::Peer::PeerChat(p) => base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: p.chat_id }),
             chat => match peers.get(&get_peer_id(chat)) {
                 Some(peer) => peer.clone(),
                 None => return,

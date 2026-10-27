@@ -85,7 +85,7 @@ mod tests {
         let client = Client::offline();
         let entities = Entities::default();
         let thumbs = base::Reaction::ReactionEmoji(Box::new(types::ReactionEmoji { emoticon: "👍".into() }));
-        let custom = base::Reaction::ReactionCustomEmoji(Box::new(types::ReactionCustomEmoji { document_id: 5 }));
+        let custom = base::Reaction::ReactionCustomEmoji(types::ReactionCustomEmoji { document_id: 5 });
 
         let r = MessageReactionUpdated::parse(&client, &update(7, vec![thumbs, custom]), &entities);
         assert_eq!((r.chat.id, r.user.map(|u| u.id), r.actor_chat.map(|c| c.id)), (get_channel_id(42), Some(7), None));

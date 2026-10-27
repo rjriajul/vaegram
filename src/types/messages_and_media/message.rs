@@ -543,7 +543,7 @@ pub(crate) mod tests {
         let mut raw = Message::bare(1, get_peer(7), 0);
         raw.message = "/start now".into();
         let bold = types::MessageEntityBold { offset: 0, length: 6 };
-        raw.entities = Some(vec![base::MessageEntity::MessageEntityBold(Box::new(bold))]);
+        raw.entities = Some(vec![base::MessageEntity::MessageEntityBold(bold)]);
         let text = parse(&raw);
         assert_eq!((text.text.as_str(), text.caption, text.entities.map(|e| e.len())), ("/start now", None, Some(1)));
 
@@ -714,11 +714,11 @@ pub(crate) mod tests {
         assert_eq!(added.service, Some(ServiceAction::CommunityChatAdded(hub.clone())));
         assert_eq!(service(change(None)).unwrap().service, Some(ServiceAction::CommunityChatRemoved));
         let joined = types::MessageActionChatJoinedViaCommunity { community_id: 7 };
-        let joined = service(base::MessageAction::MessageActionChatJoinedViaCommunity(Box::new(joined))).unwrap();
+        let joined = service(base::MessageAction::MessageActionChatJoinedViaCommunity(joined)).unwrap();
         assert_eq!(joined.service, Some(ServiceAction::CommunityChatJoined(hub)));
         assert_eq!(joined.chat.id, get_channel_id(5));
         let created = types::MessageActionManagedBotCreated { bot_id: 42 };
-        let created = service(base::MessageAction::MessageActionManagedBotCreated(Box::new(created))).unwrap();
+        let created = service(base::MessageAction::MessageActionManagedBotCreated(created)).unwrap();
         assert!(matches!(created.service, Some(ServiceAction::ManagedBotCreated(bot)) if bot.id == 42));
         assert!(service(base::MessageAction::MessageActionPinMessage).is_none());
     }

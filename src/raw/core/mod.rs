@@ -31,7 +31,7 @@ pub trait Serializable {
     fn serialize(&self, buf: &mut Vec<u8>);
 
     fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(128);
         self.serialize(&mut buf);
         buf
     }

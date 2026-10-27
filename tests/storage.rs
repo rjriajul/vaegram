@@ -114,7 +114,7 @@ fn update_state() -> UpdateState {
 #[test]
 fn state_file_round_trips() {
     let mut with_group = peers();
-    with_group.insert(-42, base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: 42 })));
+    with_group.insert(-42, base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 42 }));
     let bytes = state::encode(1, &with_group, Some(&update_state()));
     assert_eq!(state::decode(&bytes, 1), Some((peers(), Some(update_state()))));
     assert_eq!(state::decode(&state::encode(1, &peers(), None), 1), Some((peers(), None)));

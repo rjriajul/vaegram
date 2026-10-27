@@ -376,7 +376,7 @@ mod tests {
             balance_too_low,
             reject_comment: rejected.then(|| "no".into()),
             schedule_date: Some(9),
-            price: Some(base::StarsAmount::StarsTonAmount(Box::new(types::StarsTonAmount { amount: 5 }))),
+            price: Some(base::StarsAmount::StarsTonAmount(types::StarsTonAmount { amount: 5 })),
         }))
     }
 
@@ -547,7 +547,7 @@ mod tests {
             || A::MessageActionChannelCreate(Box::new(types::MessageActionChannelCreate { title: "T".into() }));
         vec![
             service(A::MessageActionChatAddUser(Box::new(types::MessageActionChatAddUser { users: vec![3] }))),
-            service(A::MessageActionChatDeleteUser(Box::new(types::MessageActionChatDeleteUser { user_id: 3 }))),
+            service(A::MessageActionChatDeleteUser(types::MessageActionChatDeleteUser { user_id: 3 })),
             service(A::MessageActionChatEditTitle(Box::new(types::MessageActionChatEditTitle { title: "T".into() }))),
             service(A::MessageActionChatEditPhoto(Box::new(types::MessageActionChatEditPhoto { photo }))),
             service(A::MessageActionChatDeletePhoto),
@@ -557,7 +557,7 @@ mod tests {
             }))),
             service(channel_create()),
             types::MessageService { post: true, ..service(channel_create()) },
-            service(A::MessageActionChatMigrateTo(Box::new(types::MessageActionChatMigrateTo { channel_id: 3 }))),
+            service(A::MessageActionChatMigrateTo(types::MessageActionChatMigrateTo { channel_id: 3 })),
             service(A::MessageActionChannelMigrateFrom(Box::new(types::MessageActionChannelMigrateFrom {
                 title: "T".into(),
                 chat_id: 3,
@@ -622,12 +622,12 @@ mod tests {
             service(A::MessageActionChangeCommunity(Box::new(types::MessageActionChangeCommunity {
                 community_id: None,
             }))),
-            service(A::MessageActionChatJoinedViaCommunity(Box::new(types::MessageActionChatJoinedViaCommunity {
+            service(A::MessageActionChatJoinedViaCommunity(types::MessageActionChatJoinedViaCommunity {
                 community_id: 7,
-            }))),
+            })),
             service(A::MessageActionStarGift(Box::new(star_gift()))),
             service(A::MessageActionStarGiftUnique(Box::new(unique_gift()))),
-            service(A::MessageActionManagedBotCreated(Box::new(types::MessageActionManagedBotCreated { bot_id: 4 }))),
+            service(A::MessageActionManagedBotCreated(types::MessageActionManagedBotCreated { bot_id: 4 })),
             service(A::MessageActionPaymentSentMe(Box::new(types::MessageActionPaymentSentMe {
                 recurring_init: false,
                 recurring_used: false,
@@ -650,12 +650,12 @@ mod tests {
             service(approval(false, true)),
             service(approval(true, false)),
             service(A::MessageActionSuggestedPostSuccess(Box::new(types::MessageActionSuggestedPostSuccess {
-                price: base::StarsAmount::StarsTonAmount(Box::new(types::StarsTonAmount { amount: 5 })),
+                price: base::StarsAmount::StarsTonAmount(types::StarsTonAmount { amount: 5 }),
             }))),
-            service(A::MessageActionSuggestedPostRefund(Box::new(types::MessageActionSuggestedPostRefund {
+            service(A::MessageActionSuggestedPostRefund(types::MessageActionSuggestedPostRefund {
                 payer_initiated: true,
-            }))),
-            service(A::MessageActionBoostApply(Box::new(types::MessageActionBoostApply { boosts: 2 }))),
+            })),
+            service(A::MessageActionBoostApply(types::MessageActionBoostApply { boosts: 2 })),
             service(A::MessageActionGameScore(Box::new(types::MessageActionGameScore { game_id: 7, score: 42 }))),
         ]
     }
@@ -680,8 +680,7 @@ mod tests {
         let entities = Entities::default();
         let kind_and_action =
             |raw: types::MessageService| (ServiceKind::of(&raw.action, None), ServiceAction::parse(&raw, &entities));
-        let empty =
-            types::MessageActionChatEditPhoto { photo: base::Photo::PhotoEmpty(Box::new(types::PhotoEmpty { id: 1 })) };
+        let empty = types::MessageActionChatEditPhoto { photo: base::Photo::PhotoEmpty(types::PhotoEmpty { id: 1 }) };
         let joined = types::MessageService { from_id: None, ..service(A::MessageActionChatJoinedByRequest) };
         let premium = types::MessageActionGiftPremium {
             currency: "USD".into(),
@@ -714,7 +713,7 @@ mod tests {
     #[test]
     fn maps_chat_actions() {
         use base::MessageAction as A;
-        let link = A::MessageActionChatJoinedByLink(Box::new(types::MessageActionChatJoinedByLink { inviter_id: 3 }));
+        let link = A::MessageActionChatJoinedByLink(types::MessageActionChatJoinedByLink { inviter_id: 3 });
         assert!(matches!(parse(link), Some(ServiceAction::NewChatMembers(u)) if u.iter().map(|u| u.id).eq([9])));
         let pin = types::MessageService { reply_to: reply_to(5), ..service(A::MessageActionPinMessage) };
         assert_eq!(ServiceAction::parse(&pin, &Entities::default()), Some(ServiceAction::PinnedMessage(5)));
@@ -762,7 +761,7 @@ mod tests {
 
         let refund = |payer_initiated| {
             let refund = types::MessageActionSuggestedPostRefund { payer_initiated };
-            match parse(base::MessageAction::MessageActionSuggestedPostRefund(Box::new(refund))) {
+            match parse(base::MessageAction::MessageActionSuggestedPostRefund(refund)) {
                 Some(ServiceAction::SuggestedPostRefunded(r)) => Some(r.reason),
                 _ => None,
             }

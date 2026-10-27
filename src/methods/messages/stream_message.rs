@@ -293,7 +293,7 @@ mod tests {
             base::Update::UpdateUserTyping(Box::new(types::UpdateUserTyping {
                 user_id: 7,
                 top_msg_id: None,
-                action: base::SendMessageAction::SendMessageStopDraftAction(Box::new(action)),
+                action: base::SendMessageAction::SendMessageStopDraftAction(action),
             }))
         };
         client.stop_stream(&stop(41));

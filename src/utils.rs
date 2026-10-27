@@ -22,11 +22,11 @@ pub(crate) fn channel_id_of(chat_id: i64) -> i64 {
 
 pub fn get_peer(chat_id: i64) -> base::Peer {
     if chat_id > 0 {
-        base::Peer::PeerUser(Box::new(types::PeerUser { user_id: chat_id }))
+        base::Peer::PeerUser(types::PeerUser { user_id: chat_id })
     } else if chat_id <= -CHANNEL_OFFSET {
-        base::Peer::PeerChannel(Box::new(types::PeerChannel { channel_id: -chat_id - CHANNEL_OFFSET }))
+        base::Peer::PeerChannel(types::PeerChannel { channel_id: -chat_id - CHANNEL_OFFSET })
     } else {
-        base::Peer::PeerChat(Box::new(types::PeerChat { chat_id: -chat_id }))
+        base::Peer::PeerChat(types::PeerChat { chat_id: -chat_id })
     }
 }
 

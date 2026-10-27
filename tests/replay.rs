@@ -81,7 +81,7 @@ fn bot_session() -> Vec<Record> {
     let state = types::updates::State { pts: 10, qts: 0, date: DATE, seq: 0, unread_count: 0 };
     call(&mut r, functions::updates::GetState::CONSTRUCTOR_ID, base::updates::State::State(Box::new(state)).to_bytes());
     let empty = types::updates::DifferenceEmpty { date: DATE, seq: 0 };
-    let difference = base::updates::Difference::DifferenceEmpty(Box::new(empty));
+    let difference = base::updates::Difference::DifferenceEmpty(empty);
     call(&mut r, functions::updates::GetDifference::CONSTRUCTOR_ID, difference.to_bytes());
     for (pts, text) in [(11, "/start"), (13, "ping")] {
         unasked(&mut r, new_message(pts, text).to_bytes());
@@ -112,7 +112,7 @@ fn unasked(records: &mut Vec<Record>, body: Vec<u8>) {
 }
 
 fn new_message(pts: i32, text: &str) -> base::Updates {
-    let alice = || base::Peer::PeerUser(Box::new(types::PeerUser { user_id: ALICE }));
+    let alice = || base::Peer::PeerUser(types::PeerUser { user_id: ALICE });
     let message = types::Message {
         out: false,
         mentioned: false,
