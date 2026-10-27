@@ -8,6 +8,7 @@ pub struct User {
     pub first_name: String,
     pub last_name: Option<String>,
     pub username: Option<String>,
+    pub supports_join_request_queries: bool,
 }
 
 impl User {
@@ -19,6 +20,8 @@ impl User {
                 first_name: u.first_name.clone().unwrap_or_default(),
                 last_name: u.last_name.clone(),
                 username: u.username.clone(),
+                // Inferred from the name: api.tl does not describe bot_guard.
+                supports_join_request_queries: u.bot_guard,
             },
             _ => User { id, ..User::default() },
         }

@@ -1,4 +1,5 @@
 mod on_callback_query;
+mod on_chat_join_request;
 mod on_edited_message;
 mod on_error;
 mod on_event;

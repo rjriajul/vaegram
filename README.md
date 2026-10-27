@@ -133,6 +133,7 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Parallel file upload and download: `send_document`, `send_photo`, `msg.download()` (not yet tested live)
 - [ ] Shared send options: replies with quotes, topics, silent, protected, scheduled and business sends; a default
   parse mode via `Client::builder(..).parse_mode(enums::ParseMode::Html)` (not yet tested live)
+- [ ] Chat join requests and join request queries, managed bot access settings (not yet tested live)
 - [ ] Client events: reconnects, dropped packets, skipped or unknown updates and failed handlers via `app.on_event(|e| ..)` (not yet tested live)
 - [ ] Rich messages
 

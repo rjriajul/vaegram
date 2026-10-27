@@ -1,7 +1,7 @@
 use super::facts::{Facts, PeerKinds};
 use crate::Client;
 use crate::client::Me;
-use crate::types::{CallbackQuery, InlineQuery, Message};
+use crate::types::{CallbackQuery, ChatJoinRequest, InlineQuery, Message};
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
 // `Inspect` uncallable while `Filter::check` can still bound on it.
@@ -24,55 +24,44 @@ pub trait HasText: Subject {}
 pub trait HasMedia: Subject {}
 pub trait HasData: Subject {}
 
-impl private::Sealed for Message {}
+macro_rules! subject {
+    ($ty:ident: $($cap:ident),*; |$s:ident, $me:ident| $facts:expr) => {
+        impl private::Sealed for $ty {}
 
-impl private::Inspect for Message {
-    fn client(&self) -> &Client {
-        Message::client(self)
-    }
+        impl private::Inspect for $ty {
+            fn client(&self) -> &Client {
+                $ty::client(self)
+            }
 
-    fn facts<'a>(&'a self, me: &'a Me) -> Facts<'a> {
-        let sender_bot = self.from_user.as_ref().is_some_and(|u| u.is_bot);
-        Facts::plain(&self.raw, PeerKinds { chat: Some(self.chat.kind), sender_bot }, me)
-    }
+            fn facts<'a>(&'a self, $me: &'a Me) -> Facts<'a> {
+                let $s = self;
+                $facts
+            }
+        }
+
+        impl Subject for $ty {}
+        $(impl $cap for $ty {})*
+    };
 }
 
-impl Subject for Message {}
-impl HasChat for Message {}
-impl HasSender for Message {}
-impl HasText for Message {}
-impl HasMedia for Message {}
+subject!(Message: HasChat, HasSender, HasText, HasMedia; |s, me| {
+    let sender_bot = s.from_user.as_ref().is_some_and(|u| u.is_bot);
+    Facts::plain(&s.raw, PeerKinds { chat: Some(s.chat.kind), sender_bot }, me)
+});
 
-impl private::Sealed for CallbackQuery {}
+subject!(CallbackQuery: HasChat, HasSender, HasData; |s, me| {
+    let kinds = PeerKinds { chat: Some(s.chat.kind), sender_bot: s.from_user.is_bot };
+    Facts::query(s.chat.id, s.from_user.id, s.data.as_bytes(), kinds, me)
+});
 
-impl private::Inspect for CallbackQuery {
-    fn client(&self) -> &Client {
-        CallbackQuery::client(self)
-    }
+subject!(InlineQuery: HasSender, HasText; |s, me| Facts::inline(s.from_user.id, &s.query, me));
 
-    fn facts<'a>(&'a self, me: &'a Me) -> Facts<'a> {
-        let kinds = PeerKinds { chat: Some(self.chat.kind), sender_bot: self.from_user.is_bot };
-        Facts::query(self.chat.id, self.from_user.id, self.data.as_bytes(), kinds, me)
-    }
-}
-
-impl Subject for CallbackQuery {}
-impl HasChat for CallbackQuery {}
-impl HasSender for CallbackQuery {}
-impl HasData for CallbackQuery {}
-
-impl private::Sealed for InlineQuery {}
-
-impl private::Inspect for InlineQuery {
-    fn client(&self) -> &Client {
-        InlineQuery::client(self)
-    }
-
-    fn facts<'a>(&'a self, me: &'a Me) -> Facts<'a> {
-        Facts::inline(self.from_user.id, &self.query, me)
-    }
-}
-
-impl Subject for InlineQuery {}
-impl HasSender for InlineQuery {}
-impl HasText for InlineQuery {}
+subject!(ChatJoinRequest: HasChat, HasSender; |s, me| {
+    Facts::query(
+        s.chat.id,
+        s.from_user.id,
+        &[],
+        PeerKinds { chat: Some(s.chat.kind), sender_bot: s.from_user.is_bot },
+        me,
+    )
+});

@@ -6,7 +6,7 @@ use crate::Client;
 use crate::dispatcher::Router;
 use crate::errors::{Error, Result};
 use crate::raw::base;
-use crate::types::{CallbackQuery, InlineQuery, Message};
+use crate::types::{CallbackQuery, ChatJoinRequest, InlineQuery, Message};
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 pub(crate) type Callback<T> = Arc<dyn Fn(T) -> BoxFuture + Send + Sync>;
@@ -31,6 +31,7 @@ pub enum UpdateKind {
     EditedMessage,
     CallbackQuery,
     InlineQuery,
+    ChatJoinRequest,
     Raw,
 }
 
@@ -102,5 +103,11 @@ impl Routed for InlineQuery {
 
     fn order_key(&self) -> Option<i64> {
         Some(self.from_user.id)
+    }
+}
+
+impl Routed for ChatJoinRequest {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
     }
 }

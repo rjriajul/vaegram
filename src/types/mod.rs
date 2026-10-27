@@ -6,8 +6,8 @@ mod user_and_chats;
 
 pub use authorization::SentCode;
 pub use bots_and_keyboards::{
-    ButtonStyle, CallbackQuery, ForceReply, InlineAction, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove, ReplyMarkup,
+    BotAccessSettings, ButtonStyle, CallbackQuery, ForceReply, InlineAction, InlineKeyboardButton,
+    InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, ReplyMarkup,
 };
 pub use inline_mode::{InlineQuery, InlineQueryResultArticle};
 pub use messages_and_media::{
@@ -15,4 +15,4 @@ pub use messages_and_media::{
     Media, Message, MessageEntity, MessageOrigin, Photo, Poll, PollOption, ReplyParameters, Sticker,
     SuggestedPostParameters, SuggestedPostPrice, TextQuote, Upload, Venue, Video, VideoNote, Voice,
 };
-pub use user_and_chats::{Chat, ChatMember, ChatPermissions, ChatPrivileges, PeerRef, User};
+pub use user_and_chats::{Chat, ChatJoinRequest, ChatMember, ChatPermissions, ChatPrivileges, PeerRef, User};

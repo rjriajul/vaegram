@@ -1,4 +1,5 @@
 mod chat_action;
+mod chat_join_request_result;
 mod chat_member_status;
 mod chat_members_filter;
 mod chat_type;
@@ -11,6 +12,7 @@ mod sent_code_type;
 mod service_kind;
 
 pub use chat_action::ChatAction;
+pub use chat_join_request_result::ChatJoinRequestResult;
 pub use chat_member_status::ChatMemberStatus;
 pub use chat_members_filter::ChatMembersFilter;
 pub use chat_type::ChatType;
