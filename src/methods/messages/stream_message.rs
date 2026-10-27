@@ -207,11 +207,9 @@ async fn run(
             // through short flood waits, so longer ones hold drafts back instead of failing per chunk.
             let text = text.into();
             let request = SendMessageDraft { client: &client, chat_id: chat_id.clone(), draft_id, text, options };
-            if let Err(Error::Rpc(e)) = request.await {
-                if e.code == 420 {
-                    resume = Instant::now() + Duration::from_secs(e.value.unwrap_or(0).into());
-                    shared.state.lock().unwrap().dirty = true;
-                }
+            if let Some(wait) = request.await.err().as_ref().and_then(Error::flood_wait) {
+                resume = Instant::now() + wait;
+                shared.state.lock().unwrap().dirty = true;
             }
         }
     }

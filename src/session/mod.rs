@@ -233,8 +233,7 @@ impl Session {
     /// How long to sleep off `error` before retrying: only FLOOD_WAITs within `flood_sleep_threshold`, each
     /// shortened to `cap` first.
     pub(crate) fn flood_sleep(&self, error: &Error, cap: Option<Duration>) -> Option<Duration> {
-        let Error::Rpc(RpcError { code: 420, value: Some(wait), .. }) = error else { return None };
-        let wait = Duration::from_secs((*wait).max(1).into());
+        let wait = error.flood_wait()?.max(Duration::from_secs(1));
         let wait = cap.map_or(wait, |cap| wait.min(cap));
         (wait <= self.options.flood_sleep_threshold).then_some(wait)
     }

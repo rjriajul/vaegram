@@ -121,8 +121,8 @@ impl<'a> DownloadMedia<'a> {
             let lease = client.transfer_sessions(client.media_dc(dc_id)?, workers.min(MAX_CONNECTIONS)).await?;
             match invoke_part(&lease.sessions[0], &request).await {
                 Ok(file) => break (lease, file),
-                Err(Error::Rpc(e)) if e.name == "FILE_MIGRATE" && migrations < MAX_MIGRATIONS => {
-                    dc_id = e.value.ok_or(Error::Unexpected("FILE_MIGRATE without a DC number"))? as i32;
+                Err(Error::Rpc(e)) if e.is("FILE_MIGRATE") && migrations < MAX_MIGRATIONS => {
+                    dc_id = e.migrate_dc().ok_or(Error::Unexpected("FILE_MIGRATE without a DC number"))?;
                     migrations += 1;
                 }
                 Err(Error::Rpc(e)) if e.name.starts_with("FILE_REFERENCE_") && !refreshed => {

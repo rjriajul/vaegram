@@ -226,7 +226,7 @@ impl Tracker {
         let delay = match result {
             Ok(()) => None,
             // FLOOD_WAIT_X and friends: asking before X seconds pass only fails again.
-            Err(Error::Rpc(e)) if e.code == 420 => Some(Duration::from_secs(e.value.unwrap_or(1).into())),
+            Err(e) if e.flood_wait().is_some() => e.flood_wait().map(|w| w.max(Duration::from_secs(1))),
             Err(Error::Rpc(e)) if !(400..500).contains(&e.code) => self.backoff(key),
             Err(Error::Io(_) | Error::Transport(_) | Error::Disconnected | Error::Timeout | Error::BadMessage(_)) => {
                 self.backoff(key)

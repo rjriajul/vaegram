@@ -1,4 +1,5 @@
 use std::fmt;
+use std::time::Duration;
 
 use crate::raw;
 
@@ -19,6 +20,19 @@ impl RpcError {
             }
             _ => Self { code, name: message.into(), value: None },
         }
+    }
+
+    /// Compares the name without its value: FLOOD_WAIT_30 is `"FLOOD_WAIT"`.
+    pub fn is(&self, name: &str) -> bool {
+        self.name == name
+    }
+
+    pub fn flood_wait(&self) -> Option<Duration> {
+        self.value.filter(|_| self.code == 420).map(|s| Duration::from_secs(s.into()))
+    }
+
+    pub fn migrate_dc(&self) -> Option<i32> {
+        self.value.filter(|_| self.name.ends_with("_MIGRATE")).and_then(|dc| dc.try_into().ok())
     }
 }
 
@@ -56,6 +70,21 @@ pub enum Error {
         size: u64,
         limit: u64,
     },
+}
+
+impl Error {
+    pub fn rpc(&self) -> Option<&RpcError> {
+        if let Error::Rpc(e) = self { Some(e) } else { None }
+    }
+
+    pub fn is(&self, name: &str) -> bool {
+        self.rpc().is_some_and(|e| e.is(name))
+    }
+
+    /// [`RpcError::flood_wait`] of a Telegram error; `None` for any other error.
+    pub fn flood_wait(&self) -> Option<Duration> {
+        self.rpc().and_then(RpcError::flood_wait)
+    }
 }
 
 impl fmt::Display for Error {
@@ -118,7 +147,9 @@ impl From<std::convert::Infallible> for Error {
 
 #[cfg(test)]
 mod tests {
-    use super::RpcError;
+    use std::time::Duration;
+
+    use super::{Error, RpcError};
 
     #[test]
     fn splits_the_number_off() {
@@ -130,5 +161,43 @@ mod tests {
 
         let e = RpcError::new(303, "USER_MIGRATE_4");
         assert_eq!((e.name.as_str(), e.value), ("USER_MIGRATE", Some(4)));
+
+        let e = RpcError::new(420, "2FA_CONFIRM_WAIT_604800");
+        assert_eq!((e.name.as_str(), e.value), ("2FA_CONFIRM_WAIT", Some(604800)));
+
+        let e = RpcError::new(400, "FILE_PART_5_MISSING");
+        assert_eq!((e.name.as_str(), e.value), ("FILE_PART_5_MISSING", None));
+    }
+
+    #[test]
+    fn names_match_without_the_value() {
+        let e = RpcError::new(420, "FLOOD_WAIT_30");
+        assert!(e.is("FLOOD_WAIT") && !e.is("FLOOD_WAIT_30") && !e.is("FLOOD") && !e.is("FLOOD_PREMIUM_WAIT"));
+        assert!(RpcError::new(420, "2FA_CONFIRM_WAIT_604800").is("2FA_CONFIRM_WAIT"));
+
+        let e = Error::Rpc(RpcError::new(400, "MESSAGE_NOT_MODIFIED"));
+        assert!(e.is("MESSAGE_NOT_MODIFIED") && !e.is("PEER_ID_INVALID"));
+        assert!(!Error::Disconnected.is("MESSAGE_NOT_MODIFIED") && Error::Disconnected.rpc().is_none());
+    }
+
+    #[test]
+    fn waits_and_migrations_carry_their_value() {
+        let wait = |code, msg| RpcError::new(code, msg).flood_wait();
+        assert_eq!(wait(420, "FLOOD_WAIT_30"), Some(Duration::from_secs(30)));
+        assert_eq!(wait(420, "SLOWMODE_WAIT_10"), Some(Duration::from_secs(10)));
+        assert_eq!(wait(420, "FLOOD_WAIT"), None);
+        assert_eq!(wait(303, "USER_MIGRATE_4"), None);
+        assert_eq!(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_5")).flood_wait(), Some(Duration::from_secs(5)));
+
+        let dc = |msg| RpcError::new(303, msg).migrate_dc();
+        assert_eq!((dc("USER_MIGRATE_4"), dc("PHONE_MIGRATE_2"), dc("FILE_MIGRATE_5")), (Some(4), Some(2), Some(5)));
+        assert_eq!((dc("NETWORK_MIGRATE"), RpcError::new(420, "FLOOD_WAIT_4").migrate_dc()), (None, None));
+    }
+
+    #[test]
+    fn display_keeps_the_telegram_text() {
+        assert_eq!(RpcError::new(420, "FLOOD_WAIT_30").to_string(), "Telegram error 420: FLOOD_WAIT_30");
+        let e = Error::Rpc(RpcError::new(400, "PEER_ID_INVALID"));
+        assert_eq!(e.to_string(), "Telegram error 400: PEER_ID_INVALID");
     }
 }

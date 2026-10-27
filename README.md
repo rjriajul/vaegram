@@ -99,12 +99,13 @@ the test mode and the data center address.
 Anything without a friendly method yet can be called directly:
 
 ```rust
-use vaegram::{Error, raw::functions};
+use vaegram::raw::functions;
 
 let config = app.invoke(&functions::help::GetConfig {}).await?;
 
 match app.send_message(chat_id, "hi").await {
-    Err(Error::Rpc(e)) if e.name == "FLOOD_WAIT" => println!("wait {} seconds", e.value.unwrap_or(0)),
+    Err(e) if e.is("CHAT_WRITE_FORBIDDEN") => println!("no rights to write there"),
+    Err(e) if e.is("FLOOD_WAIT") => println!("wait {:?}", e.flood_wait().unwrap_or_default()),
     other => { other?; }
 }
 ```

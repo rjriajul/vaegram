@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::Client;
-use crate::errors::{Error, Result};
+use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, functions};
 use crate::session::Session;
 
@@ -38,13 +38,13 @@ impl Client {
     pub(crate) async fn invoke_migrating<R: RemoteCall>(&self, request: &R) -> Result<R::Return> {
         let mut migrations = 0;
         loop {
-            match self.invoke(request).await {
-                Err(Error::Rpc(e)) if e.code == 303 && migrations < MAX_MIGRATIONS => {
-                    let dc_id = e.value.ok_or(Error::Unexpected("migrate error without a DC number"))?;
-                    self.switch_dc(dc_id as i32).await?;
+            let result = self.invoke(request).await;
+            match result.as_ref().err().and_then(Error::rpc).and_then(RpcError::migrate_dc) {
+                Some(dc_id) if migrations < MAX_MIGRATIONS => {
+                    self.switch_dc(dc_id).await?;
                     migrations += 1;
                 }
-                result => return result,
+                _ => return result,
             }
         }
     }
