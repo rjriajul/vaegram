@@ -88,6 +88,9 @@ let app = Client::builder("my_bot", api_id, api_hash)
 > A session file or string **is** the login: anyone who has it is logged in as that account.
 > Never commit or share it. `*.session` is already in `.gitignore`.
 
+`.test_mode()` logs in on Telegram's test servers and `.ipv6()` connects over IPv6. Session strings remember
+the test mode and the data center address.
+
 ### Raw API and Errors
 
 Anything without a friendly method yet can be called directly:

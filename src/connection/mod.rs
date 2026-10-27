@@ -6,7 +6,6 @@ pub use proxy::{Proxy, Secret};
 pub use transport::Transport;
 
 use std::io;
-use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll, ready};
 use std::time::Duration;
@@ -16,6 +15,7 @@ use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::errors::Result;
+use crate::session::internals::data_center::Dc;
 use obfuscated::Ctr;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -33,14 +33,16 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub async fn connect(addr: SocketAddr, dc_id: i32, options: &Options) -> Result<Self> {
+    pub async fn connect(dc: &Dc, options: &Options) -> Result<Self> {
+        let addr = dc.addr;
         let via = if options.proxy.is_some() { " through the proxy" } else { "" };
-        tokio::time::timeout(CONNECT_TIMEOUT, Self::open(addr, dc_id, options))
+        tokio::time::timeout(CONNECT_TIMEOUT, Self::open(dc, options))
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, format!("connecting to {addr}{via} timed out")))?
     }
 
-    async fn open(addr: SocketAddr, dc_id: i32, options: &Options) -> Result<Self> {
+    async fn open(dc: &Dc, options: &Options) -> Result<Self> {
+        let addr = dc.addr;
         let (stream, secret) = match &options.proxy {
             None => (TcpStream::connect(addr).await?, None),
             Some(Proxy::Socks5 { host, port, auth }) => {
@@ -58,7 +60,7 @@ impl Connection {
         let (read, mut write) = stream.into_split();
         let tag = transport.tag();
         let (encrypt, decrypt) = if options.obfuscated || secret.is_some() {
-            let (header, encrypt, decrypt) = obfuscated::init(tag, dc_id as i16, secret.map(|s| &s.key));
+            let (header, encrypt, decrypt) = obfuscated::init(tag, dc.wire_id() as i16, secret.map(|s| &s.key));
             write.write_all(&header).await?;
             (Some(encrypt), Some(decrypt))
         } else {

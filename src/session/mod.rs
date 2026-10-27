@@ -6,7 +6,6 @@ mod service;
 mod tests;
 
 use std::collections::{HashMap, VecDeque};
-use std::net::SocketAddr;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
@@ -17,7 +16,8 @@ use crate::crypto::{mtproto, random, sha1};
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::core::{gzip_packed, msg_container};
 use crate::raw::{Deserializable, Identifiable, RemoteCall, Serializable, base, functions, types};
-use internals::{MsgId, SeqNo, data_center};
+use internals::data_center::Dc;
+use internals::{MsgId, SeqNo};
 use outbox::MAX_CONTAINER_MSGS;
 
 const RPC_RESULT: u32 = 0xf35c6d01;
@@ -64,18 +64,17 @@ pub struct Session {
 
 impl Session {
     pub async fn connect(
-        dc_id: i32,
+        dc: Dc,
         auth_key: Option<[u8; 256]>,
         options: &Options,
     ) -> Result<(Session, mpsc::Receiver<Incoming>)> {
-        let addr = data_center::address(dc_id).ok_or(Error::InvalidDc(dc_id))?;
         let (conn, auth_key, salt, time_offset) = match auth_key {
-            Some(key) => (Connection::connect(addr, dc_id, options).await?, key, 0, 0),
+            Some(key) => (Connection::connect(&dc, options).await?, key, 0, 0),
             None => {
                 let mut attempt = 1;
                 loop {
-                    let mut conn = Connection::connect(addr, dc_id, options).await?;
-                    match auth::create(&mut conn, dc_id).await {
+                    let mut conn = Connection::connect(&dc, options).await?;
+                    match auth::create(&mut conn, dc).await {
                         Ok(c) => break (conn, c.auth_key, c.salt, c.time_offset),
                         Err(e) if attempt == HANDSHAKE_ATTEMPTS => return Err(e),
                         Err(_) => attempt += 1,
@@ -85,9 +84,9 @@ impl Session {
         };
 
         let (requests_tx, requests) = mpsc::unbounded_channel();
-        let (runner, updates) = Runner::new(addr, dc_id, options.clone(), conn, auth_key, salt, time_offset);
+        let (runner, updates) = Runner::new(dc, options.clone(), conn, auth_key, salt, time_offset);
         tokio::spawn(runner.run(requests));
-        Ok((Session { requests: requests_tx, dc_id, auth_key }, updates))
+        Ok((Session { requests: requests_tx, dc_id: dc.id, auth_key }, updates))
     }
 
     pub fn dc_id(&self) -> i32 {
@@ -137,8 +136,7 @@ struct Pending {
 }
 
 struct Runner {
-    addr: SocketAddr,
-    dc_id: i32,
+    dc: Dc,
     options: Options,
     writer: Writer,
     packets: mpsc::Receiver<Result<Vec<u8>>>,
@@ -159,8 +157,7 @@ struct Runner {
 
 impl Runner {
     fn new(
-        addr: SocketAddr,
-        dc_id: i32,
+        dc: Dc,
         options: Options,
         conn: Connection,
         auth_key: [u8; 256],
@@ -170,8 +167,7 @@ impl Runner {
         let (writer, packets, reader) = start_reading(conn);
         let (updates_tx, updates) = mpsc::channel(UPDATES_BUFFER);
         let runner = Runner {
-            addr,
-            dc_id,
+            dc,
             options,
             writer,
             packets,
@@ -247,7 +243,7 @@ impl Runner {
             tokio::time::sleep(delay).await;
             delay = (delay * 2).min(MAX_RECONNECT_DELAY);
             self.drop_abandoned();
-            let Ok(conn) = Connection::connect(self.addr, self.dc_id, &self.options).await else { continue };
+            let Ok(conn) = Connection::connect(&self.dc, &self.options).await else { continue };
             (self.writer, self.packets, self.reader) = start_reading(conn);
             if self.resend_pending().await.is_ok() {
                 self.request_difference();

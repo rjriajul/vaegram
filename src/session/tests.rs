@@ -5,6 +5,7 @@ use super::{
     Answer, Connection, Incoming, MAX_CONTAINER_MSGS, Options, Request, Runner, Serializable, functions, mpsc,
     msg_container, mtproto, oneshot, outbox, types,
 };
+use crate::session::internals::data_center::Dc;
 
 type Frames = mpsc::UnboundedReceiver<Vec<u8>>;
 
@@ -12,7 +13,8 @@ async fn runner() -> (Runner, Frames, mpsc::Receiver<Incoming>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let options = Options { transport: crate::connection::Transport::Intermediate, ..Options::default() };
-    let conn = Connection::connect(addr, 2, &options).await.unwrap();
+    let dc = Dc { id: 2, addr, test: false };
+    let conn = Connection::connect(&dc, &options).await.unwrap();
     let (mut server, _) = listener.accept().await.unwrap();
     server.read_exact(&mut [0; 4]).await.unwrap();
     let (frames_tx, frames) = mpsc::unbounded_channel();
@@ -25,7 +27,7 @@ async fn runner() -> (Runner, Frames, mpsc::Receiver<Incoming>) {
         }
     });
 
-    let (runner, updates) = Runner::new(addr, 2, options, conn, [7; 256], 0, 0);
+    let (runner, updates) = Runner::new(dc, options, conn, [7; 256], 0, 0);
     (runner, frames, updates)
 }
 

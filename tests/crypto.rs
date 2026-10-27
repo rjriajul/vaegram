@@ -8,8 +8,9 @@ fn factorizes_pq() {
 }
 
 #[test]
-fn production_key_fingerprint() {
+fn server_key_fingerprints() {
     assert_eq!(PublicKey::production().fingerprint(), 0xd09d1d85de64fd85u64 as i64);
+    assert_eq!(PublicKey::test().fingerprint(), 0xb25898df208d2603u64 as i64);
 }
 
 #[test]

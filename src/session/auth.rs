@@ -1,5 +1,6 @@
 use num_bigint::BigUint;
 
+use super::internals::data_center::Dc;
 use super::internals::{MsgId, now};
 use crate::connection::Connection;
 use crate::crypto::rsa::PublicKey;
@@ -57,8 +58,8 @@ fn check_dh_value(x: &BigUint, dh_prime: &BigUint, what: &'static str) -> Result
     check(*x > margin && *x < dh_prime - &margin, what)
 }
 
-pub(crate) async fn create(conn: &mut Connection, dc_id: i32) -> Result<Created> {
-    let key = PublicKey::production();
+pub(crate) async fn create(conn: &mut Connection, dc: Dc) -> Result<Created> {
+    let key = if dc.test { PublicKey::test() } else { PublicKey::production() };
     let mut msg_ids = MsgId::new(0);
 
     let nonce: [u8; 16] = random();
@@ -78,7 +79,7 @@ pub(crate) async fn create(conn: &mut Connection, dc_id: i32) -> Result<Created>
         nonce,
         server_nonce,
         new_nonce,
-        dc: dc_id,
+        dc: dc.wire_id(),
     };
     let request = functions::ReqDHParams {
         nonce,

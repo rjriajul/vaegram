@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -8,6 +9,7 @@ use crate::connection::{Options, Proxy, Transport};
 use crate::errors::{Error, Result};
 use crate::handlers::Handler;
 use crate::raw::{LAYER, base, functions};
+use crate::session::internals::data_center::{self, Dc};
 use crate::session::{Incoming, Session};
 use crate::storage::{self, SessionData, session_string};
 
@@ -18,6 +20,8 @@ pub struct ClientBuilder {
     api_id: i32,
     api_hash: String,
     session_string: Option<String>,
+    test_mode: bool,
+    ipv6: bool,
     login: Login,
     options: Options,
 }
@@ -72,6 +76,17 @@ impl ClientBuilder {
         self
     }
 
+    /// Use Telegram's test servers. A stored session keeps the mode it was created with.
+    pub fn test_mode(mut self) -> Self {
+        self.test_mode = true;
+        self
+    }
+
+    pub fn ipv6(mut self) -> Self {
+        self.ipv6 = true;
+        self
+    }
+
     pub async fn start(self) -> Result<Client> {
         let (client, login) = self.open().await?;
         if client.0.me.lock().unwrap().id == 0 {
@@ -93,16 +108,29 @@ impl ClientBuilder {
                 (Some(path), stored)
             }
         };
-        let (dc_id, auth_key, user_id, is_bot) = match &stored {
-            Some(s) => (s.dc_id, Some(s.auth_key), s.user_id, s.is_bot),
-            None => (DEFAULT_DC, None, 0, false),
+        let (dc_id, auth_key, user_id, is_bot, test_mode, addr) = match &stored {
+            Some(s) => (s.dc_id, Some(s.auth_key), s.user_id, s.is_bot, s.test_mode, s.addr),
+            None => (DEFAULT_DC, None, 0, false, self.test_mode, None),
         };
-        let (session, updates) = connect(dc_id, auth_key, self.api_id, &self.options).await?;
+        let built_in = data_center::address(dc_id, test_mode, self.ipv6);
+        let first = addr.filter(|a| a.is_ipv6() == self.ipv6).or(built_in).ok_or(Error::InvalidDc(dc_id))?;
+        let dc = |addr| Dc { id: dc_id, addr, test: test_mode };
+        // A saved address comes from help.getConfig and can go stale.
+        let first_try = connect(dc(first), auth_key, self.api_id, &self.options).await;
+        let (session, updates, dc_options) = match (first_try, built_in) {
+            (Err(_), Some(built_in)) if built_in != first => {
+                connect(dc(built_in), auth_key, self.api_id, &self.options).await?
+            }
+            (result, _) => result?,
+        };
         let client = Client(Arc::new(Inner {
             session: RwLock::new(session),
             updates: tokio::sync::Mutex::new(updates),
             api_id: self.api_id,
             api_hash: self.api_hash,
+            dcs: RwLock::new(data_center::table(&dc_options, self.ipv6)),
+            test_mode,
+            ipv6: self.ipv6,
             storage_path,
             options: self.options,
             me: Mutex::new(Me { id: user_id, is_bot, username: None }),
@@ -122,6 +150,9 @@ pub(crate) struct Inner {
     pub(crate) updates: tokio::sync::Mutex<mpsc::Receiver<Incoming>>,
     pub(crate) api_id: i32,
     pub(crate) api_hash: String,
+    dcs: RwLock<Vec<(i32, SocketAddr)>>,
+    test_mode: bool,
+    ipv6: bool,
     storage_path: Option<PathBuf>,
     options: Options,
     pub(crate) me: Mutex<Me>,
@@ -142,6 +173,8 @@ impl Client {
             api_id,
             api_hash: api_hash.into(),
             session_string: None,
+            test_mode: false,
+            ipv6: false,
             login: Login::default(),
             options: Options::default(),
         }
@@ -157,8 +190,14 @@ impl Client {
         }
     }
 
+    pub(crate) fn dc(&self, dc_id: i32) -> Result<Dc> {
+        data_center::find(&self.0.dcs.read().unwrap(), dc_id, self.0.test_mode, self.0.ipv6)
+            .ok_or(Error::InvalidDc(dc_id))
+    }
+
     pub(crate) async fn switch_dc(&self, dc_id: i32) -> Result<()> {
-        let (session, updates) = connect(dc_id, None, self.0.api_id, &self.0.options).await?;
+        let (session, updates, dc_options) = connect(self.dc(dc_id)?, None, self.0.api_id, &self.0.options).await?;
+        *self.0.dcs.write().unwrap() = data_center::table(&dc_options, self.0.ipv6);
         *self.0.session.write().unwrap() = session;
         *self.0.updates.lock().await = updates;
         self.0.me.lock().unwrap().id = 0;
@@ -170,6 +209,8 @@ impl Client {
         let me = self.0.me.lock().unwrap();
         SessionData {
             dc_id: session.dc_id(),
+            test_mode: self.0.test_mode,
+            addr: self.dc(session.dc_id()).ok().map(|dc| dc.addr),
             api_id: self.0.api_id,
             auth_key: *session.auth_key(),
             user_id: me.id,
@@ -186,12 +227,12 @@ impl Client {
 }
 
 async fn connect(
-    dc_id: i32,
+    dc: Dc,
     auth_key: Option<[u8; 256]>,
     api_id: i32,
     options: &Options,
-) -> Result<(Session, mpsc::Receiver<Incoming>)> {
-    let (session, updates) = Session::connect(dc_id, auth_key, options).await?;
+) -> Result<(Session, mpsc::Receiver<Incoming>, Vec<base::DcOption>)> {
+    let (session, updates) = Session::connect(dc, auth_key, options).await?;
     let init = functions::InvokeWithLayer {
         layer: LAYER,
         query: functions::InitConnection {
@@ -207,6 +248,6 @@ async fn connect(
             query: functions::help::GetConfig {},
         },
     };
-    session.invoke(&init).await?;
-    Ok((session, updates))
+    let base::Config::Config(config) = session.invoke(&init).await?;
+    Ok((session, updates, config.dc_options))
 }

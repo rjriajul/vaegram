@@ -2,10 +2,13 @@ pub mod session_string;
 
 use std::fs;
 use std::io::{self, Write};
+use std::net::SocketAddr;
 use std::path::Path;
 
 pub struct SessionData {
     pub dc_id: i32,
+    pub test_mode: bool,
+    pub addr: Option<SocketAddr>,
     pub api_id: i32,
     pub auth_key: [u8; 256],
     pub user_id: i64,
