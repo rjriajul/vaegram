@@ -76,7 +76,7 @@ pub fn parse(s: &str) -> Result<SessionData, &'static str> {
     })
 }
 
-fn encode(data: &[u8]) -> String {
+pub(crate) fn encode(data: &[u8]) -> String {
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let n = chunk.iter().enumerate().fold(0u32, |n, (i, &b)| n | (b as u32) << (16 - 8 * i));

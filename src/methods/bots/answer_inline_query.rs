@@ -1,7 +1,7 @@
 use crate::Client;
 use crate::errors::Result;
-use crate::raw::{base, functions, types};
-use crate::types::{InlineQueryResultArticle, ReplyMarkup};
+use crate::raw::functions;
+use crate::types::InlineQueryResultArticle;
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct AnswerInlineQuery<'a> {
@@ -49,24 +49,7 @@ impl AnswerInlineQuery<'_> {
     async fn send(self) -> Result<bool> {
         let mut results = Vec::with_capacity(self.results.len());
         for r in self.results {
-            let (message, entities) = self.client.parse_text(&r.text, Some(r.parse_mode)).await?;
-            let send_message = types::InputBotInlineMessageText {
-                no_webpage: false,
-                invert_media: false,
-                message,
-                entities: (!entities.is_empty()).then_some(entities),
-                reply_markup: r.reply_markup.as_ref().map(ReplyMarkup::write),
-            };
-            results.push(base::InputBotInlineResult::InputBotInlineResult(Box::new(types::InputBotInlineResult {
-                id: r.id,
-                r#type: "article".into(),
-                title: Some(r.title),
-                description: r.description,
-                url: r.url,
-                thumb: None,
-                content: None,
-                send_message: base::InputBotInlineMessage::InputBotInlineMessageText(Box::new(send_message)),
-            })));
+            results.push(r.write(self.client).await?);
         }
         let request = functions::messages::SetInlineBotResults {
             gallery: false,

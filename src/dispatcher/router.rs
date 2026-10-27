@@ -8,7 +8,7 @@ use crate::client::Me;
 use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
 use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, UpdateKind};
 use crate::raw::base;
-use crate::types::{CallbackQuery, ChatJoinRequest, InlineQuery, Message};
+use crate::types::{CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message};
 
 type Scan = (Vec<usize>, Option<usize>);
 
@@ -118,6 +118,7 @@ pub(crate) struct Router {
     pub(crate) callback_query: Handlers<CallbackQuery>,
     pub(crate) inline_query: Handlers<InlineQuery>,
     pub(crate) chat_join_request: Handlers<ChatJoinRequest>,
+    pub(crate) guest_message: Handlers<GuestMessage>,
     pub(crate) raw: Vec<RawCallback>,
     pub(crate) on_error: Option<ErrorCallback>,
     next_id: u32,
@@ -136,6 +137,7 @@ impl Router {
             UpdateKind::CallbackQuery => self.callback_query.configure(id, group, stop),
             UpdateKind::InlineQuery => self.inline_query.configure(id, group, stop),
             UpdateKind::ChatJoinRequest => self.chat_join_request.configure(id, group, stop),
+            UpdateKind::GuestMessage => self.guest_message.configure(id, group, stop),
             UpdateKind::Raw => {}
         }
     }
@@ -169,6 +171,11 @@ impl Router {
             U::UpdateBotChatInviteRequester(u) if !self.chat_join_request.0.is_empty() => {
                 let item = ChatJoinRequest::parse(client, &u, entities);
                 self.chat_join_request.finish(UpdateKind::ChatJoinRequest, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateBotGuestChatQuery(u) if !self.guest_message.0.is_empty() => {
+                if let Some(item) = GuestMessage::parse(client, *u, entities) {
+                    self.guest_message.finish(UpdateKind::GuestMessage, tasks, &me(), (Vec::new(), Some(0)), item);
+                }
             }
             _ => {}
         }
