@@ -30,3 +30,7 @@ json = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
+
+[[bench]]
+name = "tl"
+harness = false

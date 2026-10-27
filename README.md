@@ -226,6 +226,9 @@ cargo test --workspace
 
 # Run the live tests against Telegram's servers
 cargo test --test live -- --ignored
+
+# Run the benchmarks
+cargo bench --bench tl
 ```
 
 ### Resources
