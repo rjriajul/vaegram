@@ -185,6 +185,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Fields: `msg.reply_to_message().await` fetches the replied message on demand, `msg.is_automatic_forward`,
   `user.is_premium`, `language_code`, `is_verified`, `is_scam`, `is_fake`, `is_deleted`, `sticker.is_premium`
   (not yet tested live)
+- [ ] `on_my_chat_member`: the bot's own membership changes and blocks; other members stay on
+  `on_chat_member_updated` (not yet tested live)
 
 ### Development
 

@@ -256,11 +256,9 @@ update_kinds! {
     // One boost update parses into either kind, so `dispatch` routes both.
     chat_boost: ChatBoost => ChatBoostUpdated {}
     removed_chat_boost: RemovedChatBoost => ChatBoostRemoved {}
-    chat_member_updated: ChatMemberUpdated => ChatMemberUpdated {
-        UpdateChannelParticipant(u) => ChatMemberUpdated::parse_channel(client, *u, entities),
-        UpdateChatParticipant(u) => ChatMemberUpdated::parse_chat(client, *u, entities),
-        UpdateBotStopped(u) => ChatMemberUpdated::parse_bot_stopped(client, &me(), &u, entities),
-    }
+    // A member update goes to exactly one of these, depending on whose membership changed; `dispatch` routes both.
+    chat_member_updated: ChatMemberUpdated => ChatMemberUpdated {}
+    my_chat_member: MyChatMember => ChatMemberUpdated {}
     poll: Poll => PollUpdated {
         UpdateMessagePoll(u) => PollUpdated::parse(client, &u, entities),
     }
@@ -326,7 +324,30 @@ impl Router {
                     None => {}
                 }
             }
+            U::UpdateChannelParticipant(u) => {
+                self.member_update(tasks, &me(), u.user_id, || ChatMemberUpdated::parse_channel(client, *u, entities))
+            }
+            U::UpdateChatParticipant(u) => {
+                self.member_update(tasks, &me(), u.user_id, || ChatMemberUpdated::parse_chat(client, *u, entities))
+            }
+            U::UpdateBotStopped(u) => {
+                let me = me();
+                self.member_update(tasks, &me, me.id, || {
+                    ChatMemberUpdated::parse_bot_stopped(client, &me, &u, entities)
+                })
+            }
             _ => {}
+        }
+    }
+
+    fn member_update(&self, tasks: &mut Tasks, me: &Me, user_id: i64, parse: impl FnOnce() -> ChatMemberUpdated) {
+        let (handlers, kind) = if user_id == me.id {
+            (&self.my_chat_member, UpdateKind::MyChatMember)
+        } else {
+            (&self.chat_member_updated, UpdateKind::ChatMemberUpdated)
+        };
+        if !handlers.0.is_empty() {
+            handlers.finish(kind, tasks, me, PARSED, parse());
         }
     }
 }
@@ -478,6 +499,35 @@ mod tests {
         let mut seen = log.lock().unwrap().clone();
         seen.sort_unstable();
         assert_eq!(seen, ["callback", "deleted", "ephemeral"]);
+    }
+
+    #[tokio::test]
+    async fn the_bots_own_membership_goes_only_to_my_chat_member() {
+        let log = Log::default();
+        let mut router = Router::default();
+        router.chat_member_updated.push(1, filters::all(), record(&log, "member"));
+        router.my_chat_member.push(2, filters::all(), record(&log, "mine"));
+        // The offline client's own id is 0.
+        let member = |user_id| {
+            base::Update::UpdateChatParticipant(Box::new(types::UpdateChatParticipant {
+                chat_id: 5,
+                date: 1,
+                actor_id: 7,
+                user_id,
+                prev_participant: None,
+                new_participant: None,
+                invite: None,
+                qts: 1,
+            }))
+        };
+        dispatch(&router, member(7));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["member"]);
+        dispatch(&router, member(0));
+        let stopped = types::UpdateBotStopped { user_id: 7, date: 1, stopped: true, qts: 2 };
+        dispatch(&router, base::Update::UpdateBotStopped(Box::new(stopped)));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["member", "mine", "mine"]);
     }
 
     #[tokio::test]

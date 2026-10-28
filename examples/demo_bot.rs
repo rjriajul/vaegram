@@ -98,6 +98,11 @@ async fn main() -> vaegram::Result<()> {
         Ok(())
     });
 
+    app.on_my_chat_member(filters::all(), |update| async move {
+        println!("my membership in {}: {:?}", update.chat.id, update.new_chat_member.map(|m| m.status));
+        Ok(())
+    });
+
     app.on_chat_member_updated(filters::all(), |update| async move {
         println!("member update in {}: {:?}", update.chat.id, update.new_chat_member.map(|m| m.status));
         Ok(())
