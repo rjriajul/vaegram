@@ -6,7 +6,7 @@ use super::tasks::Tasks;
 use crate::Client;
 use crate::client::Me;
 use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
-use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, UpdateKind};
+use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed};
 use crate::raw::base;
 use crate::types::{
     BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated,
@@ -17,6 +17,7 @@ use crate::types::{
 };
 
 type Scan = (Vec<usize>, Option<usize>);
+const PARSED: Scan = (Vec::new(), Some(0));
 
 pub(crate) struct Route<T> {
     group: i32,
@@ -130,40 +131,144 @@ impl Handlers<Message> {
     }
 }
 
-#[derive(Default, Clone)]
-pub(crate) struct Router {
-    pub(crate) message: Handlers<Message>,
-    pub(crate) edited_message: Handlers<Message>,
-    pub(crate) callback_query: Handlers<CallbackQuery>,
-    pub(crate) inline_query: Handlers<InlineQuery>,
-    pub(crate) chosen_inline_result: Handlers<ChosenInlineResult>,
-    pub(crate) chat_join_request: Handlers<ChatJoinRequest>,
-    pub(crate) guest_message: Handlers<GuestMessage>,
-    pub(crate) bot_subscription_updated: Handlers<BotSubscriptionUpdated>,
-    pub(crate) message_generation_stopped: Handlers<MessageGenerationStopped>,
-    pub(crate) managed_bot: Handlers<ManagedBotUpdated>,
-    pub(crate) ephemeral_message: Handlers<EphemeralMessage>,
-    pub(crate) edited_ephemeral_message: Handlers<EphemeralMessage>,
-    pub(crate) deleted_ephemeral_messages: Handlers<DeletedEphemeralMessages>,
-    pub(crate) message_reaction: Handlers<MessageReactionUpdated>,
-    pub(crate) message_reaction_count: Handlers<MessageReactionCountUpdated>,
-    pub(crate) business_connection: Handlers<BusinessConnection>,
-    pub(crate) business_message: Handlers<Message>,
-    pub(crate) edited_business_message: Handlers<Message>,
-    pub(crate) deleted_business_messages: Handlers<DeletedBusinessMessages>,
-    pub(crate) shipping_query: Handlers<ShippingQuery>,
-    pub(crate) pre_checkout_query: Handlers<PreCheckoutQuery>,
-    pub(crate) purchased_paid_media: Handlers<PurchasedPaidMedia>,
-    pub(crate) chat_boost: Handlers<ChatBoostUpdated>,
-    pub(crate) removed_chat_boost: Handlers<ChatBoostRemoved>,
-    pub(crate) chat_member_updated: Handlers<ChatMemberUpdated>,
-    pub(crate) poll: Handlers<PollUpdated>,
-    pub(crate) poll_answer: Handlers<PollAnswer>,
-    pub(crate) deleted_messages: Handlers<DeletedMessages>,
-    pub(crate) user_status: Handlers<UserStatusUpdated>,
-    pub(crate) raw: Vec<RawCallback>,
-    pub(crate) on_error: Option<ErrorCallback>,
-    next_id: u32,
+/// Each kind line gives its `UpdateKind`, `Router` list and `configure` arm; its routes get the standard arm.
+/// A parse may return `T` or `Option<T>` (`.into()` turns both into `Option<T>`); `None` skips the update.
+/// Kinds without routes are dispatched by hand in `dispatch`.
+macro_rules! update_kinds {
+    (
+        |$client:ident, $entities:ident, $me:ident|
+        $($field:ident: $kind:ident => $ty:ty { $($variant:ident($u:ident) => $parse:expr),* $(,)? })*
+    ) => {
+        #[non_exhaustive]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub enum UpdateKind {
+            $($kind,)*
+            Raw,
+        }
+
+        #[derive(Default, Clone)]
+        pub(crate) struct Router {
+            $(pub(crate) $field: Handlers<$ty>,)*
+            pub(crate) raw: Vec<RawCallback>,
+            pub(crate) on_error: Option<ErrorCallback>,
+            next_id: u32,
+        }
+
+        impl Router {
+            pub(crate) fn configure(&mut self, kind: UpdateKind, id: u32, group: Option<i32>, stop: bool) {
+                match kind {
+                    $(UpdateKind::$kind => self.$field.configure(id, group, stop),)*
+                    UpdateKind::Raw => {}
+                }
+            }
+
+            fn route(
+                &self,
+                $client: &Client,
+                update: base::Update,
+                $entities: &Entities,
+                tasks: &mut Tasks,
+            ) -> Option<base::Update> {
+                let $me = || $client.0.me.lock().unwrap().clone();
+                match update {
+                    $($(base::Update::$variant($u) if !self.$field.0.is_empty() => {
+                        let item: Option<$ty> = $parse.into();
+                        if let Some(item) = item {
+                            self.$field.finish(UpdateKind::$kind, tasks, &$me(), PARSED, item);
+                        }
+                    })*)*
+                    update => return Some(update),
+                }
+                None
+            }
+        }
+    };
+}
+
+update_kinds! {
+    |client, entities, me|
+    // Messages and plain callback queries are pre-filtered on `Facts` in `dispatch`, before they are parsed.
+    message: Message => Message {}
+    edited_message: EditedMessage => Message {}
+    callback_query: CallbackQuery => CallbackQuery {
+        UpdateEphemeralBotCallbackQuery(u) => CallbackQuery::parse_ephemeral(client, *u, entities),
+        UpdateInlineBotCallbackQuery(u) => CallbackQuery::parse_inline(client, *u, entities),
+        UpdateBusinessBotCallbackQuery(u) => CallbackQuery::parse_business(client, *u, entities),
+    }
+    inline_query: InlineQuery => InlineQuery {
+        UpdateBotInlineQuery(u) => InlineQuery::parse(client, &u, entities),
+    }
+    chosen_inline_result: ChosenInlineResult => ChosenInlineResult {
+        UpdateBotInlineSend(u) => ChosenInlineResult::parse(client, &u, entities),
+    }
+    chat_join_request: ChatJoinRequest => ChatJoinRequest {
+        UpdateBotChatInviteRequester(u) => ChatJoinRequest::parse(client, &u, entities),
+    }
+    guest_message: GuestMessage => GuestMessage {
+        UpdateBotGuestChatQuery(u) => GuestMessage::parse(client, *u, entities),
+    }
+    bot_subscription_updated: BotSubscriptionUpdated => BotSubscriptionUpdated {
+        UpdateBotStarsSubscription(u) => BotSubscriptionUpdated::parse(client, &u, entities),
+    }
+    message_generation_stopped: MessageGenerationStopped => MessageGenerationStopped {
+        UpdateUserTyping(u) => MessageGenerationStopped::parse(client, &u, entities),
+    }
+    managed_bot: ManagedBot => ManagedBotUpdated {
+        UpdateManagedBot(u) => ManagedBotUpdated::parse(client, &u, entities),
+    }
+    ephemeral_message: EphemeralMessage => EphemeralMessage {
+        UpdateNewEphemeralMessage(u) => EphemeralMessage::parse(client, u.message, entities),
+    }
+    edited_ephemeral_message: EditedEphemeralMessage => EphemeralMessage {
+        UpdateEditEphemeralMessage(u) => EphemeralMessage::parse(client, u.message, entities),
+    }
+    deleted_ephemeral_messages: DeletedEphemeralMessages => DeletedEphemeralMessages {
+        UpdateDeleteEphemeralMessages(u) => DeletedEphemeralMessages::parse(client, *u, entities),
+    }
+    message_reaction: MessageReaction => MessageReactionUpdated {
+        UpdateBotMessageReaction(u) => MessageReactionUpdated::parse(client, &u, entities),
+    }
+    message_reaction_count: MessageReactionCount => MessageReactionCountUpdated {
+        UpdateBotMessageReactions(u) => MessageReactionCountUpdated::parse(client, &u, entities),
+    }
+    business_connection: BusinessConnection => BusinessConnection {
+        UpdateBotBusinessConnect(u) => BusinessConnection::parse(client, u.connection, entities),
+    }
+    business_message: BusinessMessage => Message {}
+    edited_business_message: EditedBusinessMessage => Message {}
+    deleted_business_messages: DeletedBusinessMessages => DeletedBusinessMessages {
+        UpdateBotDeleteBusinessMessage(u) => DeletedBusinessMessages::parse(client, *u, entities),
+    }
+    shipping_query: ShippingQuery => ShippingQuery {
+        UpdateBotShippingQuery(u) => ShippingQuery::parse(client, &u, entities),
+    }
+    pre_checkout_query: PreCheckoutQuery => PreCheckoutQuery {
+        UpdateBotPrecheckoutQuery(u) => PreCheckoutQuery::parse(client, &u, entities),
+    }
+    purchased_paid_media: PurchasedPaidMedia => PurchasedPaidMedia {
+        UpdateBotPurchasedPaidMedia(u) => PurchasedPaidMedia::parse(client, &u, entities),
+    }
+    // One boost update parses into either kind, so `dispatch` routes both.
+    chat_boost: ChatBoost => ChatBoostUpdated {}
+    removed_chat_boost: RemovedChatBoost => ChatBoostRemoved {}
+    chat_member_updated: ChatMemberUpdated => ChatMemberUpdated {
+        UpdateChannelParticipant(u) => ChatMemberUpdated::parse_channel(client, *u, entities),
+        UpdateChatParticipant(u) => ChatMemberUpdated::parse_chat(client, *u, entities),
+        UpdateBotStopped(u) => ChatMemberUpdated::parse_bot_stopped(client, &me(), &u, entities),
+    }
+    poll: Poll => PollUpdated {
+        UpdateMessagePoll(u) => PollUpdated::parse(client, &u, entities),
+    }
+    poll_answer: PollAnswer => PollAnswer {
+        UpdateMessagePollVote(u) => PollAnswer::parse(client, *u, entities),
+    }
+    deleted_messages: DeletedMessages => DeletedMessages {
+        UpdateDeleteMessages(u) => DeletedMessages::parse(client, *u),
+        UpdateDeleteChannelMessages(u) => DeletedMessages::parse_channel(client, *u, entities),
+    }
+    user_status: UserStatus => UserStatusUpdated {
+        UpdateUserStatus(u) => UserStatusUpdated::parse(client, &u, entities),
+    }
 }
 
 impl Router {
@@ -172,46 +277,12 @@ impl Router {
         self.next_id
     }
 
-    pub(crate) fn configure(&mut self, kind: UpdateKind, id: u32, group: Option<i32>, stop: bool) {
-        match kind {
-            UpdateKind::Message => self.message.configure(id, group, stop),
-            UpdateKind::EditedMessage => self.edited_message.configure(id, group, stop),
-            UpdateKind::CallbackQuery => self.callback_query.configure(id, group, stop),
-            UpdateKind::InlineQuery => self.inline_query.configure(id, group, stop),
-            UpdateKind::ChosenInlineResult => self.chosen_inline_result.configure(id, group, stop),
-            UpdateKind::ChatJoinRequest => self.chat_join_request.configure(id, group, stop),
-            UpdateKind::GuestMessage => self.guest_message.configure(id, group, stop),
-            UpdateKind::BotSubscriptionUpdated => self.bot_subscription_updated.configure(id, group, stop),
-            UpdateKind::MessageGenerationStopped => self.message_generation_stopped.configure(id, group, stop),
-            UpdateKind::ManagedBot => self.managed_bot.configure(id, group, stop),
-            UpdateKind::EphemeralMessage => self.ephemeral_message.configure(id, group, stop),
-            UpdateKind::EditedEphemeralMessage => self.edited_ephemeral_message.configure(id, group, stop),
-            UpdateKind::DeletedEphemeralMessages => self.deleted_ephemeral_messages.configure(id, group, stop),
-            UpdateKind::MessageReaction => self.message_reaction.configure(id, group, stop),
-            UpdateKind::MessageReactionCount => self.message_reaction_count.configure(id, group, stop),
-            UpdateKind::BusinessConnection => self.business_connection.configure(id, group, stop),
-            UpdateKind::BusinessMessage => self.business_message.configure(id, group, stop),
-            UpdateKind::EditedBusinessMessage => self.edited_business_message.configure(id, group, stop),
-            UpdateKind::DeletedBusinessMessages => self.deleted_business_messages.configure(id, group, stop),
-            UpdateKind::ShippingQuery => self.shipping_query.configure(id, group, stop),
-            UpdateKind::PreCheckoutQuery => self.pre_checkout_query.configure(id, group, stop),
-            UpdateKind::PurchasedPaidMedia => self.purchased_paid_media.configure(id, group, stop),
-            UpdateKind::ChatBoost => self.chat_boost.configure(id, group, stop),
-            UpdateKind::RemovedChatBoost => self.removed_chat_boost.configure(id, group, stop),
-            UpdateKind::ChatMemberUpdated => self.chat_member_updated.configure(id, group, stop),
-            UpdateKind::Poll => self.poll.configure(id, group, stop),
-            UpdateKind::PollAnswer => self.poll_answer.configure(id, group, stop),
-            UpdateKind::DeletedMessages => self.deleted_messages.configure(id, group, stop),
-            UpdateKind::UserStatus => self.user_status.configure(id, group, stop),
-            UpdateKind::Raw => {}
-        }
-    }
-
     pub(crate) fn dispatch(&self, client: &Client, update: base::Update, entities: &Entities, tasks: &mut Tasks) {
         use base::Update as U;
         for callback in &self.raw {
             tasks.raw(callback(client.clone(), update.clone()));
         }
+        let Some(update) = self.route(client, update, entities, tasks) else { return };
         let me = || client.0.me.lock().unwrap().clone();
         match update {
             U::UpdateNewMessage(u) => self.message.run(UpdateKind::Message, tasks, client, u.message, entities),
@@ -229,76 +300,6 @@ impl Router {
                     self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me, scan, query);
                 }
             }
-            U::UpdateEphemeralBotCallbackQuery(u) if !self.callback_query.0.is_empty() => {
-                let query = CallbackQuery::parse_ephemeral(client, *u, entities);
-                self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me(), (Vec::new(), Some(0)), query);
-            }
-            U::UpdateInlineBotCallbackQuery(u) if !self.callback_query.0.is_empty() => {
-                let query = CallbackQuery::parse_inline(client, *u, entities);
-                self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me(), (Vec::new(), Some(0)), query);
-            }
-            U::UpdateBotInlineQuery(u) if !self.inline_query.0.is_empty() => {
-                let query = InlineQuery::parse(client, &u, entities);
-                self.inline_query.finish(UpdateKind::InlineQuery, tasks, &me(), (Vec::new(), Some(0)), query);
-            }
-            U::UpdateBotInlineSend(u) if !self.chosen_inline_result.0.is_empty() => {
-                let item = ChosenInlineResult::parse(client, &u, entities);
-                let kind = UpdateKind::ChosenInlineResult;
-                self.chosen_inline_result.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateBotChatInviteRequester(u) if !self.chat_join_request.0.is_empty() => {
-                let item = ChatJoinRequest::parse(client, &u, entities);
-                self.chat_join_request.finish(UpdateKind::ChatJoinRequest, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateBotGuestChatQuery(u) if !self.guest_message.0.is_empty() => {
-                if let Some(item) = GuestMessage::parse(client, *u, entities) {
-                    self.guest_message.finish(UpdateKind::GuestMessage, tasks, &me(), (Vec::new(), Some(0)), item);
-                }
-            }
-            U::UpdateBotStarsSubscription(u) if !self.bot_subscription_updated.0.is_empty() => {
-                if let Some(item) = BotSubscriptionUpdated::parse(client, &u, entities) {
-                    let kind = UpdateKind::BotSubscriptionUpdated;
-                    self.bot_subscription_updated.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
-                }
-            }
-            U::UpdateUserTyping(u) if !self.message_generation_stopped.0.is_empty() => {
-                if let Some(stopped) = MessageGenerationStopped::parse(client, &u, entities) {
-                    let (kind, scan) = (UpdateKind::MessageGenerationStopped, (Vec::new(), Some(0)));
-                    self.message_generation_stopped.finish(kind, tasks, &me(), scan, stopped);
-                }
-            }
-            U::UpdateManagedBot(u) if !self.managed_bot.0.is_empty() => {
-                let item = ManagedBotUpdated::parse(client, &u, entities);
-                self.managed_bot.finish(UpdateKind::ManagedBot, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateNewEphemeralMessage(u) if !self.ephemeral_message.0.is_empty() => {
-                let item = EphemeralMessage::parse(client, u.message, entities);
-                self.ephemeral_message.finish(UpdateKind::EphemeralMessage, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateEditEphemeralMessage(u) if !self.edited_ephemeral_message.0.is_empty() => {
-                let (kind, item) =
-                    (UpdateKind::EditedEphemeralMessage, EphemeralMessage::parse(client, u.message, entities));
-                self.edited_ephemeral_message.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateDeleteEphemeralMessages(u) if !self.deleted_ephemeral_messages.0.is_empty() => {
-                let (kind, item) =
-                    (UpdateKind::DeletedEphemeralMessages, DeletedEphemeralMessages::parse(client, *u, entities));
-                self.deleted_ephemeral_messages.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateBotMessageReaction(u) if !self.message_reaction.0.is_empty() => {
-                let item = MessageReactionUpdated::parse(client, &u, entities);
-                self.message_reaction.finish(UpdateKind::MessageReaction, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateBotMessageReactions(u) if !self.message_reaction_count.0.is_empty() => {
-                let item = MessageReactionCountUpdated::parse(client, &u, entities);
-                let kind = UpdateKind::MessageReactionCount;
-                self.message_reaction_count.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateBotBusinessConnect(u) if !self.business_connection.0.is_empty() => {
-                let item = BusinessConnection::parse(client, u.connection, entities);
-                let kind = UpdateKind::BusinessConnection;
-                self.business_connection.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
             U::UpdateBotNewBusinessMessage(u) => {
                 let (kind, u) = (UpdateKind::BusinessMessage, *u);
                 self.business_message.run_business(kind, tasks, client, u.message, entities, Some(u.connection_id));
@@ -308,76 +309,16 @@ impl Router {
                 let id = Some(u.connection_id);
                 self.edited_business_message.run_business(kind, tasks, client, u.message, entities, id);
             }
-            U::UpdateBotDeleteBusinessMessage(u) if !self.deleted_business_messages.0.is_empty() => {
-                let item = DeletedBusinessMessages::parse(client, *u, entities);
-                let kind = UpdateKind::DeletedBusinessMessages;
-                self.deleted_business_messages.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateBotShippingQuery(u) if !self.shipping_query.0.is_empty() => {
-                let item = ShippingQuery::parse(client, &u, entities);
-                self.shipping_query.finish(UpdateKind::ShippingQuery, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateBotPrecheckoutQuery(u) if !self.pre_checkout_query.0.is_empty() => {
-                let item = PreCheckoutQuery::parse(client, &u, entities);
-                let kind = UpdateKind::PreCheckoutQuery;
-                self.pre_checkout_query.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateBotPurchasedPaidMedia(u) if !self.purchased_paid_media.0.is_empty() => {
-                let item = PurchasedPaidMedia::parse(client, &u, entities);
-                let kind = UpdateKind::PurchasedPaidMedia;
-                self.purchased_paid_media.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
             U::UpdateBotChatBoost(u) if !self.chat_boost.0.is_empty() || !self.removed_chat_boost.0.is_empty() => {
-                let scan = (Vec::new(), Some(0));
                 match BoostUpdate::parse(client, *u, entities) {
                     Some(BoostUpdate::Updated(item)) => {
-                        self.chat_boost.finish(UpdateKind::ChatBoost, tasks, &me(), scan, item)
+                        self.chat_boost.finish(UpdateKind::ChatBoost, tasks, &me(), PARSED, item)
                     }
                     Some(BoostUpdate::Removed(item)) => {
-                        self.removed_chat_boost.finish(UpdateKind::RemovedChatBoost, tasks, &me(), scan, item)
+                        self.removed_chat_boost.finish(UpdateKind::RemovedChatBoost, tasks, &me(), PARSED, item)
                     }
                     None => {}
                 }
-            }
-            U::UpdateBusinessBotCallbackQuery(u) if !self.callback_query.0.is_empty() => {
-                let query = CallbackQuery::parse_business(client, *u, entities);
-                self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me(), (Vec::new(), Some(0)), query);
-            }
-            U::UpdateChannelParticipant(u) if !self.chat_member_updated.0.is_empty() => {
-                let (kind, item) =
-                    (UpdateKind::ChatMemberUpdated, ChatMemberUpdated::parse_channel(client, *u, entities));
-                self.chat_member_updated.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateChatParticipant(u) if !self.chat_member_updated.0.is_empty() => {
-                let (kind, item) = (UpdateKind::ChatMemberUpdated, ChatMemberUpdated::parse_chat(client, *u, entities));
-                self.chat_member_updated.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateBotStopped(u) if !self.chat_member_updated.0.is_empty() => {
-                let me = me();
-                let (kind, item) =
-                    (UpdateKind::ChatMemberUpdated, ChatMemberUpdated::parse_bot_stopped(client, &me, &u, entities));
-                self.chat_member_updated.finish(kind, tasks, &me, (Vec::new(), Some(0)), item);
-            }
-            U::UpdateMessagePoll(u) if !self.poll.0.is_empty() => {
-                if let Some(item) = PollUpdated::parse(client, &u, entities) {
-                    self.poll.finish(UpdateKind::Poll, tasks, &me(), (Vec::new(), Some(0)), item);
-                }
-            }
-            U::UpdateMessagePollVote(u) if !self.poll_answer.0.is_empty() => {
-                let item = PollAnswer::parse(client, *u, entities);
-                self.poll_answer.finish(UpdateKind::PollAnswer, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateDeleteMessages(u) if !self.deleted_messages.0.is_empty() => {
-                let item = DeletedMessages::parse(client, *u);
-                self.deleted_messages.finish(UpdateKind::DeletedMessages, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateDeleteChannelMessages(u) if !self.deleted_messages.0.is_empty() => {
-                let item = DeletedMessages::parse_channel(client, *u, entities);
-                self.deleted_messages.finish(UpdateKind::DeletedMessages, tasks, &me(), (Vec::new(), Some(0)), item);
-            }
-            U::UpdateUserStatus(u) if !self.user_status.0.is_empty() => {
-                let item = UserStatusUpdated::parse(client, &u, entities);
-                self.user_status.finish(UpdateKind::UserStatus, tasks, &me(), (Vec::new(), Some(0)), item);
             }
             _ => {}
         }

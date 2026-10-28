@@ -14,6 +14,8 @@ use crate::types::{
     ShippingQuery, UserStatusUpdated,
 };
 
+pub use crate::dispatcher::router::UpdateKind;
+
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 pub(crate) type Callback<T> = Arc<dyn Fn(T) -> BoxFuture + Send + Sync>;
 pub(crate) type RawCallback = Arc<dyn Fn(Client, base::Update) -> BoxFuture + Send + Sync>;
@@ -28,41 +30,6 @@ where
         let future = f(value);
         Box::pin(async move { future.await.map(drop) }) as BoxFuture
     })
-}
-
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum UpdateKind {
-    Message,
-    EditedMessage,
-    CallbackQuery,
-    InlineQuery,
-    ChosenInlineResult,
-    ChatJoinRequest,
-    GuestMessage,
-    BotSubscriptionUpdated,
-    MessageGenerationStopped,
-    ManagedBot,
-    EphemeralMessage,
-    EditedEphemeralMessage,
-    DeletedEphemeralMessages,
-    MessageReaction,
-    MessageReactionCount,
-    BusinessConnection,
-    BusinessMessage,
-    EditedBusinessMessage,
-    DeletedBusinessMessages,
-    ShippingQuery,
-    PreCheckoutQuery,
-    PurchasedPaidMedia,
-    ChatBoost,
-    RemovedChatBoost,
-    ChatMemberUpdated,
-    Poll,
-    PollAnswer,
-    DeletedMessages,
-    UserStatus,
-    Raw,
 }
 
 #[non_exhaustive]

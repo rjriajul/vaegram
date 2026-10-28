@@ -1,6 +1,6 @@
 mod difference;
 mod entities;
-mod router;
+pub(crate) mod router;
 mod tasks;
 mod tracker;
 
