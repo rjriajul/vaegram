@@ -1,4 +1,5 @@
 use crate::enums::StickerType;
+use crate::file_id::FileType;
 use crate::raw::base;
 use crate::types::{Document, FileLocation, MaskPosition};
 
@@ -6,6 +7,8 @@ use super::input_document;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sticker {
+    pub file_id: String,
+    pub file_unique_id: String,
     pub id: i64,
     pub kind: StickerType,
     pub mime_type: String,
@@ -25,7 +28,7 @@ pub struct Sticker {
 impl Sticker {
     pub(crate) fn parse(document: &base::Document) -> Option<Sticker> {
         let base::Document::Document(raw) = document else { return None };
-        Sticker::from_document(Document::parse(document)?, &raw.attributes)
+        Sticker::from_document(Document::parse_as(document, FileType::Sticker)?, &raw.attributes)
     }
 
     /// `None` when the attributes mark neither a sticker nor a custom emoji.
@@ -46,9 +49,11 @@ impl Sticker {
             }
         }
         let (kind, emoji, mask_position, needs_repainting) = sticker?;
-        let Document { id, mime_type, file_size, date, location, .. } = document;
+        let Document { file_id, file_unique_id, id, mime_type, file_size, date, location, .. } = document;
         let (width, height) = image.or(video).unwrap_or_default();
         Some(Sticker {
+            file_id,
+            file_unique_id,
             id,
             kind,
             is_animated: mime_type == "application/x-tgsticker",

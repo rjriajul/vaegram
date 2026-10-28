@@ -27,8 +27,8 @@ pub use inline_mode::{
 pub use messages_and_media::{
     Animation, Audio, Checklist, ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone, Command, Contact,
     DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages, Dice, Document, EphemeralMessage,
-    ExternalReplyInfo, FileLocation, Game, GuestMessage, InputChecklist, InputSticker, InputStoryContent, Invoice,
-    LinkPreviewOptions, Location, LocationAddress, MaskPosition, Media, Message, MessageEntity,
+    ExternalReplyInfo, FileLocation, FileSource, Game, GuestMessage, InputChecklist, InputSticker, InputStoryContent,
+    Invoice, LinkPreviewOptions, Location, LocationAddress, MaskPosition, Media, Message, MessageEntity,
     MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, MessageText, Photo,
     Poll, PollAnswer, PollOption, PollUpdated, ProximityAlertTriggered, ReactionCount, ReactionType, RefundedPayment,
     ReplyParameters, ServiceAction, StarAmount, Sticker, StickerSet, Story, StoryArea, StoryAreaPosition,

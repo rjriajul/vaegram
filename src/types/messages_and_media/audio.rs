@@ -3,6 +3,8 @@ use crate::types::{Document, FileLocation};
 
 #[derive(Debug, Clone)]
 pub struct Audio {
+    pub file_id: String,
+    pub file_unique_id: String,
     pub id: i64,
     pub file_name: Option<String>,
     pub mime_type: String,
@@ -16,8 +18,10 @@ pub struct Audio {
 
 impl Audio {
     pub(crate) fn parse(document: Document, audio: Option<&types::DocumentAttributeAudio>) -> Audio {
-        let Document { id, file_name, mime_type, file_size, date, location } = document;
+        let Document { file_id, file_unique_id, id, file_name, mime_type, file_size, date, location } = document;
         Audio {
+            file_id,
+            file_unique_id,
             id,
             file_name,
             mime_type,

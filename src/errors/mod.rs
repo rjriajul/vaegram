@@ -110,6 +110,12 @@ impl From<raw::Error> for Error {
     }
 }
 
+impl From<std::convert::Infallible> for Error {
+    fn from(e: std::convert::Infallible) -> Self {
+        match e {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::RpcError;

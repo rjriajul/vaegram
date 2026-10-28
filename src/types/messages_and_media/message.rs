@@ -350,7 +350,9 @@ impl Message {
 
     /// Fails at `.await` for media without a file (contact, location, venue, dice, poll).
     pub fn download(&self) -> DownloadMedia<'_> {
-        DownloadMedia::new(&self.client, self.media.as_ref().and_then(Media::file_location).cloned())
+        let location = self.media.as_ref().and_then(Media::file_location).cloned();
+        let location = location.ok_or(Error::InvalidArgument("this message has no photo or document to download"));
+        DownloadMedia::new(&self.client, location)
     }
 
     pub fn command(&self) -> Option<Command<'_>> {

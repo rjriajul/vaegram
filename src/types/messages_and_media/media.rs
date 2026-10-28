@@ -1,5 +1,6 @@
 use crate::dispatcher::Entities;
 use crate::enums::MediaKind;
+use crate::file_id::FileType;
 use crate::raw::base;
 use crate::types::{
     Animation, Audio, Checklist, Contact, Dice, Document, FileLocation, Game, Invoice, Location, Message, Photo, Poll,
@@ -68,7 +69,16 @@ impl Media {
                 _ => {}
             }
         }
-        let document = Document::parse(document)?;
+        let file_type = match kind {
+            MediaKind::Sticker => FileType::Sticker,
+            MediaKind::Animation => FileType::Animation,
+            MediaKind::VideoNote => FileType::VideoNote,
+            MediaKind::Video => FileType::Video,
+            MediaKind::Voice => FileType::Voice,
+            MediaKind::Audio => FileType::Audio,
+            _ => FileType::Document,
+        };
+        let document = Document::parse_as(document, file_type)?;
         Some(match kind {
             MediaKind::Sticker => Media::Sticker(Sticker::from_document(document, &raw.attributes)?),
             MediaKind::Animation => Media::Animation(Animation::parse(document, video, size)),
@@ -256,6 +266,7 @@ pub(crate) mod tests {
         let animated = vec![video(false), base::DocumentAttribute::DocumentAttributeAnimated];
         let Media::Animation(gif) = parse(document_media("video/mp4", animated)) else { panic!() };
         assert_eq!((gif.width, gif.height, gif.duration), (640, 480, 7));
+        assert_eq!((gif.file_id.as_str(), gif.file_unique_id.as_str()), ("CgACAgIAAwEDAAIBAAcCAAceBA", "AgADAQAH"));
 
         let sticker = base::DocumentAttribute::DocumentAttributeSticker(Box::new(types::DocumentAttributeSticker {
             mask: false,
@@ -266,16 +277,21 @@ pub(crate) mod tests {
         let sticker = parse(document_media("video/webm", vec![sticker, video(false)]));
         let Media::Sticker(sticker) = sticker else { panic!() };
         assert_eq!((sticker.is_video, sticker.is_animated, sticker.emoji.as_deref()), (true, false, Some("🙂")));
+        assert_eq!(sticker.file_id, "CAACAgIAAwEDAAIBAAcCAAceBA");
 
         let Media::VideoNote(note) = parse(document_media("video/mp4", vec![video(true)])) else { panic!() };
         assert_eq!((note.length, note.duration), (640, 7));
+        assert_eq!(note.file_id, "DQACAgIAAwEDAAIBAAcCAAceBA");
         let Media::Video(plain) = parse(document_media("video/mp4", vec![video(false)])) else { panic!() };
         assert_eq!((plain.width, plain.supports_streaming), (640, true));
+        assert_eq!(plain.file_id, "BAACAgIAAwEDAAIBAAcCAAceBA");
 
         let Media::Voice(voice) = parse(document_media("audio/ogg", vec![audio(true)])) else { panic!() };
         assert_eq!(voice.waveform, Some(vec![1, 2]));
+        assert_eq!(voice.file_id, "AwACAgIAAwEDAAIBAAcCAAceBA");
         let Media::Audio(song) = parse(document_media("audio/mpeg", vec![audio(false)])) else { panic!() };
         assert_eq!((song.duration, song.title.as_deref()), (3, Some("Song")));
+        assert_eq!(song.file_id, "CQACAgIAAwEDAAIBAAcCAAceBA");
 
         let name = base::DocumentAttribute::DocumentAttributeFilename(Box::new(types::DocumentAttributeFilename {
             file_name: "a.pdf".into(),
@@ -284,6 +300,7 @@ pub(crate) mod tests {
         assert_eq!(file.file_location().and_then(|l| l.file_size), Some(5));
         let Media::Document(file) = file else { panic!() };
         assert_eq!((file.file_name.as_deref(), file.file_size), (Some("a.pdf"), 5));
+        assert_eq!(file.file_id, "BQACAgIAAwEDAAIBAAcCAAceBA");
     }
 
     #[test]

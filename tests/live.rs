@@ -10,8 +10,8 @@ use vaegram::session::Session;
 use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
-    ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputRichMessage, InputSticker,
-    KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Upload,
+    ButtonStyle, FileSource, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputRichMessage,
+    InputSticker, KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Upload,
 };
 use vaegram::{Client, filters};
 
@@ -216,6 +216,12 @@ async fn bot_uploads_and_downloads_a_document() {
     let path = std::path::Path::new("target/vaegram-live-download/vaegram.bin");
     app.download_media(document).file_name(path).await.unwrap();
     assert!(std::fs::read(path).unwrap() == data);
+
+    let again = app.send_document(chat_id, FileSource::file_id(&document.file_id).unwrap()).await.unwrap();
+    let copy = again.document().expect("the copy has the document");
+    assert_eq!((copy.id, copy.file_unique_id.as_str()), (document.id, document.file_unique_id.as_str()));
+    assert!(app.download_media(&copy.file_id).await.unwrap() == data);
+    again.delete().await.unwrap();
     sent.delete().await.unwrap();
 }
 

@@ -24,17 +24,18 @@ const MAX_PREALLOC: usize = 64 << 20;
 #[must_use = "a request does nothing until it is awaited"]
 pub struct DownloadMedia<'a> {
     client: &'a Client,
-    location: Option<FileLocation>,
+    location: Result<FileLocation>,
 }
 
 impl Client {
-    pub fn download_media(&self, media: impl Into<FileLocation>) -> DownloadMedia<'_> {
-        DownloadMedia::new(self, Some(media.into()))
+    /// `media` is a read type such as [`Photo`](crate::types::Photo), a [`FileLocation`] or a `file_id` string.
+    pub fn download_media(&self, media: impl TryInto<FileLocation, Error: Into<Error>>) -> DownloadMedia<'_> {
+        DownloadMedia::new(self, media.try_into().map_err(Into::into))
     }
 }
 
 impl<'a> DownloadMedia<'a> {
-    pub(crate) fn new(client: &'a Client, location: Option<FileLocation>) -> Self {
+    pub(crate) fn new(client: &'a Client, location: Result<FileLocation>) -> Self {
         DownloadMedia { client, location }
     }
 
@@ -58,8 +59,7 @@ impl<'a> DownloadMedia<'a> {
     }
 
     async fn download(self, sink: &Sink) -> Result<()> {
-        let location =
-            self.location.ok_or(Error::InvalidArgument("this message has no photo or document to download"))?;
+        let location = self.location?;
         let size = location.file_size;
         let count = chunk_count(size);
         // Without a size the end is only known from a short chunk, so chunks go one at a time.
@@ -138,8 +138,8 @@ impl<'a> IntoFuture for DownloadMedia<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let capacity =
-                self.location.as_ref().and_then(|l| usize::try_from(l.file_size?).ok()).unwrap_or(0).min(MAX_PREALLOC);
+            let capacity = self.location.as_ref().ok().and_then(|l| usize::try_from(l.file_size?).ok());
+            let capacity = capacity.unwrap_or(0).min(MAX_PREALLOC);
             let sink = Sink::Memory(Mutex::new(Vec::with_capacity(capacity)));
             self.download(&sink).await?;
             let Sink::Memory(out) = sink else { unreachable!() };
