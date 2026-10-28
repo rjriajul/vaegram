@@ -1,4 +1,5 @@
-use super::{Kind, Out};
+use super::Kind;
+use crate::types::Text;
 
 struct Tag {
     name: String,
@@ -12,8 +13,8 @@ impl Tag {
     }
 }
 
-pub(super) fn parse(src: &str) -> Out {
-    let mut out = Out::default();
+pub(super) fn parse(src: &str) -> Text {
+    let mut out = Text::default();
     let mut open: Vec<(String, i32, Option<Kind>)> = Vec::new();
     let mut rest = src;
     while let Some(c) = rest.chars().next() {
@@ -64,9 +65,10 @@ fn kind_of(tag: &Tag, open: &mut [(String, i32, Option<Kind>)]) -> Option<Kind> 
             Kind::Code
         }
         "pre" => Kind::Pre(String::new()),
-        "a" => Kind::Link(tag.attr("href")?.to_owned()),
+        "a" => Kind::link(tag.attr("href")?.to_owned()),
         "blockquote" => Kind::Blockquote(tag.attr("expandable").is_some()),
         "tg-emoji" => Kind::CustomEmoji(tag.attr("emoji-id")?.parse().ok()?),
+        "tg-time" => Kind::date_time(tag.attr("unix")?.parse().ok()?, tag.attr("format").unwrap_or_default()),
         _ => return None,
     })
 }

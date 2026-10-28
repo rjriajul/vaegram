@@ -33,7 +33,7 @@ pub use messages_and_media::{
     Poll, PollAnswer, PollOption, PollUpdated, ProximityAlertTriggered, ReactionCount, ReactionType, RefundedPayment,
     ReplyParameters, ServiceAction, StarAmount, Sticker, StickerSet, Story, StoryArea, StoryAreaPosition,
     StoryAreaType, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
-    SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded,
+    SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded, Text,
     TextQuote, Upload, Venue, Video, VideoNote, Voice, WriteAccessAllowed,
 };
 pub use payments::{

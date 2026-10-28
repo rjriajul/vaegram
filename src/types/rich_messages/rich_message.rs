@@ -28,9 +28,9 @@ impl RichMessage {
                 let rich = RichMessage::parse(base::RichMessage::RichMessage(Box::new(raw)));
                 (rich.text(), Some(rich))
             }
-            base::InputRichMessage::InputRichMessageHTML(m) => (parser::parse(&m.html, ParseMode::Html).0, None),
+            base::InputRichMessage::InputRichMessageHTML(m) => (parser::parse(&m.html, ParseMode::Html).text, None),
             base::InputRichMessage::InputRichMessageMarkdown(m) => {
-                (parser::parse(&m.markdown, ParseMode::Markdown).0, None)
+                (parser::parse(&m.markdown, ParseMode::Markdown).text, None)
             }
         }
     }

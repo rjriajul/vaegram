@@ -256,6 +256,7 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Text;
 
     const GROUP: i64 = -5;
 
@@ -311,6 +312,10 @@ mod tests {
         assert_eq!((text.as_str(), entities.len()), ("hi", 1));
         let (text, entities) = client.parse_text("<b>hi</b>", Some(ParseMode::Disabled)).await.unwrap();
         assert_eq!((text.as_str(), entities.len()), ("<b>hi</b>", 0));
+        let (text, entities) = client.write_text(Text::new().plain("<b>hi</b>"), None).await.unwrap();
+        assert_eq!((text.as_str(), entities.len()), ("<b>hi</b>", 0));
+        let (text, entities) = client.write_text(Text::from_html("&lt;b&gt;"), None).await.unwrap();
+        assert_eq!((text.as_str(), entities.len()), ("<b>", 0));
 
         let reply = Some(ReplyParameters::new(4).quote("<b>hi</b>"));
         let m = message(written(&client, SendOptions { reply_to: reply, ..Default::default() }).await);

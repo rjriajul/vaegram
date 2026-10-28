@@ -1,6 +1,6 @@
 use vaegram::types::{
     ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMessageContent,
-    KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove,
+    KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Text,
 };
 use vaegram::{Client, filters};
 
@@ -52,7 +52,7 @@ async fn main() -> vaegram::Result<()> {
 
     app.on_message(filters::text() & filters::private(), |msg| async move {
         println!("message: {:?}", msg.text);
-        msg.reply(format!("You said: {}", msg.text)).await?;
+        msg.reply(Text::new().plain("You said: ").bold(&msg.text)).await?;
         Ok(())
     });
 

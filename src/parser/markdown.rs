@@ -1,4 +1,5 @@
-use super::{Kind, Out};
+use super::{Kind, Span};
+use crate::types::Text;
 
 const DELIMITERS: [&str; 5] = ["**", "__", "--", "~~", "||"];
 
@@ -19,8 +20,8 @@ struct Link {
     start: i32,
 }
 
-pub(super) fn parse(src: &str) -> Out {
-    let mut out = Out::default();
+pub(super) fn parse(src: &str) -> Text {
+    let mut out = Text::default();
     let mut open: Vec<(&str, i32)> = Vec::new();
     let mut link: Option<Link> = None;
     let mut quote: Option<(i32, i32)> = None;
@@ -29,7 +30,7 @@ pub(super) fn parse(src: &str) -> Out {
         let rest = &src[i..];
         if link.as_ref().is_some_and(|l| l.close == i) {
             let l = link.take().unwrap();
-            out.span(Kind::Link(l.url), l.start);
+            out.span(Kind::link(l.url), l.start);
             i = l.resume;
             continue;
         }
@@ -40,7 +41,7 @@ pub(super) fn parse(src: &str) -> Out {
                 continue;
             }
             if let Some((start, end)) = quote.take() {
-                out.spans.push(super::Span { kind: Kind::Blockquote(false), start, end });
+                out.spans.push(Span { kind: Kind::Blockquote(false), start, end });
             }
         }
 
@@ -104,7 +105,7 @@ pub(super) fn parse(src: &str) -> Out {
     }
     if let Some((start, end)) = quote {
         let end = if out.text.ends_with('\n') { end } else { out.len };
-        out.spans.push(super::Span { kind: Kind::Blockquote(false), start, end });
+        out.spans.push(Span { kind: Kind::Blockquote(false), start, end });
     }
     out
 }

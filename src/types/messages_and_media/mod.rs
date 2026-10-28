@@ -47,6 +47,7 @@ mod story;
 mod story_area;
 mod successful_payment;
 mod suggested_post;
+mod text;
 mod text_quote;
 mod upload;
 mod venue;
@@ -108,6 +109,7 @@ pub use suggested_post::{
     SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid,
     SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded,
 };
+pub use text::Text;
 pub use text_quote::TextQuote;
 pub use upload::Upload;
 pub use venue::Venue;

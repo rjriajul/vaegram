@@ -10,7 +10,7 @@ use crate::raw::{base, types};
 use crate::types::{
     Chat, Command, DirectMessagesTopic, ExternalReplyInfo, InlineKeyboardMarkup, LinkPreviewOptions, Media,
     MessageEntity, MessageOrigin, MessageText, PeerRef, ReactionCount, ReactionType, ReplyMarkup, RichMessage,
-    ServiceAction, SuggestedPostInfo, TextQuote, User,
+    ServiceAction, SuggestedPostInfo, Text, TextQuote, User,
 };
 use crate::utils::get_peer;
 
@@ -363,12 +363,12 @@ impl Message {
             .then_some(command)
     }
 
-    pub fn reply(&self, text: impl Into<String>) -> SendMessage<'_> {
+    pub fn reply(&self, text: impl Into<Text>) -> SendMessage<'_> {
         self.answer(text).reply_to(self.id)
     }
 
     /// Sends `text` to this chat without a quote, in the same topic and through the same business connection.
-    pub fn answer(&self, text: impl Into<String>) -> SendMessage<'_> {
+    pub fn answer(&self, text: impl Into<Text>) -> SendMessage<'_> {
         let mut send = self.on_behalf(self.client.send_message(self.chat.id, text));
         if let Some(topic) = &self.direct_messages_topic {
             send = send.direct_messages_topic_id(topic.topic_id);
