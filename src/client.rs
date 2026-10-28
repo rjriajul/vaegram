@@ -194,7 +194,7 @@ pub(crate) struct Inner {
     dcs: RwLock<Vec<(i32, SocketAddr)>>,
     test_mode: bool,
     ipv6: bool,
-    storage_path: Option<PathBuf>,
+    pub(crate) storage_path: Option<PathBuf>,
     state_file: Option<Arc<StateFile>>,
     options: Options,
     pub(crate) parse_mode: ParseMode,

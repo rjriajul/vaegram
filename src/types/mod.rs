@@ -7,8 +7,8 @@ mod user_and_chats;
 pub use authorization::SentCode;
 pub use bots_and_keyboards::{
     BotAccessSettings, BotCommand, BotCommandScope, BotSubscriptionUpdated, ButtonStyle, CallbackQuery, ForceReply,
-    InlineAction, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove,
-    ReplyMarkup,
+    InlineAction, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, MenuButton, ReplyKeyboardMarkup,
+    ReplyKeyboardRemove, ReplyMarkup,
 };
 pub use inline_mode::{InlineQuery, InlineQueryResultArticle, SentGuestMessage};
 pub use messages_and_media::{

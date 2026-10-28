@@ -47,3 +47,10 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
     fs::rename(&tmp, path)
 }
+
+pub fn delete(path: &Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
