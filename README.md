@@ -156,6 +156,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   `msg.rich_message` (not yet tested live)
 - [ ] Gifts and verification: `send_gift(chat, id)`, `get_chat_gifts(chat)`, `upgrade_gift(id)`, `transfer_gift(id, chat)`,
   `msg.service` (`ServiceAction::Gift`, ..), `verify_chat(chat)` (not yet tested live)
+- [ ] Checklists: `send_checklist(chat, InputChecklist::new("Trip").task(1, "Tickets"))`, `edit_message_checklist`,
+  `msg.checklist()`, `msg.service` (`ServiceAction::ChecklistTasksDone`, ..) (not yet tested live)
 
 ### Development
 

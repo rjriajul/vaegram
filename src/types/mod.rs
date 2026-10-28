@@ -25,13 +25,14 @@ pub use inline_mode::{
     InlineQueryResultsButton, InputMessageContent, PreparedInlineMessage, SentGuestMessage,
 };
 pub use messages_and_media::{
-    Animation, Audio, Command, Contact, DeletedBusinessMessages, DeletedEphemeralMessages, Dice, Document,
-    EphemeralMessage, ExternalReplyInfo, FileLocation, GuestMessage, Invoice, LinkPreviewOptions, Location, Media,
-    Message, MessageEntity, MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated,
-    MessageReactionUpdated, MessageText, Photo, Poll, PollOption, ReactionCount, ReactionType, RefundedPayment,
-    ReplyParameters, ServiceAction, StarAmount, Sticker, SuccessfulPayment, SuggestedPostApprovalFailed,
-    SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters,
-    SuggestedPostPrice, SuggestedPostRefunded, TextQuote, Upload, Venue, Video, VideoNote, Voice,
+    Animation, Audio, Checklist, ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone, Command, Contact,
+    DeletedBusinessMessages, DeletedEphemeralMessages, Dice, Document, EphemeralMessage, ExternalReplyInfo,
+    FileLocation, GuestMessage, InputChecklist, Invoice, LinkPreviewOptions, Location, Media, Message, MessageEntity,
+    MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, MessageText, Photo,
+    Poll, PollOption, ReactionCount, ReactionType, RefundedPayment, ReplyParameters, ServiceAction, StarAmount,
+    Sticker, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
+    SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded,
+    TextQuote, Upload, Venue, Video, VideoNote, Voice,
 };
 pub use payments::{
     Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,

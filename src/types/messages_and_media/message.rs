@@ -29,6 +29,7 @@ pub struct Message {
     pub rich_message: Option<RichMessage>,
     pub link_preview_options: Option<LinkPreviewOptions>,
     pub reply_to_message_id: Option<i32>,
+    pub reply_to_checklist_task_id: Option<i32>,
     pub message_thread_id: Option<i32>,
     pub is_topic_message: bool,
     pub quote: Option<TextQuote>,
@@ -81,8 +82,14 @@ impl Message {
         } else {
             (raw.message.clone(), parsed_entities, None, None)
         };
-        let (reply_to_message_id, message_thread_id, is_topic_message, quote, external_reply) =
-            reply_fields(&raw, service.as_ref(), entities);
+        let (
+            reply_to_message_id,
+            reply_to_checklist_task_id,
+            message_thread_id,
+            is_topic_message,
+            quote,
+            external_reply,
+        ) = reply_fields(&raw, service.as_ref(), entities);
         let direct_messages_topic = match &raw.saved_peer_id {
             Some(peer) if chat.is_direct_messages => Some(DirectMessagesTopic::parse(peer, entities)),
             _ => None,
@@ -108,6 +115,7 @@ impl Message {
             rich_message,
             link_preview_options: LinkPreviewOptions::parse(raw.media.as_ref(), raw.invert_media),
             reply_to_message_id,
+            reply_to_checklist_task_id,
             message_thread_id,
             is_topic_message,
             quote,
@@ -321,12 +329,12 @@ impl Message {
     }
 }
 
-type ReplyFields = (Option<i32>, Option<i32>, bool, Option<TextQuote>, Option<Box<ExternalReplyInfo>>);
+type ReplyFields = (Option<i32>, Option<i32>, Option<i32>, bool, Option<TextQuote>, Option<Box<ExternalReplyInfo>>);
 
 fn reply_fields(raw: &types::Message, service: Option<&ServiceAction>, entities: &Entities) -> ReplyFields {
     // The message that creates a topic is its root, so the topic id is the message's own id.
     if matches!(service, Some(ServiceAction::ForumTopicCreated(_))) {
-        return (None, Some(raw.id), true, None, None);
+        return (None, None, Some(raw.id), true, None, None);
     }
     let Some(base::MessageReplyHeader::MessageReplyHeader(reply)) = &raw.reply_to else { return Default::default() };
     // In a forum, a header without reply_to_top_id points at the topic itself, not at a replied message.
@@ -342,7 +350,7 @@ fn reply_fields(raw: &types::Message, service: Option<&ServiceAction>, entities:
         is_manual: reply.quote,
     });
     let external_reply = ExternalReplyInfo::parse(reply, entities).map(Box::new);
-    (reply_to_message_id, message_thread_id, reply.forum_topic, quote, external_reply)
+    (reply_to_message_id, reply.todo_item_id, message_thread_id, reply.forum_topic, quote, external_reply)
 }
 
 #[cfg(test)]

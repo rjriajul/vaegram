@@ -2,9 +2,9 @@ use crate::dispatcher::Entities;
 use crate::enums::SuggestedPostRefundReason;
 use crate::raw::base;
 use crate::types::{
-    Community, ForumTopicCreated, ForumTopicEdited, GiftInfo, RefundedPayment, SuccessfulPayment,
-    SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostPaid, SuggestedPostPrice,
-    SuggestedPostRefunded, UniqueGiftInfo, User,
+    ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone, Community, ForumTopicCreated, ForumTopicEdited, GiftInfo,
+    RefundedPayment, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
+    SuggestedPostPaid, SuggestedPostPrice, SuggestedPostRefunded, UniqueGiftInfo, User,
 };
 
 #[non_exhaustive]
@@ -29,6 +29,8 @@ pub enum ServiceAction {
     UniqueGift(Box<UniqueGiftInfo>),
     SuccessfulPayment(Box<SuccessfulPayment>),
     RefundedPayment(Box<RefundedPayment>),
+    ChecklistTasksDone(ChecklistTasksDone),
+    ChecklistTasksAdded(ChecklistTasksAdded),
 }
 
 impl ServiceAction {
@@ -89,6 +91,13 @@ impl ServiceAction {
             }
             A::MessageActionPaymentSentMe(a) => ServiceAction::SuccessfulPayment(Box::new(SuccessfulPayment::parse(a))),
             A::MessageActionPaymentRefunded(a) => ServiceAction::RefundedPayment(Box::new(RefundedPayment::parse(a))),
+            A::MessageActionTodoCompletions(a) => ServiceAction::ChecklistTasksDone(ChecklistTasksDone {
+                marked_as_done_task_ids: a.completed.clone(),
+                marked_as_not_done_task_ids: a.incompleted.clone(),
+            }),
+            A::MessageActionTodoAppendTasks(a) => ServiceAction::ChecklistTasksAdded(ChecklistTasksAdded {
+                tasks: a.list.iter().map(|item| ChecklistTask::parse(item, entities)).collect(),
+            }),
             _ => return None,
         })
     }
@@ -96,11 +105,14 @@ impl ServiceAction {
 
 #[cfg(test)]
 mod tests {
+    use super::super::checklist::tests::item;
     use super::ServiceAction;
     use crate::dispatcher::Entities;
     use crate::enums::SuggestedPostRefundReason;
     use crate::raw::{base, types};
-    use crate::types::{SuggestedPostApproved, SuggestedPostPrice};
+    use crate::types::{
+        ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone, SuggestedPostApproved, SuggestedPostPrice,
+    };
 
     #[test]
     fn maps_suggested_post_actions() {
@@ -134,5 +146,20 @@ mod tests {
         };
         assert_eq!(refund(true), Some(SuggestedPostRefundReason::PaymentRefunded));
         assert_eq!(refund(false), Some(SuggestedPostRefundReason::PostDeleted));
+    }
+
+    #[test]
+    fn maps_checklist_actions() {
+        let entities = Entities::default();
+        let parse = |action| ServiceAction::parse(&action, 1, &entities).unwrap();
+        let done = types::MessageActionTodoCompletions { completed: vec![1, 3], incompleted: vec![2] };
+        let expected = ChecklistTasksDone { marked_as_done_task_ids: vec![1, 3], marked_as_not_done_task_ids: vec![2] };
+        let done = parse(base::MessageAction::MessageActionTodoCompletions(Box::new(done)));
+        assert_eq!(done, ServiceAction::ChecklistTasksDone(expected));
+
+        let added = types::MessageActionTodoAppendTasks { list: vec![item(4, "Visa")] };
+        let added = parse(base::MessageAction::MessageActionTodoAppendTasks(Box::new(added)));
+        let tasks = vec![ChecklistTask::parse(&item(4, "Visa"), &entities)];
+        assert_eq!(added, ServiceAction::ChecklistTasksAdded(ChecklistTasksAdded { tasks }));
     }
 }

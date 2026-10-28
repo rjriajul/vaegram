@@ -1,3 +1,4 @@
+use super::edit_message_text::edit_request;
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::functions;
@@ -39,18 +40,8 @@ impl EditMessageReplyMarkup<'_> {
         let client = self.client;
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let request = functions::messages::EditMessage {
-            no_webpage: false,
-            invert_media: false,
-            peer,
-            id: self.message_id,
-            message: None,
-            media: None,
             reply_markup: self.reply_markup.as_ref().map(InlineKeyboardMarkup::write),
-            entities: None,
-            schedule_date: None,
-            schedule_repeat_period: None,
-            quick_reply_shortcut_id: None,
-            rich_message: None,
+            ..edit_request(peer, self.message_id)
         };
         let (updates, _) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;
         Message::from_updates(client, updates, chat_id, (String::new(), None))

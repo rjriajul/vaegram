@@ -2,7 +2,7 @@ use super::send_options::caption_setters;
 use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
-use crate::raw::functions;
+use crate::raw::{base, functions};
 use crate::types::{Message, MessageText, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
@@ -51,21 +51,31 @@ impl EditMessageText<'_> {
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let (message, entities, rich_message) = self.text.write(client, self.parse_mode).await?;
         let request = functions::messages::EditMessage {
-            no_webpage: false,
-            invert_media: false,
-            peer,
-            id: self.message_id,
             message,
-            media: None,
             reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
             entities,
-            schedule_date: None,
-            schedule_repeat_period: None,
-            quick_reply_shortcut_id: None,
             rich_message,
+            ..edit_request(peer, self.message_id)
         };
         let (updates, request) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;
         Message::from_updates(client, updates, chat_id, (request.message.unwrap_or_default(), request.entities))
+    }
+}
+
+pub(super) fn edit_request(peer: base::InputPeer, id: i32) -> functions::messages::EditMessage {
+    functions::messages::EditMessage {
+        no_webpage: false,
+        invert_media: false,
+        peer,
+        id,
+        message: None,
+        media: None,
+        reply_markup: None,
+        entities: None,
+        schedule_date: None,
+        schedule_repeat_period: None,
+        quick_reply_shortcut_id: None,
+        rich_message: None,
     }
 }
 

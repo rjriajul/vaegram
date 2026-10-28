@@ -40,10 +40,11 @@ pub use invite_links::{
 };
 pub(crate) use messages::StreamShared;
 pub use messages::{
-    ApproveSuggestedPost, CopyMessage, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage,
+    ApproveSuggestedPost, CopyMessage, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage, EditMessageChecklist,
     EditMessageReplyMarkup, EditMessageText, ForwardMessages, GetChatHistory, MessageStream, PinChatMessage,
-    SearchMessages, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLocation, SendMessage,
-    SendMessageDraft, SendPhoto, SendPoll, SendReaction, SendRichMessage, SendVenue, StopPoll, StreamMessage,
+    SearchMessages, SendChecklist, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLocation,
+    SendMessage, SendMessageDraft, SendPhoto, SendPoll, SendReaction, SendRichMessage, SendVenue, StopPoll,
+    StreamMessage,
 };
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,

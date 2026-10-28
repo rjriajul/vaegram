@@ -2,8 +2,8 @@ use crate::dispatcher::Entities;
 use crate::enums::MediaKind;
 use crate::raw::base;
 use crate::types::{
-    Animation, Audio, Contact, Dice, Document, FileLocation, Invoice, Location, Message, Photo, Poll, Sticker, Venue,
-    Video, VideoNote, Voice,
+    Animation, Audio, Checklist, Contact, Dice, Document, FileLocation, Invoice, Location, Message, Photo, Poll,
+    Sticker, Venue, Video, VideoNote, Voice,
 };
 
 #[derive(Debug, Clone)]
@@ -23,6 +23,7 @@ pub enum Media {
     Dice(Dice),
     Poll(Poll),
     Invoice(Invoice),
+    Checklist(Checklist),
 }
 
 impl Media {
@@ -44,6 +45,7 @@ impl Media {
             M::MessageMediaDice(m) => Media::Dice(Dice { emoji: m.emoticon.clone(), value: m.value }),
             M::MessageMediaPoll(m) => Media::Poll(Poll::parse(&m.poll, &m.results, entities)),
             M::MessageMediaInvoice(m) => Media::Invoice(Invoice::parse(m)),
+            M::MessageMediaToDo(m) => Media::Checklist(Checklist::parse(m, entities)),
             _ => return None,
         })
     }
@@ -93,6 +95,7 @@ impl Media {
             Media::Dice(_) => MediaKind::Dice,
             Media::Poll(_) => MediaKind::Poll,
             Media::Invoice(_) => MediaKind::Invoice,
+            Media::Checklist(_) => MediaKind::Checklist,
         }
     }
 
@@ -111,7 +114,8 @@ impl Media {
             | Media::Venue(_)
             | Media::Dice(_)
             | Media::Poll(_)
-            | Media::Invoice(_) => None,
+            | Media::Invoice(_)
+            | Media::Checklist(_) => None,
         }
     }
 }
@@ -171,6 +175,10 @@ impl Message {
 
     pub fn invoice(&self) -> Option<&Invoice> {
         if let Some(Media::Invoice(m)) = &self.media { Some(m) } else { None }
+    }
+
+    pub fn checklist(&self) -> Option<&Checklist> {
+        if let Some(Media::Checklist(m)) = &self.media { Some(m) } else { None }
     }
 }
 
