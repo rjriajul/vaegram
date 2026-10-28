@@ -4,6 +4,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 
 impl Client {
+    /// Returns `Ok(())` after `stop`, or `Error::Disconnected` when the connection ends.
     pub async fn run(&self) -> Result<()> {
         self.set_me(&self.get_me().await?);
         let saved = self.0.state.lock().unwrap().take();
@@ -14,17 +15,98 @@ impl Client {
                 Dispatcher::new(self.clone(), &state)
             }
         };
-        dispatcher.run(&mut *self.0.updates.lock().await).await;
-        Err(Error::Disconnected)
+        let stopped = dispatcher.run(&mut *self.0.updates.lock().await).await;
+        // Cleared here, not on entry, so a stop() that lands before run gets going still counts.
+        self.0.stop.send_replace(false);
+        if stopped { Ok(()) } else { Err(Error::Disconnected) }
+    }
+
+    /// Makes `run` stop taking updates, wait for the handlers already running, and return `Ok(())`.
+    ///
+    /// For Ctrl-C, spawn `async move { tokio::signal::ctrl_c().await.ok(); client.stop() }` with the
+    /// application's own `signal`-enabled tokio.
+    pub fn stop(&self) {
+        self.0.stop.send_replace(true);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use tokio::sync::{Notify, oneshot};
+
     use crate::Client;
     use crate::raw::functions::{updates, users};
     use crate::raw::{Identifiable, Serializable, base, types};
-    use crate::storage::state::UpdateState;
+    use crate::session::{Incoming, UpdatesRx};
+    use crate::storage::state::{self, StateFile, UpdateState};
+
+    #[tokio::test]
+    async fn stop_before_run_returns_at_once_and_saves_the_state() {
+        let me = vec![base::User::UserEmpty(Box::new(types::UserEmpty { id: 1 }))];
+        let empty =
+            base::updates::Difference::DifferenceEmpty(Box::new(types::updates::DifferenceEmpty { date: 2, seq: 3 }));
+        let (mut client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let dir = std::env::temp_dir().join(format!("vaegram-stop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bot.state");
+        Arc::get_mut(&mut client.0).unwrap().state_file = Some(Arc::new(StateFile::new(path.clone())));
+        *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
+        // Updates never arrive and the channel stays open, so only the stop can end run.
+        let (_updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+
+        client.stop();
+        let result = client.run().await;
+        let owner = client.0.me.lock().unwrap().id;
+        let saved = state::load(&path, owner).map(|(_, state)| state.map(|s| s.pts));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(saved.ok(), Some(Some(10)));
+    }
+
+    #[tokio::test]
+    async fn stop_waits_for_running_handlers_then_returns_ok() {
+        let me = vec![base::User::UserEmpty(Box::new(types::UserEmpty { id: 1 }))];
+        let empty =
+            base::updates::Difference::DifferenceEmpty(Box::new(types::updates::DifferenceEmpty { date: 2, seq: 3 }));
+        let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
+        let (updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+
+        let (started, mut running) = oneshot::channel();
+        let (started, gate) = (std::sync::Mutex::new(Some(started)), Arc::new(Notify::new()));
+        let release = gate.clone();
+        client.on_raw_update(move |_, _| {
+            let _ = started.lock().unwrap().take().map(|s| s.send(()));
+            let gate = gate.clone();
+            async move {
+                gate.notified().await;
+                Ok(())
+            }
+        });
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        let status = types::UpdateUserStatus { user_id: 7, status: base::UserStatus::UserStatusEmpty };
+        let update = types::UpdateShort { update: base::Update::UpdateUserStatus(Box::new(status)), date: 2 };
+        let updates_short = base::Updates::UpdateShort(Box::new(update));
+        updates.send(Incoming { updates: updates_short, from_request: false }).await.unwrap();
+        while running.try_recv().is_err() {
+            tokio::task::yield_now().await;
+        }
+
+        client.stop();
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!run.is_finished(), "run returned before the running handler finished");
+        release.notify_one();
+        assert!(run.await.unwrap().is_ok());
+    }
 
     #[tokio::test]
     async fn restart_catches_up_from_saved_state() {

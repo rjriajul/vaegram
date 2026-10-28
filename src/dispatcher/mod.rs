@@ -54,7 +54,9 @@ impl Dispatcher {
         Dispatcher { client, tracker, saved_at: Instant::now(), saved: Default::default(), router, generation, tasks }
     }
 
-    pub(crate) async fn run(&mut self, updates: &mut UpdatesRx) {
+    /// `true` when `Client::stop` ended it, after the running handlers finished; `false` when the connection did.
+    pub(crate) async fn run(&mut self, updates: &mut UpdatesRx) -> bool {
+        let mut stop = self.client.0.stop.subscribe();
         self.resolve().await;
         loop {
             for (update, entities) in std::mem::take(&mut self.tracker.ready) {
@@ -69,13 +71,26 @@ impl Dispatcher {
                     self.saved = now;
                 }
             }
-            let next = match self.tracker.deadline() {
-                Some(deadline) => tokio::time::timeout_at(deadline, updates.recv()).await,
-                None => Ok(updates.recv().await),
+            let deadline = self.tracker.deadline();
+            let next = async {
+                match deadline {
+                    Some(deadline) => tokio::time::timeout_at(deadline, updates.recv()).await,
+                    None => Ok(updates.recv().await),
+                }
+            };
+            let next = tokio::select! {
+                biased;
+                // The watch guard `wait_for` returns isn't Send, so it is dropped before awaiting the handlers.
+                _ = async { drop(stop.wait_for(|stopped| *stopped).await) } => {
+                    self.tasks.finish().await;
+                    self.client.0.save_state(&self.tracker.state).await;
+                    return true;
+                }
+                next = next => next,
             };
             match next {
                 Ok(Some(incoming)) => self.process(incoming),
-                Ok(None) => return,
+                Ok(None) => return false,
                 Err(_) => self.tracker.expire(Instant::now()),
             }
             self.resolve().await;

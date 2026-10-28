@@ -211,6 +211,7 @@ pub(crate) struct Inner {
     pub(crate) handler_permits: Option<Arc<Semaphore>>,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
+    pub(crate) stop: tokio::sync::watch::Sender<bool>,
 }
 
 pub(crate) use me::Me;
@@ -254,6 +255,7 @@ impl Inner {
             ordered: false,
             handler_permits: None,
             streams: Mutex::new(HashMap::new()),
+            stop: tokio::sync::watch::Sender::new(false),
         }
     }
 
@@ -261,6 +263,13 @@ impl Inner {
         let user_id = self.me.lock().unwrap_or_else(PoisonError::into_inner).id;
         let peers = self.peers.lock().unwrap_or_else(PoisonError::into_inner);
         (file.ticket(), storage::state::encode(user_id, &peers, state))
+    }
+
+    /// Returns once the state is on disk, so a stopped client resumes exactly where it left off.
+    pub(crate) async fn save_state(&self, state: &UpdateState) {
+        let Some(file) = self.state_file.clone() else { return };
+        let (ticket, bytes) = self.encode_state(&file, Some(state));
+        let _ = tokio::task::spawn_blocking(move || file.write(ticket, &bytes)).await;
     }
 
     pub(crate) fn save_state_in_background(&self, state: &UpdateState) {

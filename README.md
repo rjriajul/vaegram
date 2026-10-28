@@ -189,6 +189,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   `on_chat_member_updated` (not yet tested live)
 - [ ] Send by URL: `send_photo(chat, FileSource::url("https://..")?)` and `send_document`; Telegram fetches the file
   (not yet tested live)
+- [ ] Graceful shutdown: `client.stop()` makes `run()` return `Ok(())` once the running handlers finish; wire Ctrl-C
+  with your own `tokio::signal::ctrl_c()` (not yet tested live)
 
 ### Development
 

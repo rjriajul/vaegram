@@ -86,6 +86,12 @@ impl UpdatesRx {
     pub(crate) fn offline() -> UpdatesRx {
         UpdatesRx { rx: mpsc::channel(1).1, events: Arc::default() }
     }
+
+    #[cfg(test)]
+    pub(crate) fn channel() -> (mpsc::Sender<Incoming>, UpdatesRx) {
+        let (tx, rx) = mpsc::channel(8);
+        (tx, UpdatesRx { rx, events: Arc::default() })
+    }
 }
 
 #[derive(Clone)]

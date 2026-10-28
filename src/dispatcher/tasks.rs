@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
+use tokio::task::JoinSet;
 
 use crate::enums::ClientEvent;
 use crate::handlers::{BoxFuture, Callback, ErrorCallback, HandlerError, Routed, UpdateKind};
@@ -13,17 +14,34 @@ pub(crate) struct Tasks {
     permits: Option<Arc<Semaphore>>,
     pub(crate) on_error: Option<ErrorCallback>,
     pub(crate) events: Arc<Events>,
+    running: JoinSet<()>,
 }
 
 impl Tasks {
     pub(crate) fn new(ordered: bool, permits: Option<Arc<Semaphore>>) -> Self {
-        Tasks { lanes: ordered.then(Lanes::default), permits, on_error: None, events: Arc::default() }
+        Tasks {
+            lanes: ordered.then(Lanes::default),
+            permits,
+            on_error: None,
+            events: Arc::default(),
+            running: JoinSet::new(),
+        }
+    }
+
+    /// Waits for every handler started so far.
+    pub(crate) async fn finish(&mut self) {
+        while self.running.join_next().await.is_some() {}
+    }
+
+    fn spawn(&mut self, task: impl Future<Output = ()> + Send + 'static) {
+        while self.running.try_join_next().is_some() {}
+        self.running.spawn(task);
     }
 
     pub(crate) fn run<T: Routed>(&mut self, kind: UpdateKind, item: T, callbacks: Vec<Callback<T>>) {
         let turn = self.lanes.as_mut().zip(item.order_key()).map(|(lanes, key)| lanes.turn(key));
         let (permits, on_error, events) = (self.permits.clone(), self.on_error.clone(), self.events.clone());
-        tokio::spawn(async move {
+        self.spawn(async move {
             let _done = match turn {
                 Some((previous, done)) => {
                     if let Some(previous) = previous {
@@ -47,14 +65,21 @@ impl Tasks {
         });
     }
 
-    pub(crate) fn raw(&self, future: BoxFuture) {
+    pub(crate) fn raw(&mut self, future: BoxFuture) {
         let (permits, on_error, events) = (self.permits.clone(), self.on_error.clone(), self.events.clone());
-        tokio::spawn(async move {
+        self.spawn(async move {
             let _permit = permit(permits).await;
             if let Err(error) = future.await {
                 report(on_error, events, HandlerError { kind: UpdateKind::Raw, chat_id: None, error }).await;
             }
         });
+    }
+}
+
+// Handlers outlive the dispatcher unless `finish` waited for them, as before it tracked them.
+impl Drop for Tasks {
+    fn drop(&mut self) {
+        self.running.detach_all();
     }
 }
 
