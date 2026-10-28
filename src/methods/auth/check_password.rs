@@ -8,7 +8,7 @@ impl Client {
     pub async fn check_password(&self, password: &str) -> Result<base::User> {
         let base::account::Password::Password(p) = self.invoke(&functions::account::GetPassword {}).await?;
         let (Some(algo), Some(g_b), Some(srp_id)) = (&p.current_algo, &p.srp_b, p.srp_id) else {
-            return Err(Error::Unexpected("this account has no password"));
+            return Err(Error::InvalidArgument("this account has no password"));
         };
         let base::PasswordKdfAlgo::PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow(algo) = algo
         else {
