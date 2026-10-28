@@ -143,6 +143,9 @@ With the `json` feature, `update.to_json(&mut out)` writes the update and all it
 feature adds `update.raw()`, `raw_users()`, `raw_chats()` and `Incoming::into_updates()` with the TL objects
 themselves; it is experimental and may change or go away in any release.
 
+The JSON shape is stable: TL names under `"_"`, bytes as base64url without padding, longs past 2^53 as strings,
+absent flag fields left out and `false` flags kept. New layers may add fields; anything else is a breaking change.
+
 Chat ids use the Bot API style: users are positive, groups are negative, and channels and
 supergroups start with `-100`. Anywhere a method takes a chat or user you can also pass `"me"`, `"@username"`,
 a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`. Invite links (`t.me/+…`) join with

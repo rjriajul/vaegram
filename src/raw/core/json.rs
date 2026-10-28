@@ -3,6 +3,10 @@
 //! Flag fields that are absent are left out, `true` flags are booleans, `bytes`/`int128`/`int256` are
 //! base64url without padding, and a `long` is a number only while JavaScript can hold it exactly
 //! (|v| ≤ 2^53); past that it is a string, so ids and access hashes survive `JSON.parse`.
+//!
+//! This shape is stable: TL names under `"_"`, base64url without padding, the 2^53 cut for `long`, absent flag
+//! fields left out and `false` flags kept. Fields that new layers add may appear; any other change to the shape
+//! is a breaking change.
 
 use std::fmt::Write;
 
@@ -151,5 +155,25 @@ mod tests {
     fn generic_function() {
         let call = functions::InvokeWithLayer { layer: 232, query: functions::help::GetConfig {} };
         assert_eq!(call.json(), r#"{"_":"invokeWithLayer","layer":232,"query":{"_":"help.getConfig"}}"#);
+    }
+
+    // The frozen shape, byte for byte: changing any of these strings breaks users' stored JSON.
+    #[test]
+    fn stable_shape() {
+        let media = base::MessageMedia::MessageMediaPhoto(Box::new(types::MessageMediaPhoto {
+            spoiler: false,
+            live_photo: true,
+            photo: None,
+            ttl_seconds: Some(10),
+            video: None,
+        }));
+        assert_eq!(media.json(), r#"{"_":"messageMediaPhoto","spoiler":false,"live_photo":true,"ttl_seconds":10}"#);
+        let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser {
+            user_id: 1 << 53,
+            access_hash: (1 << 53) + 1,
+        }));
+        assert_eq!(peer.json(), r#"{"_":"inputPeerUser","user_id":9007199254740992,"access_hash":"9007199254740993"}"#);
+        let import = functions::auth::ImportAuthorization { id: -(1 << 53), bytes: vec![0xfb, 0xff] };
+        assert_eq!(import.json(), r#"{"_":"auth.importAuthorization","id":-9007199254740992,"bytes":"-_8"}"#);
     }
 }

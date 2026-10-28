@@ -128,3 +128,23 @@ fn sorted<'a>(ids: impl Iterator<Item = &'a i64>) -> std::vec::IntoIter<i64> {
     ids.sort_unstable();
     ids.into_iter()
 }
+
+#[cfg(all(test, feature = "json"))]
+mod tests {
+    use std::sync::Arc;
+
+    use super::RawUpdate;
+    use crate::raw::{base, types};
+
+    // Part of the frozen JSON shape (crate::raw::core::json).
+    #[test]
+    fn json_envelope_is_stable() {
+        let status = types::UpdateUserStatus { user_id: 7, status: base::UserStatus::UserStatusEmpty };
+        let update = RawUpdate { update: base::Update::UpdateUserStatus(Box::new(status)), entities: Arc::default() };
+        let mut json = String::new();
+        update.to_json(&mut json);
+        let expected =
+            r#"{"update":{"_":"updateUserStatus","user_id":7,"status":{"_":"userStatusEmpty"}},"users":[],"chats":[]}"#;
+        assert_eq!(json, expected);
+    }
+}
