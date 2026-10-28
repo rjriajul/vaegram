@@ -2,8 +2,8 @@ use super::facts::{Facts, PeerKinds};
 use crate::Client;
 use crate::client::Me;
 use crate::types::{
-    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, GuestMessage, InlineQuery,
-    ManagedBotUpdated, Message, MessageGenerationStopped, User,
+    BotSubscriptionUpdated, CallbackQuery, Chat, ChatJoinRequest, ChosenInlineResult, DeletedEphemeralMessages,
+    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped, User,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -51,6 +51,10 @@ fn user_query<'a>(user: &User, me: &'a Me) -> Facts<'a> {
     Facts::query(user.id, user.id, &[], PeerKinds { chat: None, sender_bot: user.is_bot }, me)
 }
 
+fn chat_query<'a>(chat: Option<&Chat>, me: &'a Me) -> Facts<'a> {
+    Facts::query(chat.map_or(0, |c| c.id), 0, &[], PeerKinds { chat: chat.map(|c| c.kind), sender_bot: false }, me)
+}
+
 subject!(Message: HasChat, HasSender, HasText, HasMedia; |s, me| {
     let sender_bot = s.from_user.as_ref().is_some_and(|u| u.is_bot);
     Facts::plain(&s.raw, PeerKinds { chat: Some(s.chat.kind), sender_bot }, me)
@@ -89,3 +93,10 @@ subject!(ManagedBotUpdated: HasSender; |s, me| {
     // The update has no chat; its sender is the user who created the bot.
     Facts::query(0, s.user.id, &[], PeerKinds { chat: None, sender_bot: s.user.is_bot }, me)
 });
+
+subject!(EphemeralMessage: HasChat, HasSender, HasText; |s, me| {
+    let sender_bot = s.from_user.as_ref().is_some_and(|u| u.is_bot);
+    Facts::ephemeral(&s.raw, s.chat.id, PeerKinds { chat: Some(s.chat.kind), sender_bot }, me)
+});
+
+subject!(DeletedEphemeralMessages: HasChat; |s, me| chat_query(Some(&s.chat), me));

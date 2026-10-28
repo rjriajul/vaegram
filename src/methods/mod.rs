@@ -10,6 +10,7 @@ macro_rules! into_future {
         }
     };
 }
+pub(crate) use into_future;
 
 mod advanced;
 mod auth;
@@ -28,7 +29,8 @@ pub use invite_links::{
 };
 pub(crate) use messages::StreamShared;
 pub use messages::{
-    ApproveSuggestedPost, CopyMessage, DeclineSuggestedPost, DownloadMedia, EditMessageText, ForwardMessages,
-    GetChatHistory, MessageStream, PinChatMessage, SearchMessages, SendContact, SendDice, SendDocument, SendLocation,
-    SendMessage, SendMessageDraft, SendPhoto, SendPoll, SendVenue, StopPoll, StreamMessage,
+    ApproveSuggestedPost, CopyMessage, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage, EditMessageText,
+    ForwardMessages, GetChatHistory, MessageStream, PinChatMessage, SearchMessages, SendContact, SendDice,
+    SendDocument, SendEphemeralMessage, SendLocation, SendMessage, SendMessageDraft, SendPhoto, SendPoll, SendVenue,
+    StopPoll, StreamMessage,
 };

@@ -9,8 +9,8 @@ use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
 use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, UpdateKind};
 use crate::raw::base;
 use crate::types::{
-    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, GuestMessage, InlineQuery,
-    ManagedBotUpdated, Message, MessageGenerationStopped,
+    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, DeletedEphemeralMessages,
+    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -126,6 +126,9 @@ pub(crate) struct Router {
     pub(crate) bot_subscription_updated: Handlers<BotSubscriptionUpdated>,
     pub(crate) message_generation_stopped: Handlers<MessageGenerationStopped>,
     pub(crate) managed_bot: Handlers<ManagedBotUpdated>,
+    pub(crate) ephemeral_message: Handlers<EphemeralMessage>,
+    pub(crate) edited_ephemeral_message: Handlers<EphemeralMessage>,
+    pub(crate) deleted_ephemeral_messages: Handlers<DeletedEphemeralMessages>,
     pub(crate) raw: Vec<RawCallback>,
     pub(crate) on_error: Option<ErrorCallback>,
     next_id: u32,
@@ -149,6 +152,9 @@ impl Router {
             UpdateKind::BotSubscriptionUpdated => self.bot_subscription_updated.configure(id, group, stop),
             UpdateKind::MessageGenerationStopped => self.message_generation_stopped.configure(id, group, stop),
             UpdateKind::ManagedBot => self.managed_bot.configure(id, group, stop),
+            UpdateKind::EphemeralMessage => self.ephemeral_message.configure(id, group, stop),
+            UpdateKind::EditedEphemeralMessage => self.edited_ephemeral_message.configure(id, group, stop),
+            UpdateKind::DeletedEphemeralMessages => self.deleted_ephemeral_messages.configure(id, group, stop),
             UpdateKind::Raw => {}
         }
     }
@@ -174,6 +180,10 @@ impl Router {
                     let query = CallbackQuery::parse(client, &u, entities);
                     self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me, scan, query);
                 }
+            }
+            U::UpdateEphemeralBotCallbackQuery(u) if !self.callback_query.0.is_empty() => {
+                let query = CallbackQuery::parse_ephemeral(client, *u, entities);
+                self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me(), (Vec::new(), Some(0)), query);
             }
             U::UpdateBotInlineQuery(u) if !self.inline_query.0.is_empty() => {
                 let query = InlineQuery::parse(client, &u, entities);
@@ -208,6 +218,20 @@ impl Router {
             U::UpdateManagedBot(u) if !self.managed_bot.0.is_empty() => {
                 let item = ManagedBotUpdated::parse(client, &u, entities);
                 self.managed_bot.finish(UpdateKind::ManagedBot, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateNewEphemeralMessage(u) if !self.ephemeral_message.0.is_empty() => {
+                let item = EphemeralMessage::parse(client, u.message, entities);
+                self.ephemeral_message.finish(UpdateKind::EphemeralMessage, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateEditEphemeralMessage(u) if !self.edited_ephemeral_message.0.is_empty() => {
+                let (kind, item) =
+                    (UpdateKind::EditedEphemeralMessage, EphemeralMessage::parse(client, u.message, entities));
+                self.edited_ephemeral_message.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateDeleteEphemeralMessages(u) if !self.deleted_ephemeral_messages.0.is_empty() => {
+                let (kind, item) =
+                    (UpdateKind::DeletedEphemeralMessages, DeletedEphemeralMessages::parse(client, *u, entities));
+                self.deleted_ephemeral_messages.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
             }
             _ => {}
         }
@@ -249,7 +273,8 @@ mod tests {
     use crate::filters;
     use crate::handlers::callback;
     use crate::raw::types;
-    use crate::utils::get_peer;
+    use crate::types::messages_and_media::ephemeral_message::tests::{channel, ephemeral};
+    use crate::utils::{get_channel_id, get_peer};
 
     type Log = Arc<Mutex<Vec<&'static str>>>;
 
@@ -321,6 +346,44 @@ mod tests {
         let mut seen = log.lock().unwrap().clone();
         seen.sort_unstable();
         assert_eq!(seen, ["inline", "message", "raw", "raw"]);
+    }
+
+    #[tokio::test]
+    async fn routes_ephemeral_updates_to_their_own_lists() {
+        let log = Log::default();
+        let mut router = Router::default();
+        router.message.push(1, filters::all(), record(&log, "message"));
+        router.ephemeral_message.push(2, filters::command("start"), record(&log, "ephemeral /start"));
+        router.ephemeral_message.push(3, filters::all(), record(&log, "ephemeral"));
+        router.edited_ephemeral_message.push(4, filters::all(), record(&log, "edited"));
+        router.deleted_ephemeral_messages.push(5, filters::chat(get_channel_id(42)), record(&log, "deleted"));
+        router.callback_query.push(6, filters::data("tap"), record(&log, "callback"));
+        let new =
+            |message| base::Update::UpdateNewEphemeralMessage(Box::new(types::UpdateNewEphemeralMessage { message }));
+        dispatch(&router, new(ephemeral(false, Some(channel()))));
+        dispatch(
+            &router,
+            base::Update::UpdateDeleteEphemeralMessages(Box::new(types::UpdateDeleteEphemeralMessages {
+                peer: channel(),
+                ids: vec![7],
+            })),
+        );
+        dispatch(
+            &router,
+            base::Update::UpdateEphemeralBotCallbackQuery(Box::new(types::UpdateEphemeralBotCallbackQuery {
+                query_id: 9,
+                user_id: 1000,
+                peer: None,
+                msg_id: 7,
+                data: b"tap".to_vec(),
+                chat_instance: None,
+                message: ephemeral(true, None),
+            })),
+        );
+        settle().await;
+        let mut seen = log.lock().unwrap().clone();
+        seen.sort_unstable();
+        assert_eq!(seen, ["callback", "deleted", "ephemeral"]);
     }
 
     #[tokio::test]

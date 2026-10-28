@@ -13,7 +13,7 @@ pub use bot_access_settings::BotAccessSettings;
 pub use bot_command::BotCommand;
 pub use bot_command_scope::BotCommandScope;
 pub use bot_subscription_updated::BotSubscriptionUpdated;
-pub use callback_query::CallbackQuery;
+pub use callback_query::{CallbackQuery, EditCallbackMessageText};
 pub use inline_keyboard::{ButtonStyle, InlineAction, InlineKeyboardButton, InlineKeyboardMarkup};
 pub use managed_bot_updated::ManagedBotUpdated;
 pub use menu_button::MenuButton;

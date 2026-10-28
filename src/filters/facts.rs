@@ -109,6 +109,21 @@ impl<'a> Facts<'a> {
         Facts { flags, sender_id: user_id, text: query, me: me.username.as_deref(), ..Facts::default() }
     }
 
+    /// Ephemeral messages are only filtered once parsed; `chat_id` is the one the parsed item settled on.
+    pub(crate) fn ephemeral(m: &'a types::EphemeralMessage, chat_id: i64, kinds: PeerKinds, me: &'a Me) -> Facts<'a> {
+        let mut facts = Facts::query(chat_id, get_peer_id(&m.from_id), &[], kinds, me);
+        let media = m.media.as_ref().and_then(MediaKind::of);
+        let text = match media {
+            _ if m.message.is_empty() => 0,
+            None | Some(MediaKind::WebPage) => TEXT,
+            Some(_) => CAPTION,
+        };
+        facts.flags |= text | flag(m.out, OUTGOING | SENDER_ME) | flag(m.noforwards, PROTECTED);
+        (facts.media, facts.text) = (media, &m.message);
+        facts.reply(m.reply_to.as_ref());
+        facts
+    }
+
     fn common(
         peer: &base::Peer,
         from: Option<&base::Peer>,
