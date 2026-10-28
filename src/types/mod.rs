@@ -27,14 +27,14 @@ pub use inline_mode::{
 pub use messages_and_media::{
     Animation, Audio, Checklist, ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone, Command, Contact,
     DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages, Dice, Document, EphemeralMessage,
-    ExternalReplyInfo, FileLocation, FileSource, Game, GuestMessage, InputChecklist, InputSticker, InputStoryContent,
-    Invoice, LinkPreviewOptions, Location, LocationAddress, MaskPosition, Media, Message, MessageEntity,
-    MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, MessageText, Photo,
-    Poll, PollAnswer, PollOption, PollUpdated, ProximityAlertTriggered, ReactionCount, ReactionType, RefundedPayment,
-    ReplyParameters, ServiceAction, StarAmount, Sticker, StickerSet, Story, StoryArea, StoryAreaPosition,
-    StoryAreaType, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
-    SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded, Text,
-    TextQuote, Upload, Venue, Video, VideoNote, Voice, WriteAccessAllowed,
+    ExternalReplyInfo, FileLocation, FileSource, Game, GuestMessage, InputChecklist, InputMedia, InputSticker,
+    InputStoryContent, Invoice, LinkPreviewOptions, Location, LocationAddress, MaskPosition, Media, Message,
+    MessageEntity, MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated,
+    MessageText, Photo, Poll, PollAnswer, PollOption, PollUpdated, ProximityAlertTriggered, ReactionCount,
+    ReactionType, RefundedPayment, ReplyParameters, ServiceAction, StarAmount, Sticker, StickerSet, Story, StoryArea,
+    StoryAreaPosition, StoryAreaType, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved,
+    SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice,
+    SuggestedPostRefunded, Text, TextQuote, Upload, Venue, Video, VideoNote, Voice, WriteAccessAllowed,
 };
 pub use payments::{
     Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,

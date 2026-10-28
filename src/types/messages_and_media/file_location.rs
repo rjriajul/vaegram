@@ -109,6 +109,18 @@ pub(crate) fn input_photo(location: &FileLocation) -> base::InputPhoto {
     base::InputPhoto::InputPhoto(Box::new(types::InputPhoto { id, access_hash, file_reference }))
 }
 
+pub(crate) fn input_document_of(document: base::Document) -> Option<base::InputDocument> {
+    let base::Document::Document(d) = document else { return None };
+    let (id, access_hash, file_reference) = (d.id, d.access_hash, d.file_reference);
+    Some(base::InputDocument::InputDocument(Box::new(types::InputDocument { id, access_hash, file_reference })))
+}
+
+pub(crate) fn input_photo_of(photo: base::Photo) -> Option<base::InputPhoto> {
+    let base::Photo::Photo(p) = photo else { return None };
+    let (id, access_hash, file_reference) = (p.id, p.access_hash, p.file_reference);
+    Some(base::InputPhoto::InputPhoto(Box::new(types::InputPhoto { id, access_hash, file_reference })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::FileLocation;

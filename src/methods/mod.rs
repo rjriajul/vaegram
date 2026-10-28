@@ -42,15 +42,16 @@ pub use chats::{
 pub use invite_links::{
     CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
 };
-pub(crate) use messages::StreamShared;
 pub use messages::{
     ApproveSuggestedPost, CopyMessage, CopyMessages, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage,
-    EditInlineText, EditMessageChecklist, EditMessageLiveLocation, EditMessageReplyMarkup, EditMessageText,
-    ForwardMessages, GetChatHistory, MediaStream, MessageStream, PinChatMessage, SearchMessages, SendChecklist,
-    SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLocation, SendMessage, SendMessageDraft, SendPhoto,
-    SendPoll, SendReaction, SendRichMessage, SendVenue, StopMessageLiveLocation, StopPoll, StreamMessage,
-    UnpinChatMessage,
+    EditInlineMedia, EditInlineText, EditMessageChecklist, EditMessageLiveLocation, EditMessageMedia,
+    EditMessageReplyMarkup, EditMessageText, ForwardMessages, GetChatHistory, MediaStream, MessageStream,
+    PinChatMessage, SearchMessages, SendAnimation, SendAudio, SendChecklist, SendContact, SendDice, SendDocument,
+    SendEphemeralMessage, SendLocation, SendMediaGroup, SendMessage, SendMessageDraft, SendPhoto, SendPoll,
+    SendReaction, SendRichMessage, SendSticker, SendVenue, SendVideo, SendVideoNote, SendVoice,
+    StopMessageLiveLocation, StopPoll, StreamMessage, UnpinChatMessage,
 };
+pub(crate) use messages::{StreamShared, caption_setters};
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
 };

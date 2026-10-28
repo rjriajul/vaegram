@@ -137,6 +137,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   expired file references (not yet tested live)
 - [ ] Bot API file ids: `photo.file_id`, `send_photo(chat, FileSource::file_id(id)?)`, `download_media(file_id)`;
   the `file_unique_id` format is not yet checked against the Bot API (not yet tested live)
+- [ ] Videos, audio, voice, GIFs, video notes, stickers, albums and media edits: `send_video(chat, "clip.mp4").supports_streaming()`,
+  `send_media_group`, `edit_message_media`, `edit_inline_media` (not yet tested live)
 - [ ] Shared send options: replies with quotes, topics, silent, protected, scheduled and business sends; a default
   parse mode via `Client::builder(..).parse_mode(enums::ParseMode::Html)` (not yet tested live)
 - [ ] Chat join requests and join request queries, managed bot access settings (not yet tested live)

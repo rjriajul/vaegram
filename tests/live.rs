@@ -10,8 +10,8 @@ use vaegram::session::Session;
 use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
-    ButtonStyle, FileSource, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputRichMessage,
-    InputSticker, KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Upload,
+    ButtonStyle, FileSource, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
+    InputRichMessage, InputSticker, KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Upload,
 };
 use vaegram::{Client, filters};
 
@@ -232,6 +232,52 @@ async fn bot_uploads_and_downloads_a_document() {
     assert!(app.download_media(&copy.file_id).await.unwrap() == data);
     again.delete().await.unwrap();
     sent.delete().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "logs in as a bot and sends audio, voice, an album and a media edit"]
+async fn bot_sends_typed_files_and_albums() {
+    if std::env::var("VAEGRAM_BOT_TOKEN").is_err() {
+        eprintln!("skipped: set VAEGRAM_API_ID, VAEGRAM_API_HASH, VAEGRAM_BOT_TOKEN and VAEGRAM_CHAT_ID");
+        return;
+    }
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let app =
+        Client::builder("target/vaegram-live-media", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+            .bot_token(env("VAEGRAM_BOT_TOKEN"))
+            .start()
+            .await
+            .unwrap();
+    let chat_id: i64 = env("VAEGRAM_CHAT_ID").parse().unwrap();
+    let data: Vec<u8> = (0..200_000u32).map(|i| (i * 13 + i / 7) as u8).collect();
+
+    let song = Upload::bytes("song.mp3", &data);
+    let song = app.send_audio(chat_id, song).duration(3).performer("vaegram").title("Song").await.unwrap();
+    let audio = song.audio().expect("the song is audio");
+    assert_eq!((audio.performer.as_deref(), audio.title.as_deref()), (Some("vaegram"), Some("Song")));
+
+    let voice = app.send_voice(chat_id, Upload::bytes("voice.ogg", &data)).duration(3).await.unwrap();
+    assert!(voice.voice().is_some());
+
+    let album = [
+        InputMedia::document(Upload::bytes("a.bin", &data)).caption("<b>first</b>").html(),
+        InputMedia::document(Upload::bytes("b.bin", &data)),
+    ];
+    let album = app.send_media_group(chat_id, album).await.unwrap();
+    assert_eq!(album.len(), 2);
+    assert!(album[0].id < album[1].id && album[0].media_group_id.is_some());
+    assert_eq!(album[0].caption.as_deref(), Some("first"));
+
+    let replaced = InputMedia::document(Upload::bytes("c.bin", &data)).caption("replaced");
+    let edited = app.edit_message_media(chat_id, album[1].id, replaced).await.unwrap();
+    let name = edited.document().and_then(|d| d.file_name.as_deref());
+    assert_eq!((edited.caption.as_deref(), name), (Some("replaced"), Some("c.bin")));
+
+    let first = album[0].document().expect("the album has documents");
+    let again = app.send_document(chat_id, first).await.unwrap();
+    assert_eq!(again.document().map(|d| d.id), Some(first.id));
+
+    app.delete_messages(chat_id, &[song.id, voice.id, album[0].id, album[1].id, again.id]).await.unwrap();
 }
 
 #[tokio::test]
