@@ -2,8 +2,8 @@ use super::facts::{Facts, PeerKinds};
 use crate::Client;
 use crate::client::Me;
 use crate::types::{
-    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, GuestMessage, InlineQuery, Message,
-    MessageGenerationStopped, User,
+    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, GuestMessage, InlineQuery,
+    ManagedBotUpdated, Message, MessageGenerationStopped, User,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -83,4 +83,9 @@ subject!(MessageGenerationStopped: HasChat, HasSender; |s, me| {
     // Drafts only go to private chats, so the chat is also the user who pressed stop.
     let kinds = PeerKinds { chat: Some(s.chat.kind), sender_bot: false };
     Facts::query(s.chat.id, s.chat.id, &[], kinds, me)
+});
+
+subject!(ManagedBotUpdated: HasSender; |s, me| {
+    // The update has no chat; its sender is the user who created the bot.
+    Facts::query(0, s.user.id, &[], PeerKinds { chat: None, sender_bot: s.user.is_bot }, me)
 });

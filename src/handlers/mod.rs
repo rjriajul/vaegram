@@ -7,8 +7,8 @@ use crate::dispatcher::Router;
 use crate::errors::{Error, Result};
 use crate::raw::base;
 use crate::types::{
-    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, GuestMessage, InlineQuery, Message,
-    MessageGenerationStopped,
+    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, GuestMessage, InlineQuery,
+    ManagedBotUpdated, Message, MessageGenerationStopped,
 };
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
@@ -39,6 +39,7 @@ pub enum UpdateKind {
     GuestMessage,
     BotSubscriptionUpdated,
     MessageGenerationStopped,
+    ManagedBot,
     Raw,
 }
 
@@ -144,5 +145,15 @@ impl Routed for BotSubscriptionUpdated {
 impl Routed for MessageGenerationStopped {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
+    }
+}
+
+impl Routed for ManagedBotUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.bot.id)
     }
 }

@@ -135,6 +135,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   parse mode via `Client::builder(..).parse_mode(enums::ParseMode::Html)` (not yet tested live)
 - [ ] Chat join requests and join request queries, managed bot access settings (not yet tested live)
 - [ ] Invite links and join requests: `create_chat_invite_link(chat).creates_join_request()`, `request.approve()`, Star subscription links (not yet tested live)
+- [ ] Managed bots: `on_managed_bot`, token get/replace, `KeyboardButton::request_managed_bot`,
+  `ServiceAction::ManagedBotCreated` (not yet tested live)
 - [ ] Client events: reconnects, dropped packets, skipped or unknown updates and failed handlers via `app.on_event(|e| ..)` (not yet tested live)
 - [ ] Bot commands, reaction removal, personal channel messages, Stars subscription updates (not yet tested live)
 - [ ] Communities: `msg.service` (`ServiceAction::CommunityChatAdded`, ..), `get_chat(..).community` (not yet tested live)

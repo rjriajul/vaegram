@@ -1,7 +1,7 @@
 use crate::raw::base;
 use crate::types::{
     ButtonStyle, ForceReply, InlineAction, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove,
+    KeyboardButtonRequestManagedBot, ReplyKeyboardMarkup, ReplyKeyboardRemove,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,13 +57,22 @@ fn keyboard_row(raw: &base::KeyboardButtonRow) -> Option<Vec<KeyboardButton>> {
 
 fn keyboard_button(raw: &base::KeyboardButton) -> Option<KeyboardButton> {
     let base::KeyboardButton::KeyboardButton(b) = raw;
-    let (request_contact, request_location) = match &b.r#type {
-        base::ButtonType::ButtonTypeDefault => (false, false),
-        base::ButtonType::ButtonTypeRequestPhone => (true, false),
-        base::ButtonType::ButtonTypeRequestGeoLocation => (false, true),
+    let mut button = KeyboardButton::new(b.text.clone()).style(style(b.style.as_ref()));
+    match &b.r#type {
+        base::ButtonType::ButtonTypeDefault => {}
+        base::ButtonType::ButtonTypeRequestPhone => button.request_contact = true,
+        base::ButtonType::ButtonTypeRequestGeoLocation => button.request_location = true,
+        base::ButtonType::ButtonTypeRequestPeer(p) => {
+            let base::RequestPeerType::RequestPeerTypeCreateBot(bot) = &p.peer_type else { return None };
+            button.request_managed_bot = Some(KeyboardButtonRequestManagedBot {
+                request_id: p.button_id,
+                suggested_name: bot.suggested_name.clone(),
+                suggested_username: bot.suggested_username.clone(),
+            });
+        }
         _ => return None,
-    };
-    Some(KeyboardButton { text: b.text.clone(), request_contact, request_location, style: style(b.style.as_ref()) })
+    }
+    Some(button)
 }
 
 fn inline_row(raw: &base::KeyboardInlineButtonRow) -> Option<Vec<InlineKeyboardButton>> {

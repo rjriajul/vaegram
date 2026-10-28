@@ -9,8 +9,8 @@ use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
 use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, UpdateKind};
 use crate::raw::base;
 use crate::types::{
-    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, GuestMessage, InlineQuery, Message,
-    MessageGenerationStopped,
+    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, GuestMessage, InlineQuery,
+    ManagedBotUpdated, Message, MessageGenerationStopped,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -125,6 +125,7 @@ pub(crate) struct Router {
     pub(crate) guest_message: Handlers<GuestMessage>,
     pub(crate) bot_subscription_updated: Handlers<BotSubscriptionUpdated>,
     pub(crate) message_generation_stopped: Handlers<MessageGenerationStopped>,
+    pub(crate) managed_bot: Handlers<ManagedBotUpdated>,
     pub(crate) raw: Vec<RawCallback>,
     pub(crate) on_error: Option<ErrorCallback>,
     next_id: u32,
@@ -147,6 +148,7 @@ impl Router {
             UpdateKind::GuestMessage => self.guest_message.configure(id, group, stop),
             UpdateKind::BotSubscriptionUpdated => self.bot_subscription_updated.configure(id, group, stop),
             UpdateKind::MessageGenerationStopped => self.message_generation_stopped.configure(id, group, stop),
+            UpdateKind::ManagedBot => self.managed_bot.configure(id, group, stop),
             UpdateKind::Raw => {}
         }
     }
@@ -202,6 +204,10 @@ impl Router {
                     let (kind, scan) = (UpdateKind::MessageGenerationStopped, (Vec::new(), Some(0)));
                     self.message_generation_stopped.finish(kind, tasks, &me(), scan, stopped);
                 }
+            }
+            U::UpdateManagedBot(u) if !self.managed_bot.0.is_empty() => {
+                let item = ManagedBotUpdated::parse(client, &u, entities);
+                self.managed_bot.finish(UpdateKind::ManagedBot, tasks, &me(), (Vec::new(), Some(0)), item);
             }
             _ => {}
         }

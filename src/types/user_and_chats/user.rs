@@ -15,6 +15,7 @@ pub struct User {
     pub supports_inline_queries: bool,
     pub can_connect_to_business: bool,
     pub has_main_web_app: bool,
+    pub can_manage_bots: bool,
 }
 
 impl User {
@@ -34,6 +35,7 @@ impl User {
                 supports_inline_queries: u.bot_inline_placeholder.is_some(),
                 can_connect_to_business: u.bot_business,
                 has_main_web_app: u.bot_has_main_app,
+                can_manage_bots: u.bot_can_manage_bots,
             },
             _ => User { id, ..User::default() },
         }

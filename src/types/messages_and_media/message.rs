@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn maps_community_service_actions() {
+    fn maps_service_actions() {
         let client = Client::offline();
         let community = base::Chat::Community(Box::new(types::Community {
             creator: false,
@@ -444,6 +444,9 @@ mod tests {
         let joined = service(base::MessageAction::MessageActionChatJoinedViaCommunity(Box::new(joined))).unwrap();
         assert_eq!(joined.service, Some(ServiceAction::CommunityChatJoined(hub)));
         assert_eq!(joined.chat.id, get_channel_id(5));
+        let created = types::MessageActionManagedBotCreated { bot_id: 42 };
+        let created = service(base::MessageAction::MessageActionManagedBotCreated(Box::new(created))).unwrap();
+        assert!(matches!(created.service, Some(ServiceAction::ManagedBotCreated(bot)) if bot.id == 42));
         assert!(service(base::MessageAction::MessageActionPinMessage).is_none());
     }
 }

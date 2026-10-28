@@ -1,6 +1,6 @@
 use crate::dispatcher::Entities;
 use crate::raw::base;
-use crate::types::Community;
+use crate::types::{Community, User};
 
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -8,6 +8,7 @@ pub enum ServiceAction {
     CommunityChatAdded(Community),
     CommunityChatRemoved,
     CommunityChatJoined(Community),
+    ManagedBotCreated(User),
 }
 
 impl ServiceAction {
@@ -22,6 +23,7 @@ impl ServiceAction {
             A::MessageActionChatJoinedViaCommunity(a) => {
                 ServiceAction::CommunityChatJoined(Community::parse(a.community_id, entities))
             }
+            A::MessageActionManagedBotCreated(a) => ServiceAction::ManagedBotCreated(User::parse(a.bot_id, entities)),
             _ => return None,
         })
     }
