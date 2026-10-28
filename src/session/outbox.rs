@@ -9,7 +9,7 @@ use crate::raw::{Serializable, types};
 // https://core.telegram.org/mtproto/service_messages#containers
 pub(super) const MAX_CONTAINER_MSGS: usize = 1000;
 pub(super) const MAX_CONTAINER_BYTES: usize = 1 << 15;
-const MAX_IDS: usize = 8192;
+pub(super) const MAX_IDS: usize = 8192;
 // msg_id, seqno and length in front of each message in a container.
 const HEADER: usize = 16;
 
@@ -42,7 +42,7 @@ impl Runner {
                 self.events.emit(ClientEvent::RecordingFailed { error });
             }
         }
-        mtproto::pack(&self.auth_key, &self.auth_key_id, &self.session_id, self.salt, msg_id, seq_no, body)
+        mtproto::pack(&self.auth_key, &self.auth_key_id, &self.session_id, self.salt(), msg_id, seq_no, body)
     }
 
     // Requests move to `pending` before the write, so a failed write re-sends them after the reconnect.

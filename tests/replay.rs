@@ -1,10 +1,16 @@
+use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use vaegram::connection::{Proxy, Transport};
 use vaegram::raw::{Identifiable, Serializable, base, functions, types};
 use vaegram::session::Replay;
 use vaegram::storage::recording::{self, Record};
+use vaegram::storage::session_string;
 use vaegram::{Client, filters};
 
 const RPC_RESULT: u32 = 0xf35c6d01;
@@ -39,6 +45,50 @@ async fn a_request_past_the_recording_names_itself() {
     let e = client.invoke(&functions::help::GetNearestDc {}).await.unwrap_err();
     let vaegram::Error::Rpc(e) = e else { panic!("{e}") };
     assert_eq!((e.name.as_str(), e.value), ("REPLAY_EXHAUSTED", Some(functions::help::GetNearestDc::CONSTRUCTOR_ID)));
+}
+
+#[tokio::test]
+async fn a_replay_client_resolves_every_dc_to_the_replay() {
+    let replay = Replay::start(&bot_session()).await.unwrap();
+    let replay_addr = session_string::parse(&replay.session_string()).unwrap().addr;
+    let client =
+        Client::builder("replay", 1, "replay").session_string(replay.session_string()).connect().await.unwrap();
+    let exported = session_string::parse(&client.export_session_string()).unwrap();
+    assert_eq!(exported.addr, replay_addr, "the home DC resolves to a Telegram address");
+}
+
+// A SOCKS5 proxy that logs where each connection wanted to go and refuses it.
+async fn refusing_proxy() -> (u16, Arc<Mutex<Vec<[u8; 6]>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let targets = Arc::new(Mutex::new(Vec::new()));
+    let log = targets.clone();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = listener.accept().await {
+            let mut request = [0; 10];
+            if s.read_exact(&mut request[..3]).await.is_err() || s.write_all(&[5, 0]).await.is_err() {
+                continue;
+            }
+            if s.read_exact(&mut request).await.is_ok() {
+                log.lock().unwrap().push(request[4..].try_into().unwrap());
+                let _ = s.write_all(&[5, 5, 0, 1, 0, 0, 0, 0, 0, 0]).await;
+            }
+        }
+    });
+    (port, targets)
+}
+
+#[tokio::test]
+async fn an_unreachable_replay_is_never_swapped_for_telegram() {
+    let session = Replay::start(&bot_session()).await.unwrap().session_string();
+    let (port, targets) = refusing_proxy().await;
+    let proxy = Proxy::Socks5 { host: "127.0.0.1".into(), port, auth: None };
+    let client = Client::builder("replay", 1, "replay").session_string(session.clone()).proxy(proxy).connect().await;
+    assert!(client.is_err());
+    let addr = session_string::parse(&session).unwrap().addr.unwrap();
+    let SocketAddr::V4(addr) = addr else { panic!("{addr}") };
+    let replay = [addr.ip().octets().as_slice(), &addr.port().to_be_bytes()].concat();
+    assert_eq!(*targets.lock().unwrap(), [<[u8; 6]>::try_from(replay).unwrap()]);
 }
 
 #[cfg(feature = "json")]

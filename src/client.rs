@@ -16,7 +16,7 @@ use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, Serializable, base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Auth, Lease, TransferPool};
-use crate::session::{Call, Events, Observer, Session, UpdatesRx, init_connection};
+use crate::session::{Call, Events, Observer, Salt, Session, UpdatesRx, init_connection};
 use crate::storage::recording::Recorder;
 use crate::storage::state::{StateFile, UpdateState};
 use crate::storage::{self, SessionData, session_string};
@@ -181,19 +181,20 @@ impl ClientBuilder {
         };
         let built_in = data_center::address(dc_id, test_mode, self.ipv6);
         let first = addr.filter(|a| a.is_ipv6() == self.ipv6).or(built_in).ok_or(Error::InvalidDc(dc_id))?;
+        // A session on localhost (a replay, a test server) is offline by design: every DC is that address.
+        let pinned = first.ip().is_loopback().then_some(first);
         let dc = |addr| Dc { id: dc_id, addr, test: test_mode };
         let state_file = storage_path.as_ref().map(|path| Arc::new(StateFile::new(path.with_extension("state"))));
-        let (peers, state) = match &state_file {
+        let (peers, state, salt) = match &state_file {
             Some(file) => storage::state::load(&file.path, user_id)?,
             None => Default::default(),
         };
         let events = Arc::new(Events::default());
+        let saved = auth_key.map(|key| (key, salt));
+        let try_addr = |addr| connect(dc(addr), saved, self.api_id, &self.options, events.clone(), self.pfs);
         // A saved address comes from help.getConfig and can go stale.
-        let first_try = connect(dc(first), auth_key, self.api_id, &self.options, events.clone(), self.pfs).await;
-        let (session, updates, dc_options) = match (first_try, built_in) {
-            (Err(_), Some(built_in)) if built_in != first => {
-                connect(dc(built_in), auth_key, self.api_id, &self.options, events, self.pfs).await?
-            }
+        let (session, updates, dc_options) = match (try_addr(first).await, built_in) {
+            (Err(_), Some(built_in)) if built_in != first && pinned.is_none() => try_addr(built_in).await?,
             (result, _) => result?,
         };
         let mut inner = Inner::new(session, updates);
@@ -202,6 +203,7 @@ impl ClientBuilder {
         inner.dcs = RwLock::new(data_center::table(&dc_options, self.ipv6, false));
         inner.media_dcs = RwLock::new(data_center::table(&dc_options, self.ipv6, true));
         inner.test_mode = test_mode;
+        inner.pinned = pinned;
         inner.ipv6 = self.ipv6;
         inner.storage_path = Mutex::new(storage_path);
         inner.state_file = state_file;
@@ -238,6 +240,7 @@ pub(crate) struct Inner {
     cdn_keys: Mutex<Vec<(i32, PublicKey)>>,
     test_mode: bool,
     ipv6: bool,
+    pinned: Option<SocketAddr>,
     // Taken by log_out, so a later save can't write the dead login back.
     pub(crate) storage_path: Mutex<Option<PathBuf>>,
     pub(crate) state_file: Option<Arc<StateFile>>,
@@ -283,6 +286,7 @@ impl Inner {
             cdn_keys: Mutex::new(Vec::new()),
             test_mode: false,
             ipv6: false,
+            pinned: None,
             storage_path: Mutex::new(None),
             state_file: None,
             options: Options::default(),
@@ -301,8 +305,9 @@ impl Inner {
 
     fn encode_state(&self, file: &StateFile, state: Option<&UpdateState>) -> (u64, Vec<u8>) {
         let user_id = self.me.lock().unwrap_or_else(PoisonError::into_inner).id;
+        let salt = self.session.read().unwrap_or_else(PoisonError::into_inner).salt();
         let peers = self.peers.lock().unwrap_or_else(PoisonError::into_inner);
-        (file.ticket(), storage::state::encode(user_id, &peers, state))
+        (file.ticket(), storage::state::encode(user_id, salt, &peers, state))
     }
 
     /// Returns once the state is on disk, so a stopped client resumes exactly where it left off.
@@ -414,13 +419,16 @@ impl Client {
     }
 
     pub(crate) fn dc(&self, dc_id: i32) -> Result<Dc> {
+        if let Some(addr) = self.0.pinned {
+            return Ok(Dc { id: dc_id, addr, test: self.0.test_mode });
+        }
         data_center::find(&self.0.dcs.read().unwrap(), dc_id, self.0.test_mode, self.0.ipv6)
             .ok_or(Error::InvalidDc(dc_id))
     }
 
     pub(crate) fn media_dc(&self, dc_id: i32) -> Result<Dc> {
         let media = self.0.media_dcs.read().unwrap().iter().find(|(id, _)| *id == dc_id).map(|&(_, addr)| addr);
-        match media {
+        match media.filter(|_| self.0.pinned.is_none()) {
             Some(addr) => Ok(Dc { id: dc_id, addr, test: self.0.test_mode }),
             None => self.dc(dc_id),
         }
@@ -508,7 +516,7 @@ impl Client {
 
 async fn connect(
     dc: Dc,
-    auth_key: Option<[u8; 256]>,
+    auth_key: Option<([u8; 256], Salt)>,
     api_id: i32,
     options: &Options,
     events: Arc<Events>,

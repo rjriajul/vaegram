@@ -59,7 +59,7 @@ mod tests {
         client.stop();
         let result = client.run().await;
         let owner = client.0.me.lock().unwrap().id;
-        let saved = state::load(&path, owner).map(|(_, state)| state.map(|s| s.pts));
+        let saved = state::load(&path, owner).map(|(_, state, _)| state.map(|s| s.pts));
         let _ = std::fs::remove_dir_all(&dir);
         assert!(result.is_ok(), "{result:?}");
         assert_eq!(saved.ok(), Some(Some(10)));

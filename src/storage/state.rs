@@ -1,7 +1,8 @@
 //! `<name>.state`, kept next to `<name>.session`: access hashes and the update state, so a restart
 //! can still reach known chats and fetch what it missed with `updates.getDifference`.
 //!
-//! Little-endian: version 1 (u8), owner user_id (i64), pts, qts, date, seq (i32, date 0 means none),
+//! Little-endian: version 2 (u8), owner user_id (i64), server salt and clock offset (i64, not in version 1),
+//! pts, qts, date, seq (i32, date 0 means none),
 //! channel count (u32) then channel_id (i64) and pts (i32) each, peer count (u32) then chat_id (i64)
 //! and access_hash (i64) each. Chat ids are Bot API style, so the sign tells users from channels.
 //! Basic groups need no hash and aren't stored.
@@ -14,9 +15,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use crate::raw::{base, types};
+use crate::session::Salt;
 use crate::utils::{CHANNEL_OFFSET, get_channel_id};
 
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UpdateState {
@@ -29,12 +31,14 @@ pub struct UpdateState {
 
 pub type Peers = HashMap<i64, base::InputPeer>;
 
-pub fn encode(user_id: i64, peers: &Peers, state: Option<&UpdateState>) -> Vec<u8> {
+pub fn encode(user_id: i64, salt: Salt, peers: &Peers, state: Option<&UpdateState>) -> Vec<u8> {
     let none = UpdateState::default();
     let s = state.unwrap_or(&none);
-    let mut b = Vec::with_capacity(33 + s.channels.len() * 12 + peers.len() * 16);
+    let mut b = Vec::with_capacity(49 + s.channels.len() * 12 + peers.len() * 16);
     b.push(VERSION);
-    b.extend_from_slice(&user_id.to_le_bytes());
+    for n in [user_id, salt.value, salt.time_offset] {
+        b.extend_from_slice(&n.to_le_bytes());
+    }
     for n in [s.pts, s.qts, s.date, s.seq] {
         b.extend_from_slice(&n.to_le_bytes());
     }
@@ -60,11 +64,16 @@ pub fn encode(user_id: i64, peers: &Peers, state: Option<&UpdateState>) -> Vec<u
     b
 }
 
-pub fn decode(mut b: &[u8], user_id: i64) -> Option<(Peers, Option<UpdateState>)> {
-    if take::<1>(&mut b)? != [VERSION] {
+pub fn decode(mut b: &[u8], user_id: i64) -> Option<(Peers, Option<UpdateState>, Salt)> {
+    let [version] = take::<1>(&mut b)?;
+    if !(1..=VERSION).contains(&version) {
         return None;
     }
     let owner = i64::from_le_bytes(take(&mut b)?);
+    let salt = match version {
+        1 => Salt::default(),
+        _ => Salt { value: i64::from_le_bytes(take(&mut b)?), time_offset: i64::from_le_bytes(take(&mut b)?) },
+    };
     let mut i32s = [0; 4];
     for n in &mut i32s {
         *n = i32::from_le_bytes(take(&mut b)?);
@@ -93,21 +102,21 @@ pub fn decode(mut b: &[u8], user_id: i64) -> Option<(Peers, Option<UpdateState>)
         return None;
     }
     if owner != user_id {
-        return Some((Peers::new(), None));
+        return Some((Peers::new(), None, Salt::default()));
     }
     let state = (date != 0).then_some(UpdateState { pts, qts, date, seq, channels });
-    Some((peers, state))
+    Some((peers, state, salt))
 }
 
-pub fn load(path: &Path, user_id: i64) -> io::Result<(Peers, Option<UpdateState>)> {
+pub fn load(path: &Path, user_id: i64) -> io::Result<(Peers, Option<UpdateState>, Salt)> {
     let bytes = match fs::read(path) {
         Ok(b) => b,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Peers::new(), None)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Default::default()),
         Err(e) => return Err(e),
     };
     Ok(decode(&bytes, user_id).unwrap_or_else(|| {
         eprintln!("vaegram: ignoring {}: damaged or from a newer vaegram; it will be overwritten", path.display());
-        (Peers::new(), None)
+        Default::default()
     }))
 }
 
@@ -152,11 +161,11 @@ fn take<const N: usize>(b: &mut &[u8]) -> Option<[u8; N]> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Peers, StateFile, decode, encode};
+    use super::{Peers, Salt, StateFile, decode, encode};
 
     #[test]
     fn min_peer_id_is_damage_not_a_panic() {
-        let mut b = encode(1, &Peers::new(), None);
+        let mut b = encode(1, Salt::default(), &Peers::new(), None);
         let at = b.len() - 4;
         b[at..].copy_from_slice(&1u32.to_le_bytes());
         b.extend_from_slice(&i64::MIN.to_le_bytes());

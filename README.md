@@ -73,8 +73,9 @@ More in [examples](examples).
 ### Sessions
 
 The first run logs in and writes `my_bot.session`. Later runs reuse it, so you log in once.
-Next to it, `my_bot.state` keeps known chats and the update state, so after a restart you can
-still message chats by id and `run()` delivers the updates you missed while offline.
+Next to it, `my_bot.state` keeps known chats, the update state and the server salt, so after a restart
+you can still message chats by id, `run()` delivers the updates you missed while offline, and the
+first request doesn't bounce off a stale salt.
 
 You can also keep the whole session in one line, in an env var or a database (the line holds
 only the login, so known chats and missed updates aren't kept across restarts):
@@ -96,7 +97,8 @@ existing login over without signing in again. Exports are always `VAE_…`.
 
 `.test_mode()` logs in on Telegram's test servers and `.ipv6()` connects over IPv6. Session strings remember
 the test mode and the data center address. `.pfs()` turns on perfect forward secrecy: traffic runs under
-temporary keys that are replaced every day, and only the permanent key is stored.
+temporary keys that are replaced every day, and only the permanent key is stored. Each temporary key brings its
+own salt, so with `.pfs()` a restart doesn't reuse the saved one.
 
 ### Raw API and Errors
 
@@ -147,6 +149,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [x] Buttons, edited messages, callback queries, inline queries, `edit_text`, `delete`
 - [x] User login (phone code, 2FA password)
 - [x] Auto-reconnect, short `FLOOD_WAIT`s slept off
+- [ ] Jittered reconnect backoff, dead-connection detection, no duplicate requests after a reconnect, the server salt
+  kept across restarts (not yet tested live)
 - [ ] Abridged and padded transports, obfuscation, SOCKS5/SOCKS4/HTTP proxies and MTProxy including fake-TLS `ee` secrets: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
 - [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat` (not yet tested live)
 - [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use vaegram::raw::{base, types};
+use vaegram::session::Salt;
 use vaegram::storage::state::{self, Peers, UpdateState};
 use vaegram::storage::{SessionData, session_string, write_private};
 
@@ -111,32 +112,44 @@ fn update_state() -> UpdateState {
     UpdateState { pts: 10, qts: 2, date: 1_700_000_000, seq: 5, channels: HashMap::from([(1234, 99)]) }
 }
 
+const SALT: Salt = Salt { value: -7, time_offset: 3 };
+
 #[test]
 fn state_file_round_trips() {
     let mut with_group = peers();
     with_group.insert(-42, base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 42 }));
-    let bytes = state::encode(1, &with_group, Some(&update_state()));
-    assert_eq!(state::decode(&bytes, 1), Some((peers(), Some(update_state()))));
-    assert_eq!(state::decode(&state::encode(1, &peers(), None), 1), Some((peers(), None)));
+    let bytes = state::encode(1, SALT, &with_group, Some(&update_state()));
+    assert_eq!(state::decode(&bytes, 1), Some((peers(), Some(update_state()), SALT)));
+    let bytes = state::encode(1, SALT, &peers(), None);
+    assert_eq!(state::decode(&bytes, 1), Some((peers(), None, SALT)));
+}
+
+#[test]
+fn reads_version_1_state_without_salt() {
+    let mut v1 = state::encode(1, Salt::default(), &peers(), Some(&update_state()));
+    v1.drain(9..25);
+    v1[0] = 1;
+    assert_eq!(state::decode(&v1, 1), Some((peers(), Some(update_state()), Salt::default())));
 }
 
 #[test]
 fn state_file_is_per_account_and_checked() {
-    let bytes = state::encode(1, &peers(), Some(&update_state()));
-    assert_eq!(state::decode(&bytes, 2), Some((Peers::new(), None)));
+    let bytes = state::encode(1, SALT, &peers(), Some(&update_state()));
+    assert_eq!(state::decode(&bytes, 2), Some((Peers::new(), None, Salt::default())));
     assert_eq!(state::decode(&bytes[..bytes.len() - 1], 1), None);
     assert_eq!(state::decode(&[2], 1), None);
+    assert_eq!(state::decode(&[3], 1), None);
 }
 
 #[test]
 fn state_file_saves_and_ignores_damage() {
     let path = std::env::temp_dir().join(format!("vaegram-{}.state", std::process::id()));
-    assert_eq!(state::load(&path, 1).unwrap(), (Peers::new(), None));
-    write_private(&path, &state::encode(1, &peers(), Some(&update_state()))).unwrap();
+    assert_eq!(state::load(&path, 1).unwrap(), Default::default());
+    write_private(&path, &state::encode(1, SALT, &peers(), Some(&update_state()))).unwrap();
     let loaded = state::load(&path, 1);
     std::fs::write(&path, [1, 2, 3]).unwrap();
     let damaged = state::load(&path, 1);
     std::fs::remove_file(&path).unwrap();
-    assert_eq!(loaded.unwrap(), (peers(), Some(update_state())));
-    assert_eq!(damaged.unwrap(), (Peers::new(), None));
+    assert_eq!(loaded.unwrap(), (peers(), Some(update_state()), SALT));
+    assert_eq!(damaged.unwrap(), Default::default());
 }

@@ -16,6 +16,7 @@ pub use replay::Replay;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
@@ -30,7 +31,7 @@ use crate::raw::core::{gzip_packed, msg_container};
 use crate::raw::{Deserializable, Identifiable, LAYER, RemoteCall, Serializable, base, functions, types};
 use internals::data_center::Dc;
 use internals::{MsgId, SeqNo, ServerMsgIds};
-use outbox::MAX_CONTAINER_MSGS;
+use outbox::{MAX_CONTAINER_MSGS, MAX_IDS};
 use pfs::Pfs;
 
 const RPC_RESULT: u32 = 0xf35c6d01;
@@ -41,6 +42,7 @@ const NEW_SESSION_CREATED: u32 = <types::NewSessionCreated as Identifiable>::CON
 const PONG: u32 = <types::Pong as Identifiable>::CONSTRUCTOR_ID;
 const MSGS_STATE_REQ: u32 = <types::MsgsStateReq as Identifiable>::CONSTRUCTOR_ID;
 const MSGS_ALL_INFO: u32 = <types::MsgsAllInfo as Identifiable>::CONSTRUCTOR_ID;
+const MSGS_STATE_INFO: u32 = <types::MsgsStateInfo as Identifiable>::CONSTRUCTOR_ID;
 const MSG_DETAILED_INFO: u32 = <types::MsgDetailedInfo as Identifiable>::CONSTRUCTOR_ID;
 const MSG_NEW_DETAILED_INFO: u32 = <types::MsgNewDetailedInfo as Identifiable>::CONSTRUCTOR_ID;
 const MSG_RESEND_REQ: u32 = <types::MsgResendReq as Identifiable>::CONSTRUCTOR_ID;
@@ -48,6 +50,8 @@ const MSGS_ACK: u32 = <types::MsgsAck as Identifiable>::CONSTRUCTOR_ID;
 
 const HANDSHAKE_ATTEMPTS: usize = 3;
 const PING_EVERY: Duration = Duration::from_secs(60);
+// No reads at all, not even a pong, for this long: the link died without the OS noticing.
+const DEAD_AFTER: Duration = Duration::from_secs(75);
 const ACKS_THRESHOLD: usize = 10;
 const UPDATES_BUFFER: usize = 1024;
 const RECONNECT_DELAY: Duration = Duration::from_millis(500);
@@ -143,12 +147,30 @@ pub struct Session {
     auth_key: [u8; 256],
     options: Arc<Options>,
     pfs: Option<Arc<[u8]>>,
+    learned: Arc<Learned>,
+}
+
+/// The server salt and the clock offset, saved so a restart skips the first bad_server_salt and starts with
+/// msg_ids the server accepts.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Salt {
+    pub value: i64,
+    /// Server time minus local time, in seconds.
+    pub time_offset: i64,
+}
+
+#[derive(Default)]
+struct Learned {
+    salt: AtomicI64,
+    time_offset: AtomicI64,
 }
 
 impl Session {
+    /// `auth_key` is a stored key with the salt last saved for it; `None` makes a new one. With `pfs`, the
+    /// traffic runs under a temporary key bound to it, and `pfs` is the request sent right after each bind.
     pub async fn connect(
         dc: Dc,
-        auth_key: Option<[u8; 256]>,
+        auth_key: Option<([u8; 256], Salt)>,
         options: &Options,
         events: Arc<Events>,
         pfs: Option<Vec<u8>>,
@@ -160,7 +182,8 @@ impl Session {
 
     #[cfg(test)]
     fn local(requests: mpsc::UnboundedSender<Request>) -> Session {
-        Session { requests, dc_id: 2, auth_key: [0; 256], options: Arc::default(), pfs: None }
+        let (options, learned) = (Arc::default(), Arc::default());
+        Session { requests, dc_id: 2, auth_key: [0; 256], options, pfs: None, learned }
     }
 
     #[cfg(test)]
@@ -200,12 +223,13 @@ impl Session {
         events: Arc<Events>,
         pfs: Option<Arc<[u8]>>,
     ) -> Result<Session> {
-        Session::open(dc, auth_key, cdn_key, options, events, None, pfs).await
+        let saved = auth_key.map(|key| (key, Salt::default()));
+        Session::open(dc, saved, cdn_key, options, events, None, pfs).await
     }
 
     async fn open(
         dc: Dc,
-        auth_key: Option<[u8; 256]>,
+        auth_key: Option<([u8; 256], Salt)>,
         cdn_key: Option<&PublicKey>,
         options: &Options,
         events: Arc<Events>,
@@ -213,22 +237,23 @@ impl Session {
         pfs: Option<Arc<[u8]>>,
     ) -> Result<Session> {
         let perm_is_new = auth_key.is_none();
-        let (mut conn, auth_key, salt, time_offset) = handshake(dc, auth_key, cdn_key, options).await?;
+        let (mut conn, auth_key, salt, clock_synced) = handshake(dc, auth_key, cdn_key, options).await?;
         let options = Arc::new(options.clone());
         let runner = match &pfs {
-            None => Runner::new(dc, options.clone(), conn, (auth_key, salt, time_offset), events, updates),
+            None => Runner::new(dc, options.clone(), conn, (auth_key, salt, clock_synced), events, updates),
             Some(init) => {
                 let temp = auth::create(&mut conn, dc, &server_key(dc), Some(pfs::TEMP_KEY_LIFETIME)).await?;
                 let expires_at = internals::now() + temp.time_offset + pfs::TEMP_KEY_LIFETIME as i64;
-                let key = (temp.auth_key, temp.salt, Some(temp.time_offset));
+                let key = (temp.auth_key, Salt { value: temp.salt, time_offset: temp.time_offset }, true);
                 let mut runner = Runner::new(dc, options.clone(), conn, key, events, updates);
                 runner.pfs = Some(Pfs::new(auth_key, perm_is_new, init.to_vec(), expires_at));
                 runner
             }
         };
+        let learned = runner.learned.clone();
         let (requests_tx, requests) = mpsc::unbounded_channel();
         tokio::spawn(runner.run(requests));
-        Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key, options, pfs })
+        Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key, options, pfs, learned })
     }
 
     pub fn dc_id(&self) -> i32 {
@@ -249,7 +274,8 @@ impl Session {
 
     pub(crate) fn downgrade(&self) -> WeakSession {
         let (requests, options, pfs) = (self.requests.downgrade(), self.options.clone(), self.pfs.clone());
-        WeakSession { requests, dc_id: self.dc_id, auth_key: self.auth_key, options, pfs }
+        let learned = self.learned.clone();
+        WeakSession { requests, dc_id: self.dc_id, auth_key: self.auth_key, options, pfs, learned }
     }
 
     /// How long to sleep off `error` before retrying: only FLOOD_WAITs within `flood_sleep_threshold`, each
@@ -258,6 +284,12 @@ impl Session {
         let wait = error.flood_wait()?.max(Duration::from_secs(1));
         let wait = cap.map_or(wait, |cap| wait.min(cap));
         (wait <= self.options.flood_sleep_threshold).then_some(wait)
+    }
+
+    /// The salt and clock offset the connection last learned, to save for the next start.
+    pub fn salt(&self) -> Salt {
+        let l = &self.learned;
+        Salt { value: l.salt.load(Ordering::Relaxed), time_offset: l.time_offset.load(Ordering::Relaxed) }
     }
 
     /// Waits up to the `request_timeout` the session was connected with. Dropping the future abandons the request.
@@ -283,13 +315,14 @@ pub(crate) struct WeakSession {
     auth_key: [u8; 256],
     options: Arc<Options>,
     pfs: Option<Arc<[u8]>>,
+    learned: Arc<Learned>,
 }
 
 impl WeakSession {
     pub(crate) fn upgrade(&self) -> Option<Session> {
         let requests = self.requests.upgrade().filter(|r| !r.is_closed())?;
-        let (options, pfs) = (self.options.clone(), self.pfs.clone());
-        Some(Session { requests, dc_id: self.dc_id, auth_key: self.auth_key, options, pfs })
+        let (options, pfs, learned) = (self.options.clone(), self.pfs.clone(), self.learned.clone());
+        Some(Session { requests, dc_id: self.dc_id, auth_key: self.auth_key, options, pfs, learned })
     }
 }
 
@@ -321,20 +354,20 @@ fn server_key(dc: Dc) -> PublicKey {
 
 async fn handshake(
     dc: Dc,
-    auth_key: Option<[u8; 256]>,
+    auth_key: Option<([u8; 256], Salt)>,
     cdn_key: Option<&PublicKey>,
     options: &Options,
-) -> Result<(Connection, [u8; 256], i64, Option<i64>)> {
+) -> Result<(Connection, [u8; 256], Salt, bool)> {
     Ok(match auth_key {
-        // A stored key brings no server time; the offset is measured once the server complains.
-        Some(key) => (Connection::connect(&dc, options).await?, key, 0, None),
+        // A stored key brings no server time: the saved offset stands until the server confirms or corrects it.
+        Some((key, salt)) => (Connection::connect(&dc, options).await?, key, salt, false),
         None => {
             let key = cdn_key.cloned().unwrap_or_else(|| server_key(dc));
             let mut attempt = 1;
             loop {
                 let mut conn = Connection::connect(&dc, options).await?;
                 match auth::create(&mut conn, dc, &key, None).await {
-                    Ok(c) => break (conn, c.auth_key, c.salt, Some(c.time_offset)),
+                    Ok(c) => break (conn, c.auth_key, Salt { value: c.salt, time_offset: c.time_offset }, true),
                     Err(e) if attempt == HANDSHAKE_ATTEMPTS => return Err(e),
                     Err(_) => attempt += 1,
                 }
@@ -383,12 +416,14 @@ struct Runner {
     auth_key: [u8; 256],
     auth_key_id: [u8; 8],
     session_id: [u8; 8],
-    salt: i64,
+    learned: Arc<Learned>,
     msg_ids: MsgId,
     clock_synced: bool,
     server_msg_ids: ServerMsgIds,
     seq: SeqNo,
     pending: HashMap<i64, Pending>,
+    checking: HashMap<i64, Vec<i64>>,
+    recheck: Vec<i64>,
     queue: VecDeque<Pending>,
     service: VecDeque<(Vec<u8>, bool)>,
     acks: Vec<i64>,
@@ -396,6 +431,7 @@ struct Runner {
     updates: Option<mpsc::Sender<Incoming>>,
     events: Arc<Events>,
     pfs: Option<Pfs>,
+    last_read: Instant,
 }
 
 impl Runner {
@@ -403,7 +439,7 @@ impl Runner {
         dc: Dc,
         options: Arc<Options>,
         conn: Connection,
-        (auth_key, salt, time_offset): ([u8; 256], i64, Option<i64>),
+        (auth_key, salt, clock_synced): ([u8; 256], Salt, bool),
         events: Arc<Events>,
         updates: Option<mpsc::Sender<Incoming>>,
     ) -> Runner {
@@ -417,12 +453,14 @@ impl Runner {
             auth_key,
             auth_key_id: mtproto::auth_key_id(&auth_key),
             session_id: random(),
-            salt,
-            msg_ids: MsgId::new(time_offset.unwrap_or(0)),
-            clock_synced: time_offset.is_some(),
+            learned: Arc::new(Learned { salt: salt.value.into(), time_offset: salt.time_offset.into() }),
+            msg_ids: MsgId::new(salt.time_offset),
+            clock_synced,
             server_msg_ids: ServerMsgIds::default(),
             seq: SeqNo::default(),
             pending: HashMap::new(),
+            checking: HashMap::new(),
+            recheck: Vec::new(),
             queue: VecDeque::new(),
             service: VecDeque::new(),
             acks: Vec::new(),
@@ -430,6 +468,7 @@ impl Runner {
             updates,
             events,
             pfs: None,
+            last_read: Instant::now(),
         }
     }
 
@@ -451,17 +490,17 @@ impl Runner {
                     None => break Error::Disconnected,
                 },
                 packet = self.packets.recv() => match packet {
-                    Some(Ok(p)) => self.handle_packet(&p).await,
+                    Some(Ok(p)) => {
+                        self.last_read = Instant::now();
+                        self.handle_packet(&p).await
+                    }
                     Some(Err(e)) => Err(e),
                     None => Err(Error::Disconnected),
                 },
                 _ = ping.tick() => {
                     if self.temp_key_expiring() { Err(Error::Disconnected) } else { self.ping().await }
                 }
-                _ = tick.tick() => {
-                    self.drop_abandoned();
-                    if self.service.is_empty() && !self.bind_due() { Ok(()) } else { self.flush().await }
-                }
+                _ = tick.tick() => self.tick().await,
                 _ = ack.tick() => self.flush().await,
             };
             match step {
@@ -490,7 +529,7 @@ impl Runner {
         while !requests.is_closed() && self.updates.as_ref().is_none_or(|u| !u.is_closed()) {
             attempt += 1;
             self.reader.abort();
-            tokio::time::sleep(delay).await;
+            tokio::time::sleep(jitter(delay)).await;
             delay = (delay * 2).min(MAX_RECONNECT_DELAY);
             self.drop_abandoned();
             let Ok(mut conn) = Connection::connect(&self.dc, &self.options).await else { continue };
@@ -502,6 +541,7 @@ impl Runner {
                 self.use_temp_key(key);
             }
             (self.writer, self.packets, self.reader) = start_reading(conn);
+            self.last_read = Instant::now();
             if self.resend_pending().await.is_ok() {
                 self.events.reconnected();
                 self.events.emit(ClientEvent::Reconnected { dc: self.dc.id, attempt });
@@ -509,6 +549,15 @@ impl Runner {
                 return;
             }
         }
+    }
+
+    async fn tick(&mut self) -> Result<()> {
+        // Transfer connections rely on their per-part timeout: a slow part keeps the server silent.
+        if self.updates.is_some() && self.last_read.elapsed() > DEAD_AFTER {
+            return Err(Error::Disconnected);
+        }
+        self.drop_abandoned();
+        if self.service.is_empty() && !self.bind_due() { Ok(()) } else { self.flush().await }
     }
 
     fn request_difference(&self) {
@@ -540,13 +589,50 @@ impl Runner {
         });
     }
 
+    // Re-sending a request the server already got runs it twice, so unacked ones get a msgs_state_req first.
     async fn resend_pending(&mut self) -> Result<()> {
-        // Re-sending an acked request could run it twice.
-        let unacked: Vec<i64> = self.pending.iter().filter(|(_, p)| !p.acked).map(|(&id, _)| id).collect();
-        for id in unacked {
-            self.queue.extend(self.pending.remove(&id));
+        self.checking.clear();
+        if self.unbound() {
+            // A fresh temp key starts a new session that can't report on the old key's msg_ids, and
+            // re-sending could run a request twice: the caller decides.
+            for (msg_id, p) in std::mem::take(&mut self.pending) {
+                self.finish(msg_id, p, Err(Error::Disconnected));
+            }
+        } else {
+            self.recheck = self.pending.keys().copied().collect();
+            self.check_state().await?;
         }
         self.ping().await
+    }
+
+    // Bypasses the outbox so we know the msg_id the answer will refer to.
+    async fn check_state(&mut self) -> Result<()> {
+        let recheck = std::mem::take(&mut self.recheck);
+        for chunk in recheck.chunks(MAX_IDS) {
+            let ids: Vec<i64> =
+                chunk.iter().copied().filter(|id| self.pending.get(id).is_some_and(|p| !p.acked)).collect();
+            if ids.is_empty() {
+                continue;
+            }
+            let req = types::MsgsStateReq { msg_ids: ids };
+            let (msg_id, seq_no) = (self.msg_ids.next(), self.seq.next(true));
+            self.writer.send(&self.encrypt(msg_id, seq_no, &req.to_bytes())).await?;
+            self.checking.insert(msg_id, req.msg_ids);
+        }
+        Ok(())
+    }
+
+    fn salt(&self) -> i64 {
+        self.learned.salt.load(Ordering::Relaxed)
+    }
+
+    fn set_salt(&mut self, salt: i64) {
+        self.learned.salt.store(salt, Ordering::Relaxed);
+    }
+
+    fn set_time_offset(&mut self, time_offset: i64) {
+        self.msg_ids.time_offset = time_offset;
+        self.learned.time_offset.store(time_offset, Ordering::Relaxed);
     }
 
     fn enqueue(&mut self, r: Request) {
@@ -613,6 +699,9 @@ impl Runner {
     }
 
     fn resend(&mut self, msg_id: i64) {
+        if let Some(ids) = self.checking.remove(&msg_id) {
+            self.recheck.extend(ids);
+        }
         let sent = self.take_sent(msg_id);
         self.queue.extend(sent.into_iter().map(|(_, p)| p));
     }
@@ -643,6 +732,7 @@ impl Runner {
         if let Some(e) = self.bind_failure() {
             return Err(e);
         }
+        self.check_state().await?;
         if self.acks.len() >= ACKS_THRESHOLD || !self.queue.is_empty() || !self.service.is_empty() {
             self.flush().await?;
         }
@@ -690,6 +780,7 @@ impl Runner {
                 }
             }
             Some(MSGS_STATE_REQ) => self.handle_state_req(msg_id, body),
+            Some(MSGS_STATE_INFO) => self.handle_state_info(body),
             Some(MSG_RESEND_REQ) => self.handle_resend_req(msg_id, body),
             Some(MSGS_ALL_INFO) => self.handle_all_info(body),
             Some(MSG_DETAILED_INFO | MSG_NEW_DETAILED_INFO) => self.handle_detailed_info(body),
@@ -723,4 +814,10 @@ impl Runner {
             self.answer(req_msg_id, answer);
         }
     }
+}
+
+/// Somewhere in the upper half of `delay`, so clients cut off together don't all come back at once.
+fn jitter(delay: Duration) -> Duration {
+    let half = delay / 2;
+    half + half.mul_f64(f64::from(u32::from_le_bytes(random())) / f64::from(u32::MAX))
 }

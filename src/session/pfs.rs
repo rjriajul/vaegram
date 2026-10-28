@@ -137,8 +137,8 @@ impl Runner {
     pub(super) fn use_temp_key(&mut self, key: Created) {
         self.auth_key_id = auth_key_id(&key.auth_key);
         self.auth_key = key.auth_key;
-        self.salt = key.salt;
-        self.msg_ids.time_offset = key.time_offset;
+        self.set_salt(key.salt);
+        self.set_time_offset(key.time_offset);
         self.clock_synced = true;
         self.session_id = random();
         self.seq = SeqNo::default();

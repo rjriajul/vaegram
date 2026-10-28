@@ -554,7 +554,7 @@ async fn user_keeps_peers_across_restarts() {
     let id = user.resolve_username("BotFather").await.unwrap();
     drop(user);
 
-    let (peers, _) = state::load(Path::new(&state_path), me.id).unwrap();
+    let (peers, _, _) = state::load(Path::new(&state_path), me.id).unwrap();
     let saved = peers.get(&id).cloned().expect("BotFather was saved on drop");
     let user = Client::builder(name, api_id, api_hash).connect().await.unwrap();
     assert_eq!(user.resolve_peer(id).await.unwrap(), saved);

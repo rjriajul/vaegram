@@ -5,9 +5,10 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
 use super::{
-    Affected, Answer, Arc, Call, ClientEvent, Connection, Identifiable, Incoming, MAX_CONTAINER_MSGS, Observer,
-    Options, RPC_RESULT, Request, Runner, Serializable, Session, UPDATES_BUFFER, UpdatesRx, base, constructor_id,
-    functions, gzip_packed, mpsc, msg_container, mtproto, oneshot, outbox, types,
+    Affected, Answer, Arc, Call, ClientEvent, Connection, DEAD_AFTER, Identifiable, Incoming, Instant,
+    MAX_CONTAINER_MSGS, Observer, Options, RPC_RESULT, Request, Runner, Salt, Serializable, Session, UPDATES_BUFFER,
+    UpdatesRx, base, constructor_id, functions, gzip_packed, internals, jitter, mpsc, msg_container, mtproto, oneshot,
+    outbox, types,
 };
 use crate::errors::{Error, RpcError};
 use crate::session::internals::data_center::Dc;
@@ -17,11 +18,15 @@ type Frames = mpsc::UnboundedReceiver<Vec<u8>>;
 type Seen = Arc<Mutex<Vec<(&'static str, i64, Result<Vec<u8>, String>)>>>;
 
 async fn runner() -> (Runner, Frames, UpdatesRx) {
-    let (runner, frames, updates, _) = listening().await;
+    runner_with(Salt::default()).await
+}
+
+async fn runner_with(salt: Salt) -> (Runner, Frames, UpdatesRx) {
+    let (runner, frames, updates, _) = listening(salt).await;
     (runner, frames, updates)
 }
 
-async fn listening() -> (Runner, Frames, UpdatesRx, TcpListener) {
+async fn listening(salt: Salt) -> (Runner, Frames, UpdatesRx, TcpListener) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let options = Options { transport: crate::connection::Transport::Intermediate, ..Options::default() };
@@ -40,7 +45,7 @@ async fn listening() -> (Runner, Frames, UpdatesRx, TcpListener) {
     });
 
     let (events, (tx, rx)) = (Arc::default(), mpsc::channel(UPDATES_BUFFER));
-    let runner = Runner::new(dc, Arc::new(options), conn, ([7; 256], 0, Some(0)), Arc::clone(&events), Some(tx));
+    let runner = Runner::new(dc, Arc::new(options), conn, ([7; 256], salt, true), Arc::clone(&events), Some(tx));
     let updates = UpdatesRx { rx, events };
     (runner, frames, updates, listener)
 }
@@ -137,25 +142,124 @@ async fn forgets_abandoned_requests() {
 
     r.resend_pending().await.unwrap();
     let (_, _, body) = recv(&mut frames, &r).await;
-    assert_eq!(msg_container::parse(&body).unwrap().len(), 4);
+    assert_eq!(body, types::MsgsStateReq { msg_ids: vec![ids[2]] }.to_bytes());
+    let (_, _, body) = recv(&mut frames, &r).await;
+    assert_eq!(msg_container::parse(&body).unwrap().len(), 3);
     assert_eq!(r.pending.values().map(|p| &p.body).collect::<Vec<_>>(), [&ping(3)]);
 }
 
-#[tokio::test]
-async fn reconnect_keeps_acked_requests_waiting() {
-    let (mut r, mut frames, _updates) = runner().await;
-    let _rx: Vec<_> = (0..2).map(|i| request(&mut r, ping(i))).collect();
+async fn reconnect_with_one_unacked(r: &mut Runner, frames: &mut Frames) -> (i64, i64, Vec<oneshot::Receiver<Answer>>) {
+    let rx = (0..2).map(|i| request(r, ping(i))).collect();
     r.flush().await.unwrap();
-    let (_, _, body) = recv(&mut frames, &r).await;
+    let (_, _, body) = recv(frames, r).await;
     let ids: Vec<i64> = msg_container::parse(&body).unwrap().iter().map(|m| m.msg_id).collect();
 
     r.handle_message(1, 0, &types::MsgsAck { msg_ids: vec![ids[0]] }.to_bytes());
     r.resend_pending().await.unwrap();
+    let (check, seq_no, body) = recv(frames, r).await;
+    assert_eq!(body, types::MsgsStateReq { msg_ids: vec![ids[1]] }.to_bytes());
+    assert_eq!(seq_no % 2, 1);
+    let (_, _, body) = recv(frames, r).await;
+    assert_eq!(constructor_id(&body), Some(<functions::PingDelayDisconnect as Identifiable>::CONSTRUCTOR_ID));
+    assert!(r.pending.contains_key(&ids[0]) && r.pending.contains_key(&ids[1]) && r.queue.is_empty());
+    (ids[1], check, rx)
+}
+
+#[tokio::test]
+async fn reconnect_resends_only_what_the_server_never_got() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let (unacked, check, _rx) = reconnect_with_one_unacked(&mut r, &mut frames).await;
+    r.handle_message(3, 0, &types::MsgsStateInfo { req_msg_id: check, info: vec![2] }.to_bytes());
+    r.flush().await.unwrap();
+    let (msg_id, _, body) = recv(&mut frames, &r).await;
+    assert_eq!(body, ping(1));
+    assert!(msg_id > unacked && !r.pending.contains_key(&unacked) && r.pending.contains_key(&msg_id));
+    assert!(r.checking.is_empty());
+}
+
+#[tokio::test]
+async fn reconnect_keeps_waiting_for_what_the_server_got() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let (unacked, check, _rx) = reconnect_with_one_unacked(&mut r, &mut frames).await;
+    r.handle_message(3, 0, &types::MsgsStateInfo { req_msg_id: check, info: vec![1 | 32] }.to_bytes());
+    assert!(r.pending[&unacked].acked && r.queue.is_empty() && r.checking.is_empty());
+
+    r.resend_pending().await.unwrap();
     let (_, _, body) = recv(&mut frames, &r).await;
-    let msgs = msg_container::parse(&body).unwrap();
-    assert_eq!(msgs.len(), 2);
-    assert_eq!(msgs[1].body, ping(1));
-    assert!(r.pending.contains_key(&ids[0]) && r.pending.contains_key(&msgs[1].msg_id));
+    assert_eq!(constructor_id(&body), Some(<functions::PingDelayDisconnect as Identifiable>::CONSTRUCTOR_ID));
+}
+
+#[tokio::test]
+async fn a_status_with_the_received_flag_is_not_resent() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let (unacked, check, _rx) = reconnect_with_one_unacked(&mut r, &mut frames).await;
+    r.handle_message(3, 0, &types::MsgsStateInfo { req_msg_id: check, info: vec![2 | 128] }.to_bytes());
+    assert!(r.queue.is_empty() && r.pending[&unacked].acked);
+}
+
+#[tokio::test]
+async fn ids_a_short_status_answer_leaves_out_are_asked_again() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let _rx: Vec<_> = (0..2).map(|i| request(&mut r, ping(i))).collect();
+    r.flush().await.unwrap();
+    let _ = recv(&mut frames, &r).await;
+    r.resend_pending().await.unwrap();
+    let (check, _, body) = recv(&mut frames, &r).await;
+    let asked = <base::MsgsStateReq as crate::raw::Deserializable>::from_bytes(&body).unwrap();
+    let base::MsgsStateReq::MsgsStateReq(asked) = asked;
+    let ids = asked.msg_ids;
+    assert_eq!(ids.len(), 2);
+
+    r.handle_message(3, 0, &types::MsgsStateInfo { req_msg_id: check, info: vec![4] }.to_bytes());
+    assert!(r.pending[&ids[0]].acked && !r.pending[&ids[1]].acked && r.queue.is_empty());
+    assert_eq!(r.recheck, [ids[1]]);
+}
+
+#[tokio::test]
+async fn a_status_check_refused_for_another_reason_is_asked_again() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let (unacked, check, _rx) = reconnect_with_one_unacked(&mut r, &mut frames).await;
+    let bad = types::BadMsgNotification { bad_msg_id: check, bad_msg_seqno: 1, error_code: 64 };
+    r.handle_message(3, 0, &bad.to_bytes());
+    assert!(r.checking.is_empty() && r.queue.is_empty() && r.pending.contains_key(&unacked));
+    assert_eq!(r.recheck, [unacked]);
+}
+
+#[tokio::test]
+async fn status_check_refused_for_bad_salt_is_asked_again() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let (unacked, check, _rx) = reconnect_with_one_unacked(&mut r, &mut frames).await;
+    let salt = types::BadServerSalt { bad_msg_id: check, bad_msg_seqno: 1, error_code: 48, new_server_salt: 5 };
+    r.handle_message(3, 0, &salt.to_bytes());
+    assert_eq!(r.recheck, [unacked]);
+    r.check_state().await.unwrap();
+    let (again, _, body) = recv(&mut frames, &r).await;
+    assert_eq!(body, types::MsgsStateReq { msg_ids: vec![unacked] }.to_bytes());
+    assert!(r.checking.contains_key(&again) && !r.checking.contains_key(&check));
+    assert!(r.queue.is_empty() && r.pending.contains_key(&unacked));
+}
+
+#[tokio::test]
+async fn silent_connection_is_declared_dead() {
+    let (mut r, _frames, _updates) = runner().await;
+    assert!(r.tick().await.is_ok());
+    r.last_read = Instant::now().checked_sub(DEAD_AFTER + Duration::from_secs(1)).unwrap();
+    assert!(matches!(r.tick().await, Err(Error::Disconnected)));
+}
+
+#[tokio::test]
+async fn transfer_connections_wait_out_slow_parts() {
+    let (mut r, _frames, _updates) = runner().await;
+    r.updates = None;
+    r.last_read = Instant::now().checked_sub(DEAD_AFTER + Duration::from_secs(30)).unwrap();
+    assert!(r.tick().await.is_ok());
+}
+
+#[test]
+fn reconnect_delay_is_jittered_within_the_upper_half() {
+    let delays: Vec<Duration> = (0..64).map(|_| jitter(Duration::from_secs(8))).collect();
+    assert!(delays.iter().all(|d| (Duration::from_secs(4)..=Duration::from_secs(8)).contains(d)));
+    assert!(delays.windows(2).any(|w| w[0] != w[1]));
 }
 
 #[tokio::test]
@@ -187,7 +291,32 @@ async fn bad_salt_for_a_container_resends_every_request() {
 
     let salt = types::BadServerSalt { bad_msg_id, bad_msg_seqno, error_code: 48, new_server_salt: 1 };
     r.handle_message(1, 0, &salt.to_bytes());
-    assert_eq!((r.salt, r.queue.len(), r.pending.len()), (1, 2, 0));
+    assert_eq!((r.salt(), r.queue.len(), r.pending.len()), (1, 2, 0));
+}
+
+#[tokio::test]
+async fn learned_salt_and_clock_are_kept_for_the_state_file() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let _rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    let (bad_msg_id, bad_msg_seqno, _) = recv(&mut frames, &r).await;
+
+    let salt = types::BadServerSalt { bad_msg_id, bad_msg_seqno, error_code: 48, new_server_salt: 77 };
+    r.handle_message(1, 0, &salt.to_bytes());
+    let server_time = internals::now() + 100;
+    let too_low = types::BadMsgNotification { bad_msg_id, bad_msg_seqno, error_code: 16 };
+    r.handle_message((server_time << 32) | 1, 0, &too_low.to_bytes());
+    let session = Session { learned: r.learned.clone(), ..Session::local(mpsc::unbounded_channel().0) };
+    let saved = session.salt();
+    assert_eq!(saved.value, 77);
+    assert!((saved.time_offset - 100).abs() <= 1, "{saved:?}");
+}
+
+#[tokio::test]
+async fn starts_with_the_saved_salt_and_clock() {
+    let (mut r, _frames, _updates) = runner_with(Salt { value: 9, time_offset: -40 }).await;
+    assert_eq!(r.salt(), 9);
+    assert!(((r.msg_ids.next() >> 32) - internals::now() + 40).abs() <= 1);
 }
 
 #[tokio::test]
@@ -258,6 +387,8 @@ async fn stored_key_waits_for_a_measured_clock_before_the_time_window() {
     let notification = types::BadMsgNotification { bad_msg_id, bad_msg_seqno, error_code: 16 };
     r.handle_message((skewed << 32) | 5, 0, &notification.to_bytes());
     assert!(r.clock_synced);
+    let session = Session { learned: r.learned.clone(), ..Session::local(mpsc::unbounded_channel().0) };
+    assert!((session.salt().time_offset - 3600).abs() <= 1, "the corrected offset is saved");
     assert!(r.fresh((skewed << 32) | 9, &ping(1)));
     assert!(!r.fresh(((skewed - 600) << 32) | 1, &ping(1)));
     assert!(rx.try_recv().is_err());
@@ -317,7 +448,7 @@ async fn answers_that_are_not_updates_are_not_reported() {
 
 #[tokio::test]
 async fn reconnect_is_reported() {
-    let (mut r, _frames, mut updates, listener) = listening().await;
+    let (mut r, _frames, mut updates, listener) = listening(Salt::default()).await;
     let events = r.events.record();
     let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
     let (_sender, requests) = mpsc::unbounded_channel();
@@ -477,6 +608,24 @@ async fn temp_key_carries_only_the_bind_until_bound() {
 }
 
 #[tokio::test]
+async fn requests_sent_under_a_lost_temp_key_are_failed_not_resent() {
+    let (mut r, mut frames, _updates) = runner().await;
+    r.pfs = Some(Pfs::new([9; 256], false, ping(77), i64::MAX));
+    r.flush().await.unwrap();
+    let (bind_id, _, _) = recv(&mut frames, &r).await;
+    r.handle_message(1, 1, &rpc_result(bind_id, &BOOL_TRUE.to_le_bytes()));
+    let mut rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    let _ = recv(&mut frames, &r).await;
+    assert!(r.pending.values().any(|p| p.body == ping(1)));
+
+    r.use_temp_key(Created { auth_key: [8; 256], salt: 5, time_offset: 0 });
+    r.resend_pending().await.unwrap();
+    assert!(matches!(rx.try_recv(), Ok(Err(Error::Disconnected))));
+    assert!(r.pending.is_empty() && r.queue.is_empty() && r.recheck.is_empty());
+}
+
+#[tokio::test]
 async fn stale_perm_key_ends_the_session_like_a_404() {
     let (mut r, mut frames, _updates) = runner().await;
     r.pfs = Some(Pfs::new([9; 256], false, ping(77), i64::MAX));
@@ -549,4 +698,14 @@ async fn a_404_before_the_bind_is_answered_gets_a_new_temp_key() {
     assert!(r.unbound() && r.temp_key_stale());
     assert!(!r.ends_session(&Error::Transport(404)), "bind sent");
     assert!(r.temp_key_stale());
+}
+
+#[tokio::test]
+async fn saved_clock_offset_is_confirmed_by_the_server() {
+    let (mut r, _frames, _updates) = runner_with(Salt { value: 9, time_offset: -3600 }).await;
+    r.clock_synced = false;
+    let server_now = crate::session::internals::now() - 3600;
+    assert!(r.fresh((server_now << 32) | 1, &ping(1)));
+    assert!(r.clock_synced);
+    assert!(!r.fresh(((server_now - 600) << 32) | 1, &ping(1)));
 }
