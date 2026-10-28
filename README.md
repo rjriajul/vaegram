@@ -183,7 +183,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   `ServiceAction::ManagedBotCreated` (not yet tested live)
 - [ ] Raw updates with their users and chats: `update.user(id)`, `update.chat(id)`, `update.to_json(..)`; TL objects
   only behind the experimental `unstable-raw` feature (not yet tested live)
-- [ ] Client events: reconnects, dropped packets, skipped or unknown updates and failed handlers via `app.on_event(|e| ..)` (not yet tested live)
+- [ ] Client events: reconnects, dropped packets, skipped or unknown updates and failed handlers via `app.on_event(|e| ..)`;
+  updates that will never arrive (`UpdatesSkipped`, `UpdatesDropped`) and failed recording writes (not yet tested live)
 - [ ] Bot commands, reaction removal, personal channel messages, Stars subscription updates (not yet tested live)
 - [ ] Communities: `msg.service` (`ServiceAction::CommunityChatAdded`, ..), `get_chat(..).community` (not yet tested live)
 - [ ] Message drafts and streaming: `stream_message(chat).can_stop()`, `on_message_generation_stopped` (not yet tested live)

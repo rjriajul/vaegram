@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::enums::ClientEvent;
@@ -9,7 +9,8 @@ type Listener = Arc<dyn Fn(ClientEvent) + Send + Sync>;
 #[derive(Default)]
 pub struct Events {
     listener: RwLock<Option<Listener>>,
-    dropped: AtomicU32,
+    // Dropped batches in the low half, the unrecoverable ones among them in the high half.
+    dropped: AtomicU64,
     reconnected: AtomicBool,
     affected: Mutex<Vec<Affected>>,
 }
@@ -50,12 +51,14 @@ impl Events {
         }
     }
 
-    pub(crate) fn drop_updates(&self) {
-        self.dropped.fetch_add(1, Ordering::Release);
+    pub(crate) fn drop_updates(&self, updates: &base::Updates) {
+        self.dropped.fetch_add(1 | (u64::from(unrecoverable(updates)) << 32), Ordering::AcqRel);
     }
 
-    pub(crate) fn take_dropped(&self) -> u32 {
-        self.dropped.swap(0, Ordering::AcqRel)
+    /// Dropped batches, and how many of those held updates getDifference can't bring back.
+    pub(crate) fn take_dropped(&self) -> (u32, u32) {
+        let dropped = self.dropped.swap(0, Ordering::AcqRel);
+        (dropped as u32, (dropped >> 32) as u32)
     }
 
     pub(crate) fn reconnected(&self) {
@@ -91,6 +94,17 @@ impl Events {
             let _ = tx.send(e);
         }));
         rx
+    }
+}
+
+// getDifference replays only what moved pts or qts.
+fn unrecoverable(updates: &base::Updates) -> bool {
+    let lost = |u: &base::Update| u.pts().is_none() && u.qts().is_none();
+    match updates {
+        base::Updates::UpdateShort(u) => lost(&u.update),
+        base::Updates::Updates(u) => u.updates.iter().any(lost),
+        base::Updates::UpdatesCombined(u) => u.updates.iter().any(lost),
+        _ => false,
     }
 }
 

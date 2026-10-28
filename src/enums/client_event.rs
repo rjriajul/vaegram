@@ -1,3 +1,4 @@
+use super::SkipReason;
 use crate::errors::Error;
 use crate::handlers::HandlerError;
 
@@ -30,8 +31,22 @@ pub enum ClientEvent {
     RecordingFailed {
         error: std::io::Error,
     },
-    /// The handlers fell behind and `count` batches of updates didn't fit in the queue; they're being refetched.
+    /// The handlers fell behind and `count` batches of updates didn't fit in the queue. Updates that move pts or
+    /// qts are fetched again; `unrecoverable` of the batches also held others (callback queries, typing, ...) that
+    /// are gone. More `max_concurrent_handlers` or faster handlers keep it at 0.
+    #[non_exhaustive]
     UpdatesDropped {
         count: u32,
+        unrecoverable: u32,
+    },
+    /// The updates with pts `from..to` of a channel (`chat_id`) or of the account (`None`) will never be
+    /// delivered. `from == to` when the fetch stopped before Telegram said how many there were. Gaps in qts
+    /// (participant changes, join requests, a bot being stopped, ...) aren't reported.
+    #[non_exhaustive]
+    UpdatesSkipped {
+        chat_id: Option<i64>,
+        from: i32,
+        to: i32,
+        reason: SkipReason,
     },
 }

@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use super::Dispatcher;
 use super::entities::Entities;
-use super::tracker::channel_of;
+use super::tracker::{Key, channel_of};
+use crate::enums::SkipReason;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::utils::get_channel_id;
@@ -39,7 +40,8 @@ impl Dispatcher {
                     return Ok(());
                 }
                 base::updates::Difference::DifferenceTooLong(d) if d.pts != t.state.pts => {
-                    t.state.pts = d.pts;
+                    let from = std::mem::replace(&mut t.state.pts, d.pts);
+                    self.skipped(Key::Pts, from, d.pts, SkipReason::TooLong);
                     continue;
                 }
                 base::updates::Difference::DifferenceTooLong(_) => return Ok(()),
@@ -97,7 +99,11 @@ impl Dispatcher {
                         self.tracker.emit(new_channel_message(message), &entities);
                     }
                     if let base::Dialog::Dialog(dialog) = &d.dialog {
-                        pts = dialog.pts.unwrap_or(pts);
+                        let to = dialog.pts.unwrap_or(pts);
+                        if to > pts {
+                            self.skipped(Key::Channel(channel_id), pts, to, SkipReason::TooLong);
+                        }
+                        pts = to;
                     }
                     break;
                 }

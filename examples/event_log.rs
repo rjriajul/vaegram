@@ -11,7 +11,12 @@ async fn main() -> vaegram::Result<()> {
 
     app.on_event(|event| match event {
         ClientEvent::Reconnected { dc, attempt } => println!("back on DC {dc} after {attempt} tries"),
-        ClientEvent::UpdatesDropped { count } => println!("{count} update batches dropped, refetching"),
+        ClientEvent::UpdatesDropped { count, unrecoverable, .. } => {
+            println!("{count} update batches dropped, {unrecoverable} with updates that can't be fetched again")
+        }
+        ClientEvent::UpdatesSkipped { chat_id, from, to, reason, .. } => {
+            println!("lost pts {from}..{to} of {chat_id:?}: {reason:?}")
+        }
         other => println!("{other:?}"),
     });
 

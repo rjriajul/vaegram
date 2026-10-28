@@ -15,11 +15,12 @@ use tasks::Tasks;
 use tracker::{Key, Tracker};
 
 use crate::Client;
-use crate::enums::ClientEvent;
+use crate::enums::{ClientEvent, SkipReason};
 use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::session::{Incoming, UpdatesRx};
 use crate::storage::state::UpdateState;
+use crate::utils::get_channel_id;
 
 const SAVE_EVERY: Duration = Duration::from_secs(10);
 
@@ -126,16 +127,26 @@ impl Dispatcher {
                 Key::Channel(id) => self.channel_difference(id).await,
                 _ => self.difference().await,
             };
-            self.tracker.recover(&result, key);
+            let skipped = self.tracker.recover(&result, key);
             self.report(result);
+            for s in skipped {
+                self.skipped(s.key, s.from, s.to, s.reason);
+            }
         }
     }
 
     fn report(&self, result: Result<()>) {
         if let Err(error) = result {
-            eprintln!("vaegram: failed to fetch missed updates: {error}");
             self.client.0.events.emit(ClientEvent::DifferenceFailed { error });
         }
+    }
+
+    fn skipped(&self, key: Key, from: i32, to: i32, reason: SkipReason) {
+        let chat_id = match key {
+            Key::Channel(id) => Some(get_channel_id(id)),
+            _ => None,
+        };
+        self.client.0.events.emit(ClientEvent::UpdatesSkipped { chat_id, from, to, reason });
     }
 
     fn dispatch(&mut self, update: base::Update, entities: &Arc<Entities>) {
@@ -163,7 +174,7 @@ impl Drop for Dispatcher {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::{ClientEvent, Dispatcher, Entities, Incoming, base, types};
+    use super::{ClientEvent, Dispatcher, Entities, Incoming, Key, SkipReason, base, types};
     use crate::Client;
     use crate::errors::{Error, RpcError};
     use crate::raw::{Identifiable, Serializable};
@@ -387,5 +398,82 @@ mod tests {
         let (first, second) = (first.lock().unwrap(), second.lock().unwrap());
         assert!(Arc::ptr_eq(&first[0].entities, &second[0].entities));
         assert_eq!(Arc::strong_count(&first[0].entities), 2);
+    }
+
+    fn dialog(channel_id: i64, pts: i32) -> base::Dialog {
+        let mut buf = Vec::new();
+        1u32.serialize(&mut buf);
+        get_peer(get_channel_id(channel_id)).serialize(&mut buf);
+        for _ in 0..7 {
+            0i32.serialize(&mut buf);
+        }
+        // peerNotifySettings with no flags.
+        0x99622c0cu32.serialize(&mut buf);
+        0u32.serialize(&mut buf);
+        pts.serialize(&mut buf);
+        base::Dialog::Dialog(Box::new(types::Dialog::deserialize_bare(&mut &buf[..]).unwrap()))
+    }
+
+    fn in_channel(
+        replies: Vec<crate::errors::Result<Vec<u8>>>,
+        pts: i32,
+    ) -> (Dispatcher, std::sync::mpsc::Receiver<ClientEvent>) {
+        let (client, _sent) = Client::scripted(replies);
+        let channel =
+            base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 9, access_hash: 1 }));
+        client.0.peers.lock().unwrap().insert(get_channel_id(9), channel);
+        let events = client.0.events.record();
+        let mut d = Dispatcher::new(client, &state());
+        d.tracker.state.channels.insert(9, pts);
+        d.tracker.mark(Key::Channel(9));
+        (d, events)
+    }
+
+    #[tokio::test]
+    async fn too_long_differences_report_the_skipped_range() {
+        let too_long = base::updates::Difference::DifferenceTooLong(types::updates::DifferenceTooLong { pts: 50 });
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 0, seq: 0 });
+        let (client, _sent) = Client::scripted(vec![Ok(too_long.to_bytes()), Ok(empty.to_bytes())]);
+        let events = client.0.events.record();
+        let mut d = Dispatcher::new(client, &types::updates::State { pts: 10, ..state() });
+        deliver(&mut d, base::Updates::UpdatesTooLong).await;
+
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        let skipped = ClientEvent::UpdatesSkipped { chat_id: None, from: 10, to: 50, reason: SkipReason::TooLong };
+        assert_eq!(format!("{got:?}"), format!("{:?}", [skipped]));
+        assert_eq!(d.tracker.state.pts, 50);
+    }
+
+    #[tokio::test]
+    async fn too_long_channel_differences_report_the_skipped_range() {
+        let too_long = types::updates::ChannelDifferenceTooLong {
+            r#final: true,
+            timeout: None,
+            dialog: dialog(9, 50),
+            messages: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        let too_long = base::updates::ChannelDifference::ChannelDifferenceTooLong(Box::new(too_long));
+        let (mut d, events) = in_channel(vec![Ok(too_long.to_bytes())], 10);
+        d.resolve().await;
+
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        let chat_id = Some(get_channel_id(9));
+        let skipped = ClientEvent::UpdatesSkipped { chat_id, from: 10, to: 50, reason: SkipReason::TooLong };
+        assert_eq!(format!("{got:?}"), format!("{:?}", [skipped]));
+        assert_eq!(d.tracker.state.channels[&9], 50);
+    }
+
+    #[tokio::test]
+    async fn refused_channel_differences_report_where_they_stopped() {
+        let (mut d, events) = in_channel(vec![Err(Error::Rpc(RpcError::new(400, "CHANNEL_PRIVATE")))], 10);
+        d.resolve().await;
+
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        let chat_id = Some(get_channel_id(9));
+        let skipped = ClientEvent::UpdatesSkipped { chat_id, from: 10, to: 10, reason: SkipReason::Refused };
+        assert!(matches!(got[..], [ClientEvent::DifferenceFailed { .. }, _]), "{got:?}");
+        assert_eq!(format!("{:?}", got[1]), format!("{skipped:?}"));
     }
 }

@@ -345,7 +345,7 @@ async fn dropped_updates_ask_for_a_difference() {
     let first = updates.recv().await.unwrap().updates;
     let second = updates.recv().await.unwrap().updates;
     assert!(matches!((first, second), (base::Updates::UpdatesTooLong, base::Updates::Updates(_))));
-    assert!(matches!(events.try_recv(), Ok(ClientEvent::UpdatesDropped { count: 1 })));
+    assert!(matches!(events.try_recv(), Ok(ClientEvent::UpdatesDropped { count: 1, unrecoverable: 0 })));
 }
 
 #[tokio::test]
@@ -754,4 +754,27 @@ async fn leased_connections_start_with_the_salt_the_slot_learned() {
     let opened = lease.sessions[1].clone();
     tokio::spawn(async move { opened.invoke(&functions::Ping { ping_id: 1 }).await });
     assert_eq!(first_salt(&listener, live.auth_key()).await, 78);
+}
+
+#[tokio::test]
+async fn dropped_updates_without_pts_are_counted_as_lost() {
+    let (mut r, _frames, mut updates) = runner().await;
+    let events = r.events.record();
+    let empty = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 0, seq: 0 };
+    for id in 0..UPDATES_BUFFER as i64 {
+        r.handle_message(id, 0, &base::Updates::Updates(Box::new(empty.clone())).to_bytes());
+    }
+    let query = types::UpdateBotCallbackQuery {
+        query_id: 1,
+        user_id: 7,
+        peer: crate::utils::get_peer(7),
+        msg_id: 1,
+        chat_instance: 0,
+        data: None,
+        game_short_name: None,
+    };
+    let update = types::UpdateShort { update: base::Update::UpdateBotCallbackQuery(Box::new(query)), date: 0 };
+    r.handle_message(UPDATES_BUFFER as i64, 0, &base::Updates::UpdateShort(Box::new(update)).to_bytes());
+    assert!(matches!(updates.recv().await.unwrap().updates, base::Updates::UpdatesTooLong));
+    assert!(matches!(events.try_recv(), Ok(ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 })));
 }

@@ -5,6 +5,7 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 use super::Entities;
+use crate::enums::SkipReason;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::storage::state::UpdateState;
@@ -48,6 +49,14 @@ pub(super) enum Item {
     Update(base::Update, Arc<Entities>),
     Batch(Vec<base::Update>, Arc<Entities>, i32, bool),
     Counter,
+}
+
+#[derive(Debug, PartialEq)]
+pub(super) struct Skipped {
+    pub(super) key: Key,
+    pub(super) from: i32,
+    pub(super) to: i32,
+    pub(super) reason: SkipReason,
 }
 
 pub(super) struct Pending {
@@ -218,26 +227,38 @@ impl Tracker {
         }
     }
 
-    pub(super) fn recover(&mut self, result: &Result<()>, key: Key) {
+    /// The pts ranges given up on, when the fetch for `key` won't be retried.
+    pub(super) fn recover(&mut self, result: &Result<()>, key: Key) -> Vec<Skipped> {
         let due = |k: Key| match key {
             Key::Channel(_) => k == key,
             _ => !matches!(k, Key::Channel(_)),
         };
-        let delay = match result {
-            Ok(()) => None,
+        let flood = result.as_ref().err().and_then(Error::flood_wait);
+        let retry = match (result, flood) {
+            (Ok(()), _) => Err(None),
             // FLOOD_WAIT_X and friends: asking before X seconds pass only fails again.
-            Err(e) if e.flood_wait().is_some() => e.flood_wait().map(|w| w.max(Duration::from_secs(1))),
-            Err(Error::Rpc(e)) if !(400..500).contains(&e.code) => self.backoff(key),
-            Err(Error::Io(_) | Error::Transport(_) | Error::Disconnected | Error::Timeout | Error::BadMessage(_)) => {
-                self.backoff(key)
-            }
+            (_, Some(wait)) => Ok(wait.max(Duration::from_secs(1))),
+            (Err(Error::Rpc(e)), _) if !(400..500).contains(&e.code) => self.backoff(key),
+            (
+                Err(Error::Io(_) | Error::Transport(_) | Error::Disconnected | Error::Timeout | Error::BadMessage(_)),
+                _,
+            ) => self.backoff(key),
             // 4xx refusals and bad answers fail the same way next time, so deliver what we hold and give up on the gap.
-            Err(_) => None,
+            (Err(_), _) => Err(Some(SkipReason::Refused)),
         };
         self.retries.retain(|(_, k)| *k != key);
-        let Some(delay) = delay else {
-            self.failures.retain(|(k, _)| *k != key);
-            return self.settle(due);
+        let delay = match retry {
+            Ok(delay) => delay,
+            Err(reason) => {
+                self.failures.retain(|(k, _)| *k != key);
+                let mut skipped = self.settle(due, reason);
+                // A qts gap has no pts range to report.
+                if let (Some(reason), true, Key::Pts | Key::Channel(_)) = (reason, skipped.is_empty(), key) {
+                    let at = *self.counter(key);
+                    skipped.push(Skipped { key, from: at, to: at, reason });
+                }
+                return skipped;
+            }
         };
         let deadline = Instant::now() + delay;
         for (d, _) in self.pending.iter_mut().filter(|(_, p)| due(p.key)) {
@@ -245,9 +266,10 @@ impl Tracker {
         }
         // After updatesTooLong nothing may be pending, so the retry keeps its own deadline.
         self.retries.push((deadline, key));
+        Vec::new()
     }
 
-    fn backoff(&mut self, key: Key) -> Option<Duration> {
+    fn backoff(&mut self, key: Key) -> std::result::Result<Duration, Option<SkipReason>> {
         let n = match self.failures.iter_mut().find(|(k, _)| *k == key) {
             Some((_, n)) => {
                 *n += 1;
@@ -258,25 +280,38 @@ impl Tracker {
                 1
             }
         };
-        (n <= MAX_RETRIES).then(|| GAP_TIMEOUT * 2u32.pow(n - 1))
+        (n <= MAX_RETRIES).then(|| GAP_TIMEOUT * 2u32.pow(n - 1)).ok_or(Some(SkipReason::GaveUp))
     }
 
-    pub(super) fn settle(&mut self, due: impl Fn(Key) -> bool) {
+    /// Delivers what is held for the `due` keys; with a `reason`, the pts holes left before them are reported.
+    pub(super) fn settle(&mut self, due: impl Fn(Key) -> bool, reason: Option<SkipReason>) -> Vec<Skipped> {
         let (mut settled, rest): (Vec<_>, Vec<_>) =
             std::mem::take(&mut self.pending).into_iter().partition(|(_, p)| due(p.key));
         self.pending = rest;
         settled.sort_unstable_by_key(|(_, p)| (p.key, p.before));
+        let mut skipped = Vec::new();
         for (_, p) in settled {
-            if *self.counter(p.key) < p.after {
-                self.apply(p);
+            let local = *self.counter(p.key);
+            if local >= p.after {
+                continue;
             }
+            if let (Some(reason), Key::Pts | Key::Channel(_)) = (reason, p.key) {
+                if local < p.before {
+                    skipped.push(Skipped { key: p.key, from: local, to: p.before, reason });
+                }
+            }
+            self.apply(p);
         }
+        skipped
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Arc, Duration, Error, GAP_TIMEOUT, IDLE_TIMEOUT, Instant, Key, Tracker, UpdateState, base, types};
+    use super::{
+        Arc, Duration, Error, GAP_TIMEOUT, IDLE_TIMEOUT, Instant, Key, SkipReason, Skipped, Tracker, UpdateState, base,
+        types,
+    };
     use crate::errors::RpcError;
 
     fn delete(pts: i32, pts_count: i32) -> base::Update {
@@ -342,7 +377,7 @@ mod tests {
         t.update(delete(12, 1), &e, false);
         t.update(delete(14, 1), &e, false);
         t.state.pts = 12;
-        t.settle(|key| key == Key::Pts);
+        t.settle(|key| key == Key::Pts, None);
         assert_eq!((delivered(&mut t), t.state.pts, t.pending.len()), (vec![14], 14, 0));
     }
 
@@ -351,7 +386,7 @@ mod tests {
         let (mut t, e) = (tracker(0, 5, 0), Arc::default());
         t.update(stopped(7), &e, false);
         assert!(delivered(&mut t).is_empty());
-        t.settle(|key| !matches!(key, Key::Channel(_)));
+        t.settle(|key| !matches!(key, Key::Channel(_)), None);
         assert_eq!((delivered(&mut t), t.state.qts), (vec![7], 7));
         t.update(stopped(8), &e, false);
         assert_eq!(delivered(&mut t), [8]);
@@ -395,7 +430,8 @@ mod tests {
     fn refused_difference_delivers_held_updates() {
         let (mut t, e) = (tracker(10, 0, 0), Arc::default());
         t.update(delete(12, 1), &e, false);
-        t.recover(&Err(Error::Rpc(RpcError::new(400, "CHANNEL_PRIVATE"))), Key::Pts);
+        let skipped = t.recover(&Err(Error::Rpc(RpcError::new(400, "CHANNEL_PRIVATE"))), Key::Pts);
+        assert_eq!(skipped, [Skipped { key: Key::Pts, from: 10, to: 11, reason: SkipReason::Refused }]);
         assert_eq!(delivered(&mut t), [12]);
         t.update(delete(14, 1), &e, false);
         t.recover(&Err(Error::Unexpected("bad difference")), Key::Pts);
@@ -460,8 +496,18 @@ mod tests {
             t.recover(&Err(offline()), Key::Pts);
             assert!(t.deadline() >= Some(start + GAP_TIMEOUT * 2u32.pow(n)));
         }
-        t.recover(&Err(offline()), Key::Pts);
+        let skipped = t.recover(&Err(offline()), Key::Pts);
+        assert_eq!(skipped, [Skipped { key: Key::Pts, from: 10, to: 11, reason: SkipReason::GaveUp }]);
         assert_eq!((delivered(&mut t), t.pending.len(), t.deadline()), (vec![12], 0, None));
+    }
+
+    #[test]
+    fn giving_up_with_nothing_held_reports_where_it_stopped() {
+        let mut t = tracker(0, 0, 0);
+        t.state.channels.insert(1, 7);
+        let skipped = t.recover(&Err(Error::Rpc(RpcError::new(400, "CHANNEL_PRIVATE"))), Key::Channel(1));
+        assert_eq!(skipped, [Skipped { key: Key::Channel(1), from: 7, to: 7, reason: SkipReason::Refused }]);
+        assert!(t.recover(&Ok(()), Key::Pts).is_empty());
     }
 
     #[test]
@@ -495,7 +541,14 @@ mod tests {
         t.update(base::Update::UpdateChannelTooLong(Box::new(too_long)), &e, false);
         assert_eq!(t.due, [Key::Channel(1)]);
         t.state.channels.insert(1, 7);
-        t.settle(|key| key == Key::Channel(1));
+        t.settle(|key| key == Key::Channel(1), None);
         assert_eq!((delivered(&mut t), t.pending.len()), (vec![], 0));
+    }
+
+    #[test]
+    fn a_refused_qts_fetch_is_not_reported_as_a_pts_range() {
+        let mut t = tracker(10, 5, 0);
+        let refused = Err(Error::Rpc(crate::errors::RpcError::new(400, "CHANNEL_PRIVATE")));
+        assert_eq!(t.recover(&refused, Key::Qts), []);
     }
 }

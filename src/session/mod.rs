@@ -130,9 +130,9 @@ pub struct UpdatesRx {
 
 impl UpdatesRx {
     pub async fn recv(&mut self) -> Option<Incoming> {
-        let count = self.events.take_dropped();
+        let (count, unrecoverable) = self.events.take_dropped();
         if count > 0 {
-            self.events.emit(ClientEvent::UpdatesDropped { count });
+            self.events.emit(ClientEvent::UpdatesDropped { count, unrecoverable });
             return Some(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
         }
         if let Some(affected) = self.events.take_affected() {
@@ -566,8 +566,8 @@ impl Runner {
 
     fn push(&self, incoming: Incoming) {
         let Some(tx) = &self.updates else { return };
-        if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(incoming) {
-            self.events.drop_updates();
+        if let Err(mpsc::error::TrySendError::Full(incoming)) = tx.try_send(incoming) {
+            self.events.drop_updates(&incoming.updates);
         }
     }
 
