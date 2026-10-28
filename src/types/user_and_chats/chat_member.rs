@@ -17,7 +17,7 @@ pub struct ChatMember {
 }
 
 impl ChatMember {
-    fn new(user_id: i64, status: ChatMemberStatus, entities: &Entities) -> ChatMember {
+    pub(crate) fn new(user_id: i64, status: ChatMemberStatus, entities: &Entities) -> ChatMember {
         ChatMember {
             user: User::parse(user_id, entities),
             status,

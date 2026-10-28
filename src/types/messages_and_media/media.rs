@@ -2,8 +2,8 @@ use crate::dispatcher::Entities;
 use crate::enums::MediaKind;
 use crate::raw::base;
 use crate::types::{
-    Animation, Audio, Contact, Dice, Document, FileLocation, Location, Message, Photo, Poll, Sticker, Venue, Video,
-    VideoNote, Voice,
+    Animation, Audio, Checklist, Contact, Dice, Document, FileLocation, Game, Invoice, Location, Message, Photo, Poll,
+    Sticker, Venue, Video, VideoNote, Voice,
 };
 
 #[derive(Debug, Clone)]
@@ -22,6 +22,9 @@ pub enum Media {
     Venue(Venue),
     Dice(Dice),
     Poll(Poll),
+    Invoice(Invoice),
+    Checklist(Checklist),
+    Game(Game),
 }
 
 impl Media {
@@ -42,31 +45,37 @@ impl Media {
             M::MessageMediaVenue(m) => Media::Venue(Venue::parse(m)?),
             M::MessageMediaDice(m) => Media::Dice(Dice { emoji: m.emoticon.clone(), value: m.value }),
             M::MessageMediaPoll(m) => Media::Poll(Poll::parse(&m.poll, &m.results, entities)),
+            M::MessageMediaInvoice(m) => Media::Invoice(Invoice::parse(m)),
+            M::MessageMediaToDo(m) => Media::Checklist(Checklist::parse(m, entities)),
+            M::MessageMediaGame(m) => Media::Game(Game::parse(&m.game)),
             _ => return None,
         })
+    }
+
+    pub(crate) fn from_document(document: &base::Document) -> Option<Media> {
+        Media::parse_document(MediaKind::of_document(Some(document), false), document)
     }
 
     /// Builds the type `MediaKind::of` picked, so a filter and the parsed message never disagree.
     fn parse_document(kind: MediaKind, document: &base::Document) -> Option<Media> {
         let base::Document::Document(raw) = document else { return None };
-        let (mut video, mut audio, mut sticker, mut size) = (None, None, None, None);
+        let (mut video, mut audio, mut size) = (None, None, None);
         for attribute in &raw.attributes {
             match attribute {
                 base::DocumentAttribute::DocumentAttributeVideo(a) => video = Some(&**a),
                 base::DocumentAttribute::DocumentAttributeAudio(a) => audio = Some(&**a),
-                base::DocumentAttribute::DocumentAttributeSticker(a) => sticker = Some(&**a),
                 base::DocumentAttribute::DocumentAttributeImageSize(a) => size = Some((a.w, a.h)),
                 _ => {}
             }
         }
         let document = Document::parse(document)?;
-        Some(match (kind, sticker) {
-            (MediaKind::Sticker, Some(sticker)) => Media::Sticker(Sticker::parse(document, sticker, video, size)),
-            (MediaKind::Animation, _) => Media::Animation(Animation::parse(document, video, size)),
-            (MediaKind::VideoNote, _) => Media::VideoNote(VideoNote::parse(document, video)),
-            (MediaKind::Video, _) => Media::Video(Video::parse(document, video)),
-            (MediaKind::Voice, _) => Media::Voice(Voice::parse(document, audio)),
-            (MediaKind::Audio, _) => Media::Audio(Audio::parse(document, audio)),
+        Some(match kind {
+            MediaKind::Sticker => Media::Sticker(Sticker::from_document(document, &raw.attributes)?),
+            MediaKind::Animation => Media::Animation(Animation::parse(document, video, size)),
+            MediaKind::VideoNote => Media::VideoNote(VideoNote::parse(document, video)),
+            MediaKind::Video => Media::Video(Video::parse(document, video)),
+            MediaKind::Voice => Media::Voice(Voice::parse(document, audio)),
+            MediaKind::Audio => Media::Audio(Audio::parse(document, audio)),
             _ => Media::Document(document),
         })
     }
@@ -86,6 +95,9 @@ impl Media {
             Media::Venue(_) => MediaKind::Venue,
             Media::Dice(_) => MediaKind::Dice,
             Media::Poll(_) => MediaKind::Poll,
+            Media::Invoice(_) => MediaKind::Invoice,
+            Media::Checklist(_) => MediaKind::Checklist,
+            Media::Game(_) => MediaKind::Game,
         }
     }
 
@@ -99,7 +111,14 @@ impl Media {
             Media::VideoNote(m) => Some(&m.location),
             Media::Voice(m) => Some(&m.location),
             Media::Sticker(m) => Some(&m.location),
-            Media::Contact(_) | Media::Location(_) | Media::Venue(_) | Media::Dice(_) | Media::Poll(_) => None,
+            Media::Contact(_)
+            | Media::Location(_)
+            | Media::Venue(_)
+            | Media::Dice(_)
+            | Media::Poll(_)
+            | Media::Invoice(_)
+            | Media::Checklist(_)
+            | Media::Game(_) => None,
         }
     }
 }
@@ -155,6 +174,18 @@ impl Message {
 
     pub fn poll(&self) -> Option<&Poll> {
         if let Some(Media::Poll(m)) = &self.media { Some(m) } else { None }
+    }
+
+    pub fn invoice(&self) -> Option<&Invoice> {
+        if let Some(Media::Invoice(m)) = &self.media { Some(m) } else { None }
+    }
+
+    pub fn checklist(&self) -> Option<&Checklist> {
+        if let Some(Media::Checklist(m)) = &self.media { Some(m) } else { None }
+    }
+
+    pub fn game(&self) -> Option<&Game> {
+        if let Some(Media::Game(m)) = &self.media { Some(m) } else { None }
     }
 }
 

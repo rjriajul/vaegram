@@ -2,7 +2,7 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
-use crate::types::{Chat, PeerRef, User};
+use crate::types::{Chat, Community, PeerRef, User};
 use crate::utils::get_peer;
 
 impl Client {
@@ -15,6 +15,7 @@ impl Client {
             let entities = Entities::new(self, users, chats);
             let mut chat = Chat::parse(&get_peer(chat_id), &entities, false);
             chat.bio = user.about.filter(|about| !about.is_empty());
+            chat.community = Community::linked(chat_id, &entities);
             return Ok(chat);
         }
         let (full_chat, entities) = self.full_chat(self.resolve_chat(&chat_id.into()).await?).await?;
@@ -34,6 +35,7 @@ impl Client {
             base::ChatFull::CommunityFull(c) => c.about,
         };
         chat.description = (!about.is_empty()).then_some(about);
+        chat.community = Community::linked(chat_id, &entities);
         Ok(chat)
     }
 }

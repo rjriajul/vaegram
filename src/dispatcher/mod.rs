@@ -1,6 +1,6 @@
 mod difference;
 mod entities;
-mod router;
+pub(crate) mod router;
 mod tasks;
 mod tracker;
 
@@ -125,6 +125,7 @@ impl Dispatcher {
 
     fn dispatch(&mut self, update: base::Update, entities: &Entities) {
         entities.remember_min_sender(&self.client, &update);
+        self.client.stop_stream(&update);
         let handlers = &self.client.0.handlers;
         let generation = handlers.generation();
         if generation != self.generation {

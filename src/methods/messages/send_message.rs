@@ -47,7 +47,7 @@ impl SendMessage<'_> {
     async fn send(self) -> Result<Message> {
         let (message, entities) = self.client.parse_text(&self.text, self.parse_mode).await?;
         let text = (message, (!entities.is_empty()).then_some(entities));
-        self.client.send_parsed(self.chat_id, None, text, self.options).await
+        self.client.send_parsed(self.chat_id, None, text, None, self.options).await
     }
 }
 

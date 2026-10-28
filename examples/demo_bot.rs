@@ -1,6 +1,6 @@
 use vaegram::types::{
-    ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, KeyboardButton, Message,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove,
+    ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMessageContent,
+    KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove,
 };
 use vaegram::{Client, filters};
 
@@ -28,7 +28,7 @@ async fn main() -> vaegram::Result<()> {
 
     app.on_message(filters::command("start"), |msg| async move {
         println!("start from {:?}", msg.from_user);
-        msg.reply("<b>vaegram demo</b>\nTap a button:").html().reply_markup(menu()).await?;
+        msg.answer("<b>vaegram demo</b>\nTap a button:").html().reply_markup(menu()).await?;
         Ok(())
     });
 
@@ -36,12 +36,17 @@ async fn main() -> vaegram::Result<()> {
         let keyboard =
             ReplyKeyboardMarkup::new([vec![KeyboardButton::new("Hello"), KeyboardButton::new("Remove keyboard")]])
                 .placeholder("Pick one");
-        msg.reply("Here is a reply keyboard.").reply_markup(keyboard).await?;
+        msg.answer("Here is a reply keyboard.").reply_markup(keyboard).await?;
+        Ok(())
+    });
+
+    app.on_message(filters::command("react"), |msg| async move {
+        msg.react("👍").await?;
         Ok(())
     });
 
     app.on_message(filters::text() & filters::create(|m: &Message| m.text == "Remove keyboard"), |msg| async move {
-        msg.reply("Keyboard removed.").reply_markup(ReplyKeyboardRemove::default()).await?;
+        msg.answer("Keyboard removed.").reply_markup(ReplyKeyboardRemove::default()).await?;
         Ok(())
     });
 
@@ -81,9 +86,20 @@ async fn main() -> vaegram::Result<()> {
         }
         let results = [
             InlineQueryResultArticle::new("Plain", format!("You searched: {}", query.query)).description("plain text"),
-            InlineQueryResultArticle::new("Bold", format!("<b>{}</b>", query.query)).description("HTML").html(),
+            InlineQueryResultArticle::new("Bold", InputMessageContent::html(format!("<b>{}</b>", query.query)))
+                .description("HTML"),
         ];
         query.answer(results).cache_time(0).await?;
+        Ok(())
+    });
+
+    app.on_message_reaction(filters::all(), |update| async move {
+        println!("reactions on {} changed to {:?}", update.message_id, update.new_reaction);
+        Ok(())
+    });
+
+    app.on_chat_member_updated(filters::all(), |update| async move {
+        println!("member update in {}: {:?}", update.chat.id, update.new_chat_member.map(|m| m.status));
         Ok(())
     });
 

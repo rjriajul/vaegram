@@ -23,7 +23,7 @@ async fn main() -> vaegram::Result<()> {
         .await?;
 
     app.on_message(filters::command("start") & filters::private(), |msg| async move {
-        msg.reply("Hello from vaegram!").await?;
+        msg.answer("Hello from vaegram!").await?;
         Ok(())
     });
 
@@ -133,8 +133,45 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Parallel file upload and download: `send_document`, `send_photo`, `msg.download()` (not yet tested live)
 - [ ] Shared send options: replies with quotes, topics, silent, protected, scheduled and business sends; a default
   parse mode via `Client::builder(..).parse_mode(enums::ParseMode::Html)` (not yet tested live)
+- [ ] Chat join requests and join request queries, managed bot access settings (not yet tested live)
+- [ ] Invite links and join requests: `create_chat_invite_link(chat).creates_join_request()`, `request.approve()`, Star subscription links (not yet tested live)
+- [ ] Managed bots: `on_managed_bot`, token get/replace, `KeyboardButton::request_managed_bot`,
+  `ServiceAction::ManagedBotCreated` (not yet tested live)
 - [ ] Client events: reconnects, dropped packets, skipped or unknown updates and failed handlers via `app.on_event(|e| ..)` (not yet tested live)
-- [ ] Rich messages
+- [ ] Bot commands, reaction removal, personal channel messages, Stars subscription updates (not yet tested live)
+- [ ] Communities: `msg.service` (`ServiceAction::CommunityChatAdded`, ..), `get_chat(..).community` (not yet tested live)
+- [ ] Message drafts and streaming: `stream_message(chat).can_stop()`, `on_message_generation_stopped` (not yet tested live)
+- [ ] Bot profile: name, descriptions, menu button, default admin rights, `log_out` (not yet tested live)
+- [ ] Every inline result kind, chosen inline results, `answer_web_app_query`, prepared inline messages (not yet tested
+  live)
+- [ ] Suggested posts and channel direct messages: `approve_suggested_post(chat, id).send_date(..)`,
+  `.suggested_post_parameters(..)`, `.direct_messages_topic_id(user)`, `msg.direct_messages_topic` (not yet tested live)
+- [ ] Ephemeral messages: send, edit, delete, handlers and callback queries (not yet tested live)
+- [ ] Reactions: `send_reaction`, `msg.react(..)`, `msg.reactions`, `on_message_reaction`, `on_message_reaction_count` (not yet tested live)
+- [ ] Forum topics, also in private chats with bots: `create_forum_topic(chat, "Ideas")`, `msg.service`
+  (`ServiceAction::ForumTopicCreated`, ..), `msg.message_thread_id` (not yet tested live)
+- [ ] Business accounts: `on_business_message`, `on_business_connection`, `on_deleted_business_messages`, replies on
+  behalf of the account, `read_business_message`, name, bio, username, gift settings and Stars (not yet tested live)
+- [ ] Rich messages: `send_rich_message(chat, InputRichMessage::html("<b>hi</b>"))`, rich drafts and edits,
+  `msg.rich_message` (not yet tested live)
+- [ ] Gifts and verification: `send_gift(chat, id)`, `get_chat_gifts(chat)`, `upgrade_gift(id)`, `transfer_gift(id, chat)`,
+  `msg.service` (`ServiceAction::Gift`, ..), `verify_chat(chat)` (not yet tested live)
+- [ ] Checklists: `send_checklist(chat, InputChecklist::new("Trip").task(1, "Tickets"))`, `edit_message_checklist`,
+  `msg.checklist()`, `msg.service` (`ServiceAction::ChecklistTasksDone`, ..) (not yet tested live)
+- [ ] Games: `send_game(chat, "race")`, `set_game_score`, `get_game_high_scores`, `msg.game()`, inline callback
+  queries and their game variants on the message's own data center (not yet tested live)
+- [ ] Boosts, profile photos and stories: `get_user_chat_boosts(chat, user)`, `on_chat_boost`, `on_removed_chat_boost`,
+  `ServiceAction::BoostAdded`, `get_chat_photos(user)`, `set_user_emoji_status(user)`, business `post_story`,
+  `edit_story`, `repost_story`, `delete_story` (not yet tested live)
+- [ ] Chat member, poll, poll answer, deleted message and user status handlers, business callback queries
+  (not yet tested live)
+- [ ] Chat and profile photos: `set_chat_photo(chat, "a.jpg")`, `set_profile_photo("a.jpg").video()`,
+  `delete_chat_photo`, `remove_profile_photo`, business account photos (not yet tested live)
+- [ ] Sticker sets: `create_new_sticker_set`, `add_sticker_to_set`, `upload_sticker_file`, `get_sticker_set`,
+  `get_custom_emoji_stickers`, `set_chat_sticker_set` (not yet tested live)
+- [ ] Shortcuts: `msg.reply()` always quotes and `msg.answer()` never does, both staying in the topic; `msg.forward`,
+  `copy`, `pin`, `unpin`, `edit_caption`, `edit_reply_markup`; `query.edit_message_reply_markup`,
+  `query.delete_message`; `request.approve()` answers guard bot queries (not yet tested live)
 
 ### Development
 

@@ -1,3 +1,4 @@
+use super::edit_message_text::edit_request;
 use super::send_poll::poll;
 use crate::Client;
 use crate::errors::{Error, Result};
@@ -53,18 +54,9 @@ impl StopPoll<'_> {
             solution_media: None,
         };
         let request = functions::messages::EditMessage {
-            no_webpage: false,
-            invert_media: false,
-            peer,
-            id: self.message_id,
-            message: None,
             media: Some(base::InputMedia::InputMediaPoll(Box::new(media))),
             reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
-            entities: None,
-            schedule_date: None,
-            schedule_repeat_period: None,
-            quick_reply_shortcut_id: None,
-            rich_message: None,
+            ..edit_request(peer, self.message_id)
         };
         let updates = client.invoke(&request).await?;
         Message::from_updates(client, updates, chat_id, (String::new(), None))

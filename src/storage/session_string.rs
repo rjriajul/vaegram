@@ -8,10 +8,10 @@
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use super::SessionData;
+use crate::utils::{base64url_decode, base64url_encode};
 
 pub const PREFIX: &str = "VAE_";
 
-const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const V4_LEN: usize = 290;
 const V3_LEN: usize = 322;
 const LEGACY_LEN: usize = 271;
@@ -35,13 +35,13 @@ pub fn export(s: &SessionData) -> String {
     b.extend_from_slice(&port.to_be_bytes());
     b.extend_from_slice(&ip.octets());
     b.extend_from_slice(&crc32fast::hash(&b).to_le_bytes());
-    format!("{PREFIX}{}", encode(&b))
+    format!("{PREFIX}{}", base64url_encode(&b))
 }
 
 pub fn parse(s: &str) -> Result<SessionData, &'static str> {
     let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
     let body = s.strip_prefix(PREFIX).unwrap_or(&s);
-    let raw = decode(body).ok_or("session string has characters outside base64url")?;
+    let raw = base64url_decode(body).ok_or("session string has characters outside base64url")?;
     let be_u32 = |b: &[u8]| u32::from_be_bytes(b.try_into().unwrap());
     let be_u64 = |b: &[u8]| u64::from_be_bytes(b.try_into().unwrap());
 
@@ -74,30 +74,4 @@ pub fn parse(s: &str) -> Result<SessionData, &'static str> {
         user_id: be_u64(&f[262..270]) as i64,
         is_bot: f[270] != 0,
     })
-}
-
-fn encode(data: &[u8]) -> String {
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let n = chunk.iter().enumerate().fold(0u32, |n, (i, &b)| n | (b as u32) << (16 - 8 * i));
-        for i in 0..=chunk.len() {
-            out.push(ALPHABET[(n >> (18 - 6 * i)) as usize & 63] as char);
-        }
-    }
-    out
-}
-
-fn decode(s: &str) -> Option<Vec<u8>> {
-    let mut out = Vec::with_capacity(s.len() * 3 / 4);
-    let (mut acc, mut bits) = (0u32, 0);
-    for c in s.bytes() {
-        acc = (acc << 6) | ALPHABET.iter().position(|&a| a == c)? as u32;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-            acc &= (1 << bits) - 1;
-        }
-    }
-    Some(out)
 }

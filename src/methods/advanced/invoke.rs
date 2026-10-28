@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::Client;
 use crate::errors::{Error, Result, RpcError};
-use crate::raw::RemoteCall;
+use crate::raw::{RemoteCall, functions};
 
 const MAX_MIGRATIONS: usize = 3;
 // FLOOD_WAITs up to this many seconds are slept off and retried; longer ones go to the caller.
@@ -17,6 +17,22 @@ impl Client {
                 }
                 result => return result,
             }
+        }
+    }
+
+    /// Hands the request back: a short "sent" update only carries what Telegram changed, the rest comes from it.
+    pub(crate) async fn invoke_business<R: RemoteCall>(
+        &self,
+        connection_id: Option<&str>,
+        request: R,
+    ) -> Result<(R::Return, R)> {
+        match connection_id {
+            Some(connection_id) => {
+                let call =
+                    functions::InvokeWithBusinessConnection { connection_id: connection_id.into(), query: request };
+                Ok((self.invoke(&call).await?, call.query))
+            }
+            None => Ok((self.invoke(&request).await?, request)),
         }
     }
 

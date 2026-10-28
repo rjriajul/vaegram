@@ -6,7 +6,15 @@ use crate::Client;
 use crate::dispatcher::Router;
 use crate::errors::{Error, Result};
 use crate::raw::base;
-use crate::types::{CallbackQuery, InlineQuery, Message};
+use crate::types::{
+    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated, ChatJoinRequest,
+    ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages,
+    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
+    MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
+    ShippingQuery, UserStatusUpdated,
+};
+
+pub use crate::dispatcher::router::UpdateKind;
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 pub(crate) type Callback<T> = Arc<dyn Fn(T) -> BoxFuture + Send + Sync>;
@@ -22,16 +30,6 @@ where
         let future = f(value);
         Box::pin(async move { future.await.map(drop) }) as BoxFuture
     })
-}
-
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum UpdateKind {
-    Message,
-    EditedMessage,
-    CallbackQuery,
-    InlineQuery,
-    Raw,
 }
 
 #[non_exhaustive]
@@ -91,7 +89,11 @@ impl Routed for Message {
 
 impl Routed for CallbackQuery {
     fn chat_id(&self) -> Option<i64> {
-        Some(self.chat.id)
+        self.chat().map(|c| c.id)
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.chat().map_or(self.from_user.id, |c| c.id))
     }
 }
 
@@ -102,5 +104,157 @@ impl Routed for InlineQuery {
 
     fn order_key(&self) -> Option<i64> {
         Some(self.from_user.id)
+    }
+}
+
+impl Routed for ChosenInlineResult {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+}
+
+impl Routed for ChatJoinRequest {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for GuestMessage {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.message.chat.id)
+    }
+}
+
+impl Routed for BotSubscriptionUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.user.id)
+    }
+}
+
+impl Routed for MessageGenerationStopped {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for ManagedBotUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.bot.id)
+    }
+}
+
+impl Routed for EphemeralMessage {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for MessageReactionUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for DeletedEphemeralMessages {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for MessageReactionCountUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for BusinessConnection {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.user.id)
+    }
+}
+
+impl Routed for DeletedBusinessMessages {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for ShippingQuery {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+}
+
+impl Routed for PreCheckoutQuery {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+}
+
+impl Routed for PurchasedPaidMedia {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+}
+
+impl Routed for ChatBoostUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for ChatBoostRemoved {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for ChatMemberUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for PollUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        self.chat.as_ref().map(|c| c.id)
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.poll.id)
+    }
+}
+
+impl Routed for PollAnswer {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.poll_id)
+    }
+}
+
+impl Routed for DeletedMessages {
+    fn chat_id(&self) -> Option<i64> {
+        self.chat.as_ref().map(|c| c.id)
+    }
+}
+
+impl Routed for UserStatusUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.user.id)
     }
 }

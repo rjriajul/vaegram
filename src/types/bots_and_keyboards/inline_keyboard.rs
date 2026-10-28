@@ -69,6 +69,7 @@ pub enum InlineAction {
     SwitchInlineQueryCurrentChat(String),
     CopyText(String),
     Disabled,
+    CallbackGame,
 }
 
 impl InlineKeyboardButton {
@@ -100,6 +101,11 @@ impl InlineKeyboardButton {
         Self::new(text, InlineAction::Disabled)
     }
 
+    /// Opens the game of a `send_game` message; it has to be the first button of the first row.
+    pub fn callback_game(text: impl Into<String>) -> Self {
+        Self::new(text, InlineAction::CallbackGame)
+    }
+
     pub fn style(mut self, style: ButtonStyle) -> Self {
         self.style = style;
         self
@@ -126,6 +132,7 @@ impl InlineKeyboardButton {
                 T::InlineButtonTypeCopy(Box::new(types::InlineButtonTypeCopy { copy_text: copy.clone() }))
             }
             InlineAction::Disabled => T::InlineButtonTypeDisabled,
+            InlineAction::CallbackGame => T::InlineButtonTypeGame,
         };
         let button = types::KeyboardInlineButton { style: self.style.write(), text: self.text.clone(), r#type: kind };
         base::KeyboardInlineButton::KeyboardInlineButton(Box::new(button))

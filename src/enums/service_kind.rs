@@ -22,6 +22,7 @@ pub enum ServiceKind {
     VideoChatEnded,
     VideoChatParticipantsInvited,
     WriteAccessAllowed,
+    ConnectedWebsite,
     UsersShared,
     ChatShared,
     ProximityAlertTriggered,
@@ -47,6 +48,7 @@ pub enum ServiceKind {
     SuggestedPostPaid,
     SuggestedPostRefunded,
     BoostAdded,
+    GameHighScore,
     Unknown,
 }
 
@@ -74,7 +76,14 @@ impl ServiceKind {
             A::MessageActionGroupCall(c) if c.duration.is_some() => K::VideoChatEnded,
             A::MessageActionGroupCall(_) => K::VideoChatStarted,
             A::MessageActionInviteToGroupCall(_) => K::VideoChatParticipantsInvited,
+            A::MessageActionBotAllowed(a) if a.domain.is_some() => K::ConnectedWebsite,
             A::MessageActionBotAllowed(_) => K::WriteAccessAllowed,
+            A::MessageActionRequestedPeerSentMe(r)
+                if r.peers.iter().all(|p| matches!(p, base::RequestedPeer::RequestedPeerUser(_))) =>
+            {
+                K::UsersShared
+            }
+            A::MessageActionRequestedPeerSentMe(_) => K::ChatShared,
             A::MessageActionRequestedPeer(r) if r.peers.iter().all(|p| matches!(p, base::Peer::PeerUser(_))) => {
                 K::UsersShared
             }
@@ -93,14 +102,11 @@ impl ServiceKind {
             A::MessageActionChangeCommunity(c) if c.community_id.is_some() => K::CommunityChatAdded,
             A::MessageActionChangeCommunity(_) => K::CommunityChatRemoved,
             A::MessageActionChatJoinedViaCommunity(_) => K::CommunityChatJoined,
-            A::MessageActionStarGift(_)
-            | A::MessageActionGiftPremium(_)
-            | A::MessageActionGiftStars(_)
-            | A::MessageActionGiftTon(_)
-            | A::MessageActionGiftCode(_) => K::Gift,
+            // Premium, Stars and TON gifts and the payer's own receipt have no friendly type, so they stay Unknown.
+            A::MessageActionStarGift(_) => K::Gift,
             A::MessageActionStarGiftUnique(_) => K::UniqueGift,
             A::MessageActionManagedBotCreated(_) => K::ManagedBotCreated,
-            A::MessageActionPaymentSentMe(_) | A::MessageActionPaymentSent(_) => K::SuccessfulPayment,
+            A::MessageActionPaymentSentMe(_) => K::SuccessfulPayment,
             A::MessageActionPaymentRefunded(_) => K::RefundedPayment,
             A::MessageActionSuggestedPostApproval(a) if a.balance_too_low => K::SuggestedPostApprovalFailed,
             A::MessageActionSuggestedPostApproval(a) if a.rejected => K::SuggestedPostDeclined,
@@ -108,6 +114,7 @@ impl ServiceKind {
             A::MessageActionSuggestedPostSuccess(_) => K::SuggestedPostPaid,
             A::MessageActionSuggestedPostRefund(_) => K::SuggestedPostRefunded,
             A::MessageActionBoostApply(_) => K::BoostAdded,
+            A::MessageActionGameScore(_) => K::GameHighScore,
             _ => K::Unknown,
         }
     }

@@ -55,7 +55,7 @@ impl CopyMessage<'_> {
             }
             _ => (source.message, input_entities(client, source.entities).await?),
         };
-        client.send_parsed(self.chat_id, media, text, self.options).await
+        client.send_parsed(self.chat_id, media, text, None, self.options).await
     }
 }
 
