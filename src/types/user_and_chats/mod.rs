@@ -1,5 +1,7 @@
 mod chat;
+mod chat_invite_link;
 mod chat_join_request;
+mod chat_joiner;
 mod chat_member;
 mod chat_permissions;
 mod chat_privileges;
@@ -7,7 +9,9 @@ mod peer_ref;
 mod user;
 
 pub use chat::Chat;
+pub use chat_invite_link::ChatInviteLink;
 pub use chat_join_request::ChatJoinRequest;
+pub use chat_joiner::ChatJoiner;
 pub use chat_member::ChatMember;
 pub use chat_permissions::ChatPermissions;
 pub use chat_privileges::ChatPrivileges;

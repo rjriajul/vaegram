@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::Client;
 use crate::dispatcher::Entities;
+use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::{Chat, User};
 
@@ -40,6 +41,14 @@ impl ChatJoinRequest {
 
     pub fn client(&self) -> &Client {
         &self.client
+    }
+
+    pub async fn approve(&self) -> Result<()> {
+        self.client.approve_chat_join_request(self.chat.id, self.from_user.id).await
+    }
+
+    pub async fn decline(&self) -> Result<()> {
+        self.client.decline_chat_join_request(self.chat.id, self.from_user.id).await
     }
 }
 

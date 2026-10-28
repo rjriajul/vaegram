@@ -16,4 +16,6 @@ pub use messages_and_media::{
     ReplyParameters, Sticker, SuggestedPostParameters, SuggestedPostPrice, TextQuote, Upload, Venue, Video, VideoNote,
     Voice,
 };
-pub use user_and_chats::{Chat, ChatJoinRequest, ChatMember, ChatPermissions, ChatPrivileges, PeerRef, User};
+pub use user_and_chats::{
+    Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatPermissions, ChatPrivileges, PeerRef, User,
+};

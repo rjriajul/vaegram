@@ -134,6 +134,7 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Shared send options: replies with quotes, topics, silent, protected, scheduled and business sends; a default
   parse mode via `Client::builder(..).parse_mode(enums::ParseMode::Html)` (not yet tested live)
 - [ ] Chat join requests and join request queries, managed bot access settings (not yet tested live)
+- [ ] Invite links and join requests: `create_chat_invite_link(chat).creates_join_request()`, `request.approve()`, Star subscription links (not yet tested live)
 - [ ] Client events: reconnects, dropped packets, skipped or unknown updates and failed handlers via `app.on_event(|e| ..)` (not yet tested live)
 - [ ] Rich messages
 
