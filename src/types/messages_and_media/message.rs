@@ -352,7 +352,7 @@ impl Message {
     pub fn download(&self) -> DownloadMedia<'_> {
         let location = self.media.as_ref().and_then(Media::file_location).cloned();
         let location = location.ok_or(Error::InvalidArgument("this message has no photo or document to download"));
-        DownloadMedia::new(&self.client, location)
+        DownloadMedia::new(&self.client, location, Some((self.chat.id, self.id)))
     }
 
     pub fn command(&self) -> Option<Command<'_>> {

@@ -48,7 +48,8 @@ impl<'a> SaveFile<'a> {
             Upload::Bytes { data, .. } => (Source::Bytes(data), data.len() as u64),
         };
         let (parts, workers, connections) = self.client.upload_limits(size).await?;
-        let lease = self.client.transfer_sessions(self.client.session().dc_id(), connections).await?;
+        let home = self.client.dc(self.client.session().dc_id())?;
+        let lease = self.client.transfer_sessions(home, connections).await?;
         let upload = Parts { source, size, count: parts, big: size > BIG_FILE_SIZE, id: i64::from_le_bytes(random()) };
         let (next, progress) = (AtomicI32::new(0), Progress::new(self.progress, size));
         let sessions = &lease.sessions;

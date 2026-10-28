@@ -2,6 +2,7 @@ use num_bigint::BigUint;
 
 use super::{aes, random, random_fill, sha1, sha256, to_be_padded};
 use crate::raw::Serializable;
+use crate::utils::base64url_decode;
 
 /// Telegram's production server key (`-----BEGIN RSA PUBLIC KEY----- MIIBCgKCAQEA6LszBcC1LGzyr992...`),
 /// fingerprint 0xd09d1d85de64fd85. Exponent 65537.
@@ -29,6 +30,7 @@ const TEST_N_HEX: &str = concat!(
     "9DC063B8A5C08E8F859C0EE5DCD824C7807F20153361A7F63CFD2A433A1BE7F5",
 );
 
+#[derive(Clone)]
 pub struct PublicKey {
     n: BigUint,
     e: BigUint,
@@ -41,6 +43,17 @@ impl PublicKey {
 
     pub fn test() -> Self {
         Self { n: BigUint::parse_bytes(TEST_N_HEX.as_bytes(), 16).unwrap(), e: BigUint::from(65537u32) }
+    }
+
+    /// A PKCS#1 PEM key as help.getCdnConfig sends it; only 2048-bit keys, the size RSA_PAD needs.
+    pub fn from_pem(pem: &str) -> Option<Self> {
+        let body: String = pem.lines().map(str::trim).filter(|l| !l.starts_with("-----")).collect();
+        let der = base64url_decode(&body.trim_end_matches('=').replace('+', "-").replace('/', "_"))?;
+        let (key, _) = der_item(&der, 0x30)?;
+        let (n, rest) = der_item(key, 0x02)?;
+        let (e, _) = der_item(rest, 0x02)?;
+        let key = Self { n: BigUint::from_bytes_be(n), e: BigUint::from_bytes_be(e) };
+        (key.n.bits() == 2048).then_some(key)
     }
 
     pub fn fingerprint(&self) -> i64 {
@@ -78,4 +91,20 @@ impl PublicKey {
             }
         }
     }
+}
+
+fn der_item(data: &[u8], tag: u8) -> Option<(&[u8], &[u8])> {
+    let [t, len, rest @ ..] = data else { return None };
+    if *t != tag {
+        return None;
+    }
+    let (len, rest) = match *len {
+        len @ 0..=0x7f => (usize::from(len), rest),
+        0x81 | 0x82 => {
+            let (bytes, rest) = rest.split_at_checked(usize::from(*len & 0x7f))?;
+            (bytes.iter().fold(0, |acc, &b| (acc << 8) | usize::from(b)), rest)
+        }
+        _ => return None,
+    };
+    rest.split_at_checked(len)
 }

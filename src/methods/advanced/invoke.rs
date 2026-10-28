@@ -74,7 +74,7 @@ mod tests {
     async fn invoke_on_foreign_dc(replies: Vec<crate::errors::Result<Vec<u8>>>) -> crate::errors::Result<bool> {
         let client = Client::offline();
         let (foreign, _sent) = Session::scripted(replies);
-        client.0.transfers.seed(FOREIGN_DC, &foreign);
+        client.0.transfers.insert(client.dc(FOREIGN_DC).unwrap(), &foreign);
         client.invoke_inline(FOREIGN_DC, functions::account::UpdateStatus { offline: false }).await
     }
 

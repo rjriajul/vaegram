@@ -23,7 +23,7 @@ mod invoice;
 mod link_preview_options;
 mod location;
 mod mask_position;
-mod media;
+pub(crate) mod media;
 pub(crate) mod message;
 mod message_entity;
 mod message_generation_stopped;

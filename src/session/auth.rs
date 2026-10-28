@@ -59,8 +59,7 @@ fn check_dh_value(x: &BigUint, dh_prime: &BigUint, what: &'static str) -> Result
     check(*x > margin && *x < dh_prime - &margin, what)
 }
 
-pub(crate) async fn create(conn: &mut Connection, dc: Dc) -> Result<Created> {
-    let key = if dc.test { PublicKey::test() } else { PublicKey::production() };
+pub(crate) async fn create(conn: &mut Connection, dc: Dc, key: &PublicKey) -> Result<Created> {
     let mut msg_ids = MsgId::new(0);
 
     let nonce: [u8; 16] = random();
