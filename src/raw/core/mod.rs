@@ -46,5 +46,7 @@ pub trait Deserializable: Sized {
 }
 
 pub trait RemoteCall: Serializable {
+    /// The TL name, as in `messages.sendMessage`.
+    const NAME: &'static str;
     type Return: Deserializable;
 }

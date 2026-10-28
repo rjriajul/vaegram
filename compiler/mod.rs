@@ -324,15 +324,12 @@ fn gen_update_counters(out: &mut String, ctors: &[&Def]) {
 fn gen_function(out: &mut String, d: &Def) {
     gen_struct(out, d);
     let name = pascal(split_ns(&d.name).1);
-    if d.generic {
-        writeln!(
-            out,
-            "impl<X: crate::raw::RemoteCall> crate::raw::RemoteCall for {name}<X> {{ type Return = X::Return; }}"
-        )
-        .unwrap();
+    let (head, ret) = if d.generic {
+        (format!("impl<X: crate::raw::RemoteCall> crate::raw::RemoteCall for {name}<X>"), "X::Return".into())
     } else {
-        writeln!(out, "impl crate::raw::RemoteCall for {name} {{ type Return = {}; }}", rust_ty(&d.ty, false)).unwrap();
-    }
+        (format!("impl crate::raw::RemoteCall for {name}"), rust_ty(&d.ty, false))
+    };
+    writeln!(out, "{head} {{ const NAME: &'static str = {:?}; type Return = {ret}; }}", d.name).unwrap();
 }
 
 /// `json`: also implement `ToJson` for every type and function (the `json` cargo feature).

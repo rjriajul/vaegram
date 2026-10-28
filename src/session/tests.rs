@@ -1,14 +1,19 @@
+use std::sync::Mutex;
+use std::time::Duration;
+
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
 use super::{
-    Affected, Answer, Arc, ClientEvent, Connection, Identifiable, Incoming, MAX_CONTAINER_MSGS, Options, Request,
-    Runner, Serializable, UPDATES_BUFFER, UpdatesRx, base, functions, gzip_packed, mpsc, msg_container, mtproto,
-    oneshot, outbox, types,
+    Affected, Answer, Arc, Call, ClientEvent, Connection, Identifiable, Incoming, MAX_CONTAINER_MSGS, Observer,
+    Options, RPC_RESULT, Request, Runner, Serializable, Session, UPDATES_BUFFER, UpdatesRx, base, constructor_id,
+    functions, gzip_packed, mpsc, msg_container, mtproto, oneshot, outbox, types,
 };
+use crate::errors::{Error, RpcError};
 use crate::session::internals::data_center::Dc;
 
 type Frames = mpsc::UnboundedReceiver<Vec<u8>>;
+type Seen = Arc<Mutex<Vec<(&'static str, i64, Result<Vec<u8>, String>)>>>;
 
 async fn runner() -> (Runner, Frames, UpdatesRx) {
     let (runner, frames, updates, _) = listening().await;
@@ -34,7 +39,7 @@ async fn listening() -> (Runner, Frames, UpdatesRx, TcpListener) {
     });
 
     let (events, (tx, rx)) = (Arc::default(), mpsc::channel(UPDATES_BUFFER));
-    let runner = Runner::new(dc, options, conn, ([7; 256], 0, Some(0)), Arc::clone(&events), Some(tx));
+    let runner = Runner::new(dc, Arc::new(options), conn, ([7; 256], 0, Some(0)), Arc::clone(&events), Some(tx));
     let updates = UpdatesRx { rx, events };
     (runner, frames, updates, listener)
 }
@@ -47,12 +52,26 @@ async fn recv(frames: &mut Frames, r: &Runner) -> (i64, i32, Vec<u8>) {
 
 fn request(r: &mut Runner, body: Vec<u8>) -> oneshot::Receiver<Answer> {
     let (answer, rx) = oneshot::channel();
-    r.enqueue(Request { body, answer });
+    r.enqueue(Request { name: "ping", body, answer });
     rx
 }
 
 fn ping(ping_id: i64) -> Vec<u8> {
     functions::Ping { ping_id }.to_bytes()
+}
+
+fn observe(r: &mut Runner) -> Seen {
+    let seen = Seen::default();
+    let log = seen.clone();
+    Arc::make_mut(&mut r.options).observer = Some(Observer(Arc::new(move |c: &Call<'_>| {
+        let result = c.result.map(<[u8]>::to_vec).map_err(ToString::to_string);
+        log.lock().unwrap().push((c.name, c.msg_id, result));
+    })));
+    seen
+}
+
+fn rpc_result(req_msg_id: i64, result: &[u8]) -> Vec<u8> {
+    [&RPC_RESULT.to_le_bytes()[..], &req_msg_id.to_le_bytes(), result].concat()
 }
 
 #[tokio::test]
@@ -104,7 +123,7 @@ async fn forgets_abandoned_requests() {
     let ids: Vec<i64> = msg_container::parse(&body).unwrap().iter().map(|m| m.msg_id).collect();
 
     let (answer, _) = oneshot::channel();
-    r.enqueue(Request { body: ping(4), answer });
+    r.enqueue(Request { name: "ping", body: ping(4), answer });
     assert!(r.queue.is_empty());
     r.drop_abandoned();
     assert!(live.try_recv().is_err());
@@ -316,4 +335,96 @@ async fn panicking_listener_keeps_the_connection() {
     let _rx = request(&mut r, ping(1));
     r.flush().await.unwrap();
     assert_eq!(recv(&mut frames, &r).await.2, ping(1));
+}
+
+#[tokio::test]
+async fn abandoned_requests_waiting_for_a_reconnect_never_go_out() {
+    let (mut r, _frames, _updates) = runner().await;
+    let seen = observe(&mut r);
+    drop(request(&mut r, ping(1)));
+    let _live = request(&mut r, ping(2));
+    r.drop_abandoned();
+    assert_eq!(r.queue.iter().map(|p| &p.body).collect::<Vec<_>>(), [&ping(2)]);
+    assert!(r.service.is_empty());
+    assert_eq!(*seen.lock().unwrap(), [("ping", 0, Err(Error::Timeout.to_string()))]);
+}
+
+#[tokio::test]
+async fn observer_sees_how_each_request_ended() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let seen = observe(&mut r);
+    let mut answered = request(&mut r, ping(1));
+    let _flooded = request(&mut r, ping(2));
+    let abandoned = request(&mut r, ping(3));
+    r.flush().await.unwrap();
+    let (_, _, body) = recv(&mut frames, &r).await;
+    let ids: Vec<i64> = msg_container::parse(&body).unwrap().iter().map(|m| m.msg_id).collect();
+
+    r.handle_message(1, 1, &rpc_result(ids[0], b"pong"));
+    let flood = types::RpcError { error_code: 420, error_message: b"FLOOD_WAIT_5".to_vec() };
+    r.handle_message(5, 1, &rpc_result(ids[1], &flood.to_bytes()));
+    drop(abandoned);
+    r.drop_abandoned();
+    // The server answers before it sees the rpc_drop_answer: nobody is waiting any more.
+    r.handle_message(9, 1, &rpc_result(ids[2], b"late"));
+
+    assert_eq!(answered.try_recv().unwrap().unwrap(), b"pong");
+    let flood = Error::Rpc(RpcError::new(420, "FLOOD_WAIT_5")).to_string();
+    let expected = [(ids[0], Ok(b"pong".to_vec())), (ids[1], Err(flood)), (ids[2], Err(Error::Timeout.to_string()))];
+    assert_eq!(*seen.lock().unwrap(), expected.map(|(id, result)| ("ping", id, result)));
+    assert!(r.pending.is_empty());
+    assert_eq!(r.service.back().unwrap().0, functions::RpcDropAnswer { req_msg_id: ids[2] }.to_bytes());
+}
+
+#[tokio::test]
+async fn panicking_observer_keeps_the_connection() {
+    let (mut r, mut frames, _updates) = runner().await;
+    Arc::make_mut(&mut r.options).observer = Some(Observer(Arc::new(|_: &Call<'_>| panic!("observer bug"))));
+    // Its caller is already gone, so the runner reports it straight away.
+    let (answer, _) = oneshot::channel();
+    r.enqueue(Request { name: "ping", body: ping(1), answer });
+    let _rx = request(&mut r, ping(2));
+    r.flush().await.unwrap();
+    assert_eq!(recv(&mut frames, &r).await.2, ping(2));
+}
+
+// The next message the running runner sends, skipping its own pings.
+async fn next_message(frames: &mut Frames, keys: &([u8; 256], [u8; 8], [u8; 8])) -> (i64, Vec<u8>) {
+    const PING_DELAY_DISCONNECT: u32 = <functions::PingDelayDisconnect as Identifiable>::CONSTRUCTOR_ID;
+    loop {
+        let packet = frames.recv().await.unwrap();
+        let m = mtproto::unpack(&packet, &keys.0, &keys.1, &keys.2, false).unwrap();
+        let msgs = match constructor_id(&m.body) {
+            Some(msg_container::ID) => {
+                msg_container::parse(&m.body).unwrap().iter().map(|c| (c.msg_id, c.body.to_vec())).collect()
+            }
+            _ => vec![(m.msg_id, m.body)],
+        };
+        if let Some(found) = msgs.into_iter().find(|(_, body)| constructor_id(body) != Some(PING_DELAY_DISCONNECT)) {
+            return found;
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_timed_out_request_is_dropped_and_the_connection_carries_on() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let seen = observe(&mut r);
+    let keys = (r.auth_key, r.auth_key_id, r.session_id);
+    let (requests, rx) = mpsc::unbounded_channel();
+    let session = Session::local(requests);
+    tokio::spawn(r.run(rx));
+
+    let first = functions::Ping { ping_id: 1 };
+    let e = session.invoke_with_timeout(&first, Duration::from_millis(50)).await.unwrap_err();
+    assert!(matches!(e, Error::Timeout));
+    let (msg_id, body) = next_message(&mut frames, &keys).await;
+    assert_eq!(body, first.to_bytes());
+    let (_, body) = next_message(&mut frames, &keys).await;
+    assert_eq!(body, functions::RpcDropAnswer { req_msg_id: msg_id }.to_bytes());
+    assert_eq!(*seen.lock().unwrap(), [("ping", msg_id, Err(Error::Timeout.to_string()))]);
+
+    let waiting = tokio::spawn(async move { session.invoke(&functions::Ping { ping_id: 2 }).await });
+    assert_eq!(next_message(&mut frames, &keys).await.1, ping(2));
+    waiting.abort();
 }

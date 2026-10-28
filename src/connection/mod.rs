@@ -15,16 +15,35 @@ use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::errors::Result;
+use crate::session::Observer;
 use crate::session::internals::data_center::Dc;
 use obfuscated::Ctr;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Options {
     pub transport: Transport,
     pub obfuscated: bool,
     pub proxy: Option<Proxy>,
+    pub request_timeout: Duration,
+    /// The longest FLOOD_WAIT `Client::invoke` and file transfers sleep off and retry; zero hands every one to
+    /// the caller.
+    pub flood_sleep_threshold: Duration,
+    pub observer: Option<Observer>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            transport: Transport::default(),
+            obfuscated: false,
+            proxy: None,
+            request_timeout: Duration::from_secs(30),
+            flood_sleep_threshold: Duration::from_secs(60),
+            observer: None,
+        }
+    }
 }
 
 pub struct Connection {

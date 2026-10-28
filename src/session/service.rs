@@ -22,8 +22,8 @@ impl Runner {
                     self.resend(b.bad_msg_id);
                 }
                 code => {
-                    for p in self.take_sent(b.bad_msg_id) {
-                        let _ = p.answer.send(Err(Error::BadMessage(code)));
+                    for (msg_id, p) in self.take_sent(b.bad_msg_id) {
+                        self.finish(msg_id, p, Err(Error::BadMessage(code)));
                     }
                 }
             },
@@ -64,7 +64,7 @@ impl Runner {
             for &id in &r.msg_ids {
                 let sent = self.take_sent(id);
                 all &= !sent.is_empty();
-                self.queue.extend(sent);
+                self.queue.extend(sent.into_iter().map(|(_, p)| p));
             }
             // Some we no longer have: the spec says to answer as if it was a msgs_state_req.
             if !all {

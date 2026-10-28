@@ -40,7 +40,7 @@ async fn handshakes_over_every_transport() {
     let dc = data_center::find(&[], 2, false, false).unwrap();
     for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
         for obfuscated in [false, true] {
-            let options = Options { transport, obfuscated, proxy: None };
+            let options = Options { transport, obfuscated, ..Options::default() };
             let (session, _updates) = Session::connect(dc, None, &options, Arc::default()).await.unwrap();
             let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
             assert_eq!(pong.ping_id, 7, "{options:?}");

@@ -3,6 +3,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
+use std::time::Duration;
 
 use tokio::sync::Semaphore;
 
@@ -15,7 +16,7 @@ use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Auth, Lease, TransferPool};
-use crate::session::{Events, Session, UpdatesRx, init_connection};
+use crate::session::{Call, Events, Observer, Session, UpdatesRx, init_connection};
 use crate::storage::state::{StateFile, UpdateState};
 use crate::storage::{self, SessionData, session_string};
 
@@ -111,6 +112,26 @@ impl ClientBuilder {
 
     pub fn parse_mode(mut self, mode: ParseMode) -> Self {
         self.parse_mode = mode;
+        self
+    }
+
+    /// 30 seconds by default; `invoke_with_timeout` overrides it per call.
+    pub fn request_timeout(mut self, timeout: Duration) -> Self {
+        self.options.request_timeout = timeout;
+        self
+    }
+
+    /// FLOOD_WAITs up to this long are slept off and retried; longer ones go to the caller as `Error::Rpc`.
+    /// 60 seconds by default; `Duration::ZERO` hands every one to the caller.
+    pub fn flood_sleep_threshold(mut self, threshold: Duration) -> Self {
+        self.options.flood_sleep_threshold = threshold;
+        self
+    }
+
+    /// Sees every request, including the ones vaegram makes on its own (`getDifference`, `initConnection`).
+    /// It runs on the connection's task, so it should return quickly.
+    pub fn observer(mut self, f: impl Fn(&Call<'_>) + Send + Sync + 'static) -> Self {
+        self.options.observer = Some(Observer(Arc::new(f)));
         self
     }
 
@@ -334,6 +355,14 @@ impl Client {
         self.0.transfers.insert(self.dc(dc_id).unwrap(), session);
     }
 
+    /// Replaces the options, also on the current session.
+    #[cfg(test)]
+    pub(crate) fn set_options(&mut self, options: Options) {
+        let inner = Arc::get_mut(&mut self.0).expect("set_options needs the only handle");
+        inner.session.get_mut().unwrap().set_options(options.clone());
+        inner.options = options;
+    }
+
     pub(crate) fn session(&self) -> Session {
         self.0.session.read().unwrap().clone()
     }
@@ -429,7 +458,9 @@ impl Client {
         }
         let lease = self.transfer_sessions(self.dc(dc_id)?, 1).await?;
         // A reopened file connection hasn't sent its layer, and the answer can carry users.
-        invoke_sleeping_floods(&lease.sessions[0], &init_connection(self.0.api_id, &self.0.options, request)).await
+        let session = &lease.sessions[0];
+        let request = init_connection(self.0.api_id, &self.0.options, request);
+        invoke_sleeping_floods(session, &request, self.0.options.request_timeout).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {

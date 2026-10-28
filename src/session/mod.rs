@@ -13,7 +13,7 @@ pub use events::Events;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -50,11 +50,11 @@ const RECONNECT_DELAY: Duration = Duration::from_millis(500);
 const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(30);
 const TICK: Duration = Duration::from_secs(1);
 const ACK_EVERY: Duration = Duration::from_secs(15);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 type Answer = Result<Vec<u8>>;
 
 struct Request {
+    name: &'static str,
     body: Vec<u8>,
     answer: oneshot::Sender<Answer>,
 }
@@ -76,6 +76,32 @@ impl Incoming {
     }
 }
 
+/// How one request ended, as reported to an [`Observer`].
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Call<'a> {
+    /// Wrappers such as `invokeWithLayer` give their own name; `request` holds the whole call.
+    pub name: &'static str,
+    /// The msg_id it was last sent under; 0 if it never went out.
+    pub msg_id: i64,
+    /// The whole call as sent, credentials included (bot tokens, SRP proofs, exported authorizations): don't log
+    /// it as is. A recording keeps the redacted form.
+    pub request: &'a [u8],
+    pub duration: Duration,
+    /// The answer's TL bytes, or the error the caller got. A caller that stopped waiting got `Error::Timeout`.
+    pub result: Result<&'a [u8], &'a Error>,
+}
+
+/// The per-request hook: it runs on the connection's task for every request that ends, so it should return
+/// quickly. Connection-level events (reconnects, dropped packets) go to `Client::on_event`.
+#[derive(Clone)]
+pub struct Observer(pub Arc<dyn Fn(&Call<'_>) + Send + Sync>);
+
+impl std::fmt::Debug for Observer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Observer")
+    }
+}
 pub struct UpdatesRx {
     rx: mpsc::Receiver<Incoming>,
     pub(crate) events: Arc<Events>,
@@ -111,6 +137,7 @@ pub struct Session {
     requests: mpsc::UnboundedSender<Request>,
     dc_id: i32,
     auth_key: [u8; 256],
+    options: Arc<Options>,
 }
 
 impl Session {
@@ -126,8 +153,18 @@ impl Session {
     }
 
     #[cfg(test)]
+    fn local(requests: mpsc::UnboundedSender<Request>) -> Session {
+        Session { requests, dc_id: 2, auth_key: [0; 256], options: Arc::default() }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_options(&mut self, options: Options) {
+        self.options = Arc::new(options);
+    }
+
+    #[cfg(test)]
     pub(crate) fn offline() -> Session {
-        Session { requests: mpsc::unbounded_channel().0, dc_id: 2, auth_key: [0; 256] }
+        Session::local(mpsc::unbounded_channel().0)
     }
 
     #[cfg(test)]
@@ -143,7 +180,7 @@ impl Session {
                 }
             }
         });
-        (Session { requests, dc_id: 2, auth_key: [0; 256] }, sent)
+        (Session::local(requests), sent)
     }
 
     /// A connection for file parts only. The server keeps initConnection's client info with the auth key
@@ -168,9 +205,10 @@ impl Session {
     ) -> Result<Session> {
         let (conn, auth_key, salt, time_offset) = handshake(dc, auth_key, cdn_key, options).await?;
         let (requests_tx, requests) = mpsc::unbounded_channel();
+        let options = Arc::new(options.clone());
         let runner = Runner::new(dc, options.clone(), conn, (auth_key, salt, time_offset), events, updates);
         tokio::spawn(runner.run(requests));
-        Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key })
+        Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key, options })
     }
 
     pub fn dc_id(&self) -> i32 {
@@ -181,18 +219,35 @@ impl Session {
         &self.auth_key
     }
 
+    pub(crate) fn options(&self) -> &Options {
+        &self.options
+    }
+
     pub(crate) fn downgrade(&self) -> WeakSession {
-        WeakSession { requests: self.requests.downgrade(), dc_id: self.dc_id, auth_key: self.auth_key }
+        let requests = self.requests.downgrade();
+        WeakSession { requests, dc_id: self.dc_id, auth_key: self.auth_key, options: self.options.clone() }
     }
 
-    /// Dropping the future abandons the request.
+    /// How long to sleep off `error` before retrying: only FLOOD_WAITs within `flood_sleep_threshold`, each
+    /// shortened to `cap` first.
+    pub(crate) fn flood_sleep(&self, error: &Error, cap: Option<Duration>) -> Option<Duration> {
+        let Error::Rpc(RpcError { code: 420, value: Some(wait), .. }) = error else { return None };
+        let wait = Duration::from_secs((*wait).max(1).into());
+        let wait = cap.map_or(wait, |cap| wait.min(cap));
+        (wait <= self.options.flood_sleep_threshold).then_some(wait)
+    }
+
+    /// Waits up to the `request_timeout` the session was connected with. Dropping the future abandons the request.
     pub async fn invoke<R: RemoteCall>(&self, request: &R) -> Result<R::Return> {
-        self.invoke_with_timeout(request, REQUEST_TIMEOUT).await
+        self.invoke_with_timeout(request, self.options.request_timeout).await
     }
 
-    pub(crate) async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
+    /// A request that times out is forgotten: the server is asked not to send its answer, and the connection
+    /// carries on.
+    pub async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
         let (answer, rx) = oneshot::channel();
-        self.requests.send(Request { body: request.to_bytes(), answer }).map_err(|_| Error::Disconnected)?;
+        let request = Request { name: R::NAME, body: request.to_bytes(), answer };
+        self.requests.send(request).map_err(|_| Error::Disconnected)?;
         let answer = tokio::time::timeout(timeout, rx).await.map_err(|_| Error::Timeout)?;
         let body = answer.map_err(|_| Error::Disconnected)??;
         Ok(R::Return::from_bytes(&body)?)
@@ -203,12 +258,13 @@ pub(crate) struct WeakSession {
     requests: mpsc::WeakUnboundedSender<Request>,
     dc_id: i32,
     auth_key: [u8; 256],
+    options: Arc<Options>,
 }
 
 impl WeakSession {
     pub(crate) fn upgrade(&self) -> Option<Session> {
         let requests = self.requests.upgrade().filter(|r| !r.is_closed())?;
-        Some(Session { requests, dc_id: self.dc_id, auth_key: self.auth_key })
+        Some(Session { requests, dc_id: self.dc_id, auth_key: self.auth_key, options: self.options.clone() })
     }
 }
 
@@ -283,8 +339,11 @@ fn constructor_id(body: &[u8]) -> Option<u32> {
 }
 
 struct Pending {
+    name: &'static str,
     body: Vec<u8>,
     answer: oneshot::Sender<Answer>,
+    // Kept across re-sends, so the observer sees the whole wait.
+    start: Instant,
     container: i64,
     // The server confirmed receipt; after a reconnect it re-sends the answer by itself.
     acked: bool,
@@ -292,7 +351,7 @@ struct Pending {
 
 struct Runner {
     dc: Dc,
-    options: Options,
+    options: Arc<Options>,
     writer: Writer,
     packets: mpsc::Receiver<Result<Vec<u8>>>,
     reader: JoinHandle<()>,
@@ -316,7 +375,7 @@ struct Runner {
 impl Runner {
     fn new(
         dc: Dc,
-        options: Options,
+        options: Arc<Options>,
         conn: Connection,
         (auth_key, salt, time_offset): ([u8; 256], i64, Option<i64>),
         events: Arc<Events>,
@@ -390,8 +449,9 @@ impl Runner {
             Error::Transport(code) => Some(code),
             _ => None,
         };
-        for p in self.pending.drain().map(|(_, p)| p).chain(self.queue.drain(..)) {
-            let _ = p.answer.send(Err(code.map_or(Error::Disconnected, Error::Transport)));
+        let queued = std::mem::take(&mut self.queue).into_iter().map(|p| (0, p));
+        for (msg_id, p) in std::mem::take(&mut self.pending).into_iter().chain(queued) {
+            self.finish(msg_id, p, Err(code.map_or(Error::Disconnected, Error::Transport)));
         }
     }
 
@@ -454,16 +514,31 @@ impl Runner {
     }
 
     fn enqueue(&mut self, r: Request) {
-        if !r.answer.is_closed() {
-            self.queue.push_back(Pending { body: r.body, answer: r.answer, container: 0, acked: false });
+        let Request { name, body, answer } = r;
+        let p = Pending { name, body, answer, start: Instant::now(), container: 0, acked: false };
+        if p.answer.is_closed() {
+            self.finish(0, p, Err(Error::Timeout));
+        } else {
+            self.queue.push_back(p);
         }
     }
 
+    // Queued ones (waiting out a reconnect) never went out, so they need no rpc_drop_answer.
     fn drop_abandoned(&mut self) {
         let gone: Vec<i64> = self.pending.iter().filter(|(_, p)| p.answer.is_closed()).map(|(&id, _)| id).collect();
         for req_msg_id in gone {
-            self.pending.remove(&req_msg_id);
+            if let Some(p) = self.pending.remove(&req_msg_id) {
+                self.finish(req_msg_id, p, Err(Error::Timeout));
+            }
             self.service.push_back((functions::RpcDropAnswer { req_msg_id }.to_bytes(), true));
+        }
+        if self.queue.iter().any(|p| p.answer.is_closed()) {
+            let queue = std::mem::take(&mut self.queue);
+            let (gone, queue): (VecDeque<_>, _) = queue.into_iter().partition(|p| p.answer.is_closed());
+            self.queue = queue;
+            for p in gone {
+                self.finish(0, p, Err(Error::Timeout));
+            }
         }
     }
 
@@ -475,21 +550,32 @@ impl Runner {
 
     fn answer(&mut self, msg_id: i64, answer: Answer) {
         if let Some(p) = self.pending.remove(&msg_id) {
-            let _ = p.answer.send(answer);
+            self.finish(msg_id, p, answer);
         }
     }
 
-    fn take_sent(&mut self, msg_id: i64) -> Vec<Pending> {
+    fn finish(&self, msg_id: i64, p: Pending, answer: Answer) {
+        if let Some(Observer(observe)) = &self.options.observer {
+            let timeout = Error::Timeout;
+            let result = if p.answer.is_closed() { Err(&timeout) } else { answer.as_deref() };
+            let call = Call { name: p.name, msg_id, request: &p.body, duration: p.start.elapsed(), result };
+            // A panicking observer would otherwise take the connection down with it.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| observe(&call)));
+        }
+        let _ = p.answer.send(answer);
+    }
+
+    fn take_sent(&mut self, msg_id: i64) -> Vec<(i64, Pending)> {
         if let Some(p) = self.pending.remove(&msg_id) {
-            return vec![p];
+            return vec![(msg_id, p)];
         }
         let ids: Vec<i64> = self.pending.iter().filter(|(_, p)| p.container == msg_id).map(|(&id, _)| id).collect();
-        ids.iter().filter_map(|id| self.pending.remove(id)).collect()
+        ids.into_iter().filter_map(|id| Some((id, self.pending.remove(&id)?))).collect()
     }
 
     fn resend(&mut self, msg_id: i64) {
         let sent = self.take_sent(msg_id);
-        self.queue.extend(sent);
+        self.queue.extend(sent.into_iter().map(|(_, p)| p));
     }
 
     async fn handle_packet(&mut self, packet: &[u8]) -> Result<()> {
