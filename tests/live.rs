@@ -12,7 +12,7 @@ use vaegram::storage::state;
 use vaegram::types::{
     ButtonStyle, FileSource, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
     InputPollMedia, InputPollOption, InputRichMessage, InputSticker, KeyboardButton, Message, ReplyKeyboardMarkup,
-    ReplyKeyboardRemove, Upload,
+    ReplyKeyboardRemove, RichBlock, Text, Upload,
 };
 use vaegram::{Client, filters};
 
@@ -125,6 +125,9 @@ async fn bot_sends_and_edits_messages() {
     // updateShortSentMessage has no rich_message field; this shows whether Telegram answers with it.
     let rich = app.send_rich_message(chat_id, InputRichMessage::html("<b>rich</b> hello")).await.unwrap();
     assert!(rich.rich_message.is_some());
+    let rich =
+        rich.edit_text(InputRichMessage::blocks([RichBlock::paragraph(Text::new().bold("edited"))])).await.unwrap();
+    assert!(rich.rich_message.is_some() && rich.text.contains("edited"));
     rich.delete().await.unwrap();
 
     let reply = app.send_message(chat_id, "a reply").reply_to(hello.id).await.unwrap();

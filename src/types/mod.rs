@@ -41,7 +41,10 @@ pub use payments::{
     Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,
     UniqueGiftBackdrop, UniqueGiftInfo,
 };
-pub use rich_messages::{InputRichMessage, RichMessage};
+pub use rich_messages::{
+    Align, InputRichMessage, InputRichMessageMedia, RichBlock, RichButton, RichButtonStyle, RichListItem, RichMessage,
+    RichTableCell, RichText, VAlign,
+};
 pub(crate) use user_and_chats::BoostUpdate;
 pub use user_and_chats::{
     AcceptedGiftTypes, BusinessBotRights, BusinessConnection, Chat, ChatBoost, ChatBoostRemoved, ChatBoostSource,

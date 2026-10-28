@@ -217,6 +217,14 @@ mod tests {
     }
 
     #[test]
+    fn crossing_tags_close_and_reopen_so_entities_nest() {
+        let nested = vec!["bold 0 5".into(), "italic 3 2".into(), "italic 5 3".into()];
+        assert_eq!(md("**ab __cd** ef__"), ("ab cd ef".into(), nested.clone()));
+        assert_eq!(html("<b>ab <i>cd</b> ef</i>"), ("ab cd ef".into(), nested));
+        assert_eq!(html("<b><i>x</b></i>y"), ("xy".into(), vec!["italic 0 1".into(), "bold 0 1".into()]));
+    }
+
+    #[test]
     fn markdown_delimiters_become_entities() {
         assert_eq!(
             md("**b** __i__ --u-- ~~s~~ ||p||"),

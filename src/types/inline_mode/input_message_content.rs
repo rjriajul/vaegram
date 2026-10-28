@@ -184,7 +184,7 @@ impl InputMessageContent {
             }
             InputMessageContent::Invoice(invoice) => invoice.write_inline(reply_markup),
             InputMessageContent::Rich(rich) => {
-                let rich_message = rich.write();
+                let rich_message = rich.write(client).await?;
                 let rich = types::InputBotInlineMessageRichMessage { reply_markup, rich_message };
                 base::InputBotInlineMessage::InputBotInlineMessageRichMessage(Box::new(rich))
             }

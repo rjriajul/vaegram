@@ -85,6 +85,11 @@ pub(super) fn parse(src: &str) -> Text {
         if let Some(&delimiter) = DELIMITERS.iter().find(|d| rest.starts_with(**d)) {
             if let Some(k) = open.iter().rposition(|(d, _)| *d == delimiter) {
                 let (_, start) = open.remove(k);
+                // Telegram entities only nest, so ones opened inside close here and reopen after.
+                for (d, s) in &mut open[k..] {
+                    out.span(kind_of(d), *s);
+                    *s = out.len;
+                }
                 out.span(kind_of(delimiter), start);
                 i += 2;
                 continue;

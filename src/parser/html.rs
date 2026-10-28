@@ -24,6 +24,12 @@ pub(super) fn parse(src: &str) -> Text {
                 if tag.closing {
                     if let Some(i) = open.iter().rposition(|(name, ..)| *name == tag.name) {
                         let (_, start, kind) = open.remove(i);
+                        for (_, s, inner) in &mut open[i..] {
+                            if let Some(inner) = inner {
+                                out.span(inner.clone(), *s);
+                            }
+                            *s = out.len;
+                        }
                         if let Some(kind) = kind {
                             out.span(kind, start);
                         }

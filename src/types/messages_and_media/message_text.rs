@@ -21,7 +21,7 @@ impl MessageText {
                 let (message, entities) = client.write_text(text, parse_mode).await?;
                 (Some(message), (!entities.is_empty()).then_some(entities), None)
             }
-            MessageText::Rich(rich) => (None, None, Some(rich.write())),
+            MessageText::Rich(rich) => (None, None, Some(rich.write(client).await?)),
         })
     }
 }
