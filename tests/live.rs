@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
 use vaegram::enums::{MessageEntityType, ParseMode, PollType, StickerType};
-use vaegram::raw::{base, functions, types};
+use vaegram::raw::{Serializable, base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
 use vaegram::storage::state;
@@ -22,7 +22,7 @@ use vaegram::{Client, filters};
 #[ignore = "connects to Telegram"]
 async fn creates_auth_key_and_pings() {
     let dc = data_center::find(&[], 2, false, false).unwrap();
-    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default()).await.unwrap();
+    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 42 }).await.unwrap();
     assert_eq!(pong.ping_id, 42);
 }
@@ -31,9 +31,20 @@ async fn creates_auth_key_and_pings() {
 #[ignore = "connects to Telegram's test servers"]
 async fn creates_auth_key_on_test_server() {
     let dc = data_center::find(&[], 2, true, false).unwrap();
-    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default()).await.unwrap();
+    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
     assert_eq!(pong.ping_id, 7);
+}
+
+#[tokio::test]
+#[ignore = "connects to Telegram's test servers"]
+async fn binds_temp_key_on_test_server() {
+    let dc = data_center::find(&[], 2, true, false).unwrap();
+    let init = Some(functions::help::GetNearestDc {}.to_bytes());
+    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), init).await.unwrap();
+    // Requests wait for auth.bindTempAuthKey to succeed, so an answer means it did.
+    let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 11 }).await.unwrap();
+    assert_eq!(pong.ping_id, 11);
 }
 
 #[tokio::test]
@@ -43,7 +54,7 @@ async fn handshakes_over_every_transport() {
     for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
         for obfuscated in [false, true] {
             let options = Options { transport, obfuscated, ..Options::default() };
-            let (session, _updates) = Session::connect(dc, None, &options, Arc::default()).await.unwrap();
+            let (session, _updates) = Session::connect(dc, None, &options, Arc::default(), None).await.unwrap();
             let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
             assert_eq!(pong.ping_id, 7, "{options:?}");
         }
@@ -74,7 +85,7 @@ async fn handshakes_through_proxies() {
     }
     for proxy in proxies {
         let options = Options { proxy: Some(proxy), ..Options::default() };
-        let (session, _updates) = Session::connect(dc, None, &options, Arc::default()).await.unwrap();
+        let (session, _updates) = Session::connect(dc, None, &options, Arc::default(), None).await.unwrap();
         let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 9 }).await.unwrap();
         assert_eq!(pong.ping_id, 9, "{options:?}");
     }

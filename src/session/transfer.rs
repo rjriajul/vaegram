@@ -77,6 +77,11 @@ impl TransferPool {
         options: &Options,
         events: &Arc<Events>,
     ) -> Result<Lease> {
+        // CDN DCs keep no permanent key to bind a temporary one to.
+        let rebind = || match auth {
+            Auth::Home(home, _) => home.pfs.clone(),
+            Auth::Cdn(_) => None,
+        };
         let slot = self.0.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
         let _opening = slot.opening.lock().await;
         let (mut sessions, key) = {
@@ -96,7 +101,7 @@ impl TransferPool {
                     Auth::Cdn(key) => Some(key),
                     Auth::Home(..) => None,
                 };
-                let session = Session::connect_transfer(dc, None, cdn_key, options, events.clone()).await?;
+                let session = Session::connect_transfer(dc, None, cdn_key, options, events.clone(), rebind()).await?;
                 if let Auth::Home(home, api_id) = auth {
                     let base::auth::ExportedAuthorization::ExportedAuthorization(e) =
                         home.invoke(&functions::auth::ExportAuthorization { dc_id: dc.id }).await?;
@@ -110,7 +115,7 @@ impl TransferPool {
             }
         };
         let missing = count.saturating_sub(sessions.len());
-        let connect = |_| Session::connect_transfer(dc, Some(key), None, options, events.clone());
+        let connect = |_| Session::connect_transfer(dc, Some(key), None, options, events.clone(), rebind());
         let opened = try_join_all((0..missing).map(connect)).await?;
         sessions.extend(opened);
         slot.state.lock().unwrap().sessions.insert(dc, sessions.iter().map(Session::downgrade).collect());

@@ -3,6 +3,7 @@ pub(crate) mod cdn;
 mod events;
 pub mod internals;
 mod outbox;
+mod pfs;
 mod replay;
 mod service;
 #[cfg(test)]
@@ -22,7 +23,7 @@ use tokio::task::JoinHandle;
 
 use crate::connection::{Connection, Options, Proxy, Reader, Writer};
 use crate::crypto::rsa::PublicKey;
-use crate::crypto::{mtproto, random, sha1};
+use crate::crypto::{mtproto, random};
 use crate::enums::ClientEvent;
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::core::{gzip_packed, msg_container};
@@ -30,6 +31,7 @@ use crate::raw::{Deserializable, Identifiable, LAYER, RemoteCall, Serializable, 
 use internals::data_center::Dc;
 use internals::{MsgId, SeqNo, ServerMsgIds};
 use outbox::MAX_CONTAINER_MSGS;
+use pfs::Pfs;
 
 const RPC_RESULT: u32 = 0xf35c6d01;
 const RPC_ERROR: u32 = <types::RpcError as Identifiable>::CONSTRUCTOR_ID;
@@ -140,6 +142,7 @@ pub struct Session {
     dc_id: i32,
     auth_key: [u8; 256],
     options: Arc<Options>,
+    pfs: Option<Arc<[u8]>>,
 }
 
 impl Session {
@@ -148,15 +151,16 @@ impl Session {
         auth_key: Option<[u8; 256]>,
         options: &Options,
         events: Arc<Events>,
+        pfs: Option<Vec<u8>>,
     ) -> Result<(Session, UpdatesRx)> {
         let (tx, rx) = mpsc::channel(UPDATES_BUFFER);
-        let session = Session::open(dc, auth_key, None, options, events.clone(), Some(tx)).await?;
+        let session = Session::open(dc, auth_key, None, options, events.clone(), Some(tx), pfs.map(Arc::from)).await?;
         Ok((session, UpdatesRx { rx, events }))
     }
 
     #[cfg(test)]
     fn local(requests: mpsc::UnboundedSender<Request>) -> Session {
-        Session { requests, dc_id: 2, auth_key: [0; 256], options: Arc::default() }
+        Session { requests, dc_id: 2, auth_key: [0; 256], options: Arc::default(), pfs: None }
     }
 
     #[cfg(test)]
@@ -186,15 +190,17 @@ impl Session {
     }
 
     /// A connection for file parts only. The server keeps initConnection's client info with the auth key
-    /// (https://core.telegram.org/api/invoking#saving-client-info), so an authorized key needs no second one.
+    /// (https://core.telegram.org/api/invoking#saving-client-info), so an authorized key needs no second one,
+    /// unless `pfs` puts it under a temporary key.
     pub(crate) async fn connect_transfer(
         dc: Dc,
         auth_key: Option<[u8; 256]>,
         cdn_key: Option<&PublicKey>,
         options: &Options,
         events: Arc<Events>,
+        pfs: Option<Arc<[u8]>>,
     ) -> Result<Session> {
-        Session::open(dc, auth_key, cdn_key, options, events, None).await
+        Session::open(dc, auth_key, cdn_key, options, events, None, pfs).await
     }
 
     async fn open(
@@ -204,13 +210,25 @@ impl Session {
         options: &Options,
         events: Arc<Events>,
         updates: Option<mpsc::Sender<Incoming>>,
+        pfs: Option<Arc<[u8]>>,
     ) -> Result<Session> {
-        let (conn, auth_key, salt, time_offset) = handshake(dc, auth_key, cdn_key, options).await?;
-        let (requests_tx, requests) = mpsc::unbounded_channel();
+        let perm_is_new = auth_key.is_none();
+        let (mut conn, auth_key, salt, time_offset) = handshake(dc, auth_key, cdn_key, options).await?;
         let options = Arc::new(options.clone());
-        let runner = Runner::new(dc, options.clone(), conn, (auth_key, salt, time_offset), events, updates);
+        let runner = match &pfs {
+            None => Runner::new(dc, options.clone(), conn, (auth_key, salt, time_offset), events, updates),
+            Some(init) => {
+                let temp = auth::create(&mut conn, dc, &server_key(dc), Some(pfs::TEMP_KEY_LIFETIME)).await?;
+                let expires_at = internals::now() + temp.time_offset + pfs::TEMP_KEY_LIFETIME as i64;
+                let key = (temp.auth_key, temp.salt, Some(temp.time_offset));
+                let mut runner = Runner::new(dc, options.clone(), conn, key, events, updates);
+                runner.pfs = Some(Pfs::new(auth_key, perm_is_new, init.to_vec(), expires_at));
+                runner
+            }
+        };
+        let (requests_tx, requests) = mpsc::unbounded_channel();
         tokio::spawn(runner.run(requests));
-        Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key, options })
+        Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key, options, pfs })
     }
 
     pub fn dc_id(&self) -> i32 {
@@ -225,9 +243,13 @@ impl Session {
         &self.options
     }
 
+    pub(crate) fn pfs(&self) -> bool {
+        self.pfs.is_some()
+    }
+
     pub(crate) fn downgrade(&self) -> WeakSession {
-        let requests = self.requests.downgrade();
-        WeakSession { requests, dc_id: self.dc_id, auth_key: self.auth_key, options: self.options.clone() }
+        let (requests, options, pfs) = (self.requests.downgrade(), self.options.clone(), self.pfs.clone());
+        WeakSession { requests, dc_id: self.dc_id, auth_key: self.auth_key, options, pfs }
     }
 
     /// How long to sleep off `error` before retrying: only FLOOD_WAITs within `flood_sleep_threshold`, each
@@ -260,12 +282,14 @@ pub(crate) struct WeakSession {
     dc_id: i32,
     auth_key: [u8; 256],
     options: Arc<Options>,
+    pfs: Option<Arc<[u8]>>,
 }
 
 impl WeakSession {
     pub(crate) fn upgrade(&self) -> Option<Session> {
         let requests = self.requests.upgrade().filter(|r| !r.is_closed())?;
-        Some(Session { requests, dc_id: self.dc_id, auth_key: self.auth_key, options: self.options.clone() })
+        let (options, pfs) = (self.options.clone(), self.pfs.clone());
+        Some(Session { requests, dc_id: self.dc_id, auth_key: self.auth_key, options, pfs })
     }
 }
 
@@ -291,6 +315,10 @@ pub(crate) fn init_connection<X>(
     }
 }
 
+fn server_key(dc: Dc) -> PublicKey {
+    if dc.test { PublicKey::test() } else { PublicKey::production() }
+}
+
 async fn handshake(
     dc: Dc,
     auth_key: Option<[u8; 256]>,
@@ -301,15 +329,11 @@ async fn handshake(
         // A stored key brings no server time; the offset is measured once the server complains.
         Some(key) => (Connection::connect(&dc, options).await?, key, 0, None),
         None => {
-            let key = match cdn_key {
-                Some(key) => key.clone(),
-                None if dc.test => PublicKey::test(),
-                None => PublicKey::production(),
-            };
+            let key = cdn_key.cloned().unwrap_or_else(|| server_key(dc));
             let mut attempt = 1;
             loop {
                 let mut conn = Connection::connect(&dc, options).await?;
-                match auth::create(&mut conn, dc, &key).await {
+                match auth::create(&mut conn, dc, &key, None).await {
                     Ok(c) => break (conn, c.auth_key, c.salt, Some(c.time_offset)),
                     Err(e) if attempt == HANDSHAKE_ATTEMPTS => return Err(e),
                     Err(_) => attempt += 1,
@@ -371,6 +395,7 @@ struct Runner {
     buf: Vec<u8>,
     updates: Option<mpsc::Sender<Incoming>>,
     events: Arc<Events>,
+    pfs: Option<Pfs>,
 }
 
 impl Runner {
@@ -390,7 +415,7 @@ impl Runner {
             packets,
             reader,
             auth_key,
-            auth_key_id: sha1(&[&auth_key])[12..].try_into().unwrap(),
+            auth_key_id: mtproto::auth_key_id(&auth_key),
             session_id: random(),
             salt,
             msg_ids: MsgId::new(time_offset.unwrap_or(0)),
@@ -404,6 +429,7 @@ impl Runner {
             buf: Vec::new(),
             updates,
             events,
+            pfs: None,
         }
     }
 
@@ -429,16 +455,18 @@ impl Runner {
                     Some(Err(e)) => Err(e),
                     None => Err(Error::Disconnected),
                 },
-                _ = ping.tick() => self.ping().await,
+                _ = ping.tick() => {
+                    if self.temp_key_expiring() { Err(Error::Disconnected) } else { self.ping().await }
+                }
                 _ = tick.tick() => {
                     self.drop_abandoned();
-                    if self.service.is_empty() { Ok(()) } else { self.flush().await }
+                    if self.service.is_empty() && !self.bind_due() { Ok(()) } else { self.flush().await }
                 }
                 _ = ack.tick() => self.flush().await,
             };
             match step {
                 Ok(()) => {}
-                Err(e @ Error::Transport(404)) => break e,
+                Err(e) if self.ends_session(&e) => break e,
                 Err(_) => {
                     self.reconnect(&requests).await;
                     ping.reset();
@@ -465,7 +493,14 @@ impl Runner {
             tokio::time::sleep(delay).await;
             delay = (delay * 2).min(MAX_RECONNECT_DELAY);
             self.drop_abandoned();
-            let Ok(conn) = Connection::connect(&self.dc, &self.options).await else { continue };
+            let Ok(mut conn) = Connection::connect(&self.dc, &self.options).await else { continue };
+            if self.temp_key_stale() {
+                let server = server_key(self.dc);
+                let Ok(key) = auth::create(&mut conn, self.dc, &server, Some(pfs::TEMP_KEY_LIFETIME)).await else {
+                    continue;
+                };
+                self.use_temp_key(key);
+            }
             (self.writer, self.packets, self.reader) = start_reading(conn);
             if self.resend_pending().await.is_ok() {
                 self.events.reconnected();
@@ -567,6 +602,9 @@ impl Runner {
     }
 
     fn take_sent(&mut self, msg_id: i64) -> Vec<(i64, Pending)> {
+        if self.rebind_if_sent_as(msg_id) {
+            return Vec::new();
+        }
         if let Some(p) = self.pending.remove(&msg_id) {
             return vec![(msg_id, p)];
         }
@@ -601,6 +639,9 @@ impl Runner {
             }
         } else {
             self.handle_message(msg.msg_id, msg.seq_no, &msg.body);
+        }
+        if let Some(e) = self.bind_failure() {
+            return Err(e);
         }
         if self.acks.len() >= ACKS_THRESHOLD || !self.queue.is_empty() || !self.service.is_empty() {
             self.flush().await?;
@@ -678,6 +719,8 @@ impl Runner {
             self.deliver(&result, true);
             Ok(result)
         };
-        self.answer(req_msg_id, answer);
+        if let Some(answer) = self.bind_answered(req_msg_id, answer) {
+            self.answer(req_msg_id, answer);
+        }
     }
 }

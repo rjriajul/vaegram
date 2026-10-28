@@ -11,6 +11,7 @@ use super::{
 };
 use crate::errors::{Error, RpcError};
 use crate::session::internals::data_center::Dc;
+use crate::session::{auth::Created, pfs::Pfs};
 
 type Frames = mpsc::UnboundedReceiver<Vec<u8>>;
 type Seen = Arc<Mutex<Vec<(&'static str, i64, Result<Vec<u8>, String>)>>>;
@@ -443,4 +444,109 @@ async fn a_timed_out_request_is_dropped_and_the_connection_carries_on() {
     let waiting = tokio::spawn(async move { session.invoke(&functions::Ping { ping_id: 2 }).await });
     assert_eq!(next_message(&mut frames, &keys).await.1, ping(2));
     waiting.abort();
+}
+
+const BOOL_TRUE: u32 = 0x997275b5;
+
+#[tokio::test]
+async fn temp_key_carries_only_the_bind_until_bound() {
+    let (mut r, mut frames, _updates) = runner().await;
+    r.pfs = Some(Pfs::new([9; 256], false, ping(77), i64::MAX));
+    r.use_temp_key(Created { auth_key: [8; 256], salt: 5, time_offset: 0 });
+    let _rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    let (bind_id, seq_no, body) = recv(&mut frames, &r).await;
+    assert_eq!(constructor_id(&body), Some(0xcdd42a05));
+    assert_eq!(seq_no % 2, 1);
+    assert!(r.unbound() && r.queue.len() == 1 && r.pending.is_empty());
+
+    let salt = types::BadServerSalt { bad_msg_id: bind_id, bad_msg_seqno: seq_no, error_code: 48, new_server_salt: 6 };
+    r.handle_message(1, 0, &salt.to_bytes());
+    assert!(r.bind_due());
+    r.flush().await.unwrap();
+    let (rebind_id, _, body) = recv(&mut frames, &r).await;
+    assert!(rebind_id > bind_id && constructor_id(&body) == Some(0xcdd42a05));
+
+    r.handle_message(3, 1, &rpc_result(rebind_id, &BOOL_TRUE.to_le_bytes()));
+    assert!(!r.unbound());
+    r.flush().await.unwrap();
+    let (_, _, body) = recv(&mut frames, &r).await;
+    let msgs = msg_container::parse(&body).unwrap();
+    assert_eq!(msgs[1].body, ping(77));
+    assert_eq!(msgs[2].body, ping(1));
+}
+
+#[tokio::test]
+async fn stale_perm_key_ends_the_session_like_a_404() {
+    let (mut r, mut frames, _updates) = runner().await;
+    r.pfs = Some(Pfs::new([9; 256], false, ping(77), i64::MAX));
+    r.flush().await.unwrap();
+    let (bind_id, _, _) = recv(&mut frames, &r).await;
+    let error = types::RpcError { error_code: 400, error_message: "ENCRYPTED_MESSAGE_INVALID".into() };
+    r.handle_message(3, 1, &rpc_result(bind_id, &error.to_bytes()));
+    let e = r.bind_failure().unwrap();
+    assert!(matches!(e, Error::Transport(404)));
+    assert!(r.ends_session(&e));
+}
+
+#[tokio::test]
+async fn bind_retries_back_off_while_a_new_perm_key_propagates() {
+    let (mut r, _frames, _updates) = runner().await;
+    // Paused only now: a paused clock jumps past the connect timeout while a real socket is still connecting.
+    tokio::time::pause();
+    r.pfs = Some(Pfs::new([9; 256], true, ping(77), i64::MAX));
+    let _rx = request(&mut r, ping(1));
+    let error = types::RpcError { error_code: 400, error_message: "ENCRYPTED_MESSAGE_INVALID".into() };
+    let binds = |r: &Runner| r.pfs.as_ref().unwrap().binds_sent.clone();
+    for _ in 0..59 {
+        let before = binds(&r).len();
+        if r.bind_due() {
+            r.flush().await.unwrap();
+        }
+        if let Some(&bind_id) = binds(&r).get(before) {
+            r.handle_message(3, 1, &rpc_result(bind_id, &error.to_bytes()));
+            r.flush().await.unwrap();
+            assert_eq!(binds(&r).len(), before + 1, "a refused bind went out again at once");
+        }
+        tokio::time::advance(Duration::from_secs(1)).await;
+    }
+    assert_eq!(binds(&r).len(), 6);
+    assert!(r.unbound() && r.bind_failure().is_none());
+}
+
+#[tokio::test]
+async fn refused_bind_ends_the_session_instead_of_reconnecting() {
+    let (mut r, mut frames, _updates) = runner().await;
+    r.pfs = Some(Pfs::new([9; 256], true, ping(77), i64::MAX));
+    r.flush().await.unwrap();
+    let (bind_id, _, _) = recv(&mut frames, &r).await;
+    let error = types::RpcError { error_code: 400, error_message: "TEMP_AUTH_KEY_ALREADY_BOUND".into() };
+    r.handle_message(3, 1, &rpc_result(bind_id, &error.to_bytes()));
+    let e = r.bind_failure().unwrap();
+    assert!(matches!(&e, Error::Rpc(rpc) if rpc.name == "TEMP_AUTH_KEY_ALREADY_BOUND"));
+    assert!(r.ends_session(&e) && r.unbound() && !r.bind_due());
+}
+
+#[tokio::test]
+async fn lost_bound_temp_key_reconnects_with_a_new_one() {
+    let (mut r, mut frames, _updates) = runner().await;
+    r.pfs = Some(Pfs::new([9; 256], false, ping(77), i64::MAX));
+    r.flush().await.unwrap();
+    let (bind_id, _, _) = recv(&mut frames, &r).await;
+    assert!(!r.ends_session(&Error::Disconnected));
+    r.handle_message(3, 1, &rpc_result(bind_id, &BOOL_TRUE.to_le_bytes()));
+    assert!(!r.temp_key_stale());
+    assert!(!r.ends_session(&Error::Transport(404)) && r.temp_key_stale());
+}
+
+#[tokio::test]
+async fn a_404_before_the_bind_is_answered_gets_a_new_temp_key() {
+    let (mut r, mut frames, _updates) = runner().await;
+    r.pfs = Some(Pfs::new([9; 256], false, ping(77), i64::MAX));
+    assert!(!r.ends_session(&Error::Transport(404)), "bind due");
+    r.flush().await.unwrap();
+    let _ = recv(&mut frames, &r).await;
+    assert!(r.unbound() && r.temp_key_stale());
+    assert!(!r.ends_session(&Error::Transport(404)), "bind sent");
+    assert!(r.temp_key_stale());
 }

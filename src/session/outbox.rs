@@ -21,13 +21,16 @@ fn put_header(buf: &mut Vec<u8>, msg_id: i64, seq_no: i32, len: usize) {
 
 impl Runner {
     pub(super) async fn flush(&mut self) -> Result<()> {
+        if let Some(packet) = self.bind_packet() {
+            self.writer.send(&packet).await?;
+        }
         while let Some(packet) = self.pack() {
             self.writer.send(&packet).await?;
         }
         Ok(())
     }
 
-    fn encrypt(&self, msg_id: i64, seq_no: i32, body: &[u8]) -> Vec<u8> {
+    pub(super) fn encrypt(&self, msg_id: i64, seq_no: i32, body: &[u8]) -> Vec<u8> {
         if let Some(r) = &self.options.record {
             let written = if constructor_id(body) == Some(msg_container::ID) {
                 let messages = msg_container::parse(body).unwrap_or_default();
@@ -56,8 +59,10 @@ impl Runner {
         loop {
             let len = match (self.service.front(), self.queue.front()) {
                 (Some((body, _)), _) => body.len(),
-                (None, Some(p)) => p.body.len(),
-                (None, None) => break,
+                // No API request goes out under a temp key that isn't bound yet: the bind goes alone, service
+                // messages (acks, pings, state requests) carry no API call.
+                (None, Some(p)) if !self.unbound() => p.body.len(),
+                _ => break,
             };
             if msgs.len() == MAX_CONTAINER_MSGS || (!msgs.is_empty() && size + HEADER + len > MAX_CONTAINER_BYTES) {
                 break;

@@ -13,7 +13,7 @@ use crate::dispatcher::Routes;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::methods::{StreamShared, invoke_sleeping_floods};
-use crate::raw::{RemoteCall, base, functions};
+use crate::raw::{RemoteCall, Serializable, base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Auth, Lease, TransferPool};
 use crate::session::{Call, Events, Observer, Session, UpdatesRx, init_connection};
@@ -31,6 +31,7 @@ pub struct ClientBuilder {
     session_string: Option<String>,
     test_mode: bool,
     ipv6: bool,
+    pfs: bool,
     login: Login,
     parse_mode: ParseMode,
     options: Options,
@@ -97,6 +98,12 @@ impl ClientBuilder {
 
     pub fn ipv6(mut self) -> Self {
         self.ipv6 = true;
+        self
+    }
+
+    /// Perfect forward secrecy: day-long temporary keys, so a leaked session can't decrypt recorded traffic.
+    pub fn pfs(mut self) -> Self {
+        self.pfs = true;
         self
     }
 
@@ -182,10 +189,10 @@ impl ClientBuilder {
         };
         let events = Arc::new(Events::default());
         // A saved address comes from help.getConfig and can go stale.
-        let first_try = connect(dc(first), auth_key, self.api_id, &self.options, events.clone()).await;
+        let first_try = connect(dc(first), auth_key, self.api_id, &self.options, events.clone(), self.pfs).await;
         let (session, updates, dc_options) = match (first_try, built_in) {
             (Err(_), Some(built_in)) if built_in != first => {
-                connect(dc(built_in), auth_key, self.api_id, &self.options, events).await?
+                connect(dc(built_in), auth_key, self.api_id, &self.options, events, self.pfs).await?
             }
             (result, _) => result?,
         };
@@ -331,6 +338,7 @@ impl Client {
             session_string: None,
             test_mode: false,
             ipv6: false,
+            pfs: false,
             login: Login::default(),
             parse_mode: ParseMode::Disabled,
             options: Options::default(),
@@ -419,9 +427,9 @@ impl Client {
     }
 
     pub(crate) async fn switch_dc(&self, dc_id: i32) -> Result<()> {
-        let events = self.0.events.clone();
+        let (inner, events, pfs) = (&self.0, self.0.events.clone(), self.session().pfs());
         let (session, updates, dc_options) =
-            connect(self.dc(dc_id)?, None, self.0.api_id, &self.0.options, events).await?;
+            connect(self.dc(dc_id)?, None, inner.api_id, &inner.options, events, pfs).await?;
         *self.0.dcs.write().unwrap() = data_center::table(&dc_options, self.0.ipv6, false);
         *self.0.media_dcs.write().unwrap() = data_center::table(&dc_options, self.0.ipv6, true);
         *self.0.session.write().unwrap() = session;
@@ -504,8 +512,10 @@ async fn connect(
     api_id: i32,
     options: &Options,
     events: Arc<Events>,
+    pfs: bool,
 ) -> Result<(Session, UpdatesRx, Vec<base::DcOption>)> {
-    let (session, updates) = Session::connect(dc, auth_key, options, events).await?;
+    let rebind = pfs.then(|| init_connection(api_id, options, functions::help::GetNearestDc {}).to_bytes());
+    let (session, updates) = Session::connect(dc, auth_key, options, events, rebind).await?;
     let init = init_connection(api_id, options, functions::help::GetConfig {});
     let base::Config::Config(config) = session.invoke(&init).await?;
     Ok((session, updates, config.dc_options))

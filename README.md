@@ -95,7 +95,8 @@ existing login over without signing in again. Exports are always `VAE_…`.
 > Never commit or share it. `*.session` and `*.state` are already in `.gitignore`.
 
 `.test_mode()` logs in on Telegram's test servers and `.ipv6()` connects over IPv6. Session strings remember
-the test mode and the data center address.
+the test mode and the data center address. `.pfs()` turns on perfect forward secrecy: traffic runs under
+temporary keys that are replaced every day, and only the permanent key is stored.
 
 ### Raw API and Errors
 
