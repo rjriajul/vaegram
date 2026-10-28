@@ -51,7 +51,7 @@ pub use approve_suggested_post::ApproveSuggestedPost;
 pub use copy_message::CopyMessage;
 pub use copy_messages::CopyMessages;
 pub use decline_suggested_post::DeclineSuggestedPost;
-pub use download_media::DownloadMedia;
+pub use download_media::{DownloadMedia, MediaStream};
 pub use edit_ephemeral_message_text::EditEphemeralMessage;
 pub use edit_inline_text::EditInlineText;
 pub use edit_message_checklist::EditMessageChecklist;

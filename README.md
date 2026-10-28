@@ -132,7 +132,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat` (not yet tested live)
 - [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)
 - [ ] Locations, venues, contacts, dice and polls: `send_poll(chat, "Lunch?", ["Pizza", "Sushi"]).quiz([0])` (not yet tested live)
-- [ ] Parallel file upload and download: `send_document`, `send_photo`, `msg.download()` (not yet tested live)
+- [ ] Parallel file upload and download: `send_document`, `send_photo`, `msg.download()`, with
+  `.progress(|done, total| ..)` and `.stream()` for chunks in order (not yet tested live)
 - [ ] Bot API file ids: `photo.file_id`, `send_photo(chat, FileSource::file_id(id)?)`, `download_media(file_id)`;
   the `file_unique_id` format is not yet checked against the Bot API (not yet tested live)
 - [ ] Shared send options: replies with quotes, topics, silent, protected, scheduled and business sends; a default

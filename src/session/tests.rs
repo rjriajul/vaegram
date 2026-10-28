@@ -303,6 +303,7 @@ async fn reconnect_is_reported() {
     r.reconnect(&requests).await;
     let _server = server.await.unwrap();
     assert!(matches!(events.try_recv(), Ok(ClientEvent::Reconnected { dc: 2, attempt: 1 })));
+    assert!(r.events.take_reconnected());
     assert!(matches!(updates.recv().await, Some(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
 }
 

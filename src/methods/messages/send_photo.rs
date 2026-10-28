@@ -3,6 +3,7 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
+use crate::session::transfer::Report;
 use crate::types::messages_and_media::Source;
 use crate::types::{FileSource, Message, PeerRef};
 
@@ -14,6 +15,7 @@ pub struct SendPhoto<'a> {
     caption: String,
     parse_mode: Option<ParseMode>,
     options: SendOptions,
+    progress: Option<Report<'a>>,
 }
 
 impl Client {
@@ -25,20 +27,26 @@ impl Client {
             caption: String::new(),
             parse_mode: None,
             options: SendOptions::default(),
+            progress: None,
         }
     }
 }
 
-impl SendPhoto<'_> {
+impl<'a> SendPhoto<'a> {
     pub fn caption(mut self, caption: impl Into<String>) -> Self {
         self.caption = caption.into();
+        self
+    }
+
+    pub fn progress(mut self, progress: impl FnMut(u64, u64) + Send + 'a) -> Self {
+        self.progress = Some(Box::new(progress));
         self
     }
 
     async fn send(self) -> Result<Message> {
         let media = match self.photo.0 {
             Source::Upload(upload) => {
-                let file = self.client.save_file(upload).await?;
+                let file = self.client.save_file(upload).progress(self.progress).await?;
                 base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
                     spoiler: false,
                     live_photo: false,

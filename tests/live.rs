@@ -217,6 +217,15 @@ async fn bot_uploads_and_downloads_a_document() {
     app.download_media(document).file_name(path).await.unwrap();
     assert!(std::fs::read(path).unwrap() == data);
 
+    let (mut reported, mut streamed) = (0, Vec::new());
+    let mut stream = sent.download().progress(|done, _| reported = done).stream();
+    while let Some(chunk) = stream.next().await {
+        streamed.extend_from_slice(&chunk.unwrap());
+    }
+    drop(stream);
+    assert!(streamed == data);
+    assert_eq!(reported, data.len() as u64);
+
     let again = app.send_document(chat_id, FileSource::file_id(&document.file_id).unwrap()).await.unwrap();
     let copy = again.document().expect("the copy has the document");
     assert_eq!((copy.id, copy.file_unique_id.as_str()), (document.id, document.file_unique_id.as_str()));

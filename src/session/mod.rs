@@ -379,6 +379,7 @@ impl Runner {
             let Ok(conn) = Connection::connect(&self.dc, &self.options).await else { continue };
             (self.writer, self.packets, self.reader) = start_reading(conn);
             if self.resend_pending().await.is_ok() {
+                self.events.reconnected();
                 self.events.emit(ClientEvent::Reconnected { dc: self.dc.id, attempt });
                 self.request_difference();
                 return;

@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn raw_and_parsed_messages_have_the_same_facts() {
         let (client, entities) = (Client::offline(), entities());
-        let me = Me { id: 0, is_bot: true, username: Some("Bot".into()) };
+        let me = Me { id: 0, is_bot: true, username: Some("Bot".into()), ..Me::default() };
         let group = get_peer(get_channel_id(55));
         let cases = [
             (group, Some(7), false, Some(ChatType::Supergroup), SENDER_BOT),
@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn raw_and_parsed_service_messages_have_the_same_facts() {
         let (client, entities) = (Client::offline(), entities());
-        let me = Me { id: 0, is_bot: true, username: Some("Bot".into()) };
+        let me = Me { id: 0, is_bot: true, username: Some("Bot".into()), ..Me::default() };
         let title = types::MessageActionChatEditTitle { title: "t".into() };
         let title = service(base::MessageAction::MessageActionChatEditTitle(Box::new(title)));
         let pin = types::MessageReplyHeader {

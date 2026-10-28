@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::enums::ClientEvent;
@@ -10,6 +10,7 @@ type Listener = Arc<dyn Fn(ClientEvent) + Send + Sync>;
 pub struct Events {
     listener: RwLock<Option<Listener>>,
     dropped: AtomicU32,
+    reconnected: AtomicBool,
     affected: Mutex<Vec<Affected>>,
 }
 
@@ -55,6 +56,14 @@ impl Events {
 
     pub(crate) fn take_dropped(&self) -> u32 {
         self.dropped.swap(0, Ordering::AcqRel)
+    }
+
+    pub(crate) fn reconnected(&self) {
+        self.reconnected.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn take_reconnected(&self) -> bool {
+        self.reconnected.swap(false, Ordering::AcqRel)
     }
 
     pub(crate) fn affected(&self, a: Affected) {

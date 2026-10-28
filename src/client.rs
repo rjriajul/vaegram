@@ -166,7 +166,7 @@ impl ClientBuilder {
         inner.options = self.options;
         inner.parse_mode = self.parse_mode;
         inner.state = Mutex::new(state);
-        inner.me = Mutex::new(Me { id: user_id, is_bot, username: None });
+        inner.me = Mutex::new(Me { id: user_id, is_bot, premium: None, username: None });
         inner.peers = Mutex::new(peers);
         inner.ordered = self.ordered;
         inner.handler_permits = self.max_concurrent_handlers.map(|n| Arc::new(Semaphore::new(n.max(1))));
@@ -219,6 +219,8 @@ mod me {
     pub struct Me {
         pub(crate) id: i64,
         pub(crate) is_bot: bool,
+        // Looked up again after a reconnect: the subscription can lapse while the client runs.
+        pub(crate) premium: Option<bool>,
         pub(crate) username: Option<Arc<str>>,
     }
 }
@@ -240,7 +242,7 @@ impl Inner {
             parse_mode: ParseMode::Disabled,
             transfers: TransferPool::default(),
             state: Mutex::new(None),
-            me: Mutex::new(Me { id: 0, is_bot: false, username: None }),
+            me: Mutex::new(Me::default()),
             peers: Mutex::new(HashMap::new()),
             handlers: Routes::default(),
             ordered: false,
@@ -316,8 +318,26 @@ impl Client {
     pub(crate) fn set_me(&self, user: &base::User) {
         if let base::User::User(u) = user {
             let username = u.username.as_deref().map(Arc::from);
-            *self.0.me.lock().unwrap() = Me { id: u.id, is_bot: u.bot, username };
+            *self.0.me.lock().unwrap() = Me { id: u.id, is_bot: u.bot, premium: Some(u.premium), username };
         }
+    }
+
+    /// A failed lookup isn't cached; transfers that don't need Premium go on with the regular limits.
+    pub(crate) async fn is_premium(&self) -> Result<bool> {
+        let reconnected = self.0.events.take_reconnected();
+        let known = {
+            let mut me = self.0.me.lock().unwrap();
+            if reconnected {
+                me.premium = None;
+            }
+            if me.is_bot { Some(false) } else { me.premium }
+        };
+        if let Some(premium) = known {
+            return Ok(premium);
+        }
+        let me = self.get_me().await?;
+        self.set_me(&me);
+        Ok(matches!(me, base::User::User(u) if u.premium))
     }
 
     pub(crate) fn dc(&self, dc_id: i32) -> Result<Dc> {
@@ -332,7 +352,9 @@ impl Client {
         *self.0.dcs.write().unwrap() = data_center::table(&dc_options, self.0.ipv6);
         *self.0.session.write().unwrap() = session;
         *self.0.updates.lock().await = updates;
-        self.0.me.lock().unwrap().id = 0;
+        let mut me = self.0.me.lock().unwrap();
+        (me.id, me.premium) = (0, None);
+        drop(me);
         self.0.transfers.clear();
         self.save()
     }

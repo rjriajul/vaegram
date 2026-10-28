@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn bot_stopped_bans_the_bot() {
-        let me = Me { id: 1000, is_bot: true, username: None };
+        let me = Me { id: 1000, is_bot: true, ..Me::default() };
         let raw = types::UpdateBotStopped { user_id: 7, date: 100, stopped: true, qts: 1 };
         let update = ChatMemberUpdated::parse_bot_stopped(&Client::offline(), &me, &raw, &Entities::default());
         assert_eq!((update.chat.id, update.from_user.id), (7, 7));

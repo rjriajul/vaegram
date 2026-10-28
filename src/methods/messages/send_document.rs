@@ -3,6 +3,7 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
+use crate::session::transfer::Report;
 use crate::types::messages_and_media::Source;
 use crate::types::{FileSource, Message, PeerRef};
 
@@ -14,6 +15,8 @@ pub struct SendDocument<'a> {
     caption: String,
     parse_mode: Option<ParseMode>,
     options: SendOptions,
+    progress: Option<Report<'a>>,
+    force_file: bool,
 }
 
 impl Client {
@@ -29,28 +32,41 @@ impl Client {
             caption: String::new(),
             parse_mode: None,
             options: SendOptions::default(),
+            progress: None,
+            force_file: false,
         }
     }
 }
 
-impl SendDocument<'_> {
+impl<'a> SendDocument<'a> {
     pub fn caption(mut self, caption: impl Into<String>) -> Self {
         self.caption = caption.into();
+        self
+    }
+
+    pub fn progress(mut self, progress: impl FnMut(u64, u64) + Send + 'a) -> Self {
+        self.progress = Some(Box::new(progress));
+        self
+    }
+
+    /// Keeps a video, GIF or audio file a plain document instead of letting Telegram convert it.
+    pub fn disable_content_type_detection(mut self) -> Self {
+        self.force_file = true;
         self
     }
 
     async fn send(self) -> Result<Message> {
         let media = match self.document.0 {
             Source::Upload(upload) => {
-                let file = self.client.save_file(upload).await?;
+                let file = self.client.save_file(upload).progress(self.progress).await?;
                 let file_name = types::DocumentAttributeFilename { file_name: upload.name().into() };
                 base::InputMedia::InputMediaUploadedDocument(Box::new(types::InputMediaUploadedDocument {
                     nosound_video: false,
-                    force_file: false,
+                    force_file: self.force_file,
                     spoiler: false,
                     file,
                     thumb: None,
-                    mime_type: "application/octet-stream".into(),
+                    mime_type: upload.mime_type().into(),
                     attributes: vec![base::DocumentAttribute::DocumentAttributeFilename(Box::new(file_name))],
                     stickers: None,
                     video_cover: None,

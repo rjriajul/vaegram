@@ -46,9 +46,10 @@ pub(crate) use messages::StreamShared;
 pub use messages::{
     ApproveSuggestedPost, CopyMessage, CopyMessages, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage,
     EditInlineText, EditMessageChecklist, EditMessageLiveLocation, EditMessageReplyMarkup, EditMessageText,
-    ForwardMessages, GetChatHistory, MessageStream, PinChatMessage, SearchMessages, SendChecklist, SendContact,
-    SendDice, SendDocument, SendEphemeralMessage, SendLocation, SendMessage, SendMessageDraft, SendPhoto, SendPoll,
-    SendReaction, SendRichMessage, SendVenue, StopMessageLiveLocation, StopPoll, StreamMessage, UnpinChatMessage,
+    ForwardMessages, GetChatHistory, MediaStream, MessageStream, PinChatMessage, SearchMessages, SendChecklist,
+    SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLocation, SendMessage, SendMessageDraft, SendPhoto,
+    SendPoll, SendReaction, SendRichMessage, SendVenue, StopMessageLiveLocation, StopPoll, StreamMessage,
+    UnpinChatMessage,
 };
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
