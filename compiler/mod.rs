@@ -484,10 +484,16 @@ fn recursive_types(defs: &[Def]) -> HashSet<&str> {
     edges.keys().copied().filter(|ty| reaches_itself(ty)).collect()
 }
 
-fn gen_update_counters(out: &mut String, ctors: &[&Def]) {
+fn gen_update_impl(out: &mut String, ctors: &[&Def]) {
     writeln!(out, "impl Update {{").unwrap();
     gen_counter(out, ctors, "pts", "(i32, i32)", &["pts", "pts_count"]);
     gen_counter(out, ctors, "qts", "i32", &["qts"]);
+    writeln!(out, "    pub fn constructor_id(&self) -> u32 {{\n        match self {{").unwrap();
+    for c in ctors {
+        let bind = if c.fields.is_empty() { "" } else { "(_)" };
+        writeln!(out, "            Self::{}{bind} => {:#010x},", pascal(split_ns(&c.name).1), c.id).unwrap();
+    }
+    writeln!(out, "        }}\n    }}").unwrap();
     writeln!(out, "}}").unwrap();
 }
 
@@ -555,7 +561,7 @@ pub fn generate(api: &str, mtproto: &str, json: bool) -> String {
             gen_enum_json(out, ty, ctors);
         }
         if *ty == "Update" {
-            gen_update_counters(out, ctors);
+            gen_update_impl(out, ctors);
         }
     }
 

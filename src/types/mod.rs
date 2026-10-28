@@ -3,6 +3,7 @@ mod bots_and_keyboards;
 mod inline_mode;
 pub(crate) mod messages_and_media;
 mod payments;
+mod raw_update;
 mod rich_messages;
 mod user_and_chats;
 
@@ -41,6 +42,7 @@ pub use payments::{
     Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,
     UniqueGiftBackdrop, UniqueGiftInfo,
 };
+pub use raw_update::RawUpdate;
 pub use rich_messages::{
     Align, InputRichMessage, InputRichMessageMedia, RichBlock, RichButton, RichButtonStyle, RichListItem, RichMessage,
     RichTableCell, RichText, VAlign,

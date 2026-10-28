@@ -67,12 +67,26 @@ struct Request {
 }
 
 /// One push from the server, at the session level, where requests and answers are raw TL too.
+#[cfg_attr(
+    not(feature = "unstable-raw"),
+    doc = r#"
+Its TL updates are only reachable with the `unstable-raw` feature:
+
+```compile_fail
+fn raw(incoming: vaegram::session::Incoming) {
+    let _ = incoming.into_updates();
+}
+```
+"#
+)]
 pub struct Incoming {
     pub(crate) updates: base::Updates,
     pub(crate) from_request: bool,
 }
 
 impl Incoming {
+    /// Experimental (`unstable-raw`): may change or go away in any release.
+    #[cfg(feature = "unstable-raw")]
     pub fn into_updates(self) -> base::Updates {
         self.updates
     }

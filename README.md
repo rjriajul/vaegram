@@ -130,6 +130,19 @@ let app = Client::builder("my_account", api_id, api_hash)
 let config = app.invoke_with_timeout(&functions::help::GetConfig {}, Duration::from_secs(5)).await?;
 ```
 
+`on_raw_update` sees every update as Telegram sent it, with the users and chats that came with it:
+
+```rust
+app.on_raw_update(|_, update| async move {
+    println!("{:#010x} with users {:?}", update.constructor_id(), update.user_ids().collect::<Vec<_>>());
+    Ok(())
+});
+```
+
+With the `json` feature, `update.to_json(&mut out)` writes the update and all its users and chats. The `unstable-raw`
+feature adds `update.raw()`, `raw_users()`, `raw_chats()` and `Incoming::into_updates()` with the TL objects
+themselves; it is experimental and may change or go away in any release.
+
 Chat ids use the Bot API style: users are positive, groups are negative, and channels and
 supergroups start with `-100`. Anywhere a method takes a chat or user you can also pass `"me"`, `"@username"`,
 a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`. Invite links (`t.me/+…`) join with
@@ -168,6 +181,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Invite links and join requests: `create_chat_invite_link(chat).creates_join_request()`, `request.approve()`, Star subscription links (not yet tested live)
 - [ ] Managed bots: `on_managed_bot`, token get/replace, `KeyboardButton::request_managed_bot`,
   `ServiceAction::ManagedBotCreated` (not yet tested live)
+- [ ] Raw updates with their users and chats: `update.user(id)`, `update.chat(id)`, `update.to_json(..)`; TL objects
+  only behind the experimental `unstable-raw` feature (not yet tested live)
 - [ ] Client events: reconnects, dropped packets, skipped or unknown updates and failed handlers via `app.on_event(|e| ..)` (not yet tested live)
 - [ ] Bot commands, reaction removal, personal channel messages, Stars subscription updates (not yet tested live)
 - [ ] Communities: `msg.service` (`ServiceAction::CommunityChatAdded`, ..), `get_chat(..).community` (not yet tested live)

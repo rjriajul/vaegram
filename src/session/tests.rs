@@ -353,7 +353,7 @@ async fn affected_pts_come_back_as_quiet_updates() {
     updates.events.affected(Affected { channel_id: Some(7), pts: 5, pts_count: 1 });
     let incoming = updates.recv().await.unwrap();
     let from_request = incoming.from_request();
-    let base::Updates::UpdateShort(short) = incoming.into_updates() else { panic!("not a stand-in update") };
+    let base::Updates::UpdateShort(short) = incoming.updates else { panic!("not a stand-in update") };
     let channel = matches!(&short.update, base::Update::UpdateDeleteChannelMessages(u) if u.channel_id == 7);
     assert_eq!((from_request, channel, short.update.pts()), (true, true, Some((5, 1))));
 }

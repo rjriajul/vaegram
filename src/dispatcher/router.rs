@@ -13,7 +13,7 @@ use crate::types::{
     ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
     DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
     MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
-    ShippingQuery, UserStatusUpdated,
+    RawUpdate, ShippingQuery, UserStatusUpdated,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -280,10 +280,11 @@ impl Router {
         self.next_id
     }
 
-    pub(crate) fn dispatch(&self, client: &Client, update: base::Update, entities: &Entities, tasks: &mut Tasks) {
+    pub(crate) fn dispatch(&self, client: &Client, update: base::Update, entities: &Arc<Entities>, tasks: &mut Tasks) {
         use base::Update as U;
         for callback in &self.raw {
-            tasks.raw(callback(client.clone(), update.clone()));
+            let raw = RawUpdate { update: update.clone(), entities: entities.clone() };
+            tasks.raw(callback(client.clone(), raw));
         }
         let Some(update) = self.route(client, update, entities, tasks) else { return };
         let me = || client.0.me.lock().unwrap().clone();
@@ -436,7 +437,7 @@ mod tests {
     fn dispatch(router: &Router, update: base::Update) {
         let mut tasks = Tasks::default();
         tasks.on_error = router.on_error.clone();
-        router.dispatch(&Client::offline(), update, &Entities::default(), &mut tasks);
+        router.dispatch(&Client::offline(), update, &Arc::default(), &mut tasks);
     }
 
     fn router_of(client: &Client) -> Arc<Router> {
@@ -766,7 +767,7 @@ mod tests {
         });
         let (router, mut tasks) = (router_of(&client), Tasks::new(ordered, None));
         for id in [1, 2] {
-            router.dispatch(&client, new_message(id, false), &Entities::default(), &mut tasks);
+            router.dispatch(&client, new_message(id, false), &Arc::default(), &mut tasks);
         }
         settle().await;
         gate.notify_one();
@@ -796,7 +797,7 @@ mod tests {
         });
         let (router, mut tasks) = (router_of(&client), Tasks::new(true, None));
         for id in [1, 2] {
-            router.dispatch(&client, new_message(id, false), &Entities::default(), &mut tasks);
+            router.dispatch(&client, new_message(id, false), &Arc::default(), &mut tasks);
         }
         settle().await;
         assert_eq!(*log.lock().unwrap(), ["second"]);
@@ -819,7 +820,7 @@ mod tests {
         let router = router_of(&client);
         let mut tasks = Tasks::new(false, Some(Arc::new(Semaphore::new(2))));
         for id in 0..6 {
-            router.dispatch(&client, new_message(id, false), &Entities::default(), &mut tasks);
+            router.dispatch(&client, new_message(id, false), &Arc::default(), &mut tasks);
         }
         for _ in 0..10 {
             settle().await;
