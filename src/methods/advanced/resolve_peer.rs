@@ -1,6 +1,6 @@
 use crate::Client;
 use crate::dispatcher::Entities;
-use crate::errors::{Error, Result, RpcError};
+use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 use crate::utils::{CHANNEL_OFFSET, chats_of, input_user};
@@ -25,8 +25,7 @@ impl Client {
                 let chat = match self.invoke(&request).await? {
                     base::ChatInvite::ChatInviteAlready(c) => c.chat,
                     base::ChatInvite::ChatInvitePeek(c) => c.chat,
-                    // Telegram's own answer for a private chat you haven't joined.
-                    base::ChatInvite::ChatInvite(_) => return Err(Error::Rpc(RpcError::new(400, "CHANNEL_PRIVATE"))),
+                    base::ChatInvite::ChatInvite(_) => return Err(Error::ChatNotJoined),
                 };
                 let entities = Entities::new(self, Vec::new(), vec![chat]);
                 entities.chats.into_keys().next().ok_or(Error::Unexpected("messages.checkChatInvite sent no chat"))?
@@ -125,8 +124,9 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use crate::Client;
+    use crate::errors::Error;
     use crate::raw::functions::{contacts, messages};
-    use crate::raw::{Identifiable, base, types};
+    use crate::raw::{Identifiable, Serializable, base, types};
     use crate::types::PeerRef;
     use crate::utils::get_channel_id;
 
@@ -162,5 +162,32 @@ mod tests {
             let body = rx.try_recv().expect("no request sent");
             assert_eq!(u32::from_le_bytes(body[..4].try_into().unwrap()), constructor, "{chat}");
         }
+    }
+
+    #[tokio::test]
+    async fn an_unjoined_invite_link_is_its_own_error() {
+        let invite = base::ChatInvite::ChatInvite(Box::new(types::ChatInvite {
+            channel: true,
+            broadcast: false,
+            public: false,
+            megagroup: true,
+            request_needed: false,
+            verified: false,
+            scam: false,
+            fake: false,
+            can_refulfill_subscription: false,
+            title: "Private".into(),
+            about: None,
+            photo: base::Photo::PhotoEmpty(Box::new(types::PhotoEmpty { id: 0 })),
+            participants_count: 3,
+            participants: None,
+            color: 0,
+            subscription_pricing: None,
+            subscription_form_id: None,
+            bot_verification: None,
+        }));
+        let (client, _sent) = Client::scripted(vec![Ok(invite.to_bytes())]);
+        let result = client.resolve_peer("t.me/+AbC").await;
+        assert!(matches!(result, Err(Error::ChatNotJoined)), "{result:?}");
     }
 }
