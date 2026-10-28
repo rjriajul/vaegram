@@ -41,6 +41,8 @@ struct State {
     // The salt a connection on this key last had, so a new one doesn't start from 0 and bounce its first parts.
     salt: Salt,
     sessions: HashMap<Dc, Vec<WeakSession>>,
+    // Numbers handed out so far, so an observer can tell this DC's connections apart.
+    opened: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -85,6 +87,11 @@ impl TransferPool {
         };
         let slot = self.0.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
         let _opening = slot.opening.lock().await;
+        let number = || {
+            let mut state = slot.state.lock().unwrap();
+            state.opened += 1;
+            state.opened
+        };
         let (mut sessions, key) = {
             let state = slot.state.lock().unwrap();
             let live: Vec<Session> =
@@ -103,7 +110,8 @@ impl TransferPool {
                     Auth::Cdn(key) => Some(key),
                     Auth::Home(..) => None,
                 };
-                let session = Session::connect_transfer(dc, None, cdn_key, options, events.clone(), rebind()).await?;
+                let session =
+                    Session::connect_transfer(dc, None, cdn_key, options, events.clone(), rebind(), number()).await?;
                 if let Auth::Home(home, api_id) = auth {
                     let base::auth::ExportedAuthorization::ExportedAuthorization(e) =
                         home.invoke(&functions::auth::ExportAuthorization { dc_id: dc.id }).await?;
@@ -117,7 +125,7 @@ impl TransferPool {
             }
         };
         let missing = count.saturating_sub(sessions.len());
-        let connect = |_| Session::connect_transfer(dc, Some(key), None, options, events.clone(), rebind());
+        let connect = |_| Session::connect_transfer(dc, Some(key), None, options, events.clone(), rebind(), number());
         let opened = try_join_all((0..missing).map(connect)).await?;
         sessions.extend(opened);
         let mut state = slot.state.lock().unwrap();

@@ -734,7 +734,7 @@ async fn transfer_dc() -> (TcpListener, Dc, Options) {
 async fn transfer_connections_start_with_the_salt_they_are_given() {
     let (listener, dc, options) = transfer_dc().await;
     let salt = Salt { value: 0x5a17, time_offset: 0 };
-    let session = Session::connect_transfer(dc, Some(([7; 256], salt)), None, &options, Arc::default(), None);
+    let session = Session::connect_transfer(dc, Some(([7; 256], salt)), None, &options, Arc::default(), None, 1);
     let session = session.await.unwrap();
     tokio::spawn(async move { session.invoke(&functions::Ping { ping_id: 1 }).await });
     assert_eq!(first_salt(&listener, &[7; 256]).await, 0x5a17);
@@ -777,4 +777,55 @@ async fn dropped_updates_without_pts_are_counted_as_lost() {
     r.handle_message(UPDATES_BUFFER as i64, 0, &base::Updates::UpdateShort(Box::new(update)).to_bytes());
     assert!(matches!(updates.recv().await.unwrap().updates, base::Updates::UpdatesTooLong));
     assert!(matches!(events.try_recv(), Ok(ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 })));
+}
+
+type Contexts = Arc<Mutex<Vec<(i32, u32, u16)>>>;
+
+fn observe_context(options: &mut Options) -> Contexts {
+    let seen = Contexts::default();
+    let log = seen.clone();
+    options.observer =
+        Some(Observer(Arc::new(move |c: &Call<'_>| log.lock().unwrap().push((c.dc, c.connection, c.resent)))));
+    seen
+}
+
+#[tokio::test]
+async fn observer_sees_the_connection_and_resends() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let seen = observe_context(Arc::make_mut(&mut r.options));
+    drop(request(&mut r, ping(1)));
+    r.drop_abandoned();
+
+    let mut answer = request(&mut r, ping(2));
+    r.flush().await.unwrap();
+    let (bad_msg_id, bad_msg_seqno, _) = recv(&mut frames, &r).await;
+    let salt = types::BadServerSalt { bad_msg_id, bad_msg_seqno, error_code: 48, new_server_salt: 1 };
+    r.handle_message(1, 0, &salt.to_bytes());
+    r.flush().await.unwrap();
+    let (msg_id, _, body) = recv(&mut frames, &r).await;
+    assert_eq!(body, ping(2));
+    r.handle_message(5, 1, &rpc_result(msg_id, b"pong"));
+    assert!(answer.try_recv().unwrap().is_ok());
+    assert_eq!(*seen.lock().unwrap(), [(2, 0, 0), (2, 0, 1)]);
+}
+
+#[tokio::test]
+async fn leased_connections_are_numbered_apart() {
+    let (_listener, dc, mut options) = transfer_dc().await;
+    let seen = observe_context(&mut options);
+    let pool = TransferPool::default();
+    // Its request channel is closed, so the slot keeps only its key.
+    pool.insert(dc, &Session::offline());
+    let lease = pool.lease(dc, 2, Auth::Home(&Session::offline(), 1), &options, &Arc::default()).await.unwrap();
+    for session in &lease.sessions {
+        let e = session.invoke_with_timeout(&functions::Ping { ping_id: 1 }, Duration::from_millis(1)).await;
+        assert!(matches!(e, Err(Error::Timeout)));
+    }
+    // Each runner reports its abandoned ping on its next tick.
+    while seen.lock().unwrap().len() < 2 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let mut seen = seen.lock().unwrap().clone();
+    seen.sort_unstable();
+    assert_eq!(seen, [(4, 1, 0), (4, 2, 0)]);
 }

@@ -113,6 +113,11 @@ pub struct Call<'a> {
     pub duration: Duration,
     /// The answer's TL bytes, or the error the caller got. A caller that stopped waiting got `Error::Timeout`.
     pub result: Result<&'a [u8], &'a Error>,
+    pub dc: i32,
+    /// 0 for the main connection; file transfers number theirs per DC, from 1.
+    pub connection: u32,
+    /// Times it went out again: after a bad_server_salt, a bad_msg_notification or a lost connection.
+    pub resent: u16,
 }
 
 /// The per-request hook: it runs on the connection's task for every request that ends, so it should return
@@ -191,7 +196,8 @@ impl Session {
         pfs: Option<Vec<u8>>,
     ) -> Result<(Session, UpdatesRx)> {
         let (tx, rx) = mpsc::channel(UPDATES_BUFFER);
-        let session = Session::open(dc, auth_key, None, options, events.clone(), Some(tx), pfs.map(Arc::from)).await?;
+        let session =
+            Session::open(dc, auth_key, None, options, events.clone(), Role::Main(tx), pfs.map(Arc::from)).await?;
         Ok((session, UpdatesRx { rx, events }))
     }
 
@@ -237,8 +243,9 @@ impl Session {
         options: &Options,
         events: Arc<Events>,
         pfs: Option<Arc<[u8]>>,
+        connection: u32,
     ) -> Result<Session> {
-        Session::open(dc, auth_key, cdn_key, options, events, None, pfs).await
+        Session::open(dc, auth_key, cdn_key, options, events, Role::Transfer(connection), pfs).await
     }
 
     async fn open(
@@ -247,13 +254,17 @@ impl Session {
         cdn_key: Option<&PublicKey>,
         options: &Options,
         events: Arc<Events>,
-        updates: Option<mpsc::Sender<Incoming>>,
+        role: Role,
         pfs: Option<Arc<[u8]>>,
     ) -> Result<Session> {
+        let (updates, connection) = match role {
+            Role::Main(updates) => (Some(updates), 0),
+            Role::Transfer(connection) => (None, connection),
+        };
         let perm_is_new = auth_key.is_none();
         let (mut conn, auth_key, salt, clock_synced) = handshake(dc, auth_key, cdn_key, options).await?;
         let options = Arc::new(options.clone());
-        let runner = match &pfs {
+        let mut runner = match &pfs {
             None => Runner::new(dc, options.clone(), conn, (auth_key, salt, clock_synced), events, updates),
             Some(init) => {
                 let temp = auth::create(&mut conn, dc, &server_key(dc), Some(pfs::TEMP_KEY_LIFETIME)).await?;
@@ -264,6 +275,7 @@ impl Session {
                 runner
             }
         };
+        runner.connection = connection;
         let learned = runner.learned.clone();
         let (requests_tx, requests) = mpsc::unbounded_channel();
         tokio::spawn(runner.run(requests));
@@ -394,6 +406,12 @@ fn constructor_id(body: &[u8]) -> Option<u32> {
     Some(u32::from_le_bytes(body.get(..4)?.try_into().unwrap()))
 }
 
+// The main connection gets updates; transfer ones are numbered per DC.
+enum Role {
+    Main(mpsc::Sender<Incoming>),
+    Transfer(u32),
+}
+
 struct Pending {
     name: &'static str,
     body: Vec<u8>,
@@ -403,10 +421,12 @@ struct Pending {
     container: i64,
     // The server confirmed receipt; after a reconnect it re-sends the answer by itself.
     acked: bool,
+    resent: u16,
 }
 
 struct Runner {
     dc: Dc,
+    connection: u32,
     options: Arc<Options>,
     reader: Reader,
     writer: Writer,
@@ -442,6 +462,7 @@ impl Runner {
         let (reader, writer) = conn.into_split();
         Runner {
             dc,
+            connection: 0,
             options,
             reader,
             writer,
@@ -629,7 +650,7 @@ impl Runner {
 
     fn enqueue(&mut self, r: Request) {
         let Request { name, body, answer } = r;
-        let p = Pending { name, body, answer, start: Instant::now(), container: 0, acked: false };
+        let p = Pending { name, body, answer, start: Instant::now(), container: 0, acked: false, resent: 0 };
         if p.answer.is_closed() {
             self.finish(0, p, Err(Error::Timeout));
         } else {
@@ -672,7 +693,16 @@ impl Runner {
         if let Some(Observer(observe)) = &self.options.observer {
             let timeout = Error::Timeout;
             let result = if p.answer.is_closed() { Err(&timeout) } else { answer.as_deref() };
-            let call = Call { name: p.name, msg_id, request: &p.body, duration: p.start.elapsed(), result };
+            let call = Call {
+                name: p.name,
+                msg_id,
+                request: &p.body,
+                duration: p.start.elapsed(),
+                result,
+                dc: self.dc.id,
+                connection: self.connection,
+                resent: p.resent,
+            };
             // A panicking observer would otherwise take the connection down with it.
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| observe(&call)));
         }
@@ -695,7 +725,11 @@ impl Runner {
             self.recheck.extend(ids);
         }
         let sent = self.take_sent(msg_id);
-        self.queue.extend(sent.into_iter().map(|(_, p)| p));
+        self.requeue(sent);
+    }
+
+    fn requeue(&mut self, sent: Vec<(i64, Pending)>) {
+        self.queue.extend(sent.into_iter().map(|(_, p)| Pending { resent: p.resent.saturating_add(1), ..p }));
     }
 
     async fn handle_packet(&mut self, mut packet: Vec<u8>) -> Result<()> {

@@ -85,7 +85,7 @@ impl Runner {
             for &id in &r.msg_ids {
                 let sent = self.take_sent(id);
                 all &= !sent.is_empty();
-                self.queue.extend(sent.into_iter().map(|(_, p)| p));
+                self.requeue(sent);
             }
             // Some we no longer have: the spec says to answer as if it was a msgs_state_req.
             if !all {
