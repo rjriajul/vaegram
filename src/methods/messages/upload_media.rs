@@ -22,6 +22,13 @@ impl Client {
             Source::Stored(base::InputMedia::InputMediaDocument(_)) if photo => {
                 return Err(Error::InvalidArgument("a stored document can't be sent as a photo"));
             }
+            // The external media types carry no attributes, so only kinds that need none can come from a URL.
+            Source::Url(_) if !matches!(media.kind, MediaKind::Photo | MediaKind::Document) => {
+                return Err(Error::InvalidArgument("only photos and documents can be sent by URL; upload the file"));
+            }
+            Source::Url(_) if media.thumb.is_some() || media.force_file => {
+                return Err(Error::InvalidArgument("a document sent by URL takes no thumbnail or force_file"));
+            }
             _ => {}
         }
         let live_photo = media.kind == MediaKind::LivePhoto;
@@ -44,6 +51,20 @@ impl Client {
                 }
                 other => other,
             },
+            Source::Url(url) if photo => {
+                let external =
+                    types::InputMediaPhotoExternal { spoiler: media.spoiler, url: url.clone(), ttl_seconds: None };
+                base::InputMedia::InputMediaPhotoExternal(Box::new(external))
+            }
+            Source::Url(url) => {
+                base::InputMedia::InputMediaDocumentExternal(Box::new(types::InputMediaDocumentExternal {
+                    spoiler: media.spoiler,
+                    url: url.clone(),
+                    ttl_seconds: None,
+                    video_cover,
+                    video_timestamp,
+                }))
+            }
             Source::Upload(upload) if photo => {
                 base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
                     spoiler: media.spoiler,
@@ -85,6 +106,10 @@ impl Client {
             base::InputMedia::InputMediaUploadedDocument(m) => {
                 (m.spoiler, None, m.video_cover.clone(), m.video_timestamp)
             }
+            base::InputMedia::InputMediaPhotoExternal(m) => (m.spoiler, None, None, None),
+            base::InputMedia::InputMediaDocumentExternal(m) => {
+                (m.spoiler, None, m.video_cover.clone(), m.video_timestamp)
+            }
             _ => return Ok(media),
         };
         let business_connection_id = business_connection_id.map(Into::into);
@@ -117,6 +142,7 @@ impl Client {
         let upload = match &video.0 {
             Source::Stored(base::InputMedia::InputMediaDocument(d)) => return Ok(d.id.clone()),
             Source::Stored(_) => return Err(Error::InvalidArgument("a live photo's video must be a video")),
+            Source::Url(_) => return Err(Error::InvalidArgument("a live photo's video can't be sent by URL")),
             Source::Upload(upload) => *upload,
         };
         let mut uploaded = uploaded_document(MediaKind::Video, media, upload, self.save_file(upload).await?);
@@ -134,21 +160,29 @@ impl Client {
         media: &InputMedia<'_>,
         business_connection_id: Option<&str>,
     ) -> Result<Option<base::InputPhoto>> {
-        let upload = match media.cover.as_ref().map(|c| &c.0) {
+        let photo = match media.cover.as_ref().map(|c| &c.0) {
             None => return Ok(None),
             Some(Source::Stored(base::InputMedia::InputMediaPhoto(p))) => return Ok(Some(p.id.clone())),
             Some(Source::Stored(_)) => return Err(Error::InvalidArgument("a video cover must be a photo")),
-            Some(Source::Upload(upload)) => *upload,
+            Some(Source::Url(url)) => {
+                let url = url.clone();
+                base::InputMedia::InputMediaPhotoExternal(Box::new(types::InputMediaPhotoExternal {
+                    spoiler: false,
+                    url,
+                    ttl_seconds: None,
+                }))
+            }
+            Some(Source::Upload(upload)) => {
+                base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
+                    spoiler: false,
+                    live_photo: false,
+                    file: self.save_file(*upload).await?,
+                    stickers: None,
+                    ttl_seconds: None,
+                    video: None,
+                }))
+            }
         };
-        let photo = types::InputMediaUploadedPhoto {
-            spoiler: false,
-            live_photo: false,
-            file: self.save_file(upload).await?,
-            stickers: None,
-            ttl_seconds: None,
-            video: None,
-        };
-        let photo = base::InputMedia::InputMediaUploadedPhoto(Box::new(photo));
         match self.upload_media(peer, photo, business_connection_id).await? {
             base::InputMedia::InputMediaPhoto(p) => Ok(Some(p.id)),
             _ => Err(Error::Unexpected("messages.uploadMedia returned no photo for the cover")),

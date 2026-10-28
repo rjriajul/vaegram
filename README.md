@@ -187,6 +187,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   (not yet tested live)
 - [ ] `on_my_chat_member`: the bot's own membership changes and blocks; other members stay on
   `on_chat_member_updated` (not yet tested live)
+- [ ] Send by URL: `send_photo(chat, FileSource::url("https://..")?)` and `send_document`; Telegram fetches the file
+  (not yet tested live)
 
 ### Development
 

@@ -14,6 +14,8 @@ pub(crate) enum Source<'a> {
     Upload(Upload<'a>),
     /// An `inputMediaPhoto` or `inputMediaDocument` with every flag off.
     Stored(base::InputMedia),
+    /// Fetched by Telegram itself.
+    Url(String),
 }
 
 impl FileSource<'_> {
@@ -32,6 +34,19 @@ impl FileSource<'_> {
             let document = types::InputDocument { id, access_hash, file_reference };
             stored_document(base::InputDocument::InputDocument(Box::new(document)))
         })
+    }
+
+    /// Telegram downloads the file. Only an empty or non-HTTP(S) URL fails here, as `InvalidArgument`; a URL
+    /// Telegram can't fetch fails when it answers, as `Error::Rpc`. A URL carries no attributes (duration, title,
+    /// thumbnail), so only photos and plain documents can use one; other senders fail with `InvalidArgument`.
+    pub fn url(url: impl Into<String>) -> Result<Self> {
+        let url = url.into();
+        let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"));
+        let valid = rest.is_some_and(|r| !r.is_empty() && !r.starts_with('/')) && !url.contains(char::is_whitespace);
+        if !valid {
+            return Err(Error::InvalidArgument("a file URL must be an http or https link"));
+        }
+        Ok(FileSource(Source::Url(url)))
     }
 }
 
@@ -158,6 +173,56 @@ mod tests {
         assert!(matches!(e, Some(Error::InvalidArgument(_))), "{e:?}");
         let e = client.send_document(-5, FileSource::file_id(PHOTO).unwrap()).await.err();
         assert!(matches!(e, Some(Error::InvalidArgument(_))), "{e:?}");
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn sends_urls_as_external_media_and_keeps_fetch_errors() {
+        let failed = || Err(Error::Rpc(RpcError::new(400, "WEBPAGE_CURL_FAILED")));
+        let (client, mut sent) = Client::scripted(vec![failed(), failed()]);
+        let url = "https://example.com/cat.jpg";
+
+        let result = client.send_photo(-5, FileSource::url(url).unwrap()).await;
+        assert!(matches!(result, Err(Error::Rpc(e)) if e.name == "WEBPAGE_CURL_FAILED"));
+        let photo = types::InputMediaPhotoExternal { spoiler: false, url: url.into(), ttl_seconds: None };
+        let photo = base::InputMedia::InputMediaPhotoExternal(Box::new(photo));
+        assert!(contains(&sent.try_recv().expect("no request sent"), &photo.to_bytes()));
+
+        let result = client.send_document(-5, FileSource::url(url).unwrap()).await;
+        assert!(matches!(result, Err(Error::Rpc(e)) if e.name == "WEBPAGE_CURL_FAILED"));
+        let document = base::InputMedia::InputMediaDocumentExternal(Box::new(types::InputMediaDocumentExternal {
+            spoiler: false,
+            url: url.into(),
+            ttl_seconds: None,
+            video_cover: None,
+            video_timestamp: None,
+        }));
+        assert!(contains(&sent.try_recv().expect("no request sent"), &document.to_bytes()));
+    }
+
+    #[tokio::test]
+    async fn rejects_bad_urls_and_live_photos_by_url_without_a_request() {
+        for url in ["", "example.com/a.jpg", "ftp://example.com/a", "https://", "https:///a", "https://a b"] {
+            let e = FileSource::url(url).err();
+            assert!(matches!(e, Some(Error::InvalidArgument(_))), "{url}: {e:?}");
+        }
+
+        let (client, mut sent) = Client::recording();
+        let url = || FileSource::url("https://example.com/a.ogg").unwrap();
+        let errors = [
+            client.send_live_photo(-5, url(), FileSource::file_id(DOCUMENT).unwrap()).await.err(),
+            client.send_live_photo(-5, FileSource::file_id(PHOTO).unwrap(), url()).await.err(),
+            client.send_voice(-5, url()).await.err(),
+            client.send_video_note(-5, url()).await.err(),
+            client.send_sticker(-5, url()).await.err(),
+            client.send_animation(-5, url()).await.err(),
+            client.send_audio(-5, url()).await.err(),
+            client.send_video(-5, url()).await.err(),
+            client.send_document(-5, url()).thumb("thumb.jpg").await.err(),
+        ];
+        for e in errors {
+            assert!(matches!(e, Some(Error::InvalidArgument(_))), "{e:?}");
+        }
         assert!(sent.try_recv().is_err());
     }
 
