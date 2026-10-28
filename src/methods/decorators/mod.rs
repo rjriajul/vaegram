@@ -7,4 +7,5 @@ mod on_event;
 mod on_guest_message;
 mod on_inline_query;
 mod on_message;
+mod on_message_generation_stopped;
 mod on_raw_update;

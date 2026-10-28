@@ -1,7 +1,10 @@
 use super::facts::{Facts, PeerKinds};
 use crate::Client;
 use crate::client::Me;
-use crate::types::{BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message, User};
+use crate::types::{
+    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message,
+    MessageGenerationStopped, User,
+};
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
 // `Inspect` uncallable while `Filter::check` can still bound on it.
@@ -73,3 +76,9 @@ subject!(ChatJoinRequest: HasChat, HasSender; |s, me| {
 subject!(GuestMessage: HasChat, HasSender, HasText, HasMedia; |s, me| private::Inspect::facts(&s.message, me));
 
 subject!(BotSubscriptionUpdated: HasSender; |s, me| user_query(&s.user, me));
+
+subject!(MessageGenerationStopped: HasChat, HasSender; |s, me| {
+    // Drafts only go to private chats, so the chat is also the user who pressed stop.
+    let kinds = PeerKinds { chat: Some(s.chat.kind), sender_bot: false };
+    Facts::query(s.chat.id, s.chat.id, &[], kinds, me)
+});

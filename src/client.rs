@@ -10,6 +10,7 @@ use crate::connection::{Options, Proxy, Transport};
 use crate::dispatcher::Routes;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
+use crate::methods::StreamShared;
 use crate::raw::{base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Lease, TransferPool};
@@ -204,6 +205,7 @@ pub(crate) struct Inner {
     pub(crate) ordered: bool,
     pub(crate) handler_permits: Option<Arc<Semaphore>>,
     pub(crate) events: Arc<Events>,
+    pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
 }
 
 pub(crate) use me::Me;
@@ -242,6 +244,7 @@ impl Inner {
             handlers: Routes::default(),
             ordered: false,
             handler_permits: None,
+            streams: Mutex::new(HashMap::new()),
         }
     }
 

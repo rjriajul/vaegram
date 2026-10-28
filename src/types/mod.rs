@@ -13,9 +13,9 @@ pub use bots_and_keyboards::{
 pub use inline_mode::{InlineQuery, InlineQueryResultArticle, SentGuestMessage};
 pub use messages_and_media::{
     Animation, Audio, Command, Contact, Dice, Document, ExternalReplyInfo, FileLocation, GuestMessage,
-    LinkPreviewOptions, Location, Media, Message, MessageEntity, MessageOrigin, Photo, Poll, PollOption,
-    ReplyParameters, ServiceAction, Sticker, SuggestedPostParameters, SuggestedPostPrice, TextQuote, Upload, Venue,
-    Video, VideoNote, Voice,
+    LinkPreviewOptions, Location, Media, Message, MessageEntity, MessageGenerationStopped, MessageOrigin, Photo, Poll,
+    PollOption, ReplyParameters, ServiceAction, Sticker, SuggestedPostParameters, SuggestedPostPrice, TextQuote,
+    Upload, Venue, Video, VideoNote, Voice,
 };
 pub use user_and_chats::{
     Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatPermissions, ChatPrivileges, Community, PeerRef,

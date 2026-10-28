@@ -8,7 +8,10 @@ use crate::client::Me;
 use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
 use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, UpdateKind};
 use crate::raw::base;
-use crate::types::{BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message};
+use crate::types::{
+    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message,
+    MessageGenerationStopped,
+};
 
 type Scan = (Vec<usize>, Option<usize>);
 
@@ -120,6 +123,7 @@ pub(crate) struct Router {
     pub(crate) chat_join_request: Handlers<ChatJoinRequest>,
     pub(crate) guest_message: Handlers<GuestMessage>,
     pub(crate) bot_subscription_updated: Handlers<BotSubscriptionUpdated>,
+    pub(crate) message_generation_stopped: Handlers<MessageGenerationStopped>,
     pub(crate) raw: Vec<RawCallback>,
     pub(crate) on_error: Option<ErrorCallback>,
     next_id: u32,
@@ -140,6 +144,7 @@ impl Router {
             UpdateKind::ChatJoinRequest => self.chat_join_request.configure(id, group, stop),
             UpdateKind::GuestMessage => self.guest_message.configure(id, group, stop),
             UpdateKind::BotSubscriptionUpdated => self.bot_subscription_updated.configure(id, group, stop),
+            UpdateKind::MessageGenerationStopped => self.message_generation_stopped.configure(id, group, stop),
             UpdateKind::Raw => {}
         }
     }
@@ -183,6 +188,12 @@ impl Router {
                 if let Some(item) = BotSubscriptionUpdated::parse(client, &u, entities) {
                     let kind = UpdateKind::BotSubscriptionUpdated;
                     self.bot_subscription_updated.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
+                }
+            }
+            U::UpdateUserTyping(u) if !self.message_generation_stopped.0.is_empty() => {
+                if let Some(stopped) = MessageGenerationStopped::parse(client, &u, entities) {
+                    let (kind, scan) = (UpdateKind::MessageGenerationStopped, (Vec::new(), Some(0)));
+                    self.message_generation_stopped.finish(kind, tasks, &me(), scan, stopped);
                 }
             }
             _ => {}

@@ -26,7 +26,9 @@ pub use chats::{BanChatMember, GetChatAdministrators, GetChatMembers, RestrictCh
 pub use invite_links::{
     CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
 };
+pub(crate) use messages::StreamShared;
 pub use messages::{
-    CopyMessage, DownloadMedia, EditMessageText, ForwardMessages, GetChatHistory, PinChatMessage, SearchMessages,
-    SendContact, SendDice, SendDocument, SendLocation, SendMessage, SendPhoto, SendPoll, SendVenue, StopPoll,
+    CopyMessage, DownloadMedia, EditMessageText, ForwardMessages, GetChatHistory, MessageStream, PinChatMessage,
+    SearchMessages, SendContact, SendDice, SendDocument, SendLocation, SendMessage, SendMessageDraft, SendPhoto,
+    SendPoll, SendVenue, StopPoll, StreamMessage,
 };
