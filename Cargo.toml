@@ -24,5 +24,9 @@ sha2 = "0.10"
 tokio = { version = "1", features = ["fs", "net", "io-util", "rt", "sync", "time", "macros"] }
 warpcrypto = "2.1.0"
 
+[features]
+# `ToJson` for every TL type and function; off by default to keep the generated code small.
+json = []
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }

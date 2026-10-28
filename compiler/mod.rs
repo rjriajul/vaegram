@@ -187,6 +187,38 @@ fn gen_struct(out: &mut String, d: &Def) {
     writeln!(out, "    }}\n}}").unwrap();
 }
 
+fn gen_struct_json(out: &mut String, d: &Def) {
+    let name = pascal(split_ns(&d.name).1);
+    let (g, g_json) = if d.generic { ("<X>", "<X: crate::raw::ToJson>") } else { ("", "") };
+    writeln!(out, "impl{g_json} crate::raw::ToJson for {name}{g} {{").unwrap();
+    writeln!(out, "    fn to_json(&self, out: &mut ::std::string::String) {{").unwrap();
+    writeln!(out, "        out.push_str(r#\"{{\"_\":\"{}\"\"#);", d.name).unwrap();
+    for f in d.fields.iter().filter(|f| f.ty != "#") {
+        let (key, field) = (format!("r#\",\"{}\":\"#", f.name), ident(&f.name));
+        let write = "{ out.push_str(KEY); crate::raw::ToJson::to_json(v, out); }".replace("KEY", &key);
+        if f.flag.is_some() && f.ty != "true" {
+            writeln!(out, "        if let Some(v) = &self.{field} {write}").unwrap();
+        } else {
+            writeln!(out, "        let v = &self.{field}; {write}").unwrap();
+        }
+    }
+    writeln!(out, "        out.push('}}');\n    }}\n}}").unwrap();
+}
+
+fn gen_enum_json(out: &mut String, ty: &str, ctors: &[&Def]) {
+    writeln!(out, "impl crate::raw::ToJson for {} {{", pascal(split_ns(ty).1)).unwrap();
+    writeln!(out, "    fn to_json(&self, out: &mut ::std::string::String) {{\n        match self {{").unwrap();
+    for c in ctors {
+        let v = pascal(split_ns(&c.name).1);
+        if c.fields.is_empty() {
+            writeln!(out, "            Self::{v} => out.push_str(r#\"{{\"_\":\"{}\"}}\"#),", c.name).unwrap();
+        } else {
+            writeln!(out, "            Self::{v}(x) => crate::raw::ToJson::to_json(&**x, out),").unwrap();
+        }
+    }
+    writeln!(out, "        }}\n    }}\n}}").unwrap();
+}
+
 fn gen_deserialize_bare(out: &mut String, d: &Def) {
     let name = pascal(split_ns(&d.name).1);
     writeln!(out, "impl {name} {{").unwrap();
@@ -303,7 +335,8 @@ fn gen_function(out: &mut String, d: &Def) {
     }
 }
 
-pub fn generate(api: &str, mtproto: &str) -> String {
+/// `json`: also implement `ToJson` for every type and function (the `json` cargo feature).
+pub fn generate(api: &str, mtproto: &str, json: bool) -> String {
     let layer: i32 = api
         .lines()
         .find_map(|l| l.strip_prefix("// LAYER "))
@@ -330,19 +363,29 @@ pub fn generate(api: &str, mtproto: &str) -> String {
     for d in &defs {
         let ns = split_ns(&d.name).0;
         if d.function {
-            gen_function(mods.entry(("functions", ns)).or_default(), d);
+            let out = mods.entry(("functions", ns)).or_default();
+            gen_function(out, d);
+            if json {
+                gen_struct_json(out, d);
+            }
         } else {
             by_type.entry(&d.ty).or_default().push(d);
             if !d.fields.is_empty() {
                 let out = mods.entry(("types", ns)).or_default();
                 gen_struct(out, d);
                 gen_deserialize_bare(out, d);
+                if json {
+                    gen_struct_json(out, d);
+                }
             }
         }
     }
     for (ty, ctors) in &by_type {
         let out = mods.entry(("base", split_ns(ty).0)).or_default();
         gen_enum(out, ty, ctors);
+        if json {
+            gen_enum_json(out, ty, ctors);
+        }
         if *ty == "Update" {
             gen_update_counters(out, ctors);
         }

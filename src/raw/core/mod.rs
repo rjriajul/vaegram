@@ -1,4 +1,6 @@
 pub mod gzip_packed;
+#[cfg(feature = "json")]
+pub mod json;
 pub mod msg_container;
 mod primitives;
 
