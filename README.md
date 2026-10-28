@@ -182,6 +182,9 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   `query.delete_message`; `request.approve()` answers guard bot queries (not yet tested live)
 - [ ] Live photos, paid media and poll media: `send_live_photo(chat, photo, video)`, `msg.live_photo()`,
   `send_paid_media(chat, stars, media)`, `InputPollOption::new("Paris").media(..)` (not yet tested live)
+- [ ] Fields: `msg.reply_to_message().await` fetches the replied message on demand, `msg.is_automatic_forward`,
+  `user.is_premium`, `language_code`, `is_verified`, `is_scam`, `is_fake`, `is_deleted`, `sticker.is_premium`
+  (not yet tested live)
 
 ### Development
 

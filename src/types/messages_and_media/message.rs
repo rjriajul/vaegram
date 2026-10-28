@@ -38,6 +38,7 @@ pub struct Message {
     pub quote: Option<TextQuote>,
     pub external_reply: Option<Box<ExternalReplyInfo>>,
     pub forward_origin: Option<MessageOrigin>,
+    pub is_automatic_forward: bool,
     pub via_bot: Option<User>,
     pub media_group_id: Option<i64>,
     pub author_signature: Option<String>,
@@ -50,6 +51,8 @@ pub struct Message {
     /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`] and leaves its text in
     /// `message`.
     pub raw: Box<types::Message>,
+    // The replied message a business update carries, since the bot can't read the account's history.
+    replied: Option<Box<Message>>,
     client: Client,
 }
 
@@ -101,6 +104,7 @@ impl Message {
             _ => None,
         };
         let rich_message = raw.rich_message.take().map(RichMessage::parse);
+        let is_automatic_forward = is_automatic_forward(&chat, raw.fwd_from.as_ref());
         Message {
             id: raw.id,
             chat,
@@ -123,6 +127,7 @@ impl Message {
             quote,
             external_reply,
             forward_origin: raw.fwd_from.as_ref().and_then(|h| MessageOrigin::parse(h, entities)),
+            is_automatic_forward,
             via_bot: raw.via_bot_id.map(|id| User::parse(id, entities)),
             media_group_id: raw.grouped_id,
             author_signature: raw.post_author.clone(),
@@ -135,6 +140,7 @@ impl Message {
                 r.results.iter().filter_map(ReactionCount::parse).collect()
             }),
             raw,
+            replied: None,
             client: client.clone(),
         }
     }
@@ -269,19 +275,40 @@ impl Message {
         };
         let entities = Entities::new(client, users, chats);
         updates.into_iter().filter_map(move |u| {
-            let (message, connection_id) = match u {
+            let (message, business) = match u {
                 base::Update::UpdateNewMessage(u) => (u.message, None),
                 base::Update::UpdateNewChannelMessage(u) => (u.message, None),
                 base::Update::UpdateEditMessage(u) => (u.message, None),
                 base::Update::UpdateEditChannelMessage(u) => (u.message, None),
-                base::Update::UpdateBotNewBusinessMessage(u) => (u.message, Some(u.connection_id)),
-                base::Update::UpdateBotEditBusinessMessage(u) => (u.message, Some(u.connection_id)),
+                base::Update::UpdateBotNewBusinessMessage(u) => {
+                    (u.message, Some((u.connection_id, u.reply_to_message)))
+                }
+                base::Update::UpdateBotEditBusinessMessage(u) => {
+                    (u.message, Some((u.connection_id, u.reply_to_message)))
+                }
                 _ => return None,
             };
             let mut message = Message::from_raw(client, message, &entities)?;
-            message.business_connection_id = connection_id;
+            if let Some((connection_id, reply_to)) = business {
+                message.set_business(client, connection_id, reply_to, &entities);
+            }
             Some(message)
         })
+    }
+
+    pub(crate) fn set_business(
+        &mut self,
+        client: &Client,
+        connection_id: String,
+        reply_to: Option<base::Message>,
+        entities: &Entities,
+    ) {
+        let replied = reply_to.and_then(|m| Message::from_raw(client, m, entities));
+        self.replied = replied.map(|mut m| {
+            m.business_connection_id = Some(connection_id.clone());
+            Box::new(m)
+        });
+        self.business_connection_id = Some(connection_id);
     }
 
     pub fn reply_markup(&self) -> Option<ReplyMarkup> {
@@ -365,6 +392,18 @@ impl Message {
             .then_some(command)
     }
 
+    /// Fetches the message this one replies to, on demand; `None` when it isn't a reply or that message is gone.
+    /// A business message has only the replied message its update carried.
+    pub async fn reply_to_message(&self) -> Result<Option<Message>> {
+        if let Some(replied) = &self.replied {
+            return Ok(Some((**replied).clone()));
+        }
+        let Some(id) = self.reply_to_message_id.filter(|_| self.business_connection_id.is_none()) else {
+            return Ok(None);
+        };
+        Ok(self.client.get_messages(self.chat.id, &[id]).await?.pop().flatten())
+    }
+
     pub fn reply(&self, text: impl Into<Text>) -> SendMessage<'_> {
         self.answer(text).reply_to(self.id)
     }
@@ -380,6 +419,16 @@ impl Message {
             _ => send,
         }
     }
+}
+
+/// A channel post copied into its linked discussion group: the forward was saved from its own origin.
+fn is_automatic_forward(chat: &Chat, header: Option<&base::MessageFwdHeader>) -> bool {
+    let Some(base::MessageFwdHeader::MessageFwdHeader(h)) = header else { return false };
+    chat.kind == ChatType::Supergroup
+        && matches!(h.from_id, Some(base::Peer::PeerChannel(_)))
+        && h.saved_from_peer == h.from_id
+        && h.channel_post.is_some()
+        && h.saved_from_msg_id == h.channel_post
 }
 
 type ReplyFields = (Option<i32>, Option<i32>, Option<i32>, bool, Option<TextQuote>, Option<Box<ExternalReplyInfo>>);
@@ -413,7 +462,7 @@ pub(crate) mod tests {
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::filters;
-    use crate::raw::{base, types};
+    use crate::raw::{Identifiable, Serializable, base, functions, types};
     use crate::types::{Community, ForumTopicCreated, ForumTopicEdited, Media, MessageOrigin, ServiceAction};
     use crate::utils::{get_channel_id, get_peer};
 
@@ -539,6 +588,73 @@ pub(crate) mod tests {
         assert!(matches!(&external.media, Some(Media::Dice(d)) if d.value == 6));
         let hidden = MessageOrigin::HiddenUser { date: 100, sender_user_name: "Hidden".into() };
         assert_eq!(m.forward_origin, Some(hidden));
+        assert!(!m.is_automatic_forward);
+    }
+
+    #[test]
+    fn marks_channel_posts_copied_into_the_discussion_group() {
+        let channel = get_peer(-1000000000003);
+        let mut raw = Message::bare(1, get_peer(-1000000000005), 0);
+        let base::MessageFwdHeader::MessageFwdHeader(mut header) = forward(Some(channel.clone()), None, Some(77));
+        (header.saved_from_peer, header.saved_from_msg_id) = (Some(channel), Some(77));
+        raw.fwd_from = Some(base::MessageFwdHeader::MessageFwdHeader(header.clone()));
+        assert!(parse(&raw).is_automatic_forward);
+
+        header.saved_from_msg_id = Some(78);
+        raw.fwd_from = Some(base::MessageFwdHeader::MessageFwdHeader(header));
+        assert!(!parse(&raw).is_automatic_forward);
+    }
+
+    #[tokio::test]
+    async fn fetches_the_replied_message_only_when_asked() {
+        let messages = types::messages::Messages {
+            messages: vec![base::Message::Message(Box::new(Message::bare(4, get_peer(-5), 0)))],
+            topics: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        let reply = Ok(base::messages::Messages::Messages(Box::new(messages)).to_bytes());
+        let (client, mut sent) = Client::scripted(vec![reply]);
+        let mut raw = Message::bare(9, get_peer(-5), 0);
+        let header = types::MessageReplyHeader { reply_to_msg_id: Some(4), ..header() };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(header)));
+        let message = Message::parse(&client, Box::new(raw), &Entities::default());
+        assert!(sent.try_recv().is_err());
+
+        let replied = message.reply_to_message().await.unwrap().unwrap();
+        assert_eq!((replied.id, replied.chat.id), (4, -5));
+        let body = sent.try_recv().unwrap();
+        assert_eq!(body[..4], functions::messages::GetMessages::CONSTRUCTOR_ID.to_le_bytes());
+
+        let plain = Message::parse(&client, Box::new(Message::bare(10, get_peer(-5), 0)), &Entities::default());
+        assert!(plain.reply_to_message().await.unwrap().is_none());
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_business_message_answers_with_the_replied_message_its_update_carried() {
+        let (client, mut sent) = Client::recording();
+        let business = |reply_to_message| {
+            let mut raw = Message::bare(9, get_peer(7), 0);
+            let header = types::MessageReplyHeader { reply_to_msg_id: Some(4), ..header() };
+            raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(header)));
+            let update = types::UpdateBotNewBusinessMessage {
+                connection_id: "conn".into(),
+                message: base::Message::Message(Box::new(raw)),
+                reply_to_message,
+                qts: 1,
+            };
+            let update = base::Update::UpdateBotNewBusinessMessage(Box::new(update));
+            let update = types::UpdateShort { update, date: 0 };
+            Message::all_from_updates(&client, base::Updates::UpdateShort(Box::new(update))).next().unwrap()
+        };
+
+        let carried = base::Message::Message(Box::new(Message::bare(4, get_peer(7), 0)));
+        let replied = business(Some(carried)).reply_to_message().await.unwrap().unwrap();
+        assert_eq!((replied.id, replied.business_connection_id.as_deref()), (4, Some("conn")));
+        // Without it, the bot's own message ids are another account's, so nothing is fetched.
+        assert!(business(None).reply_to_message().await.unwrap().is_none());
+        assert!(sent.try_recv().is_err());
     }
 
     #[test]

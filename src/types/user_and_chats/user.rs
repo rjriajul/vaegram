@@ -9,6 +9,12 @@ pub struct User {
     pub first_name: String,
     pub last_name: Option<String>,
     pub username: Option<String>,
+    pub language_code: Option<String>,
+    pub is_premium: bool,
+    pub is_deleted: bool,
+    pub is_verified: bool,
+    pub is_scam: bool,
+    pub is_fake: bool,
     pub supports_join_request_queries: bool,
     pub supports_guest_queries: bool,
     pub can_join_groups: bool,
@@ -33,6 +39,12 @@ impl User {
                 first_name: u.first_name.clone().unwrap_or_default(),
                 last_name: u.last_name.clone(),
                 username: u.username.clone(),
+                language_code: u.lang_code.clone(),
+                is_premium: u.premium,
+                is_deleted: u.deleted,
+                is_verified: u.verified,
+                is_scam: u.scam,
+                is_fake: u.fake,
                 // Inferred from the name: api.tl does not describe bot_guard.
                 supports_join_request_queries: u.bot_guard,
                 supports_guest_queries: u.bot_guestchat,
@@ -62,5 +74,31 @@ impl User {
             Some(S::UserStatusEmpty) => (Some(UserStatus::LongAgo), None, None),
         };
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::User;
+    use crate::dispatcher::Entities;
+    use crate::raw::{Serializable, base, types};
+
+    #[test]
+    fn reads_account_flags_and_language() {
+        // deleted 13, verified 17, lang_code 22, scam 24, fake 26, premium 28; no flags2.
+        let flags: u32 = 1 << 13 | 1 << 17 | 1 << 22 | 1 << 24 | 1 << 26 | 1 << 28;
+        let mut buf = Vec::new();
+        for word in [flags, 0] {
+            word.serialize(&mut buf);
+        }
+        7i64.serialize(&mut buf);
+        String::from("pt-br").serialize(&mut buf);
+        let raw = types::User::deserialize_bare(&mut &buf[..]).unwrap();
+        let mut entities = Entities::default();
+        entities.users.insert(7, base::User::User(Box::new(raw)));
+        let user = User::parse(7, &entities);
+        assert_eq!(user.language_code.as_deref(), Some("pt-br"));
+        assert!(user.is_premium && user.is_deleted && user.is_verified && user.is_scam && user.is_fake);
+        assert!(!User::parse(8, &entities).is_premium);
     }
 }

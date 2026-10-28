@@ -84,7 +84,7 @@ impl Media {
         };
         let document = Document::parse_as(document, file_type)?;
         Some(match kind {
-            MediaKind::Sticker => Media::Sticker(Sticker::from_document(document, &raw.attributes)?),
+            MediaKind::Sticker => Media::Sticker(Sticker::from_document(document, raw)?),
             MediaKind::Animation => Media::Animation(Animation::parse(document, video, size)),
             MediaKind::VideoNote => Media::VideoNote(VideoNote::parse(document, video)),
             MediaKind::Video => Media::Video(Video::parse(document, video)),

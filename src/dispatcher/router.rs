@@ -117,7 +117,7 @@ impl Handlers<Message> {
         client: &Client,
         mut raw: base::Message,
         entities: &Entities,
-        business_connection_id: Option<String>,
+        business: Option<(String, Option<base::Message>)>,
     ) {
         if self.0.is_empty() {
             return;
@@ -128,7 +128,9 @@ impl Handlers<Message> {
         }
         let Some(scan) = self.scan(&Facts::message(&raw, PeerKinds::message(&raw, entities), &me)) else { return };
         if let Some(mut message) = Message::from_raw(client, raw, entities) {
-            message.business_connection_id = business_connection_id;
+            if let Some((connection_id, reply_to)) = business {
+                message.set_business(client, connection_id, reply_to, entities);
+            }
             self.finish(kind, tasks, &me, scan, message);
         }
     }
@@ -305,12 +307,13 @@ impl Router {
             }
             U::UpdateBotNewBusinessMessage(u) => {
                 let (kind, u) = (UpdateKind::BusinessMessage, *u);
-                self.business_message.run_business(kind, tasks, client, u.message, entities, Some(u.connection_id));
+                let business = Some((u.connection_id, u.reply_to_message));
+                self.business_message.run_business(kind, tasks, client, u.message, entities, business);
             }
             U::UpdateBotEditBusinessMessage(u) => {
                 let (kind, u) = (UpdateKind::EditedBusinessMessage, *u);
-                let id = Some(u.connection_id);
-                self.edited_business_message.run_business(kind, tasks, client, u.message, entities, id);
+                let business = Some((u.connection_id, u.reply_to_message));
+                self.edited_business_message.run_business(kind, tasks, client, u.message, entities, business);
             }
             U::UpdateBotChatBoost(u) if !self.chat_boost.0.is_empty() || !self.removed_chat_boost.0.is_empty() => {
                 match BoostUpdate::parse(client, *u, entities) {
