@@ -3,7 +3,8 @@ use crate::Client;
 use crate::client::Me;
 use crate::types::{
     BotSubscriptionUpdated, CallbackQuery, Chat, ChatJoinRequest, ChosenInlineResult, DeletedEphemeralMessages,
-    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped, User,
+    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
+    MessageReactionCountUpdated, MessageReactionUpdated, User,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -55,6 +56,15 @@ fn chat_query<'a>(chat: Option<&Chat>, me: &'a Me) -> Facts<'a> {
     Facts::query(chat.map_or(0, |c| c.id), 0, &[], PeerKinds { chat: chat.map(|c| c.kind), sender_bot: false }, me)
 }
 
+// Anonymous admins act on behalf of a chat, which then stands in as the sender.
+fn sender_of(user: Option<&User>, chat: Option<&Chat>) -> (i64, bool) {
+    match (user, chat) {
+        (Some(u), _) => (u.id, u.is_bot),
+        (None, Some(c)) => (c.id, false),
+        (None, None) => (0, false),
+    }
+}
+
 subject!(Message: HasChat, HasSender, HasText, HasMedia; |s, me| {
     let sender_bot = s.from_user.as_ref().is_some_and(|u| u.is_bot);
     Facts::plain(&s.raw, PeerKinds { chat: Some(s.chat.kind), sender_bot }, me)
@@ -100,3 +110,10 @@ subject!(EphemeralMessage: HasChat, HasSender, HasText; |s, me| {
 });
 
 subject!(DeletedEphemeralMessages: HasChat; |s, me| chat_query(Some(&s.chat), me));
+
+subject!(MessageReactionUpdated: HasChat, HasSender; |s, me| {
+    let (sender_id, sender_bot) = sender_of(s.user.as_ref(), s.actor_chat.as_ref());
+    Facts::query(s.chat.id, sender_id, &[], PeerKinds { chat: Some(s.chat.kind), sender_bot }, me)
+});
+
+subject!(MessageReactionCountUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));

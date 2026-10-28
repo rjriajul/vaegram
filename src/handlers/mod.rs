@@ -9,6 +9,7 @@ use crate::raw::base;
 use crate::types::{
     BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, DeletedEphemeralMessages,
     EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
+    MessageReactionCountUpdated, MessageReactionUpdated,
 };
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
@@ -43,6 +44,8 @@ pub enum UpdateKind {
     EphemeralMessage,
     EditedEphemeralMessage,
     DeletedEphemeralMessages,
+    MessageReaction,
+    MessageReactionCount,
     Raw,
 }
 
@@ -167,7 +170,19 @@ impl Routed for EphemeralMessage {
     }
 }
 
+impl Routed for MessageReactionUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
 impl Routed for DeletedEphemeralMessages {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for MessageReactionCountUpdated {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }

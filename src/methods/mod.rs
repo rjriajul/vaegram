@@ -31,6 +31,6 @@ pub(crate) use messages::StreamShared;
 pub use messages::{
     ApproveSuggestedPost, CopyMessage, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage, EditMessageText,
     ForwardMessages, GetChatHistory, MessageStream, PinChatMessage, SearchMessages, SendContact, SendDice,
-    SendDocument, SendEphemeralMessage, SendLocation, SendMessage, SendMessageDraft, SendPhoto, SendPoll, SendVenue,
-    StopPoll, StreamMessage,
+    SendDocument, SendEphemeralMessage, SendLocation, SendMessage, SendMessageDraft, SendPhoto, SendPoll, SendReaction,
+    SendVenue, StopPoll, StreamMessage,
 };

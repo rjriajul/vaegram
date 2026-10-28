@@ -13,4 +13,6 @@ mod on_inline_query;
 mod on_managed_bot;
 mod on_message;
 mod on_message_generation_stopped;
+mod on_message_reaction;
+mod on_message_reaction_count;
 mod on_raw_update;

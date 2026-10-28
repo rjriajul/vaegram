@@ -23,9 +23,10 @@ pub use inline_mode::{
 pub use messages_and_media::{
     Animation, Audio, Command, Contact, DeletedEphemeralMessages, Dice, Document, EphemeralMessage, ExternalReplyInfo,
     FileLocation, GuestMessage, LinkPreviewOptions, Location, Media, Message, MessageEntity, MessageGenerationStopped,
-    MessageOrigin, Photo, Poll, PollOption, ReplyParameters, ServiceAction, Sticker, SuggestedPostApprovalFailed,
-    SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters,
-    SuggestedPostPrice, SuggestedPostRefunded, TextQuote, Upload, Venue, Video, VideoNote, Voice,
+    MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, Photo, Poll, PollOption, ReactionCount,
+    ReactionType, ReplyParameters, ServiceAction, Sticker, SuggestedPostApprovalFailed, SuggestedPostApproved,
+    SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice,
+    SuggestedPostRefunded, TextQuote, Upload, Venue, Video, VideoNote, Voice,
 };
 pub use user_and_chats::{
     Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatPermissions, ChatPrivileges, Community,

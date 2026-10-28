@@ -11,6 +11,7 @@ use crate::raw::base;
 use crate::types::{
     BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, DeletedEphemeralMessages,
     EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
+    MessageReactionCountUpdated, MessageReactionUpdated,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -129,6 +130,8 @@ pub(crate) struct Router {
     pub(crate) ephemeral_message: Handlers<EphemeralMessage>,
     pub(crate) edited_ephemeral_message: Handlers<EphemeralMessage>,
     pub(crate) deleted_ephemeral_messages: Handlers<DeletedEphemeralMessages>,
+    pub(crate) message_reaction: Handlers<MessageReactionUpdated>,
+    pub(crate) message_reaction_count: Handlers<MessageReactionCountUpdated>,
     pub(crate) raw: Vec<RawCallback>,
     pub(crate) on_error: Option<ErrorCallback>,
     next_id: u32,
@@ -155,6 +158,8 @@ impl Router {
             UpdateKind::EphemeralMessage => self.ephemeral_message.configure(id, group, stop),
             UpdateKind::EditedEphemeralMessage => self.edited_ephemeral_message.configure(id, group, stop),
             UpdateKind::DeletedEphemeralMessages => self.deleted_ephemeral_messages.configure(id, group, stop),
+            UpdateKind::MessageReaction => self.message_reaction.configure(id, group, stop),
+            UpdateKind::MessageReactionCount => self.message_reaction_count.configure(id, group, stop),
             UpdateKind::Raw => {}
         }
     }
@@ -232,6 +237,15 @@ impl Router {
                 let (kind, item) =
                     (UpdateKind::DeletedEphemeralMessages, DeletedEphemeralMessages::parse(client, *u, entities));
                 self.deleted_ephemeral_messages.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateBotMessageReaction(u) if !self.message_reaction.0.is_empty() => {
+                let item = MessageReactionUpdated::parse(client, &u, entities);
+                self.message_reaction.finish(UpdateKind::MessageReaction, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateBotMessageReactions(u) if !self.message_reaction_count.0.is_empty() => {
+                let item = MessageReactionCountUpdated::parse(client, &u, entities);
+                let kind = UpdateKind::MessageReactionCount;
+                self.message_reaction_count.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
             }
             _ => {}
         }
@@ -384,6 +398,59 @@ mod tests {
         let mut seen = log.lock().unwrap().clone();
         seen.sort_unstable();
         assert_eq!(seen, ["callback", "deleted", "ephemeral"]);
+    }
+
+    #[tokio::test]
+    async fn reaction_updates_reach_their_handlers_through_filters() {
+        let (client, log) = (Client::offline(), Log::default());
+        let chat = crate::utils::get_channel_id(42);
+        let (reaction, other, count, late) = (log.clone(), log.clone(), log.clone(), log.clone());
+        client.on_message_reaction(filters::user(8), move |_| {
+            other.lock().unwrap().push("other user");
+            async { Ok(()) }
+        });
+        client.on_message_reaction(filters::user(7) & filters::chat(chat), move |r| {
+            if (r.chat.id, r.user.map(|u| u.id), r.message_id) == (chat, Some(7), 10) {
+                reaction.lock().unwrap().push("reaction");
+            }
+            async { Ok(()) }
+        });
+        // Within a group the first match wins, so this one only runs if `.group(1)` reached its list.
+        client
+            .on_message_reaction_count(filters::all(), move |_| {
+                late.lock().unwrap().push("count group 1");
+                async { Ok(()) }
+            })
+            .group(1);
+        client.on_message_reaction_count(filters::chat(chat), move |r| {
+            if (r.chat.id, r.message_id) == (chat, 10) {
+                count.lock().unwrap().push("count");
+            }
+            async { Ok(()) }
+        });
+        let router = router_of(&client);
+        let update = types::UpdateBotMessageReaction {
+            peer: get_peer(chat),
+            msg_id: 10,
+            date: 0,
+            actor: get_peer(7),
+            old_reactions: Vec::new(),
+            new_reactions: Vec::new(),
+            qts: 1,
+        };
+        dispatch(&router, base::Update::UpdateBotMessageReaction(Box::new(update)));
+        let update = types::UpdateBotMessageReactions {
+            peer: get_peer(chat),
+            msg_id: 10,
+            date: 0,
+            reactions: Vec::new(),
+            qts: 2,
+        };
+        dispatch(&router, base::Update::UpdateBotMessageReactions(Box::new(update)));
+        settle().await;
+        let mut seen = log.lock().unwrap().clone();
+        seen.sort_unstable();
+        assert_eq!(seen, ["count", "count group 1", "reaction"]);
     }
 
     #[tokio::test]

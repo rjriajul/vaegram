@@ -2,11 +2,11 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::ChatType;
 use crate::errors::{Error, Result};
-use crate::methods::{DownloadMedia, EditMessageText, SendMessage};
+use crate::methods::{DownloadMedia, EditMessageText, SendMessage, SendReaction};
 use crate::raw::{base, types};
 use crate::types::{
     Chat, Command, DirectMessagesTopic, ExternalReplyInfo, LinkPreviewOptions, Media, MessageEntity, MessageOrigin,
-    ReplyMarkup, ServiceAction, SuggestedPostInfo, TextQuote, User,
+    ReactionCount, ReactionType, ReplyMarkup, ServiceAction, SuggestedPostInfo, TextQuote, User,
 };
 use crate::utils::get_peer;
 
@@ -37,6 +37,7 @@ pub struct Message {
     pub has_protected_content: bool,
     pub service: Option<ServiceAction>,
     pub direct_messages_topic: Option<DirectMessagesTopic>,
+    pub reactions: Vec<ReactionCount>,
     pub raw: Box<types::Message>,
     client: Client,
 }
@@ -98,6 +99,9 @@ impl Message {
             has_protected_content: raw.noforwards,
             service: None,
             direct_messages_topic,
+            reactions: raw.reactions.as_ref().map_or(Vec::new(), |base::MessageReactions::MessageReactions(r)| {
+                r.results.iter().filter_map(ReactionCount::parse).collect()
+            }),
             raw,
             client: client.clone(),
         }
@@ -246,6 +250,10 @@ impl Message {
 
     pub async fn delete(&self) -> Result<()> {
         self.client.delete_messages(self.chat.id, &[self.id]).await
+    }
+
+    pub fn react(&self, reaction: impl Into<ReactionType>) -> SendReaction<'_> {
+        self.client.send_reaction(self.chat.id, self.id).reaction(reaction)
     }
 
     pub fn client(&self) -> &Client {

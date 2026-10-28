@@ -40,6 +40,11 @@ async fn main() -> vaegram::Result<()> {
         Ok(())
     });
 
+    app.on_message(filters::command("react"), |msg| async move {
+        msg.react("👍").await?;
+        Ok(())
+    });
+
     app.on_message(filters::text() & filters::create(|m: &Message| m.text == "Remove keyboard"), |msg| async move {
         msg.reply("Keyboard removed.").reply_markup(ReplyKeyboardRemove::default()).await?;
         Ok(())
@@ -85,6 +90,11 @@ async fn main() -> vaegram::Result<()> {
                 .description("HTML"),
         ];
         query.answer(results).cache_time(0).await?;
+        Ok(())
+    });
+
+    app.on_message_reaction(filters::all(), |update| async move {
+        println!("reactions on {} changed to {:?}", update.message_id, update.new_reaction);
         Ok(())
     });
 
