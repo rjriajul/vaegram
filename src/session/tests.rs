@@ -5,15 +5,16 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
 use super::{
-    Affected, Answer, Arc, Call, ClientEvent, Connection, DEAD_AFTER, Identifiable, Incoming, Instant,
-    MAX_CONTAINER_MSGS, Observer, Options, RPC_RESULT, Request, Runner, Salt, Serializable, Session, UPDATES_BUFFER,
-    UpdatesRx, base, constructor_id, functions, gzip_packed, internals, jitter, mpsc, msg_container, mtproto, oneshot,
-    outbox, types,
+    Affected, Answer, Arc, Call, ClientEvent, Connection, DEAD_AFTER, Identifiable, Incoming, MAX_CONTAINER_MSGS,
+    Observer, Options, PING_EVERY, PROBE_AFTER, PROBE_DEAD_AFTER, RPC_RESULT, Request, Runner, Salt, Serializable,
+    Session, UPDATES_BUFFER, UpdatesRx, base, constructor_id, functions, gzip_packed, internals, jitter, mpsc,
+    msg_container, mtproto, oneshot, outbox, types,
 };
 use crate::errors::{Error, RpcError};
 use crate::session::internals::data_center::Dc;
+use crate::session::test_dc::{self, TestDc};
 use crate::session::transfer::{Auth, TransferPool};
-use crate::session::{Learned, auth::Created, pfs::Pfs};
+use crate::session::{Known, Learned, auth::Created, pfs::Pfs};
 
 type Frames = mpsc::UnboundedReceiver<Vec<u8>>;
 type Seen = Arc<Mutex<Vec<(&'static str, i64, Result<Vec<u8>, String>)>>>;
@@ -243,17 +244,82 @@ async fn status_check_refused_for_bad_salt_is_asked_again() {
 #[tokio::test]
 async fn silent_connection_is_declared_dead() {
     let (mut r, _frames, _updates) = runner().await;
+    // Paused only after connecting: a paused clock would jump past the connect timeout.
+    tokio::time::pause();
     assert!(r.tick().await.is_ok());
-    r.last_read = Instant::now().checked_sub(DEAD_AFTER + Duration::from_secs(1)).unwrap();
+    tokio::time::advance(DEAD_AFTER + Duration::from_secs(1)).await;
     assert!(matches!(r.tick().await, Err(Error::Disconnected)));
 }
 
 #[tokio::test]
-async fn transfer_connections_wait_out_slow_parts() {
+async fn silence_with_requests_waiting_is_probed_once() {
+    const PING_DELAY_DISCONNECT: u32 = <functions::PingDelayDisconnect as Identifiable>::CONSTRUCTOR_ID;
+    let (mut r, mut frames, _updates) = runner().await;
+    let mut waiting = vec![request(&mut r, ping(1))];
+    r.flush().await.unwrap();
+    assert_eq!(recv(&mut frames, &r).await.2, ping(1));
+
+    tokio::time::pause();
+    tokio::time::advance(PROBE_AFTER + Duration::from_secs(1)).await;
+    for next in [2, 3] {
+        r.tick().await.unwrap();
+        waiting.push(request(&mut r, ping(next)));
+        r.flush().await.unwrap();
+        if next == 2 {
+            assert_eq!(constructor_id(&recv(&mut frames, &r).await.2), Some(PING_DELAY_DISCONNECT));
+        }
+        assert_eq!(recv(&mut frames, &r).await.2, ping(next));
+    }
+}
+
+#[tokio::test]
+async fn a_read_after_a_probe_lets_the_next_silence_be_probed() {
+    const PING_DELAY_DISCONNECT: u32 = <functions::PingDelayDisconnect as Identifiable>::CONSTRUCTOR_ID;
+    let (mut r, mut frames, _updates) = runner().await;
+    let _rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    let _ = recv(&mut frames, &r).await;
+    tokio::time::pause();
+    for _ in 0..2 {
+        tokio::time::advance(PROBE_AFTER + Duration::from_secs(1)).await;
+        r.tick().await.unwrap();
+        assert_eq!(constructor_id(&recv(&mut frames, &r).await.2), Some(PING_DELAY_DISCONNECT));
+        r.heard();
+    }
+}
+
+#[tokio::test]
+async fn silence_with_requests_waiting_is_declared_dead_sooner() {
     let (mut r, _frames, _updates) = runner().await;
+    let _rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    tokio::time::pause();
+    tokio::time::advance(PROBE_DEAD_AFTER + Duration::from_secs(1)).await;
+    assert!(matches!(r.tick().await, Err(Error::Disconnected)));
+}
+
+#[tokio::test]
+async fn idle_silence_is_not_probed() {
+    let (mut r, mut frames, _updates) = runner().await;
+    tokio::time::pause();
+    tokio::time::advance(PING_EVERY - Duration::from_secs(1)).await;
+    r.tick().await.unwrap();
+    let _rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    assert_eq!(recv(&mut frames, &r).await.2, ping(1));
+}
+
+#[tokio::test]
+async fn transfer_connections_wait_out_slow_parts() {
+    let (mut r, mut frames, _updates) = runner().await;
     r.updates = None;
-    r.last_read = Instant::now().checked_sub(DEAD_AFTER + Duration::from_secs(30)).unwrap();
+    let _rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    let _ = recv(&mut frames, &r).await;
+    tokio::time::pause();
+    tokio::time::advance(DEAD_AFTER + Duration::from_secs(30)).await;
     assert!(r.tick().await.is_ok());
+    assert!(r.service.is_empty(), "a transfer connection was probed");
 }
 
 #[test]
@@ -453,7 +519,7 @@ async fn reconnect_is_reported() {
     let events = r.events.record();
     let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
     let (_sender, requests) = mpsc::unbounded_channel();
-    r.reconnect(&requests).await;
+    r.reconnect(&requests, false).await;
     let _server = server.await.unwrap();
     assert!(matches!(events.try_recv(), Ok(ClientEvent::Reconnected { dc: 2, attempt: 1 })));
     assert!(r.events.take_reconnected());
@@ -583,7 +649,7 @@ const BOOL_TRUE: u32 = 0x997275b5;
 #[tokio::test]
 async fn temp_key_carries_only_the_bind_until_bound() {
     let (mut r, mut frames, _updates) = runner().await;
-    r.pfs = Some(Pfs::new([9; 256], false, ping(77), i64::MAX));
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
     r.use_temp_key(Created { auth_key: [8; 256], salt: 5, time_offset: 0 });
     let _rx = request(&mut r, ping(1));
     r.flush().await.unwrap();
@@ -611,7 +677,7 @@ async fn temp_key_carries_only_the_bind_until_bound() {
 #[tokio::test]
 async fn requests_sent_under_a_lost_temp_key_are_failed_not_resent() {
     let (mut r, mut frames, _updates) = runner().await;
-    r.pfs = Some(Pfs::new([9; 256], false, ping(77), i64::MAX));
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
     r.flush().await.unwrap();
     let (bind_id, _, _) = recv(&mut frames, &r).await;
     r.handle_message(1, 1, &rpc_result(bind_id, &BOOL_TRUE.to_le_bytes()));
@@ -629,7 +695,7 @@ async fn requests_sent_under_a_lost_temp_key_are_failed_not_resent() {
 #[tokio::test]
 async fn stale_perm_key_ends_the_session_like_a_404() {
     let (mut r, mut frames, _updates) = runner().await;
-    r.pfs = Some(Pfs::new([9; 256], false, ping(77), i64::MAX));
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
     r.flush().await.unwrap();
     let (bind_id, _, _) = recv(&mut frames, &r).await;
     let error = types::RpcError { error_code: 400, error_message: "ENCRYPTED_MESSAGE_INVALID".into() };
@@ -644,7 +710,7 @@ async fn bind_retries_back_off_while_a_new_perm_key_propagates() {
     let (mut r, _frames, _updates) = runner().await;
     // Paused only now: a paused clock jumps past the connect timeout while a real socket is still connecting.
     tokio::time::pause();
-    r.pfs = Some(Pfs::new([9; 256], true, ping(77), i64::MAX));
+    r.pfs = Some(Pfs::new([9; 256], Some(tokio::time::Instant::now()), ping(77), i64::MAX));
     let _rx = request(&mut r, ping(1));
     let error = types::RpcError { error_code: 400, error_message: "ENCRYPTED_MESSAGE_INVALID".into() };
     let binds = |r: &Runner| r.pfs.as_ref().unwrap().binds_sent.clone();
@@ -667,7 +733,7 @@ async fn bind_retries_back_off_while_a_new_perm_key_propagates() {
 #[tokio::test]
 async fn refused_bind_ends_the_session_instead_of_reconnecting() {
     let (mut r, mut frames, _updates) = runner().await;
-    r.pfs = Some(Pfs::new([9; 256], true, ping(77), i64::MAX));
+    r.pfs = Some(Pfs::new([9; 256], Some(tokio::time::Instant::now()), ping(77), i64::MAX));
     r.flush().await.unwrap();
     let (bind_id, _, _) = recv(&mut frames, &r).await;
     let error = types::RpcError { error_code: 400, error_message: "TEMP_AUTH_KEY_ALREADY_BOUND".into() };
@@ -680,7 +746,7 @@ async fn refused_bind_ends_the_session_instead_of_reconnecting() {
 #[tokio::test]
 async fn lost_bound_temp_key_reconnects_with_a_new_one() {
     let (mut r, mut frames, _updates) = runner().await;
-    r.pfs = Some(Pfs::new([9; 256], false, ping(77), i64::MAX));
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
     r.flush().await.unwrap();
     let (bind_id, _, _) = recv(&mut frames, &r).await;
     assert!(!r.ends_session(&Error::Disconnected));
@@ -692,13 +758,211 @@ async fn lost_bound_temp_key_reconnects_with_a_new_one() {
 #[tokio::test]
 async fn a_404_before_the_bind_is_answered_gets_a_new_temp_key() {
     let (mut r, mut frames, _updates) = runner().await;
-    r.pfs = Some(Pfs::new([9; 256], false, ping(77), i64::MAX));
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
     assert!(!r.ends_session(&Error::Transport(404)), "bind due");
     r.flush().await.unwrap();
     let _ = recv(&mut frames, &r).await;
     assert!(r.unbound() && r.temp_key_stale());
     assert!(!r.ends_session(&Error::Transport(404)), "bind sent");
     assert!(r.temp_key_stale());
+}
+
+#[tokio::test]
+async fn a_transient_error_on_the_bind_does_not_end_the_session() {
+    for (code, message) in [(500, "INTERNAL"), (420, "FLOOD_WAIT_3"), (-503, "Timeout")] {
+        let (mut r, mut frames, _updates) = runner().await;
+        r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
+        r.flush().await.unwrap();
+        let (bind_id, _, _) = recv(&mut frames, &r).await;
+        tokio::time::pause();
+        let error = types::RpcError { error_code: code, error_message: message.into() };
+        r.handle_message(3, 1, &rpc_result(bind_id, &error.to_bytes()));
+        assert!(r.bind_failure().is_none(), "{message}: the session ends for good");
+        assert!(!r.bind_due(), "{message}: the bind went out again at once");
+        tokio::time::advance(Duration::from_secs(3)).await;
+        assert!(r.bind_due(), "{message}: nothing sends the bind again");
+        tokio::time::resume();
+    }
+}
+
+#[tokio::test]
+async fn an_undecodable_bind_answer_does_not_leave_the_bind_hanging() {
+    let (mut r, mut frames, _updates) = runner().await;
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
+    r.flush().await.unwrap();
+    let (bind_id, _, _) = recv(&mut frames, &r).await;
+    let bad_gzip = [&gzip_packed::ID.to_le_bytes()[..], &[3, 1, 2, 3]].concat();
+    tokio::time::pause();
+    r.handle_message(3, 1, &rpc_result(bind_id, &bad_gzip));
+    tokio::time::advance(Duration::from_secs(1)).await;
+    assert!(r.unbound() && r.bind_due(), "the bind stays sent forever");
+}
+
+#[tokio::test]
+async fn requests_held_behind_an_unanswered_bind_get_the_link_probed() {
+    let (mut r, mut frames, _updates) = runner().await;
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
+    let _rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    assert_eq!(constructor_id(&recv(&mut frames, &r).await.2), Some(test_dc::BIND));
+    assert_eq!(r.queue.len(), 1);
+    tokio::time::pause();
+    tokio::time::advance(PROBE_DEAD_AFTER + Duration::from_secs(1)).await;
+    assert!(matches!(r.tick().await, Err(Error::Disconnected)));
+}
+
+#[tokio::test]
+async fn an_unanswered_bind_is_sent_again() {
+    let (mut r, mut frames, _updates) = runner().await;
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
+    r.flush().await.unwrap();
+    let _ = recv(&mut frames, &r).await;
+    tokio::time::pause();
+    tokio::time::advance(r.options.request_timeout + Duration::from_secs(1)).await;
+    // Pongs keep coming, so the link looks alive.
+    r.heard();
+    r.tick().await.unwrap();
+    assert_eq!(constructor_id(&recv(&mut frames, &r).await.2), Some(test_dc::BIND));
+    assert_eq!(r.pfs.as_ref().unwrap().binds_sent.len(), 2);
+}
+
+#[tokio::test]
+async fn a_bad_msg_notification_for_the_bind_sends_it_again() {
+    for error_code in [16, 17, 32, 33] {
+        let (mut r, mut frames, _updates) = runner().await;
+        r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
+        r.flush().await.unwrap();
+        let (bad_msg_id, bad_msg_seqno, _) = recv(&mut frames, &r).await;
+        assert!(!r.bind_due());
+        let bad = types::BadMsgNotification { bad_msg_id, bad_msg_seqno, error_code };
+        r.handle_message(1, 0, &bad.to_bytes());
+        assert!(r.bind_due(), "error {error_code}");
+        r.flush().await.unwrap();
+        assert_eq!(constructor_id(&recv(&mut frames, &r).await.2), Some(test_dc::BIND), "error {error_code}");
+    }
+}
+
+#[tokio::test]
+async fn a_busy_session_holds_new_requests_so_its_temp_key_can_be_renewed() {
+    let (mut r, mut frames, _updates) = runner().await;
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), internals::now() + 7200));
+    r.flush().await.unwrap();
+    let (bind_id, _, _) = recv(&mut frames, &r).await;
+    r.handle_message(1, 1, &rpc_result(bind_id, &BOOL_TRUE.to_le_bytes()));
+    let _busy = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    let _ = recv(&mut frames, &r).await;
+    let init = r.pending.iter().find(|(_, p)| p.body == ping(77)).map(|(&id, _)| id).unwrap();
+    r.handle_message(3, 1, &rpc_result(init, b"config"));
+    assert!(!r.temp_key_expiring());
+
+    // An hour before the key expires.
+    r.set_time_offset(7200 - 3600);
+    let mut held = request(&mut r, ping(2));
+    r.flush().await.unwrap();
+    assert_eq!(r.queue.len(), 1, "a new request went out under the expiring key");
+    assert!(!r.temp_key_expiring(), "a request still waits for its answer");
+    let busy = *r.pending.keys().next().unwrap();
+    r.handle_message(5, 1, &rpc_result(busy, b"pong"));
+    assert!(r.temp_key_expiring());
+    assert!(held.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn renewing_the_temp_key_is_not_reported_as_a_reconnect() {
+    let dc = TestDc::start([9; 256], false).await;
+    let (mut r, mut frames, mut updates) = runner().await;
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), internals::now() + 7200));
+    r.flush().await.unwrap();
+    let (bind_id, _, _) = recv(&mut frames, &r).await;
+    r.handle_message(1, 1, &rpc_result(bind_id, &BOOL_TRUE.to_le_bytes()));
+    r.set_time_offset(7200 - 3600);
+    assert!(r.temp_key_expiring());
+
+    r.dc = dc.dc(2);
+    let events = r.events.record();
+    let (session_id, salt) = (r.session_id, r.salt());
+    let (_sender, requests) = mpsc::unbounded_channel();
+    r.reconnect(&requests, true).await;
+    assert!(!events.try_iter().any(|e| matches!(e, ClientEvent::Reconnected { .. })));
+    assert!(!r.events.take_reconnected());
+    assert!(r.session_id != session_id && r.salt() != salt && r.unbound());
+    assert!(matches!(updates.recv().await, Some(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
+}
+
+#[tokio::test]
+async fn a_silent_server_does_not_pin_the_pfs_reconnect() {
+    let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
+    // Already expired, so the reconnect runs a new key exchange on the fresh connection.
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), 0));
+    let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = accepted.clone();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((s, _)) = listener.accept().await {
+            seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            held.push(s);
+        }
+    });
+    let (tx, requests) = mpsc::unbounded_channel::<Request>();
+    let closer = async {
+        while accepted.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        // Connected: from here a paused clock runs straight to the next deadline.
+        tokio::time::pause();
+        drop(tx);
+    };
+    let reconnect = r.reconnect(&requests, false);
+    let done = tokio::time::timeout(Duration::from_secs(60), async { tokio::join!(reconnect, closer) }).await;
+    assert!(done.is_ok(), "the runner sits in the key exchange forever");
+}
+
+fn calls(dc: &TestDc, connection: usize) -> Vec<Vec<u32>> {
+    dc.seen().into_iter().filter(|s| s.connection == connection).map(|s| s.ids).collect()
+}
+
+#[tokio::test]
+async fn a_pfs_client_binds_every_connection_it_opens() {
+    use test_dc::{BIND, EXPORT_AUTHORIZATION, GET_CONFIG, GET_NEAREST_DC, IMPORT_AUTHORIZATION, INIT_CONNECTION};
+    use test_dc::{INVOKE_WITH_LAYER as LAYER, PING};
+    let dc = TestDc::start([5; 256], false).await;
+    let client = crate::Client::builder("pfs", 1, "pfs").session_string(dc.session_string([5; 256])).pfs();
+    let client = client.connect().await.unwrap();
+    let (bind, nearest) = (vec![BIND], vec![LAYER, INIT_CONNECTION, GET_NEAREST_DC]);
+    let connected = [bind.clone(), nearest.clone(), vec![LAYER, INIT_CONNECTION, GET_CONFIG]];
+    assert_eq!(calls(&dc, 1), connected);
+
+    // A migration makes a new permanent key, and binds a temporary one to it too.
+    client.switch_dc(4).await.unwrap();
+    assert_eq!(calls(&dc, 2), connected);
+
+    let lease = client.transfer_sessions(client.dc(2).unwrap(), 2).await.unwrap();
+    for session in &lease.sessions {
+        session.invoke(&functions::Ping { ping_id: 1 }).await.unwrap();
+    }
+    assert_eq!(calls(&dc, 2)[3..], [vec![EXPORT_AUTHORIZATION]]);
+    let import = vec![LAYER, INIT_CONNECTION, IMPORT_AUTHORIZATION];
+    assert_eq!(calls(&dc, 3), [bind.clone(), nearest.clone(), import, vec![PING]]);
+    assert_eq!(calls(&dc, 4), [bind, nearest, vec![PING]]);
+    assert!(dc.seen().iter().all(|s| s.temp), "a call went out under a permanent key");
+}
+
+#[tokio::test]
+async fn every_connection_on_a_new_permanent_key_waits_for_it_to_propagate() {
+    let dc = TestDc::start([5; 256], true).await;
+    let export = types::auth::ExportedAuthorization { id: 1, bytes: vec![1] };
+    let export = base::auth::ExportedAuthorization::ExportedAuthorization(Box::new(export)).to_bytes();
+    let (home, _sent) = Session::scripted(vec![Ok(export)]);
+    let init = super::init_connection(1, &Options::default(), functions::help::GetNearestDc {}).to_bytes();
+    let home = Session { pfs: Some(Arc::from(init)), ..home };
+    let options = Options { transport: crate::connection::Transport::Intermediate, ..Options::default() };
+    let pool = TransferPool::default();
+    let lease = pool.lease(dc.dc(4), 2, Auth::Home(&home, 1), &options, &Arc::default()).await.unwrap();
+    for (i, session) in lease.sessions.iter().enumerate() {
+        let pong = session.invoke(&functions::Ping { ping_id: 1 }).await;
+        assert!(pong.is_ok(), "connection {}: {pong:?}", i + 1);
+    }
 }
 
 #[tokio::test]
@@ -734,7 +998,8 @@ async fn transfer_dc() -> (TcpListener, Dc, Options) {
 async fn transfer_connections_start_with_the_salt_they_are_given() {
     let (listener, dc, options) = transfer_dc().await;
     let salt = Salt { value: 0x5a17, time_offset: 0 };
-    let session = Session::connect_transfer(dc, Some(([7; 256], salt)), None, &options, Arc::default(), None, 1);
+    let key = Known { key: [7; 256], salt, made: None };
+    let session = Session::connect_transfer(dc, Some(key), None, &options, Arc::default(), None, 1);
     let session = session.await.unwrap();
     tokio::spawn(async move { session.invoke(&functions::Ping { ping_id: 1 }).await });
     assert_eq!(first_salt(&listener, &[7; 256]).await, 0x5a17);
@@ -822,9 +1087,12 @@ async fn leased_connections_are_numbered_apart() {
         assert!(matches!(e, Err(Error::Timeout)));
     }
     // Each runner reports its abandoned ping on its next tick.
-    while seen.lock().unwrap().len() < 2 {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    let reported = async {
+        while seen.lock().unwrap().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), reported).await.expect("a runner never reported its ping");
     let mut seen = seen.lock().unwrap().clone();
     seen.sort_unstable();
     assert_eq!(seen, [(4, 1, 0), (4, 2, 0)]);

@@ -164,6 +164,7 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [x] Auto-reconnect, short `FLOOD_WAIT`s slept off
 - [ ] Jittered reconnect backoff, dead-connection detection, no duplicate requests after a reconnect, the server salt
   kept across restarts (not yet tested live)
+- [x] Perfect forward secrecy with temporary keys: `.pfs()`
 - [ ] Abridged and padded transports, obfuscation, SOCKS5/SOCKS4/HTTP proxies and MTProxy including fake-TLS `ee` secrets: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
 - [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat` (not yet tested live)
 - [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)

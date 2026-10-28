@@ -17,8 +17,9 @@ use crate::raw::{Deserializable, Serializable, functions, types};
 pub(super) const TEMP_KEY_LIFETIME: i32 = 24 * 60 * 60;
 const RENEW_BEFORE: i64 = 60 * 60;
 // A brand new permanent key may not have reached every server yet.
-const PERM_KEY_PROPAGATION: Duration = Duration::from_secs(60);
+pub(super) const PERM_KEY_PROPAGATION: Duration = Duration::from_secs(60);
 const FIRST_BIND_RETRY: Duration = Duration::from_secs(1);
+const MAX_BIND_RETRY: Duration = Duration::from_secs(64);
 
 pub(crate) struct Pfs {
     perm_key: [u8; 256],
@@ -35,19 +36,20 @@ pub(crate) struct Pfs {
 enum Bind {
     Due,
     RetryAt(Instant),
-    Sent(i64),
+    // Sent again once the deadline passes without an answer.
+    Sent(i64, Instant),
     Done,
     Failed(Error),
-    // A new temp key would get the same answer, so the session ends.
+    // A refusal that a new temp key would get as well, so the session ends.
     Refused,
 }
 
 impl Pfs {
-    pub(super) fn new(perm_key: [u8; 256], perm_is_new: bool, init: Vec<u8>, expires_at: i64) -> Pfs {
-        let fresh = if perm_is_new { PERM_KEY_PROPAGATION } else { Duration::ZERO };
+    /// `perm_made`: when this process made the permanent key; `None` for a stored one.
+    pub(super) fn new(perm_key: [u8; 256], perm_made: Option<Instant>, init: Vec<u8>, expires_at: i64) -> Pfs {
         Pfs {
             perm_key,
-            perm_fresh_until: Instant::now() + fresh,
+            perm_fresh_until: perm_made.map_or_else(Instant::now, |made| made + PERM_KEY_PROPAGATION),
             init,
             _init_answer: None,
             expires_at,
@@ -57,13 +59,19 @@ impl Pfs {
             binds_sent: Vec::new(),
         }
     }
+
+    fn retry_at(&mut self, wait: Duration) -> Bind {
+        let at = Instant::now() + wait.max(self.retry);
+        self.retry = (self.retry * 2).min(MAX_BIND_RETRY);
+        Bind::RetryAt(at)
+    }
 }
 
 impl Bind {
     fn is_due(&self) -> bool {
         match self {
             Bind::Due => true,
-            Bind::RetryAt(at) => *at <= Instant::now(),
+            Bind::RetryAt(at) | Bind::Sent(_, at) => *at <= Instant::now(),
             _ => false,
         }
     }
@@ -107,7 +115,7 @@ impl Runner {
     }
 
     fn bind_sent_as(&self, msg_id: i64) -> bool {
-        self.bind_is(|b| matches!(b, Bind::Sent(id) if *id == msg_id))
+        self.bind_is(|b| matches!(b, Bind::Sent(id, _) if *id == msg_id))
     }
 
     pub(super) fn temp_key_stale(&self) -> bool {
@@ -115,7 +123,8 @@ impl Runner {
         self.pfs.as_ref().is_some_and(|p| !matches!(p.bind, Bind::Done) || p.expires_at <= renew_at)
     }
 
-    /// Time to renew. A new key means a new session, so wait until nothing awaits an answer.
+    /// Time to renew. A new key means a new session, so wait until nothing awaits an answer; new requests wait
+    /// meanwhile, so that moment comes even on a busy connection.
     pub(super) fn temp_key_expiring(&self) -> bool {
         self.pending.is_empty() && !self.unbound() && self.temp_key_stale()
     }
@@ -157,7 +166,7 @@ impl Runner {
         #[cfg(test)]
         p.binds_sent.push(msg_id);
         let request = bind_request(&p.perm_key, &self.auth_key_id, &self.session_id, msg_id, p.expires_at as i32);
-        p.bind = Bind::Sent(msg_id);
+        p.bind = Bind::Sent(msg_id, Instant::now() + self.options.request_timeout);
         let seq_no = self.seq.next(true);
         self.seal(msg_id, seq_no, &request.to_bytes());
         true
@@ -188,14 +197,15 @@ impl Runner {
             // Per the spec, only an established permanent key is dead after this; a new one may still be syncing.
             Err(Error::Rpc(e)) if e.name == "ENCRYPTED_MESSAGE_INVALID" => {
                 if Instant::now() < p.perm_fresh_until {
-                    let at = Instant::now() + p.retry;
-                    p.retry *= 2;
-                    Bind::RetryAt(at)
+                    p.retry_at(Duration::ZERO)
                 } else {
                     Bind::Failed(Error::Transport(404))
                 }
             }
-            Err(e) => Bind::Failed(e),
+            // The request itself was wrong (TEMP_AUTH_KEY_ALREADY_BOUND, ...): asking again gets the same answer.
+            Err(Error::Rpc(e)) if (400..500).contains(&e.code) && e.code != 420 => Bind::Failed(Error::Rpc(e)),
+            // Server trouble (500, -503), a FLOOD_WAIT or an answer that didn't decode: the same key may still bind.
+            Err(e) => p.retry_at(e.flood_wait().unwrap_or_default()),
         };
         None
     }

@@ -6,7 +6,7 @@ use std::task::Poll;
 use std::time::Duration;
 
 use super::internals::data_center::Dc;
-use super::{Events, MAX_FLOOD_SLEEPS, Salt, Session, WeakSession, init_connection};
+use super::{Events, Known, MAX_FLOOD_SLEEPS, Salt, Session, WeakSession, init_connection};
 use crate::connection::Options;
 use crate::crypto::rsa::PublicKey;
 use crate::errors::{Error, Result};
@@ -38,6 +38,7 @@ struct Slot {
 #[derive(Default)]
 struct State {
     auth_key: Option<[u8; 256]>,
+    key_made: Option<tokio::time::Instant>,
     // The salt a connection on this key last had, so a new one doesn't start from 0 and bounce its first parts.
     salt: Salt,
     sessions: HashMap<Dc, Vec<WeakSession>>,
@@ -68,7 +69,7 @@ impl TransferPool {
     pub(crate) fn insert(&self, dc: Dc, session: &Session) {
         let slot = self.0.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
         let mut state = slot.state.lock().unwrap();
-        (state.auth_key, state.salt) = (Some(*session.auth_key()), session.salt());
+        (state.auth_key, state.key_made, state.salt) = (Some(*session.auth_key()), session.key_made, session.salt());
         state.sessions.entry(dc).or_default().push(session.downgrade());
     }
 
@@ -97,11 +98,11 @@ impl TransferPool {
             let live: Vec<Session> =
                 state.sessions.get(&dc).into_iter().flatten().filter_map(WeakSession::upgrade).collect();
             let home = match auth {
-                Auth::Home(home, _) if home.dc_id() == dc.id => Some((*home.auth_key(), home.salt())),
+                Auth::Home(home, _) if home.dc_id() == dc.id => Some(home.known_key()),
                 _ => None,
             };
             let salt = live.first().map_or(state.salt, Session::salt);
-            (live, home.or(state.auth_key.map(|key| (key, salt))))
+            (live, home.or(state.auth_key.map(|key| Known { key, salt, made: state.key_made })))
         };
         let key = match key {
             Some(key) => key,
@@ -118,8 +119,10 @@ impl TransferPool {
                     let import = functions::auth::ImportAuthorization { id: e.id, bytes: e.bytes };
                     session.invoke(&init_connection(api_id, options, import)).await?;
                 }
-                let key = (*session.auth_key(), session.salt());
-                slot.state.lock().unwrap().auth_key = Some(key.0);
+                let key = session.known_key();
+                let mut state = slot.state.lock().unwrap();
+                (state.auth_key, state.key_made) = (Some(key.key), key.made);
+                drop(state);
                 sessions.push(session);
                 key
             }
@@ -129,7 +132,7 @@ impl TransferPool {
         let opened = try_join_all((0..missing).map(connect)).await?;
         sessions.extend(opened);
         let mut state = slot.state.lock().unwrap();
-        state.salt = sessions.first().map_or(key.1, Session::salt);
+        state.salt = sessions.first().map_or(key.salt, Session::salt);
         state.sessions.insert(dc, sessions.iter().map(Session::downgrade).collect());
         drop(state);
         sessions.truncate(count);

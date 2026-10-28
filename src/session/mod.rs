@@ -7,6 +7,8 @@ mod pfs;
 mod replay;
 mod service;
 #[cfg(test)]
+mod test_dc;
+#[cfg(test)]
 mod tests;
 pub(crate) mod transfer;
 
@@ -51,10 +53,16 @@ const HANDSHAKE_ATTEMPTS: usize = 3;
 const PING_EVERY: Duration = Duration::from_secs(60);
 // No reads at all, not even a pong, for this long: the link died without the OS noticing.
 const DEAD_AFTER: Duration = Duration::from_secs(75);
+// With requests waiting, silence gets a ping sooner and a shorter deadline, so a dead NAT mapping doesn't
+// stall them for DEAD_AFTER.
+const PROBE_AFTER: Duration = Duration::from_secs(10);
+const PROBE_DEAD_AFTER: Duration = Duration::from_secs(20);
 const ACKS_THRESHOLD: usize = 10;
 const UPDATES_BUFFER: usize = 1024;
 const RECONNECT_DELAY: Duration = Duration::from_millis(500);
 const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(30);
+// A server that accepts the connection but never finishes the key exchange.
+const KEY_EXCHANGE_TIMEOUT: Duration = Duration::from_secs(20);
 const TICK: Duration = Duration::from_secs(1);
 const ACK_EVERY: Duration = Duration::from_secs(15);
 // Per call: then the next FLOOD_WAIT goes to the caller, so a call under a raid still ends.
@@ -165,6 +173,8 @@ pub struct Session {
     requests: mpsc::UnboundedSender<Request>,
     dc_id: i32,
     auth_key: [u8; 256],
+    // When this process made the permanent key; a bind under a newer one may be refused while it propagates.
+    key_made: Option<tokio::time::Instant>,
     options: Arc<Options>,
     pfs: Option<Arc<[u8]>>,
     learned: Arc<Learned>,
@@ -177,6 +187,15 @@ pub struct Salt {
     pub value: i64,
     /// Server time minus local time, in seconds.
     pub time_offset: i64,
+}
+
+/// A permanent key this process already has.
+#[derive(Clone, Copy)]
+pub(crate) struct Known {
+    pub(crate) key: [u8; 256],
+    pub(crate) salt: Salt,
+    /// When this process made it; `None` for a stored key.
+    pub(crate) made: Option<tokio::time::Instant>,
 }
 
 #[derive(Default)]
@@ -196,15 +215,16 @@ impl Session {
         pfs: Option<Vec<u8>>,
     ) -> Result<(Session, UpdatesRx)> {
         let (tx, rx) = mpsc::channel(UPDATES_BUFFER);
-        let session =
-            Session::open(dc, auth_key, None, options, events.clone(), Role::Main(tx), pfs.map(Arc::from)).await?;
+        let pfs = pfs.map(Arc::from);
+        let auth_key = auth_key.map(|(key, salt)| Known { key, salt, made: None });
+        let session = Session::open(dc, auth_key, None, options, events.clone(), Role::Main(tx), pfs).await?;
         Ok((session, UpdatesRx { rx, events }))
     }
 
     #[cfg(test)]
     fn local(requests: mpsc::UnboundedSender<Request>) -> Session {
         let (options, learned) = (Arc::default(), Arc::default());
-        Session { requests, dc_id: 2, auth_key: [0; 256], options, pfs: None, learned }
+        Session { requests, dc_id: 2, auth_key: [0; 256], key_made: None, options, pfs: None, learned }
     }
 
     #[cfg(test)]
@@ -238,7 +258,7 @@ impl Session {
     /// unless `pfs` puts it under a temporary key.
     pub(crate) async fn connect_transfer(
         dc: Dc,
-        auth_key: Option<([u8; 256], Salt)>,
+        auth_key: Option<Known>,
         cdn_key: Option<&PublicKey>,
         options: &Options,
         events: Arc<Events>,
@@ -250,7 +270,7 @@ impl Session {
 
     async fn open(
         dc: Dc,
-        auth_key: Option<([u8; 256], Salt)>,
+        auth_key: Option<Known>,
         cdn_key: Option<&PublicKey>,
         options: &Options,
         events: Arc<Events>,
@@ -261,17 +281,18 @@ impl Session {
             Role::Main(updates) => (Some(updates), 0),
             Role::Transfer(connection) => (None, connection),
         };
-        let perm_is_new = auth_key.is_none();
-        let (mut conn, auth_key, salt, clock_synced) = handshake(dc, auth_key, cdn_key, options).await?;
+        let key_made = auth_key.map_or_else(|| Some(tokio::time::Instant::now()), |k| k.made);
+        let (mut conn, auth_key, salt, clock_synced) =
+            handshake(dc, auth_key.map(|k| (k.key, k.salt)), cdn_key, options).await?;
         let options = Arc::new(options.clone());
         let mut runner = match &pfs {
             None => Runner::new(dc, options.clone(), conn, (auth_key, salt, clock_synced), events, updates),
             Some(init) => {
-                let temp = auth::create(&mut conn, dc, &server_key(dc), Some(pfs::TEMP_KEY_LIFETIME)).await?;
+                let temp = create_key(&mut conn, dc, &server_key(dc), Some(pfs::TEMP_KEY_LIFETIME)).await?;
                 let expires_at = internals::now() + temp.time_offset + pfs::TEMP_KEY_LIFETIME as i64;
                 let key = (temp.auth_key, Salt { value: temp.salt, time_offset: temp.time_offset }, true);
                 let mut runner = Runner::new(dc, options.clone(), conn, key, events, updates);
-                runner.pfs = Some(Pfs::new(auth_key, perm_is_new, init.to_vec(), expires_at));
+                runner.pfs = Some(Pfs::new(auth_key, key_made, init.to_vec(), expires_at));
                 runner
             }
         };
@@ -279,7 +300,12 @@ impl Session {
         let learned = runner.learned.clone();
         let (requests_tx, requests) = mpsc::unbounded_channel();
         tokio::spawn(runner.run(requests));
-        Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key, options, pfs, learned })
+        Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key, key_made, options, pfs, learned })
+    }
+
+    /// The key, with its salt and when this process made it, for another connection on it.
+    pub(crate) fn known_key(&self) -> Known {
+        Known { key: self.auth_key, salt: self.salt(), made: self.key_made }
     }
 
     pub fn dc_id(&self) -> i32 {
@@ -300,8 +326,8 @@ impl Session {
 
     pub(crate) fn downgrade(&self) -> WeakSession {
         let (requests, options, pfs) = (self.requests.downgrade(), self.options.clone(), self.pfs.clone());
-        let learned = self.learned.clone();
-        WeakSession { requests, dc_id: self.dc_id, auth_key: self.auth_key, options, pfs, learned }
+        let (learned, key_made) = (self.learned.clone(), self.key_made);
+        WeakSession { requests, dc_id: self.dc_id, auth_key: self.auth_key, key_made, options, pfs, learned }
     }
 
     /// How long to sleep off `error` before retrying: only FLOOD_WAITs within `flood_sleep_threshold`, each
@@ -339,6 +365,7 @@ pub(crate) struct WeakSession {
     requests: mpsc::WeakUnboundedSender<Request>,
     dc_id: i32,
     auth_key: [u8; 256],
+    key_made: Option<tokio::time::Instant>,
     options: Arc<Options>,
     pfs: Option<Arc<[u8]>>,
     learned: Arc<Learned>,
@@ -348,7 +375,8 @@ impl WeakSession {
     pub(crate) fn upgrade(&self) -> Option<Session> {
         let requests = self.requests.upgrade().filter(|r| !r.is_closed())?;
         let (options, pfs, learned) = (self.options.clone(), self.pfs.clone(), self.learned.clone());
-        Some(Session { requests, dc_id: self.dc_id, auth_key: self.auth_key, options, pfs, learned })
+        let (dc_id, auth_key, key_made) = (self.dc_id, self.auth_key, self.key_made);
+        Some(Session { requests, dc_id, auth_key, key_made, options, pfs, learned })
     }
 }
 
@@ -375,7 +403,18 @@ pub(crate) fn init_connection<X>(
 }
 
 fn server_key(dc: Dc) -> PublicKey {
+    #[cfg(test)]
+    if dc.addr.ip().is_loopback() {
+        return test_dc::public_key();
+    }
     if dc.test { PublicKey::test() } else { PublicKey::production() }
+}
+
+async fn create_key(conn: &mut Connection, dc: Dc, key: &PublicKey, expires_in: Option<i32>) -> Result<auth::Created> {
+    let timed_out = || std::io::Error::new(std::io::ErrorKind::TimedOut, "the key exchange timed out");
+    tokio::time::timeout(KEY_EXCHANGE_TIMEOUT, auth::create(conn, dc, key, expires_in))
+        .await
+        .map_err(|_| timed_out())?
 }
 
 async fn handshake(
@@ -392,7 +431,7 @@ async fn handshake(
             let mut attempt = 1;
             loop {
                 let mut conn = Connection::connect(&dc, options).await?;
-                match auth::create(&mut conn, dc, &key, None).await {
+                match create_key(&mut conn, dc, &key, None).await {
                     Ok(c) => break (conn, c.auth_key, Salt { value: c.salt, time_offset: c.time_offset }, true),
                     Err(e) if attempt == HANDSHAKE_ATTEMPTS => return Err(e),
                     Err(_) => attempt += 1,
@@ -447,7 +486,8 @@ struct Runner {
     updates: Option<mpsc::Sender<Incoming>>,
     events: Arc<Events>,
     pfs: Option<Pfs>,
-    last_read: Instant,
+    last_read: tokio::time::Instant,
+    probed: bool,
 }
 
 impl Runner {
@@ -483,7 +523,8 @@ impl Runner {
             updates,
             events,
             pfs: None,
-            last_read: Instant::now(),
+            last_read: tokio::time::Instant::now(),
+            probed: false,
         }
     }
 
@@ -491,6 +532,8 @@ impl Runner {
         let mut ping = tokio::time::interval(PING_EVERY);
         let mut tick = tokio::time::interval(TICK);
         let mut ack = tokio::time::interval(ACK_EVERY);
+        // Set when the connection is dropped on purpose for a new temp key, which isn't a lost connection.
+        let mut renewing = false;
         let reason = loop {
             let step = tokio::select! {
                 request = requests.recv() => match request {
@@ -506,22 +549,23 @@ impl Runner {
                 },
                 packet = self.reader.recv() => match packet {
                     Ok(p) => {
-                        self.last_read = Instant::now();
+                        self.heard();
                         self.handle_packet(p).await
                     }
                     Err(e) => Err(e),
                 },
-                _ = ping.tick() => {
-                    if self.temp_key_expiring() { Err(Error::Disconnected) } else { self.ping().await }
+                _ = ping.tick() => self.ping().await,
+                _ = tick.tick() => {
+                    renewing = self.temp_key_expiring();
+                    if renewing { Err(Error::Disconnected) } else { self.tick().await }
                 }
-                _ = tick.tick() => self.tick().await,
                 _ = ack.tick() => self.flush().await,
             };
             match step {
                 Ok(()) => {}
                 Err(e) if self.ends_session(&e) => break e,
                 Err(_) => {
-                    self.reconnect(&requests).await;
+                    self.reconnect(&requests, std::mem::take(&mut renewing)).await;
                     ping.reset();
                 }
             }
@@ -536,37 +580,55 @@ impl Runner {
         }
     }
 
-    async fn reconnect(&mut self, requests: &mpsc::UnboundedReceiver<Request>) {
+    async fn reconnect(&mut self, requests: &mpsc::UnboundedReceiver<Request>, renewing: bool) {
         let mut delay = RECONNECT_DELAY;
         let mut attempt = 0;
         while !requests.is_closed() && self.updates.as_ref().is_none_or(|u| !u.is_closed()) {
             attempt += 1;
-            tokio::time::sleep(jitter(delay)).await;
-            delay = (delay * 2).min(MAX_RECONNECT_DELAY);
+            if !(renewing && attempt == 1) {
+                tokio::time::sleep(jitter(delay)).await;
+                delay = (delay * 2).min(MAX_RECONNECT_DELAY);
+            }
             self.drop_abandoned();
             let Ok(mut conn) = Connection::connect(&self.dc, &self.options).await else { continue };
             if self.temp_key_stale() {
                 let server = server_key(self.dc);
-                let Ok(key) = auth::create(&mut conn, self.dc, &server, Some(pfs::TEMP_KEY_LIFETIME)).await else {
+                let Ok(key) = create_key(&mut conn, self.dc, &server, Some(pfs::TEMP_KEY_LIFETIME)).await else {
                     continue;
                 };
                 self.use_temp_key(key);
             }
             (self.reader, self.writer) = conn.into_split();
-            self.last_read = Instant::now();
+            self.heard();
             if self.resend_pending().await.is_ok() {
-                self.events.reconnected();
-                self.events.emit(ClientEvent::Reconnected { dc: self.dc.id, attempt });
+                if !(renewing && attempt == 1) {
+                    self.events.reconnected();
+                    self.events.emit(ClientEvent::Reconnected { dc: self.dc.id, attempt });
+                }
                 self.request_difference();
                 return;
             }
         }
     }
 
+    fn heard(&mut self) {
+        self.last_read = tokio::time::Instant::now();
+        self.probed = false;
+    }
+
     async fn tick(&mut self) -> Result<()> {
         // Transfer connections rely on their per-part timeout: a slow part keeps the server silent.
-        if self.updates.is_some() && self.last_read.elapsed() > DEAD_AFTER {
-            return Err(Error::Disconnected);
+        if self.updates.is_some() {
+            // A bind holds back the API requests queued behind it, so they wait on the server as much as sent ones.
+            let waiting = !self.pending.is_empty() || (self.unbound() && !self.queue.is_empty());
+            let silent = self.last_read.elapsed();
+            if silent > DEAD_AFTER || (waiting && silent > PROBE_DEAD_AFTER) {
+                return Err(Error::Disconnected);
+            }
+            if waiting && silent > PROBE_AFTER && !self.probed {
+                self.probed = true;
+                self.queue_ping();
+            }
         }
         self.drop_abandoned();
         if self.service.is_empty() && !self.bind_due() { Ok(()) } else { self.flush().await }
@@ -678,9 +740,13 @@ impl Runner {
     }
 
     async fn ping(&mut self) -> Result<()> {
+        self.queue_ping();
+        self.flush().await
+    }
+
+    fn queue_ping(&mut self) {
         let ping = functions::PingDelayDisconnect { ping_id: i64::from_le_bytes(random()), disconnect_delay: 75 };
         self.service.push_back((ping.to_bytes(), true));
-        self.flush().await
     }
 
     fn answer(&mut self, msg_id: i64, answer: Answer) {
@@ -824,7 +890,12 @@ impl Runner {
         if constructor_id(&result) == Some(gzip_packed::ID) {
             match gzip_packed::unpack(&result) {
                 Ok(r) => result = r,
-                Err(e) => return self.answer(req_msg_id, Err(e.into())),
+                Err(e) => {
+                    if let Some(answer) = self.bind_answered(req_msg_id, Err(e.into())) {
+                        self.answer(req_msg_id, answer);
+                    }
+                    return;
+                }
             }
         }
         let answer = if constructor_id(&result) == Some(RPC_ERROR) {

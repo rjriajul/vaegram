@@ -40,7 +40,7 @@ fn be_trimmed(p: u64) -> Vec<u8> {
     b[b.iter().position(|&x| x != 0).unwrap_or(7)..].to_vec()
 }
 
-fn tmp_aes(new_nonce: &[u8; 32], server_nonce: &[u8; 16]) -> ([u8; 32], [u8; 32]) {
+pub(super) fn tmp_aes(new_nonce: &[u8; 32], server_nonce: &[u8; 16]) -> ([u8; 32], [u8; 32]) {
     let ns = sha1(&[new_nonce, server_nonce]);
     let sn = sha1(&[server_nonce, new_nonce]);
     let nn = sha1(&[new_nonce, new_nonce]);

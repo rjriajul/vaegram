@@ -76,9 +76,9 @@ impl Runner {
         loop {
             let len = match (self.service.front(), self.queue.front()) {
                 (Some((body, _)), _) => body.len(),
-                // No API request goes out under a temp key that isn't bound yet: the bind goes alone, service
-                // messages (acks, pings, state requests) carry no API call.
-                (None, Some(p)) if !self.unbound() => p.body.len(),
+                // No API request goes out under a temp key that isn't bound yet or is being replaced: the bind goes
+                // alone, service messages (acks, pings, state requests) carry no API call.
+                (None, Some(p)) if !self.temp_key_stale() => p.body.len(),
                 _ => break,
             };
             if msgs.len() == MAX_CONTAINER_MSGS || (!msgs.is_empty() && size + HEADER + len > MAX_CONTAINER_BYTES) {
