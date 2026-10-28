@@ -1,7 +1,7 @@
 use crate::raw::{base, types};
 use crate::types::FileLocation;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Photo {
     pub id: i64,
     pub width: i32,

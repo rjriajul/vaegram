@@ -9,11 +9,11 @@ mod user_and_chats;
 pub use authorization::SentCode;
 pub use bots_and_keyboards::{
     AffiliateInfo, BotAccessSettings, BotCommand, BotCommandScope, BotSubscriptionUpdated, ButtonStyle, CallbackOrigin,
-    CallbackQuery, EditCallbackMessageText, ForceReply, GameHighScore, InlineAction, InlineKeyboardButton,
+    CallbackQuery, ChatShared, EditCallbackMessageText, ForceReply, GameHighScore, InlineAction, InlineKeyboardButton,
     InlineKeyboardMarkup, InputInvoice, KeyboardButton, KeyboardButtonRequestManagedBot, LabeledPrice,
     ManagedBotUpdated, MenuButton, OrderInfo, PreCheckoutQuery, PurchasedPaidMedia, ReplyKeyboardMarkup,
-    ReplyKeyboardRemove, ReplyMarkup, RevenueWithdrawalState, ShippingAddress, ShippingOption, ShippingQuery,
-    StarTransaction, StarTransactions, TransactionPartner,
+    ReplyKeyboardRemove, ReplyMarkup, RevenueWithdrawalState, SharedUser, ShippingAddress, ShippingOption,
+    ShippingQuery, StarTransaction, StarTransactions, TransactionPartner, UsersShared,
 };
 pub use inline_mode::{
     ChosenInlineResult, InlineMessageId, InlineQuery, InlineQueryResult, InlineQueryResultArticle,
@@ -30,11 +30,11 @@ pub use messages_and_media::{
     ExternalReplyInfo, FileLocation, Game, GuestMessage, InputChecklist, InputSticker, InputStoryContent, Invoice,
     LinkPreviewOptions, Location, LocationAddress, MaskPosition, Media, Message, MessageEntity,
     MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, MessageText, Photo,
-    Poll, PollAnswer, PollOption, PollUpdated, ReactionCount, ReactionType, RefundedPayment, ReplyParameters,
-    ServiceAction, StarAmount, Sticker, StickerSet, Story, StoryArea, StoryAreaPosition, StoryAreaType,
-    SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo,
-    SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded, TextQuote, Upload, Venue,
-    Video, VideoNote, Voice,
+    Poll, PollAnswer, PollOption, PollUpdated, ProximityAlertTriggered, ReactionCount, ReactionType, RefundedPayment,
+    ReplyParameters, ServiceAction, StarAmount, Sticker, StickerSet, Story, StoryArea, StoryAreaPosition,
+    StoryAreaType, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
+    SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded,
+    TextQuote, Upload, Venue, Video, VideoNote, Voice, WriteAccessAllowed,
 };
 pub use payments::{
     Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,

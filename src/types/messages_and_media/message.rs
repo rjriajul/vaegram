@@ -205,7 +205,7 @@ impl Message {
 
     // `raw` holds a bare message with the service header fields, since only `Message` carries a sender and chat.
     fn parse_service(client: &Client, raw: &types::MessageService, entities: &Entities) -> Option<Message> {
-        let service = ServiceAction::parse(&raw.action, raw.id, entities)?;
+        let service = ServiceAction::parse(raw, entities)?;
         let mut bare = Message::bare(raw.id, raw.peer_id.clone(), raw.date);
         (bare.out, bare.post, bare.from_id) = (raw.out, raw.post, raw.from_id.clone());
         bare.saved_peer_id = raw.saved_peer_id.clone();
