@@ -38,6 +38,16 @@ async fn replays_what_it_recorded() {
 }
 
 #[tokio::test]
+async fn replaying_twice_gives_the_same_handler_output() {
+    let recording = bot_session();
+    for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
+        let first = play_over(&recording, None, transport).await;
+        assert_eq!(play_over(&recording, None, transport).await, first, "{transport:?}");
+        assert_eq!(first, ["2000 /start -> echo: /start", "2000 ping -> echo: ping"], "{transport:?}");
+    }
+}
+
+#[tokio::test]
 async fn a_request_past_the_recording_names_itself() {
     let replay = Replay::start(&bot_session()).await.unwrap();
     let client =
@@ -101,9 +111,15 @@ fn a_dump_of_the_bot_session_matches_the_golden_file() {
     let dump: Vec<String> = bot_session_with(base::Config::Config(config)).iter().map(Record::to_json).collect();
     assert_eq!(dump, include_str!("data/bot_session.jsonl").lines().collect::<Vec<_>>());
 }
+
 async fn play(records: &[Record], record: Option<&Path>) -> Vec<String> {
+    play_over(records, record, Transport::default()).await
+}
+
+async fn play_over(records: &[Record], record: Option<&Path>, transport: Transport) -> Vec<String> {
     let replay = Replay::start(records).await.unwrap();
-    let mut builder = Client::builder("replay", 1, "replay").session_string(replay.session_string());
+    let mut builder =
+        Client::builder("replay", 1, "replay").session_string(replay.session_string()).transport(transport);
     if let Some(path) = record {
         builder = builder.record(path);
     }

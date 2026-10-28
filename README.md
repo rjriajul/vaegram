@@ -148,6 +148,27 @@ supergroups start with `-100`. Anywhere a method takes a chat or user you can al
 a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`. Invite links (`t.me/+…`) join with
 `join_chat`; other methods accept them once you're a member.
 
+### Testing Offline
+
+`.record("bot.rec")` writes every message the client sends and receives. `Replay` serves such a file back on
+localhost, so handlers run against real Telegram traffic with no network and no credentials:
+
+```rust
+use vaegram::session::Replay;
+use vaegram::storage::recording;
+
+let replay = Replay::start(&recording::read("bot.rec".as_ref())?).await?;
+let app = Client::builder("test", 1, "replay").session_string(replay.session_string()).connect().await?;
+// Register the handlers under test, then `app.run()`.
+```
+
+Each request gets the next answer Telegram gave for that method, and recorded updates arrive once the run reaches
+the point where they came in, so a test that strays stops getting them. A client on a replay sends every data
+center's traffic to it and never falls back to Telegram. Recordings cut credentials but keep chats and messages:
+keep them private. On Unix only the owner can read the file; on Windows it gets the permissions of its folder.
+[examples/replay_test.rs](examples/replay_test.rs) shows the whole loop, and
+[examples/dump_recording.rs](examples/dump_recording.rs) (`json` feature) prints a recording as JSON lines.
+
 ### Roadmap
 
 - [x] TL compiler, transport, auth key handshake, encrypted session
