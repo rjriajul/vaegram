@@ -22,15 +22,17 @@ pub use inline_mode::{
     InlineQueryResultsButton, InputMessageContent, PreparedInlineMessage, SentGuestMessage,
 };
 pub use messages_and_media::{
-    Animation, Audio, Command, Contact, DeletedEphemeralMessages, Dice, Document, EphemeralMessage, ExternalReplyInfo,
-    FileLocation, GuestMessage, LinkPreviewOptions, Location, Media, Message, MessageEntity, MessageGenerationStopped,
-    MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, MessageText, Photo, Poll, PollOption,
-    ReactionCount, ReactionType, ReplyParameters, ServiceAction, Sticker, SuggestedPostApprovalFailed,
-    SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters,
-    SuggestedPostPrice, SuggestedPostRefunded, TextQuote, Upload, Venue, Video, VideoNote, Voice,
+    Animation, Audio, Command, Contact, DeletedBusinessMessages, DeletedEphemeralMessages, Dice, Document,
+    EphemeralMessage, ExternalReplyInfo, FileLocation, GuestMessage, LinkPreviewOptions, Location, Media, Message,
+    MessageEntity, MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated,
+    MessageText, Photo, Poll, PollOption, ReactionCount, ReactionType, ReplyParameters, ServiceAction, StarAmount,
+    Sticker, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo,
+    SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded, TextQuote, Upload, Venue,
+    Video, VideoNote, Voice,
 };
 pub use rich_messages::{InputRichMessage, RichMessage};
 pub use user_and_chats::{
-    Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatPermissions, ChatPrivileges, Community,
-    DirectMessagesTopic, ForumTopic, ForumTopicCreated, ForumTopicEdited, PeerRef, User,
+    AcceptedGiftTypes, BusinessBotRights, BusinessConnection, Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner,
+    ChatMember, ChatPermissions, ChatPrivileges, Community, DirectMessagesTopic, ForumTopic, ForumTopicCreated,
+    ForumTopicEdited, PeerRef, User,
 };

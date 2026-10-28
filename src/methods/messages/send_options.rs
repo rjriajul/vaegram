@@ -2,7 +2,7 @@ use crate::Client;
 use crate::crypto::random;
 use crate::enums::ParseMode;
 use crate::errors::Result;
-use crate::raw::{RemoteCall, base, functions, types};
+use crate::raw::{base, functions, types};
 use crate::types::{Message, PeerRef, ReplyMarkup, ReplyParameters, RichMessage, SuggestedPostParameters};
 
 #[derive(Default)]
@@ -36,6 +36,12 @@ macro_rules! send_builder {
             pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
                 self.options.business_connection_id = Some(id.into());
                 self
+            }
+        }
+
+        impl $crate::methods::OnBehalf for $builder<'_> {
+            fn business_connection(&mut self) -> &mut Option<String> {
+                &mut self.options.business_connection_id
             }
         }
     };
@@ -204,7 +210,7 @@ impl Client {
                     allow_paid_stars: options.paid_message_star_count,
                     suggested_post,
                 };
-                let (updates, request) = invoke_business(self, connection_id, request).await?;
+                let (updates, request) = self.invoke_business(connection_id.as_deref(), request).await?;
                 (updates, (request.message, request.entities), None)
             }
             None => {
@@ -232,7 +238,7 @@ impl Client {
                     suggested_post,
                     rich_message,
                 };
-                let (updates, request) = invoke_business(self, connection_id, request).await?;
+                let (updates, request) = self.invoke_business(connection_id.as_deref(), request).await?;
                 (updates, (request.message, request.entities), request.rich_message)
             }
         };
@@ -244,20 +250,6 @@ impl Client {
             message.rich_message = sent_rich;
         }
         Ok(message)
-    }
-}
-
-async fn invoke_business<R: RemoteCall>(
-    client: &Client,
-    connection_id: Option<String>,
-    request: R,
-) -> Result<(R::Return, R)> {
-    match connection_id {
-        Some(connection_id) => {
-            let call = functions::InvokeWithBusinessConnection { connection_id, query: request };
-            Ok((client.invoke(&call).await?, call.query))
-        }
-        None => Ok((client.invoke(&request).await?, request)),
     }
 }
 

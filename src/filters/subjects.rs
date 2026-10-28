@@ -2,9 +2,9 @@ use super::facts::{Facts, PeerKinds};
 use crate::Client;
 use crate::client::Me;
 use crate::types::{
-    BotSubscriptionUpdated, CallbackQuery, Chat, ChatJoinRequest, ChosenInlineResult, DeletedEphemeralMessages,
-    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated, User,
+    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatJoinRequest, ChosenInlineResult,
+    DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated,
+    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, User,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -117,3 +117,7 @@ subject!(MessageReactionUpdated: HasChat, HasSender; |s, me| {
 });
 
 subject!(MessageReactionCountUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
+
+subject!(BusinessConnection: HasSender; |s, me| user_query(&s.user, me));
+
+subject!(DeletedBusinessMessages: HasChat; |s, me| chat_query(Some(&s.chat), me));

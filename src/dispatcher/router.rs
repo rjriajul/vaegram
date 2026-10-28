@@ -9,9 +9,9 @@ use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
 use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, UpdateKind};
 use crate::raw::base;
 use crate::types::{
-    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, DeletedEphemeralMessages,
-    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated,
+    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatJoinRequest, ChosenInlineResult,
+    DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated,
+    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -104,12 +104,25 @@ impl<T: Routed + Subject + Inspect> Handlers<T> {
 
 impl Handlers<Message> {
     fn run(&self, kind: UpdateKind, tasks: &mut Tasks, client: &Client, raw: base::Message, entities: &Entities) {
+        self.run_business(kind, tasks, client, raw, entities, None);
+    }
+
+    fn run_business(
+        &self,
+        kind: UpdateKind,
+        tasks: &mut Tasks,
+        client: &Client,
+        raw: base::Message,
+        entities: &Entities,
+        business_connection_id: Option<String>,
+    ) {
         if self.0.is_empty() {
             return;
         }
         let me = client.0.me.lock().unwrap().clone();
         let Some(scan) = self.scan(&Facts::message(&raw, PeerKinds::message(&raw, entities), &me)) else { return };
-        if let Some(message) = Message::from_raw(client, raw, entities) {
+        if let Some(mut message) = Message::from_raw(client, raw, entities) {
+            message.business_connection_id = business_connection_id;
             self.finish(kind, tasks, &me, scan, message);
         }
     }
@@ -132,6 +145,10 @@ pub(crate) struct Router {
     pub(crate) deleted_ephemeral_messages: Handlers<DeletedEphemeralMessages>,
     pub(crate) message_reaction: Handlers<MessageReactionUpdated>,
     pub(crate) message_reaction_count: Handlers<MessageReactionCountUpdated>,
+    pub(crate) business_connection: Handlers<BusinessConnection>,
+    pub(crate) business_message: Handlers<Message>,
+    pub(crate) edited_business_message: Handlers<Message>,
+    pub(crate) deleted_business_messages: Handlers<DeletedBusinessMessages>,
     pub(crate) raw: Vec<RawCallback>,
     pub(crate) on_error: Option<ErrorCallback>,
     next_id: u32,
@@ -160,6 +177,10 @@ impl Router {
             UpdateKind::DeletedEphemeralMessages => self.deleted_ephemeral_messages.configure(id, group, stop),
             UpdateKind::MessageReaction => self.message_reaction.configure(id, group, stop),
             UpdateKind::MessageReactionCount => self.message_reaction_count.configure(id, group, stop),
+            UpdateKind::BusinessConnection => self.business_connection.configure(id, group, stop),
+            UpdateKind::BusinessMessage => self.business_message.configure(id, group, stop),
+            UpdateKind::EditedBusinessMessage => self.edited_business_message.configure(id, group, stop),
+            UpdateKind::DeletedBusinessMessages => self.deleted_business_messages.configure(id, group, stop),
             UpdateKind::Raw => {}
         }
     }
@@ -246,6 +267,25 @@ impl Router {
                 let item = MessageReactionCountUpdated::parse(client, &u, entities);
                 let kind = UpdateKind::MessageReactionCount;
                 self.message_reaction_count.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateBotBusinessConnect(u) if !self.business_connection.0.is_empty() => {
+                let item = BusinessConnection::parse(client, u.connection, entities);
+                let kind = UpdateKind::BusinessConnection;
+                self.business_connection.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateBotNewBusinessMessage(u) => {
+                let (kind, u) = (UpdateKind::BusinessMessage, *u);
+                self.business_message.run_business(kind, tasks, client, u.message, entities, Some(u.connection_id));
+            }
+            U::UpdateBotEditBusinessMessage(u) => {
+                let (kind, u) = (UpdateKind::EditedBusinessMessage, *u);
+                let id = Some(u.connection_id);
+                self.edited_business_message.run_business(kind, tasks, client, u.message, entities, id);
+            }
+            U::UpdateBotDeleteBusinessMessage(u) if !self.deleted_business_messages.0.is_empty() => {
+                let item = DeletedBusinessMessages::parse(client, *u, entities);
+                let kind = UpdateKind::DeletedBusinessMessages;
+                self.deleted_business_messages.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
             }
             _ => {}
         }

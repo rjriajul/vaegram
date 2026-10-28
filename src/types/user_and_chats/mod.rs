@@ -1,3 +1,6 @@
+mod accepted_gift_types;
+mod business_bot_rights;
+mod business_connection;
 mod chat;
 mod chat_invite_link;
 mod chat_join_request;
@@ -13,6 +16,9 @@ mod forum_topic_edited;
 mod peer_ref;
 mod user;
 
+pub use accepted_gift_types::AcceptedGiftTypes;
+pub use business_bot_rights::BusinessBotRights;
+pub use business_connection::BusinessConnection;
 pub use chat::Chat;
 pub use chat_invite_link::ChatInviteLink;
 pub use chat_join_request::ChatJoinRequest;

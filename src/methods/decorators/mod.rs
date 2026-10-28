@@ -1,8 +1,12 @@
 mod on_bot_subscription_updated;
+mod on_business_connection;
+mod on_business_message;
 mod on_callback_query;
 mod on_chat_join_request;
 mod on_chosen_inline_result;
+mod on_deleted_business_messages;
 mod on_deleted_ephemeral_messages;
+mod on_edited_business_message;
 mod on_edited_ephemeral_message;
 mod on_edited_message;
 mod on_ephemeral_message;

@@ -43,6 +43,7 @@ pub use copy_message::CopyMessage;
 pub use decline_suggested_post::DeclineSuggestedPost;
 pub use download_media::DownloadMedia;
 pub use edit_ephemeral_message_text::EditEphemeralMessage;
+pub use edit_message_reply_markup::EditMessageReplyMarkup;
 pub use edit_message_text::EditMessageText;
 pub use forward_messages::ForwardMessages;
 pub use get_chat_history::GetChatHistory;

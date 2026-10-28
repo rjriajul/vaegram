@@ -12,9 +12,14 @@ macro_rules! into_future {
 }
 pub(crate) use into_future;
 
+pub(crate) trait OnBehalf {
+    fn business_connection(&mut self) -> &mut Option<String>;
+}
+
 mod advanced;
 mod auth;
 mod bots;
+mod business;
 mod chats;
 mod decorators;
 mod invite_links;
@@ -31,8 +36,8 @@ pub use invite_links::{
 };
 pub(crate) use messages::StreamShared;
 pub use messages::{
-    ApproveSuggestedPost, CopyMessage, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage, EditMessageText,
-    ForwardMessages, GetChatHistory, MessageStream, PinChatMessage, SearchMessages, SendContact, SendDice,
-    SendDocument, SendEphemeralMessage, SendLocation, SendMessage, SendMessageDraft, SendPhoto, SendPoll, SendReaction,
-    SendRichMessage, SendVenue, StopPoll, StreamMessage,
+    ApproveSuggestedPost, CopyMessage, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage,
+    EditMessageReplyMarkup, EditMessageText, ForwardMessages, GetChatHistory, MessageStream, PinChatMessage,
+    SearchMessages, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLocation, SendMessage,
+    SendMessageDraft, SendPhoto, SendPoll, SendReaction, SendRichMessage, SendVenue, StopPoll, StreamMessage,
 };

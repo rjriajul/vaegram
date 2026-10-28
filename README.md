@@ -150,6 +150,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Reactions: `send_reaction`, `msg.react(..)`, `msg.reactions`, `on_message_reaction`, `on_message_reaction_count` (not yet tested live)
 - [ ] Forum topics, also in private chats with bots: `create_forum_topic(chat, "Ideas")`, `msg.service`
   (`ServiceAction::ForumTopicCreated`, ..), `msg.message_thread_id` (not yet tested live)
+- [ ] Business accounts: `on_business_message`, `on_business_connection`, `on_deleted_business_messages`, replies on
+  behalf of the account, `read_business_message`, name, bio, username, gift settings and Stars (not yet tested live)
 - [ ] Rich messages: `send_rich_message(chat, InputRichMessage::html("<b>hi</b>"))`, rich drafts and edits,
   `msg.rich_message` (not yet tested live)
 

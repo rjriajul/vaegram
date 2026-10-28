@@ -2,7 +2,7 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::ChatType;
 use crate::errors::{Error, Result};
-use crate::methods::{DownloadMedia, EditMessageText, SendMessage, SendReaction};
+use crate::methods::{DownloadMedia, EditMessageText, OnBehalf, SendMessage, SendReaction};
 use crate::raw::{base, types};
 use crate::types::{
     Chat, Command, DirectMessagesTopic, ExternalReplyInfo, LinkPreviewOptions, Media, MessageEntity, MessageOrigin,
@@ -39,6 +39,7 @@ pub struct Message {
     pub author_signature: Option<String>,
     pub has_protected_content: bool,
     pub service: Option<ServiceAction>,
+    pub business_connection_id: Option<String>,
     pub direct_messages_topic: Option<DirectMessagesTopic>,
     pub reactions: Vec<ReactionCount>,
     /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`].
@@ -117,6 +118,7 @@ impl Message {
             author_signature: raw.post_author.clone(),
             has_protected_content: raw.noforwards,
             service,
+            business_connection_id: None,
             direct_messages_topic,
             reactions: raw.reactions.as_ref().map_or(Vec::new(), |base::MessageReactions::MessageReactions(r)| {
                 r.results.iter().filter_map(ReactionCount::parse).collect()
@@ -246,6 +248,7 @@ impl Message {
                 base::Update::UpdateEditMessage(u) => u.message,
                 base::Update::UpdateEditChannelMessage(u) => u.message,
                 base::Update::UpdateBotNewBusinessMessage(u) => u.message,
+                base::Update::UpdateBotEditBusinessMessage(u) => u.message,
                 _ => return None,
             };
             Message::from_raw(client, message, &entities)
@@ -265,14 +268,24 @@ impl Message {
         self.raw.suggested_post.as_ref().map(SuggestedPostInfo::parse)
     }
 
+    /// Every request built from a business message has to go through the connection it arrived on.
+    fn on_behalf<B: OnBehalf>(&self, mut request: B) -> B {
+        request.business_connection().clone_from(&self.business_connection_id);
+        request
+    }
+
     pub fn edit_text(&self, text: impl Into<MessageText>) -> EditMessageText<'_> {
-        self.client.edit_message_text(self.chat.id, self.id, text)
+        self.on_behalf(self.client.edit_message_text(self.chat.id, self.id, text))
     }
 
     pub async fn delete(&self) -> Result<()> {
-        self.client.delete_messages(self.chat.id, &[self.id]).await
+        match &self.business_connection_id {
+            Some(id) => self.client.delete_business_messages(id, &[self.id]).await,
+            None => self.client.delete_messages(self.chat.id, &[self.id]).await,
+        }
     }
 
+    // Business bot rights don't cover reactions, so the bot reacts as itself.
     pub fn react(&self, reaction: impl Into<ReactionType>) -> SendReaction<'_> {
         self.client.send_reaction(self.chat.id, self.id).reaction(reaction)
     }
@@ -297,7 +310,7 @@ impl Message {
     }
 
     pub fn reply(&self, text: impl Into<String>) -> SendMessage<'_> {
-        let mut send = self.client.send_message(self.chat.id, text);
+        let mut send = self.on_behalf(self.client.send_message(self.chat.id, text));
         if let Some(topic) = &self.direct_messages_topic {
             send = send.direct_messages_topic_id(topic.topic_id);
         }
@@ -587,5 +600,21 @@ mod tests {
         assert_eq!(message.command().map(|c| c.name), Some("start"));
         assert!(message.rich_message.is_some_and(|r| r.rtl));
         assert_eq!(message.raw.rich_message, None);
+    }
+
+    #[tokio::test]
+    async fn business_messages_are_answered_through_their_connection() {
+        let (client, mut rx) = Client::recording();
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        let raw = Message::bare(5, get_peer(7), 0);
+        let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
+        message.business_connection_id = Some("c".into());
+        assert!(message.delete().await.is_err());
+        assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
+        for sent in [message.reply("hi").await.map(drop), message.edit_text("hi").await.map(drop)] {
+            assert!(sent.is_err());
+            assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
+        }
     }
 }

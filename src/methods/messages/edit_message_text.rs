@@ -13,6 +13,7 @@ pub struct EditMessageText<'a> {
     text: MessageText,
     parse_mode: Option<ParseMode>,
     reply_markup: Option<ReplyMarkup>,
+    business_connection_id: Option<String>,
 }
 
 impl Client {
@@ -29,6 +30,7 @@ impl Client {
             text: text.into(),
             parse_mode: None,
             reply_markup: None,
+            business_connection_id: None,
         }
     }
 }
@@ -36,6 +38,11 @@ impl Client {
 impl EditMessageText<'_> {
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
+        self
+    }
+
+    pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
+        self.business_connection_id = Some(id.into());
         self
     }
 
@@ -57,13 +64,19 @@ impl EditMessageText<'_> {
             quick_reply_shortcut_id: None,
             rich_message,
         };
-        let updates = client.invoke(&request).await?;
+        let (updates, request) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;
         Message::from_updates(client, updates, chat_id, (request.message.unwrap_or_default(), request.entities))
     }
 }
 
 caption_setters!(EditMessageText);
 into_future!(EditMessageText, Message);
+
+impl crate::methods::OnBehalf for EditMessageText<'_> {
+    fn business_connection(&mut self) -> &mut Option<String> {
+        &mut self.business_connection_id
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -85,5 +98,13 @@ mod tests {
         assert!(client.edit_message_text("me", 5, "hi").await.is_err());
         let flags = u32::from_le_bytes(rx.try_recv().unwrap()[4..8].try_into().unwrap());
         assert_eq!((flags & 1 << 11 != 0, flags & 1 << 23), (true, 0));
+    }
+
+    #[tokio::test]
+    async fn business_edits_go_through_the_connection() {
+        let (client, mut rx) = Client::recording();
+        assert!(client.edit_message_text("me", 5, "hi").business_connection_id("c").await.is_err());
+        let body = rx.try_recv().expect("no request sent");
+        assert_eq!(body[..4], 0xdd289f8e_u32.to_le_bytes());
     }
 }

@@ -7,9 +7,9 @@ use crate::dispatcher::Router;
 use crate::errors::{Error, Result};
 use crate::raw::base;
 use crate::types::{
-    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, DeletedEphemeralMessages,
-    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated,
+    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatJoinRequest, ChosenInlineResult,
+    DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated,
+    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated,
 };
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
@@ -46,6 +46,10 @@ pub enum UpdateKind {
     DeletedEphemeralMessages,
     MessageReaction,
     MessageReactionCount,
+    BusinessConnection,
+    BusinessMessage,
+    EditedBusinessMessage,
+    DeletedBusinessMessages,
     Raw,
 }
 
@@ -183,6 +187,18 @@ impl Routed for DeletedEphemeralMessages {
 }
 
 impl Routed for MessageReactionCountUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for BusinessConnection {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.user.id)
+    }
+}
+
+impl Routed for DeletedBusinessMessages {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }
