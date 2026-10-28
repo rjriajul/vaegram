@@ -43,11 +43,14 @@ pub enum Error {
     Security(&'static str),
     BadMessage(i32),
     Disconnected,
+    Timeout,
     InvalidDc(i32),
     PeerNotFound(i64),
     Unexpected(&'static str),
+    InvalidArgument(&'static str),
     InvalidSession(&'static str),
     SignUpRequired,
+    FileSize { size: u64, limit: u64 },
 }
 
 impl fmt::Display for Error {
@@ -61,12 +64,18 @@ impl fmt::Display for Error {
             Error::Security(what) => write!(f, "security check failed: {what}"),
             Error::BadMessage(code) => write!(f, "Telegram rejected the message (bad_msg_notification {code})"),
             Error::Disconnected => f.write_str("disconnected from Telegram"),
+            Error::Timeout => f.write_str("Telegram did not answer in time"),
             Error::InvalidDc(dc) => write!(f, "unknown data center {dc}"),
             Error::PeerNotFound(id) => write!(f, "chat {id} not found for this account"),
             Error::Unexpected(what) => write!(f, "unexpected answer from Telegram: {what}"),
+            Error::InvalidArgument(what) => write!(f, "invalid argument: {what}"),
             Error::InvalidSession(why) => write!(f, "invalid session string: {why}"),
             Error::SignUpRequired => {
                 f.write_str("this phone number has no Telegram account yet; sign up in an app first")
+            }
+            Error::FileSize { size: 0, .. } => f.write_str("can't upload an empty file"),
+            Error::FileSize { size, limit } => {
+                write!(f, "can't upload {size} bytes: this account can send files of up to {} MiB", limit >> 20)
             }
         }
     }

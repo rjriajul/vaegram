@@ -1,21 +1,80 @@
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use vaegram::connection::{Options, Proxy, Transport};
+use vaegram::enums::ParseMode;
 use vaegram::raw::{base, functions, types};
 use vaegram::session::Session;
+use vaegram::session::internals::data_center;
+use vaegram::storage::state;
 use vaegram::types::{
     ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, KeyboardButton, Message,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove,
+    ReplyKeyboardMarkup, ReplyKeyboardRemove, Upload,
 };
 use vaegram::{Client, filters};
 
 #[tokio::test]
 #[ignore = "connects to Telegram"]
 async fn creates_auth_key_and_pings() {
-    let (session, _updates) = Session::connect(2, None).await.unwrap();
+    let dc = data_center::find(&[], 2, false, false).unwrap();
+    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default()).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 42 }).await.unwrap();
     assert_eq!(pong.ping_id, 42);
+}
+
+#[tokio::test]
+#[ignore = "connects to Telegram's test servers"]
+async fn creates_auth_key_on_test_server() {
+    let dc = data_center::find(&[], 2, true, false).unwrap();
+    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default()).await.unwrap();
+    let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
+    assert_eq!(pong.ping_id, 7);
+}
+
+#[tokio::test]
+#[ignore = "connects to Telegram"]
+async fn handshakes_over_every_transport() {
+    let dc = data_center::find(&[], 2, false, false).unwrap();
+    for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
+        for obfuscated in [false, true] {
+            let options = Options { transport, obfuscated, proxy: None };
+            let (session, _updates) = Session::connect(dc, None, &options, Arc::default()).await.unwrap();
+            let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
+            assert_eq!(pong.ping_id, 7, "{options:?}");
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "connects through VAEGRAM_SOCKS5 (host:port[:user:pass]) and VAEGRAM_MTPROXY (host:port:secret)"]
+async fn handshakes_through_proxies() {
+    let dc = data_center::find(&[], 2, false, false).unwrap();
+    let mut proxies = Vec::new();
+    if let Ok(s) = std::env::var("VAEGRAM_SOCKS5") {
+        let parts: Vec<&str> = s.split(':').collect();
+        let auth = parts.get(2).zip(parts.get(3)).map(|(u, p)| ((*u).into(), (*p).into()));
+        proxies.push(Proxy::Socks5 { host: parts[0].into(), port: parts[1].parse().unwrap(), auth });
+    }
+    if let Ok(s) = std::env::var("VAEGRAM_MTPROXY") {
+        let parts: Vec<&str> = s.split(':').collect();
+        proxies.push(Proxy::MtProxy {
+            host: parts[0].into(),
+            port: parts[1].parse().unwrap(),
+            secret: parts[2].parse().unwrap(),
+        });
+    }
+    if proxies.is_empty() {
+        eprintln!("skipped: set VAEGRAM_SOCKS5 or VAEGRAM_MTPROXY");
+        return;
+    }
+    for proxy in proxies {
+        let options = Options { proxy: Some(proxy), ..Options::default() };
+        let (session, _updates) = Session::connect(dc, None, &options, Arc::default()).await.unwrap();
+        let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 9 }).await.unwrap();
+        assert_eq!(pong.ping_id, 9, "{options:?}");
+    }
 }
 
 #[tokio::test]
@@ -82,6 +141,77 @@ async fn bot_sends_and_edits_messages() {
 
 fn entities(message: &Message) -> usize {
     message.raw.entities.as_ref().map_or(0, Vec::len)
+}
+
+#[tokio::test]
+#[ignore = "logs in as a bot and sends polls, dice, venues, contacts and locations"]
+async fn bot_sends_polls_and_media() {
+    if std::env::var("VAEGRAM_BOT_TOKEN").is_err() {
+        eprintln!("skipped: set VAEGRAM_API_ID, VAEGRAM_API_HASH, VAEGRAM_BOT_TOKEN and VAEGRAM_CHAT_ID");
+        return;
+    }
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let app =
+        Client::builder("target/vaegram-live-sends", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+            .bot_token(env("VAEGRAM_BOT_TOKEN"))
+            .start()
+            .await
+            .unwrap();
+    let chat_id: i64 = env("VAEGRAM_CHAT_ID").parse().unwrap();
+
+    let dice = app.send_dice(chat_id).emoji("🎯").disable_notification().await.unwrap();
+    let Some(base::MessageMedia::MessageMediaDice(d)) = &dice.raw.media else { panic!("no dice in {dice:?}") };
+    assert_eq!(d.emoticon, "🎯");
+    let venue = app.send_venue(chat_id, 51.5007, -0.1246, "Big Ben", "London SW1A 0AA").await.unwrap();
+    assert!(matches!(venue.raw.media, Some(base::MessageMedia::MessageMediaVenue(_))));
+    let contact = app.send_contact(chat_id, "+15555550100", "Vae").last_name("Gram").await.unwrap();
+    assert!(matches!(contact.raw.media, Some(base::MessageMedia::MessageMediaContact(_))));
+    let location = app.send_location(chat_id, 51.5007, -0.1246).reply_to(contact.id).await.unwrap();
+    assert!(location.raw.reply_to.is_some());
+
+    let quiz = app
+        .send_poll(chat_id, "2 + 2?", ["3", "4"])
+        .quiz([1])
+        .explanation("<b>Basic</b> math")
+        .explanation_parse_mode(ParseMode::Html)
+        .await
+        .unwrap();
+    let stopped = app.stop_poll(chat_id, quiz.id).await.unwrap();
+    let Some(base::MessageMedia::MessageMediaPoll(media)) = &stopped.raw.media else { panic!("no poll") };
+    let base::Poll::Poll(poll) = &media.poll;
+    assert!(poll.closed && poll.quiz);
+
+    for message in [dice, venue, contact, location, stopped] {
+        message.delete().await.unwrap();
+    }
+}
+
+#[tokio::test]
+#[ignore = "logs in as a bot and uploads a file"]
+async fn bot_uploads_and_downloads_a_document() {
+    if std::env::var("VAEGRAM_BOT_TOKEN").is_err() {
+        eprintln!("skipped: set VAEGRAM_API_ID, VAEGRAM_API_HASH, VAEGRAM_BOT_TOKEN and VAEGRAM_CHAT_ID");
+        return;
+    }
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let app =
+        Client::builder("target/vaegram-live-files", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+            .bot_token(env("VAEGRAM_BOT_TOKEN"))
+            .start()
+            .await
+            .unwrap();
+    let chat_id: i64 = env("VAEGRAM_CHAT_ID").parse().unwrap();
+
+    let data: Vec<u8> = (0..3_000_000u32).map(|i| (i * 7 + i / 251) as u8).collect();
+    let sent = app.send_document(chat_id, Upload::bytes("vaegram.bin", &data)).caption("a file").await.unwrap();
+    let document = sent.document().expect("the message has the document");
+    assert_eq!((document.file_name.as_deref(), document.file_size), (Some("vaegram.bin"), data.len() as i64));
+
+    assert!(sent.download().await.unwrap() == data);
+    let path = std::path::Path::new("target/vaegram-live-download/vaegram.bin");
+    app.download_media(document).file_name(path).await.unwrap();
+    assert!(std::fs::read(path).unwrap() == data);
+    sent.delete().await.unwrap();
 }
 
 #[tokio::test]
@@ -218,6 +348,34 @@ async fn user_account_talks_to_bot() {
 
     assert!(raw_updates.load(Ordering::Relaxed) >= 3);
     user.delete_messages(bot_id, &[ping.id, pong.id]).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_keeps_peers_across_restarts() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let (api_id, api_hash): (i32, String) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
+    let name = "target/vaegram-live-restart";
+    let state_path = format!("{name}.state");
+    std::fs::copy(format!("{session}.session"), format!("{name}.session")).unwrap();
+    let _ = std::fs::remove_file(&state_path);
+
+    let user = Client::builder(name, api_id, api_hash.clone()).connect().await.unwrap();
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let id = user.resolve_username("BotFather").await.unwrap();
+    drop(user);
+
+    let (peers, _) = state::load(Path::new(&state_path), me.id).unwrap();
+    let saved = peers.get(&id).cloned().expect("BotFather was saved on drop");
+    let user = Client::builder(name, api_id, api_hash).connect().await.unwrap();
+    assert_eq!(user.resolve_peer(id).await.unwrap(), saved);
+    drop(user);
+    std::fs::remove_file(format!("{name}.session")).unwrap();
+    std::fs::remove_file(state_path).unwrap();
 }
 
 async fn next(rx: &mut tokio::sync::mpsc::UnboundedReceiver<(&'static str, Message)>, kind: &str) -> Message {

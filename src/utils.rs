@@ -14,6 +14,10 @@ pub fn get_channel_id(channel_id: i64) -> i64 {
     -CHANNEL_OFFSET - channel_id
 }
 
+pub(crate) fn channel_id_of(chat_id: i64) -> i64 {
+    -CHANNEL_OFFSET - chat_id
+}
+
 pub fn get_peer(chat_id: i64) -> base::Peer {
     if chat_id > 0 {
         base::Peer::PeerUser(Box::new(types::PeerUser { user_id: chat_id }))
@@ -21,5 +25,27 @@ pub fn get_peer(chat_id: i64) -> base::Peer {
         base::Peer::PeerChannel(Box::new(types::PeerChannel { channel_id: -chat_id - CHANNEL_OFFSET }))
     } else {
         base::Peer::PeerChat(Box::new(types::PeerChat { chat_id: -chat_id }))
+    }
+}
+
+pub(crate) fn chats_of(chats: base::messages::Chats) -> Vec<base::Chat> {
+    match chats {
+        base::messages::Chats::Chats(c) => c.chats,
+        base::messages::Chats::ChatsSlice(c) => c.chats,
+    }
+}
+
+pub(crate) fn input_user(peer: base::InputPeer) -> Option<base::InputUser> {
+    match peer {
+        base::InputPeer::InputPeerUser(p) => {
+            let user = types::InputUser { user_id: p.user_id, access_hash: p.access_hash };
+            Some(base::InputUser::InputUser(Box::new(user)))
+        }
+        base::InputPeer::InputPeerUserFromMessage(p) => {
+            let user = types::InputUserFromMessage { peer: p.peer, msg_id: p.msg_id, user_id: p.user_id };
+            Some(base::InputUser::InputUserFromMessage(Box::new(user)))
+        }
+        base::InputPeer::InputPeerSelf => Some(base::InputUser::InputUserSelf),
+        _ => None,
     }
 }

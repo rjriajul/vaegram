@@ -8,6 +8,7 @@ pub struct ReplyKeyboardMarkup {
     pub one_time: bool,
     pub persistent: bool,
     pub selective: bool,
+    pub force_reply: bool,
     pub placeholder: Option<String>,
 }
 
@@ -26,6 +27,11 @@ impl ReplyKeyboardMarkup {
         self
     }
 
+    pub fn force_reply(mut self) -> Self {
+        self.force_reply = true;
+        self
+    }
+
     pub(crate) fn write(&self) -> base::ReplyMarkup {
         let rows = self
             .rows
@@ -40,7 +46,7 @@ impl ReplyKeyboardMarkup {
             single_use: self.one_time,
             selective: self.selective,
             persistent: self.persistent,
-            force_reply: false,
+            force_reply: self.force_reply,
             rows,
             placeholder: self.placeholder.clone(),
         }))
@@ -115,5 +121,29 @@ impl ForceReply {
             selective: self.selective,
             placeholder: self.placeholder.clone(),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::raw::Serializable;
+
+    fn keyboard(markup: base::ReplyMarkup) -> types::ReplyKeyboardMarkup {
+        match markup {
+            base::ReplyMarkup::ReplyKeyboardMarkup(m) => *m,
+            other => panic!("expected replyKeyboardMarkup, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn force_reply_maps_to_raw_flag() {
+        let plain = ReplyKeyboardMarkup::new([vec![KeyboardButton::new("a")]]);
+        assert!(!keyboard(plain.write()).force_reply);
+        let raw = plain.force_reply().write();
+        assert!(keyboard(raw.clone()).force_reply);
+        let bytes = raw.to_bytes();
+        assert_eq!(bytes[..4], 0x85dd99d1u32.to_le_bytes());
+        assert_eq!(bytes[4..8], 0b10_0001u32.to_le_bytes());
     }
 }

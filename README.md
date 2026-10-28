@@ -73,8 +73,11 @@ More in [examples](examples).
 ### Sessions
 
 The first run logs in and writes `my_bot.session`. Later runs reuse it, so you log in once.
+Next to it, `my_bot.state` keeps known chats and the update state, so after a restart you can
+still message chats by id and `run()` delivers the updates you missed while offline.
 
-You can also keep the whole session in one line, in an env var or a database:
+You can also keep the whole session in one line, in an env var or a database (the line holds
+only the login, so known chats and missed updates aren't kept across restarts):
 
 ```rust
 let s = app.export_session_string(); // "VAE_..."
@@ -86,7 +89,10 @@ let app = Client::builder("my_bot", api_id, api_hash)
 ```
 
 > A session file or string **is** the login: anyone who has it is logged in as that account.
-> Never commit or share it. `*.session` is already in `.gitignore`.
+> Never commit or share it. `*.session` and `*.state` are already in `.gitignore`.
+
+`.test_mode()` logs in on Telegram's test servers and `.ipv6()` connects over IPv6. Session strings remember
+the test mode and the data center address.
 
 ### Raw API and Errors
 
@@ -104,7 +110,9 @@ match app.send_message(chat_id, "hi").await {
 ```
 
 Chat ids use the Bot API style: users are positive, groups are negative, and channels and
-supergroups start with `-100`.
+supergroups start with `-100`. Anywhere a method takes a chat or user you can also pass `"me"`, `"@username"`,
+a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`. Invite links (`t.me/+…`) join with
+`join_chat`; other methods accept them once you're a member.
 
 ### Roadmap
 
@@ -113,11 +121,20 @@ supergroups start with `-100`.
 - [x] Session files and session strings
 - [x] Update handlers and filters: `filters::command("start") & filters::private()`
 - [x] Friendly types: `msg.text`, `msg.reply()`, `msg.from_user`
+- [ ] Message media and metadata: `msg.caption`, `msg.entities`, `msg.photo()`, `msg.poll()`, replies and forwards (not yet tested live)
 - [x] HTML and Markdown formatting: `send_message(chat, "<b>hi</b>").html()`
 - [x] Buttons, edited messages, callback queries, inline queries, `edit_text`, `delete`
 - [x] User login (phone code, 2FA password)
 - [x] Auto-reconnect, short `FLOOD_WAIT`s slept off
-- [ ] File upload and download, rich messages
+- [ ] Abridged and padded transports, obfuscation, SOCKS5 and MTProxy: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
+- [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat` (not yet tested live)
+- [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)
+- [ ] Locations, venues, contacts, dice and polls: `send_poll(chat, "Lunch?", ["Pizza", "Sushi"]).quiz([0])` (not yet tested live)
+- [ ] Parallel file upload and download: `send_document`, `send_photo`, `msg.download()` (not yet tested live)
+- [ ] Shared send options: replies with quotes, topics, silent, protected, scheduled and business sends; a default
+  parse mode via `Client::builder(..).parse_mode(enums::ParseMode::Html)` (not yet tested live)
+- [ ] Client events: reconnects, dropped packets, skipped or unknown updates and failed handlers via `app.on_event(|e| ..)` (not yet tested live)
+- [ ] Rich messages
 
 ### Development
 

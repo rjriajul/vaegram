@@ -20,6 +20,12 @@ impl MsgId {
         self.last = id.max(self.last + 4);
         self.last
     }
+
+    pub(crate) fn next_n(&mut self, n: usize) -> i64 {
+        let first = self.next();
+        self.last = first + 4 * (n as i64 - 1);
+        first
+    }
 }
 
 #[cfg(test)]

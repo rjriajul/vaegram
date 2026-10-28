@@ -1,5 +1,6 @@
 use num_bigint::BigUint;
 
+use super::internals::data_center::Dc;
 use super::internals::{MsgId, now};
 use crate::connection::Connection;
 use crate::crypto::rsa::PublicKey;
@@ -29,7 +30,8 @@ async fn invoke_plain<R: RemoteCall>(conn: &mut Connection, msg_ids: &mut MsgId,
     let answer = conn.recv().await?;
     check(answer.len() >= 20 && answer[..8] == [0; 8], "unencrypted answer has a bad header")?;
     let len = u32::from_le_bytes(answer[16..20].try_into().unwrap()) as usize;
-    let body = answer.get(20..20 + len).ok_or(Error::Security("unencrypted answer is shorter than it says"))?;
+    let body =
+        answer.get(20..len.saturating_add(20)).ok_or(Error::Security("unencrypted answer is shorter than it says"))?;
     Ok(R::Return::from_bytes(body)?)
 }
 
@@ -57,8 +59,8 @@ fn check_dh_value(x: &BigUint, dh_prime: &BigUint, what: &'static str) -> Result
     check(*x > margin && *x < dh_prime - &margin, what)
 }
 
-pub(crate) async fn create(conn: &mut Connection, dc_id: i32) -> Result<Created> {
-    let key = PublicKey::production();
+pub(crate) async fn create(conn: &mut Connection, dc: Dc) -> Result<Created> {
+    let key = if dc.test { PublicKey::test() } else { PublicKey::production() };
     let mut msg_ids = MsgId::new(0);
 
     let nonce: [u8; 16] = random();
@@ -78,7 +80,7 @@ pub(crate) async fn create(conn: &mut Connection, dc_id: i32) -> Result<Created>
         nonce,
         server_nonce,
         new_nonce,
-        dc: dc_id,
+        dc: dc.wire_id(),
     };
     let request = functions::ReqDHParams {
         nonce,

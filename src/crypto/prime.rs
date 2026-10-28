@@ -17,6 +17,10 @@ pub fn dh_prime() -> BigUint {
     BigUint::parse_bytes(DH_PRIME_HEX.as_bytes(), 16).unwrap()
 }
 
+/// Most steps Pollard's rho may take across all attempts. A real pq splits into two ~32-bit
+/// primes in about 2^16 steps; a prime pq from a hostile server would otherwise spin for hours.
+const MAX_STEPS: u32 = 1 << 20;
+
 pub fn factorize(pq: u64) -> Option<(u64, u64)> {
     if pq < 4 {
         return None;
@@ -25,10 +29,15 @@ pub fn factorize(pq: u64) -> Option<(u64, u64)> {
         return Some((2, pq / 2));
     }
     let n = pq as u128;
+    let mut steps = 0;
     for c in 1..64u128 {
         let f = |x: u64| ((x as u128 * x as u128 + c) % n) as u64;
         let (mut x, mut y, mut d) = (2u64, 2u64, 1u64);
         while d == 1 {
+            steps += 1;
+            if steps > MAX_STEPS {
+                return None;
+            }
             x = f(x);
             y = f(f(y));
             d = gcd(x.abs_diff(y), pq);
@@ -46,4 +55,19 @@ fn gcd(mut a: u64, mut b: u64) -> u64 {
         (a, b) = (b, a % b);
     }
     a
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_a_real_pq() {
+        assert_eq!(factorize(0x17ED48941A08F981), Some((0x494C553B, 0x53911073)));
+    }
+
+    #[test]
+    fn gives_up_on_a_large_prime() {
+        assert_eq!(factorize(18_446_744_073_709_551_557), None);
+    }
 }
