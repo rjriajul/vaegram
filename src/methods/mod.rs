@@ -24,10 +24,11 @@ mod chats;
 mod decorators;
 mod invite_links;
 mod messages;
+mod payments;
 mod users;
 mod utilities;
 
-pub use bots::{AnswerCallbackQuery, AnswerInlineQuery, SavePreparedInlineMessage};
+pub use bots::{AnswerCallbackQuery, AnswerInlineQuery, SavePreparedInlineMessage, VerifyChat};
 pub use chats::{
     BanChatMember, CreateForumTopic, EditForumTopic, GetChatAdministrators, GetChatMembers, RestrictChatMember,
 };
@@ -41,3 +42,4 @@ pub use messages::{
     SearchMessages, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLocation, SendMessage,
     SendMessageDraft, SendPhoto, SendPoll, SendReaction, SendRichMessage, SendVenue, StopPoll, StreamMessage,
 };
+pub use payments::{ConvertGiftToStars, GetChatGifts, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift};

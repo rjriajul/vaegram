@@ -76,7 +76,10 @@ impl Poll {
     }
 }
 
-fn text_with_entities(text: &base::TextWithEntities, entities: &Entities) -> (String, Option<Vec<MessageEntity>>) {
+pub(crate) fn text_with_entities(
+    text: &base::TextWithEntities,
+    entities: &Entities,
+) -> (String, Option<Vec<MessageEntity>>) {
     let base::TextWithEntities::TextWithEntities(t) = text;
     (t.text.clone(), MessageEntity::parse_all(&t.entities, entities))
 }

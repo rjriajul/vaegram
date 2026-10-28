@@ -154,6 +154,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   behalf of the account, `read_business_message`, name, bio, username, gift settings and Stars (not yet tested live)
 - [ ] Rich messages: `send_rich_message(chat, InputRichMessage::html("<b>hi</b>"))`, rich drafts and edits,
   `msg.rich_message` (not yet tested live)
+- [ ] Gifts and verification: `send_gift(chat, id)`, `get_chat_gifts(chat)`, `upgrade_gift(id)`, `transfer_gift(id, chat)`,
+  `msg.service` (`ServiceAction::Gift`, ..), `verify_chat(chat)` (not yet tested live)
 
 ### Development
 

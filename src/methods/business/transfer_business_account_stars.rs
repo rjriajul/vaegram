@@ -1,6 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
-use crate::raw::{base, functions, types};
+use crate::raw::{base, types};
 
 impl Client {
     pub async fn transfer_business_account_stars(&self, business_connection_id: &str, star_count: i64) -> Result<()> {
@@ -18,14 +18,6 @@ impl Client {
                 stars: star_count,
             },
         ));
-        let form = functions::payments::GetPaymentForm { invoice: invoice.clone(), theme_params: None };
-        let form_id = match self.invoke_business(Some(business_connection_id), form).await?.0 {
-            base::payments::PaymentForm::PaymentFormStars(f) => f.form_id,
-            base::payments::PaymentForm::PaymentForm(f) => f.form_id,
-            base::payments::PaymentForm::PaymentFormStarGift(f) => f.form_id,
-        };
-        let send = functions::payments::SendStarsForm { form_id, invoice };
-        self.invoke_business(Some(business_connection_id), send).await?;
-        Ok(())
+        self.pay_with_stars(Some(business_connection_id.into()), invoice).await
     }
 }

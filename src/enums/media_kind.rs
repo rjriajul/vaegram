@@ -31,7 +31,6 @@ pub enum MediaKind {
 
 impl MediaKind {
     pub(crate) fn of(media: &base::MessageMedia) -> Option<MediaKind> {
-        use base::DocumentAttribute as A;
         use base::MessageMedia as M;
         Some(match media {
             M::MessageMediaEmpty => return None,
@@ -39,28 +38,7 @@ impl MediaKind {
             M::MessageMediaPhoto(_) => MediaKind::Photo,
             M::MessageMediaDocument(d) if d.round => MediaKind::VideoNote,
             M::MessageMediaDocument(d) if d.voice => MediaKind::Voice,
-            M::MessageMediaDocument(d) => {
-                let attributes = match &d.document {
-                    Some(base::Document::Document(doc)) => &doc.attributes[..],
-                    _ => &[],
-                };
-                let has = |f: fn(&A) -> bool| attributes.iter().any(f);
-                if has(|a| matches!(a, A::DocumentAttributeSticker(_))) {
-                    MediaKind::Sticker
-                } else if has(|a| matches!(a, A::DocumentAttributeAnimated)) {
-                    MediaKind::Animation
-                } else if has(|a| matches!(a, A::DocumentAttributeVideo(v) if v.round_message)) {
-                    MediaKind::VideoNote
-                } else if d.video || has(|a| matches!(a, A::DocumentAttributeVideo(_))) {
-                    MediaKind::Video
-                } else if has(|a| matches!(a, A::DocumentAttributeAudio(a) if a.voice)) {
-                    MediaKind::Voice
-                } else if has(|a| matches!(a, A::DocumentAttributeAudio(_))) {
-                    MediaKind::Audio
-                } else {
-                    MediaKind::Document
-                }
-            }
+            M::MessageMediaDocument(d) => MediaKind::of_document(d.document.as_ref(), d.video),
             M::MessageMediaContact(_) => MediaKind::Contact,
             M::MessageMediaGeo(_) | M::MessageMediaGeoLive(_) => MediaKind::Location,
             M::MessageMediaVenue(_) => MediaKind::Venue,
@@ -75,5 +53,30 @@ impl MediaKind {
             M::MessageMediaWebPage(_) => MediaKind::WebPage,
             _ => MediaKind::Unknown,
         })
+    }
+
+    /// `video` is the message's own video flag; a document outside a message has none.
+    pub(crate) fn of_document(document: Option<&base::Document>, video: bool) -> MediaKind {
+        use base::DocumentAttribute as A;
+        let attributes = match document {
+            Some(base::Document::Document(doc)) => &doc.attributes[..],
+            _ => &[],
+        };
+        let has = |f: fn(&A) -> bool| attributes.iter().any(f);
+        if has(|a| matches!(a, A::DocumentAttributeSticker(_))) {
+            MediaKind::Sticker
+        } else if has(|a| matches!(a, A::DocumentAttributeAnimated)) {
+            MediaKind::Animation
+        } else if has(|a| matches!(a, A::DocumentAttributeVideo(v) if v.round_message)) {
+            MediaKind::VideoNote
+        } else if video || has(|a| matches!(a, A::DocumentAttributeVideo(_))) {
+            MediaKind::Video
+        } else if has(|a| matches!(a, A::DocumentAttributeAudio(a) if a.voice)) {
+            MediaKind::Voice
+        } else if has(|a| matches!(a, A::DocumentAttributeAudio(_))) {
+            MediaKind::Audio
+        } else {
+            MediaKind::Document
+        }
     }
 }

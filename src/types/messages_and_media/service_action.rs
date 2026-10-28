@@ -2,8 +2,8 @@ use crate::dispatcher::Entities;
 use crate::enums::SuggestedPostRefundReason;
 use crate::raw::base;
 use crate::types::{
-    Community, ForumTopicCreated, ForumTopicEdited, SuggestedPostApprovalFailed, SuggestedPostApproved,
-    SuggestedPostDeclined, SuggestedPostPaid, SuggestedPostPrice, SuggestedPostRefunded, User,
+    Community, ForumTopicCreated, ForumTopicEdited, GiftInfo, SuggestedPostApprovalFailed, SuggestedPostApproved,
+    SuggestedPostDeclined, SuggestedPostPaid, SuggestedPostPrice, SuggestedPostRefunded, UniqueGiftInfo, User,
 };
 
 #[non_exhaustive]
@@ -24,10 +24,13 @@ pub enum ServiceAction {
     ForumTopicReopened,
     GeneralForumTopicHidden,
     GeneralForumTopicUnhidden,
+    Gift(Box<GiftInfo>),
+    UniqueGift(Box<UniqueGiftInfo>),
 }
 
 impl ServiceAction {
-    pub(crate) fn parse(action: &base::MessageAction, entities: &Entities) -> Option<ServiceAction> {
+    /// `msg_id` is the service message's own id, which addresses a gift a user keeps.
+    pub(crate) fn parse(action: &base::MessageAction, msg_id: i32, entities: &Entities) -> Option<ServiceAction> {
         use base::MessageAction as A;
         Some(match action {
             A::MessageActionChangeCommunity(a) => match a.community_id {
@@ -77,6 +80,10 @@ impl ServiceAction {
                     icon_emoji_id: a.icon_emoji_id,
                 }),
             },
+            A::MessageActionStarGift(a) => ServiceAction::Gift(Box::new(GiftInfo::parse(a, msg_id, entities)?)),
+            A::MessageActionStarGiftUnique(a) => {
+                ServiceAction::UniqueGift(Box::new(UniqueGiftInfo::parse(a, msg_id, entities)?))
+            }
             _ => return None,
         })
     }
@@ -92,7 +99,7 @@ mod tests {
 
     #[test]
     fn maps_suggested_post_actions() {
-        let parse = |action| ServiceAction::parse(&action, &Entities::default()).unwrap();
+        let parse = |action| ServiceAction::parse(&action, 1, &Entities::default()).unwrap();
         let approval = |rejected, balance_too_low| {
             parse(base::MessageAction::MessageActionSuggestedPostApproval(Box::new(
                 types::MessageActionSuggestedPostApproval {

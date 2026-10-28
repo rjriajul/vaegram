@@ -59,6 +59,7 @@ pub use message_reaction_count_updated::MessageReactionCountUpdated;
 pub use message_reaction_updated::MessageReactionUpdated;
 pub use message_text::MessageText;
 pub use photo::Photo;
+pub(crate) use poll::text_with_entities;
 pub use poll::{Poll, PollOption};
 pub use reaction_count::ReactionCount;
 pub use reaction_type::ReactionType;

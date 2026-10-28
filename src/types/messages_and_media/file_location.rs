@@ -1,12 +1,15 @@
 use crate::raw::{base, types};
 use crate::types::{Document, Photo};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FileLocation {
     pub(crate) location: base::InputFileLocation,
     pub dc_id: Option<i32>,
     pub file_size: Option<i64>,
 }
+
+// TL types only derive PartialEq because some carry doubles; no file location does, so equality is total.
+impl Eq for FileLocation {}
 
 impl From<base::InputFileLocation> for FileLocation {
     fn from(location: base::InputFileLocation) -> Self {

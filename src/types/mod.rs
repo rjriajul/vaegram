@@ -2,6 +2,7 @@ mod authorization;
 mod bots_and_keyboards;
 mod inline_mode;
 pub(crate) mod messages_and_media;
+mod payments;
 mod rich_messages;
 mod user_and_chats;
 
@@ -29,6 +30,10 @@ pub use messages_and_media::{
     Sticker, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo,
     SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded, TextQuote, Upload, Venue,
     Video, VideoNote, Voice,
+};
+pub use payments::{
+    Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,
+    UniqueGiftBackdrop, UniqueGiftInfo,
 };
 pub use rich_messages::{InputRichMessage, RichMessage};
 pub use user_and_chats::{

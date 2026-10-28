@@ -1,7 +1,7 @@
 use crate::raw::types;
 use crate::types::{Document, FileLocation};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sticker {
     pub id: i64,
     pub mime_type: String,

@@ -46,6 +46,10 @@ impl Media {
         })
     }
 
+    pub(crate) fn from_document(document: &base::Document) -> Option<Media> {
+        Media::parse_document(MediaKind::of_document(Some(document), false), document)
+    }
+
     /// Builds the type `MediaKind::of` picked, so a filter and the parsed message never disagree.
     fn parse_document(kind: MediaKind, document: &base::Document) -> Option<Media> {
         let base::Document::Document(raw) = document else { return None };
