@@ -130,8 +130,8 @@ impl ClientBuilder {
         self
     }
 
-    /// FLOOD_WAITs up to this long are slept off and retried; longer ones go to the caller as `Error::Rpc`.
-    /// 60 seconds by default; `Duration::ZERO` hands every one to the caller.
+    /// FLOOD_WAITs up to this long are slept off and retried, at most 5 times per call; longer ones go to the
+    /// caller as `Error::Rpc`. 60 seconds by default; `Duration::ZERO` hands every one to the caller.
     pub fn flood_sleep_threshold(mut self, threshold: Duration) -> Self {
         self.options.flood_sleep_threshold = threshold;
         self

@@ -5,6 +5,17 @@ use crate::raw;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+const WAITS: [&str; 6] = [
+    "FLOOD_WAIT",
+    "FLOOD_PREMIUM_WAIT",
+    "SLOWMODE_WAIT",
+    "FLOOD_TEST_PHONE_WAIT",
+    "TAKEOUT_INIT_DELAY",
+    "2FA_CONFIRM_WAIT",
+];
+// A hostile value can't push `Instant` arithmetic past its range.
+const MAX_WAIT: Duration = Duration::from_secs(14 * 24 * 60 * 60);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RpcError {
     pub code: i32,
@@ -15,8 +26,9 @@ pub struct RpcError {
 impl RpcError {
     pub(crate) fn new(code: i32, message: &str) -> Self {
         match message.rsplit_once('_') {
+            // All digits, so parsing fails only past u32::MAX; such a wait still counts, at the cap.
             Some((name, n)) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => {
-                Self { code, name: name.into(), value: n.parse().ok() }
+                Self { code, name: name.into(), value: Some(n.parse().unwrap_or(u32::MAX)) }
             }
             _ => Self { code, name: message.into(), value: None },
         }
@@ -27,10 +39,22 @@ impl RpcError {
         self.name == name
     }
 
+    /// How long to wait before the same request can work, for the 420 errors that mean that, at most 14 days
+    /// (`FLOOD_SKIP_FAILED_WAIT` is one second). Lookalikes such as `PREMIUM_SUB_ACTIVE_UNTIL_<date>` or
+    /// `STORY_SEND_FLOOD_<n>` give `None`.
     pub fn flood_wait(&self) -> Option<Duration> {
-        self.value.filter(|_| self.code == 420).map(|s| Duration::from_secs(s.into()))
+        if self.code != 420 {
+            return None;
+        }
+        if self.name == "FLOOD_SKIP_FAILED_WAIT" {
+            return Some(Duration::from_secs(1));
+        }
+        let wait = WAITS.contains(&self.name.as_str()).then_some(self.value?)?;
+        Some(Duration::from_secs(wait.into()).min(MAX_WAIT))
     }
 
+    /// The data center in any `*_MIGRATE_<dc>` error: `USER_`, `PHONE_` and `NETWORK_MIGRATE` move the account,
+    /// while `FILE_MIGRATE` and `STATS_MIGRATE` only say where that one request goes.
     pub fn migrate_dc(&self) -> Option<i32> {
         self.value.filter(|_| self.name.ends_with("_MIGRATE")).and_then(|dc| dc.try_into().ok())
     }
@@ -186,6 +210,18 @@ mod tests {
         assert_eq!(wait(420, "FLOOD_WAIT_30"), Some(Duration::from_secs(30)));
         assert_eq!(wait(420, "SLOWMODE_WAIT_10"), Some(Duration::from_secs(10)));
         assert_eq!(wait(420, "FLOOD_WAIT"), None);
+        assert_eq!(wait(420, "FLOOD_PREMIUM_WAIT_5"), Some(Duration::from_secs(5)));
+        assert_eq!(wait(420, "FLOOD_TEST_PHONE_WAIT_3"), Some(Duration::from_secs(3)));
+        assert_eq!(wait(420, "TAKEOUT_INIT_DELAY_3600"), Some(Duration::from_secs(3600)));
+        assert_eq!(wait(420, "2FA_CONFIRM_WAIT_604800"), Some(Duration::from_secs(604800)));
+        assert_eq!(wait(420, "FLOOD_SKIP_FAILED_WAIT"), Some(Duration::from_secs(1)));
+        assert_eq!(wait(420, "FLOOD_WAIT_4294967295"), Some(Duration::from_secs(14 * 24 * 3600)));
+        assert_eq!(wait(420, "FLOOD_WAIT_4294967296"), Some(Duration::from_secs(14 * 24 * 3600)));
+        assert_eq!(wait(420, "FLOOD_WAIT_99999999999999999999"), Some(Duration::from_secs(14 * 24 * 3600)));
+        for lookalike in ["PREMIUM_SUB_ACTIVE_UNTIL_1700000000", "STORY_SEND_FLOOD_60", "FROZEN_METHOD_INVALID"] {
+            assert_eq!(wait(420, lookalike), None, "{lookalike}");
+        }
+        assert_eq!(wait(420, "ADDRESS_INVALID"), None);
         assert_eq!(wait(303, "USER_MIGRATE_4"), None);
         assert_eq!(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_5")).flood_wait(), Some(Duration::from_secs(5)));
 

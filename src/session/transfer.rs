@@ -6,7 +6,7 @@ use std::task::Poll;
 use std::time::Duration;
 
 use super::internals::data_center::Dc;
-use super::{Events, Salt, Session, WeakSession, init_connection};
+use super::{Events, MAX_FLOOD_SLEEPS, Salt, Session, WeakSession, init_connection};
 use crate::connection::Options;
 use crate::crypto::rsa::PublicKey;
 use crate::errors::{Error, Result};
@@ -21,7 +21,6 @@ const PARTS_PER_CONNECTION: u64 = 2;
 const MIN_RATE: u64 = 8 << 10;
 const PART_TIMEOUT: Duration = Duration::from_secs(MAX_PART * PARTS_PER_CONNECTION / MIN_RATE);
 const MAX_TIMEOUTS: usize = 3;
-const MAX_FLOOD_WAITS: usize = 5;
 // A CDN gets at most this per wait, so one that keeps flooding is soon given up on and the master DC serves the part.
 const MAX_CDN_FLOOD_WAIT: Duration = Duration::from_secs(60);
 
@@ -157,7 +156,8 @@ async fn invoke_part_on<R: RemoteCall>(session: &Session, request: &R, cdn: bool
     let (mut timeouts, mut floods) = (0, 0);
     loop {
         let result = session.invoke_with_timeout(request, timeout).await;
-        let wait = result.as_ref().err().and_then(|e| session.flood_sleep(e, cap)).filter(|_| floods < MAX_FLOOD_WAITS);
+        let wait =
+            result.as_ref().err().and_then(|e| session.flood_sleep(e, cap)).filter(|_| floods < MAX_FLOOD_SLEEPS);
         match (&result, wait) {
             (_, Some(wait)) => {
                 floods += 1;
@@ -222,7 +222,7 @@ pub(crate) async fn try_join_all<T, F: Future<Output = Result<T>>>(futures: impl
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicI32;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use super::{Auth, PART_TIMEOUT, Progress, Session, TransferPool, invoke_part, take, try_join_all, workers};
     use crate::Client;
@@ -269,15 +269,15 @@ mod tests {
         assert_eq!(PART_TIMEOUT, Duration::from_secs(128));
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_flood_wait_over_the_threshold_comes_back_without_sleeping() {
         let (mut session, mut sent) = Session::scripted(vec![Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_120")))]);
         session.set_options(Options { flood_sleep_threshold: Duration::from_secs(60), ..Options::default() });
         let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };
 
-        let start = Instant::now();
+        let start = tokio::time::Instant::now();
         let e = invoke_part(&session, &part).await.unwrap_err();
-        assert!(start.elapsed() < Duration::from_secs(1));
+        assert_eq!(start.elapsed(), Duration::ZERO);
         assert!(matches!(e, Error::Rpc(e) if (e.name.as_str(), e.value) == ("FLOOD_WAIT", Some(120))));
         assert_eq!(std::iter::from_fn(|| sent.try_recv().ok()).count(), 1);
     }

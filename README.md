@@ -116,8 +116,8 @@ match app.send_message(chat_id, "hi").await {
 }
 ```
 
-FLOOD_WAITs up to a minute are slept off and retried, and a request gives up after 30 seconds. Both are
-settings, and an observer sees every request, including the ones vaegram makes on its own:
+FLOOD_WAITs up to a minute are slept off and retried, up to 5 times per call, and a request gives up after 30
+seconds. Both are settings, and an observer sees every request, including the ones vaegram makes on its own:
 
 ```rust
 let app = Client::builder("my_account", api_id, api_hash)

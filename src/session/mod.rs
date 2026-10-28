@@ -57,6 +57,8 @@ const RECONNECT_DELAY: Duration = Duration::from_millis(500);
 const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(30);
 const TICK: Duration = Duration::from_secs(1);
 const ACK_EVERY: Duration = Duration::from_secs(15);
+// Per call: then the next FLOOD_WAIT goes to the caller, so a call under a raid still ends.
+pub(crate) const MAX_FLOOD_SLEEPS: usize = 5;
 
 type Answer = Result<Vec<u8>>;
 
