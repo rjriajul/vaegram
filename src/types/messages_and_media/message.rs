@@ -50,7 +50,7 @@ pub struct Message {
     pub reactions: Vec<ReactionCount>,
     /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`] and leaves its text in
     /// `message`.
-    pub raw: Box<types::Message>,
+    pub(crate) raw: Box<types::Message>,
     // The replied message a business update carries, since the bot can't read the account's history.
     replied: Option<Box<Message>>,
     client: Client,

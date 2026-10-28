@@ -4,15 +4,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
-use vaegram::enums::{ParseMode, StickerType};
+use vaegram::enums::{MessageEntityType, ParseMode, PollType, StickerType};
 use vaegram::raw::{base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
     ButtonStyle, FileSource, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
-    InputPollMedia, InputPollOption, InputRichMessage, InputSticker, KeyboardButton, Message, ReplyKeyboardMarkup,
-    ReplyKeyboardRemove, RichBlock, Text, Upload,
+    InputPollMedia, InputPollOption, InputRichMessage, InputSticker, KeyboardButton, Media, Message,
+    ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
 };
 use vaegram::{Client, filters};
 
@@ -115,12 +115,12 @@ async fn bot_sends_and_edits_messages() {
         vec![InlineKeyboardButton::url("Source", "https://github.com/rjriajul/vaegram")],
     ]);
     let asked = app.send_message(chat_id, "Do buttons work?").reply_markup(keyboard).await.unwrap();
-    assert!(asked.raw.reply_markup.is_some());
+    assert!(asked.reply_markup().is_some());
 
     let edited = asked.edit_text("Buttons work, <b>edited</b>.").html().await.unwrap();
     assert_eq!((edited.id, edited.text.as_str(), entities(&edited)), (asked.id, "Buttons work, edited.", 1));
     assert!(edited.edit_date.is_some());
-    assert!(edited.raw.reply_markup.is_none());
+    assert!(edited.reply_markup().is_none());
 
     // updateShortSentMessage has no rich_message field; this shows whether Telegram answers with it.
     let rich = app.send_rich_message(chat_id, InputRichMessage::html("<b>rich</b> hello")).await.unwrap();
@@ -131,7 +131,7 @@ async fn bot_sends_and_edits_messages() {
     rich.delete().await.unwrap();
 
     let reply = app.send_message(chat_id, "a reply").reply_to(hello.id).await.unwrap();
-    assert!(reply.raw.reply_to.is_some());
+    assert_eq!(reply.reply_to_message_id, Some(hello.id));
 
     let keyboard = ReplyKeyboardMarkup::new([vec![KeyboardButton::new("One"), KeyboardButton::new("Two")]]);
     app.send_message(chat_id, "a reply keyboard").reply_markup(keyboard).await.unwrap();
@@ -149,7 +149,7 @@ async fn bot_sends_and_edits_messages() {
 }
 
 fn entities(message: &Message) -> usize {
-    message.raw.entities.as_ref().map_or(0, Vec::len)
+    message.entities.as_ref().map_or(0, Vec::len)
 }
 
 #[tokio::test]
@@ -169,14 +169,14 @@ async fn bot_sends_polls_and_media() {
     let chat_id: i64 = env("VAEGRAM_CHAT_ID").parse().unwrap();
 
     let dice = app.send_dice(chat_id).emoji("🎯").disable_notification().await.unwrap();
-    let Some(base::MessageMedia::MessageMediaDice(d)) = &dice.raw.media else { panic!("no dice in {dice:?}") };
-    assert_eq!(d.emoticon, "🎯");
+    let Some(Media::Dice(d)) = &dice.media else { panic!("no dice in {dice:?}") };
+    assert_eq!(d.emoji, "🎯");
     let venue = app.send_venue(chat_id, 51.5007, -0.1246, "Big Ben", "London SW1A 0AA").await.unwrap();
-    assert!(matches!(venue.raw.media, Some(base::MessageMedia::MessageMediaVenue(_))));
+    assert!(matches!(venue.media, Some(Media::Venue(_))));
     let contact = app.send_contact(chat_id, "+15555550100", "Vae").last_name("Gram").await.unwrap();
-    assert!(matches!(contact.raw.media, Some(base::MessageMedia::MessageMediaContact(_))));
+    assert!(matches!(contact.media, Some(Media::Contact(_))));
     let location = app.send_location(chat_id, 51.5007, -0.1246).reply_to(contact.id).await.unwrap();
-    assert!(location.raw.reply_to.is_some());
+    assert_eq!(location.reply_to_message_id, Some(contact.id));
 
     let quiz = app
         .send_poll(chat_id, "2 + 2?", ["3", "4"])
@@ -186,9 +186,8 @@ async fn bot_sends_polls_and_media() {
         .await
         .unwrap();
     let stopped = app.stop_poll(chat_id, quiz.id).await.unwrap();
-    let Some(base::MessageMedia::MessageMediaPoll(media)) = &stopped.raw.media else { panic!("no poll") };
-    let base::Poll::Poll(poll) = &media.poll;
-    assert!(poll.closed && poll.quiz);
+    let Some(Media::Poll(poll)) = &stopped.media else { panic!("no poll") };
+    assert!(poll.is_closed && poll.kind == PollType::Quiz);
 
     for message in [dice, venue, contact, location, stopped] {
         message.delete().await.unwrap();
@@ -266,7 +265,7 @@ async fn bot_sends_live_photos_paid_media_and_poll_media() {
         InputMedia::live_photo(photo.as_str(), video.as_str()),
     ];
     let sent = app.send_paid_media(chat_id, 5, media).payload("order-7").caption("paid").await.unwrap();
-    assert!(matches!(sent.raw.media, Some(base::MessageMedia::MessageMediaPaidMedia(ref m)) if m.stars_amount == 5));
+    assert!(matches!(sent.media, Some(Media::PaidMedia(ref m)) if m.star_count == 5));
     sent.delete().await.unwrap();
 
     let options = [
@@ -432,7 +431,7 @@ async fn user_account_talks_to_bot() {
 
     let mention =
         user.send_message(me.id, format!("hi <a href=\"tg://user?id={bot_id}\">bot</a>")).html().await.unwrap();
-    assert!(matches!(mention.raw.entities.as_deref(), Some([base::MessageEntity::MessageEntityMentionName(_)])));
+    assert!(matches!(mention.entities.as_deref(), Some([e]) if e.kind == MessageEntityType::TextMention));
     mention.delete().await.unwrap();
 
     let raw_updates = Arc::new(AtomicUsize::new(0));
@@ -486,7 +485,7 @@ async fn user_account_talks_to_bot() {
     let ping = user.send_message(bot_id, "ping").await.unwrap();
     let pong = next(&mut rx, "new").await;
     assert_eq!(pong.text, "pong: ping");
-    assert!(pong.raw.reply_markup.is_some());
+    assert!(pong.reply_markup().is_some());
 
     let ping = ping.edit_text("ping 2").await.unwrap();
     assert_eq!(next(&mut rx, "new").await.text, "edited: ping 2");

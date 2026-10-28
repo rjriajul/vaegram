@@ -17,7 +17,7 @@ pub struct EphemeralMessage {
     pub date: i32,
     pub text: String,
     pub outgoing: bool,
-    pub raw: Box<types::EphemeralMessage>,
+    pub(crate) raw: Box<types::EphemeralMessage>,
     client: Client,
 }
 

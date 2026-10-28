@@ -10,7 +10,7 @@ pub struct RichMessage {
     pub rtl: bool,
     /// Telegram sent only part of the message; `messages.getRichMessage` returns all of it.
     pub part: bool,
-    pub raw: Box<types::RichMessage>,
+    pub(crate) raw: Box<types::RichMessage>,
 }
 
 impl RichMessage {

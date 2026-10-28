@@ -59,9 +59,21 @@ struct Request {
     answer: oneshot::Sender<Answer>,
 }
 
+/// One push from the server, at the session level, where requests and answers are raw TL too.
 pub struct Incoming {
-    pub updates: base::Updates,
-    pub from_request: bool,
+    pub(crate) updates: base::Updates,
+    pub(crate) from_request: bool,
+}
+
+impl Incoming {
+    pub fn into_updates(self) -> base::Updates {
+        self.updates
+    }
+
+    /// Sent back as the answer to one of this session's own requests, not pushed.
+    pub fn from_request(&self) -> bool {
+        self.from_request
+    }
 }
 
 pub struct UpdatesRx {
