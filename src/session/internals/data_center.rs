@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use crate::raw::base;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Dc {
     pub id: i32,
     pub addr: SocketAddr,
@@ -39,10 +39,11 @@ pub fn address(dc_id: i32, test: bool, ipv6: bool) -> Option<SocketAddr> {
     Some(SocketAddr::new(ip, 443))
 }
 
-pub fn table(options: &[base::DcOption], ipv6: bool) -> Vec<(i32, SocketAddr)> {
+// CDN DCs stay in the main table: their ids are their own, and `Client::dc` finds them for redirects.
+pub fn table(options: &[base::DcOption], ipv6: bool, media: bool) -> Vec<(i32, SocketAddr)> {
     let mut table = Vec::new();
     for base::DcOption::DcOption(o) in options {
-        if o.media_only || o.cdn || o.tcpo_only || o.ipv6 != ipv6 || table.iter().any(|(id, _)| *id == o.id) {
+        if o.media_only != media || o.tcpo_only || o.ipv6 != ipv6 || table.iter().any(|(id, _)| *id == o.id) {
             continue;
         }
         if let (Ok(ip), Ok(port)) = (o.ip_address.parse(), u16::try_from(o.port)) {
@@ -85,17 +86,23 @@ mod tests {
         let mut tcpo = option(3, "10.0.0.3", false, false);
         let base::DcOption::DcOption(o) = &mut tcpo;
         o.tcpo_only = true;
+        let mut cdn = option(203, "10.0.2.3", false, false);
+        let base::DcOption::DcOption(o) = &mut cdn;
+        o.cdn = true;
         let options = [
             option(1, "10.0.0.9", false, true),
             option(1, "2001:db8::1", true, false),
             option(1, "10.0.0.1", false, false),
             option(1, "10.0.0.2", false, false),
+            option(1, "10.0.0.8", false, true),
             option(2, "not an ip", false, false),
             tcpo,
+            cdn,
         ];
-        let v4 = table(&options, false);
-        assert_eq!(v4, [(1, "10.0.0.1:443".parse().unwrap())]);
-        assert_eq!(table(&options, true), [(1, "[2001:db8::1]:443".parse().unwrap())]);
+        let v4 = table(&options, false, false);
+        assert_eq!(v4, [(1, "10.0.0.1:443".parse().unwrap()), (203, "10.0.2.3:443".parse().unwrap())]);
+        assert_eq!(table(&options, true, false), [(1, "[2001:db8::1]:443".parse().unwrap())]);
+        assert_eq!(table(&options, false, true), [(1, "10.0.0.9:443".parse().unwrap())]);
 
         assert_eq!(find(&v4, 1, false, false).unwrap().addr, "10.0.0.1:443".parse().unwrap());
         assert_eq!(find(&v4, 2, false, false).unwrap().addr, address(2, false, false).unwrap());

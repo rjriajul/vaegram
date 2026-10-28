@@ -10,7 +10,7 @@ pub struct RichMessage {
     pub rtl: bool,
     /// Telegram sent only part of the message; `messages.getRichMessage` returns all of it.
     pub part: bool,
-    pub raw: Box<types::RichMessage>,
+    pub(crate) raw: Box<types::RichMessage>,
 }
 
 impl RichMessage {
@@ -28,9 +28,9 @@ impl RichMessage {
                 let rich = RichMessage::parse(base::RichMessage::RichMessage(Box::new(raw)));
                 (rich.text(), Some(rich))
             }
-            base::InputRichMessage::InputRichMessageHTML(m) => (parser::parse(&m.html, ParseMode::Html).0, None),
+            base::InputRichMessage::InputRichMessageHTML(m) => (parser::parse(&m.html, ParseMode::Html).text, None),
             base::InputRichMessage::InputRichMessageMarkdown(m) => {
-                (parser::parse(&m.markdown, ParseMode::Markdown).0, None)
+                (parser::parse(&m.markdown, ParseMode::Markdown).text, None)
             }
         }
     }
@@ -52,8 +52,12 @@ impl RichMessage {
     }
 
     pub fn text(&self) -> String {
+        RichMessage::plain_text(&self.raw)
+    }
+
+    pub(crate) fn plain_text(raw: &types::RichMessage) -> String {
         let mut out = String::new();
-        for block in &self.raw.blocks {
+        for block in &raw.blocks {
             for_each_text(block, &mut |text| {
                 let start = out.len();
                 if start > 0 {

@@ -13,6 +13,18 @@ pub struct Venue {
 }
 
 impl Venue {
+    pub fn new(latitude: f64, longitude: f64, title: impl Into<String>, address: impl Into<String>) -> Self {
+        Venue {
+            location: Location::new(latitude, longitude),
+            title: title.into(),
+            address: address.into(),
+            foursquare_id: None,
+            foursquare_type: None,
+            google_place_id: None,
+            google_place_type: None,
+        }
+    }
+
     pub(crate) fn parse(venue: &types::MessageMediaVenue) -> Option<Venue> {
         let some = |s: &String| (!s.is_empty()).then(|| s.clone());
         let mut parsed = Venue {

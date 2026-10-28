@@ -3,6 +3,8 @@ use crate::types::{Document, FileLocation};
 
 #[derive(Debug, Clone)]
 pub struct VideoNote {
+    pub file_id: String,
+    pub file_unique_id: String,
     pub id: i64,
     pub mime_type: String,
     pub file_size: i64,
@@ -14,9 +16,9 @@ pub struct VideoNote {
 
 impl VideoNote {
     pub(crate) fn parse(document: Document, video: Option<&types::DocumentAttributeVideo>) -> VideoNote {
-        let Document { id, mime_type, file_size, date, location, .. } = document;
+        let Document { file_id, file_unique_id, id, mime_type, file_size, date, location, .. } = document;
         let (length, duration) = video.map_or((0, 0), |v| (v.w, v.duration as i32));
-        VideoNote { id, mime_type, file_size, date, length, duration, location }
+        VideoNote { file_id, file_unique_id, id, mime_type, file_size, date, length, duration, location }
     }
 }
 

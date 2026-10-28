@@ -1,9 +1,9 @@
 use super::send_options::caption_setters;
 use crate::Client;
 use crate::enums::ParseMode;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
-use crate::types::{EphemeralMessage, MessageText, PeerRef, ReplyMarkup};
+use crate::types::{EphemeralMessage, InputMedia, MessageText, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct EditEphemeralMessage<'a> {
@@ -12,6 +12,7 @@ pub struct EditEphemeralMessage<'a> {
     receiver_user_id: PeerRef,
     ephemeral_message_id: i32,
     text: Option<MessageText>,
+    media: Option<Box<InputMedia<'a>>>,
     parse_mode: Option<ParseMode>,
     invert_media: bool,
     reply_markup: Option<ReplyMarkup>,
@@ -37,6 +38,7 @@ impl<'a> EditEphemeralMessage<'a> {
             receiver_user_id,
             ephemeral_message_id: id,
             text: None,
+            media: None,
             parse_mode: None,
             invert_media: false,
             reply_markup: None,
@@ -45,6 +47,11 @@ impl<'a> EditEphemeralMessage<'a> {
 
     pub(crate) fn text(mut self, text: MessageText) -> Self {
         self.text = Some(text);
+        self
+    }
+
+    pub(crate) fn media(mut self, media: InputMedia<'a>) -> Self {
+        self.media = Some(Box::new(media));
         self
     }
 
@@ -65,6 +72,7 @@ impl<'a> EditEphemeralMessage<'a> {
         message: Option<String>,
         entities: Option<Vec<base::MessageEntity>>,
         rich_message: Option<base::InputRichMessage>,
+        media: Option<base::InputMedia>,
     ) -> functions::ephemeral::EditMessage {
         functions::ephemeral::EditMessage {
             invert_media: self.invert_media,
@@ -73,7 +81,7 @@ impl<'a> EditEphemeralMessage<'a> {
             receiver_id,
             id: self.ephemeral_message_id,
             message,
-            media: None,
+            media,
             entities,
             reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
             rich_message,
@@ -82,13 +90,26 @@ impl<'a> EditEphemeralMessage<'a> {
 
     async fn send(mut self) -> Result<EphemeralMessage> {
         let client = self.client;
+        let (text, mut media) = (self.text.take(), self.media.take());
+        let (message, entities, rich_message) = match (text, &mut media) {
+            (Some(_), Some(_)) => return Err(Error::InvalidArgument("edit either the text or the media, not both")),
+            (Some(text), None) => text.write(client, self.parse_mode).await?,
+            (None, Some(media)) => {
+                self.invert_media |= media.show_caption_above_media;
+                let (caption, entities) =
+                    client.write_text(std::mem::take(&mut media.caption), media.parse_mode).await?;
+                (Some(caption), (!entities.is_empty()).then_some(entities), None)
+            }
+            (None, None) => (None, None, None),
+        };
         let peer = client.resolve(&self.chat_id).await?.1;
         let receiver_id = client.resolve_user(&self.receiver_user_id).await?;
-        let (message, entities, rich_message) = match self.text.take() {
-            Some(text) => text.write(client, self.parse_mode).await?,
-            None => (None, None, None),
+        let media = match media {
+            Some(media) => Some(client.input_media(&peer, &media, None, None).await?),
+            None => None,
         };
-        let updates = client.invoke(&self.request(peer, receiver_id, message, entities, rich_message)).await?;
+        let request = self.request(peer, receiver_id, message, entities, rich_message, media);
+        let updates = client.invoke(&request).await?;
         EphemeralMessage::from_updates(client, updates)
     }
 }
@@ -100,12 +121,14 @@ into_future!(EditEphemeralMessage, EphemeralMessage);
 mod tests {
     use super::EditEphemeralMessage;
     use crate::Client;
+    use crate::errors::Error;
     use crate::raw::{Serializable, base, functions, types};
-    use crate::types::InputRichMessage;
+    use crate::types::messages_and_media::Source;
+    use crate::types::{FileSource, InputMedia, InputRichMessage};
 
     fn request(edit: EditEphemeralMessage<'_>) -> functions::ephemeral::EditMessage {
         let peer = base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: 1 }));
-        edit.request(peer, base::InputUser::InputUserSelf, None, None, None)
+        edit.request(peer, base::InputUser::InputUserSelf, None, None, None, None)
     }
 
     #[test]
@@ -118,6 +141,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn refuses_text_and_media_together() {
+        let (client, mut sent) = Client::recording();
+        let edit = client.edit_ephemeral_message_media(-5, "me", 3, InputMedia::photo("cat.jpg")).text("x".into());
+        assert!(matches!(edit.await, Err(Error::InvalidArgument(_))));
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
     async fn rich_text_goes_to_rich_message() {
         let (client, mut rx) = Client::recording();
         let edit = client.edit_ephemeral_message_text("me", "me", 3, InputRichMessage::html("<b>hi</b>"));
@@ -127,5 +158,30 @@ mod tests {
         assert_eq!((flags & 0b11, flags & 1 << 4 != 0), (0, true));
         let html = types::InputRichMessageHTML { rtl: false, noautolink: false, html: "<b>hi</b>".into(), files: None };
         assert!(body.ends_with(&base::InputRichMessage::InputRichMessageHTML(Box::new(html)).to_bytes()));
+    }
+
+    #[tokio::test]
+    async fn media_edits_carry_the_caption_of_the_media() {
+        const PHOTO: &str = "AgACAgIAAxkBAAIENGfeY4AfRquwTL2LpDrzqvFMVNt_AAIG9DEbXX3wSq3oI7t_PqQGAQADAgADbQADNgQ";
+        let (client, mut sent) = Client::recording();
+        let photo = FileSource::file_id(PHOTO).unwrap();
+        let media = InputMedia::photo(photo.clone()).caption("<b>new</b>").html().show_caption_above_media();
+        let _ = client.edit_ephemeral_message_media(-5, "me", 3, media).await;
+
+        let Source::Stored(stored) = photo.0 else { panic!("not a stored file") };
+        let bold = types::MessageEntityBold { offset: 0, length: 3 };
+        let request = functions::ephemeral::EditMessage {
+            invert_media: true,
+            welcome: false,
+            peer: Some(base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: 5 }))),
+            receiver_id: base::InputUser::InputUserSelf,
+            id: 3,
+            message: Some("new".into()),
+            media: Some(stored),
+            entities: Some(vec![base::MessageEntity::MessageEntityBold(Box::new(bold))]),
+            reply_markup: None,
+            rich_message: None,
+        };
+        assert_eq!(sent.try_recv().expect("no request sent"), request.to_bytes());
     }
 }

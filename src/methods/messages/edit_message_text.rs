@@ -12,6 +12,7 @@ pub struct EditMessageText<'a> {
     message_id: i32,
     text: MessageText,
     parse_mode: Option<ParseMode>,
+    show_caption_above_media: bool,
     reply_markup: Option<ReplyMarkup>,
     business_connection_id: Option<String>,
 }
@@ -29,6 +30,7 @@ impl Client {
             message_id,
             text: text.into(),
             parse_mode: None,
+            show_caption_above_media: false,
             reply_markup: None,
             business_connection_id: None,
         }
@@ -46,11 +48,18 @@ impl EditMessageText<'_> {
         self
     }
 
+    /// For captions of photos, videos and animations.
+    pub fn show_caption_above_media(mut self) -> Self {
+        self.show_caption_above_media = true;
+        self
+    }
+
     async fn send(self) -> Result<Message> {
         let client = self.client;
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let (message, entities, rich_message) = self.text.write(client, self.parse_mode).await?;
         let request = functions::messages::EditMessage {
+            invert_media: self.show_caption_above_media,
             message,
             reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
             entities,

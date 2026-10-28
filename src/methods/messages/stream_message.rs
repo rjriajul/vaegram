@@ -26,7 +26,6 @@ pub struct StreamMessage<'a> {
 }
 
 pub struct MessageStream {
-    client: Client,
     shared: Arc<StreamShared>,
     task: Option<JoinHandle<Result<Vec<Message>>>>,
 }
@@ -65,9 +64,8 @@ impl StreamMessage<'_> {
             ..State::default()
         };
         let shared = Arc::new(StreamShared { state: Mutex::new(state), ..StreamShared::default() });
-        let client = self.client.clone();
-        let task = tokio::spawn(run(client.clone(), self.chat_id, self.options, shared.clone()));
-        MessageStream { client, shared, task: Some(task) }
+        let task = tokio::spawn(run(self.client.clone(), self.chat_id, self.options, shared.clone()));
+        MessageStream { shared, task: Some(task) }
     }
 }
 
@@ -105,7 +103,16 @@ impl Drop for MessageStream {
         if let Some(task) = self.task.take() {
             task.abort();
         }
-        self.client.0.streams.lock().unwrap().retain(|_, s| !Arc::ptr_eq(s, &self.shared));
+    }
+}
+
+// Only the task registers drafts, so it also unregisters them when it ends or is aborted;
+// a cleanup in MessageStream's drop could run before the task's last insert.
+struct Registration<'a>(&'a Client, &'a Arc<StreamShared>);
+
+impl Drop for Registration<'_> {
+    fn drop(&mut self) {
+        self.0.0.streams.lock().unwrap().retain(|_, s| !Arc::ptr_eq(s, self.1));
     }
 }
 
@@ -163,6 +170,7 @@ async fn run(
     options: DraftOptions,
     shared: Arc<StreamShared>,
 ) -> Result<Vec<Message>> {
+    let _registration = Registration(&client, &shared);
     let mut sent = Vec::new();
     let mut resume = Instant::now();
     loop {
@@ -241,7 +249,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::Ordering;
 
-    use super::{State, StreamShared};
+    use super::{DraftOptions, State, StreamShared, run};
     use crate::Client;
     use crate::raw::{base, types};
 
@@ -294,5 +302,20 @@ mod tests {
         assert!(!stream.stopped.load(Ordering::Relaxed));
         client.stop_stream(&stop(42));
         assert!(stream.stopped.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn dropping_the_task_unregisters_its_draft() {
+        let client = Client::offline();
+        let shared = Arc::new(StreamShared::default());
+        shared.state.lock().unwrap().push("hi");
+        let options = DraftOptions { can_stop: true, ..DraftOptions::default() };
+        let task = run(client.clone(), 7.into(), options, shared);
+        tokio::select! {
+            biased;
+            _ = task => panic!("the stream ended on its own"),
+            () = std::future::ready(()) => {}
+        }
+        assert!(client.0.streams.lock().unwrap().is_empty());
     }
 }

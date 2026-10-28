@@ -4,14 +4,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
-use vaegram::enums::{ParseMode, StickerType};
+use vaegram::enums::{MessageEntityType, ParseMode, PollType, StickerType};
 use vaegram::raw::{base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
-    ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputRichMessage, InputSticker,
-    KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Upload,
+    ButtonStyle, FileSource, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
+    InputPollMedia, InputPollOption, InputRichMessage, InputSticker, KeyboardButton, Media, Message,
+    ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
 };
 use vaegram::{Client, filters};
 
@@ -114,20 +115,23 @@ async fn bot_sends_and_edits_messages() {
         vec![InlineKeyboardButton::url("Source", "https://github.com/rjriajul/vaegram")],
     ]);
     let asked = app.send_message(chat_id, "Do buttons work?").reply_markup(keyboard).await.unwrap();
-    assert!(asked.raw.reply_markup.is_some());
+    assert!(asked.reply_markup().is_some());
 
     let edited = asked.edit_text("Buttons work, <b>edited</b>.").html().await.unwrap();
     assert_eq!((edited.id, edited.text.as_str(), entities(&edited)), (asked.id, "Buttons work, edited.", 1));
     assert!(edited.edit_date.is_some());
-    assert!(edited.raw.reply_markup.is_none());
+    assert!(edited.reply_markup().is_none());
 
     // updateShortSentMessage has no rich_message field; this shows whether Telegram answers with it.
     let rich = app.send_rich_message(chat_id, InputRichMessage::html("<b>rich</b> hello")).await.unwrap();
     assert!(rich.rich_message.is_some());
+    let rich =
+        rich.edit_text(InputRichMessage::blocks([RichBlock::paragraph(Text::new().bold("edited"))])).await.unwrap();
+    assert!(rich.rich_message.is_some() && rich.text.contains("edited"));
     rich.delete().await.unwrap();
 
     let reply = app.send_message(chat_id, "a reply").reply_to(hello.id).await.unwrap();
-    assert!(reply.raw.reply_to.is_some());
+    assert_eq!(reply.reply_to_message_id, Some(hello.id));
 
     let keyboard = ReplyKeyboardMarkup::new([vec![KeyboardButton::new("One"), KeyboardButton::new("Two")]]);
     app.send_message(chat_id, "a reply keyboard").reply_markup(keyboard).await.unwrap();
@@ -145,7 +149,7 @@ async fn bot_sends_and_edits_messages() {
 }
 
 fn entities(message: &Message) -> usize {
-    message.raw.entities.as_ref().map_or(0, Vec::len)
+    message.entities.as_ref().map_or(0, Vec::len)
 }
 
 #[tokio::test]
@@ -165,14 +169,14 @@ async fn bot_sends_polls_and_media() {
     let chat_id: i64 = env("VAEGRAM_CHAT_ID").parse().unwrap();
 
     let dice = app.send_dice(chat_id).emoji("🎯").disable_notification().await.unwrap();
-    let Some(base::MessageMedia::MessageMediaDice(d)) = &dice.raw.media else { panic!("no dice in {dice:?}") };
-    assert_eq!(d.emoticon, "🎯");
+    let Some(Media::Dice(d)) = &dice.media else { panic!("no dice in {dice:?}") };
+    assert_eq!(d.emoji, "🎯");
     let venue = app.send_venue(chat_id, 51.5007, -0.1246, "Big Ben", "London SW1A 0AA").await.unwrap();
-    assert!(matches!(venue.raw.media, Some(base::MessageMedia::MessageMediaVenue(_))));
+    assert!(matches!(venue.media, Some(Media::Venue(_))));
     let contact = app.send_contact(chat_id, "+15555550100", "Vae").last_name("Gram").await.unwrap();
-    assert!(matches!(contact.raw.media, Some(base::MessageMedia::MessageMediaContact(_))));
+    assert!(matches!(contact.media, Some(Media::Contact(_))));
     let location = app.send_location(chat_id, 51.5007, -0.1246).reply_to(contact.id).await.unwrap();
-    assert!(location.raw.reply_to.is_some());
+    assert_eq!(location.reply_to_message_id, Some(contact.id));
 
     let quiz = app
         .send_poll(chat_id, "2 + 2?", ["3", "4"])
@@ -182,9 +186,8 @@ async fn bot_sends_polls_and_media() {
         .await
         .unwrap();
     let stopped = app.stop_poll(chat_id, quiz.id).await.unwrap();
-    let Some(base::MessageMedia::MessageMediaPoll(media)) = &stopped.raw.media else { panic!("no poll") };
-    let base::Poll::Poll(poll) = &media.poll;
-    assert!(poll.closed && poll.quiz);
+    let Some(Media::Poll(poll)) = &stopped.media else { panic!("no poll") };
+    assert!(poll.is_closed && poll.kind == PollType::Quiz);
 
     for message in [dice, venue, contact, location, stopped] {
         message.delete().await.unwrap();
@@ -216,7 +219,112 @@ async fn bot_uploads_and_downloads_a_document() {
     let path = std::path::Path::new("target/vaegram-live-download/vaegram.bin");
     app.download_media(document).file_name(path).await.unwrap();
     assert!(std::fs::read(path).unwrap() == data);
+
+    let (mut reported, mut streamed) = (0, Vec::new());
+    let mut stream = sent.download().progress(|done, _| reported = done).stream();
+    while let Some(chunk) = stream.next().await {
+        streamed.extend_from_slice(&chunk.unwrap());
+    }
+    drop(stream);
+    assert!(streamed == data);
+    assert_eq!(reported, data.len() as u64);
+
+    let again = app.send_document(chat_id, FileSource::file_id(&document.file_id).unwrap()).await.unwrap();
+    let copy = again.document().expect("the copy has the document");
+    assert_eq!((copy.id, copy.file_unique_id.as_str()), (document.id, document.file_unique_id.as_str()));
+    assert!(app.download_media(&copy.file_id).await.unwrap() == data);
+    again.delete().await.unwrap();
     sent.delete().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "logs in as a bot and uploads a photo and a video; the chat must be a channel the bot posts in"]
+async fn bot_sends_live_photos_paid_media_and_poll_media() {
+    if std::env::var("VAEGRAM_PHOTO").is_err() || std::env::var("VAEGRAM_VIDEO").is_err() {
+        eprintln!("skipped: set the bot variables plus VAEGRAM_PHOTO (a JPEG) and VAEGRAM_VIDEO (a short MP4)");
+        return;
+    }
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let app =
+        Client::builder("target/vaegram-live-photo", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+            .bot_token(env("VAEGRAM_BOT_TOKEN"))
+            .start()
+            .await
+            .unwrap();
+    let chat_id: i64 = env("VAEGRAM_CHAT_ID").parse().unwrap();
+    let (photo, video) = (env("VAEGRAM_PHOTO"), env("VAEGRAM_VIDEO"));
+
+    let sent = app.send_live_photo(chat_id, photo.as_str(), video.as_str()).caption("live").await.unwrap();
+    let live = sent.live_photo().expect("the message has the live photo");
+    assert!(live.photo.is_some() && live.file_size > 0);
+    sent.delete().await.unwrap();
+
+    let media = [
+        InputMedia::photo(photo.as_str()),
+        InputMedia::video(video.as_str()),
+        InputMedia::live_photo(photo.as_str(), video.as_str()),
+    ];
+    let sent = app.send_paid_media(chat_id, 5, media).payload("order-7").caption("paid").await.unwrap();
+    assert!(matches!(sent.media, Some(Media::PaidMedia(ref m)) if m.star_count == 5));
+    sent.delete().await.unwrap();
+
+    let options = [
+        InputPollOption::new("Here").media(InputPollMedia::location(48.85, 2.35)),
+        InputPollOption::new("This").media(InputMedia::photo(photo.as_str())),
+    ];
+    let sent = app
+        .send_poll(chat_id, "Where?", options)
+        .description_media(InputPollMedia::link("https://telegram.org"))
+        .await
+        .unwrap();
+    assert!(sent.poll().is_some());
+    sent.delete().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "logs in as a bot and sends audio, voice, an album and a media edit"]
+async fn bot_sends_typed_files_and_albums() {
+    if std::env::var("VAEGRAM_BOT_TOKEN").is_err() {
+        eprintln!("skipped: set VAEGRAM_API_ID, VAEGRAM_API_HASH, VAEGRAM_BOT_TOKEN and VAEGRAM_CHAT_ID");
+        return;
+    }
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let app =
+        Client::builder("target/vaegram-live-media", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+            .bot_token(env("VAEGRAM_BOT_TOKEN"))
+            .start()
+            .await
+            .unwrap();
+    let chat_id: i64 = env("VAEGRAM_CHAT_ID").parse().unwrap();
+    let data: Vec<u8> = (0..200_000u32).map(|i| (i * 13 + i / 7) as u8).collect();
+
+    let song = Upload::bytes("song.mp3", &data);
+    let song = app.send_audio(chat_id, song).duration(3).performer("vaegram").title("Song").await.unwrap();
+    let audio = song.audio().expect("the song is audio");
+    assert_eq!((audio.performer.as_deref(), audio.title.as_deref()), (Some("vaegram"), Some("Song")));
+
+    let voice = app.send_voice(chat_id, Upload::bytes("voice.ogg", &data)).duration(3).await.unwrap();
+    assert!(voice.voice().is_some());
+
+    let album = [
+        InputMedia::document(Upload::bytes("a.bin", &data)).caption("<b>first</b>").html(),
+        InputMedia::document(Upload::bytes("b.bin", &data)),
+    ];
+    let album = app.send_media_group(chat_id, album).await.unwrap();
+    assert_eq!(album.len(), 2);
+    assert!(album[0].id < album[1].id && album[0].media_group_id.is_some());
+    assert_eq!(album[0].caption.as_deref(), Some("first"));
+
+    let replaced = InputMedia::document(Upload::bytes("c.bin", &data)).caption("replaced");
+    let edited = app.edit_message_media(chat_id, album[1].id, replaced).await.unwrap();
+    let name = edited.document().and_then(|d| d.file_name.as_deref());
+    assert_eq!((edited.caption.as_deref(), name), (Some("replaced"), Some("c.bin")));
+
+    let first = album[0].document().expect("the album has documents");
+    let again = app.send_document(chat_id, first).await.unwrap();
+    assert_eq!(again.document().map(|d| d.id), Some(first.id));
+
+    app.delete_messages(chat_id, &[song.id, voice.id, album[0].id, album[1].id, again.id]).await.unwrap();
 }
 
 #[tokio::test]
@@ -323,7 +431,7 @@ async fn user_account_talks_to_bot() {
 
     let mention =
         user.send_message(me.id, format!("hi <a href=\"tg://user?id={bot_id}\">bot</a>")).html().await.unwrap();
-    assert!(matches!(mention.raw.entities.as_deref(), Some([base::MessageEntity::MessageEntityMentionName(_)])));
+    assert!(matches!(mention.entities.as_deref(), Some([e]) if e.kind == MessageEntityType::TextMention));
     mention.delete().await.unwrap();
 
     let raw_updates = Arc::new(AtomicUsize::new(0));
@@ -377,7 +485,7 @@ async fn user_account_talks_to_bot() {
     let ping = user.send_message(bot_id, "ping").await.unwrap();
     let pong = next(&mut rx, "new").await;
     assert_eq!(pong.text, "pong: ping");
-    assert!(pong.raw.reply_markup.is_some());
+    assert!(pong.reply_markup().is_some());
 
     let ping = ping.edit_text("ping 2").await.unwrap();
     assert_eq!(next(&mut rx, "new").await.text, "edited: ping 2");

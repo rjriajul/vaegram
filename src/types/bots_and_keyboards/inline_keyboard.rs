@@ -111,7 +111,7 @@ impl InlineKeyboardButton {
         self
     }
 
-    fn write(&self) -> base::KeyboardInlineButton {
+    pub(crate) fn write(&self) -> base::KeyboardInlineButton {
         use base::InlineButtonType as T;
         let switch = |query: &str, same_peer| {
             T::InlineButtonTypeSwitchInline(Box::new(types::InlineButtonTypeSwitchInline {

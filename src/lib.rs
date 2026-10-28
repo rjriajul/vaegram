@@ -4,6 +4,7 @@ pub mod crypto;
 pub mod dispatcher;
 pub mod enums;
 pub mod errors;
+pub(crate) mod file_id;
 pub mod filters;
 pub mod handlers;
 pub mod methods;

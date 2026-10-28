@@ -115,17 +115,22 @@ impl Handlers<Message> {
         kind: UpdateKind,
         tasks: &mut Tasks,
         client: &Client,
-        raw: base::Message,
+        mut raw: base::Message,
         entities: &Entities,
-        business_connection_id: Option<String>,
+        business: Option<(String, Option<base::Message>)>,
     ) {
         if self.0.is_empty() {
             return;
         }
         let me = client.0.me.lock().unwrap().clone();
+        if let base::Message::Message(m) = &mut raw {
+            Message::fill_rich_text(m);
+        }
         let Some(scan) = self.scan(&Facts::message(&raw, PeerKinds::message(&raw, entities), &me)) else { return };
         if let Some(mut message) = Message::from_raw(client, raw, entities) {
-            message.business_connection_id = business_connection_id;
+            if let Some((connection_id, reply_to)) = business {
+                message.set_business(client, connection_id, reply_to, entities);
+            }
             self.finish(kind, tasks, &me, scan, message);
         }
     }
@@ -251,11 +256,9 @@ update_kinds! {
     // One boost update parses into either kind, so `dispatch` routes both.
     chat_boost: ChatBoost => ChatBoostUpdated {}
     removed_chat_boost: RemovedChatBoost => ChatBoostRemoved {}
-    chat_member_updated: ChatMemberUpdated => ChatMemberUpdated {
-        UpdateChannelParticipant(u) => ChatMemberUpdated::parse_channel(client, *u, entities),
-        UpdateChatParticipant(u) => ChatMemberUpdated::parse_chat(client, *u, entities),
-        UpdateBotStopped(u) => ChatMemberUpdated::parse_bot_stopped(client, &me(), &u, entities),
-    }
+    // A member update goes to exactly one of these, depending on whose membership changed; `dispatch` routes both.
+    chat_member_updated: ChatMemberUpdated => ChatMemberUpdated {}
+    my_chat_member: MyChatMember => ChatMemberUpdated {}
     poll: Poll => PollUpdated {
         UpdateMessagePoll(u) => PollUpdated::parse(client, &u, entities),
     }
@@ -302,12 +305,13 @@ impl Router {
             }
             U::UpdateBotNewBusinessMessage(u) => {
                 let (kind, u) = (UpdateKind::BusinessMessage, *u);
-                self.business_message.run_business(kind, tasks, client, u.message, entities, Some(u.connection_id));
+                let business = Some((u.connection_id, u.reply_to_message));
+                self.business_message.run_business(kind, tasks, client, u.message, entities, business);
             }
             U::UpdateBotEditBusinessMessage(u) => {
                 let (kind, u) = (UpdateKind::EditedBusinessMessage, *u);
-                let id = Some(u.connection_id);
-                self.edited_business_message.run_business(kind, tasks, client, u.message, entities, id);
+                let business = Some((u.connection_id, u.reply_to_message));
+                self.edited_business_message.run_business(kind, tasks, client, u.message, entities, business);
             }
             U::UpdateBotChatBoost(u) if !self.chat_boost.0.is_empty() || !self.removed_chat_boost.0.is_empty() => {
                 match BoostUpdate::parse(client, *u, entities) {
@@ -320,7 +324,30 @@ impl Router {
                     None => {}
                 }
             }
+            U::UpdateChannelParticipant(u) => {
+                self.member_update(tasks, &me(), u.user_id, || ChatMemberUpdated::parse_channel(client, *u, entities))
+            }
+            U::UpdateChatParticipant(u) => {
+                self.member_update(tasks, &me(), u.user_id, || ChatMemberUpdated::parse_chat(client, *u, entities))
+            }
+            U::UpdateBotStopped(u) => {
+                let me = me();
+                self.member_update(tasks, &me, me.id, || {
+                    ChatMemberUpdated::parse_bot_stopped(client, &me, &u, entities)
+                })
+            }
             _ => {}
+        }
+    }
+
+    fn member_update(&self, tasks: &mut Tasks, me: &Me, user_id: i64, parse: impl FnOnce() -> ChatMemberUpdated) {
+        let (handlers, kind) = if user_id == me.id {
+            (&self.my_chat_member, UpdateKind::MyChatMember)
+        } else {
+            (&self.chat_member_updated, UpdateKind::ChatMemberUpdated)
+        };
+        if !handlers.0.is_empty() {
+            handlers.finish(kind, tasks, me, PARSED, parse());
         }
     }
 }
@@ -361,6 +388,7 @@ mod tests {
     use crate::handlers::callback;
     use crate::raw::types;
     use crate::types::messages_and_media::ephemeral_message::tests::{channel, ephemeral};
+    use crate::types::messages_and_media::message::tests::service;
     use crate::utils::{get_channel_id, get_peer};
 
     type Log = Arc<Mutex<Vec<&'static str>>>;
@@ -471,6 +499,35 @@ mod tests {
         let mut seen = log.lock().unwrap().clone();
         seen.sort_unstable();
         assert_eq!(seen, ["callback", "deleted", "ephemeral"]);
+    }
+
+    #[tokio::test]
+    async fn the_bots_own_membership_goes_only_to_my_chat_member() {
+        let log = Log::default();
+        let mut router = Router::default();
+        router.chat_member_updated.push(1, filters::all(), record(&log, "member"));
+        router.my_chat_member.push(2, filters::all(), record(&log, "mine"));
+        // The offline client's own id is 0.
+        let member = |user_id| {
+            base::Update::UpdateChatParticipant(Box::new(types::UpdateChatParticipant {
+                chat_id: 5,
+                date: 1,
+                actor_id: 7,
+                user_id,
+                prev_participant: None,
+                new_participant: None,
+                invite: None,
+                qts: 1,
+            }))
+        };
+        dispatch(&router, member(7));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["member"]);
+        dispatch(&router, member(0));
+        let stopped = types::UpdateBotStopped { user_id: 7, date: 1, stopped: true, qts: 2 };
+        dispatch(&router, base::Update::UpdateBotStopped(Box::new(stopped)));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["member", "mine", "mine"]);
     }
 
     #[tokio::test]
@@ -785,6 +842,45 @@ mod tests {
         dispatch(&router, new_message(1, false));
         settle().await;
         assert_eq!(*log.lock().unwrap(), ["start", "one"]);
+    }
+
+    #[tokio::test]
+    async fn service_filters_match_the_parsed_service_message() {
+        let log = Log::default();
+        let mut router = Router::default();
+        let any = || filters::create(|_: &Message| true);
+        router.message.push(1, filters::service() & any(), record(&log, "service"));
+        router.message.push(2, !filters::service() & any(), record(&log, "not service"));
+        router.message.push(3, filters::create(|_: &Message| false), record(&log, "closure"));
+        router.message.push(4, filters::service(), record(&log, "after closure"));
+        router.configure(UpdateKind::Message, 2, Some(1), false);
+        router.configure(UpdateKind::Message, 3, Some(2), false);
+        router.configure(UpdateKind::Message, 4, Some(2), false);
+        let title = types::MessageActionChatEditTitle { title: "t".into() };
+        let title = service(base::MessageAction::MessageActionChatEditTitle(Box::new(title)));
+        let message = base::Message::MessageService(Box::new(title));
+        let update = types::UpdateNewMessage { message, pts: 0, pts_count: 0 };
+        dispatch(&router, base::Update::UpdateNewMessage(Box::new(update)));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["service", "after closure"]);
+    }
+
+    #[tokio::test]
+    async fn rich_text_reaches_command_filters() {
+        let log = Log::default();
+        let mut router = Router::default();
+        router.message.push(1, filters::command("start"), record(&log, "start"));
+        let heading = base::RichText::TextPlain(Box::new(types::TextPlain { text: "/start".into() }));
+        let blocks = vec![base::PageBlock::PageBlockHeading1(Box::new(types::PageBlockHeading1 { text: heading }))];
+        let rich = types::RichMessage { rtl: false, part: false, blocks, photos: vec![], documents: vec![] };
+        let mut raw = Message::bare(1, get_peer(1), 0);
+        raw.rich_message = Some(base::RichMessage::RichMessage(Box::new(rich)));
+        let parsed = Message::parse(&Client::offline(), Box::new(raw.clone()), &Entities::default());
+        assert!(filters::command("start").check(&parsed));
+        let update = types::UpdateNewMessage { message: base::Message::Message(Box::new(raw)), pts: 0, pts_count: 0 };
+        dispatch(&router, base::Update::UpdateNewMessage(Box::new(update)));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["start"]);
     }
 
     #[test]

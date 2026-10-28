@@ -3,7 +3,7 @@ use crate::crypto::random;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
-use crate::types::{Message, PeerRef, ReplyMarkup, ReplyParameters, RichMessage, SuggestedPostParameters};
+use crate::types::{Message, PeerRef, ReplyMarkup, ReplyParameters, RichMessage, SuggestedPostParameters, Text};
 
 #[derive(Default)]
 pub(crate) struct SendOptions {
@@ -105,7 +105,7 @@ macro_rules! send_builder {
 pub(crate) use send_builder;
 
 macro_rules! caption_setters {
-    ($builder:ident) => {
+    ($builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
             pub fn html(self) -> Self {
                 self.parse_mode($crate::enums::ParseMode::Html)
@@ -116,13 +116,31 @@ macro_rules! caption_setters {
             }
 
             pub fn parse_mode(mut self, mode: $crate::enums::ParseMode) -> Self {
-                self.parse_mode = Some(mode);
+                self$(.$m)?.parse_mode = Some(mode);
                 self
             }
         }
     };
 }
 pub(crate) use caption_setters;
+
+macro_rules! send_media {
+    ($builder:ident) => {
+        impl $builder<'_> {
+            async fn send(mut self) -> $crate::Result<$crate::types::Message> {
+                let peer = self.client.resolve(&self.chat_id).await?.1;
+                let business = self.options.business_connection_id.as_deref();
+                let media = self.client.input_media(&peer, &self.media, self.progress.take(), business).await?;
+                self.options.invert_media = self.media.show_caption_above_media;
+                let (caption, parse_mode) = (self.media.caption, self.media.parse_mode);
+                self.client.send_media(self.chat_id, media, caption, parse_mode, self.options).await
+            }
+        }
+
+        send_builder!($builder);
+    };
+}
+pub(crate) use send_media;
 
 impl SendOptions {
     /// The forum topic to name. Per messages.sendMessage, the General topic (id 1) never is.
@@ -161,11 +179,11 @@ impl Client {
         &self,
         chat_id: impl Into<PeerRef>,
         media: base::InputMedia,
-        caption: &str,
+        caption: impl Into<Text>,
         parse_mode: Option<ParseMode>,
         options: SendOptions,
     ) -> Result<Message> {
-        let (message, entities) = self.parse_text(caption, parse_mode).await?;
+        let (message, entities) = self.write_text(caption.into(), parse_mode).await?;
         let text = (message, (!entities.is_empty()).then_some(entities));
         self.send_parsed(chat_id, Some(media), text, None, options).await
     }
@@ -256,6 +274,7 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Text;
 
     const GROUP: i64 = -5;
 
@@ -311,6 +330,10 @@ mod tests {
         assert_eq!((text.as_str(), entities.len()), ("hi", 1));
         let (text, entities) = client.parse_text("<b>hi</b>", Some(ParseMode::Disabled)).await.unwrap();
         assert_eq!((text.as_str(), entities.len()), ("<b>hi</b>", 0));
+        let (text, entities) = client.write_text(Text::new().plain("<b>hi</b>"), None).await.unwrap();
+        assert_eq!((text.as_str(), entities.len()), ("<b>hi</b>", 0));
+        let (text, entities) = client.write_text(Text::from_html("&lt;b&gt;"), None).await.unwrap();
+        assert_eq!((text.as_str(), entities.len()), ("<b>", 0));
 
         let reply = Some(ReplyParameters::new(4).quote("<b>hi</b>"));
         let m = message(written(&client, SendOptions { reply_to: reply, ..Default::default() }).await);

@@ -328,8 +328,8 @@ mod tests {
     use super::{InlineQueryResult, attributes};
     use crate::raw::base;
     use crate::types::{
-        InlineQueryResultAudio, InlineQueryResultDocument, InlineQueryResultLocation, InlineQueryResultMpeg4Gif,
-        InputMessageContent,
+        InlineQueryResultArticle, InlineQueryResultAudio, InlineQueryResultDocument, InlineQueryResultLocation,
+        InlineQueryResultMpeg4Gif, InputMessageContent,
     };
 
     #[test]
@@ -372,5 +372,18 @@ mod tests {
         let result = InlineQueryResultLocation::new(1.0, 2.0, "Here").input_message_content("text");
         let (_, parts) = InlineQueryResult::from(result).parts();
         assert!(matches!(parts.content, Some(InputMessageContent::Text { .. })));
+    }
+
+    #[tokio::test]
+    async fn plain_article_text_ignores_the_client_parse_mode() {
+        let mut client = crate::Client::offline();
+        std::sync::Arc::get_mut(&mut client.0).unwrap().parse_mode = crate::enums::ParseMode::Html;
+        let (_, parts) = InlineQueryResult::from(InlineQueryResultArticle::new("t", "<b>&")).parts();
+        let content = parts.content.expect("articles carry their content");
+        let base::InputBotInlineMessage::InputBotInlineMessageText(m) = content.write(&client, None).await.unwrap()
+        else {
+            panic!("expected plain text content")
+        };
+        assert_eq!((m.message.as_str(), m.entities), ("<b>&", None));
     }
 }

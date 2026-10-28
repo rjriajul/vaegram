@@ -1,52 +1,24 @@
-use super::send_options::{SendOptions, caption_setters, send_builder};
+use super::send_options::{SendOptions, send_builder, send_media};
 use crate::Client;
-use crate::enums::ParseMode;
-use crate::errors::Result;
-use crate::raw::{base, types};
-use crate::types::{Message, PeerRef, Upload};
+use crate::session::transfer::Report;
+use crate::types::messages_and_media::media_setters;
+use crate::types::{FileSource, InputMedia, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPhoto<'a> {
     client: &'a Client,
     chat_id: PeerRef,
-    photo: Upload<'a>,
-    caption: String,
-    parse_mode: Option<ParseMode>,
+    media: InputMedia<'a>,
     options: SendOptions,
+    progress: Option<Report<'a>>,
 }
 
 impl Client {
-    pub fn send_photo<'a>(&'a self, chat_id: impl Into<PeerRef>, photo: impl Into<Upload<'a>>) -> SendPhoto<'a> {
-        SendPhoto {
-            client: self,
-            chat_id: chat_id.into(),
-            photo: photo.into(),
-            caption: String::new(),
-            parse_mode: None,
-            options: SendOptions::default(),
-        }
+    pub fn send_photo<'a>(&'a self, chat_id: impl Into<PeerRef>, photo: impl Into<FileSource<'a>>) -> SendPhoto<'a> {
+        let media = InputMedia::photo(photo);
+        SendPhoto { client: self, chat_id: chat_id.into(), media, options: SendOptions::default(), progress: None }
     }
 }
 
-impl SendPhoto<'_> {
-    pub fn caption(mut self, caption: impl Into<String>) -> Self {
-        self.caption = caption.into();
-        self
-    }
-
-    async fn send(self) -> Result<Message> {
-        let file = self.client.save_file(self.photo).await?;
-        let media = base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
-            spoiler: false,
-            live_photo: false,
-            file,
-            stickers: None,
-            ttl_seconds: None,
-            video: None,
-        }));
-        self.client.send_media(self.chat_id, media, &self.caption, self.parse_mode, self.options).await
-    }
-}
-
-caption_setters!(SendPhoto);
-send_builder!(SendPhoto);
+media_setters!(SendPhoto.media: caption has_spoiler show_caption_above_media progress);
+send_media!(SendPhoto);

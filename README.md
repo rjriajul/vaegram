@@ -123,6 +123,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [x] Friendly types: `msg.text`, `msg.reply()`, `msg.from_user`
 - [ ] Message media and metadata: `msg.caption`, `msg.entities`, `msg.photo()`, `msg.poll()`, replies and forwards (not yet tested live)
 - [x] HTML and Markdown formatting: `send_message(chat, "<b>hi</b>").html()`
+- [ ] Formatting with nothing to escape: `Text::new().plain("Hi ").bold(name)`, `<tg-time>`, `text.split(4096)` (not yet
+  tested live)
 - [x] Buttons, edited messages, callback queries, inline queries, `edit_text`, `delete`
 - [x] User login (phone code, 2FA password)
 - [x] Auto-reconnect, short `FLOOD_WAIT`s slept off
@@ -130,7 +132,13 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat` (not yet tested live)
 - [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)
 - [ ] Locations, venues, contacts, dice and polls: `send_poll(chat, "Lunch?", ["Pizza", "Sushi"]).quiz([0])` (not yet tested live)
-- [ ] Parallel file upload and download: `send_document`, `send_photo`, `msg.download()` (not yet tested live)
+- [ ] Parallel file upload and download: `send_document`, `send_photo`, `msg.download()`, with
+  `.progress(|done, total| ..)` and `.stream()` for chunks in order; downloads use media-only and CDN DCs and refresh
+  expired file references (not yet tested live)
+- [ ] Bot API file ids: `photo.file_id`, `send_photo(chat, FileSource::file_id(id)?)`, `download_media(file_id)`;
+  the `file_unique_id` format is not yet checked against the Bot API (not yet tested live)
+- [ ] Videos, audio, voice, GIFs, video notes, stickers, albums and media edits: `send_video(chat, "clip.mp4").supports_streaming()`,
+  `send_media_group`, `edit_message_media`, `edit_inline_media` (not yet tested live)
 - [ ] Shared send options: replies with quotes, topics, silent, protected, scheduled and business sends; a default
   parse mode via `Client::builder(..).parse_mode(enums::ParseMode::Html)` (not yet tested live)
 - [ ] Chat join requests and join request queries, managed bot access settings (not yet tested live)
@@ -152,8 +160,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   (`ServiceAction::ForumTopicCreated`, ..), `msg.message_thread_id` (not yet tested live)
 - [ ] Business accounts: `on_business_message`, `on_business_connection`, `on_deleted_business_messages`, replies on
   behalf of the account, `read_business_message`, name, bio, username, gift settings and Stars (not yet tested live)
-- [ ] Rich messages: `send_rich_message(chat, InputRichMessage::html("<b>hi</b>"))`, rich drafts and edits,
-  `msg.rich_message` (not yet tested live)
+- [ ] Rich messages: `send_rich_message(chat, InputRichMessage::html("<b>hi</b>"))`, blocks such as
+  `RichBlock::paragraph(Text::new().bold("hi"))`, rich drafts and edits, `msg.rich_message` (not yet tested live)
 - [ ] Gifts and verification: `send_gift(chat, id)`, `get_chat_gifts(chat)`, `upgrade_gift(id)`, `transfer_gift(id, chat)`,
   `msg.service` (`ServiceAction::Gift`, ..), `verify_chat(chat)` (not yet tested live)
 - [ ] Checklists: `send_checklist(chat, InputChecklist::new("Trip").task(1, "Tickets"))`, `edit_message_checklist`,
@@ -172,6 +180,17 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Shortcuts: `msg.reply()` always quotes and `msg.answer()` never does, both staying in the topic; `msg.forward`,
   `copy`, `pin`, `unpin`, `edit_caption`, `edit_reply_markup`; `query.edit_message_reply_markup`,
   `query.delete_message`; `request.approve()` answers guard bot queries (not yet tested live)
+- [ ] Live photos, paid media and poll media: `send_live_photo(chat, photo, video)`, `msg.live_photo()`,
+  `send_paid_media(chat, stars, media)`, `InputPollOption::new("Paris").media(..)` (not yet tested live)
+- [ ] Fields: `msg.reply_to_message().await` fetches the replied message on demand, `msg.is_automatic_forward`,
+  `user.is_premium`, `language_code`, `is_verified`, `is_scam`, `is_fake`, `is_deleted`, `sticker.is_premium`
+  (not yet tested live)
+- [ ] `on_my_chat_member`: the bot's own membership changes and blocks; other members stay on
+  `on_chat_member_updated` (not yet tested live)
+- [ ] Send by URL: `send_photo(chat, FileSource::url("https://..")?)` and `send_document`; Telegram fetches the file
+  (not yet tested live)
+- [ ] Graceful shutdown: `client.stop()` makes `run()` return `Ok(())` once the running handlers finish; wire Ctrl-C
+  with your own `tokio::signal::ctrl_c()` (not yet tested live)
 
 ### Development
 

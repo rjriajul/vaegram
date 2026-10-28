@@ -1,6 +1,6 @@
 use vaegram::types::{
     ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMessageContent,
-    KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove,
+    KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Text,
 };
 use vaegram::{Client, filters};
 
@@ -52,7 +52,7 @@ async fn main() -> vaegram::Result<()> {
 
     app.on_message(filters::text() & filters::private(), |msg| async move {
         println!("message: {:?}", msg.text);
-        msg.reply(format!("You said: {}", msg.text)).await?;
+        msg.reply(Text::new().plain("You said: ").bold(&msg.text)).await?;
         Ok(())
     });
 
@@ -95,6 +95,11 @@ async fn main() -> vaegram::Result<()> {
 
     app.on_message_reaction(filters::all(), |update| async move {
         println!("reactions on {} changed to {:?}", update.message_id, update.new_reaction);
+        Ok(())
+    });
+
+    app.on_my_chat_member(filters::all(), |update| async move {
+        println!("my membership in {}: {:?}", update.chat.id, update.new_chat_member.map(|m| m.status));
         Ok(())
     });
 

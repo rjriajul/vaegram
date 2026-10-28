@@ -27,24 +27,28 @@ pub use inline_mode::{
 pub use messages_and_media::{
     Animation, Audio, Checklist, ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone, Command, Contact,
     DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages, Dice, Document, EphemeralMessage,
-    ExternalReplyInfo, FileLocation, Game, GuestMessage, InputChecklist, InputSticker, InputStoryContent, Invoice,
-    LinkPreviewOptions, Location, LocationAddress, MaskPosition, Media, Message, MessageEntity,
-    MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, MessageText, Photo,
-    Poll, PollAnswer, PollOption, PollUpdated, ProximityAlertTriggered, ReactionCount, ReactionType, RefundedPayment,
+    ExternalReplyInfo, FileLocation, FileSource, Game, GuestMessage, InputChecklist, InputMedia, InputPollMedia,
+    InputPollOption, InputSticker, InputStoryContent, Invoice, LinkPreviewOptions, LivePhoto, Location,
+    LocationAddress, MaskPosition, Media, Message, MessageEntity, MessageGenerationStopped, MessageOrigin,
+    MessageReactionCountUpdated, MessageReactionUpdated, MessageText, PaidMedia, PaidMediaInfo, Photo, Poll,
+    PollAnswer, PollOption, PollUpdated, ProximityAlertTriggered, ReactionCount, ReactionType, RefundedPayment,
     ReplyParameters, ServiceAction, StarAmount, Sticker, StickerSet, Story, StoryArea, StoryAreaPosition,
     StoryAreaType, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
-    SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded,
+    SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded, Text,
     TextQuote, Upload, Venue, Video, VideoNote, Voice, WriteAccessAllowed,
 };
 pub use payments::{
     Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,
     UniqueGiftBackdrop, UniqueGiftInfo,
 };
-pub use rich_messages::{InputRichMessage, RichMessage};
+pub use rich_messages::{
+    Align, InputRichMessage, InputRichMessageMedia, RichBlock, RichButton, RichButtonStyle, RichListItem, RichMessage,
+    RichTableCell, RichText, VAlign,
+};
 pub(crate) use user_and_chats::BoostUpdate;
 pub use user_and_chats::{
     AcceptedGiftTypes, BusinessBotRights, BusinessConnection, Chat, ChatBoost, ChatBoostRemoved, ChatBoostSource,
     ChatBoostUpdated, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated, ChatPermissions,
     ChatPrivileges, Community, DirectMessagesTopic, ForumTopic, ForumTopicCreated, ForumTopicEdited,
-    PassportElementError, PeerRef, User, UserProfilePhotos, UserStatusUpdated,
+    PassportElementError, PeerRef, User, UserProfileAudios, UserProfilePhotos, UserStatusUpdated,
 };

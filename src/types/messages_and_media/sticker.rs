@@ -1,11 +1,14 @@
 use crate::enums::StickerType;
-use crate::raw::base;
+use crate::file_id::FileType;
+use crate::raw::{base, types};
 use crate::types::{Document, FileLocation, MaskPosition};
 
 use super::input_document;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sticker {
+    pub file_id: String,
+    pub file_unique_id: String,
     pub id: i64,
     pub kind: StickerType,
     pub mime_type: String,
@@ -19,36 +22,46 @@ pub struct Sticker {
     pub mask_position: Option<MaskPosition>,
     pub custom_emoji_id: Option<i64>,
     pub needs_repainting: bool,
+    pub is_premium: bool,
     pub(crate) location: FileLocation,
 }
 
 impl Sticker {
     pub(crate) fn parse(document: &base::Document) -> Option<Sticker> {
         let base::Document::Document(raw) = document else { return None };
-        Sticker::from_document(Document::parse(document)?, &raw.attributes)
+        Sticker::from_document(Document::parse_as(document, FileType::Sticker)?, raw)
     }
 
     /// `None` when the attributes mark neither a sticker nor a custom emoji.
-    pub(crate) fn from_document(document: Document, attributes: &[base::DocumentAttribute]) -> Option<Sticker> {
+    pub(crate) fn from_document(document: Document, raw: &types::Document) -> Option<Sticker> {
         let (mut sticker, mut image, mut video) = (None, None, None);
-        for attribute in attributes {
+        for attribute in &raw.attributes {
             match attribute {
                 base::DocumentAttribute::DocumentAttributeSticker(a) => {
                     let kind = if a.mask { StickerType::Mask } else { StickerType::Regular };
-                    sticker = Some((kind, &a.alt, a.mask_coords.as_ref().and_then(MaskPosition::parse), false));
+                    // A premium sticker carries its full-screen effect as the "f" video thumbnail.
+                    let premium = raw
+                        .video_thumbs
+                        .iter()
+                        .flatten()
+                        .any(|size| matches!(size, base::VideoSize::VideoSize(s) if s.r#type == "f"));
+                    sticker =
+                        Some((kind, &a.alt, a.mask_coords.as_ref().and_then(MaskPosition::parse), false, premium));
                 }
                 base::DocumentAttribute::DocumentAttributeCustomEmoji(a) => {
-                    sticker = Some((StickerType::CustomEmoji, &a.alt, None, a.text_color));
+                    sticker = Some((StickerType::CustomEmoji, &a.alt, None, a.text_color, !a.free));
                 }
                 base::DocumentAttribute::DocumentAttributeImageSize(a) => image = Some((a.w, a.h)),
                 base::DocumentAttribute::DocumentAttributeVideo(a) => video = Some((a.w, a.h)),
                 _ => {}
             }
         }
-        let (kind, emoji, mask_position, needs_repainting) = sticker?;
-        let Document { id, mime_type, file_size, date, location, .. } = document;
+        let (kind, emoji, mask_position, needs_repainting, is_premium) = sticker?;
+        let Document { file_id, file_unique_id, id, mime_type, file_size, date, location, .. } = document;
         let (width, height) = image.or(video).unwrap_or_default();
         Some(Sticker {
+            file_id,
+            file_unique_id,
             id,
             kind,
             is_animated: mime_type == "application/x-tgsticker",
@@ -62,6 +75,7 @@ impl Sticker {
             mask_position,
             custom_emoji_id: (kind == StickerType::CustomEmoji).then_some(id),
             needs_repainting,
+            is_premium,
             location,
         })
     }
@@ -138,6 +152,13 @@ pub(crate) mod tests {
         }));
         let video = Sticker::parse(&document(3, "video/webm", vec![video, sticker_attribute("🎉", None)])).unwrap();
         assert_eq!((video.width, video.is_video, video.is_animated), (512, true, false));
+        assert!(!regular.is_premium);
+
+        let effect = types::VideoSize { r#type: "f".into(), w: 512, h: 512, size: 9, video_start_ts: None };
+        let mut premium = document(5, "image/webp", vec![sticker_attribute("🔥", None)]);
+        let base::Document::Document(raw) = &mut premium else { unreachable!() };
+        raw.video_thumbs = Some(vec![base::VideoSize::VideoSize(Box::new(effect))]);
+        assert!(Sticker::parse(&premium).unwrap().is_premium);
     }
 
     #[test]
@@ -151,7 +172,7 @@ pub(crate) mod tests {
         let emoji = base::DocumentAttribute::DocumentAttributeCustomEmoji(Box::new(emoji));
         let emoji = Sticker::parse(&document(9, "application/x-tgsticker", vec![emoji])).unwrap();
         assert_eq!((emoji.kind, emoji.custom_emoji_id), (StickerType::CustomEmoji, Some(9)));
-        assert!(emoji.needs_repainting && emoji.is_animated);
+        assert!(emoji.needs_repainting && emoji.is_animated && emoji.is_premium);
         let base::InputDocument::InputDocument(input) = emoji.input_document() else { panic!("no input document") };
         assert_eq!((input.id, input.access_hash, input.file_reference.as_slice()), (9, 2, &[3][..]));
 

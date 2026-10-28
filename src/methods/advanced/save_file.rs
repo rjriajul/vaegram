@@ -7,7 +7,7 @@ use crate::crypto::random;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::session::Session;
-use crate::session::transfer::{invoke_part, take, try_join_all, workers};
+use crate::session::transfer::{Progress, Report, invoke_part, take, try_join_all, workers};
 use crate::types::Upload;
 
 // https://core.telegram.org/api/files#uploading-files
@@ -17,11 +17,29 @@ const MAX_PARTS: u64 = 4000;
 const MAX_PARTS_PREMIUM: u64 = 8000;
 const IN_FLIGHT: u64 = 4 << 20;
 const CONNECTIONS: usize = 4;
+// The server throttles Premium uploads less, so more connections stay busy.
+const CONNECTIONS_PREMIUM: usize = 8;
+
+pub(crate) struct SaveFile<'a> {
+    client: &'a Client,
+    file: Upload<'a>,
+    progress: Option<Report<'a>>,
+}
 
 impl Client {
-    pub(crate) async fn save_file(&self, file: impl Into<Upload<'_>>) -> Result<base::InputFile> {
-        let file = file.into();
-        let (source, size) = match file {
+    pub(crate) fn save_file<'a>(&'a self, file: impl Into<Upload<'a>>) -> SaveFile<'a> {
+        SaveFile { client: self, file: file.into(), progress: None }
+    }
+}
+
+impl<'a> SaveFile<'a> {
+    pub(crate) fn progress(mut self, progress: Option<Report<'a>>) -> Self {
+        self.progress = progress;
+        self
+    }
+
+    async fn send(self) -> Result<base::InputFile> {
+        let (source, size) = match self.file {
             Upload::Path(path) => {
                 let disk = tokio::fs::File::open(path).await?;
                 let size = disk.metadata().await?.len();
@@ -29,17 +47,28 @@ impl Client {
             }
             Upload::Bytes { data, .. } => (Source::Bytes(data), data.len() as u64),
         };
-        let mut premium = false;
-        if size > MAX_PARTS * PART_SIZE {
-            premium = matches!(self.get_me().await?, base::User::User(u) if u.premium);
-        }
+        let (parts, workers, connections) = self.client.upload_limits(size).await?;
+        let home = self.client.dc(self.client.session().dc_id())?;
+        let lease = self.client.transfer_sessions(home, connections).await?;
+        let upload = Parts { source, size, count: parts, big: size > BIG_FILE_SIZE, id: i64::from_le_bytes(random()) };
+        let (next, progress) = (AtomicI32::new(0), Progress::new(self.progress, size));
+        let sessions = &lease.sessions;
+        try_join_all((0..workers).map(|i| upload.send(&sessions[i % sessions.len()], &next, &progress))).await?;
+        Ok(upload.input_file(self.file.name()))
+    }
+}
+
+into_future!(SaveFile, base::InputFile);
+
+impl Client {
+    async fn upload_limits(&self, size: u64) -> Result<(i32, usize, usize)> {
+        let premium = match self.is_premium().await {
+            Err(e) if size > MAX_PARTS * PART_SIZE => return Err(e),
+            premium => premium.unwrap_or(false),
+        };
         let parts = part_count(size, premium)?;
         let workers = workers(parts, PART_SIZE, IN_FLIGHT);
-        let lease = self.transfer_sessions(self.session().dc_id(), workers.min(CONNECTIONS)).await?;
-        let upload = Parts { source, size, count: parts, big: size > BIG_FILE_SIZE, id: i64::from_le_bytes(random()) };
-        let next = AtomicI32::new(0);
-        try_join_all((0..workers).map(|i| upload.send(&lease.sessions[i % lease.sessions.len()], &next))).await?;
-        Ok(upload.input_file(file.name()))
+        Ok((parts, workers, workers.min(if premium { CONNECTIONS_PREMIUM } else { CONNECTIONS })))
     }
 }
 
@@ -85,7 +114,7 @@ impl Parts<'_> {
         }
     }
 
-    async fn send(&self, session: &Session, next: &AtomicI32) -> Result<()> {
+    async fn send(&self, session: &Session, next: &AtomicI32, progress: &Progress<'_>) -> Result<()> {
         let (file_id, mut bytes) = (self.id, Vec::with_capacity(PART_SIZE.min(self.size) as usize));
         while let Some(file_part) = self.read(next, &mut bytes).await? {
             let saved = if self.big {
@@ -103,6 +132,7 @@ impl Parts<'_> {
             if !saved? {
                 return Err(Error::Unexpected("upload.saveFilePart returned false"));
             }
+            progress.add(bytes.len());
         }
         Ok(())
     }
@@ -122,8 +152,42 @@ mod tests {
     use std::sync::atomic::AtomicI32;
 
     use super::{BIG_FILE_SIZE, MAX_PARTS, MAX_PARTS_PREMIUM, PART_SIZE, Parts, Source, part_count};
-    use crate::errors::Error;
-    use crate::raw::base;
+    use crate::Client;
+    use crate::errors::{Error, RpcError};
+    use crate::raw::functions::users::GetUsers;
+    use crate::raw::{Identifiable, Serializable, base, types};
+
+    fn premium_user() -> Vec<u8> {
+        let mut user = Vec::new();
+        for word in [1u32 << 28, 0] {
+            word.serialize(&mut user);
+        }
+        7i64.serialize(&mut user);
+        let user = types::User::deserialize_bare(&mut &user[..]).unwrap();
+        let mut reply = Vec::new();
+        vec![base::User::User(Box::new(user))].serialize(&mut reply);
+        reply
+    }
+
+    #[tokio::test]
+    async fn uploads_with_regular_limits_when_the_account_lookup_fails() {
+        let failed = Err(Error::Rpc(RpcError::new(500, "INTERNAL")));
+        let (client, mut sent) = Client::scripted(vec![failed, Ok(premium_user())]);
+        client.0.me.lock().unwrap().is_bot = false;
+        let get_users = GetUsers::CONSTRUCTOR_ID.to_le_bytes();
+        let mut lookups = || std::iter::from_fn(|| sent.try_recv().ok()).filter(|b| b[..4] == get_users).count();
+        let big = MAX_PARTS * PART_SIZE + 1;
+
+        assert_eq!(client.upload_limits(3 << 20).await.unwrap(), (6, 6, 4));
+        assert!(matches!(client.upload_limits(big).await, Ok((4001, 8, 8))));
+        assert_eq!(lookups(), 2);
+        assert_eq!(client.upload_limits(3 << 20).await.unwrap(), (6, 6, 6));
+        assert_eq!(lookups(), 0);
+
+        client.0.events.reconnected();
+        assert!(matches!(client.upload_limits(big).await, Err(Error::Disconnected)));
+        assert_eq!(lookups(), 1);
+    }
 
     #[test]
     fn counts_512k_parts_up_to_the_account_limit() {

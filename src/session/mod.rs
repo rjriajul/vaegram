@@ -1,4 +1,5 @@
 mod auth;
+pub(crate) mod cdn;
 mod events;
 pub mod internals;
 mod outbox;
@@ -18,6 +19,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::connection::{Connection, Options, Proxy, Reader, Writer};
+use crate::crypto::rsa::PublicKey;
 use crate::crypto::{mtproto, random, sha1};
 use crate::enums::ClientEvent;
 use crate::errors::{Error, Result, RpcError};
@@ -57,9 +59,21 @@ struct Request {
     answer: oneshot::Sender<Answer>,
 }
 
+/// One push from the server, at the session level, where requests and answers are raw TL too.
 pub struct Incoming {
-    pub updates: base::Updates,
-    pub from_request: bool,
+    pub(crate) updates: base::Updates,
+    pub(crate) from_request: bool,
+}
+
+impl Incoming {
+    pub fn into_updates(self) -> base::Updates {
+        self.updates
+    }
+
+    /// Sent back as the answer to one of this session's own requests, not pushed.
+    pub fn from_request(&self) -> bool {
+        self.from_request
+    }
 }
 
 pub struct UpdatesRx {
@@ -84,6 +98,12 @@ impl UpdatesRx {
     pub(crate) fn offline() -> UpdatesRx {
         UpdatesRx { rx: mpsc::channel(1).1, events: Arc::default() }
     }
+
+    #[cfg(test)]
+    pub(crate) fn channel() -> (mpsc::Sender<Incoming>, UpdatesRx) {
+        let (tx, rx) = mpsc::channel(8);
+        (tx, UpdatesRx { rx, events: Arc::default() })
+    }
 }
 
 #[derive(Clone)]
@@ -101,7 +121,7 @@ impl Session {
         events: Arc<Events>,
     ) -> Result<(Session, UpdatesRx)> {
         let (tx, rx) = mpsc::channel(UPDATES_BUFFER);
-        let session = Session::open(dc, auth_key, options, events.clone(), Some(tx)).await?;
+        let session = Session::open(dc, auth_key, None, options, events.clone(), Some(tx)).await?;
         Ok((session, UpdatesRx { rx, events }))
     }
 
@@ -131,20 +151,22 @@ impl Session {
     pub(crate) async fn connect_transfer(
         dc: Dc,
         auth_key: Option<[u8; 256]>,
+        cdn_key: Option<&PublicKey>,
         options: &Options,
         events: Arc<Events>,
     ) -> Result<Session> {
-        Session::open(dc, auth_key, options, events, None).await
+        Session::open(dc, auth_key, cdn_key, options, events, None).await
     }
 
     async fn open(
         dc: Dc,
         auth_key: Option<[u8; 256]>,
+        cdn_key: Option<&PublicKey>,
         options: &Options,
         events: Arc<Events>,
         updates: Option<mpsc::Sender<Incoming>>,
     ) -> Result<Session> {
-        let (conn, auth_key, salt, time_offset) = handshake(dc, auth_key, options).await?;
+        let (conn, auth_key, salt, time_offset) = handshake(dc, auth_key, cdn_key, options).await?;
         let (requests_tx, requests) = mpsc::unbounded_channel();
         let runner = Runner::new(dc, options.clone(), conn, (auth_key, salt, time_offset), events, updates);
         tokio::spawn(runner.run(requests));
@@ -215,16 +237,22 @@ pub(crate) fn init_connection<X>(
 async fn handshake(
     dc: Dc,
     auth_key: Option<[u8; 256]>,
+    cdn_key: Option<&PublicKey>,
     options: &Options,
 ) -> Result<(Connection, [u8; 256], i64, Option<i64>)> {
     Ok(match auth_key {
         // A stored key brings no server time; the offset is measured once the server complains.
         Some(key) => (Connection::connect(&dc, options).await?, key, 0, None),
         None => {
+            let key = match cdn_key {
+                Some(key) => key.clone(),
+                None if dc.test => PublicKey::test(),
+                None => PublicKey::production(),
+            };
             let mut attempt = 1;
             loop {
                 let mut conn = Connection::connect(&dc, options).await?;
-                match auth::create(&mut conn, dc).await {
+                match auth::create(&mut conn, dc, &key).await {
                     Ok(c) => break (conn, c.auth_key, c.salt, Some(c.time_offset)),
                     Err(e) if attempt == HANDSHAKE_ATTEMPTS => return Err(e),
                     Err(_) => attempt += 1,
@@ -379,6 +407,7 @@ impl Runner {
             let Ok(conn) = Connection::connect(&self.dc, &self.options).await else { continue };
             (self.writer, self.packets, self.reader) = start_reading(conn);
             if self.resend_pending().await.is_ok() {
+                self.events.reconnected();
                 self.events.emit(ClientEvent::Reconnected { dc: self.dc.id, attempt });
                 self.request_difference();
                 return;

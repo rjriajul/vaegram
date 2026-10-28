@@ -23,7 +23,7 @@ impl Client {
 
 impl SendRichMessage<'_> {
     async fn send(self) -> Result<Message> {
-        let rich_message = Some(self.rich_message.write());
+        let rich_message = Some(self.rich_message.write(self.client).await?);
         self.client.send_parsed(self.chat_id, None, (String::new(), None), rich_message, self.options).await
     }
 }
@@ -34,7 +34,7 @@ send_builder!(SendRichMessage);
 mod tests {
     use crate::Client;
     use crate::raw::{Serializable, base, types};
-    use crate::types::InputRichMessage;
+    use crate::types::{FileLocation, InputRichMessage, InputRichMessageMedia, Photo, RichBlock, Text};
 
     async fn sent_body(rich: InputRichMessage) -> Vec<u8> {
         let (client, mut rx) = Client::recording();
@@ -50,9 +50,21 @@ mod tests {
         let html = types::InputRichMessageHTML { rtl: true, noautolink: false, html: "<b>hi</b>".into(), files: None };
         assert!(body.ends_with(&base::InputRichMessage::InputRichMessageHTML(Box::new(html)).to_bytes()));
 
-        let body = sent_body(InputRichMessage::markdown("**hi**").no_autolink()).await;
-        let markdown =
-            types::InputRichMessageMarkdown { rtl: false, noautolink: true, markdown: "**hi**".into(), files: None };
+        let location =
+            types::InputPhotoFileLocation { id: 5, access_hash: 6, file_reference: vec![7], thumb_size: "x".into() };
+        let location = FileLocation::from(base::InputFileLocation::InputPhotoFileLocation(Box::new(location)));
+        let (file_id, file_unique_id) = (String::new(), String::new());
+        let photo = Photo { file_id, file_unique_id, id: 5, width: 1, height: 1, file_size: 1, date: 0, location };
+        let media = InputRichMessageMedia::photo("pic", &photo);
+        let body = sent_body(InputRichMessage::markdown("**hi**").no_autolink().media(media)).await;
+        let photo = types::InputPhoto { id: 5, access_hash: 6, file_reference: vec![7] };
+        let file = types::InputRichFilePhoto { id: "pic".into(), photo: base::InputPhoto::InputPhoto(Box::new(photo)) };
+        let markdown = types::InputRichMessageMarkdown {
+            rtl: false,
+            noautolink: true,
+            markdown: "**hi**".into(),
+            files: Some(vec![base::InputRichFile::InputRichFilePhoto(Box::new(file))]),
+        };
         assert!(body.ends_with(&base::InputRichMessage::InputRichMessageMarkdown(Box::new(markdown)).to_bytes()));
     }
 
@@ -68,8 +80,33 @@ mod tests {
             entities: None,
             ttl_period: None,
         }));
-        let (client, _rx) = Client::scripted(vec![Ok(short.to_bytes())]);
+        let (client, _rx) = Client::scripted(vec![Ok(short.to_bytes()), Ok(short.to_bytes())]);
+        let blocks =
+            InputRichMessage::blocks([RichBlock::heading(1, "Hi"), RichBlock::paragraph(Text::new().bold("there"))]);
+        let message = client.send_rich_message("me", blocks).await.unwrap();
+        assert_eq!((message.id, message.text.as_str()), (9, "Hi\nthere"));
+        assert_eq!(message.rich_message.map(|r| r.raw.blocks.len()), Some(2));
+
         let message = client.send_rich_message("me", InputRichMessage::html("<h1>Hi</h1> <b>there</b>")).await.unwrap();
         assert_eq!((message.id, message.text.as_str(), message.rich_message), (9, "Hi there", None));
+    }
+
+    #[tokio::test]
+    async fn business_send_keeps_the_connection() {
+        let raw = crate::types::Message::bare(9, crate::utils::get_peer(5), 0);
+        let update = types::UpdateBotNewBusinessMessage {
+            connection_id: "conn".into(),
+            message: base::Message::Message(Box::new(raw)),
+            reply_to_message: None,
+            qts: 0,
+        };
+        let updates = base::Updates::UpdateShort(Box::new(types::UpdateShort {
+            update: base::Update::UpdateBotNewBusinessMessage(Box::new(update)),
+            date: 0,
+        }));
+        let (client, _rx) = Client::scripted(vec![Ok(updates.to_bytes())]);
+        let message =
+            client.send_rich_message("me", InputRichMessage::html("hi")).business_connection_id("conn").await.unwrap();
+        assert_eq!(message.business_connection_id.as_deref(), Some("conn"));
     }
 }

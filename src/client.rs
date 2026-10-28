@@ -7,13 +7,14 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use tokio::sync::Semaphore;
 
 use crate::connection::{Options, Proxy, Transport};
+use crate::crypto::rsa::PublicKey;
 use crate::dispatcher::Routes;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
-use crate::methods::StreamShared;
+use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, base, functions};
 use crate::session::internals::data_center::{self, Dc};
-use crate::session::transfer::{Lease, TransferPool};
+use crate::session::transfer::{Auth, Lease, TransferPool};
 use crate::session::{Events, Session, UpdatesRx, init_connection};
 use crate::storage::state::{StateFile, UpdateState};
 use crate::storage::{self, SessionData, session_string};
@@ -158,15 +159,16 @@ impl ClientBuilder {
         let mut inner = Inner::new(session, updates);
         inner.api_id = self.api_id;
         inner.api_hash = self.api_hash;
-        inner.dcs = RwLock::new(data_center::table(&dc_options, self.ipv6));
+        inner.dcs = RwLock::new(data_center::table(&dc_options, self.ipv6, false));
+        inner.media_dcs = RwLock::new(data_center::table(&dc_options, self.ipv6, true));
         inner.test_mode = test_mode;
         inner.ipv6 = self.ipv6;
-        inner.storage_path = storage_path;
+        inner.storage_path = Mutex::new(storage_path);
         inner.state_file = state_file;
         inner.options = self.options;
         inner.parse_mode = self.parse_mode;
         inner.state = Mutex::new(state);
-        inner.me = Mutex::new(Me { id: user_id, is_bot, username: None });
+        inner.me = Mutex::new(Me { id: user_id, is_bot, premium: None, username: None });
         inner.peers = Mutex::new(peers);
         inner.ordered = self.ordered;
         inner.handler_permits = self.max_concurrent_handlers.map(|n| Arc::new(Semaphore::new(n.max(1))));
@@ -187,16 +189,19 @@ impl fmt::Debug for Client {
 
 pub(crate) struct Inner {
     session: RwLock<Session>,
-    transfers: TransferPool,
+    pub(crate) transfers: TransferPool,
     pub(crate) updates: tokio::sync::Mutex<UpdatesRx>,
     pub(crate) api_id: i32,
     pub(crate) api_hash: String,
     dcs: RwLock<Vec<(i32, SocketAddr)>>,
+    media_dcs: RwLock<Vec<(i32, SocketAddr)>>,
+    cdn_keys: Mutex<Vec<(i32, PublicKey)>>,
     test_mode: bool,
     ipv6: bool,
-    pub(crate) storage_path: Option<PathBuf>,
-    state_file: Option<Arc<StateFile>>,
-    options: Options,
+    // Taken by log_out, so a later save can't write the dead login back.
+    pub(crate) storage_path: Mutex<Option<PathBuf>>,
+    pub(crate) state_file: Option<Arc<StateFile>>,
+    pub(crate) options: Options,
     pub(crate) parse_mode: ParseMode,
     pub(crate) state: Mutex<Option<UpdateState>>,
     pub(crate) me: Mutex<Me>,
@@ -206,6 +211,7 @@ pub(crate) struct Inner {
     pub(crate) handler_permits: Option<Arc<Semaphore>>,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
+    pub(crate) stop: tokio::sync::watch::Sender<bool>,
 }
 
 pub(crate) use me::Me;
@@ -218,6 +224,8 @@ mod me {
     pub struct Me {
         pub(crate) id: i64,
         pub(crate) is_bot: bool,
+        // Looked up again after a reconnect: the subscription can lapse while the client runs.
+        pub(crate) premium: Option<bool>,
         pub(crate) username: Option<Arc<str>>,
     }
 }
@@ -231,20 +239,23 @@ impl Inner {
             api_id: 0,
             api_hash: String::new(),
             dcs: RwLock::new(Vec::new()),
+            media_dcs: RwLock::new(Vec::new()),
+            cdn_keys: Mutex::new(Vec::new()),
             test_mode: false,
             ipv6: false,
-            storage_path: None,
+            storage_path: Mutex::new(None),
             state_file: None,
             options: Options::default(),
             parse_mode: ParseMode::Disabled,
             transfers: TransferPool::default(),
             state: Mutex::new(None),
-            me: Mutex::new(Me { id: 0, is_bot: false, username: None }),
+            me: Mutex::new(Me::default()),
             peers: Mutex::new(HashMap::new()),
             handlers: Routes::default(),
             ordered: false,
             handler_permits: None,
             streams: Mutex::new(HashMap::new()),
+            stop: tokio::sync::watch::Sender::new(false),
         }
     }
 
@@ -252,6 +263,13 @@ impl Inner {
         let user_id = self.me.lock().unwrap_or_else(PoisonError::into_inner).id;
         let peers = self.peers.lock().unwrap_or_else(PoisonError::into_inner);
         (file.ticket(), storage::state::encode(user_id, &peers, state))
+    }
+
+    /// Returns once the state is on disk, so a stopped client resumes exactly where it left off.
+    pub(crate) async fn save_state(&self, state: &UpdateState) {
+        let Some(file) = self.state_file.clone() else { return };
+        let (ticket, bytes) = self.encode_state(&file, Some(state));
+        let _ = tokio::task::spawn_blocking(move || file.write(ticket, &bytes)).await;
     }
 
     pub(crate) fn save_state_in_background(&self, state: &UpdateState) {
@@ -304,8 +322,16 @@ impl Client {
     pub(crate) fn scripted(replies: Vec<Result<Vec<u8>>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
         let client = Client::offline();
         let (session, sent) = Session::scripted(replies);
+        client.0.transfers.insert(client.dc(2).unwrap(), &session);
         *client.0.session.write().unwrap() = session;
         (client, sent)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn serve_cdn(&self, dc_id: i32, session: &Session) {
+        self.0.dcs.write().unwrap().push((dc_id, SocketAddr::from(([127, 0, 0, 1], 443))));
+        self.0.cdn_keys.lock().unwrap().push((dc_id, PublicKey::test()));
+        self.0.transfers.insert(self.dc(dc_id).unwrap(), session);
     }
 
     pub(crate) fn session(&self) -> Session {
@@ -315,8 +341,26 @@ impl Client {
     pub(crate) fn set_me(&self, user: &base::User) {
         if let base::User::User(u) = user {
             let username = u.username.as_deref().map(Arc::from);
-            *self.0.me.lock().unwrap() = Me { id: u.id, is_bot: u.bot, username };
+            *self.0.me.lock().unwrap() = Me { id: u.id, is_bot: u.bot, premium: Some(u.premium), username };
         }
+    }
+
+    /// A failed lookup isn't cached; transfers that don't need Premium go on with the regular limits.
+    pub(crate) async fn is_premium(&self) -> Result<bool> {
+        let reconnected = self.0.events.take_reconnected();
+        let known = {
+            let mut me = self.0.me.lock().unwrap();
+            if reconnected {
+                me.premium = None;
+            }
+            if me.is_bot { Some(false) } else { me.premium }
+        };
+        if let Some(premium) = known {
+            return Ok(premium);
+        }
+        let me = self.get_me().await?;
+        self.set_me(&me);
+        Ok(matches!(me, base::User::User(u) if u.premium))
     }
 
     pub(crate) fn dc(&self, dc_id: i32) -> Result<Dc> {
@@ -324,21 +368,57 @@ impl Client {
             .ok_or(Error::InvalidDc(dc_id))
     }
 
+    pub(crate) fn media_dc(&self, dc_id: i32) -> Result<Dc> {
+        let media = self.0.media_dcs.read().unwrap().iter().find(|(id, _)| *id == dc_id).map(|&(_, addr)| addr);
+        match media {
+            Some(addr) => Ok(Dc { id: dc_id, addr, test: self.0.test_mode }),
+            None => self.dc(dc_id),
+        }
+    }
+
     pub(crate) async fn switch_dc(&self, dc_id: i32) -> Result<()> {
         let events = self.0.events.clone();
         let (session, updates, dc_options) =
             connect(self.dc(dc_id)?, None, self.0.api_id, &self.0.options, events).await?;
-        *self.0.dcs.write().unwrap() = data_center::table(&dc_options, self.0.ipv6);
+        *self.0.dcs.write().unwrap() = data_center::table(&dc_options, self.0.ipv6, false);
+        *self.0.media_dcs.write().unwrap() = data_center::table(&dc_options, self.0.ipv6, true);
         *self.0.session.write().unwrap() = session;
         *self.0.updates.lock().await = updates;
-        self.0.me.lock().unwrap().id = 0;
+        let mut me = self.0.me.lock().unwrap();
+        (me.id, me.premium) = (0, None);
+        drop(me);
         self.0.transfers.clear();
         self.save()
     }
 
-    pub(crate) async fn transfer_sessions(&self, dc_id: i32, count: usize) -> Result<Lease> {
-        let dc = self.dc(dc_id)?;
-        self.0.transfers.lease(dc, count, &self.session(), self.0.api_id, &self.0.options, &self.0.events).await
+    pub(crate) async fn transfer_sessions(&self, dc: Dc, count: usize) -> Result<Lease> {
+        let home = self.session();
+        self.0.transfers.lease(dc, count, Auth::Home(&home, self.0.api_id), &self.0.options, &self.0.events).await
+    }
+
+    pub(crate) async fn cdn_sessions(&self, dc: Dc, count: usize) -> Result<Lease> {
+        let key = self.cdn_key(dc.id).await?;
+        self.0.transfers.lease(dc, count, Auth::Cdn(&key), &self.0.options, &self.0.events).await
+    }
+
+    pub(crate) fn forget_cdn(&self, dc: Dc) {
+        self.0.transfers.forget(dc);
+    }
+
+    async fn cdn_key(&self, dc_id: i32) -> Result<PublicKey> {
+        let find = |keys: &[(i32, PublicKey)]| keys.iter().find(|(id, _)| *id == dc_id).map(|(_, key)| key.clone());
+        if let Some(key) = find(&self.0.cdn_keys.lock().unwrap()) {
+            return Ok(key);
+        }
+        let base::CdnConfig::CdnConfig(config) = self.invoke(&functions::help::GetCdnConfig {}).await?;
+        let keys: Vec<_> = config
+            .public_keys
+            .iter()
+            .filter_map(|base::CdnPublicKey::CdnPublicKey(k)| Some((k.dc_id, PublicKey::from_pem(&k.public_key)?)))
+            .collect();
+        let key = find(&keys);
+        *self.0.cdn_keys.lock().unwrap() = keys;
+        key.ok_or(Error::InvalidDc(dc_id))
     }
 
     /// Sends a request about an inline message to `dc_id`, the DC its id names, which is the only one that
@@ -347,9 +427,9 @@ impl Client {
         if dc_id == self.session().dc_id() {
             return self.invoke(&request).await;
         }
-        let lease = self.transfer_sessions(dc_id, 1).await?;
+        let lease = self.transfer_sessions(self.dc(dc_id)?, 1).await?;
         // A reopened file connection hasn't sent its layer, and the answer can carry users.
-        lease.sessions[0].invoke(&init_connection(self.0.api_id, &self.0.options, request)).await
+        invoke_sleeping_floods(&lease.sessions[0], &init_connection(self.0.api_id, &self.0.options, request)).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {
@@ -367,7 +447,7 @@ impl Client {
     }
 
     pub(crate) fn save(&self) -> Result<()> {
-        match &self.0.storage_path {
+        match &*self.0.storage_path.lock().unwrap() {
             Some(path) => Ok(storage::save(path, &self.session_data())?),
             None => Ok(()),
         }

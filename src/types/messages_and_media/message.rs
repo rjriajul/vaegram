@@ -10,7 +10,7 @@ use crate::raw::{base, types};
 use crate::types::{
     Chat, Command, DirectMessagesTopic, ExternalReplyInfo, InlineKeyboardMarkup, LinkPreviewOptions, Media,
     MessageEntity, MessageOrigin, MessageText, PeerRef, ReactionCount, ReactionType, ReplyMarkup, RichMessage,
-    ServiceAction, SuggestedPostInfo, TextQuote, User,
+    ServiceAction, SuggestedPostInfo, Text, TextQuote, User,
 };
 use crate::utils::get_peer;
 
@@ -38,6 +38,7 @@ pub struct Message {
     pub quote: Option<TextQuote>,
     pub external_reply: Option<Box<ExternalReplyInfo>>,
     pub forward_origin: Option<MessageOrigin>,
+    pub is_automatic_forward: bool,
     pub via_bot: Option<User>,
     pub media_group_id: Option<i64>,
     pub author_signature: Option<String>,
@@ -47,8 +48,11 @@ pub struct Message {
     pub business_connection_id: Option<String>,
     pub direct_messages_topic: Option<DirectMessagesTopic>,
     pub reactions: Vec<ReactionCount>,
-    /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`].
-    pub raw: Box<types::Message>,
+    /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`] and leaves its text in
+    /// `message`.
+    pub(crate) raw: Box<types::Message>,
+    // The replied message a business update carries, since the bot can't read the account's history.
+    replied: Option<Box<Message>>,
     client: Client,
 }
 
@@ -63,6 +67,7 @@ impl Message {
         service: Option<ServiceAction>,
         entities: &Entities,
     ) -> Message {
+        Message::fill_rich_text(&mut raw);
         let chat = Chat::parse(&raw.peer_id, entities, raw.post);
         let (mut from_user, mut sender_chat) = (None, None);
         match (&raw.from_id, &raw.peer_id) {
@@ -99,10 +104,7 @@ impl Message {
             _ => None,
         };
         let rich_message = raw.rich_message.take().map(RichMessage::parse);
-        let text = match &rich_message {
-            Some(rich) if text.is_empty() && caption.is_none() => rich.text(),
-            _ => text,
-        };
+        let is_automatic_forward = is_automatic_forward(&chat, raw.fwd_from.as_ref());
         Message {
             id: raw.id,
             chat,
@@ -125,6 +127,7 @@ impl Message {
             quote,
             external_reply,
             forward_origin: raw.fwd_from.as_ref().and_then(|h| MessageOrigin::parse(h, entities)),
+            is_automatic_forward,
             via_bot: raw.via_bot_id.map(|id| User::parse(id, entities)),
             media_group_id: raw.grouped_id,
             author_signature: raw.post_author.clone(),
@@ -137,7 +140,15 @@ impl Message {
                 r.results.iter().filter_map(ReactionCount::parse).collect()
             }),
             raw,
+            replied: None,
             client: client.clone(),
+        }
+    }
+
+    /// Filters read `message`, so a rich message without plain text carries its blocks' text there.
+    pub(crate) fn fill_rich_text(raw: &mut types::Message) {
+        if let (true, Some(base::RichMessage::RichMessage(rich))) = (raw.message.is_empty(), &raw.rich_message) {
+            raw.message = RichMessage::plain_text(rich);
         }
     }
 
@@ -207,12 +218,21 @@ impl Message {
     fn parse_service(client: &Client, raw: &types::MessageService, entities: &Entities) -> Option<Message> {
         let service = ServiceAction::parse(raw, entities)?;
         let mut bare = Message::bare(raw.id, raw.peer_id.clone(), raw.date);
-        (bare.out, bare.post, bare.from_id) = (raw.out, raw.post, raw.from_id.clone());
+        (bare.out, bare.mentioned, bare.post, bare.from_id) = (raw.out, raw.mentioned, raw.post, raw.from_id.clone());
         bare.saved_peer_id = raw.saved_peer_id.clone();
-        // A pin's header points at the pinned message, which the service message doesn't reply to.
-        if !matches!(raw.action, base::MessageAction::MessageActionPinMessage) {
-            bare.reply_to = raw.reply_to.clone();
-        }
+        // A pin's header points at the pinned message, which the service message doesn't reply to. In a forum it
+        // still names the topic, so that part stays as the header of a message posted in the topic.
+        let pin = matches!(raw.action, base::MessageAction::MessageActionPinMessage);
+        bare.reply_to = match &raw.reply_to {
+            Some(base::MessageReplyHeader::MessageReplyHeader(h)) if pin && h.forum_topic => {
+                let thread = h.reply_to_top_id.or(h.reply_to_msg_id);
+                let topic =
+                    types::MessageReplyHeader { reply_to_msg_id: thread, reply_to_top_id: None, ..(**h).clone() };
+                Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(topic)))
+            }
+            _ if pin => None,
+            reply_to => reply_to.clone(),
+        };
         Some(Message::build(client, Box::new(bare), Some(service), entities))
     }
 
@@ -255,17 +275,40 @@ impl Message {
         };
         let entities = Entities::new(client, users, chats);
         updates.into_iter().filter_map(move |u| {
-            let message = match u {
-                base::Update::UpdateNewMessage(u) => u.message,
-                base::Update::UpdateNewChannelMessage(u) => u.message,
-                base::Update::UpdateEditMessage(u) => u.message,
-                base::Update::UpdateEditChannelMessage(u) => u.message,
-                base::Update::UpdateBotNewBusinessMessage(u) => u.message,
-                base::Update::UpdateBotEditBusinessMessage(u) => u.message,
+            let (message, business) = match u {
+                base::Update::UpdateNewMessage(u) => (u.message, None),
+                base::Update::UpdateNewChannelMessage(u) => (u.message, None),
+                base::Update::UpdateEditMessage(u) => (u.message, None),
+                base::Update::UpdateEditChannelMessage(u) => (u.message, None),
+                base::Update::UpdateBotNewBusinessMessage(u) => {
+                    (u.message, Some((u.connection_id, u.reply_to_message)))
+                }
+                base::Update::UpdateBotEditBusinessMessage(u) => {
+                    (u.message, Some((u.connection_id, u.reply_to_message)))
+                }
                 _ => return None,
             };
-            Message::from_raw(client, message, &entities)
+            let mut message = Message::from_raw(client, message, &entities)?;
+            if let Some((connection_id, reply_to)) = business {
+                message.set_business(client, connection_id, reply_to, &entities);
+            }
+            Some(message)
         })
+    }
+
+    pub(crate) fn set_business(
+        &mut self,
+        client: &Client,
+        connection_id: String,
+        reply_to: Option<base::Message>,
+        entities: &Entities,
+    ) {
+        let replied = reply_to.and_then(|m| Message::from_raw(client, m, entities));
+        self.replied = replied.map(|mut m| {
+            m.business_connection_id = Some(connection_id.clone());
+            Box::new(m)
+        });
+        self.business_connection_id = Some(connection_id);
     }
 
     pub fn reply_markup(&self) -> Option<ReplyMarkup> {
@@ -334,7 +377,9 @@ impl Message {
 
     /// Fails at `.await` for media without a file (contact, location, venue, dice, poll).
     pub fn download(&self) -> DownloadMedia<'_> {
-        DownloadMedia::new(&self.client, self.media.as_ref().and_then(Media::file_location).cloned())
+        let location = self.media.as_ref().and_then(Media::file_location).cloned();
+        let location = location.ok_or(Error::InvalidArgument("this message has no photo or document to download"));
+        DownloadMedia::new(&self.client, location, Some((self.chat.id, self.id)))
     }
 
     pub fn command(&self) -> Option<Command<'_>> {
@@ -347,12 +392,24 @@ impl Message {
             .then_some(command)
     }
 
-    pub fn reply(&self, text: impl Into<String>) -> SendMessage<'_> {
+    /// Fetches the message this one replies to, on demand; `None` when it isn't a reply or that message is gone.
+    /// A business message has only the replied message its update carried.
+    pub async fn reply_to_message(&self) -> Result<Option<Message>> {
+        if let Some(replied) = &self.replied {
+            return Ok(Some((**replied).clone()));
+        }
+        let Some(id) = self.reply_to_message_id.filter(|_| self.business_connection_id.is_none()) else {
+            return Ok(None);
+        };
+        Ok(self.client.get_messages(self.chat.id, &[id]).await?.pop().flatten())
+    }
+
+    pub fn reply(&self, text: impl Into<Text>) -> SendMessage<'_> {
         self.answer(text).reply_to(self.id)
     }
 
     /// Sends `text` to this chat without a quote, in the same topic and through the same business connection.
-    pub fn answer(&self, text: impl Into<String>) -> SendMessage<'_> {
+    pub fn answer(&self, text: impl Into<Text>) -> SendMessage<'_> {
         let mut send = self.on_behalf(self.client.send_message(self.chat.id, text));
         if let Some(topic) = &self.direct_messages_topic {
             send = send.direct_messages_topic_id(topic.topic_id);
@@ -362,6 +419,16 @@ impl Message {
             _ => send,
         }
     }
+}
+
+/// A channel post copied into its linked discussion group: the forward was saved from its own origin.
+fn is_automatic_forward(chat: &Chat, header: Option<&base::MessageFwdHeader>) -> bool {
+    let Some(base::MessageFwdHeader::MessageFwdHeader(h)) = header else { return false };
+    chat.kind == ChatType::Supergroup
+        && matches!(h.from_id, Some(base::Peer::PeerChannel(_)))
+        && h.saved_from_peer == h.from_id
+        && h.channel_post.is_some()
+        && h.saved_from_msg_id == h.channel_post
 }
 
 type ReplyFields = (Option<i32>, Option<i32>, Option<i32>, bool, Option<TextQuote>, Option<Box<ExternalReplyInfo>>);
@@ -389,16 +456,17 @@ fn reply_fields(raw: &types::Message, service: Option<&ServiceAction>, entities:
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::super::media::tests::document_media;
     use super::Message;
     use crate::Client;
     use crate::dispatcher::Entities;
-    use crate::raw::{base, types};
+    use crate::filters;
+    use crate::raw::{Identifiable, Serializable, base, functions, types};
     use crate::types::{Community, ForumTopicCreated, ForumTopicEdited, Media, MessageOrigin, ServiceAction};
     use crate::utils::{get_channel_id, get_peer};
 
-    fn header() -> types::MessageReplyHeader {
+    pub(crate) fn header() -> types::MessageReplyHeader {
         types::MessageReplyHeader {
             reply_to_scheduled: false,
             forum_topic: false,
@@ -415,6 +483,27 @@ mod tests {
             todo_item_id: None,
             poll_option: None,
             quote_rich: None,
+        }
+    }
+
+    pub(crate) fn service(action: base::MessageAction) -> types::MessageService {
+        types::MessageService {
+            out: false,
+            mentioned: false,
+            media_unread: false,
+            reactions_are_possible: false,
+            silent: false,
+            post: false,
+            legacy: false,
+            id: 9,
+            from_id: Some(get_peer(7)),
+            peer_id: get_peer(get_channel_id(55)),
+            saved_peer_id: None,
+            reply_to: None,
+            date: 1,
+            action,
+            reactions: None,
+            ttl_period: None,
         }
     }
 
@@ -499,6 +588,73 @@ mod tests {
         assert!(matches!(&external.media, Some(Media::Dice(d)) if d.value == 6));
         let hidden = MessageOrigin::HiddenUser { date: 100, sender_user_name: "Hidden".into() };
         assert_eq!(m.forward_origin, Some(hidden));
+        assert!(!m.is_automatic_forward);
+    }
+
+    #[test]
+    fn marks_channel_posts_copied_into_the_discussion_group() {
+        let channel = get_peer(-1000000000003);
+        let mut raw = Message::bare(1, get_peer(-1000000000005), 0);
+        let base::MessageFwdHeader::MessageFwdHeader(mut header) = forward(Some(channel.clone()), None, Some(77));
+        (header.saved_from_peer, header.saved_from_msg_id) = (Some(channel), Some(77));
+        raw.fwd_from = Some(base::MessageFwdHeader::MessageFwdHeader(header.clone()));
+        assert!(parse(&raw).is_automatic_forward);
+
+        header.saved_from_msg_id = Some(78);
+        raw.fwd_from = Some(base::MessageFwdHeader::MessageFwdHeader(header));
+        assert!(!parse(&raw).is_automatic_forward);
+    }
+
+    #[tokio::test]
+    async fn fetches_the_replied_message_only_when_asked() {
+        let messages = types::messages::Messages {
+            messages: vec![base::Message::Message(Box::new(Message::bare(4, get_peer(-5), 0)))],
+            topics: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        let reply = Ok(base::messages::Messages::Messages(Box::new(messages)).to_bytes());
+        let (client, mut sent) = Client::scripted(vec![reply]);
+        let mut raw = Message::bare(9, get_peer(-5), 0);
+        let header = types::MessageReplyHeader { reply_to_msg_id: Some(4), ..header() };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(header)));
+        let message = Message::parse(&client, Box::new(raw), &Entities::default());
+        assert!(sent.try_recv().is_err());
+
+        let replied = message.reply_to_message().await.unwrap().unwrap();
+        assert_eq!((replied.id, replied.chat.id), (4, -5));
+        let body = sent.try_recv().unwrap();
+        assert_eq!(body[..4], functions::messages::GetMessages::CONSTRUCTOR_ID.to_le_bytes());
+
+        let plain = Message::parse(&client, Box::new(Message::bare(10, get_peer(-5), 0)), &Entities::default());
+        assert!(plain.reply_to_message().await.unwrap().is_none());
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_business_message_answers_with_the_replied_message_its_update_carried() {
+        let (client, mut sent) = Client::recording();
+        let business = |reply_to_message| {
+            let mut raw = Message::bare(9, get_peer(7), 0);
+            let header = types::MessageReplyHeader { reply_to_msg_id: Some(4), ..header() };
+            raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(header)));
+            let update = types::UpdateBotNewBusinessMessage {
+                connection_id: "conn".into(),
+                message: base::Message::Message(Box::new(raw)),
+                reply_to_message,
+                qts: 1,
+            };
+            let update = base::Update::UpdateBotNewBusinessMessage(Box::new(update));
+            let update = types::UpdateShort { update, date: 0 };
+            Message::all_from_updates(&client, base::Updates::UpdateShort(Box::new(update))).next().unwrap()
+        };
+
+        let carried = base::Message::Message(Box::new(Message::bare(4, get_peer(7), 0)));
+        let replied = business(Some(carried)).reply_to_message().await.unwrap().unwrap();
+        assert_eq!((replied.id, replied.business_connection_id.as_deref()), (4, Some("conn")));
+        // Without it, the bot's own message ids are another account's, so nothing is fetched.
+        assert!(business(None).reply_to_message().await.unwrap().is_none());
+        assert!(sent.try_recv().is_err());
     }
 
     #[test]
@@ -604,6 +760,7 @@ mod tests {
         };
         assert_eq!(created.service, Some(ServiceAction::ForumTopicCreated(topic)));
         assert_eq!((created.message_thread_id, created.is_topic_message), (Some(9), true));
+        assert!(filters::topic(9).check(&created));
 
         let renamed = service(in_topic.clone(), edit(Some("New"), None, None));
         let edited = ForumTopicEdited { title: Some("New".into()), icon_emoji_id: None };
@@ -619,6 +776,17 @@ mod tests {
             service(None, edit(None, None, Some(false))).service,
             Some(ServiceAction::GeneralForumTopicUnhidden)
         );
+
+        let pin = types::MessageReplyHeader {
+            forum_topic: true,
+            reply_to_msg_id: Some(12),
+            reply_to_top_id: Some(4),
+            ..header()
+        };
+        let pinned = service(Some(pin), base::MessageAction::MessageActionPinMessage);
+        assert_eq!(pinned.service, Some(ServiceAction::PinnedMessage(12)));
+        let topic = (pinned.message_thread_id, pinned.is_topic_message, pinned.reply_to_message_id);
+        assert_eq!(topic, (Some(4), true, None));
     }
 
     #[test]

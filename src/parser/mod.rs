@@ -3,20 +3,18 @@ mod markdown;
 
 use crate::enums::ParseMode;
 use crate::raw::{base, types};
+use crate::types::Text;
 
-pub fn parse(text: &str, mode: ParseMode) -> (String, Vec<base::MessageEntity>) {
-    let out = match mode {
-        ParseMode::Disabled => return (text.to_owned(), Vec::new()),
+pub fn parse(text: &str, mode: ParseMode) -> Text {
+    match mode {
+        ParseMode::Disabled => Text::new().plain(text),
         ParseMode::Html => html::parse(text),
         ParseMode::Markdown => markdown::parse(text),
-    };
-    let mut spans = out.spans;
-    spans.retain(|s| s.end > s.start);
-    spans.sort_by_key(|s| (s.start, -s.end));
-    (out.text, spans.into_iter().map(Span::into_entity).collect())
+    }
 }
 
-enum Kind {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Kind {
     Bold,
     Italic,
     Underline,
@@ -25,65 +23,88 @@ enum Kind {
     Code,
     Pre(String),
     Link(String),
+    Mention(i64),
     Blockquote(bool),
     CustomEmoji(i64),
+    DateTime(i32, u8),
 }
 
-struct Span {
-    kind: Kind,
-    start: i32,
-    end: i32,
+impl Kind {
+    fn link(url: String) -> Kind {
+        match url.strip_prefix("tg://user?id=").and_then(|id| id.parse().ok()) {
+            Some(user_id) => Kind::Mention(user_id),
+            None => Kind::Link(url),
+        }
+    }
+
+    pub(crate) fn date_time(unix_time: i32, format: &str) -> Kind {
+        let flag = |c| match c {
+            'r' => 1,
+            't' => 2,
+            'T' => 4,
+            'd' => 8,
+            'D' => 16,
+            'w' => 32,
+            _ => 0,
+        };
+        Kind::DateTime(unix_time, format.chars().fold(0, |flags, c| flags | flag(c)))
+    }
+
+    pub(crate) fn is_atomic(&self) -> bool {
+        matches!(self, Kind::CustomEmoji(_) | Kind::DateTime(..))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Span {
+    pub(crate) kind: Kind,
+    pub(crate) start: i32,
+    pub(crate) end: i32,
 }
 
 impl Span {
-    fn into_entity(self) -> base::MessageEntity {
+    pub(crate) fn write(&self) -> base::MessageEntity {
         use base::MessageEntity as E;
         let (offset, length) = (self.start, self.end - self.start);
-        match self.kind {
+        match &self.kind {
             Kind::Bold => E::MessageEntityBold(Box::new(types::MessageEntityBold { offset, length })),
             Kind::Italic => E::MessageEntityItalic(Box::new(types::MessageEntityItalic { offset, length })),
             Kind::Underline => E::MessageEntityUnderline(Box::new(types::MessageEntityUnderline { offset, length })),
             Kind::Strike => E::MessageEntityStrike(Box::new(types::MessageEntityStrike { offset, length })),
             Kind::Spoiler => E::MessageEntitySpoiler(Box::new(types::MessageEntitySpoiler { offset, length })),
             Kind::Code => E::MessageEntityCode(Box::new(types::MessageEntityCode { offset, length })),
-            Kind::Pre(language) => E::MessageEntityPre(Box::new(types::MessageEntityPre { offset, length, language })),
-            Kind::Link(url) => match url.strip_prefix("tg://user?id=").and_then(|id| id.parse().ok()) {
-                Some(user_id) => {
-                    let user_id = base::InputUser::InputUser(Box::new(types::InputUser { user_id, access_hash: 0 }));
-                    let mention = types::InputMessageEntityMentionName { offset, length, user_id };
-                    E::InputMessageEntityMentionName(Box::new(mention))
-                }
-                None => E::MessageEntityTextUrl(Box::new(types::MessageEntityTextUrl { offset, length, url })),
-            },
-            Kind::Blockquote(collapsed) => {
+            Kind::Pre(language) => {
+                E::MessageEntityPre(Box::new(types::MessageEntityPre { offset, length, language: language.clone() }))
+            }
+            Kind::Link(url) => {
+                E::MessageEntityTextUrl(Box::new(types::MessageEntityTextUrl { offset, length, url: url.clone() }))
+            }
+            &Kind::Mention(user_id) => {
+                let user_id = base::InputUser::InputUser(Box::new(types::InputUser { user_id, access_hash: 0 }));
+                let mention = types::InputMessageEntityMentionName { offset, length, user_id };
+                E::InputMessageEntityMentionName(Box::new(mention))
+            }
+            &Kind::Blockquote(collapsed) => {
                 E::MessageEntityBlockquote(Box::new(types::MessageEntityBlockquote { collapsed, offset, length }))
             }
-            Kind::CustomEmoji(document_id) => {
+            &Kind::CustomEmoji(document_id) => {
                 E::MessageEntityCustomEmoji(Box::new(types::MessageEntityCustomEmoji { offset, length, document_id }))
             }
+            &Kind::DateTime(date, flags) => {
+                let has = |bit: u8| flags & (1 << bit) != 0;
+                E::MessageEntityFormattedDate(Box::new(types::MessageEntityFormattedDate {
+                    relative: has(0),
+                    short_time: has(1),
+                    long_time: has(2),
+                    short_date: has(3),
+                    long_date: has(4),
+                    day_of_week: has(5),
+                    offset,
+                    length,
+                    date,
+                }))
+            }
         }
-    }
-}
-
-#[derive(Default)]
-struct Out {
-    text: String,
-    len: i32,
-    spans: Vec<Span>,
-}
-
-impl Out {
-    fn push(&mut self, c: char) {
-        self.text.push(c);
-        self.len += c.len_utf16() as i32;
-    }
-
-    fn push_str(&mut self, s: &str) {
-        s.chars().for_each(|c| self.push(c));
-    }
-
-    fn span(&mut self, kind: Kind, start: i32) {
-        self.spans.push(Span { kind, start, end: self.len });
     }
 }
 
@@ -94,8 +115,9 @@ mod tests {
     use crate::raw::base::MessageEntity as E;
 
     fn run(text: &str, mode: ParseMode) -> (String, Vec<String>) {
-        let (text, entities) = parse(text, mode);
-        let entities = entities
+        let text = parse(text, mode);
+        let entities = text
+            .write_entities()
             .iter()
             .map(|e| match e {
                 E::MessageEntityBold(e) => format!("bold {} {}", e.offset, e.length),
@@ -109,10 +131,15 @@ mod tests {
                 E::MessageEntityBlockquote(e) => format!("quote:{} {} {}", e.collapsed, e.offset, e.length),
                 E::MessageEntityCustomEmoji(e) => format!("emoji:{} {} {}", e.document_id, e.offset, e.length),
                 E::InputMessageEntityMentionName(e) => format!("mention {} {}", e.offset, e.length),
+                E::MessageEntityFormattedDate(e) => {
+                    let on = [e.relative, e.short_time, e.long_time, e.short_date, e.long_date, e.day_of_week];
+                    let flags: String = "rtTdDw".chars().zip(on).filter_map(|(c, on)| on.then_some(c)).collect();
+                    format!("date:{}:{flags} {} {}", e.date, e.offset, e.length)
+                }
                 other => format!("{other:?}"),
             })
             .collect();
-        (text, entities)
+        (text.as_str().into(), entities)
     }
 
     fn html(text: &str) -> (String, Vec<String>) {
@@ -162,6 +189,18 @@ mod tests {
     }
 
     #[test]
+    fn html_tg_time_becomes_a_formatted_date() {
+        assert_eq!(
+            html("<tg-time unix=\"1647531900\" format=\"wDT\">22:45 tomorrow</tg-time>"),
+            ("22:45 tomorrow".into(), vec!["date:1647531900:TDw 0 14".into()])
+        );
+        assert_eq!(html("😀<tg-time unix=1 format=r>now</tg-time>"), ("😀now".into(), vec!["date:1:r 2 3".into()]));
+        assert_eq!(html("<tg-time unix=5>t</tg-time>"), ("t".into(), vec!["date:5: 0 1".into()]));
+        assert_eq!(html("<tg-time format=t>no unix</tg-time>"), ("no unix".into(), vec![]));
+        assert_eq!(html("<tg-time unix=soon>bad</tg-time>"), ("bad".into(), vec![]));
+    }
+
+    #[test]
     fn html_text_is_decoded_and_kept() {
         assert_eq!(html("1 &lt; 2 &amp;&amp; 3 > 2 &#33;&#x21; &bogus;"), ("1 < 2 && 3 > 2 !! &bogus;".into(), vec![]));
         assert_eq!(html("a < b"), ("a < b".into(), vec![]));
@@ -175,6 +214,14 @@ mod tests {
     fn offsets_count_utf16_units() {
         assert_eq!(html("😀<b>é😀</b>"), ("😀é😀".into(), vec!["bold 2 3".into()]));
         assert_eq!(md("😀 **😀**"), ("😀 😀".into(), vec!["bold 3 2".into()]));
+    }
+
+    #[test]
+    fn crossing_tags_close_and_reopen_so_entities_nest() {
+        let nested = vec!["bold 0 5".into(), "italic 3 2".into(), "italic 5 3".into()];
+        assert_eq!(md("**ab __cd** ef__"), ("ab cd ef".into(), nested.clone()));
+        assert_eq!(html("<b>ab <i>cd</b> ef</i>"), ("ab cd ef".into(), nested));
+        assert_eq!(html("<b><i>x</b></i>y"), ("xy".into(), vec!["italic 0 1".into(), "bold 0 1".into()]));
     }
 
     #[test]

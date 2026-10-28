@@ -203,9 +203,10 @@ async fn affected_pts_come_back_as_quiet_updates() {
     let mut updates = UpdatesRx::offline();
     updates.events.affected(Affected { channel_id: Some(7), pts: 5, pts_count: 1 });
     let incoming = updates.recv().await.unwrap();
-    let base::Updates::UpdateShort(short) = incoming.updates else { panic!("not a stand-in update") };
+    let from_request = incoming.from_request();
+    let base::Updates::UpdateShort(short) = incoming.into_updates() else { panic!("not a stand-in update") };
     let channel = matches!(&short.update, base::Update::UpdateDeleteChannelMessages(u) if u.channel_id == 7);
-    assert_eq!((incoming.from_request, channel, short.update.pts()), (true, true, Some((5, 1))));
+    assert_eq!((from_request, channel, short.update.pts()), (true, true, Some((5, 1))));
 }
 
 #[tokio::test]
@@ -303,6 +304,7 @@ async fn reconnect_is_reported() {
     r.reconnect(&requests).await;
     let _server = server.await.unwrap();
     assert!(matches!(events.try_recv(), Ok(ClientEvent::Reconnected { dc: 2, attempt: 1 })));
+    assert!(r.events.take_reconnected());
     assert!(matches!(updates.recv().await, Some(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
 }
 

@@ -3,6 +3,8 @@ use crate::types::{Document, FileLocation};
 
 #[derive(Debug, Clone)]
 pub struct Video {
+    pub file_id: String,
+    pub file_unique_id: String,
     pub id: i64,
     pub file_name: Option<String>,
     pub mime_type: String,
@@ -17,8 +19,10 @@ pub struct Video {
 
 impl Video {
     pub(crate) fn parse(document: Document, video: Option<&types::DocumentAttributeVideo>) -> Video {
-        let Document { id, file_name, mime_type, file_size, date, location } = document;
+        let Document { file_id, file_unique_id, id, file_name, mime_type, file_size, date, location } = document;
         Video {
+            file_id,
+            file_unique_id,
             id,
             file_name,
             mime_type,

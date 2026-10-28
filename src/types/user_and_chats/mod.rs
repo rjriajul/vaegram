@@ -18,6 +18,7 @@ mod forum_topic_edited;
 mod passport_element_error;
 mod peer_ref;
 mod user;
+mod user_profile_audios;
 mod user_profile_photos;
 mod user_status_updated;
 
@@ -42,5 +43,6 @@ pub use forum_topic_edited::ForumTopicEdited;
 pub use passport_element_error::PassportElementError;
 pub use peer_ref::PeerRef;
 pub use user::User;
+pub use user_profile_audios::UserProfileAudios;
 pub use user_profile_photos::UserProfilePhotos;
 pub use user_status_updated::UserStatusUpdated;

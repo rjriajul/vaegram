@@ -8,6 +8,7 @@ use std::time::Duration;
 use super::internals::data_center::Dc;
 use super::{Events, Session, WeakSession, init_connection};
 use crate::connection::Options;
+use crate::crypto::rsa::PublicKey;
 use crate::errors::{Error, Result};
 use crate::raw::{RemoteCall, base, functions};
 
@@ -15,8 +16,9 @@ const IDLE: Duration = Duration::from_secs(15);
 const PART_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_TIMEOUTS: usize = 3;
 
+// Keyed by address, so a DC's media-only address gets its own slot and auth key.
 #[derive(Default)]
-pub(crate) struct TransferPool(Mutex<HashMap<i32, Arc<Slot>>>);
+pub(crate) struct TransferPool(Mutex<HashMap<Dc, Arc<Slot>>>);
 
 #[derive(Default)]
 struct Slot {
@@ -30,6 +32,12 @@ struct State {
     sessions: Vec<WeakSession>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum Auth<'a> {
+    Home(&'a Session, i32),
+    Cdn(&'a PublicKey),
+}
+
 pub(crate) struct Lease {
     pub(crate) sessions: Vec<Session>,
 }
@@ -39,30 +47,50 @@ impl TransferPool {
         self.0.lock().unwrap().clear();
     }
 
+    pub(crate) fn forget(&self, dc: Dc) {
+        self.0.lock().unwrap().remove(&dc);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert(&self, dc: Dc, session: &Session) {
+        let state = State { auth_key: Some(*session.auth_key()), sessions: vec![session.downgrade()] };
+        let slot = Slot { opening: Default::default(), state: Mutex::new(state) };
+        self.0.lock().unwrap().insert(dc, Arc::new(slot));
+    }
+
     pub(crate) async fn lease(
         &self,
         dc: Dc,
         count: usize,
-        home: &Session,
-        api_id: i32,
+        auth: Auth<'_>,
         options: &Options,
         events: &Arc<Events>,
     ) -> Result<Lease> {
-        let slot = self.0.lock().unwrap().entry(dc.id).or_default().clone();
+        let slot = self.0.lock().unwrap().entry(dc).or_default().clone();
         let _opening = slot.opening.lock().await;
         let (mut sessions, key) = {
             let state = slot.state.lock().unwrap();
             let live: Vec<Session> = state.sessions.iter().filter_map(WeakSession::upgrade).collect();
-            (live, if dc.id == home.dc_id() { Some(*home.auth_key()) } else { state.auth_key })
+            let home = match auth {
+                Auth::Home(home, _) if home.dc_id() == dc.id => Some(*home.auth_key()),
+                _ => None,
+            };
+            (live, home.or(state.auth_key))
         };
         let key = match key {
             Some(key) => key,
             None => {
-                let session = Session::connect_transfer(dc, None, options, events.clone()).await?;
-                let base::auth::ExportedAuthorization::ExportedAuthorization(e) =
-                    home.invoke(&functions::auth::ExportAuthorization { dc_id: dc.id }).await?;
-                let import = functions::auth::ImportAuthorization { id: e.id, bytes: e.bytes };
-                session.invoke(&init_connection(api_id, options, import)).await?;
+                let cdn_key = match auth {
+                    Auth::Cdn(key) => Some(key),
+                    Auth::Home(..) => None,
+                };
+                let session = Session::connect_transfer(dc, None, cdn_key, options, events.clone()).await?;
+                if let Auth::Home(home, api_id) = auth {
+                    let base::auth::ExportedAuthorization::ExportedAuthorization(e) =
+                        home.invoke(&functions::auth::ExportAuthorization { dc_id: dc.id }).await?;
+                    let import = functions::auth::ImportAuthorization { id: e.id, bytes: e.bytes };
+                    session.invoke(&init_connection(api_id, options, import)).await?;
+                }
                 let key = *session.auth_key();
                 slot.state.lock().unwrap().auth_key = Some(key);
                 sessions.push(session);
@@ -70,9 +98,8 @@ impl TransferPool {
             }
         };
         let missing = count.saturating_sub(sessions.len());
-        let opened =
-            try_join_all((0..missing).map(|_| Session::connect_transfer(dc, Some(key), options, events.clone())))
-                .await?;
+        let connect = |_| Session::connect_transfer(dc, Some(key), None, options, events.clone());
+        let opened = try_join_all((0..missing).map(connect)).await?;
         sessions.extend(opened);
         slot.state.lock().unwrap().sessions = sessions.iter().map(Session::downgrade).collect();
         sessions.truncate(count);
@@ -114,6 +141,28 @@ pub(crate) fn take(next: &AtomicI32, count: i32) -> Option<i32> {
     (part < count).then_some(part)
 }
 
+pub(crate) type Report<'a> = Box<dyn FnMut(u64, u64) + Send + 'a>;
+
+// The callback runs under the lock, so `done` only grows even when parts finish out of order.
+pub(crate) struct Progress<'a> {
+    total: u64,
+    state: Mutex<(u64, Option<Report<'a>>)>,
+}
+
+impl<'a> Progress<'a> {
+    pub(crate) fn new(report: Option<Report<'a>>, total: u64) -> Self {
+        Progress { total, state: Mutex::new((0, report)) }
+    }
+
+    pub(crate) fn add(&self, bytes: usize) {
+        let (done, report) = &mut *self.state.lock().unwrap();
+        *done += bytes as u64;
+        if let Some(report) = report {
+            report(*done, self.total);
+        }
+    }
+}
+
 pub(crate) async fn try_join_all<T, F: Future<Output = Result<T>>>(futures: impl Iterator<Item = F>) -> Result<Vec<T>> {
     let mut futures: Vec<_> = futures.map(|f| Some(Box::pin(f))).collect();
     let mut outputs: Vec<Option<T>> = futures.iter().map(|_| None).collect();
@@ -137,13 +186,27 @@ pub(crate) async fn try_join_all<T, F: Future<Output = Result<T>>>(futures: impl
 mod tests {
     use std::sync::atomic::AtomicI32;
 
-    use super::{take, try_join_all, workers};
+    use super::{Progress, take, try_join_all, workers};
     use crate::errors::{Error, Result};
 
     #[test]
     fn caps_parts_in_flight_by_bytes() {
         let w = |parts, budget| workers(parts, 512 * 1024, budget);
         assert_eq!((w(1, 4 << 20), w(3, 4 << 20), w(100, 4 << 20), w(100, 2 << 20), w(0, 2 << 20)), (1, 3, 8, 4, 1));
+    }
+
+    #[test]
+    fn reports_growing_progress_from_parallel_parts() {
+        let mut seen = Vec::new();
+        let progress = Progress::new(Some(Box::new(|done, total| seen.push((done, total)))), 2400);
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                s.spawn(|| (0..100).for_each(|i| progress.add(1 + i % 5)));
+            }
+        });
+        drop(progress);
+        assert_eq!((seen.len(), seen.last().copied()), (800, Some((2400, 2400))));
+        assert!(seen.windows(2).all(|w| w[0].0 < w[1].0 && w[1].1 == 2400));
     }
 
     #[test]

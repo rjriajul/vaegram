@@ -3,6 +3,7 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
+use crate::types::messages_and_media::{input_document_of, input_photo_of};
 use crate::types::{Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
@@ -83,8 +84,8 @@ fn input_media(media: base::MessageMedia) -> Result<Option<base::InputMedia>> {
     let media = match media {
         M::MessageMediaEmpty | M::MessageMediaWebPage(_) => return Ok(None),
         M::MessageMediaPhoto(m) => {
-            let id = m.photo.and_then(input_photo).ok_or(unsupported)?;
-            let video = m.video.and_then(input_document);
+            let id = m.photo.and_then(input_photo_of).ok_or(unsupported)?;
+            let video = m.video.and_then(input_document_of);
             let photo = types::InputMediaPhoto {
                 spoiler: m.spoiler,
                 live_photo: video.is_some(),
@@ -97,8 +98,8 @@ fn input_media(media: base::MessageMedia) -> Result<Option<base::InputMedia>> {
         M::MessageMediaDocument(m) => {
             let document = types::InputMediaDocument {
                 spoiler: m.spoiler,
-                id: m.document.and_then(input_document).ok_or(unsupported)?,
-                video_cover: m.video_cover.and_then(input_photo),
+                id: m.document.and_then(input_document_of).ok_or(unsupported)?,
+                video_cover: m.video_cover.and_then(input_photo_of),
                 video_timestamp: m.video_timestamp,
                 ttl_seconds: m.ttl_seconds,
                 query: None,
@@ -135,27 +136,6 @@ fn input_media(media: base::MessageMedia) -> Result<Option<base::InputMedia>> {
         _ => return Err(unsupported),
     };
     Ok(Some(media))
-}
-
-fn input_photo(photo: base::Photo) -> Option<base::InputPhoto> {
-    match photo {
-        base::Photo::Photo(p) => {
-            let photo = types::InputPhoto { id: p.id, access_hash: p.access_hash, file_reference: p.file_reference };
-            Some(base::InputPhoto::InputPhoto(Box::new(photo)))
-        }
-        base::Photo::PhotoEmpty(_) => None,
-    }
-}
-
-fn input_document(document: base::Document) -> Option<base::InputDocument> {
-    match document {
-        base::Document::Document(d) => {
-            let document =
-                types::InputDocument { id: d.id, access_hash: d.access_hash, file_reference: d.file_reference };
-            Some(base::InputDocument::InputDocument(Box::new(document)))
-        }
-        base::Document::DocumentEmpty(_) => None,
-    }
 }
 
 fn input_geo_point(geo: base::GeoPoint) -> Option<base::InputGeoPoint> {

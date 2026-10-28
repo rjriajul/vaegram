@@ -7,8 +7,8 @@ use crate::types::{Gift, MessageEntity, UniqueGift, User};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnedGift {
-    Regular(OwnedGiftRegular),
-    Unique(OwnedGiftUnique),
+    Regular(Box<OwnedGiftRegular>),
+    Unique(Box<OwnedGiftUnique>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +58,7 @@ impl OwnedGift {
         Some(match &raw.gift {
             base::StarGift::StarGift(g) => {
                 let (text, text_entities) = split_text(raw.message.as_ref(), entities);
-                OwnedGift::Regular(OwnedGiftRegular {
+                OwnedGift::Regular(Box::new(OwnedGiftRegular {
                     gift: Gift::parse(g, entities)?,
                     owned_gift_id,
                     sender_user,
@@ -73,9 +73,9 @@ impl OwnedGift {
                     prepaid_upgrade_star_count: raw.upgrade_stars,
                     is_upgrade_separate: raw.upgrade_separate,
                     unique_gift_number: raw.gift_num,
-                })
+                }))
             }
-            base::StarGift::StarGiftUnique(g) => OwnedGift::Unique(OwnedGiftUnique {
+            base::StarGift::StarGiftUnique(g) => OwnedGift::Unique(Box::new(OwnedGiftUnique {
                 gift: UniqueGift::parse(g, entities),
                 owned_gift_id,
                 sender_user,
@@ -84,7 +84,7 @@ impl OwnedGift {
                 can_be_transferred: raw.transfer_stars.is_some() || raw.can_transfer_at.is_some(),
                 transfer_star_count: raw.transfer_stars,
                 next_transfer_date: raw.can_transfer_at,
-            }),
+            })),
         })
     }
 }

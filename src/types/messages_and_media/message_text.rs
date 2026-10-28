@@ -2,11 +2,11 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::base;
-use crate::types::InputRichMessage;
+use crate::types::{InputRichMessage, Text};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MessageText {
-    Text(String),
+    Text(Text),
     Rich(InputRichMessage),
 }
 
@@ -18,10 +18,10 @@ impl MessageText {
     ) -> Result<(Option<String>, Option<Vec<base::MessageEntity>>, Option<base::InputRichMessage>)> {
         Ok(match self {
             MessageText::Text(text) => {
-                let (message, entities) = client.parse_text(&text, parse_mode).await?;
+                let (message, entities) = client.write_text(text, parse_mode).await?;
                 (Some(message), (!entities.is_empty()).then_some(entities), None)
             }
-            MessageText::Rich(rich) => (None, None, Some(rich.write())),
+            MessageText::Rich(rich) => (None, None, Some(rich.write(client).await?)),
         })
     }
 }
@@ -34,6 +34,12 @@ impl From<&str> for MessageText {
 
 impl From<String> for MessageText {
     fn from(text: String) -> Self {
+        MessageText::Text(text.into())
+    }
+}
+
+impl From<Text> for MessageText {
+    fn from(text: Text) -> Self {
         MessageText::Text(text)
     }
 }

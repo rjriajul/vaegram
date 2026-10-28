@@ -29,7 +29,7 @@ impl Client {
             spoiler: false,
             file: self.save_file(file).await?,
             thumb: None,
-            mime_type: mime_type(file.name()).into(),
+            mime_type: mime_type(file).into(),
             attributes: vec![
                 base::DocumentAttribute::DocumentAttributeSticker(Box::new(sticker)),
                 base::DocumentAttribute::DocumentAttributeFilename(Box::new(file_name)),
@@ -73,22 +73,21 @@ impl Client {
 }
 
 // Telegram tells static, animated and video stickers apart by MIME type.
-fn mime_type(name: &str) -> &'static str {
-    let extension = name.rsplit_once('.').map_or("", |(_, extension)| extension);
-    [("tgs", "application/x-tgsticker"), ("webm", "video/webm"), ("png", "image/png")]
-        .into_iter()
-        .find(|(e, _)| e.eq_ignore_ascii_case(extension))
-        .map_or("image/webp", |(_, mime)| mime)
+fn mime_type(file: Upload<'_>) -> &'static str {
+    match file.mime_type() {
+        "application/octet-stream" => "image/webp",
+        mime => mime,
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::mime_type;
+    use super::{Upload, mime_type};
 
     #[test]
     fn picks_the_sticker_format_from_the_extension() {
         let names = ["cat.TGS", "cat.webm", "cat.png", "cat.webp", "cat"];
         let mimes = ["application/x-tgsticker", "video/webm", "image/png", "image/webp", "image/webp"];
-        assert_eq!(names.map(mime_type), mimes);
+        assert_eq!(names.map(|name| mime_type(Upload::bytes(name, b""))), mimes);
     }
 }

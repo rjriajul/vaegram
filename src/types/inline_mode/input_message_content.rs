@@ -1,6 +1,7 @@
 use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
+use crate::methods::geo_point;
 use crate::raw::{base, types};
 use crate::types::{InputInvoice, InputRichMessage};
 
@@ -183,7 +184,7 @@ impl InputMessageContent {
             }
             InputMessageContent::Invoice(invoice) => invoice.write_inline(reply_markup),
             InputMessageContent::Rich(rich) => {
-                let rich_message = rich.write();
+                let rich_message = rich.write(client).await?;
                 let rich = types::InputBotInlineMessageRichMessage { reply_markup, rich_message };
                 base::InputBotInlineMessage::InputBotInlineMessageRichMessage(Box::new(rich))
             }
@@ -193,18 +194,14 @@ impl InputMessageContent {
 
 impl From<String> for InputMessageContent {
     fn from(text: String) -> Self {
-        InputMessageContent::text(text)
+        InputMessageContent::formatted(text, Some(ParseMode::Disabled))
     }
 }
 
 impl From<&str> for InputMessageContent {
     fn from(text: &str) -> Self {
-        InputMessageContent::text(text)
+        InputMessageContent::formatted(text.into(), Some(ParseMode::Disabled))
     }
-}
-
-fn geo_point(lat: f64, long: f64, accuracy_radius: Option<i32>) -> base::InputGeoPoint {
-    base::InputGeoPoint::InputGeoPoint(Box::new(types::InputGeoPoint { lat, long, accuracy_radius }))
 }
 
 // Telegram downloads web documents itself, so the size is unknown up front and sent as 0.
