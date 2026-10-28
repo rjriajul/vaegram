@@ -11,6 +11,8 @@ mod poll_type;
 mod sent_code_type;
 mod service_kind;
 mod subscription_state;
+mod suggested_post_refund_reason;
+mod suggested_post_state;
 
 pub use chat_action::ChatAction;
 pub use chat_join_request_result::ChatJoinRequestResult;
@@ -25,3 +27,5 @@ pub use poll_type::PollType;
 pub use sent_code_type::SentCodeType;
 pub use service_kind::ServiceKind;
 pub use subscription_state::SubscriptionState;
+pub use suggested_post_refund_reason::SuggestedPostRefundReason;
+pub use suggested_post_state::SuggestedPostState;

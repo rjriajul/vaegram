@@ -6,6 +6,7 @@ mod chat_member;
 mod chat_permissions;
 mod chat_privileges;
 mod community;
+mod direct_messages_topic;
 mod peer_ref;
 mod user;
 
@@ -17,5 +18,6 @@ pub use chat_member::ChatMember;
 pub use chat_permissions::ChatPermissions;
 pub use chat_privileges::ChatPrivileges;
 pub use community::Community;
+pub use direct_messages_topic::DirectMessagesTopic;
 pub use peer_ref::PeerRef;
 pub use user::User;

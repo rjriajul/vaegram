@@ -5,8 +5,8 @@ use crate::errors::{Error, Result};
 use crate::methods::{DownloadMedia, EditMessageText, SendMessage};
 use crate::raw::{base, types};
 use crate::types::{
-    Chat, Command, ExternalReplyInfo, LinkPreviewOptions, Media, MessageEntity, MessageOrigin, ReplyMarkup,
-    ServiceAction, TextQuote, User,
+    Chat, Command, DirectMessagesTopic, ExternalReplyInfo, LinkPreviewOptions, Media, MessageEntity, MessageOrigin,
+    ReplyMarkup, ServiceAction, SuggestedPostInfo, TextQuote, User,
 };
 use crate::utils::get_peer;
 
@@ -36,6 +36,7 @@ pub struct Message {
     pub author_signature: Option<String>,
     pub has_protected_content: bool,
     pub service: Option<ServiceAction>,
+    pub direct_messages_topic: Option<DirectMessagesTopic>,
     pub raw: Box<types::Message>,
     client: Client,
 }
@@ -67,6 +68,10 @@ impl Message {
         };
         let (reply_to_message_id, message_thread_id, is_topic_message, quote, external_reply) =
             reply_fields(&raw, entities);
+        let direct_messages_topic = match &raw.saved_peer_id {
+            Some(peer) if chat.is_direct_messages => Some(DirectMessagesTopic::parse(peer, entities)),
+            _ => None,
+        };
         Message {
             id: raw.id,
             chat,
@@ -92,6 +97,7 @@ impl Message {
             author_signature: raw.post_author.clone(),
             has_protected_content: raw.noforwards,
             service: None,
+            direct_messages_topic,
             raw,
             client: client.clone(),
         }
@@ -164,6 +170,7 @@ impl Message {
         let service = ServiceAction::parse(&raw.action, entities)?;
         let mut bare = Message::bare(raw.id, raw.peer_id.clone(), raw.date);
         (bare.out, bare.post, bare.from_id) = (raw.out, raw.post, raw.from_id.clone());
+        bare.saved_peer_id = raw.saved_peer_id.clone();
         let mut message = Message::parse(client, Box::new(bare), entities);
         message.service = Some(service);
         Some(message)
@@ -224,6 +231,15 @@ impl Message {
         ReplyMarkup::parse(self.raw.reply_markup.as_ref()?)
     }
 
+    /// A paid suggested post; editing it within 24 hours of publishing refunds the payment.
+    pub fn is_paid_post(&self) -> bool {
+        self.raw.paid_suggested_post_stars || self.raw.paid_suggested_post_ton
+    }
+
+    pub fn suggested_post_info(&self) -> Option<SuggestedPostInfo> {
+        self.raw.suggested_post.as_ref().map(SuggestedPostInfo::parse)
+    }
+
     pub fn edit_text(&self, text: impl Into<String>) -> EditMessageText<'_> {
         self.client.edit_message_text(self.chat.id, self.id, text)
     }
@@ -252,7 +268,10 @@ impl Message {
     }
 
     pub fn reply(&self, text: impl Into<String>) -> SendMessage<'_> {
-        let send = self.client.send_message(self.chat.id, text);
+        let mut send = self.client.send_message(self.chat.id, text);
+        if let Some(topic) = &self.direct_messages_topic {
+            send = send.direct_messages_topic_id(topic.topic_id);
+        }
         match self.chat.kind {
             ChatType::Private | ChatType::Bot => send,
             _ => send.reply_to(self.id),

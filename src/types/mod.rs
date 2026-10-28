@@ -22,10 +22,11 @@ pub use inline_mode::{
 pub use messages_and_media::{
     Animation, Audio, Command, Contact, Dice, Document, ExternalReplyInfo, FileLocation, GuestMessage,
     LinkPreviewOptions, Location, Media, Message, MessageEntity, MessageGenerationStopped, MessageOrigin, Photo, Poll,
-    PollOption, ReplyParameters, ServiceAction, Sticker, SuggestedPostParameters, SuggestedPostPrice, TextQuote,
-    Upload, Venue, Video, VideoNote, Voice,
+    PollOption, ReplyParameters, ServiceAction, Sticker, SuggestedPostApprovalFailed, SuggestedPostApproved,
+    SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice,
+    SuggestedPostRefunded, TextQuote, Upload, Venue, Video, VideoNote, Voice,
 };
 pub use user_and_chats::{
-    Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatPermissions, ChatPrivileges, Community, PeerRef,
-    User,
+    Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatPermissions, ChatPrivileges, Community,
+    DirectMessagesTopic, PeerRef, User,
 };

@@ -144,6 +144,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Bot profile: name, descriptions, menu button, default admin rights, `log_out` (not yet tested live)
 - [ ] Every inline result kind, chosen inline results, `answer_web_app_query`, prepared inline messages (not yet tested
   live)
+- [ ] Suggested posts and channel direct messages: `approve_suggested_post(chat, id).send_date(..)`,
+  `.suggested_post_parameters(..)`, `.direct_messages_topic_id(user)`, `msg.direct_messages_topic` (not yet tested live)
 - [ ] Rich messages
 
 ### Development

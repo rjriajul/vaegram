@@ -1,4 +1,6 @@
+mod approve_suggested_post;
 mod copy_message;
+mod decline_suggested_post;
 mod delete_all_message_reactions;
 mod delete_message_reaction;
 mod delete_messages;
@@ -29,7 +31,9 @@ mod stream_message;
 mod unpin_all_chat_messages;
 mod unpin_chat_message;
 
+pub use approve_suggested_post::ApproveSuggestedPost;
 pub use copy_message::CopyMessage;
+pub use decline_suggested_post::DeclineSuggestedPost;
 pub use download_media::DownloadMedia;
 pub use edit_message_text::EditMessageText;
 pub use forward_messages::ForwardMessages;

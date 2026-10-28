@@ -48,7 +48,10 @@ pub use poll::{Poll, PollOption};
 pub use reply_parameters::ReplyParameters;
 pub use service_action::ServiceAction;
 pub use sticker::Sticker;
-pub use suggested_post::{SuggestedPostParameters, SuggestedPostPrice};
+pub use suggested_post::{
+    SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid,
+    SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded,
+};
 pub use text_quote::TextQuote;
 pub use upload::Upload;
 pub use venue::Venue;

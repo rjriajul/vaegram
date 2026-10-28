@@ -28,7 +28,7 @@ pub use invite_links::{
 };
 pub(crate) use messages::StreamShared;
 pub use messages::{
-    CopyMessage, DownloadMedia, EditMessageText, ForwardMessages, GetChatHistory, MessageStream, PinChatMessage,
-    SearchMessages, SendContact, SendDice, SendDocument, SendLocation, SendMessage, SendMessageDraft, SendPhoto,
-    SendPoll, SendVenue, StopPoll, StreamMessage,
+    ApproveSuggestedPost, CopyMessage, DeclineSuggestedPost, DownloadMedia, EditMessageText, ForwardMessages,
+    GetChatHistory, MessageStream, PinChatMessage, SearchMessages, SendContact, SendDice, SendDocument, SendLocation,
+    SendMessage, SendMessageDraft, SendPhoto, SendPoll, SendVenue, StopPoll, StreamMessage,
 };

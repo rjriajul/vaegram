@@ -2,7 +2,7 @@ use crate::dispatcher::Entities;
 use crate::enums::ChatType;
 use crate::raw::base;
 use crate::types::{Community, User};
-use crate::utils::get_peer_id;
+use crate::utils::{get_channel_id, get_peer, get_peer_id};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chat {
@@ -19,6 +19,8 @@ pub struct Chat {
     pub guard_bot: Option<User>,
     /// The community the chat or bot belongs to; only `get_chat` fills it.
     pub community: Option<Community>,
+    pub is_direct_messages: bool,
+    pub parent_chat: Option<Box<Chat>>,
 }
 
 impl Chat {
@@ -36,6 +38,8 @@ impl Chat {
             members_count: None,
             guard_bot: None,
             community: None,
+            is_direct_messages: false,
+            parent_chat: None,
         };
         match peer {
             base::Peer::PeerUser(_) => {
@@ -56,8 +60,18 @@ impl Chat {
                 Some(base::Chat::Channel(c)) => {
                     chat.title = Some(c.title.clone());
                     chat.username = c.username.clone();
+                    chat.is_direct_messages = c.monoforum;
+                    // A direct messages chat links back to its channel through the same field.
+                    if c.monoforum {
+                        chat.parent_chat = c
+                            .linked_monoforum_id
+                            .map(|parent| Box::new(Chat::parse(&get_peer(get_channel_id(parent)), entities, true)));
+                    }
                 }
-                Some(base::Chat::ChannelForbidden(c)) => chat.title = Some(c.title.clone()),
+                Some(base::Chat::ChannelForbidden(c)) => {
+                    chat.title = Some(c.title.clone());
+                    chat.is_direct_messages = c.monoforum;
+                }
                 _ => {}
             },
         }
