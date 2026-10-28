@@ -2,8 +2,8 @@ use crate::dispatcher::Entities;
 use crate::enums::MediaKind;
 use crate::raw::base;
 use crate::types::{
-    Animation, Audio, Contact, Dice, Document, FileLocation, Location, Message, Photo, Poll, Sticker, Venue, Video,
-    VideoNote, Voice,
+    Animation, Audio, Contact, Dice, Document, FileLocation, Invoice, Location, Message, Photo, Poll, Sticker, Venue,
+    Video, VideoNote, Voice,
 };
 
 #[derive(Debug, Clone)]
@@ -22,6 +22,7 @@ pub enum Media {
     Venue(Venue),
     Dice(Dice),
     Poll(Poll),
+    Invoice(Invoice),
 }
 
 impl Media {
@@ -42,6 +43,7 @@ impl Media {
             M::MessageMediaVenue(m) => Media::Venue(Venue::parse(m)?),
             M::MessageMediaDice(m) => Media::Dice(Dice { emoji: m.emoticon.clone(), value: m.value }),
             M::MessageMediaPoll(m) => Media::Poll(Poll::parse(&m.poll, &m.results, entities)),
+            M::MessageMediaInvoice(m) => Media::Invoice(Invoice::parse(m)),
             _ => return None,
         })
     }
@@ -90,6 +92,7 @@ impl Media {
             Media::Venue(_) => MediaKind::Venue,
             Media::Dice(_) => MediaKind::Dice,
             Media::Poll(_) => MediaKind::Poll,
+            Media::Invoice(_) => MediaKind::Invoice,
         }
     }
 
@@ -103,7 +106,12 @@ impl Media {
             Media::VideoNote(m) => Some(&m.location),
             Media::Voice(m) => Some(&m.location),
             Media::Sticker(m) => Some(&m.location),
-            Media::Contact(_) | Media::Location(_) | Media::Venue(_) | Media::Dice(_) | Media::Poll(_) => None,
+            Media::Contact(_)
+            | Media::Location(_)
+            | Media::Venue(_)
+            | Media::Dice(_)
+            | Media::Poll(_)
+            | Media::Invoice(_) => None,
         }
     }
 }
@@ -159,6 +167,10 @@ impl Message {
 
     pub fn poll(&self) -> Option<&Poll> {
         if let Some(Media::Poll(m)) = &self.media { Some(m) } else { None }
+    }
+
+    pub fn invoice(&self) -> Option<&Invoice> {
+        if let Some(Media::Invoice(m)) = &self.media { Some(m) } else { None }
     }
 }
 

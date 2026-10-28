@@ -11,7 +11,8 @@ use crate::raw::base;
 use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatJoinRequest, ChosenInlineResult,
     DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated,
-    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated,
+    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PreCheckoutQuery,
+    PurchasedPaidMedia, ShippingQuery,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -149,6 +150,9 @@ pub(crate) struct Router {
     pub(crate) business_message: Handlers<Message>,
     pub(crate) edited_business_message: Handlers<Message>,
     pub(crate) deleted_business_messages: Handlers<DeletedBusinessMessages>,
+    pub(crate) shipping_query: Handlers<ShippingQuery>,
+    pub(crate) pre_checkout_query: Handlers<PreCheckoutQuery>,
+    pub(crate) purchased_paid_media: Handlers<PurchasedPaidMedia>,
     pub(crate) raw: Vec<RawCallback>,
     pub(crate) on_error: Option<ErrorCallback>,
     next_id: u32,
@@ -181,6 +185,9 @@ impl Router {
             UpdateKind::BusinessMessage => self.business_message.configure(id, group, stop),
             UpdateKind::EditedBusinessMessage => self.edited_business_message.configure(id, group, stop),
             UpdateKind::DeletedBusinessMessages => self.deleted_business_messages.configure(id, group, stop),
+            UpdateKind::ShippingQuery => self.shipping_query.configure(id, group, stop),
+            UpdateKind::PreCheckoutQuery => self.pre_checkout_query.configure(id, group, stop),
+            UpdateKind::PurchasedPaidMedia => self.purchased_paid_media.configure(id, group, stop),
             UpdateKind::Raw => {}
         }
     }
@@ -286,6 +293,20 @@ impl Router {
                 let item = DeletedBusinessMessages::parse(client, *u, entities);
                 let kind = UpdateKind::DeletedBusinessMessages;
                 self.deleted_business_messages.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateBotShippingQuery(u) if !self.shipping_query.0.is_empty() => {
+                let item = ShippingQuery::parse(client, &u, entities);
+                self.shipping_query.finish(UpdateKind::ShippingQuery, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateBotPrecheckoutQuery(u) if !self.pre_checkout_query.0.is_empty() => {
+                let item = PreCheckoutQuery::parse(client, &u, entities);
+                let kind = UpdateKind::PreCheckoutQuery;
+                self.pre_checkout_query.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateBotPurchasedPaidMedia(u) if !self.purchased_paid_media.0.is_empty() => {
+                let item = PurchasedPaidMedia::parse(client, &u, entities);
+                let kind = UpdateKind::PurchasedPaidMedia;
+                self.purchased_paid_media.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
             }
             _ => {}
         }

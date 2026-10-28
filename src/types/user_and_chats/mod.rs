@@ -13,6 +13,7 @@ mod direct_messages_topic;
 mod forum_topic;
 mod forum_topic_created;
 mod forum_topic_edited;
+mod passport_element_error;
 mod peer_ref;
 mod user;
 
@@ -31,5 +32,6 @@ pub use direct_messages_topic::DirectMessagesTopic;
 pub use forum_topic::ForumTopic;
 pub use forum_topic_created::ForumTopicCreated;
 pub use forum_topic_edited::ForumTopicEdited;
+pub use passport_element_error::PassportElementError;
 pub use peer_ref::PeerRef;
 pub use user::User;

@@ -28,7 +28,10 @@ mod payments;
 mod users;
 mod utilities;
 
-pub use bots::{AnswerCallbackQuery, AnswerInlineQuery, SavePreparedInlineMessage, VerifyChat};
+pub use bots::{
+    AnswerCallbackQuery, AnswerInlineQuery, AnswerPreCheckoutQuery, AnswerShippingQuery, CreateInvoiceLink,
+    SavePreparedInlineMessage, SendInvoice, VerifyChat,
+};
 pub use chats::{
     BanChatMember, CreateForumTopic, EditForumTopic, GetChatAdministrators, GetChatMembers, RestrictChatMember,
 };
@@ -42,4 +45,6 @@ pub use messages::{
     SearchMessages, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLocation, SendMessage,
     SendMessageDraft, SendPhoto, SendPoll, SendReaction, SendRichMessage, SendVenue, StopPoll, StreamMessage,
 };
-pub use payments::{ConvertGiftToStars, GetChatGifts, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift};
+pub use payments::{
+    ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
+};

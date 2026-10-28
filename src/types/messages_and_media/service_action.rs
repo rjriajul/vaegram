@@ -2,8 +2,9 @@ use crate::dispatcher::Entities;
 use crate::enums::SuggestedPostRefundReason;
 use crate::raw::base;
 use crate::types::{
-    Community, ForumTopicCreated, ForumTopicEdited, GiftInfo, SuggestedPostApprovalFailed, SuggestedPostApproved,
-    SuggestedPostDeclined, SuggestedPostPaid, SuggestedPostPrice, SuggestedPostRefunded, UniqueGiftInfo, User,
+    Community, ForumTopicCreated, ForumTopicEdited, GiftInfo, RefundedPayment, SuccessfulPayment,
+    SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostPaid, SuggestedPostPrice,
+    SuggestedPostRefunded, UniqueGiftInfo, User,
 };
 
 #[non_exhaustive]
@@ -26,6 +27,8 @@ pub enum ServiceAction {
     GeneralForumTopicUnhidden,
     Gift(Box<GiftInfo>),
     UniqueGift(Box<UniqueGiftInfo>),
+    SuccessfulPayment(Box<SuccessfulPayment>),
+    RefundedPayment(Box<RefundedPayment>),
 }
 
 impl ServiceAction {
@@ -84,6 +87,8 @@ impl ServiceAction {
             A::MessageActionStarGiftUnique(a) => {
                 ServiceAction::UniqueGift(Box::new(UniqueGiftInfo::parse(a, msg_id, entities)?))
             }
+            A::MessageActionPaymentSentMe(a) => ServiceAction::SuccessfulPayment(Box::new(SuccessfulPayment::parse(a))),
+            A::MessageActionPaymentRefunded(a) => ServiceAction::RefundedPayment(Box::new(RefundedPayment::parse(a))),
             _ => return None,
         })
     }

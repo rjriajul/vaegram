@@ -4,7 +4,8 @@ use crate::client::Me;
 use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatJoinRequest, ChosenInlineResult,
     DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated,
-    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, User,
+    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PreCheckoutQuery,
+    PurchasedPaidMedia, ShippingQuery, User,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -121,3 +122,9 @@ subject!(MessageReactionCountUpdated: HasChat; |s, me| chat_query(Some(&s.chat),
 subject!(BusinessConnection: HasSender; |s, me| user_query(&s.user, me));
 
 subject!(DeletedBusinessMessages: HasChat; |s, me| chat_query(Some(&s.chat), me));
+
+subject!(ShippingQuery: HasSender; |s, me| user_query(&s.from_user, me));
+
+subject!(PreCheckoutQuery: HasSender; |s, me| user_query(&s.from_user, me));
+
+subject!(PurchasedPaidMedia: HasSender; |s, me| user_query(&s.from_user, me));

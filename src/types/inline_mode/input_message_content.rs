@@ -2,7 +2,7 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::{base, types};
-use crate::types::InputRichMessage;
+use crate::types::{InputInvoice, InputRichMessage};
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -40,6 +40,7 @@ pub enum InputMessageContent {
         last_name: String,
         vcard: String,
     },
+    Invoice(Box<InputInvoice>),
     Rich(InputRichMessage),
 }
 
@@ -98,6 +99,10 @@ impl InputMessageContent {
             last_name: String::new(),
             vcard: String::new(),
         }
+    }
+
+    pub fn invoice(invoice: InputInvoice) -> Self {
+        InputMessageContent::Invoice(Box::new(invoice))
     }
 
     pub(crate) async fn write(
@@ -176,6 +181,7 @@ impl InputMessageContent {
                     },
                 ))
             }
+            InputMessageContent::Invoice(invoice) => invoice.write_inline(reply_markup),
             InputMessageContent::Rich(rich) => {
                 let rich_message = rich.write();
                 let rich = types::InputBotInlineMessageRichMessage { reply_markup, rich_message };

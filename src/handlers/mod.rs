@@ -9,7 +9,8 @@ use crate::raw::base;
 use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatJoinRequest, ChosenInlineResult,
     DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated,
-    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated,
+    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PreCheckoutQuery,
+    PurchasedPaidMedia, ShippingQuery,
 };
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
@@ -50,6 +51,9 @@ pub enum UpdateKind {
     BusinessMessage,
     EditedBusinessMessage,
     DeletedBusinessMessages,
+    ShippingQuery,
+    PreCheckoutQuery,
+    PurchasedPaidMedia,
     Raw,
 }
 
@@ -201,5 +205,23 @@ impl Routed for BusinessConnection {
 impl Routed for DeletedBusinessMessages {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
+    }
+}
+
+impl Routed for ShippingQuery {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+}
+
+impl Routed for PreCheckoutQuery {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+}
+
+impl Routed for PurchasedPaidMedia {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
     }
 }

@@ -19,4 +19,7 @@ mod on_message;
 mod on_message_generation_stopped;
 mod on_message_reaction;
 mod on_message_reaction_count;
+mod on_pre_checkout_query;
+mod on_purchased_paid_media;
 mod on_raw_update;
+mod on_shipping_query;
