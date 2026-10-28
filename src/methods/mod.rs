@@ -30,8 +30,9 @@ mod utilities;
 
 pub use bots::{
     AnswerCallbackQuery, AnswerInlineQuery, AnswerPreCheckoutQuery, AnswerShippingQuery, CreateInvoiceLink,
-    SavePreparedInlineMessage, SendGame, SendInvoice, SetGameScore, SetInlineGameScore, VerifyChat,
+    SavePreparedInlineMessage, SendGame, SendInvoice, SetGameScore, SetInlineGameScore, SetUserEmojiStatus, VerifyChat,
 };
+pub use business::{EditStory, PostStory, RepostStory};
 pub use chats::{
     BanChatMember, CreateForumTopic, EditForumTopic, GetChatAdministrators, GetChatMembers, RestrictChatMember,
 };
@@ -49,3 +50,4 @@ pub use messages::{
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
 };
+pub use users::GetChatPhotos;

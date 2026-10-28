@@ -9,10 +9,10 @@ use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
 use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, UpdateKind};
 use crate::raw::base;
 use crate::types::{
-    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatJoinRequest, ChosenInlineResult,
-    DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated,
-    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PreCheckoutQuery,
-    PurchasedPaidMedia, ShippingQuery,
+    BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated,
+    ChatJoinRequest, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage,
+    GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped, MessageReactionCountUpdated,
+    MessageReactionUpdated, PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -153,6 +153,8 @@ pub(crate) struct Router {
     pub(crate) shipping_query: Handlers<ShippingQuery>,
     pub(crate) pre_checkout_query: Handlers<PreCheckoutQuery>,
     pub(crate) purchased_paid_media: Handlers<PurchasedPaidMedia>,
+    pub(crate) chat_boost: Handlers<ChatBoostUpdated>,
+    pub(crate) removed_chat_boost: Handlers<ChatBoostRemoved>,
     pub(crate) raw: Vec<RawCallback>,
     pub(crate) on_error: Option<ErrorCallback>,
     next_id: u32,
@@ -188,6 +190,8 @@ impl Router {
             UpdateKind::ShippingQuery => self.shipping_query.configure(id, group, stop),
             UpdateKind::PreCheckoutQuery => self.pre_checkout_query.configure(id, group, stop),
             UpdateKind::PurchasedPaidMedia => self.purchased_paid_media.configure(id, group, stop),
+            UpdateKind::ChatBoost => self.chat_boost.configure(id, group, stop),
+            UpdateKind::RemovedChatBoost => self.removed_chat_boost.configure(id, group, stop),
             UpdateKind::Raw => {}
         }
     }
@@ -311,6 +315,18 @@ impl Router {
                 let item = PurchasedPaidMedia::parse(client, &u, entities);
                 let kind = UpdateKind::PurchasedPaidMedia;
                 self.purchased_paid_media.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateBotChatBoost(u) if !self.chat_boost.0.is_empty() || !self.removed_chat_boost.0.is_empty() => {
+                let scan = (Vec::new(), Some(0));
+                match BoostUpdate::parse(client, *u, entities) {
+                    Some(BoostUpdate::Updated(item)) => {
+                        self.chat_boost.finish(UpdateKind::ChatBoost, tasks, &me(), scan, item)
+                    }
+                    Some(BoostUpdate::Removed(item)) => {
+                        self.removed_chat_boost.finish(UpdateKind::RemovedChatBoost, tasks, &me(), scan, item)
+                    }
+                    None => {}
+                }
             }
             _ => {}
         }

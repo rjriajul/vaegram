@@ -7,10 +7,10 @@ use crate::dispatcher::Router;
 use crate::errors::{Error, Result};
 use crate::raw::base;
 use crate::types::{
-    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatJoinRequest, ChosenInlineResult,
-    DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated,
-    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PreCheckoutQuery,
-    PurchasedPaidMedia, ShippingQuery,
+    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated, ChatJoinRequest,
+    ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage, GuestMessage, InlineQuery,
+    ManagedBotUpdated, Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated,
+    PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery,
 };
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
@@ -54,6 +54,8 @@ pub enum UpdateKind {
     ShippingQuery,
     PreCheckoutQuery,
     PurchasedPaidMedia,
+    ChatBoost,
+    RemovedChatBoost,
     Raw,
 }
 
@@ -227,5 +229,17 @@ impl Routed for PreCheckoutQuery {
 impl Routed for PurchasedPaidMedia {
     fn chat_id(&self) -> Option<i64> {
         Some(self.from_user.id)
+    }
+}
+
+impl Routed for ChatBoostUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for ChatBoostRemoved {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
     }
 }

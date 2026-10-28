@@ -32,6 +32,7 @@ pub enum ServiceAction {
     ChecklistTasksDone(ChecklistTasksDone),
     ChecklistTasksAdded(ChecklistTasksAdded),
     GameHighScore { game_id: i64, score: i32 },
+    BoostAdded(i32),
 }
 
 impl ServiceAction {
@@ -100,6 +101,7 @@ impl ServiceAction {
                 tasks: a.list.iter().map(|item| ChecklistTask::parse(item, entities)).collect(),
             }),
             A::MessageActionGameScore(a) => ServiceAction::GameHighScore { game_id: a.game_id, score: a.score },
+            A::MessageActionBoostApply(a) => ServiceAction::BoostAdded(a.boosts),
             _ => return None,
         })
     }

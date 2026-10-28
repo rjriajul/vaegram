@@ -27,20 +27,23 @@ pub use inline_mode::{
 pub use messages_and_media::{
     Animation, Audio, Checklist, ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone, Command, Contact,
     DeletedBusinessMessages, DeletedEphemeralMessages, Dice, Document, EphemeralMessage, ExternalReplyInfo,
-    FileLocation, Game, GuestMessage, InputChecklist, Invoice, LinkPreviewOptions, Location, Media, Message,
-    MessageEntity, MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated,
-    MessageText, Photo, Poll, PollOption, ReactionCount, ReactionType, RefundedPayment, ReplyParameters, ServiceAction,
-    StarAmount, Sticker, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
-    SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded,
-    TextQuote, Upload, Venue, Video, VideoNote, Voice,
+    FileLocation, Game, GuestMessage, InputChecklist, InputStoryContent, Invoice, LinkPreviewOptions, Location,
+    LocationAddress, Media, Message, MessageEntity, MessageGenerationStopped, MessageOrigin,
+    MessageReactionCountUpdated, MessageReactionUpdated, MessageText, Photo, Poll, PollOption, ReactionCount,
+    ReactionType, RefundedPayment, ReplyParameters, ServiceAction, StarAmount, Sticker, Story, StoryArea,
+    StoryAreaPosition, StoryAreaType, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved,
+    SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice,
+    SuggestedPostRefunded, TextQuote, Upload, Venue, Video, VideoNote, Voice,
 };
 pub use payments::{
     Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,
     UniqueGiftBackdrop, UniqueGiftInfo,
 };
 pub use rich_messages::{InputRichMessage, RichMessage};
+pub(crate) use user_and_chats::BoostUpdate;
 pub use user_and_chats::{
-    AcceptedGiftTypes, BusinessBotRights, BusinessConnection, Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner,
-    ChatMember, ChatPermissions, ChatPrivileges, Community, DirectMessagesTopic, ForumTopic, ForumTopicCreated,
-    ForumTopicEdited, PassportElementError, PeerRef, User,
+    AcceptedGiftTypes, BusinessBotRights, BusinessConnection, Chat, ChatBoost, ChatBoostRemoved, ChatBoostSource,
+    ChatBoostUpdated, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatPermissions, ChatPrivileges,
+    Community, DirectMessagesTopic, ForumTopic, ForumTopicCreated, ForumTopicEdited, PassportElementError, PeerRef,
+    User, UserProfilePhotos,
 };

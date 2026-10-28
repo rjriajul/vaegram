@@ -2,10 +2,10 @@ use super::facts::{Facts, PeerKinds};
 use crate::Client;
 use crate::client::Me;
 use crate::types::{
-    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatJoinRequest, ChosenInlineResult,
-    DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated,
-    Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PreCheckoutQuery,
-    PurchasedPaidMedia, ShippingQuery, User,
+    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatBoostRemoved, ChatBoostSource,
+    ChatBoostUpdated, ChatJoinRequest, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
+    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
+    MessageReactionCountUpdated, MessageReactionUpdated, PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery, User,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -131,3 +131,13 @@ subject!(ShippingQuery: HasSender; |s, me| user_query(&s.from_user, me));
 subject!(PreCheckoutQuery: HasSender; |s, me| user_query(&s.from_user, me));
 
 subject!(PurchasedPaidMedia: HasSender; |s, me| user_query(&s.from_user, me));
+
+// The booster stands in as the sender; an unclaimed giveaway prize has none.
+fn boost_facts<'a>(chat: &Chat, source: &ChatBoostSource, me: &'a Me) -> Facts<'a> {
+    let (sender_id, sender_bot) = source.user().map_or((0, false), |u| (u.id, u.is_bot));
+    Facts::query(chat.id, sender_id, &[], PeerKinds { chat: Some(chat.kind), sender_bot }, me)
+}
+
+subject!(ChatBoostUpdated: HasChat, HasSender; |s, me| boost_facts(&s.chat, &s.boost.source, me));
+
+subject!(ChatBoostRemoved: HasChat, HasSender; |s, me| boost_facts(&s.chat, &s.source, me));
