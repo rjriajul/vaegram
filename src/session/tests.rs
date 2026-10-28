@@ -12,7 +12,8 @@ use super::{
 };
 use crate::errors::{Error, RpcError};
 use crate::session::internals::data_center::Dc;
-use crate::session::{auth::Created, pfs::Pfs};
+use crate::session::transfer::{Auth, TransferPool};
+use crate::session::{Learned, auth::Created, pfs::Pfs};
 
 type Frames = mpsc::UnboundedReceiver<Vec<u8>>;
 type Seen = Arc<Mutex<Vec<(&'static str, i64, Result<Vec<u8>, String>)>>>;
@@ -708,4 +709,49 @@ async fn saved_clock_offset_is_confirmed_by_the_server() {
     assert!(r.fresh((server_now << 32) | 1, &ping(1)));
     assert!(r.clock_synced);
     assert!(!r.fresh(((server_now - 600) << 32) | 1, &ping(1)));
+}
+
+// Reads the salt out of a client frame on the intermediate transport.
+async fn first_salt(listener: &TcpListener, auth_key: &[u8; 256]) -> i64 {
+    let (mut server, _) = listener.accept().await.unwrap();
+    server.read_exact(&mut [0; 4]).await.unwrap();
+    let mut frame = vec![0; server.read_u32_le().await.unwrap() as usize];
+    server.read_exact(&mut frame).await.unwrap();
+    let msg_key: [u8; 16] = frame[8..24].try_into().unwrap();
+    let (key, iv) = mtproto::kdf(auth_key, &msg_key, true);
+    let mut plain = frame[24..].to_vec();
+    warpcrypto::ige256_decrypt(&mut plain, &key, &iv).unwrap();
+    i64::from_le_bytes(plain[..8].try_into().unwrap())
+}
+
+async fn transfer_dc() -> (TcpListener, Dc, Options) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let dc = Dc { id: 4, addr: listener.local_addr().unwrap(), test: false };
+    (listener, dc, Options { transport: crate::connection::Transport::Intermediate, ..Options::default() })
+}
+
+#[tokio::test]
+async fn transfer_connections_start_with_the_salt_they_are_given() {
+    let (listener, dc, options) = transfer_dc().await;
+    let salt = Salt { value: 0x5a17, time_offset: 0 };
+    let session = Session::connect_transfer(dc, Some(([7; 256], salt)), None, &options, Arc::default(), None);
+    let session = session.await.unwrap();
+    tokio::spawn(async move { session.invoke(&functions::Ping { ping_id: 1 }).await });
+    assert_eq!(first_salt(&listener, &[7; 256]).await, 0x5a17);
+}
+
+#[tokio::test]
+async fn leased_connections_start_with_the_salt_the_slot_learned() {
+    let (listener, dc, options) = transfer_dc().await;
+    let (requests, _open) = mpsc::unbounded_channel();
+    let learned = Arc::new(Learned { salt: 77.into(), time_offset: 0.into() });
+    let live = Session { learned, ..Session::local(requests) };
+    let pool = TransferPool::default();
+    pool.insert(dc, &live);
+    // Learned after the slot stored 77: the live connection's current salt wins.
+    live.learned.salt.store(78, std::sync::atomic::Ordering::Relaxed);
+    let lease = pool.lease(dc, 2, Auth::Home(&Session::offline(), 1), &options, &Arc::default()).await.unwrap();
+    let opened = lease.sessions[1].clone();
+    tokio::spawn(async move { opened.invoke(&functions::Ping { ping_id: 1 }).await });
+    assert_eq!(first_salt(&listener, live.auth_key()).await, 78);
 }

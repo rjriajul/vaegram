@@ -230,14 +230,13 @@ impl Session {
     /// unless `pfs` puts it under a temporary key.
     pub(crate) async fn connect_transfer(
         dc: Dc,
-        auth_key: Option<[u8; 256]>,
+        auth_key: Option<([u8; 256], Salt)>,
         cdn_key: Option<&PublicKey>,
         options: &Options,
         events: Arc<Events>,
         pfs: Option<Arc<[u8]>>,
     ) -> Result<Session> {
-        let saved = auth_key.map(|key| (key, Salt::default()));
-        Session::open(dc, saved, cdn_key, options, events, None, pfs).await
+        Session::open(dc, auth_key, cdn_key, options, events, None, pfs).await
     }
 
     async fn open(
