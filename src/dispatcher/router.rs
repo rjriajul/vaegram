@@ -115,7 +115,7 @@ impl Handlers<Message> {
         kind: UpdateKind,
         tasks: &mut Tasks,
         client: &Client,
-        raw: base::Message,
+        mut raw: base::Message,
         entities: &Entities,
         business_connection_id: Option<String>,
     ) {
@@ -123,6 +123,9 @@ impl Handlers<Message> {
             return;
         }
         let me = client.0.me.lock().unwrap().clone();
+        if let base::Message::Message(m) = &mut raw {
+            Message::fill_rich_text(m);
+        }
         let Some(scan) = self.scan(&Facts::message(&raw, PeerKinds::message(&raw, entities), &me)) else { return };
         if let Some(mut message) = Message::from_raw(client, raw, entities) {
             message.business_connection_id = business_connection_id;
@@ -361,6 +364,7 @@ mod tests {
     use crate::handlers::callback;
     use crate::raw::types;
     use crate::types::messages_and_media::ephemeral_message::tests::{channel, ephemeral};
+    use crate::types::messages_and_media::message::tests::service;
     use crate::utils::{get_channel_id, get_peer};
 
     type Log = Arc<Mutex<Vec<&'static str>>>;
@@ -785,6 +789,45 @@ mod tests {
         dispatch(&router, new_message(1, false));
         settle().await;
         assert_eq!(*log.lock().unwrap(), ["start", "one"]);
+    }
+
+    #[tokio::test]
+    async fn service_filters_match_the_parsed_service_message() {
+        let log = Log::default();
+        let mut router = Router::default();
+        let any = || filters::create(|_: &Message| true);
+        router.message.push(1, filters::service() & any(), record(&log, "service"));
+        router.message.push(2, !filters::service() & any(), record(&log, "not service"));
+        router.message.push(3, filters::create(|_: &Message| false), record(&log, "closure"));
+        router.message.push(4, filters::service(), record(&log, "after closure"));
+        router.configure(UpdateKind::Message, 2, Some(1), false);
+        router.configure(UpdateKind::Message, 3, Some(2), false);
+        router.configure(UpdateKind::Message, 4, Some(2), false);
+        let title = types::MessageActionChatEditTitle { title: "t".into() };
+        let title = service(base::MessageAction::MessageActionChatEditTitle(Box::new(title)));
+        let message = base::Message::MessageService(Box::new(title));
+        let update = types::UpdateNewMessage { message, pts: 0, pts_count: 0 };
+        dispatch(&router, base::Update::UpdateNewMessage(Box::new(update)));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["service", "after closure"]);
+    }
+
+    #[tokio::test]
+    async fn rich_text_reaches_command_filters() {
+        let log = Log::default();
+        let mut router = Router::default();
+        router.message.push(1, filters::command("start"), record(&log, "start"));
+        let heading = base::RichText::TextPlain(Box::new(types::TextPlain { text: "/start".into() }));
+        let blocks = vec![base::PageBlock::PageBlockHeading1(Box::new(types::PageBlockHeading1 { text: heading }))];
+        let rich = types::RichMessage { rtl: false, part: false, blocks, photos: vec![], documents: vec![] };
+        let mut raw = Message::bare(1, get_peer(1), 0);
+        raw.rich_message = Some(base::RichMessage::RichMessage(Box::new(rich)));
+        let parsed = Message::parse(&Client::offline(), Box::new(raw.clone()), &Entities::default());
+        assert!(filters::command("start").check(&parsed));
+        let update = types::UpdateNewMessage { message: base::Message::Message(Box::new(raw)), pts: 0, pts_count: 0 };
+        dispatch(&router, base::Update::UpdateNewMessage(Box::new(update)));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["start"]);
     }
 
     #[test]

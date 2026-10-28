@@ -29,6 +29,7 @@ mod stickers;
 mod users;
 mod utilities;
 
+pub(crate) use advanced::invoke_sleeping_floods;
 pub use bots::{
     AnswerCallbackQuery, AnswerInlineQuery, AnswerPreCheckoutQuery, AnswerShippingQuery, CreateInvoiceLink,
     SavePreparedInlineMessage, SendGame, SendInvoice, SetGameScore, SetInlineGameScore, SetUserEmojiStatus, VerifyChat,

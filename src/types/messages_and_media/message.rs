@@ -47,7 +47,8 @@ pub struct Message {
     pub business_connection_id: Option<String>,
     pub direct_messages_topic: Option<DirectMessagesTopic>,
     pub reactions: Vec<ReactionCount>,
-    /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`].
+    /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`] and leaves its text in
+    /// `message`.
     pub raw: Box<types::Message>,
     client: Client,
 }
@@ -63,6 +64,7 @@ impl Message {
         service: Option<ServiceAction>,
         entities: &Entities,
     ) -> Message {
+        Message::fill_rich_text(&mut raw);
         let chat = Chat::parse(&raw.peer_id, entities, raw.post);
         let (mut from_user, mut sender_chat) = (None, None);
         match (&raw.from_id, &raw.peer_id) {
@@ -99,10 +101,6 @@ impl Message {
             _ => None,
         };
         let rich_message = raw.rich_message.take().map(RichMessage::parse);
-        let text = match &rich_message {
-            Some(rich) if text.is_empty() && caption.is_none() => rich.text(),
-            _ => text,
-        };
         Message {
             id: raw.id,
             chat,
@@ -138,6 +136,13 @@ impl Message {
             }),
             raw,
             client: client.clone(),
+        }
+    }
+
+    /// Filters read `message`, so a rich message without plain text carries its blocks' text there.
+    pub(crate) fn fill_rich_text(raw: &mut types::Message) {
+        if let (true, Some(base::RichMessage::RichMessage(rich))) = (raw.message.is_empty(), &raw.rich_message) {
+            raw.message = RichMessage::plain_text(rich);
         }
     }
 
@@ -207,12 +212,21 @@ impl Message {
     fn parse_service(client: &Client, raw: &types::MessageService, entities: &Entities) -> Option<Message> {
         let service = ServiceAction::parse(raw, entities)?;
         let mut bare = Message::bare(raw.id, raw.peer_id.clone(), raw.date);
-        (bare.out, bare.post, bare.from_id) = (raw.out, raw.post, raw.from_id.clone());
+        (bare.out, bare.mentioned, bare.post, bare.from_id) = (raw.out, raw.mentioned, raw.post, raw.from_id.clone());
         bare.saved_peer_id = raw.saved_peer_id.clone();
-        // A pin's header points at the pinned message, which the service message doesn't reply to.
-        if !matches!(raw.action, base::MessageAction::MessageActionPinMessage) {
-            bare.reply_to = raw.reply_to.clone();
-        }
+        // A pin's header points at the pinned message, which the service message doesn't reply to. In a forum it
+        // still names the topic, so that part stays as the header of a message posted in the topic.
+        let pin = matches!(raw.action, base::MessageAction::MessageActionPinMessage);
+        bare.reply_to = match &raw.reply_to {
+            Some(base::MessageReplyHeader::MessageReplyHeader(h)) if pin && h.forum_topic => {
+                let thread = h.reply_to_top_id.or(h.reply_to_msg_id);
+                let topic =
+                    types::MessageReplyHeader { reply_to_msg_id: thread, reply_to_top_id: None, ..(**h).clone() };
+                Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(topic)))
+            }
+            _ if pin => None,
+            reply_to => reply_to.clone(),
+        };
         Some(Message::build(client, Box::new(bare), Some(service), entities))
     }
 
@@ -255,16 +269,18 @@ impl Message {
         };
         let entities = Entities::new(client, users, chats);
         updates.into_iter().filter_map(move |u| {
-            let message = match u {
-                base::Update::UpdateNewMessage(u) => u.message,
-                base::Update::UpdateNewChannelMessage(u) => u.message,
-                base::Update::UpdateEditMessage(u) => u.message,
-                base::Update::UpdateEditChannelMessage(u) => u.message,
-                base::Update::UpdateBotNewBusinessMessage(u) => u.message,
-                base::Update::UpdateBotEditBusinessMessage(u) => u.message,
+            let (message, connection_id) = match u {
+                base::Update::UpdateNewMessage(u) => (u.message, None),
+                base::Update::UpdateNewChannelMessage(u) => (u.message, None),
+                base::Update::UpdateEditMessage(u) => (u.message, None),
+                base::Update::UpdateEditChannelMessage(u) => (u.message, None),
+                base::Update::UpdateBotNewBusinessMessage(u) => (u.message, Some(u.connection_id)),
+                base::Update::UpdateBotEditBusinessMessage(u) => (u.message, Some(u.connection_id)),
                 _ => return None,
             };
-            Message::from_raw(client, message, &entities)
+            let mut message = Message::from_raw(client, message, &entities)?;
+            message.business_connection_id = connection_id;
+            Some(message)
         })
     }
 
@@ -389,16 +405,17 @@ fn reply_fields(raw: &types::Message, service: Option<&ServiceAction>, entities:
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::super::media::tests::document_media;
     use super::Message;
     use crate::Client;
     use crate::dispatcher::Entities;
+    use crate::filters;
     use crate::raw::{base, types};
     use crate::types::{Community, ForumTopicCreated, ForumTopicEdited, Media, MessageOrigin, ServiceAction};
     use crate::utils::{get_channel_id, get_peer};
 
-    fn header() -> types::MessageReplyHeader {
+    pub(crate) fn header() -> types::MessageReplyHeader {
         types::MessageReplyHeader {
             reply_to_scheduled: false,
             forum_topic: false,
@@ -415,6 +432,27 @@ mod tests {
             todo_item_id: None,
             poll_option: None,
             quote_rich: None,
+        }
+    }
+
+    pub(crate) fn service(action: base::MessageAction) -> types::MessageService {
+        types::MessageService {
+            out: false,
+            mentioned: false,
+            media_unread: false,
+            reactions_are_possible: false,
+            silent: false,
+            post: false,
+            legacy: false,
+            id: 9,
+            from_id: Some(get_peer(7)),
+            peer_id: get_peer(get_channel_id(55)),
+            saved_peer_id: None,
+            reply_to: None,
+            date: 1,
+            action,
+            reactions: None,
+            ttl_period: None,
         }
     }
 
@@ -604,6 +642,7 @@ mod tests {
         };
         assert_eq!(created.service, Some(ServiceAction::ForumTopicCreated(topic)));
         assert_eq!((created.message_thread_id, created.is_topic_message), (Some(9), true));
+        assert!(filters::topic(9).check(&created));
 
         let renamed = service(in_topic.clone(), edit(Some("New"), None, None));
         let edited = ForumTopicEdited { title: Some("New".into()), icon_emoji_id: None };
@@ -619,6 +658,17 @@ mod tests {
             service(None, edit(None, None, Some(false))).service,
             Some(ServiceAction::GeneralForumTopicUnhidden)
         );
+
+        let pin = types::MessageReplyHeader {
+            forum_topic: true,
+            reply_to_msg_id: Some(12),
+            reply_to_top_id: Some(4),
+            ..header()
+        };
+        let pinned = service(Some(pin), base::MessageAction::MessageActionPinMessage);
+        assert_eq!(pinned.service, Some(ServiceAction::PinnedMessage(12)));
+        let topic = (pinned.message_thread_id, pinned.is_topic_message, pinned.reply_to_message_id);
+        assert_eq!(topic, (Some(4), true, None));
     }
 
     #[test]

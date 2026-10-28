@@ -10,7 +10,7 @@ use crate::connection::{Options, Proxy, Transport};
 use crate::dispatcher::Routes;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
-use crate::methods::StreamShared;
+use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Lease, TransferPool};
@@ -161,7 +161,7 @@ impl ClientBuilder {
         inner.dcs = RwLock::new(data_center::table(&dc_options, self.ipv6));
         inner.test_mode = test_mode;
         inner.ipv6 = self.ipv6;
-        inner.storage_path = storage_path;
+        inner.storage_path = Mutex::new(storage_path);
         inner.state_file = state_file;
         inner.options = self.options;
         inner.parse_mode = self.parse_mode;
@@ -187,15 +187,16 @@ impl fmt::Debug for Client {
 
 pub(crate) struct Inner {
     session: RwLock<Session>,
-    transfers: TransferPool,
+    pub(crate) transfers: TransferPool,
     pub(crate) updates: tokio::sync::Mutex<UpdatesRx>,
     pub(crate) api_id: i32,
     pub(crate) api_hash: String,
     dcs: RwLock<Vec<(i32, SocketAddr)>>,
     test_mode: bool,
     ipv6: bool,
-    pub(crate) storage_path: Option<PathBuf>,
-    state_file: Option<Arc<StateFile>>,
+    // Taken by log_out, so a later save can't write the dead login back.
+    pub(crate) storage_path: Mutex<Option<PathBuf>>,
+    pub(crate) state_file: Option<Arc<StateFile>>,
     options: Options,
     pub(crate) parse_mode: ParseMode,
     pub(crate) state: Mutex<Option<UpdateState>>,
@@ -233,7 +234,7 @@ impl Inner {
             dcs: RwLock::new(Vec::new()),
             test_mode: false,
             ipv6: false,
-            storage_path: None,
+            storage_path: Mutex::new(None),
             state_file: None,
             options: Options::default(),
             parse_mode: ParseMode::Disabled,
@@ -349,7 +350,7 @@ impl Client {
         }
         let lease = self.transfer_sessions(dc_id, 1).await?;
         // A reopened file connection hasn't sent its layer, and the answer can carry users.
-        lease.sessions[0].invoke(&init_connection(self.0.api_id, &self.0.options, request)).await
+        invoke_sleeping_floods(&lease.sessions[0], &init_connection(self.0.api_id, &self.0.options, request)).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {
@@ -367,7 +368,7 @@ impl Client {
     }
 
     pub(crate) fn save(&self) -> Result<()> {
-        match &self.0.storage_path {
+        match &*self.0.storage_path.lock().unwrap() {
             Some(path) => Ok(storage::save(path, &self.session_data())?),
             None => Ok(()),
         }

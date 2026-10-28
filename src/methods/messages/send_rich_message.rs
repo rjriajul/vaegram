@@ -72,4 +72,23 @@ mod tests {
         let message = client.send_rich_message("me", InputRichMessage::html("<h1>Hi</h1> <b>there</b>")).await.unwrap();
         assert_eq!((message.id, message.text.as_str(), message.rich_message), (9, "Hi there", None));
     }
+
+    #[tokio::test]
+    async fn business_send_keeps_the_connection() {
+        let raw = crate::types::Message::bare(9, crate::utils::get_peer(5), 0);
+        let update = types::UpdateBotNewBusinessMessage {
+            connection_id: "conn".into(),
+            message: base::Message::Message(Box::new(raw)),
+            reply_to_message: None,
+            qts: 0,
+        };
+        let updates = base::Updates::UpdateShort(Box::new(types::UpdateShort {
+            update: base::Update::UpdateBotNewBusinessMessage(Box::new(update)),
+            date: 0,
+        }));
+        let (client, _rx) = Client::scripted(vec![Ok(updates.to_bytes())]);
+        let message =
+            client.send_rich_message("me", InputRichMessage::html("hi")).business_connection_id("conn").await.unwrap();
+        assert_eq!(message.business_connection_id.as_deref(), Some("conn"));
+    }
 }

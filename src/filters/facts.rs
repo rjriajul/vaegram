@@ -2,7 +2,7 @@ use crate::client::Me;
 use crate::dispatcher::Entities;
 use crate::enums::{ChatType, MediaKind, ServiceKind};
 use crate::raw::{base, types};
-use crate::types::Chat;
+use crate::types::{Chat, Message};
 use crate::utils::get_peer_id;
 
 pub(crate) const OUTGOING: u32 = 1 << 0;
@@ -71,6 +71,16 @@ impl<'a> Facts<'a> {
         facts.flags |= SERVICE | flag(m.mentioned, MENTIONED);
         facts.service = Some(ServiceKind::of(&m.action, kinds.chat));
         facts.reply(m.reply_to.as_ref());
+        match m.action {
+            // A pin's header points at the pinned message, which the pin doesn't reply to.
+            base::MessageAction::MessageActionPinMessage => facts.flags &= !REPLY,
+            // The message that creates a topic is its root, so the topic id is the message's own id.
+            base::MessageAction::MessageActionTopicCreate(_) => {
+                facts.flags |= TOPIC;
+                facts.thread_id = m.id;
+            }
+            _ => {}
+        }
         facts
     }
 
@@ -91,6 +101,21 @@ impl<'a> Facts<'a> {
             | flag(m.grouped_id.is_some(), MEDIA_GROUP);
         (facts.media, facts.text) = (media, &m.message);
         facts.reply(m.reply_to.as_ref());
+        facts
+    }
+
+    /// A service message's `raw` is a bare message, so its kind and topic come from the parsed fields.
+    pub(crate) fn parsed(m: &'a Message, me: &'a Me) -> Facts<'a> {
+        let sender_bot = m.from_user.as_ref().is_some_and(|u| u.is_bot);
+        let mut facts = Facts::plain(&m.raw, PeerKinds { chat: Some(m.chat.kind), sender_bot }, me);
+        if let Some(service) = &m.service {
+            facts.flags |= SERVICE;
+            facts.service = Some(service.kind());
+        }
+        if m.is_topic_message {
+            facts.flags |= TOPIC;
+            facts.thread_id = m.message_thread_id.unwrap_or(0);
+        }
         facts
     }
 
@@ -169,6 +194,7 @@ mod tests {
     use crate::Client;
     use crate::filters::Inspect;
     use crate::raw::Serializable;
+    use crate::types::messages_and_media::message::tests::{header, service};
     use crate::types::{CallbackQuery, Message};
     use crate::utils::{get_channel_id, get_peer};
 
@@ -248,27 +274,50 @@ mod tests {
     #[test]
     fn service_messages_have_a_kind() {
         let raw = types::MessageService {
-            out: false,
-            mentioned: false,
-            media_unread: false,
-            reactions_are_possible: false,
-            silent: false,
-            post: false,
-            legacy: false,
-            id: 1,
             from_id: None,
             peer_id: get_peer(-5),
-            saved_peer_id: None,
-            reply_to: None,
-            date: 0,
-            action: base::MessageAction::MessageActionPinMessage,
-            reactions: None,
-            ttl_period: None,
+            ..service(base::MessageAction::MessageActionPinMessage)
         };
         let raw = base::Message::MessageService(Box::new(raw));
         let (entities, me) = (Entities::default(), Me::default());
         let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
         let kind = (facts.flags, facts.service, facts.chat);
         assert_eq!(kind, (SERVICE, Some(ServiceKind::PinnedMessage), Some(ChatType::Group)));
+    }
+
+    #[test]
+    fn raw_and_parsed_service_messages_have_the_same_facts() {
+        let (client, entities) = (Client::offline(), entities());
+        let me = Me { id: 0, is_bot: true, username: Some("Bot".into()) };
+        let title = types::MessageActionChatEditTitle { title: "t".into() };
+        let title = service(base::MessageAction::MessageActionChatEditTitle(Box::new(title)));
+        let pin = types::MessageReplyHeader {
+            forum_topic: true,
+            reply_to_msg_id: Some(12),
+            reply_to_top_id: Some(4),
+            ..header()
+        };
+        let pin = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(pin)));
+        let pin = types::MessageService { reply_to: pin, ..service(base::MessageAction::MessageActionPinMessage) };
+        let create = types::MessageActionTopicCreate {
+            title_missing: false,
+            title: "t".into(),
+            icon_color: 0,
+            icon_emoji_id: None,
+        };
+        let create = service(base::MessageAction::MessageActionTopicCreate(Box::new(create)));
+        let cases = [
+            (types::MessageService { mentioned: true, ..title }, MENTIONED, ServiceKind::NewChatTitle, 0),
+            (pin, TOPIC, ServiceKind::PinnedMessage, 4),
+            (create, TOPIC, ServiceKind::ForumTopicCreated, 9),
+        ];
+        for (raw, flags, kind, thread_id) in cases {
+            let raw = base::Message::MessageService(Box::new(raw));
+            let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
+            let parsed = Message::from_raw(&client, raw.clone(), &entities).unwrap();
+            assert_eq!(facts, parsed.facts(&me));
+            let expected = (SERVICE | SENDER_BOT | flags, Some(kind), thread_id);
+            assert_eq!((facts.flags, facts.service, facts.thread_id), expected);
+        }
     }
 }

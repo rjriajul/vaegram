@@ -52,8 +52,12 @@ impl RichMessage {
     }
 
     pub fn text(&self) -> String {
+        RichMessage::plain_text(&self.raw)
+    }
+
+    pub(crate) fn plain_text(raw: &types::RichMessage) -> String {
         let mut out = String::new();
-        for block in &self.raw.blocks {
+        for block in &raw.blocks {
             for_each_text(block, &mut |text| {
                 let start = out.len();
                 if start > 0 {

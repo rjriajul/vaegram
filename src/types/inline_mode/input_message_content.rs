@@ -193,13 +193,13 @@ impl InputMessageContent {
 
 impl From<String> for InputMessageContent {
     fn from(text: String) -> Self {
-        InputMessageContent::text(text)
+        InputMessageContent::formatted(text, Some(ParseMode::Disabled))
     }
 }
 
 impl From<&str> for InputMessageContent {
     fn from(text: &str) -> Self {
-        InputMessageContent::text(text)
+        InputMessageContent::formatted(text.into(), Some(ParseMode::Disabled))
     }
 }
 

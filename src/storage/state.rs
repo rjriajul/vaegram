@@ -136,6 +136,12 @@ impl StateFile {
             Err(e) => eprintln!("vaegram: failed to save {}: {e}", self.path.display()),
         }
     }
+
+    /// Removes the file for good: no later write, even one already queued, recreates it.
+    pub(crate) fn delete(&self) -> io::Result<()> {
+        *self.written.lock().unwrap_or_else(PoisonError::into_inner) = u64::MAX;
+        super::delete(&self.path)
+    }
 }
 
 fn take<const N: usize>(b: &mut &[u8]) -> Option<[u8; N]> {

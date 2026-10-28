@@ -67,10 +67,7 @@ fn sender_of(user: Option<&User>, chat: Option<&Chat>) -> (i64, bool) {
     }
 }
 
-subject!(Message: HasChat, HasSender, HasText, HasMedia; |s, me| {
-    let sender_bot = s.from_user.as_ref().is_some_and(|u| u.is_bot);
-    Facts::plain(&s.raw, PeerKinds { chat: Some(s.chat.kind), sender_bot }, me)
-});
+subject!(Message: HasChat, HasSender, HasText, HasMedia; |s, me| Facts::parsed(s, me));
 
 subject!(CallbackQuery: HasChat, HasSender, HasData; |s, me| {
     let chat = s.chat();

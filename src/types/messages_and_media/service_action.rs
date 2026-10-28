@@ -234,6 +234,57 @@ impl ServiceAction {
             _ => return None,
         })
     }
+
+    pub(crate) fn kind(&self) -> ServiceKind {
+        use ServiceAction as S;
+        use ServiceKind as K;
+        match self {
+            S::NewChatMembers(_) => K::NewChatMembers,
+            S::LeftChatMember(_) => K::LeftChatMember,
+            S::NewChatTitle(_) => K::NewChatTitle,
+            S::NewChatPhoto(_) => K::NewChatPhoto,
+            S::DeleteChatPhoto => K::DeleteChatPhoto,
+            S::GroupChatCreated => K::GroupChatCreated,
+            S::SupergroupChatCreated => K::SupergroupChatCreated,
+            S::ChannelChatCreated => K::ChannelChatCreated,
+            S::MigrateToChatId(_) => K::MigrateToChatId,
+            S::MigrateFromChatId(_) => K::MigrateFromChatId,
+            S::PinnedMessage(_) => K::PinnedMessage,
+            S::AutoDeleteTimerChanged(_) => K::AutoDeleteTimerChanged,
+            S::VideoChatScheduled { .. } => K::VideoChatScheduled,
+            S::VideoChatStarted => K::VideoChatStarted,
+            S::VideoChatEnded { .. } => K::VideoChatEnded,
+            S::VideoChatParticipantsInvited(_) => K::VideoChatParticipantsInvited,
+            S::WriteAccessAllowed(_) => K::WriteAccessAllowed,
+            S::ConnectedWebsite(_) => K::ConnectedWebsite,
+            S::UsersShared(_) => K::UsersShared,
+            S::ChatShared(_) => K::ChatShared,
+            S::ProximityAlertTriggered(_) => K::ProximityAlertTriggered,
+            S::CommunityChatAdded(_) => K::CommunityChatAdded,
+            S::CommunityChatRemoved => K::CommunityChatRemoved,
+            S::CommunityChatJoined(_) => K::CommunityChatJoined,
+            S::ManagedBotCreated(_) => K::ManagedBotCreated,
+            S::SuggestedPostApproved(_) => K::SuggestedPostApproved,
+            S::SuggestedPostApprovalFailed(_) => K::SuggestedPostApprovalFailed,
+            S::SuggestedPostDeclined(_) => K::SuggestedPostDeclined,
+            S::SuggestedPostPaid(_) => K::SuggestedPostPaid,
+            S::SuggestedPostRefunded(_) => K::SuggestedPostRefunded,
+            S::ForumTopicCreated(_) => K::ForumTopicCreated,
+            S::ForumTopicEdited(_) => K::ForumTopicEdited,
+            S::ForumTopicClosed => K::ForumTopicClosed,
+            S::ForumTopicReopened => K::ForumTopicReopened,
+            S::GeneralForumTopicHidden => K::GeneralForumTopicHidden,
+            S::GeneralForumTopicUnhidden => K::GeneralForumTopicUnhidden,
+            S::Gift(_) => K::Gift,
+            S::UniqueGift(_) => K::UniqueGift,
+            S::SuccessfulPayment(_) => K::SuccessfulPayment,
+            S::RefundedPayment(_) => K::RefundedPayment,
+            S::ChecklistTasksDone(_) => K::ChecklistTasksDone,
+            S::ChecklistTasksAdded(_) => K::ChecklistTasksAdded,
+            S::GameHighScore { .. } => K::GameHighScore,
+            S::BoostAdded(_) => K::BoostAdded,
+        }
+    }
 }
 
 fn shared_user(peer: &base::RequestedPeer) -> Option<SharedUser> {
@@ -615,8 +666,8 @@ mod tests {
         let mut seen = HashSet::new();
         for raw in every_kind() {
             let kind = ServiceKind::of(&raw.action, Some(Chat::kind_of(&raw.peer_id, &entities, raw.post)));
-            let action = format!("{:?}", ServiceAction::parse(&raw, &entities).expect("a well-formed payload"));
-            assert_eq!(action.split(['(', ' ']).next(), Some(format!("{kind:?}").as_str()));
+            let action = ServiceAction::parse(&raw, &entities).expect("a well-formed payload");
+            assert_eq!(action.kind(), kind);
             seen.insert(kind);
         }
         // Discriminants run from 1 up to `Unknown`, so a new kind fails here until it gets a sample above.

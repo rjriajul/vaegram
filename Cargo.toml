@@ -25,4 +25,4 @@ tokio = { version = "1", features = ["fs", "net", "io-util", "rt", "sync", "time
 warpcrypto = "2.1.0"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }

@@ -59,7 +59,7 @@ impl CallbackQuery {
             id: raw.query_id,
             from_user: User::parse(raw.user_id, entities),
             origin: CallbackOrigin::Inline(InlineMessageId(raw.msg_id)),
-            data: raw.data.map(utf8).unwrap_or_default(),
+            data: raw.data.as_deref().map(String::from_utf8_lossy).unwrap_or_default().into_owned(),
             game_short_name: raw.game_short_name,
             chat_instance: raw.chat_instance,
             client: client.clone(),
@@ -80,7 +80,7 @@ impl CallbackQuery {
             from_user: User::parse(raw.user_id, entities),
             chat_instance: raw.chat_instance.or(message.raw.chat_instance).unwrap_or_default(),
             origin: CallbackOrigin::Ephemeral(Box::new(message)),
-            data: utf8(raw.data),
+            data: String::from_utf8_lossy(&raw.data).into_owned(),
             game_short_name: None,
             client: client.clone(),
         }
@@ -105,7 +105,7 @@ impl CallbackQuery {
                 message_id,
                 business_connection_id: Some(raw.connection_id),
             },
-            data: raw.data.map(utf8).unwrap_or_default(),
+            data: raw.data.as_deref().map(String::from_utf8_lossy).unwrap_or_default().into_owned(),
             game_short_name: None,
             chat_instance: raw.chat_instance,
             client: client.clone(),
@@ -197,10 +197,6 @@ impl CallbackQuery {
             CallbackOrigin::Ephemeral(message) => message.delete().await.map(drop),
         }
     }
-}
-
-fn utf8(data: Vec<u8>) -> String {
-    String::from_utf8(data).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
 impl fmt::Debug for CallbackQuery {

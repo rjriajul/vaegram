@@ -39,6 +39,13 @@ impl TransferPool {
         self.0.lock().unwrap().clear();
     }
 
+    #[cfg(test)]
+    pub(crate) fn seed(&self, dc_id: i32, session: &Session) {
+        let slot = self.0.lock().unwrap().entry(dc_id).or_default().clone();
+        *slot.state.lock().unwrap() =
+            State { auth_key: Some(*session.auth_key()), sessions: vec![session.downgrade()] };
+    }
+
     pub(crate) async fn lease(
         &self,
         dc: Dc,

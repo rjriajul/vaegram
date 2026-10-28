@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::{RemoteCall, base, functions};
 use crate::session::Affected;
 use crate::types::PeerRef;
-use crate::utils::{CHANNEL_OFFSET, get_channel_id};
+use crate::utils::{CHANNEL_OFFSET, channel_id_of};
 
 impl Client {
     pub async fn unpin_all_chat_messages(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
@@ -21,7 +21,7 @@ impl Client {
         R: RemoteCall<Return = base::messages::AffectedHistory>,
     {
         // In a channel the answer counts in the channel's own pts, not the account's.
-        let channel_id = (chat_id <= -CHANNEL_OFFSET).then(|| get_channel_id(chat_id));
+        let channel_id = (chat_id <= -CHANNEL_OFFSET).then(|| channel_id_of(chat_id));
         loop {
             let base::messages::AffectedHistory::AffectedHistory(affected) = self.invoke(request).await?;
             self.0.events.affected(Affected { channel_id, pts: affected.pts, pts_count: affected.pts_count });
