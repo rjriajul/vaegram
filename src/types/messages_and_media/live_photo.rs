@@ -18,6 +18,11 @@ pub struct LivePhoto {
 }
 
 impl LivePhoto {
+    /// The video makes it a live photo; without a readable one it is a plain photo, for filters as well.
+    pub(crate) fn is_live(media: &types::MessageMediaPhoto) -> bool {
+        media.live_photo && matches!(media.video, Some(base::Document::Document(_)))
+    }
+
     pub(crate) fn parse(media: &types::MessageMediaPhoto) -> Option<LivePhoto> {
         let video = media.video.as_ref()?;
         let base::Document::Document(raw) = video else { return None };

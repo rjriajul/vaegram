@@ -32,31 +32,38 @@ impl Client {
             _ => {}
         }
         let live_photo = media.kind == MediaKind::LivePhoto;
-        let video = match &media.video {
-            Some(video) => Some(self.live_video(peer, video, media, business_connection_id).await?),
-            None => None,
+        let video = async {
+            match &media.video {
+                Some(video) => self.live_video(peer, video, media, business_connection_id).await.map(Some),
+                None => Ok(None),
+            }
         };
-        let video_cover = self.cover(peer, media, business_connection_id).await?;
+        let extras = async { tokio::try_join!(video, self.cover(peer, media, business_connection_id)) };
         let video_timestamp = media.start_timestamp;
         Ok(match &media.file.0 {
-            Source::Stored(stored) => match stored.clone() {
-                base::InputMedia::InputMediaPhoto(mut photo) => {
-                    (photo.spoiler, photo.live_photo, photo.video) = (media.spoiler, live_photo, video);
-                    base::InputMedia::InputMediaPhoto(photo)
+            Source::Stored(stored) => {
+                let (video, video_cover) = extras.await?;
+                match stored.clone() {
+                    base::InputMedia::InputMediaPhoto(mut photo) => {
+                        (photo.spoiler, photo.live_photo, photo.video) = (media.spoiler, live_photo, video);
+                        base::InputMedia::InputMediaPhoto(photo)
+                    }
+                    base::InputMedia::InputMediaDocument(mut document) => {
+                        document.spoiler = media.spoiler;
+                        (document.video_cover, document.video_timestamp) = (video_cover, video_timestamp);
+                        base::InputMedia::InputMediaDocument(document)
+                    }
+                    other => other,
                 }
-                base::InputMedia::InputMediaDocument(mut document) => {
-                    document.spoiler = media.spoiler;
-                    (document.video_cover, document.video_timestamp) = (video_cover, video_timestamp);
-                    base::InputMedia::InputMediaDocument(document)
-                }
-                other => other,
-            },
+            }
             Source::Url(url) if photo => {
+                extras.await?;
                 let external =
                     types::InputMediaPhotoExternal { spoiler: media.spoiler, url: url.clone(), ttl_seconds: None };
                 base::InputMedia::InputMediaPhotoExternal(Box::new(external))
             }
             Source::Url(url) => {
+                let (_, video_cover) = extras.await?;
                 base::InputMedia::InputMediaDocumentExternal(Box::new(types::InputMediaDocumentExternal {
                     spoiler: media.spoiler,
                     url: url.clone(),
@@ -65,28 +72,30 @@ impl Client {
                     video_timestamp,
                 }))
             }
-            Source::Upload(upload) if photo => {
-                base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
-                    spoiler: media.spoiler,
-                    live_photo,
-                    file: self.save_file(*upload).progress(progress).await?,
-                    stickers: None,
-                    ttl_seconds: None,
-                    video,
-                }))
-            }
             Source::Upload(upload) => {
                 let thumb = async {
                     match media.thumb {
-                        Some(thumb) => self.save_file(thumb).await.map(Some),
-                        None => Ok(None),
+                        Some(thumb) if !photo => self.save_file(thumb).await.map(Some),
+                        _ => Ok(None),
                     }
                 };
-                let (file, thumb) = tokio::try_join!(self.save_file(*upload).progress(progress).into_future(), thumb)?;
-                let mut document = uploaded_document(media.kind, media, *upload, file);
-                (document.thumb, document.video_cover, document.video_timestamp) =
-                    (thumb, video_cover, video_timestamp);
-                base::InputMedia::InputMediaUploadedDocument(Box::new(document))
+                let file = self.save_file(*upload).progress(progress).into_future();
+                let ((video, video_cover), file, thumb) = tokio::try_join!(extras, file, thumb)?;
+                if photo {
+                    base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
+                        spoiler: media.spoiler,
+                        live_photo,
+                        file,
+                        stickers: None,
+                        ttl_seconds: None,
+                        video,
+                    }))
+                } else {
+                    let mut document = uploaded_document(media.kind, media, *upload, file);
+                    (document.thumb, document.video_cover, document.video_timestamp) =
+                        (thumb, video_cover, video_timestamp);
+                    base::InputMedia::InputMediaUploadedDocument(Box::new(document))
+                }
             }
         })
     }
@@ -298,6 +307,16 @@ mod tests {
     use crate::types::messages_and_media::Source;
     use crate::types::messages_and_media::media::tests::document_media;
     use crate::types::{InputMedia, Upload};
+
+    #[tokio::test]
+    async fn a_live_photo_uploads_its_photo_and_video_side_by_side() {
+        let (client, mut sent) = Client::recording();
+        client.0.me.lock().unwrap().premium = Some(false);
+        let media = InputMedia::live_photo(Upload::bytes("a.jpg", b"jpg"), Upload::bytes("a.mp4", b"mp4"));
+        // The recording session never answers, so only parts that went out before the first failure are seen.
+        assert!(client.input_media(&base::InputPeer::InputPeerEmpty, &media, None, None).await.is_err());
+        assert_eq!(std::iter::from_fn(|| sent.try_recv().ok()).count(), 2);
+    }
 
     #[tokio::test]
     async fn uploads_keep_their_flags_and_the_business_connection() {

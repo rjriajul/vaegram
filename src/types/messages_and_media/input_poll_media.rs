@@ -2,6 +2,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::methods::{geo_point, input_venue};
 use crate::raw::{base, types};
+use crate::session::transfer::try_join_all;
 use crate::types::{InputMedia, Location, PeerRef, Venue};
 
 pub struct InputPollMedia<'a>(Kind<'a>);
@@ -31,10 +32,10 @@ impl InputPollMedia<'_> {
         }))))
     }
 
-    async fn upload(self, client: &Client, peer: &base::InputPeer) -> Result<base::InputMedia> {
+    async fn upload(self, client: &Client, peer: &base::InputPeer, business: Option<&str>) -> Result<base::InputMedia> {
         match self.0 {
             Kind::File(media) => {
-                client.upload_media(peer, client.input_media(peer, &media, None, None).await?, None).await
+                client.upload_media(peer, client.input_media(peer, &media, None, business).await?, business).await
             }
             Kind::Ready(media) => Ok(media),
         }
@@ -70,7 +71,13 @@ pub(crate) struct PollMedia<'a> {
 }
 
 impl PollMedia<'_> {
-    pub(crate) async fn attach(self, client: &Client, chat_id: &PeerRef, media: &mut base::InputMedia) -> Result<()> {
+    pub(crate) async fn attach(
+        self,
+        client: &Client,
+        chat_id: &PeerRef,
+        business: Option<&str>,
+        media: &mut base::InputMedia,
+    ) -> Result<()> {
         let base::InputMedia::InputMediaPoll(poll) = media else { return Ok(()) };
         let mut all = self.description.iter().chain(&self.explanation).chain(self.options.iter().flatten());
         // Places and links need no chat; only files are stored in it first, like album items.
@@ -78,16 +85,22 @@ impl PollMedia<'_> {
             true => client.resolve(chat_id).await?.1,
             false => base::InputPeer::InputPeerEmpty,
         };
-        if let Some(description) = self.description {
-            poll.attached_media = Some(description.upload(client, &peer).await?);
-        }
-        if let Some(explanation) = self.explanation {
-            poll.solution_media = Some(explanation.upload(client, &peer).await?);
-        }
+        let peer = &peer;
+        let items = [self.description, self.explanation].into_iter().chain(self.options);
+        let mut uploaded = try_join_all(items.map(|item| async move {
+            match item {
+                Some(item) => item.upload(client, peer, business).await.map(Some),
+                None => Ok(None),
+            }
+        }))
+        .await?
+        .into_iter();
+        poll.attached_media = uploaded.next().flatten();
+        poll.solution_media = uploaded.next().flatten();
         let base::Poll::Poll(raw) = &mut poll.poll;
-        for (answer, option) in raw.answers.iter_mut().zip(self.options) {
-            if let (base::PollAnswer::InputPollAnswer(answer), Some(option)) = (answer, option) {
-                answer.media = Some(option.upload(client, &peer).await?);
+        for (answer, media) in raw.answers.iter_mut().zip(uploaded) {
+            if let (base::PollAnswer::InputPollAnswer(answer), Some(media)) = (answer, media) {
+                answer.media = Some(media);
             }
         }
         Ok(())

@@ -19,7 +19,7 @@ pub struct SendPaidMedia<'a> {
 }
 
 impl Client {
-    /// Up to 10 photos, videos or live photos behind one caption; item captions are ignored.
+    /// 1 to 10 photos, videos or live photos behind one caption; item captions are ignored.
     pub fn send_paid_media<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,
@@ -57,8 +57,8 @@ impl SendPaidMedia<'_> {
 
     async fn send(self) -> Result<Message> {
         let paid = |m: &InputMedia| matches!(m.kind, MediaKind::Photo | MediaKind::Video | MediaKind::LivePhoto);
-        if self.media.len() > 10 || !self.media.iter().all(paid) {
-            return Err(Error::InvalidArgument("paid media takes up to 10 photos, videos and live photos"));
+        if !(1..=10).contains(&self.media.len()) || !self.media.iter().all(paid) {
+            return Err(Error::InvalidArgument("paid media takes 1 to 10 photos, videos and live photos"));
         }
         let client = self.client;
         let peer = client.resolve(&self.chat_id).await?.1;
@@ -86,12 +86,14 @@ mod tests {
     use crate::types::InputMedia;
 
     #[tokio::test]
-    async fn rejects_other_kinds_and_more_than_10_items_without_a_request() {
+    async fn rejects_other_kinds_and_other_than_1_to_10_items_without_a_request() {
         let (client, mut sent) = Client::recording();
         let document = client.send_paid_media(-5, 5, [InputMedia::document("a.pdf")]).await.err();
         assert!(matches!(document, Some(Error::InvalidArgument(_))), "{document:?}");
         let eleven = client.send_paid_media(-5, 5, (0..11).map(|_| InputMedia::photo("a.jpg"))).await.err();
         assert!(matches!(eleven, Some(Error::InvalidArgument(_))), "{eleven:?}");
+        let none = client.send_paid_media(-5, 5, []).await.err();
+        assert!(matches!(none, Some(Error::InvalidArgument(_))), "{none:?}");
         assert!(sent.try_recv().is_err());
     }
 }

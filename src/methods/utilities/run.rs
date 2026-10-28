@@ -67,6 +67,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_state_stays_in_memory_after_stop() {
+        let me = vec![base::User::UserEmpty(Box::new(types::UserEmpty { id: 1 }))];
+        let empty =
+            base::updates::Difference::DifferenceEmpty(Box::new(types::updates::DifferenceEmpty { date: 2, seq: 3 }));
+        let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
+        let (_updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        client.stop();
+        assert!(client.run().await.is_ok());
+        assert_eq!(client.0.state.lock().unwrap().as_ref().map(|s| s.pts), Some(10));
+    }
+
+    #[tokio::test]
     async fn stop_waits_for_running_handlers_then_returns_ok() {
         let me = vec![base::User::UserEmpty(Box::new(types::UserEmpty { id: 1 }))];
         let empty =

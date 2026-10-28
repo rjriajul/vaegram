@@ -80,11 +80,7 @@ impl Message {
             (None, _) if chat.kind == ChatType::Channel => sender_chat = Some(chat.clone()),
             (None, _) => {}
         }
-        // The text of a media message is its caption; a link preview keeps it a text.
-        let has_caption = !matches!(
-            raw.media,
-            None | Some(base::MessageMedia::MessageMediaEmpty | base::MessageMedia::MessageMediaWebPage(_))
-        );
+        let has_caption = takes_caption(raw.media.as_ref());
         let parsed_entities = raw.entities.as_deref().and_then(|e| MessageEntity::parse_all(e, entities));
         let (text, text_entities, caption, caption_entities) = if has_caption {
             (String::new(), None, (!raw.message.is_empty()).then(|| raw.message.clone()), parsed_entities)
@@ -145,9 +141,13 @@ impl Message {
         }
     }
 
-    /// Filters read `message`, so a rich message without plain text carries its blocks' text there.
+    /// Filters read `message`, so a rich message without plain text carries its blocks' text there. Not on media:
+    /// there `message` is the caption the sender set, and the blocks stay in `rich_message` only.
     pub(crate) fn fill_rich_text(raw: &mut types::Message) {
-        if let (true, Some(base::RichMessage::RichMessage(rich))) = (raw.message.is_empty(), &raw.rich_message) {
+        if !raw.message.is_empty() || takes_caption(raw.media.as_ref()) {
+            return;
+        }
+        if let Some(base::RichMessage::RichMessage(rich)) = &raw.rich_message {
             raw.message = RichMessage::plain_text(rich);
         }
     }
@@ -453,6 +453,11 @@ fn reply_fields(raw: &types::Message, service: Option<&ServiceAction>, entities:
     });
     let external_reply = ExternalReplyInfo::parse(reply, entities).map(Box::new);
     (reply_to_message_id, reply.todo_item_id, message_thread_id, reply.forum_topic, quote, external_reply)
+}
+
+// The text of a media message is its caption; a link preview keeps it a text.
+fn takes_caption(media: Option<&base::MessageMedia>) -> bool {
+    !matches!(media, None | Some(base::MessageMedia::MessageMediaEmpty | base::MessageMedia::MessageMediaWebPage(_)))
 }
 
 #[cfg(test)]
@@ -811,6 +816,12 @@ pub(crate) mod tests {
         assert_eq!(message.command().map(|c| c.name), Some("start"));
         assert!(message.rich_message.is_some_and(|r| r.rtl));
         assert_eq!(message.raw.rich_message, None);
+
+        raw.media = Some(document_media("application/pdf", Vec::new()));
+        let media = parse(&raw);
+        assert_eq!((media.text.as_str(), media.caption.as_deref(), media.raw.message.as_str()), ("", None, ""));
+        let (command, filtered) = (media.command().map(|c| c.name), filters::command("start").check(&media));
+        assert_eq!((command, filtered, media.rich_message.is_some()), (None, false, true));
     }
 
     #[tokio::test]

@@ -259,11 +259,15 @@ async fn write_all<F: Future<Output = Result<Vec<u8>>>>(
     let len = first.len();
     sink.write_at(0, first).await?;
     progress.add(len);
-    if len < CHUNK as usize {
-        return Ok(());
+    let mut total = len as u64;
+    if len == CHUNK as usize {
+        let (next, part) = (AtomicI32::new(1), &part);
+        let workers = (0..workers).map(|i| chunks(&next, size, sink, progress, move |offset| part(i, offset)));
+        total += try_join_all(workers).await?.into_iter().sum::<u64>();
     }
-    let (next, part) = (AtomicI32::new(1), &part);
-    try_join_all((0..workers).map(|i| chunks(&next, size, sink, progress, move |offset| part(i, offset)))).await?;
+    if size.is_some_and(|s| u64::try_from(s).ok() != Some(total)) {
+        return Err(Error::Unexpected("upload.getFile returned fewer bytes than the file size"));
+    }
     Ok(())
 }
 
@@ -273,7 +277,8 @@ async fn chunks<F: Future<Output = Result<Vec<u8>>>>(
     sink: &Sink,
     progress: &Progress<'_>,
     part: impl Fn(i64) -> F,
-) -> Result<()> {
+) -> Result<u64> {
+    let mut total = 0;
     while let Some(n) = take(next, chunk_count(size).unwrap_or(i32::MAX)) {
         let (offset, _) = chunk(n);
         let bytes = part(offset).await?;
@@ -281,21 +286,24 @@ async fn chunks<F: Future<Output = Result<Vec<u8>>>>(
         let len = bytes.len();
         sink.write_at(offset as u64, bytes).await?;
         progress.add(len);
+        total += len as u64;
         if len < CHUNK as usize {
             break;
         }
     }
-    Ok(())
+    Ok(total)
 }
 
 fn chunk_count(size: Option<i64>) -> Option<i32> {
     size.and_then(|s| u64::try_from(s).ok()).and_then(|s| i32::try_from(s.div_ceil(CHUNK as u64)).ok())
 }
 
+// With a known size every chunk but the last is full and the last ends at the size, so a short chunk is lost
+// bytes, not the end of the file.
 fn fits(offset: i64, bytes: &[u8], size: Option<i64>) -> Result<()> {
-    let end = offset.saturating_add(bytes.len() as i64);
-    if bytes.len() > CHUNK as usize || size.is_some_and(|s| end > s) {
-        return Err(Error::Unexpected("upload.getFile returned more than the file size"));
+    let expected = size.map(|s| s.saturating_sub(offset).clamp(0, i64::from(CHUNK)));
+    if bytes.len() > CHUNK as usize || expected.is_some_and(|e| bytes.len() as i64 != e) {
+        return Err(Error::Unexpected("upload.getFile returned a chunk that doesn't match the file size"));
     }
     Ok(())
 }
@@ -437,6 +445,8 @@ mod tests {
         assert!(fits(0, &chunk, None).is_ok());
         assert!(fits(1, &chunk, Some(i64::from(CHUNK))).is_err());
         assert!(fits(0, &vec![0; CHUNK as usize + 1], None).is_err());
+        assert!(fits(i64::from(CHUNK), b"hi", Some(3 * i64::from(CHUNK))).is_err());
+        assert!(fits(i64::from(CHUNK), b"hi", Some(i64::from(CHUNK) + 2)).is_ok());
     }
 
     #[tokio::test]
@@ -546,7 +556,7 @@ mod tests {
         let source = Some((-5, 5));
 
         let (client, mut rx) = Client::scripted(vec![error("FILE_REFERENCE_EXPIRED"), messages(), file(b"hi".into())]);
-        let (result, _) = download(&client, Some(5), source).await;
+        let (result, _) = download(&client, Some(2), source).await;
         let sent = drain(&mut rx);
         assert_eq!((result, [&sent[0], &sent[2]]), (Ok(b"hi".to_vec()), [&old, &fresh]));
         assert_eq!(sent[1][..4], get_messages);
@@ -618,5 +628,15 @@ mod tests {
         assert_eq!((result, done), (Ok([plain, b"hi".to_vec()].concat()), vec![c as u64, c as u64 + 2]));
         let master = [get_file(b"old", 0, true).to_bytes(), get_file(b"old", i64::from(CHUNK), false).to_bytes()];
         assert_eq!((drain(&mut rx), drain(&mut cdn_rx).len()), (master.to_vec(), 2));
+    }
+
+    #[tokio::test]
+    async fn a_short_chunk_before_the_known_end_is_an_error() {
+        let c = CHUNK as usize;
+        let short = |result: Result<Vec<u8>, String>| result.is_err_and(|e| e.contains("doesn't match the file size"));
+        let (client, _rx) = Client::scripted(vec![file(vec![1; c]), file(b"hi".into())]);
+        assert!(short(download(&client, Some(2 * c as i64), None).await.0));
+        let (client, _rx) = Client::scripted(vec![file(b"hi".into())]);
+        assert!(short(download(&client, Some(5), None).await.0));
     }
 }

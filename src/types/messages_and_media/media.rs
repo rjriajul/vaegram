@@ -35,7 +35,7 @@ impl Media {
         use base::MessageMedia as M;
         let kind = MediaKind::of(media)?;
         Some(match media {
-            M::MessageMediaPhoto(m) if m.live_photo => Media::LivePhoto(LivePhoto::parse(m)?),
+            M::MessageMediaPhoto(m) if LivePhoto::is_live(m) => Media::LivePhoto(LivePhoto::parse(m)?),
             M::MessageMediaPhoto(m) => Media::Photo(Photo::parse(m.photo.as_ref()?)?),
             M::MessageMediaDocument(m) => Media::parse_document(kind, m.document.as_ref()?)?,
             M::MessageMediaGeo(m) => Media::Location(Location::parse(&m.geo)?),
@@ -322,7 +322,10 @@ pub(crate) mod tests {
             d.round = true;
         }
         let animated = vec![video(false), base::DocumentAttribute::DocumentAttributeAnimated];
-        for media in [round, document_media("video/mp4", animated), document_media("audio/ogg", vec![audio(true)])] {
+        let voice = document_media("audio/ogg", vec![audio(true)]);
+        let mut inputs = vec![round, document_media("video/mp4", animated), voice];
+        inputs.extend(unreadable_live_photos());
+        for media in inputs {
             assert_eq!(Some(parse(media.clone()).kind()), MediaKind::of(&media));
         }
     }
@@ -331,6 +334,32 @@ pub(crate) mod tests {
         let photo =
             types::MessageMediaPhoto { spoiler: false, live_photo: true, photo: None, ttl_seconds: None, video };
         base::MessageMedia::MessageMediaPhoto(Box::new(photo))
+    }
+
+    /// Live photos with photo 9 and no video or an empty one.
+    fn unreadable_live_photos() -> Vec<base::MessageMedia> {
+        let size = types::PhotoSize { r#type: "x".into(), w: 8, h: 8, size: 64 };
+        let photo = base::Photo::Photo(Box::new(types::Photo {
+            has_stickers: false,
+            id: 9,
+            access_hash: 2,
+            file_reference: Vec::new(),
+            date: 3,
+            sizes: vec![base::PhotoSize::PhotoSize(Box::new(size))],
+            video_sizes: None,
+            dc_id: 2,
+        }));
+        let empty = base::Document::DocumentEmpty(Box::new(types::DocumentEmpty { id: 1 }));
+        [None, Some(empty)]
+            .into_iter()
+            .map(|video| {
+                let mut media = live_photo(video);
+                if let base::MessageMedia::MessageMediaPhoto(m) = &mut media {
+                    m.photo = Some(photo.clone());
+                }
+                media
+            })
+            .collect()
     }
 
     #[test]
@@ -344,7 +373,11 @@ pub(crate) mod tests {
         assert_eq!((live.id, live.width, live.height, live.duration, live.file_size), (1, 640, 480, 7, 5));
         assert_eq!((live.mime_type.as_str(), live.location.dc_id), ("video/mp4", Some(2)));
         assert_eq!(live.file_id, "BAACAgIAAwEDAAIBAAcCAAceBA");
-        assert!(Media::parse(&live_photo(None), &Entities::default()).is_none());
+
+        for media in unreadable_live_photos() {
+            let Some(Media::Photo(still)) = Media::parse(&media, &Entities::default()) else { panic!() };
+            assert_eq!(still.id, 9);
+        }
     }
 
     #[test]
