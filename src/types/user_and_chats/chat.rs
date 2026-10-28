@@ -1,7 +1,7 @@
 use crate::dispatcher::Entities;
 use crate::enums::ChatType;
 use crate::raw::base;
-use crate::types::User;
+use crate::types::{Community, User};
 use crate::utils::get_peer_id;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,6 +17,8 @@ pub struct Chat {
     pub members_count: Option<i32>,
     /// The bot answering join request queries; only admins get it from `get_chat`.
     pub guard_bot: Option<User>,
+    /// The community the chat or bot belongs to; only `get_chat` fills it.
+    pub community: Option<Community>,
 }
 
 impl Chat {
@@ -33,6 +35,7 @@ impl Chat {
             description: None,
             members_count: None,
             guard_bot: None,
+            community: None,
         };
         match peer {
             base::Peer::PeerUser(_) => {

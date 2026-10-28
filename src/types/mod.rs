@@ -14,9 +14,10 @@ pub use inline_mode::{InlineQuery, InlineQueryResultArticle, SentGuestMessage};
 pub use messages_and_media::{
     Animation, Audio, Command, Contact, Dice, Document, ExternalReplyInfo, FileLocation, GuestMessage,
     LinkPreviewOptions, Location, Media, Message, MessageEntity, MessageOrigin, Photo, Poll, PollOption,
-    ReplyParameters, Sticker, SuggestedPostParameters, SuggestedPostPrice, TextQuote, Upload, Venue, Video, VideoNote,
-    Voice,
+    ReplyParameters, ServiceAction, Sticker, SuggestedPostParameters, SuggestedPostPrice, TextQuote, Upload, Venue,
+    Video, VideoNote, Voice,
 };
 pub use user_and_chats::{
-    Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatPermissions, ChatPrivileges, PeerRef, User,
+    Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatPermissions, ChatPrivileges, Community, PeerRef,
+    User,
 };

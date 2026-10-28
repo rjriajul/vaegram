@@ -5,6 +5,7 @@ mod chat_joiner;
 mod chat_member;
 mod chat_permissions;
 mod chat_privileges;
+mod community;
 mod peer_ref;
 mod user;
 
@@ -15,5 +16,6 @@ pub use chat_joiner::ChatJoiner;
 pub use chat_member::ChatMember;
 pub use chat_permissions::ChatPermissions;
 pub use chat_privileges::ChatPrivileges;
+pub use community::Community;
 pub use peer_ref::PeerRef;
 pub use user::User;

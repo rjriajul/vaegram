@@ -5,8 +5,8 @@ use crate::errors::{Error, Result};
 use crate::methods::{DownloadMedia, EditMessageText, SendMessage};
 use crate::raw::{base, types};
 use crate::types::{
-    Chat, Command, ExternalReplyInfo, LinkPreviewOptions, Media, MessageEntity, MessageOrigin, ReplyMarkup, TextQuote,
-    User,
+    Chat, Command, ExternalReplyInfo, LinkPreviewOptions, Media, MessageEntity, MessageOrigin, ReplyMarkup,
+    ServiceAction, TextQuote, User,
 };
 use crate::utils::get_peer;
 
@@ -35,6 +35,7 @@ pub struct Message {
     pub media_group_id: Option<i64>,
     pub author_signature: Option<String>,
     pub has_protected_content: bool,
+    pub service: Option<ServiceAction>,
     pub raw: Box<types::Message>,
     client: Client,
 }
@@ -90,6 +91,7 @@ impl Message {
             media_group_id: raw.grouped_id,
             author_signature: raw.post_author.clone(),
             has_protected_content: raw.noforwards,
+            service: None,
             raw,
             client: client.clone(),
         }
@@ -152,8 +154,19 @@ impl Message {
     pub(crate) fn from_raw(client: &Client, raw: base::Message, entities: &Entities) -> Option<Message> {
         match raw {
             base::Message::Message(m) => Some(Message::parse(client, m, entities)),
-            _ => None,
+            base::Message::MessageService(m) => Message::parse_service(client, &m, entities),
+            base::Message::MessageEmpty(_) => None,
         }
+    }
+
+    // `raw` holds a bare message with the service header fields, since only `Message` carries a sender and chat.
+    fn parse_service(client: &Client, raw: &types::MessageService, entities: &Entities) -> Option<Message> {
+        let service = ServiceAction::parse(&raw.action, entities)?;
+        let mut bare = Message::bare(raw.id, raw.peer_id.clone(), raw.date);
+        (bare.out, bare.post, bare.from_id) = (raw.out, raw.post, raw.from_id.clone());
+        let mut message = Message::parse(client, Box::new(bare), entities);
+        message.service = Some(service);
+        Some(message)
     }
 
     pub(crate) fn unpack(client: &Client, messages: base::messages::Messages) -> (Vec<base::Message>, Entities) {
@@ -274,8 +287,8 @@ mod tests {
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::raw::{base, types};
-    use crate::types::{Media, MessageOrigin};
-    use crate::utils::get_peer;
+    use crate::types::{Community, Media, MessageOrigin, ServiceAction};
+    use crate::utils::{get_channel_id, get_peer};
 
     fn header() -> types::MessageReplyHeader {
         types::MessageReplyHeader {
@@ -378,5 +391,59 @@ mod tests {
         assert!(matches!(&external.media, Some(Media::Dice(d)) if d.value == 6));
         let hidden = MessageOrigin::HiddenUser { date: 100, sender_user_name: "Hidden".into() };
         assert_eq!(m.forward_origin, Some(hidden));
+    }
+
+    #[test]
+    fn maps_community_service_actions() {
+        let client = Client::offline();
+        let community = base::Chat::Community(Box::new(types::Community {
+            creator: false,
+            left: false,
+            min: false,
+            collapsed_in_dialogs: false,
+            id: 7,
+            access_hash: None,
+            title: "Hub".into(),
+            photo: base::ChatPhoto::ChatPhotoEmpty,
+            date: 0,
+            admin_rights: None,
+            default_banned_rights: None,
+        }));
+        let entities = Entities::new(&client, Vec::new(), vec![community]);
+        let service = |action| {
+            let raw = types::MessageService {
+                out: false,
+                mentioned: false,
+                media_unread: false,
+                reactions_are_possible: false,
+                silent: false,
+                post: false,
+                legacy: false,
+                id: 1,
+                from_id: None,
+                peer_id: get_peer(get_channel_id(5)),
+                saved_peer_id: None,
+                reply_to: None,
+                date: 1,
+                action,
+                reactions: None,
+                ttl_period: None,
+            };
+            Message::from_raw(&client, base::Message::MessageService(Box::new(raw)), &entities)
+        };
+        let change = |community_id| {
+            let action = types::MessageActionChangeCommunity { community_id };
+            base::MessageAction::MessageActionChangeCommunity(Box::new(action))
+        };
+        let hub = Community { id: get_channel_id(7), name: "Hub".into() };
+
+        let added = service(change(Some(7))).unwrap();
+        assert_eq!(added.service, Some(ServiceAction::CommunityChatAdded(hub.clone())));
+        assert_eq!(service(change(None)).unwrap().service, Some(ServiceAction::CommunityChatRemoved));
+        let joined = types::MessageActionChatJoinedViaCommunity { community_id: 7 };
+        let joined = service(base::MessageAction::MessageActionChatJoinedViaCommunity(Box::new(joined))).unwrap();
+        assert_eq!(joined.service, Some(ServiceAction::CommunityChatJoined(hub)));
+        assert_eq!(joined.chat.id, get_channel_id(5));
+        assert!(service(base::MessageAction::MessageActionPinMessage).is_none());
     }
 }

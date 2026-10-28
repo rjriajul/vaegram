@@ -38,6 +38,8 @@ impl Entities {
                     get_channel_id(c.id),
                     Some(types::InputPeerChannel { channel_id: c.id, access_hash: c.access_hash }),
                 ),
+                base::Chat::Community(c) => (get_channel_id(c.id), None),
+                base::Chat::CommunityForbidden(c) => (get_channel_id(c.id), None),
                 _ => continue,
             };
             if let Some(peer) = peer {

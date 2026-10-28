@@ -105,8 +105,8 @@ impl Handlers<Message> {
         }
         let me = client.0.me.lock().unwrap().clone();
         let Some(scan) = self.scan(&Facts::message(&raw, PeerKinds::message(&raw, entities), &me)) else { return };
-        if let base::Message::Message(m) = raw {
-            self.finish(kind, tasks, &me, scan, Message::parse(client, m, entities));
+        if let Some(message) = Message::from_raw(client, raw, entities) {
+            self.finish(kind, tasks, &me, scan, message);
         }
     }
 }
