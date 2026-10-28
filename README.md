@@ -207,6 +207,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   with your own `tokio::signal::ctrl_c()` (not yet tested live)
 - [ ] Request observer, per-call timeouts and `.flood_sleep_threshold(Duration::ZERO)` to get every FLOOD_WAIT
   (not yet tested live)
+- [ ] Record traffic and replay it offline: `.record("bot.rec")`, `Replay::start(&recording::read(path)?)` (not yet
+  tested live)
 
 ### Development
 

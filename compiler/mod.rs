@@ -75,6 +75,48 @@ fn split_ns(name: &str) -> (&str, &str) {
     name.rsplit_once('.').unwrap_or(("", name))
 }
 
+// Types whose every value is a credential: bot tokens, SRP proofs, payment credentials, Passport data and
+// secrets, wallet recovery phrases, email login tokens and call relay passwords.
+const SECRET_TYPES: [&str; 14] = [
+    "bots.ExportedBotToken",
+    "InputCheckPasswordSRP",
+    "InputPaymentCredentials",
+    "SecureSecretSettings",
+    "SecureValue",
+    "InputSecureValue",
+    "SecureData",
+    "SecureFile",
+    "InputSecureFile",
+    "SecureCredentialsEncrypted",
+    "wallet.SecretPhraseParts",
+    "wallet.EncryptedSecretPhrasePart",
+    "EmailVerification",
+    "PhoneConnection",
+];
+// Fields that are credentials wherever they appear.
+const SECRET_FIELDS: [&str; 4] = ["tmp_password", "phone_code_hash", "match_code", "match_codes"];
+
+/// Logins, codes, passwords, recovery, takeout and every definition that carries or returns a credential:
+/// everything `storage::recording` must not keep. A request is cut when it carries one or is answered with one,
+/// so its answer is cut too.
+fn credential(d: &Def) -> bool {
+    let (ns, name) = split_ns(&d.name);
+    let name = name.to_ascii_lowercase();
+    // Every auth.* type holds a login or a step of one, wherever it appears (updateSentPhoneCode carries
+    // auth.SentCode).
+    let secret_ty = |mut ty: &str| {
+        while let Some(inner) = vector_inner(ty) {
+            ty = inner;
+        }
+        SECRET_TYPES.contains(&ty) || split_ns(ty).0 == "auth"
+    };
+    ns == "auth"
+        || (ns == "account" && ["password", "email", "takeout", "phone", "device"].iter().any(|w| name.contains(w)))
+        || matches!(name.as_str(), "invokewithapnssecret" | "invokewithgoogleplayintegrity" | "invokewithrecaptcha")
+        || secret_ty(&d.ty)
+        || d.fields.iter().any(|f| secret_ty(&f.ty) || SECRET_FIELDS.contains(&f.name.as_str()))
+}
+
 fn pascal(s: &str) -> String {
     s.split('_')
         .map(|p| {
@@ -388,7 +430,10 @@ pub fn generate(api: &str, mtproto: &str, json: bool) -> String {
         }
     }
 
+    let mut credentials: Vec<u32> = defs.iter().filter(|d| credential(d)).map(|d| d.id).collect();
+    credentials.sort_unstable();
     let mut out = format!("/// The API layer this code was generated from.\npub const LAYER: i32 = {layer};\n");
+    writeln!(out, "pub(crate) const CREDENTIALS: [u32; {}] = {credentials:#010x?};", credentials.len()).unwrap();
     for kind in ["types", "base", "functions"] {
         writeln!(out, "pub mod {kind} {{").unwrap();
         for ((k, ns), code) in &mods {

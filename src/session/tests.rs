@@ -388,6 +388,22 @@ async fn panicking_observer_keeps_the_connection() {
     assert_eq!(recv(&mut frames, &r).await.2, ping(2));
 }
 
+#[tokio::test]
+async fn a_failed_recording_write_is_reported() {
+    let path = std::env::temp_dir().join(format!("vaegram-read-only-runner-{}.rec", std::process::id()));
+    std::fs::write(&path, b"").unwrap();
+    let (mut r, mut frames, _updates) = runner().await;
+    Arc::make_mut(&mut r.options).record = Some(crate::storage::recording::Recorder::read_only(&path));
+    let events = r.events.record();
+    let _rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    let _ = recv(&mut frames, &r).await;
+    r.handle_message(1, 0, &types::MsgsAck { msg_ids: Vec::new() }.to_bytes());
+    std::fs::remove_file(&path).unwrap();
+    let failed = events.try_iter().filter(|e| matches!(e, ClientEvent::RecordingFailed { .. })).count();
+    assert_eq!(failed, 2, "one outgoing, one incoming");
+}
+
 // The next message the running runner sends, skipping its own pings.
 async fn next_message(frames: &mut Frames, keys: &([u8; 256], [u8; 8], [u8; 8])) -> (i64, Vec<u8>) {
     const PING_DELAY_DISCONNECT: u32 = <functions::PingDelayDisconnect as Identifiable>::CONSTRUCTOR_ID;

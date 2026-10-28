@@ -25,6 +25,11 @@ pub enum ClientEvent {
     DifferenceFailed {
         error: Error,
     },
+    /// Writing to the file given to `ClientBuilder::record` failed; the message is missing from the recording.
+    #[non_exhaustive]
+    RecordingFailed {
+        error: std::io::Error,
+    },
     /// The handlers fell behind and `count` batches of updates didn't fit in the queue; they're being refetched.
     UpdatesDropped {
         count: u32,

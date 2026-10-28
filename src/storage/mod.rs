@@ -1,3 +1,4 @@
+pub mod recording;
 pub mod session_string;
 pub mod state;
 
@@ -51,6 +52,18 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+
+pub(crate) fn create_private(path: &Path) -> io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let file = options.open(path)?;
+    // `mode` only applies when the file is created; one left from before could be world-readable.
+    #[cfg(unix)]
+    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    Ok(file)
 }
 
 pub fn delete(path: &Path) -> io::Result<()> {

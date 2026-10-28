@@ -1,3 +1,5 @@
+mod support;
+
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -548,6 +550,18 @@ async fn user_keeps_peers_across_restarts() {
     drop(user);
     std::fs::remove_file(format!("{name}.session")).unwrap();
     std::fs::remove_file(state_path).unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session and a bot"]
+async fn user_gets_the_bots_reply_through_the_kit() {
+    let Some(kit) = support::Kit::from_env().await else { return };
+    kit.bot.on_message(filters::private() & filters::text(), |m| async move {
+        m.reply(format!("echo: {}", m.text)).await?;
+        Ok(())
+    });
+    let reply = kit.user.send_and_wait_reply(&kit.bot, "hi from the kit").await.unwrap();
+    assert_eq!((reply.text.as_str(), reply.outgoing), ("echo: hi from the kit", false));
 }
 
 async fn next(rx: &mut tokio::sync::mpsc::UnboundedReceiver<(&'static str, Message)>, kind: &str) -> Message {

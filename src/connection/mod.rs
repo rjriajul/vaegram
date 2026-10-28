@@ -17,6 +17,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use crate::errors::Result;
 use crate::session::Observer;
 use crate::session::internals::data_center::Dc;
+use crate::storage::recording::Recorder;
 use obfuscated::Ctr;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -31,6 +32,7 @@ pub struct Options {
     /// the caller.
     pub flood_sleep_threshold: Duration,
     pub observer: Option<Observer>,
+    pub record: Option<Recorder>,
 }
 
 impl Default for Options {
@@ -42,6 +44,7 @@ impl Default for Options {
             request_timeout: Duration::from_secs(30),
             flood_sleep_threshold: Duration::from_secs(60),
             observer: None,
+            record: None,
         }
     }
 }

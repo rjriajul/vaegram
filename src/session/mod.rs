@@ -3,6 +3,7 @@ pub(crate) mod cdn;
 mod events;
 pub mod internals;
 mod outbox;
+mod replay;
 mod service;
 #[cfg(test)]
 mod tests;
@@ -10,6 +11,7 @@ pub(crate) mod transfer;
 
 pub(crate) use events::Affected;
 pub use events::Events;
+pub use replay::Replay;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -620,6 +622,9 @@ impl Runner {
     }
 
     fn handle_message(&mut self, msg_id: i64, seq_no: i32, body: &[u8]) {
+        if let Some(Err(error)) = self.options.record.as_ref().map(|r| r.record(false, msg_id, body)) {
+            self.events.emit(ClientEvent::RecordingFailed { error });
+        }
         if seq_no % 2 == 1 {
             self.acks.push(msg_id);
         }

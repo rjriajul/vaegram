@@ -17,6 +17,7 @@ use crate::raw::{RemoteCall, base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Auth, Lease, TransferPool};
 use crate::session::{Call, Events, Observer, Session, UpdatesRx, init_connection};
+use crate::storage::recording::Recorder;
 use crate::storage::state::{StateFile, UpdateState};
 use crate::storage::{self, SessionData, session_string};
 
@@ -35,6 +36,7 @@ pub struct ClientBuilder {
     options: Options,
     ordered: bool,
     max_concurrent_handlers: Option<usize>,
+    record: Option<PathBuf>,
 }
 
 #[derive(Default)]
@@ -135,6 +137,13 @@ impl ClientBuilder {
         self
     }
 
+    /// Replaces `path`, which only its owner can read on Unix; [`recording`](crate::storage::recording) says what
+    /// goes in, what's left out and how Windows treats the file.
+    pub fn record(mut self, path: impl Into<PathBuf>) -> Self {
+        self.record = Some(path.into());
+        self
+    }
+
     pub async fn start(self) -> Result<Client> {
         let (client, login) = self.open().await?;
         if client.0.me.lock().unwrap().id == 0 {
@@ -147,7 +156,10 @@ impl ClientBuilder {
         Ok(self.open().await?.0)
     }
 
-    async fn open(self) -> Result<(Client, Login)> {
+    async fn open(mut self) -> Result<(Client, Login)> {
+        if let Some(path) = &self.record {
+            self.options.record = Some(Recorder::create(path)?);
+        }
         let (storage_path, stored) = match &self.session_string {
             Some(s) => (None, Some(session_string::parse(s).map_err(Error::InvalidSession)?)),
             None => {
@@ -324,6 +336,7 @@ impl Client {
             options: Options::default(),
             ordered: false,
             max_concurrent_handlers: None,
+            record: None,
         }
     }
 

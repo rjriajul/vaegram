@@ -1,4 +1,4 @@
-use super::{Pending, Runner};
+use super::{ClientEvent, Pending, Runner, constructor_id};
 use crate::crypto::mtproto;
 use crate::errors::Result;
 use crate::raw::core::msg_container;
@@ -28,6 +28,17 @@ impl Runner {
     }
 
     fn encrypt(&self, msg_id: i64, seq_no: i32, body: &[u8]) -> Vec<u8> {
+        if let Some(r) = &self.options.record {
+            let written = if constructor_id(body) == Some(msg_container::ID) {
+                let messages = msg_container::parse(body).unwrap_or_default();
+                messages.iter().try_for_each(|m| r.record(true, m.msg_id, m.body))
+            } else {
+                r.record(true, msg_id, body)
+            };
+            if let Err(error) = written {
+                self.events.emit(ClientEvent::RecordingFailed { error });
+            }
+        }
         mtproto::pack(&self.auth_key, &self.auth_key_id, &self.session_id, self.salt, msg_id, seq_no, body)
     }
 
