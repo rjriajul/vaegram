@@ -8,9 +8,10 @@ use crate::errors::{Error, Result};
 use crate::raw::base;
 use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated, ChatJoinRequest,
-    ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage, GuestMessage, InlineQuery,
-    ManagedBotUpdated, Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated,
-    PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery,
+    ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages,
+    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
+    MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
+    ShippingQuery, UserStatusUpdated,
 };
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
@@ -56,6 +57,11 @@ pub enum UpdateKind {
     PurchasedPaidMedia,
     ChatBoost,
     RemovedChatBoost,
+    ChatMemberUpdated,
+    Poll,
+    PollAnswer,
+    DeletedMessages,
+    UserStatus,
     Raw,
 }
 
@@ -241,5 +247,47 @@ impl Routed for ChatBoostUpdated {
 impl Routed for ChatBoostRemoved {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
+    }
+}
+
+impl Routed for ChatMemberUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for PollUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        self.chat.as_ref().map(|c| c.id)
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.poll.id)
+    }
+}
+
+impl Routed for PollAnswer {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.poll_id)
+    }
+}
+
+impl Routed for DeletedMessages {
+    fn chat_id(&self) -> Option<i64> {
+        self.chat.as_ref().map(|c| c.id)
+    }
+}
+
+impl Routed for UserStatusUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.user.id)
     }
 }

@@ -5,8 +5,9 @@ use crate::dispatcher::Entities;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::methods::{AnswerCallbackQuery, EditEphemeralMessage, EditInlineText, EditMessageText, into_future};
-use crate::raw::types;
+use crate::raw::{base, types};
 use crate::types::{Chat, EphemeralMessage, InlineMessageId, MessageText, ReplyMarkup, User};
+use crate::utils::get_peer;
 
 #[derive(Clone)]
 pub struct CallbackQuery {
@@ -22,7 +23,12 @@ pub struct CallbackQuery {
 
 #[derive(Debug, Clone)]
 pub enum CallbackOrigin {
-    Message { chat: Box<Chat>, message_id: i32 },
+    Message {
+        chat: Box<Chat>,
+        message_id: i32,
+        /// Set for a business account's messages; edits then go through that connection.
+        business_connection_id: Option<String>,
+    },
     Inline(InlineMessageId),
     Ephemeral(Box<EphemeralMessage>),
 }
@@ -35,6 +41,7 @@ impl CallbackQuery {
             origin: CallbackOrigin::Message {
                 chat: Box::new(Chat::parse(&raw.peer, entities, false)),
                 message_id: raw.msg_id,
+                business_connection_id: None,
             },
             data: raw.data.as_deref().map(String::from_utf8_lossy).unwrap_or_default().into_owned(),
             game_short_name: raw.game_short_name.clone(),
@@ -79,6 +86,32 @@ impl CallbackQuery {
         }
     }
 
+    pub(crate) fn parse_business(
+        client: &Client,
+        raw: types::UpdateBusinessBotCallbackQuery,
+        entities: &Entities,
+    ) -> CallbackQuery {
+        // Business chats are private, so a deleted message's chat is the user who pressed the button.
+        let (peer, message_id) = match raw.message {
+            base::Message::Message(m) => (m.peer_id, m.id),
+            base::Message::MessageService(m) => (m.peer_id, m.id),
+            base::Message::MessageEmpty(m) => (m.peer_id.unwrap_or_else(|| get_peer(raw.user_id)), m.id),
+        };
+        CallbackQuery {
+            id: raw.query_id,
+            from_user: User::parse(raw.user_id, entities),
+            origin: CallbackOrigin::Message {
+                chat: Box::new(Chat::parse(&peer, entities, false)),
+                message_id,
+                business_connection_id: Some(raw.connection_id),
+            },
+            data: raw.data.map(utf8).unwrap_or_default(),
+            game_short_name: None,
+            chat_instance: raw.chat_instance,
+            client: client.clone(),
+        }
+    }
+
     pub fn client(&self) -> &Client {
         &self.client
     }
@@ -103,6 +136,13 @@ impl CallbackQuery {
         if let CallbackOrigin::Inline(id) = &self.origin { Some(id) } else { None }
     }
 
+    pub fn business_connection_id(&self) -> Option<&str> {
+        match &self.origin {
+            CallbackOrigin::Message { business_connection_id, .. } => business_connection_id.as_deref(),
+            _ => None,
+        }
+    }
+
     pub fn answer(&self) -> AnswerCallbackQuery<'_> {
         self.client.answer_callback_query(self.id)
     }
@@ -110,8 +150,12 @@ impl CallbackQuery {
     pub fn edit_message_text(&self, text: impl Into<MessageText>) -> EditCallbackMessageText<'_> {
         let client = &self.client;
         match &self.origin {
-            CallbackOrigin::Message { chat, message_id } => {
-                EditCallbackMessageText::Message(client.edit_message_text(chat.id, *message_id, text))
+            CallbackOrigin::Message { chat, message_id, business_connection_id } => {
+                let edit = client.edit_message_text(chat.id, *message_id, text);
+                EditCallbackMessageText::Message(match business_connection_id {
+                    Some(connection) => edit.business_connection_id(connection.clone()),
+                    None => edit,
+                })
             }
             CallbackOrigin::Inline(id) => EditCallbackMessageText::Inline(client.edit_inline_text(id.clone(), text)),
             CallbackOrigin::Ephemeral(message) => EditCallbackMessageText::Ephemeral(message.edit_text(text)),
@@ -184,8 +228,9 @@ mod tests {
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::raw::{base, types};
+    use crate::types::Message;
     use crate::types::messages_and_media::ephemeral_message::tests::{channel, ephemeral};
-    use crate::utils::get_channel_id;
+    use crate::utils::{get_channel_id, get_peer};
 
     #[test]
     fn parses_ephemeral_callback_queries() {
@@ -220,5 +265,37 @@ mod tests {
         assert_eq!((q.chat().is_none(), q.message_id(), q.game_short_name.as_deref()), (true, None, Some("race")));
         assert_eq!(q.inline_message_id().map(|i| i.dc_id()), Some(2));
         assert!(matches!(q.edit_message_text("won"), EditCallbackMessageText::Inline(_)));
+    }
+
+    #[tokio::test]
+    async fn business_callback_queries_edit_through_the_connection() {
+        let message = Message::bare(5, get_peer(7), 0);
+        let update = types::UpdateBusinessBotCallbackQuery {
+            query_id: 1,
+            user_id: 7,
+            connection_id: "conn".into(),
+            message: base::Message::Message(Box::new(message)),
+            reply_to_message: None,
+            chat_instance: 3,
+            data: Some(b"buy".to_vec()),
+        };
+        let (client, mut rx) = Client::recording();
+        let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
+        client.0.peers.lock().unwrap().insert(7, peer);
+        let q = CallbackQuery::parse_business(&client, update.clone(), &Entities::default());
+        let chat_id = q.chat().map(|c| c.id);
+        assert_eq!((chat_id, q.message_id(), q.from_user.id, q.data.as_str()), (Some(7), Some(5), 7, "buy"));
+        assert_eq!(q.business_connection_id(), Some("conn"));
+        assert!(q.edit_message_text("bought").await.is_err());
+        let body = rx.try_recv().expect("no request sent");
+        assert_eq!(body[..4], 0xdd289f8e_u32.to_le_bytes());
+
+        let message = base::Message::MessageEmpty(Box::new(types::MessageEmpty { id: 5, peer_id: None }));
+        let q = CallbackQuery::parse_business(
+            &Client::offline(),
+            types::UpdateBusinessBotCallbackQuery { message, ..update },
+            &Entities::default(),
+        );
+        assert_eq!((q.chat().map(|c| c.id), q.message_id()), (Some(7), Some(5)));
     }
 }

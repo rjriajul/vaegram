@@ -3,9 +3,10 @@ use crate::Client;
 use crate::client::Me;
 use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatBoostRemoved, ChatBoostSource,
-    ChatBoostUpdated, ChatJoinRequest, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
-    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated, PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery, User,
+    ChatBoostUpdated, ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages,
+    DeletedEphemeralMessages, DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
+    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated,
+    PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery, User, UserStatusUpdated,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -141,3 +142,21 @@ fn boost_facts<'a>(chat: &Chat, source: &ChatBoostSource, me: &'a Me) -> Facts<'
 subject!(ChatBoostUpdated: HasChat, HasSender; |s, me| boost_facts(&s.chat, &s.boost.source, me));
 
 subject!(ChatBoostRemoved: HasChat, HasSender; |s, me| boost_facts(&s.chat, &s.source, me));
+
+subject!(ChatMemberUpdated: HasChat, HasSender; |s, me| {
+    let kinds = PeerKinds { chat: Some(s.chat.kind), sender_bot: s.from_user.is_bot };
+    Facts::query(s.chat.id, s.from_user.id, &[], kinds, me)
+});
+
+subject!(PollUpdated: HasChat; |s, me| chat_query(s.chat.as_ref(), me));
+
+subject!(PollAnswer: HasSender; |s, me| {
+    let (sender_id, sender_bot) = sender_of(s.user.as_ref(), s.voter_chat.as_ref());
+    Facts::query(0, sender_id, &[], PeerKinds { chat: None, sender_bot }, me)
+});
+
+subject!(DeletedMessages: HasChat; |s, me| chat_query(s.chat.as_ref(), me));
+
+subject!(UserStatusUpdated: HasSender; |s, me| {
+    Facts::query(0, s.user.id, &[], PeerKinds { chat: None, sender_bot: s.user.is_bot }, me)
+});

@@ -15,6 +15,7 @@ mod subscription_state;
 mod suggested_post_refund_reason;
 mod suggested_post_state;
 mod unique_gift_origin;
+mod user_status;
 
 pub use chat_action::ChatAction;
 pub use chat_join_request_result::ChatJoinRequestResult;
@@ -33,3 +34,4 @@ pub use subscription_state::SubscriptionState;
 pub use suggested_post_refund_reason::SuggestedPostRefundReason;
 pub use suggested_post_state::SuggestedPostState;
 pub use unique_gift_origin::UniqueGiftOrigin;
+pub use user_status::UserStatus;

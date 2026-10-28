@@ -163,6 +163,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Boosts, profile photos and stories: `get_user_chat_boosts(chat, user)`, `on_chat_boost`, `on_removed_chat_boost`,
   `ServiceAction::BoostAdded`, `get_chat_photos(user)`, `set_user_emoji_status(user)`, business `post_story`,
   `edit_story`, `repost_story`, `delete_story` (not yet tested live)
+- [ ] Chat member, poll, poll answer, deleted message and user status handlers, business callback queries
+  (not yet tested live)
 
 ### Development
 

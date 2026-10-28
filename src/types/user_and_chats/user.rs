@@ -1,4 +1,5 @@
 use crate::dispatcher::Entities;
+use crate::enums::UserStatus;
 use crate::raw::base;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -18,6 +19,9 @@ pub struct User {
     pub can_manage_bots: bool,
     pub has_topics_enabled: bool,
     pub allows_users_to_create_topics: bool,
+    pub status: Option<UserStatus>,
+    pub last_online_date: Option<i32>,
+    pub next_offline_date: Option<i32>,
 }
 
 impl User {
@@ -40,8 +44,23 @@ impl User {
                 can_manage_bots: u.bot_can_manage_bots,
                 has_topics_enabled: u.bot_forum_view,
                 allows_users_to_create_topics: u.bot_forum_can_manage_topics,
+                ..User::default().parse_status(u.status.as_ref())
             },
             _ => User { id, ..User::default() },
         }
+    }
+
+    pub(crate) fn parse_status(mut self, status: Option<&base::UserStatus>) -> User {
+        use base::UserStatus as S;
+        (self.status, self.last_online_date, self.next_offline_date) = match status {
+            None => (None, None, None),
+            Some(S::UserStatusOnline(s)) => (Some(UserStatus::Online), None, Some(s.expires)),
+            Some(S::UserStatusOffline(s)) => (Some(UserStatus::Offline), Some(s.was_online), None),
+            Some(S::UserStatusRecently(_)) => (Some(UserStatus::Recently), None, None),
+            Some(S::UserStatusLastWeek(_)) => (Some(UserStatus::LastWeek), None, None),
+            Some(S::UserStatusLastMonth(_)) => (Some(UserStatus::LastMonth), None, None),
+            Some(S::UserStatusEmpty) => (Some(UserStatus::LongAgo), None, None),
+        };
+        self
     }
 }

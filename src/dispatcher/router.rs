@@ -10,9 +10,10 @@ use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, UpdateKind};
 use crate::raw::base;
 use crate::types::{
     BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated,
-    ChatJoinRequest, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, EphemeralMessage,
-    GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped, MessageReactionCountUpdated,
-    MessageReactionUpdated, PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery,
+    ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
+    DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
+    MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
+    ShippingQuery, UserStatusUpdated,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -155,6 +156,11 @@ pub(crate) struct Router {
     pub(crate) purchased_paid_media: Handlers<PurchasedPaidMedia>,
     pub(crate) chat_boost: Handlers<ChatBoostUpdated>,
     pub(crate) removed_chat_boost: Handlers<ChatBoostRemoved>,
+    pub(crate) chat_member_updated: Handlers<ChatMemberUpdated>,
+    pub(crate) poll: Handlers<PollUpdated>,
+    pub(crate) poll_answer: Handlers<PollAnswer>,
+    pub(crate) deleted_messages: Handlers<DeletedMessages>,
+    pub(crate) user_status: Handlers<UserStatusUpdated>,
     pub(crate) raw: Vec<RawCallback>,
     pub(crate) on_error: Option<ErrorCallback>,
     next_id: u32,
@@ -192,6 +198,11 @@ impl Router {
             UpdateKind::PurchasedPaidMedia => self.purchased_paid_media.configure(id, group, stop),
             UpdateKind::ChatBoost => self.chat_boost.configure(id, group, stop),
             UpdateKind::RemovedChatBoost => self.removed_chat_boost.configure(id, group, stop),
+            UpdateKind::ChatMemberUpdated => self.chat_member_updated.configure(id, group, stop),
+            UpdateKind::Poll => self.poll.configure(id, group, stop),
+            UpdateKind::PollAnswer => self.poll_answer.configure(id, group, stop),
+            UpdateKind::DeletedMessages => self.deleted_messages.configure(id, group, stop),
+            UpdateKind::UserStatus => self.user_status.configure(id, group, stop),
             UpdateKind::Raw => {}
         }
     }
@@ -327,6 +338,46 @@ impl Router {
                     }
                     None => {}
                 }
+            }
+            U::UpdateBusinessBotCallbackQuery(u) if !self.callback_query.0.is_empty() => {
+                let query = CallbackQuery::parse_business(client, *u, entities);
+                self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me(), (Vec::new(), Some(0)), query);
+            }
+            U::UpdateChannelParticipant(u) if !self.chat_member_updated.0.is_empty() => {
+                let (kind, item) =
+                    (UpdateKind::ChatMemberUpdated, ChatMemberUpdated::parse_channel(client, *u, entities));
+                self.chat_member_updated.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateChatParticipant(u) if !self.chat_member_updated.0.is_empty() => {
+                let (kind, item) = (UpdateKind::ChatMemberUpdated, ChatMemberUpdated::parse_chat(client, *u, entities));
+                self.chat_member_updated.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateBotStopped(u) if !self.chat_member_updated.0.is_empty() => {
+                let me = me();
+                let (kind, item) =
+                    (UpdateKind::ChatMemberUpdated, ChatMemberUpdated::parse_bot_stopped(client, &me, &u, entities));
+                self.chat_member_updated.finish(kind, tasks, &me, (Vec::new(), Some(0)), item);
+            }
+            U::UpdateMessagePoll(u) if !self.poll.0.is_empty() => {
+                if let Some(item) = PollUpdated::parse(client, &u, entities) {
+                    self.poll.finish(UpdateKind::Poll, tasks, &me(), (Vec::new(), Some(0)), item);
+                }
+            }
+            U::UpdateMessagePollVote(u) if !self.poll_answer.0.is_empty() => {
+                let item = PollAnswer::parse(client, *u, entities);
+                self.poll_answer.finish(UpdateKind::PollAnswer, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateDeleteMessages(u) if !self.deleted_messages.0.is_empty() => {
+                let item = DeletedMessages::parse(client, *u);
+                self.deleted_messages.finish(UpdateKind::DeletedMessages, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateDeleteChannelMessages(u) if !self.deleted_messages.0.is_empty() => {
+                let item = DeletedMessages::parse_channel(client, *u, entities);
+                self.deleted_messages.finish(UpdateKind::DeletedMessages, tasks, &me(), (Vec::new(), Some(0)), item);
+            }
+            U::UpdateUserStatus(u) if !self.user_status.0.is_empty() => {
+                let item = UserStatusUpdated::parse(client, &u, entities);
+                self.user_status.finish(UpdateKind::UserStatus, tasks, &me(), (Vec::new(), Some(0)), item);
             }
             _ => {}
         }
@@ -479,6 +530,77 @@ mod tests {
         let mut seen = log.lock().unwrap().clone();
         seen.sort_unstable();
         assert_eq!(seen, ["callback", "deleted", "ephemeral"]);
+    }
+
+    #[tokio::test]
+    async fn routes_member_poll_deletion_and_status_updates() {
+        let log = Log::default();
+        let mut router = Router::default();
+        router.chat_member_updated.push(1, filters::chat(get_channel_id(42)), record(&log, "member"));
+        router.poll.push(2, filters::all(), record(&log, "poll"));
+        router.poll_answer.push(3, filters::user(7), record(&log, "answer"));
+        router.deleted_messages.push(4, filters::chat(get_channel_id(42)), record(&log, "deleted"));
+        router.user_status.push(5, filters::all(), record(&log, "status"));
+        router.callback_query.push(6, filters::data("buy"), record(&log, "business callback"));
+        let channel_member = types::UpdateChannelParticipant {
+            via_chatlist: false,
+            channel_id: 42,
+            date: 1,
+            actor_id: 7,
+            user_id: 7,
+            prev_participant: None,
+            new_participant: None,
+            invite: None,
+            qts: 1,
+        };
+        dispatch(&router, base::Update::UpdateChannelParticipant(Box::new(channel_member)));
+        let stopped = types::UpdateBotStopped { user_id: 7, date: 1, stopped: true, qts: 2 };
+        dispatch(&router, base::Update::UpdateBotStopped(Box::new(stopped)));
+        let results = base::PollResults::PollResults(Box::new(types::PollResults {
+            min: false,
+            has_unread_votes: false,
+            can_view_stats: false,
+            results: None,
+            total_voters: None,
+            recent_voters: None,
+            solution: None,
+            solution_entities: None,
+            solution_media: None,
+        }));
+        let poll =
+            types::UpdateMessagePoll { peer: None, msg_id: None, top_msg_id: None, poll_id: 9, poll: None, results };
+        dispatch(&router, base::Update::UpdateMessagePoll(Box::new(poll)));
+        let vote = types::UpdateMessagePollVote {
+            poll_id: 9,
+            peer: get_peer(7),
+            options: vec![vec![0]],
+            positions: vec![0],
+            qts: 3,
+        };
+        dispatch(&router, base::Update::UpdateMessagePollVote(Box::new(vote)));
+        let deleted = types::UpdateDeleteMessages { messages: vec![1], pts: 1, pts_count: 1 };
+        dispatch(&router, base::Update::UpdateDeleteMessages(Box::new(deleted)));
+        let deleted = types::UpdateDeleteChannelMessages { channel_id: 42, messages: vec![1], pts: 1, pts_count: 1 };
+        dispatch(&router, base::Update::UpdateDeleteChannelMessages(Box::new(deleted)));
+        let status = types::UpdateUserStatus { user_id: 7, status: base::UserStatus::UserStatusEmpty };
+        dispatch(&router, base::Update::UpdateUserStatus(Box::new(status)));
+        let business = |message| {
+            base::Update::UpdateBusinessBotCallbackQuery(Box::new(types::UpdateBusinessBotCallbackQuery {
+                query_id: 1,
+                user_id: 7,
+                connection_id: "conn".into(),
+                message,
+                reply_to_message: None,
+                chat_instance: 3,
+                data: Some(b"buy".to_vec()),
+            }))
+        };
+        let message = Message::bare(5, get_peer(7), 0);
+        dispatch(&router, business(base::Message::Message(Box::new(message))));
+        settle().await;
+        let mut seen = log.lock().unwrap().clone();
+        seen.sort_unstable();
+        assert_eq!(seen, ["answer", "business callback", "deleted", "member", "status"]);
     }
 
     #[tokio::test]

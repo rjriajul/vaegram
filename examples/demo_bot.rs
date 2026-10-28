@@ -98,6 +98,11 @@ async fn main() -> vaegram::Result<()> {
         Ok(())
     });
 
+    app.on_chat_member_updated(filters::all(), |update| async move {
+        println!("member update in {}: {:?}", update.chat.id, update.new_chat_member.map(|m| m.status));
+        Ok(())
+    });
+
     println!("demo bot is running");
     app.run().await
 }
