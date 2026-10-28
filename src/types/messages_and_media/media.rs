@@ -59,24 +59,23 @@ impl Media {
     /// Builds the type `MediaKind::of` picked, so a filter and the parsed message never disagree.
     fn parse_document(kind: MediaKind, document: &base::Document) -> Option<Media> {
         let base::Document::Document(raw) = document else { return None };
-        let (mut video, mut audio, mut sticker, mut size) = (None, None, None, None);
+        let (mut video, mut audio, mut size) = (None, None, None);
         for attribute in &raw.attributes {
             match attribute {
                 base::DocumentAttribute::DocumentAttributeVideo(a) => video = Some(&**a),
                 base::DocumentAttribute::DocumentAttributeAudio(a) => audio = Some(&**a),
-                base::DocumentAttribute::DocumentAttributeSticker(a) => sticker = Some(&**a),
                 base::DocumentAttribute::DocumentAttributeImageSize(a) => size = Some((a.w, a.h)),
                 _ => {}
             }
         }
         let document = Document::parse(document)?;
-        Some(match (kind, sticker) {
-            (MediaKind::Sticker, Some(sticker)) => Media::Sticker(Sticker::parse(document, sticker, video, size)),
-            (MediaKind::Animation, _) => Media::Animation(Animation::parse(document, video, size)),
-            (MediaKind::VideoNote, _) => Media::VideoNote(VideoNote::parse(document, video)),
-            (MediaKind::Video, _) => Media::Video(Video::parse(document, video)),
-            (MediaKind::Voice, _) => Media::Voice(Voice::parse(document, audio)),
-            (MediaKind::Audio, _) => Media::Audio(Audio::parse(document, audio)),
+        Some(match kind {
+            MediaKind::Sticker => Media::Sticker(Sticker::from_document(document, &raw.attributes)?),
+            MediaKind::Animation => Media::Animation(Animation::parse(document, video, size)),
+            MediaKind::VideoNote => Media::VideoNote(VideoNote::parse(document, video)),
+            MediaKind::Video => Media::Video(Video::parse(document, video)),
+            MediaKind::Voice => Media::Voice(Voice::parse(document, audio)),
+            MediaKind::Audio => Media::Audio(Audio::parse(document, audio)),
             _ => Media::Document(document),
         })
     }

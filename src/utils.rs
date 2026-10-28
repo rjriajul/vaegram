@@ -37,6 +37,11 @@ pub(crate) fn chats_of(chats: base::messages::Chats) -> Vec<base::Chat> {
     }
 }
 
+pub(crate) fn input_sticker_set(name: &str) -> base::InputStickerSet {
+    let name = types::InputStickerSetShortName { short_name: name.into() };
+    base::InputStickerSet::InputStickerSetShortName(Box::new(name))
+}
+
 pub(crate) fn input_user(peer: base::InputPeer) -> Option<base::InputUser> {
     match peer {
         base::InputPeer::InputPeerUser(p) => {

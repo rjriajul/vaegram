@@ -15,6 +15,7 @@ mod edit_message_reply_markup;
 mod edit_message_text;
 mod forward_messages;
 mod get_chat_history;
+mod get_custom_emoji_stickers;
 mod get_messages;
 mod get_user_personal_chat_messages;
 mod pages;

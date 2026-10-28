@@ -25,6 +25,7 @@ mod decorators;
 mod invite_links;
 mod messages;
 mod payments;
+mod stickers;
 mod users;
 mod utilities;
 
@@ -51,4 +52,5 @@ pub use messages::{
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
 };
+pub use stickers::CreateNewStickerSet;
 pub use users::{GetChatPhotos, SetProfilePhoto};

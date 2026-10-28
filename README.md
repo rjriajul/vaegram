@@ -167,6 +167,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   (not yet tested live)
 - [ ] Chat and profile photos: `set_chat_photo(chat, "a.jpg")`, `set_profile_photo("a.jpg").video()`,
   `delete_chat_photo`, `remove_profile_photo`, business account photos (not yet tested live)
+- [ ] Sticker sets: `create_new_sticker_set`, `add_sticker_to_set`, `upload_sticker_file`, `get_sticker_set`,
+  `get_custom_emoji_stickers`, `set_chat_sticker_set` (not yet tested live)
 
 ### Development
 

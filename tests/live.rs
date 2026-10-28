@@ -4,13 +4,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
-use vaegram::enums::ParseMode;
+use vaegram::enums::{ParseMode, StickerType};
 use vaegram::raw::{base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
-    ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputRichMessage,
+    ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputRichMessage, InputSticker,
     KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Upload,
 };
 use vaegram::{Client, filters};
@@ -217,6 +217,67 @@ async fn bot_uploads_and_downloads_a_document() {
     app.download_media(document).file_name(path).await.unwrap();
     assert!(std::fs::read(path).unwrap() == data);
     sent.delete().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "logs in as a bot and manages a sticker set"]
+async fn bot_manages_a_sticker_set() {
+    let (Ok(_), Ok(owner), Ok(file)) = (
+        std::env::var("VAEGRAM_BOT_TOKEN"),
+        std::env::var("VAEGRAM_STICKER_OWNER"),
+        std::env::var("VAEGRAM_STICKER_FILE"),
+    ) else {
+        eprintln!(
+            "skipped: set VAEGRAM_API_ID, VAEGRAM_API_HASH, VAEGRAM_BOT_TOKEN, VAEGRAM_STICKER_OWNER (a user who \
+             started the bot) and VAEGRAM_STICKER_FILE (a 512 px .webp or .png)"
+        );
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let app =
+        Client::builder("target/vaegram-live-sets", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+            .bot_token(env("VAEGRAM_BOT_TOKEN"))
+            .start()
+            .await
+            .unwrap();
+    let (owner, file) = (owner.parse::<i64>().unwrap(), file.as_str());
+    let base::User::User(me) = app.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let name = format!("vaegram_{now}_by_{}", me.username.expect("bots have a username"));
+
+    let uploaded = app.upload_sticker_file(owner, file).await.unwrap();
+    let first = vec![InputSticker::existing(&uploaded, "😀")];
+    let set = app.create_new_sticker_set(owner, &name, "vaegram test", first).await.unwrap();
+    assert_eq!((set.name.as_str(), set.sticker_type, set.stickers.len()), (name.as_str(), StickerType::Regular, 1));
+
+    let party = InputSticker::new(file, "🎉").keywords(["party", "fun"]);
+    let set = app.add_sticker_to_set(owner, &name, party).await.unwrap();
+    let added = set.stickers[1].clone();
+    let set = app.set_sticker_position_in_set(&added, 0).await.unwrap();
+    assert_eq!(set.stickers[0].id, added.id);
+    app.set_sticker_emoji_list(&added, "😎🔥").await.unwrap();
+    app.set_sticker_keywords(&added, ["cool"]).await.unwrap();
+    let set = app.set_sticker_set_title(&name, "vaegram renamed").await.unwrap();
+    assert_eq!(set.title, "vaegram renamed");
+
+    let set = app.replace_sticker_in_set(owner, &set.stickers[1], InputSticker::new(file, "🙂")).await.unwrap();
+    assert_eq!(set.stickers.len(), 2);
+    let set = app.delete_sticker_from_set(&set.stickers[1]).await.unwrap();
+    assert_eq!(set.stickers.len(), 1);
+    app.set_sticker_set_thumbnail(&name, owner, None).await.unwrap();
+    let fetched = app.get_sticker_set(&name).await.unwrap();
+    assert_eq!((fetched.id, fetched.stickers[0].id), (set.id, added.id));
+    app.delete_sticker_set(&name).await.unwrap();
+    assert!(app.get_sticker_set(&name).await.is_err());
+
+    let icons = app.get_forum_topic_icon_stickers().await.unwrap();
+    let ids: Vec<i64> = icons.iter().map(|icon| icon.id).take(3).collect();
+    let emoji = app.get_custom_emoji_stickers(&ids).await.unwrap();
+    assert_eq!(emoji.len(), ids.len());
+    for sticker in &emoji {
+        assert_eq!(sticker.kind, StickerType::CustomEmoji);
+        assert!(sticker.custom_emoji_id.is_some_and(|id| ids.contains(&id)));
+    }
 }
 
 #[tokio::test]
