@@ -4,14 +4,14 @@ mod proxy;
 mod transport;
 
 pub use proxy::{Proxy, Secret};
-pub use transport::Transport;
+pub use transport::{RecvBuf, Transport};
 
 use std::io;
 use std::pin::Pin;
-use std::task::{Context, Poll, ready};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
@@ -21,6 +21,8 @@ use crate::session::internals::data_center::Dc;
 use crate::storage::recording::Recorder;
 use fake_tls::{RecordReader, RecordWriter};
 use obfuscated::Ctr;
+
+const READ_CHUNK: usize = 64 << 10;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -98,7 +100,12 @@ impl Connection {
             (None, None, None)
         };
         Ok(Self {
-            reader: Reader { half: read, transport, decrypt, records: tls.then(RecordReader::default) },
+            reader: Reader {
+                wire: Wire { half: read, records: tls.then(RecordReader::default) },
+                transport,
+                decrypt,
+                buf: RecvBuf::default(),
+            },
             writer: Writer { half: write, transport, encrypt, records, buf: Vec::new() },
         })
     }
@@ -117,31 +124,44 @@ impl Connection {
 }
 
 pub(crate) struct Reader {
-    half: OwnedReadHalf,
+    wire: Wire,
     transport: Transport,
     decrypt: Option<Ctr>,
-    records: Option<RecordReader>,
+    buf: RecvBuf,
 }
 
 impl Reader {
+    /// Cancel-safe: bytes wait in the buffer until a whole packet is there.
     pub(crate) async fn recv(&mut self) -> Result<Vec<u8>> {
-        let transport = self.transport;
-        transport.read(self).await
+        loop {
+            if let Some(packet) = self.transport.decode(&mut self.buf)? {
+                return Ok(packet);
+            }
+            let buf = self.buf.make_room();
+            buf.reserve(READ_CHUNK);
+            let start = buf.len();
+            if self.wire.read_buf(buf).await? == 0 {
+                return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
+            }
+            if let Some(decrypt) = &mut self.decrypt {
+                decrypt.apply(&mut buf[start..]);
+            }
+        }
     }
 }
 
-impl AsyncRead for Reader {
+struct Wire {
+    half: OwnedReadHalf,
+    records: Option<RecordReader>,
+}
+
+impl AsyncRead for Wire {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
-        let start = buf.filled().len();
         let this = &mut *self;
         match &mut this.records {
-            Some(records) => ready!(records.poll_read(&mut this.half, cx, buf))?,
-            None => ready!(Pin::new(&mut this.half).poll_read(cx, buf))?,
+            Some(records) => records.poll_read(&mut this.half, cx, buf),
+            None => Pin::new(&mut this.half).poll_read(cx, buf),
         }
-        if let Some(decrypt) = &mut this.decrypt {
-            decrypt.apply(&mut buf.filled_mut()[start..]);
-        }
-        Poll::Ready(Ok(()))
     }
 }
 
@@ -150,21 +170,31 @@ pub(crate) struct Writer {
     transport: Transport,
     encrypt: Option<Ctr>,
     records: Option<RecordWriter>,
-    buf: Vec<u8>,
+    pub(crate) buf: Vec<u8>,
 }
 
 impl Writer {
-    pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<()> {
+    pub(crate) fn begin(&mut self) {
         self.buf.clear();
-        self.transport.encode(payload, &mut self.buf);
+        self.buf.resize(Transport::ROOM, 0);
+    }
+
+    pub(crate) async fn finish(&mut self) -> Result<()> {
+        let start = self.transport.frame(&mut self.buf);
         if let Some(encrypt) = &mut self.encrypt {
-            encrypt.apply(&mut self.buf);
+            encrypt.apply(&mut self.buf[start..]);
         }
         let wire = match &mut self.records {
-            Some(records) => records.wrap(&self.buf),
-            None => &self.buf,
+            Some(records) => records.wrap(&self.buf[start..]),
+            None => &self.buf[start..],
         };
         self.half.write_all(wire).await?;
         Ok(())
+    }
+
+    pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<()> {
+        self.begin();
+        self.buf.extend_from_slice(payload);
+        self.finish().await
     }
 }

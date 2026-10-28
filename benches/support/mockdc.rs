@@ -4,6 +4,9 @@
 //! halves, so the session string carries a fixed auth key instead. Everything after that is the
 //! real wire: transport framing, MTProto 2.0 encryption, containers and acks.
 
+#[path = "seal.rs"]
+mod seal;
+
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -14,7 +17,6 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
-use vaegram::connection::Transport;
 use vaegram::raw::core::msg_container;
 use vaegram::raw::{Deserializable, Identifiable, Serializable, base, functions, types};
 use vaegram::storage::{SessionData, session_string};
@@ -459,7 +461,7 @@ impl Conn {
         let out = std::mem::take(&mut self.out);
         for chunk in out.chunks(CONTAINER_MAX) {
             let packet = if let [(msg_id, seq, body)] = chunk {
-                self.seal(*msg_id, *seq, body)
+                seal::seal(&AUTH_KEY, &self.auth_key_id, &self.session_id, *msg_id, *seq, body)
             } else {
                 let mut body = Vec::with_capacity(8 + chunk.iter().map(|m| 16 + m.2.len()).sum::<usize>());
                 body.extend_from_slice(&msg_container::ID.to_le_bytes());
@@ -471,31 +473,10 @@ impl Conn {
                     body.extend_from_slice(b);
                 }
                 let msg_id = self.msg_id();
-                self.seal(msg_id, self.content * 2, &body)
+                seal::seal(&AUTH_KEY, &self.auth_key_id, &self.session_id, msg_id, self.content * 2, &body)
             };
             packets.push(packet);
         }
-    }
-
-    /// MTProto 2.0, server to client: the msg_key comes from auth_key[96..128] and x = 8.
-    fn seal(&self, msg_id: i64, seq: i32, body: &[u8]) -> Vec<u8> {
-        let padding = 12 + (16 - (32 + body.len() + 12) % 16) % 16;
-        let mut packet = Vec::with_capacity(24 + 32 + body.len() + padding);
-        packet.extend_from_slice(&self.auth_key_id);
-        packet.extend_from_slice(&[0; 16]);
-        packet.extend_from_slice(&0i64.to_le_bytes());
-        packet.extend_from_slice(&self.session_id);
-        packet.extend_from_slice(&msg_id.to_le_bytes());
-        packet.extend_from_slice(&seq.to_le_bytes());
-        packet.extend_from_slice(&(body.len() as u32).to_le_bytes());
-        packet.extend_from_slice(body);
-        packet.resize(packet.len() + padding, 0);
-        let hash = Sha256::new().chain_update(&AUTH_KEY[96..128]).chain_update(&packet[24..]).finalize();
-        let msg_key: [u8; 16] = hash[8..24].try_into().unwrap();
-        packet[8..24].copy_from_slice(&msg_key);
-        let (key, iv) = warpcrypto::kdf(&AUTH_KEY, &msg_key, false);
-        warpcrypto::ige256_encrypt(&mut packet[24..], &key, &iv).unwrap();
-        packet
     }
 
     /// Decrypts a client packet and returns (msg_id, body), learning the session id from it.
@@ -546,18 +527,17 @@ async fn serve(
     if reader.read_exact(&mut tag).await.is_err() || tag != [0xee; 4] {
         return;
     }
-    let transport = Transport::Intermediate;
-
     let (packets_tx, mut packets) = mpsc::channel::<Vec<u8>>(64);
     tokio::spawn(async move {
-        while let Ok(p) = transport.read(&mut reader).await {
-            if packets_tx.send(p).await.is_err() {
+        while let Ok(len) = reader.read_u32_le().await {
+            let mut p = vec![0; len as usize];
+            if reader.read_exact(&mut p).await.is_err() || packets_tx.send(p).await.is_err() {
                 break;
             }
         }
     });
     let (out_tx, out_rx) = mpsc::unbounded_channel();
-    tokio::spawn(write_packets(writer, transport, out_rx));
+    tokio::spawn(write_packets(writer, out_rx));
 
     let auth_key_id = Sha1::digest(AUTH_KEY)[12..].try_into().unwrap();
     let mut conn = Conn {
@@ -597,11 +577,9 @@ async fn serve(
 /// limiting how many are in flight.
 async fn write_packets(
     writer: tokio::net::tcp::OwnedWriteHalf,
-    transport: Transport,
     mut packets: mpsc::UnboundedReceiver<(Instant, Vec<u8>)>,
 ) {
     let mut writer = BufWriter::with_capacity(1 << 20, writer);
-    let mut framed = Vec::new();
     while let Some((due, packet)) = packets.recv().await {
         if due > Instant::now() {
             if writer.flush().await.is_err() {
@@ -609,9 +587,11 @@ async fn write_packets(
             }
             tokio::time::sleep_until(due.into()).await;
         }
-        framed.clear();
-        transport.encode(&packet, &mut framed);
-        if writer.write_all(&framed).await.is_err() || (packets.is_empty() && writer.flush().await.is_err()) {
+        let len = (packet.len() as u32).to_le_bytes();
+        if writer.write_all(&len).await.is_err()
+            || writer.write_all(&packet).await.is_err()
+            || (packets.is_empty() && writer.flush().await.is_err())
+        {
             return;
         }
     }

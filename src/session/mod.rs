@@ -20,7 +20,6 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::JoinHandle;
 
 use crate::connection::{Connection, Options, Proxy, Reader, Writer};
 use crate::crypto::rsa::PublicKey;
@@ -197,7 +196,7 @@ impl Session {
     }
 
     #[cfg(test)]
-    pub(crate) fn scripted(replies: Vec<Answer>) -> (Session, mpsc::UnboundedReceiver<Vec<u8>>) {
+    pub(crate) fn scripted(replies: Vec<Result<Vec<u8>>>) -> (Session, mpsc::UnboundedReceiver<Vec<u8>>) {
         let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
         let (bodies, sent) = mpsc::unbounded_channel();
         tokio::spawn(async move {
@@ -376,22 +375,6 @@ async fn handshake(
     })
 }
 
-fn start_reading(conn: Connection) -> (Writer, mpsc::Receiver<Result<Vec<u8>>>, JoinHandle<()>) {
-    let (reader, writer) = conn.into_split();
-    let (packets_tx, packets) = mpsc::channel(64);
-    (writer, packets, tokio::spawn(read_packets(reader, packets_tx)))
-}
-
-async fn read_packets(mut reader: Reader, packets: mpsc::Sender<Result<Vec<u8>>>) {
-    loop {
-        let packet = reader.recv().await;
-        let failed = packet.is_err();
-        if packets.send(packet).await.is_err() || failed {
-            break;
-        }
-    }
-}
-
 fn constructor_id(body: &[u8]) -> Option<u32> {
     Some(u32::from_le_bytes(body.get(..4)?.try_into().unwrap()))
 }
@@ -410,9 +393,8 @@ struct Pending {
 struct Runner {
     dc: Dc,
     options: Arc<Options>,
+    reader: Reader,
     writer: Writer,
-    packets: mpsc::Receiver<Result<Vec<u8>>>,
-    reader: JoinHandle<()>,
     auth_key: [u8; 256],
     auth_key_id: [u8; 8],
     session_id: [u8; 8],
@@ -427,7 +409,6 @@ struct Runner {
     queue: VecDeque<Pending>,
     service: VecDeque<(Vec<u8>, bool)>,
     acks: Vec<i64>,
-    buf: Vec<u8>,
     updates: Option<mpsc::Sender<Incoming>>,
     events: Arc<Events>,
     pfs: Option<Pfs>,
@@ -443,13 +424,12 @@ impl Runner {
         events: Arc<Events>,
         updates: Option<mpsc::Sender<Incoming>>,
     ) -> Runner {
-        let (writer, packets, reader) = start_reading(conn);
+        let (reader, writer) = conn.into_split();
         Runner {
             dc,
             options,
-            writer,
-            packets,
             reader,
+            writer,
             auth_key,
             auth_key_id: mtproto::auth_key_id(&auth_key),
             session_id: random(),
@@ -464,7 +444,6 @@ impl Runner {
             queue: VecDeque::new(),
             service: VecDeque::new(),
             acks: Vec::new(),
-            buf: Vec::new(),
             updates,
             events,
             pfs: None,
@@ -489,13 +468,12 @@ impl Runner {
                     }
                     None => break Error::Disconnected,
                 },
-                packet = self.packets.recv() => match packet {
-                    Some(Ok(p)) => {
+                packet = self.reader.recv() => match packet {
+                    Ok(p) => {
                         self.last_read = Instant::now();
-                        self.handle_packet(&p).await
+                        self.handle_packet(p).await
                     }
-                    Some(Err(e)) => Err(e),
-                    None => Err(Error::Disconnected),
+                    Err(e) => Err(e),
                 },
                 _ = ping.tick() => {
                     if self.temp_key_expiring() { Err(Error::Disconnected) } else { self.ping().await }
@@ -512,7 +490,6 @@ impl Runner {
                 }
             }
         };
-        self.reader.abort();
         let code = match reason {
             Error::Transport(code) => Some(code),
             _ => None,
@@ -528,7 +505,6 @@ impl Runner {
         let mut attempt = 0;
         while !requests.is_closed() && self.updates.as_ref().is_none_or(|u| !u.is_closed()) {
             attempt += 1;
-            self.reader.abort();
             tokio::time::sleep(jitter(delay)).await;
             delay = (delay * 2).min(MAX_RECONNECT_DELAY);
             self.drop_abandoned();
@@ -540,7 +516,7 @@ impl Runner {
                 };
                 self.use_temp_key(key);
             }
-            (self.writer, self.packets, self.reader) = start_reading(conn);
+            (self.reader, self.writer) = conn.into_split();
             self.last_read = Instant::now();
             if self.resend_pending().await.is_ok() {
                 self.events.reconnected();
@@ -616,7 +592,8 @@ impl Runner {
             }
             let req = types::MsgsStateReq { msg_ids: ids };
             let (msg_id, seq_no) = (self.msg_ids.next(), self.seq.next(true));
-            self.writer.send(&self.encrypt(msg_id, seq_no, &req.to_bytes())).await?;
+            self.seal(msg_id, seq_no, &req.to_bytes());
+            self.writer.finish().await?;
             self.checking.insert(msg_id, req.msg_ids);
         }
         Ok(())
@@ -706,17 +683,19 @@ impl Runner {
         self.queue.extend(sent.into_iter().map(|(_, p)| p));
     }
 
-    async fn handle_packet(&mut self, packet: &[u8]) -> Result<()> {
+    async fn handle_packet(&mut self, mut packet: Vec<u8>) -> Result<()> {
         // Drop anything that fails decryption or the MTProto checks: it isn't from the server.
-        let Ok(msg) = mtproto::unpack(packet, &self.auth_key, &self.auth_key_id, &self.session_id, true) else {
+        let Ok((msg_id, seq_no, at)) = mtproto::open(&mut packet, &self.auth_key, &self.auth_key_id, &self.session_id)
+        else {
             self.events.emit(ClientEvent::PacketDropped { reason: "failed decryption or the MTProto checks" });
             return Ok(());
         };
-        if !self.fresh(msg.msg_id, &msg.body) {
+        let body = &packet[at];
+        if !self.fresh(msg_id, body) {
             return Ok(());
         }
-        if constructor_id(&msg.body) == Some(msg_container::ID) {
-            match msg_container::parse(&msg.body) {
+        if constructor_id(body) == Some(msg_container::ID) {
+            match msg_container::parse(body) {
                 Ok(messages) => {
                     for m in messages {
                         if self.fresh(m.msg_id, m.body) {
@@ -727,7 +706,7 @@ impl Runner {
                 Err(_) => self.events.emit(ClientEvent::PacketDropped { reason: "bad msg_container" }),
             }
         } else {
-            self.handle_message(msg.msg_id, msg.seq_no, &msg.body);
+            self.handle_message(msg_id, seq_no, body);
         }
         if let Some(e) = self.bind_failure() {
             return Err(e);

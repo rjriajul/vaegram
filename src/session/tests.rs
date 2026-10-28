@@ -414,7 +414,7 @@ async fn unknown_constructors_are_reported_and_skipped() {
     r.handle_message(3, 1, &[UPDATE_SHORT.to_le_bytes(), unknown, [0; 4]].concat());
     r.handle_message(5, 1, &UPDATE_SHORT.to_le_bytes());
     r.handle_message(7, 1, &gzip_packed::ID.to_le_bytes());
-    assert!(r.handle_packet(&[0; 64]).await.is_ok());
+    assert!(r.handle_packet(vec![0; 64]).await.is_ok());
     let got: Vec<ClientEvent> = events.try_iter().collect();
     let expected = matches!(
         got[..],
@@ -463,7 +463,7 @@ async fn reconnect_is_reported() {
 async fn panicking_listener_keeps_the_connection() {
     let (mut r, mut frames, _updates) = runner().await;
     r.events.listen(Arc::new(|_| panic!("listener bug")));
-    assert!(r.handle_packet(&[0; 64]).await.is_ok());
+    assert!(r.handle_packet(vec![0; 64]).await.is_ok());
     let _rx = request(&mut r, ping(1));
     r.flush().await.unwrap();
     assert_eq!(recv(&mut frames, &r).await.2, ping(1));
@@ -500,7 +500,7 @@ async fn observer_sees_how_each_request_ended() {
     // The server answers before it sees the rpc_drop_answer: nobody is waiting any more.
     r.handle_message(9, 1, &rpc_result(ids[2], b"late"));
 
-    assert_eq!(answered.try_recv().unwrap().unwrap(), b"pong");
+    assert_eq!(answered.try_recv().unwrap().unwrap(), &b"pong"[..]);
     let flood = Error::Rpc(RpcError::new(420, "FLOOD_WAIT_5")).to_string();
     let expected = [(ids[0], Ok(b"pong".to_vec())), (ids[1], Err(flood)), (ids[2], Err(Error::Timeout.to_string()))];
     assert_eq!(*seen.lock().unwrap(), expected.map(|(id, result)| ("ping", id, result)));

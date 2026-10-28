@@ -1,13 +1,18 @@
 //! TL and session micro-benchmarks in plain std: `cargo bench --bench tl`.
 
+#[path = "support/seal.rs"]
+mod seal;
 #[path = "support/timing.rs"]
 mod timing;
 
 use std::hint::black_box;
+use std::io::{Read, Write};
 
 use timing::bench;
+use vaegram::connection::{Connection, Options};
 use vaegram::crypto::mtproto;
 use vaegram::raw::{Deserializable, Identifiable, Serializable, base, functions, types};
+use vaegram::session::internals::data_center::Dc;
 use vaegram::storage::{SessionData, session_string};
 
 const VECTOR: u32 = 0x1cb5c415;
@@ -175,21 +180,27 @@ fn main() {
     let auth_key = [7u8; 256];
     let auth_key_id = [1u8; 8];
     let session_id = [2u8; 8];
-    let body = ping.to_bytes();
-    bench("mtproto pack ping", || {
-        black_box(mtproto::pack(&auth_key, &auth_key_id, &session_id, 0, 1 << 32, 1, black_box(&body)));
-    });
-    let packed = mtproto::pack(&auth_key, &auth_key_id, &session_id, 0, 1 << 32, 1, &body);
-    bench("mtproto unpack ping", || {
-        black_box(mtproto::unpack(black_box(&packed), &auth_key, &auth_key_id, &session_id, false).unwrap());
-    });
-    let packed = mtproto::pack(&auth_key, &auth_key_id, &session_id, 0, 1 << 32, 1, &part_bytes);
-    bench("mtproto pack 512K part", || {
-        black_box(mtproto::pack(&auth_key, &auth_key_id, &session_id, 0, 1 << 32, 1, black_box(&part_bytes)));
-    });
-    bench("mtproto unpack 512K part", || {
-        black_box(mtproto::unpack(black_box(&packed), &auth_key, &auth_key_id, &session_id, false).unwrap());
-    });
+    let mut packet = Vec::new();
+    for (name, body) in [("ping", ping.to_bytes()), ("512K part", part_bytes)] {
+        bench(&format!("mtproto seal {name}"), || {
+            packet.clear();
+            packet.resize(mtproto::HEADER, 0);
+            packet.extend_from_slice(black_box(&body));
+            mtproto::header(&mut packet, 0, &session_id, 1 << 32, 1);
+            mtproto::seal(&mut packet, 0, &auth_key, &auth_key_id);
+        });
+        // Each round copies the ciphertext back in, since opening decrypts it in place.
+        let sealed = seal::seal(&auth_key, &auth_key_id, &session_id, (1 << 32) + 1, 1, &body);
+        bench(&format!("mtproto open {name}"), || {
+            packet.clear();
+            packet.extend_from_slice(black_box(&sealed));
+            black_box(mtproto::open(&mut packet, &auth_key, &auth_key_id, &session_id).unwrap());
+        });
+    }
+
+    for size in [256, 64 << 10] {
+        recv_loopback(size);
+    }
 
     let session =
         SessionData { dc_id: 2, test_mode: false, addr: None, api_id: 12345, auth_key, user_id: 777000, is_bot: true };
@@ -199,5 +210,28 @@ fn main() {
     let exported = session_string::export(&session);
     bench("session string parse", || {
         black_box(session_string::parse(black_box(&exported)).unwrap());
+    });
+}
+
+// A loopback server streams `size`-byte frames; each op reads one through the real Connection,
+// so syscalls and buffering are part of the number.
+fn recv_loopback(size: usize) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let mut frames = Vec::new();
+    while frames.len() < 1 << 20 {
+        frames.extend_from_slice(&(size as u32).to_le_bytes());
+        frames.resize(frames.len() + size, 0x5a);
+    }
+    std::thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        s.read_exact(&mut [0; 4]).unwrap();
+        while s.write_all(&frames).is_ok() {}
+    });
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let dc = Dc { id: 2, addr, test: false };
+    let mut conn = rt.block_on(Connection::connect(&dc, &Options::default())).unwrap();
+    bench(&format!("recv loopback {size} B"), || {
+        black_box(rt.block_on(conn.recv()).unwrap());
     });
 }

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::io::Write;
 
-use vaegram::connection::Transport;
+use vaegram::connection::{RecvBuf, Transport};
 use vaegram::raw::core::{gzip_packed, msg_container};
-use vaegram::raw::{Deserializable, Serializable, base, types};
+use vaegram::raw::{Deserializable, Error, Serializable, base, types};
 use vaegram::session::Salt;
 use vaegram::storage::state::{self, Peers, UpdateState};
 use vaegram::storage::{SessionData, session_string};
@@ -80,12 +80,39 @@ fn gzip(data: &[u8]) -> Vec<u8> {
 
 // message: out, media (photo, empty), two entities, then peerUser, date and text.
 fn message() -> Vec<u8> {
+    message_with(&tl(&[&0xe216eb63u32, &0u32]))
+}
+
+fn message_with(media: &[u8]) -> Vec<u8> {
     let flags = 1u32 << 1 | 1 << 7 | 1 << 9;
     let (text, url) = ("hello *bold*".to_string(), "https://t.me".to_string());
     let (bold, text_url) = (0xbd610bc9u32, 0x76a6d327u32);
     let head = tl(&[&0x7600b9d3u32, &flags, &0u32, &42, &0x59511722u32, &777000i64, &1_700_000_000, &text]);
-    let media_and_entities = tl(&[&0xe216eb63u32, &0u32, &VECTOR, &2u32, &bold, &6, &6, &text_url, &0, &5, &url]);
-    [head, media_and_entities].concat()
+    let entities = tl(&[&VECTOR, &2u32, &bold, &6, &6, &text_url, &0, &5, &url]);
+    [head, media.to_vec(), entities].concat()
+}
+
+// messageMediaWebPage { webPage { cached_page: page { blocks: [pageBlockParagraph { textBold × `bold` }] } } }
+fn web_page(bold: usize) -> Vec<u8> {
+    let url = "https://t.me".to_string();
+    let text = [tl(&[&0x6724abc4u32]).repeat(bold), tl(&[&0x744694e0u32, &url])].concat();
+    let page = tl(&[&0x98657f0du32, &0u32, &url, &VECTOR, &1u32, &0x467a0766u32]);
+    let web_page = tl(&[&0xddf10c3bu32, &0u32, &0xe89c45b2u32, &(1u32 << 10), &1i64, &url, &url, &0]);
+    [web_page, page, text, tl(&[&VECTOR, &0u32, &VECTOR, &0u32])].concat()
+}
+
+// messageMediaStory { storyItem { media: messageMediaStory { .. } } }, `depth` stories deep.
+fn story(depth: usize) -> Vec<u8> {
+    let media = tl(&[&0x68cb6283u32, &1u32, &0x59511722u32, &1i64, &1, &0x16a4b93cu32, &0u32, &1, &0, &0]);
+    [media.repeat(depth), tl(&[&0x68cb6283u32, &0u32, &0x59511722u32, &1i64, &1])].concat()
+}
+
+// The deepest message the decoder still takes, so that small edits go past the limit.
+fn deepest(media: fn(usize) -> Vec<u8>) -> Vec<u8> {
+    let message = |n| message_with(&media(n));
+    let n = (1..).take_while(|&n| base::Message::from_bytes(&message(n)).is_ok()).last().unwrap();
+    assert_eq!(base::Message::from_bytes(&message(n + 1)).err(), Some(Error::TooDeep));
+    message(n)
 }
 
 fn updates() -> Vec<u8> {
@@ -112,6 +139,7 @@ fn corpus() -> Vec<Vec<u8>> {
     let mut all =
         vec![message(), short, rpc_result(&updates), rpc_result(&flood), rpc_result(&gzip(&updates)), gzip(&updates)];
     all.push(container(&all));
+    all.extend([deepest(web_page), deepest(story)]);
     all.push(updates);
     all
 }
@@ -120,31 +148,33 @@ fn constructor_id(b: &[u8]) -> Option<u32> {
     Some(u32::from_le_bytes(b.get(..4)?.try_into().unwrap()))
 }
 
-fn packet(body: &[u8]) {
+/// Whether a decoder stopped at the nesting limit.
+fn packet(body: &[u8]) -> bool {
     if constructor_id(body) == Some(msg_container::ID) {
-        for m in msg_container::parse(body).unwrap_or_default() {
-            message_body(m.body);
-        }
+        msg_container::parse(body).unwrap_or_default().iter().fold(false, |deep, m| message_body(m.body) | deep)
     } else {
-        message_body(body);
+        message_body(body)
     }
 }
 
-fn message_body(body: &[u8]) {
+fn message_body(body: &[u8]) -> bool {
     match constructor_id(body) {
-        Some(gzip_packed::ID) => {
-            if let Ok(b) = gzip_packed::unpack(body) {
-                assert!(b.len() <= MAX_UNPACKED);
-                message_body(&b);
-            }
-        }
+        Some(gzip_packed::ID) => gzip_packed::unpack(body).is_ok_and(|b| {
+            assert!(b.len() <= MAX_UNPACKED);
+            message_body(&b)
+        }),
         Some(RPC_RESULT) => message_body(body.get(12..).unwrap_or_default()),
         _ => {
-            let _ = base::Updates::from_bytes(body);
-            let _ = base::Update::from_bytes(body);
-            let _ = base::Message::from_bytes(body);
-            let _ = base::messages::Messages::from_bytes(body);
-            let _ = base::RpcError::from_bytes(body);
+            let too_deep = |r: Result<(), Error>| r == Err(Error::TooDeep);
+            [
+                base::Updates::from_bytes(body).map(drop),
+                base::Update::from_bytes(body).map(drop),
+                base::Message::from_bytes(body).map(drop),
+                base::messages::Messages::from_bytes(body).map(drop),
+                base::RpcError::from_bytes(body).map(drop),
+            ]
+            .into_iter()
+            .any(too_deep)
         }
     }
 }
@@ -153,16 +183,18 @@ fn message_body(body: &[u8]) {
 fn mutated_tl_never_panics() {
     let corpus = corpus();
     for c in &corpus {
-        packet(c);
+        assert!(!packet(c), "a seed is too deep already");
     }
     assert!(base::Message::from_bytes(&corpus[0]).is_ok());
     assert!(base::Updates::from_bytes(&corpus[corpus.len() - 1]).is_ok());
 
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+    let mut too_deep = 0;
     for _ in 0..20_000 {
         let seed = &corpus[rng.below(corpus.len())];
-        packet(&rng.mutate(seed));
+        too_deep += usize::from(packet(&rng.mutate(seed)));
     }
+    assert!(too_deep > 0, "no mutation reached the nesting limit");
     for len in 0..512 {
         let mut b = rng.bytes(len);
         let seed = &corpus[rng.below(corpus.len())];
@@ -213,17 +245,18 @@ fn deep_nesting_is_an_error_not_a_stack_overflow() {
     assert!(base::JSONValue::from_bytes(&[array, tl(&[&0x3f6d7b68u32])].concat()).is_err());
 }
 
-#[tokio::test]
-async fn transports_survive_garbage() {
+#[test]
+fn transports_survive_garbage() {
     let encrypted: Vec<u8> = (0..24 + 32).map(|i| i as u8 | 1).collect();
     let plain = [vec![0; 16], 8u32.to_le_bytes().to_vec(), b"abcd1234".to_vec()].concat();
     let mut rng = Rng(7);
     for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
         let mut frames = Vec::new();
         for payload in [&encrypted[..], &plain, &(-404i32).to_le_bytes()] {
-            let mut frame = Vec::new();
-            transport.encode(payload, &mut frame);
-            frames.push(frame);
+            let mut frame = vec![0; Transport::ROOM];
+            frame.extend_from_slice(payload);
+            let start = transport.frame(&mut frame);
+            frames.push(frame.split_off(start));
         }
         for i in 0..5000 {
             let input = match i % 3 {
@@ -236,12 +269,17 @@ async fn transports_survive_garbage() {
                     rng.mutate(frame)
                 }
             };
-            if let Ok(p) = transport.read(&mut input.as_slice()).await {
+            let mut buf = RecvBuf::default();
+            buf.extend_from_slice(&input);
+            if let Ok(Some(p)) = transport.decode(&mut buf) {
                 assert!(p.len() <= input.len(), "{transport:?} {input:?}");
             }
         }
         for header in [[0xff; 4], [0x7f, 0xff, 0xff, 0xff], (16u32 << 20 | 4).to_le_bytes()] {
-            assert!(transport.read(&mut &header[..]).await.is_err(), "{transport:?} {header:?}");
+            let mut buf = RecvBuf::default();
+            buf.extend_from_slice(&header);
+            let decoded = transport.decode(&mut buf);
+            assert!(!matches!(decoded, Ok(Some(_))), "{transport:?} {header:?}");
         }
     }
 }

@@ -151,15 +151,16 @@ impl Runner {
     }
 
     /// The bind packet, when one is due. It goes alone because its msg_id is sealed inside.
-    pub(super) fn bind_packet(&mut self) -> Option<Vec<u8>> {
-        let p = self.pfs.as_mut().filter(|p| p.bind.is_due())?;
+    pub(super) fn bind_packet(&mut self) -> bool {
+        let Some(p) = self.pfs.as_mut().filter(|p| p.bind.is_due()) else { return false };
         let msg_id = self.msg_ids.next();
         #[cfg(test)]
         p.binds_sent.push(msg_id);
         let request = bind_request(&p.perm_key, &self.auth_key_id, &self.session_id, msg_id, p.expires_at as i32);
         p.bind = Bind::Sent(msg_id);
         let seq_no = self.seq.next(true);
-        Some(self.encrypt(msg_id, seq_no, &request.to_bytes()))
+        self.seal(msg_id, seq_no, &request.to_bytes());
+        true
     }
 
     pub(super) fn rebind_if_sent_as(&mut self, msg_id: i64) -> bool {
