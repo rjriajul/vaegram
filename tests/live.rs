@@ -11,7 +11,8 @@ use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
     ButtonStyle, FileSource, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
-    InputRichMessage, InputSticker, KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Upload,
+    InputPollMedia, InputPollOption, InputRichMessage, InputSticker, KeyboardButton, Message, ReplyKeyboardMarkup,
+    ReplyKeyboardRemove, Upload,
 };
 use vaegram::{Client, filters};
 
@@ -231,6 +232,50 @@ async fn bot_uploads_and_downloads_a_document() {
     assert_eq!((copy.id, copy.file_unique_id.as_str()), (document.id, document.file_unique_id.as_str()));
     assert!(app.download_media(&copy.file_id).await.unwrap() == data);
     again.delete().await.unwrap();
+    sent.delete().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "logs in as a bot and uploads a photo and a video; the chat must be a channel the bot posts in"]
+async fn bot_sends_live_photos_paid_media_and_poll_media() {
+    if std::env::var("VAEGRAM_PHOTO").is_err() || std::env::var("VAEGRAM_VIDEO").is_err() {
+        eprintln!("skipped: set the bot variables plus VAEGRAM_PHOTO (a JPEG) and VAEGRAM_VIDEO (a short MP4)");
+        return;
+    }
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let app =
+        Client::builder("target/vaegram-live-photo", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+            .bot_token(env("VAEGRAM_BOT_TOKEN"))
+            .start()
+            .await
+            .unwrap();
+    let chat_id: i64 = env("VAEGRAM_CHAT_ID").parse().unwrap();
+    let (photo, video) = (env("VAEGRAM_PHOTO"), env("VAEGRAM_VIDEO"));
+
+    let sent = app.send_live_photo(chat_id, photo.as_str(), video.as_str()).caption("live").await.unwrap();
+    let live = sent.live_photo().expect("the message has the live photo");
+    assert!(live.photo.is_some() && live.file_size > 0);
+    sent.delete().await.unwrap();
+
+    let media = [
+        InputMedia::photo(photo.as_str()),
+        InputMedia::video(video.as_str()),
+        InputMedia::live_photo(photo.as_str(), video.as_str()),
+    ];
+    let sent = app.send_paid_media(chat_id, 5, media).payload("order-7").caption("paid").await.unwrap();
+    assert!(matches!(sent.raw.media, Some(base::MessageMedia::MessageMediaPaidMedia(ref m)) if m.stars_amount == 5));
+    sent.delete().await.unwrap();
+
+    let options = [
+        InputPollOption::new("Here").media(InputPollMedia::location(48.85, 2.35)),
+        InputPollOption::new("This").media(InputMedia::photo(photo.as_str())),
+    ];
+    let sent = app
+        .send_poll(chat_id, "Where?", options)
+        .description_media(InputPollMedia::link("https://telegram.org"))
+        .await
+        .unwrap();
+    assert!(sent.poll().is_some());
     sent.delete().await.unwrap();
 }
 

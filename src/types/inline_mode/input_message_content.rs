@@ -1,6 +1,7 @@
 use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
+use crate::methods::geo_point;
 use crate::raw::{base, types};
 use crate::types::{InputInvoice, InputRichMessage};
 
@@ -201,10 +202,6 @@ impl From<&str> for InputMessageContent {
     fn from(text: &str) -> Self {
         InputMessageContent::formatted(text.into(), Some(ParseMode::Disabled))
     }
-}
-
-fn geo_point(lat: f64, long: f64, accuracy_radius: Option<i32>) -> base::InputGeoPoint {
-    base::InputGeoPoint::InputGeoPoint(Box::new(types::InputGeoPoint { lat, long, accuracy_radius }))
 }
 
 // Telegram downloads web documents itself, so the size is unknown up front and sent as 0.

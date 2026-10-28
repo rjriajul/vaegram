@@ -3,7 +3,8 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::{base, types};
-use crate::types::{Message, PeerRef};
+use crate::types::messages_and_media::PollMedia;
+use crate::types::{InputPollMedia, InputPollOption, Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPoll<'a> {
@@ -14,19 +15,23 @@ pub struct SendPoll<'a> {
     explanation: Option<String>,
     explanation_parse_mode: Option<ParseMode>,
     options: SendOptions,
+    poll_media: PollMedia<'a>,
 }
 
 impl Client {
-    pub fn send_poll(
-        &self,
+    pub fn send_poll<'a>(
+        &'a self,
         chat_id: impl Into<PeerRef>,
         question: impl Into<String>,
-        options: impl IntoIterator<Item = impl Into<String>>,
-    ) -> SendPoll<'_> {
+        options: impl IntoIterator<Item = impl Into<InputPollOption<'a>>>,
+    ) -> SendPoll<'a> {
+        let mut poll_media = PollMedia::default();
         let answers = options
             .into_iter()
-            .map(|text| {
-                let answer = types::InputPollAnswer { text: text_with_entities(text.into()), media: None };
+            .map(|option| {
+                let InputPollOption { text, media } = option.into();
+                poll_media.options.push(media);
+                let answer = types::InputPollAnswer { text: text_with_entities(text), media: None };
                 base::PollAnswer::InputPollAnswer(Box::new(answer))
             })
             .collect();
@@ -38,11 +43,12 @@ impl Client {
             explanation: None,
             explanation_parse_mode: None,
             options: SendOptions::default(),
+            poll_media,
         }
     }
 }
 
-impl SendPoll<'_> {
+impl<'a> SendPoll<'a> {
     /// Shows who voted; polls are anonymous by default.
     pub fn public_voters(mut self) -> Self {
         self.poll.public_voters = true;
@@ -95,13 +101,26 @@ impl SendPoll<'_> {
         self
     }
 
+    pub fn description_media(mut self, media: impl Into<InputPollMedia<'a>>) -> Self {
+        self.poll_media.description = Some(media.into());
+        self
+    }
+
+    pub fn explanation_media(mut self, media: impl Into<InputPollMedia<'a>>) -> Self {
+        self.poll_media.explanation = Some(media.into());
+        self
+    }
+
     async fn send(mut self) -> Result<Message> {
         let solution = match self.explanation.take() {
             Some(text) => Some(self.client.parse_text(&text, self.explanation_parse_mode).await?),
             None => None,
         };
         let (client, chat_id, options) = (self.client, self.chat_id.clone(), std::mem::take(&mut self.options));
-        client.send_media(chat_id, self.media(solution), "", None, options).await
+        let poll_media = std::mem::take(&mut self.poll_media);
+        let mut media = self.media(solution);
+        poll_media.attach(client, &chat_id, &mut media).await?;
+        client.send_media(chat_id, media, "", None, options).await
     }
 
     fn media(self, solution: Option<(String, Vec<base::MessageEntity>)>) -> base::InputMedia {
@@ -151,6 +170,7 @@ mod tests {
     use super::text_with_entities;
     use crate::Client;
     use crate::raw::{Serializable, base, types};
+    use crate::types::{InputMedia, InputPollMedia, InputPollOption};
 
     #[test]
     fn maps_quiz_and_voting_limits() {
@@ -196,5 +216,22 @@ mod tests {
         let base::Poll::Poll(poll) = &media.poll;
         assert!(poll.multiple_choice && !poll.public_voters && !poll.quiz);
         assert_eq!(poll.countries_iso2, None);
+    }
+
+    #[test]
+    fn keeps_option_media_in_option_order() {
+        let client = Client::offline();
+        let options = [
+            InputPollOption::new("Paris").media(InputPollMedia::location(48.85, 2.35)),
+            "Rome".into(),
+            InputPollOption::new("Photo").media(InputMedia::photo("a.jpg")),
+        ];
+        let send = client.send_poll(1, "Where?", options);
+        let has_media: Vec<_> = send.poll_media.options.iter().map(Option::is_some).collect();
+        assert_eq!(has_media, [true, false, true]);
+        let base::InputMedia::InputMediaPoll(media) = send.media(None) else { panic!("not a poll") };
+        let base::Poll::Poll(poll) = &media.poll;
+        let rome = types::InputPollAnswer { text: text_with_entities("Rome".into()), media: None };
+        assert_eq!(poll.answers[1], base::PollAnswer::InputPollAnswer(Box::new(rome)));
     }
 }

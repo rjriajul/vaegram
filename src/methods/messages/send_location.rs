@@ -74,8 +74,8 @@ impl SendLocation<'_> {
 
 send_builder!(SendLocation);
 
-pub(crate) fn geo_point(lat: f64, long: f64) -> base::InputGeoPoint {
-    base::InputGeoPoint::InputGeoPoint(Box::new(types::InputGeoPoint { lat, long, accuracy_radius: None }))
+pub(crate) fn geo_point(lat: f64, long: f64, accuracy_radius: Option<i32>) -> base::InputGeoPoint {
+    base::InputGeoPoint::InputGeoPoint(Box::new(types::InputGeoPoint { lat, long, accuracy_radius }))
 }
 
 #[cfg(test)]

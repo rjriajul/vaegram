@@ -4,7 +4,7 @@ use super::{input_document, input_photo};
 use crate::errors::{Error, Result};
 use crate::file_id::{FileId, FileType};
 use crate::raw::{base, types};
-use crate::types::{Animation, Audio, Document, Photo, Sticker, Upload, Video, VideoNote, Voice};
+use crate::types::{Animation, Audio, Document, LivePhoto, Photo, Sticker, Upload, Video, VideoNote, Voice};
 
 #[derive(Debug, Clone)]
 pub struct FileSource<'a>(pub(crate) Source<'a>);
@@ -92,7 +92,7 @@ macro_rules! from_documents {
     )*};
 }
 
-from_documents!(Document, Animation, Audio, Sticker, Video, VideoNote, Voice);
+from_documents!(Document, Animation, Audio, Sticker, Video, VideoNote, Voice, LivePhoto);
 
 #[cfg(test)]
 mod tests {

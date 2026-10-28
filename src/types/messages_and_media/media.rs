@@ -3,8 +3,8 @@ use crate::enums::MediaKind;
 use crate::file_id::FileType;
 use crate::raw::base;
 use crate::types::{
-    Animation, Audio, Checklist, Contact, Dice, Document, FileLocation, Game, Invoice, Location, Message, Photo, Poll,
-    Sticker, Venue, Video, VideoNote, Voice,
+    Animation, Audio, Checklist, Contact, Dice, Document, FileLocation, Game, Invoice, LivePhoto, Location, Message,
+    PaidMediaInfo, Photo, Poll, Sticker, Venue, Video, VideoNote, Voice,
 };
 
 #[derive(Debug, Clone)]
@@ -18,6 +18,7 @@ pub enum Media {
     VideoNote(VideoNote),
     Voice(Voice),
     Sticker(Sticker),
+    LivePhoto(LivePhoto),
     Contact(Contact),
     Location(Location),
     Venue(Venue),
@@ -26,6 +27,7 @@ pub enum Media {
     Invoice(Invoice),
     Checklist(Checklist),
     Game(Game),
+    PaidMedia(PaidMediaInfo),
 }
 
 impl Media {
@@ -33,6 +35,7 @@ impl Media {
         use base::MessageMedia as M;
         let kind = MediaKind::of(media)?;
         Some(match media {
+            M::MessageMediaPhoto(m) if m.live_photo => Media::LivePhoto(LivePhoto::parse(m)?),
             M::MessageMediaPhoto(m) => Media::Photo(Photo::parse(m.photo.as_ref()?)?),
             M::MessageMediaDocument(m) => Media::parse_document(kind, m.document.as_ref()?)?,
             M::MessageMediaGeo(m) => Media::Location(Location::parse(&m.geo)?),
@@ -49,6 +52,7 @@ impl Media {
             M::MessageMediaInvoice(m) => Media::Invoice(Invoice::parse(m)),
             M::MessageMediaToDo(m) => Media::Checklist(Checklist::parse(m, entities)),
             M::MessageMediaGame(m) => Media::Game(Game::parse(&m.game)),
+            M::MessageMediaPaidMedia(m) => Media::PaidMedia(PaidMediaInfo::parse(m, entities)),
             _ => return None,
         })
     }
@@ -100,6 +104,7 @@ impl Media {
             Media::VideoNote(_) => MediaKind::VideoNote,
             Media::Voice(_) => MediaKind::Voice,
             Media::Sticker(_) => MediaKind::Sticker,
+            Media::LivePhoto(_) => MediaKind::LivePhoto,
             Media::Contact(_) => MediaKind::Contact,
             Media::Location(_) => MediaKind::Location,
             Media::Venue(_) => MediaKind::Venue,
@@ -108,6 +113,7 @@ impl Media {
             Media::Invoice(_) => MediaKind::Invoice,
             Media::Checklist(_) => MediaKind::Checklist,
             Media::Game(_) => MediaKind::Game,
+            Media::PaidMedia(_) => MediaKind::PaidMedia,
         }
     }
 
@@ -121,6 +127,7 @@ impl Media {
             Media::VideoNote(m) => Some(&m.location),
             Media::Voice(m) => Some(&m.location),
             Media::Sticker(m) => Some(&m.location),
+            Media::LivePhoto(m) => Some(&m.location),
             Media::Contact(_)
             | Media::Location(_)
             | Media::Venue(_)
@@ -128,7 +135,8 @@ impl Media {
             | Media::Poll(_)
             | Media::Invoice(_)
             | Media::Checklist(_)
-            | Media::Game(_) => None,
+            | Media::Game(_)
+            | Media::PaidMedia(_) => None,
         }
     }
 }
@@ -164,6 +172,10 @@ impl Message {
 
     pub fn sticker(&self) -> Option<&Sticker> {
         if let Some(Media::Sticker(m)) = &self.media { Some(m) } else { None }
+    }
+
+    pub fn live_photo(&self) -> Option<&LivePhoto> {
+        if let Some(Media::LivePhoto(m)) = &self.media { Some(m) } else { None }
     }
 
     pub fn contact(&self) -> Option<&Contact> {
@@ -313,6 +325,26 @@ pub(crate) mod tests {
         for media in [round, document_media("video/mp4", animated), document_media("audio/ogg", vec![audio(true)])] {
             assert_eq!(Some(parse(media.clone()).kind()), MediaKind::of(&media));
         }
+    }
+
+    fn live_photo(video: Option<base::Document>) -> base::MessageMedia {
+        let photo =
+            types::MessageMediaPhoto { spoiler: false, live_photo: true, photo: None, ttl_seconds: None, video };
+        base::MessageMedia::MessageMediaPhoto(Box::new(photo))
+    }
+
+    #[test]
+    fn reads_the_video_of_a_live_photo() {
+        let base::MessageMedia::MessageMediaDocument(document) = document_media("video/mp4", vec![video(false)]) else {
+            panic!()
+        };
+        let media = live_photo(document.document);
+        assert_eq!(Some(parse(media.clone()).kind()), MediaKind::of(&media));
+        let Media::LivePhoto(live) = parse(media) else { panic!() };
+        assert_eq!((live.id, live.width, live.height, live.duration, live.file_size), (1, 640, 480, 7, 5));
+        assert_eq!((live.mime_type.as_str(), live.location.dc_id), ("video/mp4", Some(2)));
+        assert_eq!(live.file_id, "BAACAgIAAwEDAAIBAAcCAAceBA");
+        assert!(Media::parse(&live_photo(None), &Entities::default()).is_none());
     }
 
     #[test]

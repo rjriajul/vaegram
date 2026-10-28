@@ -11,6 +11,17 @@ pub struct Location {
 }
 
 impl Location {
+    pub fn new(latitude: f64, longitude: f64) -> Self {
+        Location {
+            latitude,
+            longitude,
+            horizontal_accuracy: None,
+            live_period: None,
+            heading: None,
+            proximity_alert_radius: None,
+        }
+    }
+
     pub(crate) fn parse(geo: &base::GeoPoint) -> Option<Location> {
         match geo {
             base::GeoPoint::GeoPoint(g) => Some(Location {
