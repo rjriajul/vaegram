@@ -7,6 +7,9 @@ mod chat_permissions;
 mod chat_privileges;
 mod community;
 mod direct_messages_topic;
+mod forum_topic;
+mod forum_topic_created;
+mod forum_topic_edited;
 mod peer_ref;
 mod user;
 
@@ -19,5 +22,8 @@ pub use chat_permissions::ChatPermissions;
 pub use chat_privileges::ChatPrivileges;
 pub use community::Community;
 pub use direct_messages_topic::DirectMessagesTopic;
+pub use forum_topic::ForumTopic;
+pub use forum_topic_created::ForumTopicCreated;
+pub use forum_topic_edited::ForumTopicEdited;
 pub use peer_ref::PeerRef;
 pub use user::User;

@@ -2,8 +2,8 @@ use crate::dispatcher::Entities;
 use crate::enums::SuggestedPostRefundReason;
 use crate::raw::base;
 use crate::types::{
-    Community, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostPaid,
-    SuggestedPostPrice, SuggestedPostRefunded, User,
+    Community, ForumTopicCreated, ForumTopicEdited, SuggestedPostApprovalFailed, SuggestedPostApproved,
+    SuggestedPostDeclined, SuggestedPostPaid, SuggestedPostPrice, SuggestedPostRefunded, User,
 };
 
 #[non_exhaustive]
@@ -18,6 +18,12 @@ pub enum ServiceAction {
     SuggestedPostDeclined(SuggestedPostDeclined),
     SuggestedPostPaid(SuggestedPostPaid),
     SuggestedPostRefunded(SuggestedPostRefunded),
+    ForumTopicCreated(ForumTopicCreated),
+    ForumTopicEdited(ForumTopicEdited),
+    ForumTopicClosed,
+    ForumTopicReopened,
+    GeneralForumTopicHidden,
+    GeneralForumTopicUnhidden,
 }
 
 impl ServiceAction {
@@ -54,6 +60,23 @@ impl ServiceAction {
                 };
                 ServiceAction::SuggestedPostRefunded(SuggestedPostRefunded { reason })
             }
+            A::MessageActionTopicCreate(a) => ServiceAction::ForumTopicCreated(ForumTopicCreated {
+                title: a.title.clone(),
+                icon_color: a.icon_color,
+                icon_emoji_id: a.icon_emoji_id,
+                is_name_implicit: a.title_missing,
+            }),
+            // One edit can set several flags; ServiceKind reads them in this order, so filters and `service` agree.
+            A::MessageActionTopicEdit(a) => match (a.closed, a.hidden) {
+                (Some(true), _) => ServiceAction::ForumTopicClosed,
+                (Some(false), _) => ServiceAction::ForumTopicReopened,
+                (_, Some(true)) => ServiceAction::GeneralForumTopicHidden,
+                (_, Some(false)) => ServiceAction::GeneralForumTopicUnhidden,
+                _ => ServiceAction::ForumTopicEdited(ForumTopicEdited {
+                    title: a.title.clone(),
+                    icon_emoji_id: a.icon_emoji_id,
+                }),
+            },
             _ => return None,
         })
     }

@@ -148,6 +148,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   `.suggested_post_parameters(..)`, `.direct_messages_topic_id(user)`, `msg.direct_messages_topic` (not yet tested live)
 - [ ] Ephemeral messages: send, edit, delete, handlers and callback queries (not yet tested live)
 - [ ] Reactions: `send_reaction`, `msg.react(..)`, `msg.reactions`, `on_message_reaction`, `on_message_reaction_count` (not yet tested live)
+- [ ] Forum topics, also in private chats with bots: `create_forum_topic(chat, "Ideas")`, `msg.service`
+  (`ServiceAction::ForumTopicCreated`, ..), `msg.message_thread_id` (not yet tested live)
 - [ ] Rich messages
 
 ### Development

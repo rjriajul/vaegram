@@ -16,6 +16,8 @@ pub struct User {
     pub can_connect_to_business: bool,
     pub has_main_web_app: bool,
     pub can_manage_bots: bool,
+    pub has_topics_enabled: bool,
+    pub allows_users_to_create_topics: bool,
 }
 
 impl User {
@@ -36,6 +38,8 @@ impl User {
                 can_connect_to_business: u.bot_business,
                 has_main_web_app: u.bot_has_main_app,
                 can_manage_bots: u.bot_can_manage_bots,
+                has_topics_enabled: u.bot_forum_view,
+                allows_users_to_create_topics: u.bot_forum_can_manage_topics,
             },
             _ => User { id, ..User::default() },
         }

@@ -44,6 +44,15 @@ pub struct Message {
 
 impl Message {
     pub(crate) fn parse(client: &Client, raw: Box<types::Message>, entities: &Entities) -> Message {
+        Message::build(client, raw, None, entities)
+    }
+
+    fn build(
+        client: &Client,
+        raw: Box<types::Message>,
+        service: Option<ServiceAction>,
+        entities: &Entities,
+    ) -> Message {
         let chat = Chat::parse(&raw.peer_id, entities, raw.post);
         let (mut from_user, mut sender_chat) = (None, None);
         match (&raw.from_id, &raw.peer_id) {
@@ -68,7 +77,7 @@ impl Message {
             (raw.message.clone(), parsed_entities, None, None)
         };
         let (reply_to_message_id, message_thread_id, is_topic_message, quote, external_reply) =
-            reply_fields(&raw, entities);
+            reply_fields(&raw, service.as_ref(), entities);
         let direct_messages_topic = match &raw.saved_peer_id {
             Some(peer) if chat.is_direct_messages => Some(DirectMessagesTopic::parse(peer, entities)),
             _ => None,
@@ -97,7 +106,7 @@ impl Message {
             media_group_id: raw.grouped_id,
             author_signature: raw.post_author.clone(),
             has_protected_content: raw.noforwards,
-            service: None,
+            service,
             direct_messages_topic,
             reactions: raw.reactions.as_ref().map_or(Vec::new(), |base::MessageReactions::MessageReactions(r)| {
                 r.results.iter().filter_map(ReactionCount::parse).collect()
@@ -175,9 +184,11 @@ impl Message {
         let mut bare = Message::bare(raw.id, raw.peer_id.clone(), raw.date);
         (bare.out, bare.post, bare.from_id) = (raw.out, raw.post, raw.from_id.clone());
         bare.saved_peer_id = raw.saved_peer_id.clone();
-        let mut message = Message::parse(client, Box::new(bare), entities);
-        message.service = Some(service);
-        Some(message)
+        // A pin's header points at the pinned message, which the service message doesn't reply to.
+        if !matches!(raw.action, base::MessageAction::MessageActionPinMessage) {
+            bare.reply_to = raw.reply_to.clone();
+        }
+        Some(Message::build(client, Box::new(bare), Some(service), entities))
     }
 
     pub(crate) fn unpack(client: &Client, messages: base::messages::Messages) -> (Vec<base::Message>, Entities) {
@@ -289,7 +300,11 @@ impl Message {
 
 type ReplyFields = (Option<i32>, Option<i32>, bool, Option<TextQuote>, Option<Box<ExternalReplyInfo>>);
 
-fn reply_fields(raw: &types::Message, entities: &Entities) -> ReplyFields {
+fn reply_fields(raw: &types::Message, service: Option<&ServiceAction>, entities: &Entities) -> ReplyFields {
+    // The message that creates a topic is its root, so the topic id is the message's own id.
+    if matches!(service, Some(ServiceAction::ForumTopicCreated(_))) {
+        return (None, Some(raw.id), true, None, None);
+    }
     let Some(base::MessageReplyHeader::MessageReplyHeader(reply)) = &raw.reply_to else { return Default::default() };
     // In a forum, a header without reply_to_top_id points at the topic itself, not at a replied message.
     let (reply_to_message_id, message_thread_id) = if reply.forum_topic && reply.reply_to_top_id.is_none() {
@@ -314,7 +329,7 @@ mod tests {
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::raw::{base, types};
-    use crate::types::{Community, Media, MessageOrigin, ServiceAction};
+    use crate::types::{Community, ForumTopicCreated, ForumTopicEdited, Media, MessageOrigin, ServiceAction};
     use crate::utils::{get_channel_id, get_peer};
 
     fn header() -> types::MessageReplyHeader {
@@ -475,5 +490,68 @@ mod tests {
         let created = service(base::MessageAction::MessageActionManagedBotCreated(Box::new(created))).unwrap();
         assert!(matches!(created.service, Some(ServiceAction::ManagedBotCreated(bot)) if bot.id == 42));
         assert!(service(base::MessageAction::MessageActionPinMessage).is_none());
+    }
+
+    #[test]
+    fn maps_forum_topic_service_actions() {
+        let client = Client::offline();
+        let service = |reply_to: Option<types::MessageReplyHeader>, action| {
+            let raw = types::MessageService {
+                out: false,
+                mentioned: false,
+                media_unread: false,
+                reactions_are_possible: false,
+                silent: false,
+                post: false,
+                legacy: false,
+                id: 9,
+                from_id: None,
+                peer_id: get_peer(get_channel_id(5)),
+                saved_peer_id: None,
+                reply_to: reply_to.map(|r| base::MessageReplyHeader::MessageReplyHeader(Box::new(r))),
+                date: 1,
+                action,
+                reactions: None,
+                ttl_period: None,
+            };
+            Message::from_raw(&client, base::Message::MessageService(Box::new(raw)), &Entities::default()).unwrap()
+        };
+        let edit = |title: Option<&str>, closed, hidden| {
+            let edit =
+                types::MessageActionTopicEdit { title: title.map(Into::into), icon_emoji_id: None, closed, hidden };
+            base::MessageAction::MessageActionTopicEdit(Box::new(edit))
+        };
+        let in_topic = Some(types::MessageReplyHeader { forum_topic: true, reply_to_msg_id: Some(4), ..header() });
+
+        let create = types::MessageActionTopicCreate {
+            title_missing: true,
+            title: String::new(),
+            icon_color: 0x6FB9F0,
+            icon_emoji_id: None,
+        };
+        let created = service(None, base::MessageAction::MessageActionTopicCreate(Box::new(create)));
+        let topic = ForumTopicCreated {
+            title: String::new(),
+            icon_color: 0x6FB9F0,
+            icon_emoji_id: None,
+            is_name_implicit: true,
+        };
+        assert_eq!(created.service, Some(ServiceAction::ForumTopicCreated(topic)));
+        assert_eq!((created.message_thread_id, created.is_topic_message), (Some(9), true));
+
+        let renamed = service(in_topic.clone(), edit(Some("New"), None, None));
+        let edited = ForumTopicEdited { title: Some("New".into()), icon_emoji_id: None };
+        assert_eq!(
+            (renamed.service, renamed.message_thread_id),
+            (Some(ServiceAction::ForumTopicEdited(edited)), Some(4))
+        );
+        assert_eq!(renamed.reply_to_message_id, None);
+        assert_eq!(service(in_topic, edit(None, Some(true), None)).service, Some(ServiceAction::ForumTopicClosed));
+        assert_eq!(service(None, edit(None, Some(false), None)).service, Some(ServiceAction::ForumTopicReopened));
+        assert_eq!(service(None, edit(None, None, Some(true))).service, Some(ServiceAction::GeneralForumTopicHidden));
+        assert_eq!(
+            service(None, edit(None, None, Some(false))).service,
+            Some(ServiceAction::GeneralForumTopicUnhidden)
+        );
     }
 }

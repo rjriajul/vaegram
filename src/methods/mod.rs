@@ -23,7 +23,9 @@ mod users;
 mod utilities;
 
 pub use bots::{AnswerCallbackQuery, AnswerInlineQuery, SavePreparedInlineMessage};
-pub use chats::{BanChatMember, GetChatAdministrators, GetChatMembers, RestrictChatMember};
+pub use chats::{
+    BanChatMember, CreateForumTopic, EditForumTopic, GetChatAdministrators, GetChatMembers, RestrictChatMember,
+};
 pub use invite_links::{
     CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
 };

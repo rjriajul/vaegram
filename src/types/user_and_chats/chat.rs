@@ -21,6 +21,7 @@ pub struct Chat {
     pub community: Option<Community>,
     pub is_direct_messages: bool,
     pub parent_chat: Option<Box<Chat>>,
+    pub is_forum: bool,
 }
 
 impl Chat {
@@ -40,6 +41,7 @@ impl Chat {
             community: None,
             is_direct_messages: false,
             parent_chat: None,
+            is_forum: false,
         };
         match peer {
             base::Peer::PeerUser(_) => {
@@ -67,6 +69,7 @@ impl Chat {
                             .linked_monoforum_id
                             .map(|parent| Box::new(Chat::parse(&get_peer(get_channel_id(parent)), entities, true)));
                     }
+                    chat.is_forum = c.forum;
                 }
                 Some(base::Chat::ChannelForbidden(c)) => {
                     chat.title = Some(c.title.clone());

@@ -30,5 +30,5 @@ pub use messages_and_media::{
 };
 pub use user_and_chats::{
     Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatPermissions, ChatPrivileges, Community,
-    DirectMessagesTopic, PeerRef, User,
+    DirectMessagesTopic, ForumTopic, ForumTopicCreated, ForumTopicEdited, PeerRef, User,
 };
