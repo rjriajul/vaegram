@@ -1,7 +1,7 @@
 use super::facts::{Facts, PeerKinds};
 use crate::Client;
 use crate::client::Me;
-use crate::types::{CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message};
+use crate::types::{BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message, User};
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
 // `Inspect` uncallable while `Filter::check` can still bound on it.
@@ -44,6 +44,10 @@ macro_rules! subject {
     };
 }
 
+fn user_query<'a>(user: &User, me: &'a Me) -> Facts<'a> {
+    Facts::query(user.id, user.id, &[], PeerKinds { chat: None, sender_bot: user.is_bot }, me)
+}
+
 subject!(Message: HasChat, HasSender, HasText, HasMedia; |s, me| {
     let sender_bot = s.from_user.as_ref().is_some_and(|u| u.is_bot);
     Facts::plain(&s.raw, PeerKinds { chat: Some(s.chat.kind), sender_bot }, me)
@@ -67,3 +71,5 @@ subject!(ChatJoinRequest: HasChat, HasSender; |s, me| {
 });
 
 subject!(GuestMessage: HasChat, HasSender, HasText, HasMedia; |s, me| private::Inspect::facts(&s.message, me));
+
+subject!(BotSubscriptionUpdated: HasSender; |s, me| user_query(&s.user, me));

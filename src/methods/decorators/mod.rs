@@ -1,3 +1,4 @@
+mod on_bot_subscription_updated;
 mod on_callback_query;
 mod on_chat_join_request;
 mod on_edited_message;

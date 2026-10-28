@@ -8,7 +8,7 @@ use crate::client::Me;
 use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
 use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, UpdateKind};
 use crate::raw::base;
-use crate::types::{CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message};
+use crate::types::{BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message};
 
 type Scan = (Vec<usize>, Option<usize>);
 
@@ -119,6 +119,7 @@ pub(crate) struct Router {
     pub(crate) inline_query: Handlers<InlineQuery>,
     pub(crate) chat_join_request: Handlers<ChatJoinRequest>,
     pub(crate) guest_message: Handlers<GuestMessage>,
+    pub(crate) bot_subscription_updated: Handlers<BotSubscriptionUpdated>,
     pub(crate) raw: Vec<RawCallback>,
     pub(crate) on_error: Option<ErrorCallback>,
     next_id: u32,
@@ -138,6 +139,7 @@ impl Router {
             UpdateKind::InlineQuery => self.inline_query.configure(id, group, stop),
             UpdateKind::ChatJoinRequest => self.chat_join_request.configure(id, group, stop),
             UpdateKind::GuestMessage => self.guest_message.configure(id, group, stop),
+            UpdateKind::BotSubscriptionUpdated => self.bot_subscription_updated.configure(id, group, stop),
             UpdateKind::Raw => {}
         }
     }
@@ -175,6 +177,12 @@ impl Router {
             U::UpdateBotGuestChatQuery(u) if !self.guest_message.0.is_empty() => {
                 if let Some(item) = GuestMessage::parse(client, *u, entities) {
                     self.guest_message.finish(UpdateKind::GuestMessage, tasks, &me(), (Vec::new(), Some(0)), item);
+                }
+            }
+            U::UpdateBotStarsSubscription(u) if !self.bot_subscription_updated.0.is_empty() => {
+                if let Some(item) = BotSubscriptionUpdated::parse(client, &u, entities) {
+                    let kind = UpdateKind::BotSubscriptionUpdated;
+                    self.bot_subscription_updated.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
                 }
             }
             _ => {}
