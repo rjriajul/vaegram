@@ -8,6 +8,7 @@ mod delete_message_reaction;
 mod delete_messages;
 mod download_media;
 mod edit_ephemeral_message_caption;
+mod edit_ephemeral_message_media;
 mod edit_ephemeral_message_reply_markup;
 mod edit_ephemeral_message_text;
 mod edit_inline_media;

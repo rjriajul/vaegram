@@ -2,9 +2,9 @@ use super::send_options::caption_setters;
 use crate::Client;
 use crate::crypto::random;
 use crate::enums::ParseMode;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
-use crate::types::{EphemeralMessage, PeerRef, ReplyMarkup, ReplyParameters};
+use crate::types::{EphemeralMessage, InputMedia, PeerRef, ReplyMarkup, ReplyParameters};
 
 enum ReplyTo {
     Message(ReplyParameters),
@@ -18,6 +18,7 @@ pub struct SendEphemeralMessage<'a> {
     receiver_user_id: PeerRef,
     text: String,
     parse_mode: Option<ParseMode>,
+    media: Option<InputMedia<'a>>,
     protect_content: bool,
     callback_query_id: Option<i64>,
     reply_to: Option<ReplyTo>,
@@ -37,6 +38,7 @@ impl Client {
             receiver_user_id: receiver_user_id.into(),
             text: text.into(),
             parse_mode: None,
+            media: None,
             protect_content: false,
             callback_query_id: None,
             reply_to: None,
@@ -45,9 +47,15 @@ impl Client {
     }
 }
 
-impl SendEphemeralMessage<'_> {
+impl<'a> SendEphemeralMessage<'a> {
     pub fn callback_query_id(mut self, query_id: i64) -> Self {
         self.callback_query_id = Some(query_id);
+        self
+    }
+
+    /// The caption comes from `InputMedia::caption`; the message text must then be empty.
+    pub fn media(mut self, media: InputMedia<'a>) -> Self {
+        self.media = Some(media);
         self
     }
 
@@ -89,8 +97,12 @@ impl SendEphemeralMessage<'_> {
             }
             None => None,
         };
+        let media = match &self.media {
+            Some(media) => Some(self.client.input_media(&peer, media, None, None).await?),
+            None => None,
+        };
         Ok(functions::ephemeral::SendMessage {
-            invert_media: false,
+            invert_media: self.media.as_ref().is_some_and(|m| m.show_caption_above_media),
             welcome: false,
             anchor: false,
             noforwards: self.protect_content,
@@ -99,7 +111,7 @@ impl SendEphemeralMessage<'_> {
             query_id: self.callback_query_id,
             message,
             entities,
-            media: None,
+            media,
             reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
             rich_message: None,
             random_id: i64::from_le_bytes(random()),
@@ -107,12 +119,18 @@ impl SendEphemeralMessage<'_> {
         })
     }
 
-    async fn send(self) -> Result<EphemeralMessage> {
+    async fn send(mut self) -> Result<EphemeralMessage> {
         let client = self.client;
+        let (message, entities) = match &mut self.media {
+            Some(_) if !self.text.is_empty() => {
+                return Err(Error::InvalidArgument("a media message takes its caption from InputMedia::caption"));
+            }
+            Some(media) => client.write_text(std::mem::take(&mut media.caption), media.parse_mode).await?,
+            None => client.parse_text(&self.text, self.parse_mode).await?,
+        };
+        let entities = (!entities.is_empty()).then_some(entities);
         let chat = client.resolve(&self.chat_id).await?;
         let receiver_id = client.resolve_user(&self.receiver_user_id).await?;
-        let (message, entities) = client.parse_text(&self.text, self.parse_mode).await?;
-        let entities = (!entities.is_empty()).then_some(entities);
         let request = self.request(chat, receiver_id, message, entities).await?;
         EphemeralMessage::from_updates(client, client.invoke(&request).await?)
     }
@@ -124,7 +142,9 @@ into_future!(SendEphemeralMessage, EphemeralMessage);
 #[cfg(test)]
 mod tests {
     use crate::Client;
+    use crate::errors::Error;
     use crate::raw::{base, types};
+    use crate::types::InputMedia;
 
     fn peer() -> base::InputPeer {
         base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 42, access_hash: 7 }))
@@ -146,5 +166,13 @@ mod tests {
         let reply_to = types::InputReplyToEphemeralMessage { id: 3 };
         let reply_to = Some(base::InputReplyTo::InputReplyToEphemeralMessage(Box::new(reply_to)));
         assert_eq!((request.reply_to, request.rich_message), (reply_to, None));
+    }
+
+    #[tokio::test]
+    async fn media_sends_refuse_message_text() {
+        let (client, mut sent) = Client::recording();
+        let send = client.send_ephemeral_message("me", "me", "text").media(InputMedia::photo("cat.jpg"));
+        assert!(matches!(send.await, Err(Error::InvalidArgument(_))));
+        assert!(sent.try_recv().is_err());
     }
 }
