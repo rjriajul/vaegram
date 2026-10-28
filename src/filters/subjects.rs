@@ -2,7 +2,7 @@ use super::facts::{Facts, PeerKinds};
 use crate::Client;
 use crate::client::Me;
 use crate::types::{
-    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message,
+    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, GuestMessage, InlineQuery, Message,
     MessageGenerationStopped, User,
 };
 
@@ -62,6 +62,8 @@ subject!(CallbackQuery: HasChat, HasSender, HasData; |s, me| {
 });
 
 subject!(InlineQuery: HasSender, HasText; |s, me| Facts::inline(s.from_user.id, &s.query, me));
+
+subject!(ChosenInlineResult: HasSender, HasText; |s, me| Facts::inline(s.from_user.id, &s.query, me));
 
 subject!(ChatJoinRequest: HasChat, HasSender; |s, me| {
     Facts::query(

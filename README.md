@@ -140,6 +140,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Communities: `msg.service` (`ServiceAction::CommunityChatAdded`, ..), `get_chat(..).community` (not yet tested live)
 - [ ] Message drafts and streaming: `stream_message(chat).can_stop()`, `on_message_generation_stopped` (not yet tested live)
 - [ ] Bot profile: name, descriptions, menu button, default admin rights, `log_out` (not yet tested live)
+- [ ] Every inline result kind, chosen inline results, `answer_web_app_query`, prepared inline messages (not yet tested
+  live)
 - [ ] Rich messages
 
 ### Development

@@ -55,3 +55,5 @@ pub use venue::Venue;
 pub use video::Video;
 pub use video_note::VideoNote;
 pub use voice::Voice;
+
+pub(crate) use file_location::{input_document, input_photo};

@@ -1,6 +1,6 @@
 use vaegram::types::{
-    ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, KeyboardButton, Message,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove,
+    ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMessageContent,
+    KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove,
 };
 use vaegram::{Client, filters};
 
@@ -81,7 +81,8 @@ async fn main() -> vaegram::Result<()> {
         }
         let results = [
             InlineQueryResultArticle::new("Plain", format!("You searched: {}", query.query)).description("plain text"),
-            InlineQueryResultArticle::new("Bold", format!("<b>{}</b>", query.query)).description("HTML").html(),
+            InlineQueryResultArticle::new("Bold", InputMessageContent::html(format!("<b>{}</b>", query.query)))
+                .description("HTML"),
         ];
         query.answer(results).cache_time(0).await?;
         Ok(())

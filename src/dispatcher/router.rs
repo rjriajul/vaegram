@@ -9,7 +9,7 @@ use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
 use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, UpdateKind};
 use crate::raw::base;
 use crate::types::{
-    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message,
+    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, GuestMessage, InlineQuery, Message,
     MessageGenerationStopped,
 };
 
@@ -120,6 +120,7 @@ pub(crate) struct Router {
     pub(crate) edited_message: Handlers<Message>,
     pub(crate) callback_query: Handlers<CallbackQuery>,
     pub(crate) inline_query: Handlers<InlineQuery>,
+    pub(crate) chosen_inline_result: Handlers<ChosenInlineResult>,
     pub(crate) chat_join_request: Handlers<ChatJoinRequest>,
     pub(crate) guest_message: Handlers<GuestMessage>,
     pub(crate) bot_subscription_updated: Handlers<BotSubscriptionUpdated>,
@@ -141,6 +142,7 @@ impl Router {
             UpdateKind::EditedMessage => self.edited_message.configure(id, group, stop),
             UpdateKind::CallbackQuery => self.callback_query.configure(id, group, stop),
             UpdateKind::InlineQuery => self.inline_query.configure(id, group, stop),
+            UpdateKind::ChosenInlineResult => self.chosen_inline_result.configure(id, group, stop),
             UpdateKind::ChatJoinRequest => self.chat_join_request.configure(id, group, stop),
             UpdateKind::GuestMessage => self.guest_message.configure(id, group, stop),
             UpdateKind::BotSubscriptionUpdated => self.bot_subscription_updated.configure(id, group, stop),
@@ -174,6 +176,11 @@ impl Router {
             U::UpdateBotInlineQuery(u) if !self.inline_query.0.is_empty() => {
                 let query = InlineQuery::parse(client, &u, entities);
                 self.inline_query.finish(UpdateKind::InlineQuery, tasks, &me(), (Vec::new(), Some(0)), query);
+            }
+            U::UpdateBotInlineSend(u) if !self.chosen_inline_result.0.is_empty() => {
+                let item = ChosenInlineResult::parse(client, &u, entities);
+                let kind = UpdateKind::ChosenInlineResult;
+                self.chosen_inline_result.finish(kind, tasks, &me(), (Vec::new(), Some(0)), item);
             }
             U::UpdateBotChatInviteRequester(u) if !self.chat_join_request.0.is_empty() => {
                 let item = ChatJoinRequest::parse(client, &u, entities);

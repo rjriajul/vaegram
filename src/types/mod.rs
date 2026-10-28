@@ -10,7 +10,15 @@ pub use bots_and_keyboards::{
     InlineAction, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, MenuButton, ReplyKeyboardMarkup,
     ReplyKeyboardRemove, ReplyMarkup,
 };
-pub use inline_mode::{InlineQuery, InlineQueryResultArticle, SentGuestMessage};
+pub use inline_mode::{
+    ChosenInlineResult, InlineMessageId, InlineQuery, InlineQueryResult, InlineQueryResultArticle,
+    InlineQueryResultAudio, InlineQueryResultCachedAudio, InlineQueryResultCachedDocument, InlineQueryResultCachedGif,
+    InlineQueryResultCachedMpeg4Gif, InlineQueryResultCachedPhoto, InlineQueryResultCachedSticker,
+    InlineQueryResultCachedVideo, InlineQueryResultCachedVoice, InlineQueryResultContact, InlineQueryResultDocument,
+    InlineQueryResultGame, InlineQueryResultGif, InlineQueryResultLocation, InlineQueryResultMpeg4Gif,
+    InlineQueryResultPhoto, InlineQueryResultVenue, InlineQueryResultVideo, InlineQueryResultVoice,
+    InlineQueryResultsButton, InputMessageContent, PreparedInlineMessage, SentGuestMessage,
+};
 pub use messages_and_media::{
     Animation, Audio, Command, Contact, Dice, Document, ExternalReplyInfo, FileLocation, GuestMessage,
     LinkPreviewOptions, Location, Media, Message, MessageEntity, MessageGenerationStopped, MessageOrigin, Photo, Poll,

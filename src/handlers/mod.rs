@@ -7,7 +7,7 @@ use crate::dispatcher::Router;
 use crate::errors::{Error, Result};
 use crate::raw::base;
 use crate::types::{
-    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, GuestMessage, InlineQuery, Message,
+    BotSubscriptionUpdated, CallbackQuery, ChatJoinRequest, ChosenInlineResult, GuestMessage, InlineQuery, Message,
     MessageGenerationStopped,
 };
 
@@ -34,6 +34,7 @@ pub enum UpdateKind {
     EditedMessage,
     CallbackQuery,
     InlineQuery,
+    ChosenInlineResult,
     ChatJoinRequest,
     GuestMessage,
     BotSubscriptionUpdated,
@@ -103,6 +104,16 @@ impl Routed for CallbackQuery {
 }
 
 impl Routed for InlineQuery {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+}
+
+impl Routed for ChosenInlineResult {
     fn chat_id(&self) -> Option<i64> {
         None
     }

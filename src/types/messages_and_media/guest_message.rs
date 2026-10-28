@@ -2,7 +2,7 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::Result;
 use crate::raw::{base, types};
-use crate::types::{Chat, InlineQueryResultArticle, Message, SentGuestMessage, User};
+use crate::types::{Chat, InlineQueryResult, Message, SentGuestMessage, User};
 
 /// A message in a chat the bot isn't in; `answer` is the only way to respond there.
 #[derive(Debug, Clone)]
@@ -30,7 +30,7 @@ impl GuestMessage {
         self.message.client()
     }
 
-    pub async fn answer(&self, result: InlineQueryResultArticle) -> Result<SentGuestMessage> {
+    pub async fn answer(&self, result: impl Into<InlineQueryResult>) -> Result<SentGuestMessage> {
         self.client().answer_guest_query(self.query_id, result).await
     }
 }

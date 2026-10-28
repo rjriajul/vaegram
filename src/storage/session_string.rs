@@ -87,7 +87,7 @@ pub(crate) fn encode(data: &[u8]) -> String {
     out
 }
 
-fn decode(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn decode(s: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(s.len() * 3 / 4);
     let (mut acc, mut bits) = (0u32, 0);
     for c in s.bytes() {

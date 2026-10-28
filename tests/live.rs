@@ -281,10 +281,8 @@ async fn user_account_talks_to_bot() {
         Ok(())
     });
     bot.on_inline_query(filters::all(), |query| async move {
-        query
-            .answer([InlineQueryResultArticle::new("Result", format!("inline: {}", query.query))])
-            .cache_time(0)
-            .await?;
+        let result = InlineQueryResultArticle::new("Result", format!("inline: {}", query.query));
+        query.answer([result]).cache_time(0).await?;
         Ok(())
     });
 
