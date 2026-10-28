@@ -1,7 +1,7 @@
 use super::send_options::{SendOptions, send_builder};
 use crate::Client;
 use crate::enums::ParseMode;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::types::messages_and_media::PollMedia;
 use crate::types::{InputPollMedia, InputPollOption, Message, PeerRef};
@@ -112,6 +112,9 @@ impl<'a> SendPoll<'a> {
     }
 
     async fn send(mut self) -> Result<Message> {
+        if !(1..=12).contains(&self.poll.answers.len()) {
+            return Err(Error::InvalidArgument("a poll takes 1 to 12 options"));
+        }
         let solution = match self.explanation.take() {
             Some(text) => Some(self.client.parse_text(&text, self.explanation_parse_mode).await?),
             None => None,
@@ -260,5 +263,27 @@ mod tests {
     #[tokio::test]
     async fn poll_media_uploads_side_by_side() {
         assert_eq!(attach_url_documents().await.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn empty_or_oversized_lists_are_refused_before_sending() {
+        let (client, mut sent) = Client::recording();
+        let none: [&str; 0] = [];
+        let refused = [
+            client.send_poll(-5, "Lunch?", none).await.map(drop).err(),
+            client.send_poll(-5, "Lunch?", ["x"; 13]).await.map(drop).err(),
+            client.copy_messages(-5, -6, &[]).await.map(drop).err(),
+            client.forward_messages(-5, -6, &[]).await.map(drop).err(),
+            client.delete_messages(-5, &[]).await.err(),
+            client.delete_business_messages("c", &[]).await.err(),
+            client.copy_messages(-5, -6, &[1; 101]).await.map(drop).err(),
+            client.forward_messages(-5, -6, &[1; 101]).await.map(drop).err(),
+            client.delete_messages(-5, &[1; 101]).await.err(),
+            client.delete_business_messages("c", &[1; 101]).await.err(),
+        ];
+        for error in refused {
+            assert!(matches!(error, Some(Error::InvalidArgument(_))), "{error:?}");
+        }
+        assert!(sent.try_recv().is_err());
     }
 }

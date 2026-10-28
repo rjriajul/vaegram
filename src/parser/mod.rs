@@ -5,6 +5,10 @@ use crate::enums::ParseMode;
 use crate::raw::{base, types};
 use crate::types::Text;
 
+// Formatting nested deeper than this is dropped: each out-of-order close reopens every span inside it, so an
+// unbounded stack would make the span count quadratic in the input.
+pub(crate) const MAX_NESTING: usize = 64;
+
 pub fn parse(text: &str, mode: ParseMode) -> Text {
     match mode {
         ParseMode::Disabled => Text::new().plain(text),
@@ -262,5 +266,26 @@ mod tests {
     fn markdown_quotes() {
         assert_eq!(md("> one\n> two\nafter"), ("one\ntwo\nafter".into(), vec!["quote:false 0 7".into()]));
         assert_eq!(md("x\n>last"), ("x\nlast".into(), vec!["quote:false 2 4".into()]));
+    }
+
+    #[test]
+    fn out_of_order_html_closes_stay_linear() {
+        // Each </i> closes an <i> under every <b>, which closes and reopens them all.
+        let n = 200;
+        let html = format!("{}{}{}", "<i>".repeat(n), "<b>".repeat(n), "x</i>".repeat(n));
+        let text = parse(&html, ParseMode::Html);
+        assert_eq!(text.text, "x".repeat(n));
+        assert!(text.spans.len() <= super::MAX_NESTING * n, "{} spans", text.spans.len());
+    }
+
+    #[test]
+    fn tags_past_the_cap_leave_the_outer_ones_alone() {
+        // The inner <i> is the 65th open tag: its </i> must not end the outer one.
+        let html = format!("<i>{}<i>x</i>y</i>", "<b>".repeat(63));
+        let (text, entities) = run(&html, ParseMode::Html);
+        let italic: Vec<&str> = entities.iter().map(String::as_str).filter(|e| e.starts_with("italic")).collect();
+        assert_eq!((text.as_str(), italic), ("xy", vec!["italic 0 2"]));
+        let unknown = format!("{}<b>a</b>", "<x>".repeat(70));
+        assert_eq!(run(&unknown, ParseMode::Html), ("a".into(), vec!["bold 0 1".into()]));
     }
 }

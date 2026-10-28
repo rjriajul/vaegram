@@ -1,6 +1,6 @@
 use crate::dispatcher::Entities;
 use crate::raw::{base, types};
-use crate::types::{Media, Photo, Video};
+use crate::types::{LivePhoto, Media, Photo, Video};
 
 #[derive(Debug, Clone)]
 pub struct PaidMediaInfo {
@@ -18,6 +18,7 @@ pub enum PaidMedia {
     },
     Photo(Photo),
     Video(Video),
+    LivePhoto(LivePhoto),
 }
 
 impl PaidMediaInfo {
@@ -32,6 +33,7 @@ impl PaidMediaInfo {
                 base::MessageExtendedMedia::MessageExtendedMedia(m) => match Media::parse(&m.media, entities)? {
                     Media::Photo(photo) => Some(PaidMedia::Photo(photo)),
                     Media::Video(video) => Some(PaidMedia::Video(video)),
+                    Media::LivePhoto(live) => Some(PaidMedia::LivePhoto(live)),
                     _ => None,
                 },
             })
@@ -58,5 +60,29 @@ mod tests {
         assert_eq!(info.star_count, 5);
         let [PaidMedia::Preview { width, height, duration }] = info.paid_media[..] else { panic!("{info:?}") };
         assert_eq!((width, height, duration), (Some(640), Some(480), Some(9)));
+    }
+
+    #[test]
+    fn keeps_a_bought_live_photo() {
+        let base::MessageMedia::MessageMediaDocument(video) =
+            crate::types::messages_and_media::media::tests::document_media("video/mp4", Vec::new())
+        else {
+            panic!()
+        };
+        let live = types::MessageMediaPhoto {
+            spoiler: false,
+            live_photo: true,
+            photo: None,
+            ttl_seconds: None,
+            video: video.document,
+        };
+        let media = types::MessageExtendedMedia { media: base::MessageMedia::MessageMediaPhoto(Box::new(live)) };
+        let raw = types::MessageMediaPaidMedia {
+            stars_amount: 5,
+            extended_media: vec![base::MessageExtendedMedia::MessageExtendedMedia(Box::new(media))],
+        };
+        let info = PaidMediaInfo::parse(&raw, &Entities::default());
+        let kinds: Vec<_> = info.paid_media.iter().map(|m| format!("{m:?}")).collect();
+        assert!(matches!(&kinds[..], [live] if live.starts_with("LivePhoto")), "{kinds:?}");
     }
 }

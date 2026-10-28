@@ -31,7 +31,9 @@ impl Dispatcher {
                 qts: t.state.qts,
                 qts_limit: None,
             };
-            let (messages, others, users, chats, state, done) = match self.client.invoke(&request).await? {
+            // Straight to the session, not Client::invoke: a FLOOD_WAIT slept here would stop update intake, so it
+            // goes to Tracker::recover, which retries after the wait while updates keep flowing.
+            let (messages, others, users, chats, state, done) = match self.client.session().invoke(&request).await? {
                 base::updates::Difference::DifferenceEmpty(d) => {
                     (t.state.date, t.state.seq) = (d.date, d.seq);
                     return Ok(());
@@ -83,7 +85,7 @@ impl Dispatcher {
                 pts,
                 limit,
             };
-            match self.client.invoke(&request).await? {
+            match self.client.session().invoke(&request).await? {
                 base::updates::ChannelDifference::ChannelDifferenceEmpty(d) => {
                     pts = d.pts;
                     break;
@@ -109,6 +111,8 @@ impl Dispatcher {
                         self.tracker.emit(update, &entities);
                     }
                     pts = d.pts;
+                    // Stored per page: a failure on a later page retries from here, not from page 1 again.
+                    self.tracker.state.channels.insert(channel_id, pts);
                     if d.r#final {
                         break;
                     }

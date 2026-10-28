@@ -15,6 +15,8 @@ use crate::raw::{RemoteCall, base, functions};
 const IDLE: Duration = Duration::from_secs(15);
 const PART_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_TIMEOUTS: usize = 3;
+const MAX_CDN_FLOODS: usize = 5;
+const MAX_CDN_FLOOD_WAIT: u32 = 60;
 
 // Telegram shares a DC's auth key between its main and media-only addresses, so the key is kept per DC and the
 // connections per address.
@@ -57,7 +59,7 @@ impl TransferPool {
         let slot = self.0.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
         let mut state = slot.state.lock().unwrap();
         state.auth_key = Some(*session.auth_key());
-        state.sessions.insert(dc, vec![session.downgrade()]);
+        state.sessions.entry(dc).or_default().push(session.downgrade());
     }
 
     pub(crate) async fn lease(
@@ -123,11 +125,23 @@ impl Drop for Lease {
 }
 
 pub(crate) async fn invoke_part<R: RemoteCall>(session: &Session, request: &R) -> Result<R::Return> {
-    let mut timeouts = 0;
+    invoke_part_on(session, request, false).await
+}
+
+// A CDN that keeps asking to wait is dropped instead, so the master DC serves the part.
+pub(crate) async fn invoke_cdn_part<R: RemoteCall>(session: &Session, request: &R) -> Result<R::Return> {
+    invoke_part_on(session, request, true).await
+}
+
+async fn invoke_part_on<R: RemoteCall>(session: &Session, request: &R, cdn: bool) -> Result<R::Return> {
+    let (mut timeouts, mut floods) = (0, 0);
     loop {
         match session.invoke_with_timeout(request, PART_TIMEOUT).await {
-            Err(Error::Rpc(e)) if e.code == 420 => {
-                tokio::time::sleep(Duration::from_secs(e.value.unwrap_or(1).into())).await;
+            Err(Error::Rpc(e)) if e.code == 420 && (!cdn || floods < MAX_CDN_FLOODS) => {
+                floods += 1;
+                let wait = e.value.unwrap_or(1);
+                let wait = if cdn { wait.clamp(1, MAX_CDN_FLOOD_WAIT) } else { wait };
+                tokio::time::sleep(Duration::from_secs(wait.into())).await;
             }
             Err(Error::Timeout) if timeouts + 1 < MAX_TIMEOUTS => timeouts += 1,
             result => return result,

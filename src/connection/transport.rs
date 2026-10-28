@@ -78,7 +78,7 @@ impl Transport {
         }
         if let Ok(code) = <[u8; 4]>::try_from(payload.as_slice()).map(i32::from_le_bytes) {
             if code < 0 {
-                return Err(Error::Transport(-code));
+                return Err(Error::Transport(code.saturating_neg()));
             }
         }
         Ok(payload)
@@ -96,4 +96,17 @@ fn unpadded_len(p: &[u8]) -> usize {
         return p.len().min(body.saturating_add(20));
     }
     24 + (p.len() - 24) / 16 * 16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Transport;
+    use crate::errors::Error;
+
+    #[tokio::test]
+    async fn the_most_negative_error_code_does_not_overflow() {
+        let frame = [4u32.to_le_bytes(), i32::MIN.to_le_bytes()].concat();
+        let read = Transport::Intermediate.read(&mut &frame[..]).await;
+        assert!(matches!(read, Err(Error::Transport(i32::MAX))), "{read:?}");
+    }
 }

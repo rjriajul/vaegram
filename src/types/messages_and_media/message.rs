@@ -379,7 +379,10 @@ impl Message {
     pub fn download(&self) -> DownloadMedia<'_> {
         let location = self.media.as_ref().and_then(Media::file_location).cloned();
         let location = location.ok_or(Error::InvalidArgument("this message has no photo or document to download"));
-        DownloadMedia::new(&self.client, location, Some((self.chat.id, self.id)))
+        // A business chat's message ids aren't the bot's, and they can't be re-read through the connection, so an
+        // expired reference there isn't renewed.
+        let source = self.business_connection_id.is_none().then_some((self.chat.id, self.id));
+        DownloadMedia::new(&self.client, location, source)
     }
 
     pub fn command(&self) -> Option<Command<'_>> {
@@ -466,6 +469,7 @@ pub(crate) mod tests {
     use super::Message;
     use crate::Client;
     use crate::dispatcher::Entities;
+    use crate::errors::{Error, RpcError};
     use crate::filters;
     use crate::raw::{Identifiable, Serializable, base, functions, types};
     use crate::types::{Community, ForumTopicCreated, ForumTopicEdited, Media, MessageOrigin, ServiceAction};
@@ -844,6 +848,37 @@ pub(crate) mod tests {
             assert!(sent.is_err());
             assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
         }
+    }
+
+    #[tokio::test]
+    async fn live_locations_and_polls_close_through_the_business_connection() {
+        let (client, mut rx) = Client::recording();
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        let sent = [
+            client.edit_message_live_location(7, 5, 1.0, 2.0).business_connection_id("c").await.map(drop),
+            client.stop_message_live_location(7, 5).business_connection_id("c").await.map(drop),
+            client.stop_poll(7, 5).business_connection_id("c").await.map(drop),
+        ];
+        for sent in sent {
+            assert!(sent.is_err());
+            assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
+        }
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn business_media_is_not_looked_up_in_the_bots_own_messages() {
+        let expired = Err(Error::Rpc(RpcError::new(400, "FILE_REFERENCE_EXPIRED")));
+        let (client, mut rx) = Client::scripted(vec![expired]);
+        client.0.me.lock().unwrap().premium = Some(false);
+        let mut raw = Message::bare(5, get_peer(7), 0);
+        raw.media = Some(document_media("application/pdf", Vec::new()));
+        let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
+        message.business_connection_id = Some("c".into());
+        let result = message.download().await;
+        assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "FILE_REFERENCE_EXPIRED"), "{result:?}");
+        assert_eq!(std::iter::from_fn(|| rx.try_recv().ok()).count(), 1);
     }
 
     #[tokio::test]

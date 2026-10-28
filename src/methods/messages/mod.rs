@@ -79,6 +79,7 @@ pub use pin_chat_message::PinChatMessage;
 pub use search_messages::SearchMessages;
 pub use send_animation::SendAnimation;
 pub use send_audio::SendAudio;
+pub use send_chat_action::SendChatAction;
 pub use send_checklist::SendChecklist;
 pub use send_contact::SendContact;
 pub use send_dice::SendDice;

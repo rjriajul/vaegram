@@ -163,8 +163,8 @@ impl Drop for Dispatcher {
 mod tests {
     use super::{ClientEvent, Dispatcher, Entities, base, types};
     use crate::Client;
-    use crate::errors::Error;
-    use crate::raw::Serializable;
+    use crate::errors::{Error, RpcError};
+    use crate::raw::{Identifiable, Serializable};
     use crate::types::Message;
     use crate::utils::{get_channel_id, get_peer};
 
@@ -217,5 +217,39 @@ mod tests {
         client.0.peers.lock().unwrap().insert(7, full.clone());
         d.dispatch(sent_by_7(), &entities);
         assert_eq!(client.resolve_peer(7).await.unwrap(), full);
+    }
+
+    #[tokio::test]
+    async fn a_failed_channel_page_does_not_replay_the_pages_before_it() {
+        let page = types::updates::ChannelDifference {
+            r#final: false,
+            pts: 5,
+            timeout: None,
+            new_messages: vec![base::Message::Message(Box::new(Message::bare(42, get_peer(get_channel_id(7)), 0)))],
+            other_updates: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        let page = base::updates::ChannelDifference::ChannelDifference(Box::new(page));
+        let refused = || Err(Error::Rpc(RpcError::new(400, "CHANNEL_BROKEN")));
+        let (client, _sent) = Client::scripted(vec![Ok(page.to_bytes()), refused()]);
+        let peer = types::InputPeerChannel { channel_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(get_channel_id(7), base::InputPeer::InputPeerChannel(Box::new(peer)));
+        let mut d = Dispatcher::new(client, &state());
+        d.tracker.state.channels.insert(7, 1);
+        assert!(d.channel_difference(7).await.is_err());
+        assert_eq!((d.tracker.state.channels[&7], d.tracker.ready.len()), (5, 1));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_flood_wait_on_get_difference_is_returned_not_slept() {
+        let flood = Error::Rpc(RpcError::new(420, "FLOOD_WAIT_30"));
+        let (client, mut sent) = Client::scripted(vec![Err(flood)]);
+        let mut d = Dispatcher::new(client, &state());
+        let result = d.difference().await;
+        assert!(matches!(&result, Err(Error::Rpc(e)) if e.code == 420), "{result:?}");
+        let id = u32::from_le_bytes(sent.try_recv().unwrap()[..4].try_into().unwrap());
+        assert_eq!(id, crate::raw::functions::updates::GetDifference::CONSTRUCTOR_ID);
+        assert!(sent.try_recv().is_err());
     }
 }

@@ -1,4 +1,4 @@
-use crate::parser::{Kind, Span};
+use crate::parser::{Kind, MAX_NESTING, Span};
 use crate::raw::{base, types};
 use crate::types::Text;
 
@@ -54,7 +54,7 @@ impl From<Text> for RichText {
         // Spans covering the same range nest in the order they were added: the later one wraps.
         spans.sort_by_key(|&(i, s)| (s.start, -s.end, std::cmp::Reverse(i)));
         let spans: Vec<_> = spans.into_iter().map(|(_, s)| (&s.kind, s.start, s.end)).collect();
-        RichText(tree(&units, &spans, 0, text.len))
+        RichText(tree(&units, &spans, 0, text.len, 0))
     }
 }
 
@@ -73,21 +73,26 @@ fn plain(text: String) -> base::RichText {
     }
 }
 
-fn tree(units: &[u16], spans: &[(&Kind, i32, i32)], from: i32, to: i32) -> base::RichText {
+// Spans can cross (a quote running into bold): the part of a span past its parent's end is emitted again after the
+// parent, so every unit of text appears once. Formatting nested deeper than MAX_NESTING is dropped.
+fn tree(units: &[u16], spans: &[(&Kind, i32, i32)], from: i32, to: i32, depth: usize) -> base::RichText {
     let piece = |a: i32, b: i32| String::from_utf16_lossy(&units[a as usize..b as usize]);
     let mut parts = Vec::new();
     let mut at = from;
-    for (i, &(kind, start, end)) in spans.iter().enumerate() {
-        if start < at {
-            continue;
+    if depth < MAX_NESTING {
+        for (i, &(kind, start, end)) in spans.iter().enumerate() {
+            let (start, end) = (start.max(at), end.min(to));
+            if start >= end {
+                continue;
+            }
+            if at < start {
+                parts.push(plain(piece(at, start)));
+            }
+            let inner = &spans[i + 1..];
+            let inner = &inner[..inner.iter().take_while(|s| s.1 < end).count()];
+            parts.push(wrap(kind, tree(units, inner, start, end, depth + 1), || piece(start, end)));
+            at = end;
         }
-        if at < start {
-            parts.push(plain(piece(at, start)));
-        }
-        let inner = &spans[i + 1..];
-        let inner = &inner[..inner.iter().take_while(|s| s.1 < end).count()];
-        parts.push(wrap(kind, tree(units, inner, start, end), || piece(start, end)));
-        at = end;
     }
     if at < to {
         parts.push(plain(piece(at, to)));
@@ -200,7 +205,8 @@ fn inner(text: &base::RichText) -> Option<&base::RichText> {
 
 #[cfg(test)]
 mod tests {
-    use super::RichText;
+    use super::{RichText, inner, push_plain};
+    use crate::parser::MAX_NESTING;
     use crate::raw::{base, types};
     use crate::types::Text;
 
@@ -236,6 +242,27 @@ mod tests {
         let t = Text::from_markdown("**ab __cd** ef__");
         let expected = concat(vec![bold(concat(vec![plain("ab "), italic(plain("cd"))])), italic(plain(" ef"))]);
         assert_eq!(RichText::from(t).0, expected);
+    }
+
+    #[test]
+    fn a_quote_crossing_bold_keeps_each_character_once() {
+        let mut out = String::new();
+        push_plain(&RichText::from(Text::from_markdown("**a\n> b** c\n> d")).0, &mut out);
+        assert_eq!(out, "a\nb c\nd");
+    }
+
+    #[test]
+    fn nesting_stops_at_the_cap() {
+        let mut t = Text::new().plain("x");
+        for _ in 0..100 {
+            t = Text::new().bold(t);
+        }
+        let rich = RichText::from(t).0;
+        let (mut depth, mut at) = (0, &rich);
+        while let Some(next) = inner(at) {
+            (depth, at) = (depth + 1, next);
+        }
+        assert_eq!((depth, at), (MAX_NESTING, &plain("x")));
     }
 
     #[test]
