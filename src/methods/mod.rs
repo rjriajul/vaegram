@@ -47,7 +47,7 @@ pub use messages::{
     EditMessageChecklist, EditMessageReplyMarkup, EditMessageText, ForwardMessages, GetChatHistory, MessageStream,
     PinChatMessage, SearchMessages, SendChecklist, SendContact, SendDice, SendDocument, SendEphemeralMessage,
     SendLocation, SendMessage, SendMessageDraft, SendPhoto, SendPoll, SendReaction, SendRichMessage, SendVenue,
-    StopPoll, StreamMessage,
+    StopPoll, StreamMessage, UnpinChatMessage,
 };
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,

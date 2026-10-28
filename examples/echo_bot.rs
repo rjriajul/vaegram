@@ -10,12 +10,12 @@ async fn main() -> vaegram::Result<()> {
 
     app.on_message(filters::command("start"), |msg| async move {
         let name = msg.from_user.as_ref().map_or("there", |u| u.first_name.as_str());
-        msg.reply(format!("Hi {name}! Send me anything and I'll send it back.")).await?;
+        msg.answer(format!("Hi {name}! Send me anything and I'll send it back.")).await?;
         Ok(())
     });
 
     app.on_message(filters::text() & filters::private(), |msg| async move {
-        msg.reply(&msg.text).await?;
+        msg.answer(&msg.text).await?;
         Ok(())
     });
 

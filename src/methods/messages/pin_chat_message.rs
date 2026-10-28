@@ -10,6 +10,7 @@ pub struct PinChatMessage<'a> {
     message_id: i32,
     disable_notification: bool,
     both_sides: bool,
+    business_connection_id: Option<String>,
 }
 
 impl Client {
@@ -21,6 +22,7 @@ impl Client {
             message_id,
             disable_notification: false,
             both_sides: false,
+            business_connection_id: None,
         }
     }
 }
@@ -36,6 +38,11 @@ impl PinChatMessage<'_> {
         self
     }
 
+    pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
+        self.business_connection_id = Some(id.into());
+        self
+    }
+
     async fn send(self) -> Result<()> {
         let request = functions::messages::UpdatePinnedMessage {
             silent: self.disable_notification,
@@ -44,9 +51,15 @@ impl PinChatMessage<'_> {
             peer: self.client.resolve_peer(self.chat_id).await?,
             id: self.message_id,
         };
-        self.client.invoke(&request).await?;
+        self.client.invoke_business(self.business_connection_id.as_deref(), request).await?;
         Ok(())
     }
 }
 
 into_future!(PinChatMessage, ());
+
+impl crate::methods::OnBehalf for PinChatMessage<'_> {
+    fn business_connection(&mut self) -> &mut Option<String> {
+        &mut self.business_connection_id
+    }
+}

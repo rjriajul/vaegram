@@ -3,10 +3,10 @@ use std::fmt;
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::ParseMode;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::methods::{AnswerCallbackQuery, EditEphemeralMessage, EditInlineText, EditMessageText, into_future};
 use crate::raw::{base, types};
-use crate::types::{Chat, EphemeralMessage, InlineMessageId, MessageText, ReplyMarkup, User};
+use crate::types::{Chat, EphemeralMessage, InlineKeyboardMarkup, InlineMessageId, MessageText, ReplyMarkup, User};
 use crate::utils::get_peer;
 
 #[derive(Clone)]
@@ -161,6 +161,42 @@ impl CallbackQuery {
             CallbackOrigin::Ephemeral(message) => EditCallbackMessageText::Ephemeral(message.edit_text(text)),
         }
     }
+
+    /// `None` removes the keyboard.
+    pub async fn edit_message_reply_markup(&self, reply_markup: Option<InlineKeyboardMarkup>) -> Result<()> {
+        match &self.origin {
+            CallbackOrigin::Message { chat, message_id, business_connection_id } => {
+                let edit = self.client.edit_message_reply_markup(chat.id, *message_id, reply_markup);
+                match business_connection_id {
+                    Some(connection) => edit.business_connection_id(connection.clone()).await.map(drop),
+                    None => edit.await.map(drop),
+                }
+            }
+            CallbackOrigin::Inline(id) => {
+                self.client.edit_inline_reply_markup(id.clone(), reply_markup).await.map(drop)
+            }
+            CallbackOrigin::Ephemeral(m) => {
+                let edit = self.client.edit_ephemeral_message_reply_markup(m.chat.id, m.receiver_user.id, m.id);
+                match reply_markup {
+                    Some(markup) => edit.reply_markup(markup).await.map(drop),
+                    None => edit.await.map(drop),
+                }
+            }
+        }
+    }
+
+    pub async fn delete_message(&self) -> Result<()> {
+        match &self.origin {
+            CallbackOrigin::Message { message_id, business_connection_id: Some(connection), .. } => {
+                self.client.delete_business_messages(connection, &[*message_id]).await
+            }
+            CallbackOrigin::Message { chat, message_id, .. } => {
+                self.client.delete_messages(chat.id, &[*message_id]).await
+            }
+            CallbackOrigin::Inline(_) => Err(Error::InvalidArgument("inline messages can't be deleted")),
+            CallbackOrigin::Ephemeral(message) => message.delete().await.map(drop),
+        }
+    }
 }
 
 fn utf8(data: Vec<u8>) -> String {
@@ -224,10 +260,12 @@ into_future!(EditCallbackMessageText, ());
 
 #[cfg(test)]
 mod tests {
-    use super::{CallbackQuery, EditCallbackMessageText};
+    use super::{CallbackOrigin, CallbackQuery, EditCallbackMessageText};
     use crate::Client;
     use crate::dispatcher::Entities;
-    use crate::raw::{base, types};
+    use crate::errors::Error;
+    use crate::raw::functions::messages;
+    use crate::raw::{Identifiable, base, types};
     use crate::types::Message;
     use crate::types::messages_and_media::ephemeral_message::tests::{channel, ephemeral};
     use crate::utils::{get_channel_id, get_peer};
@@ -297,5 +335,45 @@ mod tests {
             &Entities::default(),
         );
         assert_eq!((q.chat().map(|c| c.id), q.message_id()), (Some(7), Some(5)));
+    }
+
+    #[tokio::test]
+    async fn delete_and_keyboard_edits_follow_the_origin() {
+        let (client, mut rx) = Client::recording();
+        let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
+        client.0.peers.lock().unwrap().insert(7, peer);
+        let update = types::UpdateBusinessBotCallbackQuery {
+            query_id: 1,
+            user_id: 7,
+            connection_id: "conn".into(),
+            message: base::Message::Message(Box::new(Message::bare(5, get_peer(7), 0))),
+            reply_to_message: None,
+            chat_instance: 3,
+            data: None,
+        };
+        let mut q = CallbackQuery::parse_business(&client, update, &Entities::default());
+        let _ = q.delete_message().await;
+        if let CallbackOrigin::Message { business_connection_id, .. } = &mut q.origin {
+            *business_connection_id = None;
+        }
+        let _ = q.delete_message().await;
+        let mut sent = || u32::from_le_bytes(rx.try_recv().expect("no request sent")[..4].try_into().unwrap());
+        assert_eq!((sent(), sent()), (0xdd289f8e, messages::DeleteMessages::CONSTRUCTOR_ID));
+
+        let id = types::InputBotInlineMessageID64 { dc_id: 2, owner_id: 5, id: 6, access_hash: 7 };
+        let update = types::UpdateInlineBotCallbackQuery {
+            query_id: 1,
+            user_id: 1000,
+            msg_id: base::InputBotInlineMessageID::InputBotInlineMessageID64(Box::new(id)),
+            chat_instance: 3,
+            data: None,
+            game_short_name: None,
+        };
+        let q = CallbackQuery::parse_inline(&client, update, &Entities::default());
+        assert!(matches!(q.delete_message().await, Err(Error::InvalidArgument(_))));
+        assert!(rx.try_recv().is_err());
+        let _ = q.edit_message_reply_markup(None).await;
+        let sent = u32::from_le_bytes(rx.try_recv().expect("no request sent")[..4].try_into().unwrap());
+        assert_eq!(sent, messages::EditInlineBotMessage::CONSTRUCTOR_ID);
     }
 }

@@ -28,7 +28,7 @@ async fn main() -> vaegram::Result<()> {
 
     app.on_message(filters::command("start"), |msg| async move {
         println!("start from {:?}", msg.from_user);
-        msg.reply("<b>vaegram demo</b>\nTap a button:").html().reply_markup(menu()).await?;
+        msg.answer("<b>vaegram demo</b>\nTap a button:").html().reply_markup(menu()).await?;
         Ok(())
     });
 
@@ -36,7 +36,7 @@ async fn main() -> vaegram::Result<()> {
         let keyboard =
             ReplyKeyboardMarkup::new([vec![KeyboardButton::new("Hello"), KeyboardButton::new("Remove keyboard")]])
                 .placeholder("Pick one");
-        msg.reply("Here is a reply keyboard.").reply_markup(keyboard).await?;
+        msg.answer("Here is a reply keyboard.").reply_markup(keyboard).await?;
         Ok(())
     });
 
@@ -46,7 +46,7 @@ async fn main() -> vaegram::Result<()> {
     });
 
     app.on_message(filters::text() & filters::create(|m: &Message| m.text == "Remove keyboard"), |msg| async move {
-        msg.reply("Keyboard removed.").reply_markup(ReplyKeyboardRemove::default()).await?;
+        msg.answer("Keyboard removed.").reply_markup(ReplyKeyboardRemove::default()).await?;
         Ok(())
     });
 

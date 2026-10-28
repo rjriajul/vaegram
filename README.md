@@ -23,7 +23,7 @@ async fn main() -> vaegram::Result<()> {
         .await?;
 
     app.on_message(filters::command("start") & filters::private(), |msg| async move {
-        msg.reply("Hello from vaegram!").await?;
+        msg.answer("Hello from vaegram!").await?;
         Ok(())
     });
 
@@ -169,6 +169,9 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   `delete_chat_photo`, `remove_profile_photo`, business account photos (not yet tested live)
 - [ ] Sticker sets: `create_new_sticker_set`, `add_sticker_to_set`, `upload_sticker_file`, `get_sticker_set`,
   `get_custom_emoji_stickers`, `set_chat_sticker_set` (not yet tested live)
+- [ ] Shortcuts: `msg.reply()` always quotes and `msg.answer()` never does, both staying in the topic; `msg.forward`,
+  `copy`, `pin`, `unpin`, `edit_caption`, `edit_reply_markup`; `query.edit_message_reply_markup`,
+  `query.delete_message`; `request.approve()` answers guard bot queries (not yet tested live)
 
 ### Development
 

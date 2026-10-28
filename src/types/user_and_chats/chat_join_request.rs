@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::Client;
 use crate::dispatcher::Entities;
+use crate::enums::ChatJoinRequestResult;
 use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::{Chat, User};
@@ -43,12 +44,19 @@ impl ChatJoinRequest {
         &self.client
     }
 
+    /// A request with a `query_id` went to the chat's guard bot, which answers it with `bots.setJoinChatResults`.
     pub async fn approve(&self) -> Result<()> {
-        self.client.approve_chat_join_request(self.chat.id, self.from_user.id).await
+        match self.query_id {
+            Some(id) => self.client.answer_chat_join_request_query(id, ChatJoinRequestResult::Approve).await.map(drop),
+            None => self.client.approve_chat_join_request(self.chat.id, self.from_user.id).await,
+        }
     }
 
     pub async fn decline(&self) -> Result<()> {
-        self.client.decline_chat_join_request(self.chat.id, self.from_user.id).await
+        match self.query_id {
+            Some(id) => self.client.answer_chat_join_request_query(id, ChatJoinRequestResult::Decline).await.map(drop),
+            None => self.client.decline_chat_join_request(self.chat.id, self.from_user.id).await,
+        }
     }
 }
 
@@ -71,7 +79,8 @@ mod tests {
     use super::ChatJoinRequest;
     use crate::Client;
     use crate::dispatcher::Entities;
-    use crate::raw::{base, types};
+    use crate::raw::functions::{bots, messages};
+    use crate::raw::{Identifiable, base, types};
     use crate::utils::get_channel_id;
 
     fn update(
@@ -121,5 +130,21 @@ mod tests {
         let raw = update(None, "", base::ExportedChatInvite::ChatInvitePublicJoinRequests);
         let request = ChatJoinRequest::parse(&client, &raw, &entities);
         assert_eq!((request.query_id, request.bio, request.invite_link), (None, None, None));
+    }
+
+    #[tokio::test]
+    async fn guard_bot_requests_answer_the_query() {
+        let (client, mut rx) = Client::recording();
+        let channel = types::InputPeerChannel { channel_id: 42, access_hash: 1 };
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(get_channel_id(42), base::InputPeer::InputPeerChannel(Box::new(channel)));
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        let (public, entities) = (base::ExportedChatInvite::ChatInvitePublicJoinRequests, Entities::default());
+        let request = |query_id| ChatJoinRequest::parse(&client, &update(query_id, "", public.clone()), &entities);
+        let _ = request(Some(1)).decline().await;
+        let _ = request(None).approve().await;
+        let mut sent = || u32::from_le_bytes(rx.try_recv().expect("no request sent")[..4].try_into().unwrap());
+        let expected = (bots::SetJoinChatResults::CONSTRUCTOR_ID, messages::HideChatJoinRequest::CONSTRUCTOR_ID);
+        assert_eq!((sent(), sent()), expected);
     }
 }

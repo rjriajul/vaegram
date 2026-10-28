@@ -2,12 +2,15 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::ChatType;
 use crate::errors::{Error, Result};
-use crate::methods::{DownloadMedia, EditMessageText, OnBehalf, SendMessage, SendReaction};
+use crate::methods::{
+    CopyMessage, DownloadMedia, EditMessageReplyMarkup, EditMessageText, ForwardMessages, OnBehalf, PinChatMessage,
+    SendMessage, SendReaction, UnpinChatMessage,
+};
 use crate::raw::{base, types};
 use crate::types::{
-    Chat, Command, DirectMessagesTopic, ExternalReplyInfo, LinkPreviewOptions, Media, MessageEntity, MessageOrigin,
-    MessageText, ReactionCount, ReactionType, ReplyMarkup, RichMessage, ServiceAction, SuggestedPostInfo, TextQuote,
-    User,
+    Chat, Command, DirectMessagesTopic, ExternalReplyInfo, InlineKeyboardMarkup, LinkPreviewOptions, Media,
+    MessageEntity, MessageOrigin, MessageText, PeerRef, ReactionCount, ReactionType, ReplyMarkup, RichMessage,
+    ServiceAction, SuggestedPostInfo, TextQuote, User,
 };
 use crate::utils::get_peer;
 
@@ -288,11 +291,36 @@ impl Message {
         self.on_behalf(self.client.edit_message_text(self.chat.id, self.id, text))
     }
 
+    pub fn edit_caption(&self, caption: impl Into<String>) -> EditMessageText<'_> {
+        self.edit_text(caption.into())
+    }
+
+    /// `None` removes the keyboard.
+    pub fn edit_reply_markup(&self, reply_markup: Option<InlineKeyboardMarkup>) -> EditMessageReplyMarkup<'_> {
+        self.on_behalf(self.client.edit_message_reply_markup(self.chat.id, self.id, reply_markup))
+    }
+
     pub async fn delete(&self) -> Result<()> {
         match &self.business_connection_id {
             Some(id) => self.client.delete_business_messages(id, &[self.id]).await,
             None => self.client.delete_messages(self.chat.id, &[self.id]).await,
         }
+    }
+
+    pub fn forward(&self, chat_id: impl Into<PeerRef>) -> ForwardMessages<'_> {
+        self.client.forward_messages(chat_id, self.chat.id, std::slice::from_ref(&self.id))
+    }
+
+    pub fn copy(&self, chat_id: impl Into<PeerRef>) -> CopyMessage<'_> {
+        self.client.copy_message(chat_id, self.chat.id, self.id)
+    }
+
+    pub fn pin(&self) -> PinChatMessage<'_> {
+        self.on_behalf(self.client.pin_chat_message(self.chat.id, self.id))
+    }
+
+    pub fn unpin(&self) -> UnpinChatMessage<'_> {
+        self.on_behalf(self.client.unpin_chat_message(self.chat.id, self.id))
     }
 
     // Business bot rights don't cover reactions, so the bot reacts as itself.
@@ -320,13 +348,18 @@ impl Message {
     }
 
     pub fn reply(&self, text: impl Into<String>) -> SendMessage<'_> {
+        self.answer(text).reply_to(self.id)
+    }
+
+    /// Sends `text` to this chat without a quote, in the same topic and through the same business connection.
+    pub fn answer(&self, text: impl Into<String>) -> SendMessage<'_> {
         let mut send = self.on_behalf(self.client.send_message(self.chat.id, text));
         if let Some(topic) = &self.direct_messages_topic {
             send = send.direct_messages_topic_id(topic.topic_id);
         }
-        match self.chat.kind {
-            ChatType::Private | ChatType::Bot => send,
-            _ => send.reply_to(self.id),
+        match self.message_thread_id {
+            Some(thread) if self.is_topic_message => send.message_thread_id(thread),
+            _ => send,
         }
     }
 }
@@ -622,9 +655,31 @@ mod tests {
         message.business_connection_id = Some("c".into());
         assert!(message.delete().await.is_err());
         assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
-        for sent in [message.reply("hi").await.map(drop), message.edit_text("hi").await.map(drop)] {
+        let sent = [
+            message.reply("hi").await.map(drop),
+            message.edit_text("hi").await.map(drop),
+            message.pin().await,
+            message.unpin().await,
+        ];
+        for sent in sent {
             assert!(sent.is_err());
             assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
         }
+    }
+
+    #[tokio::test]
+    async fn reply_quotes_and_answer_stays_in_the_topic() {
+        let (client, mut rx) = Client::recording();
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        let raw = Message::bare(5, get_peer(7), 0);
+        let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
+        let _ = message.reply("hi").await;
+        let _ = message.answer("hi").await;
+        (message.message_thread_id, message.is_topic_message) = (Some(3), true);
+        let _ = message.answer("hi").await;
+        // reply_to is flags.0 of messages.sendMessage, right after the constructor id.
+        let mut has_reply_to = || rx.try_recv().expect("no request sent")[4] & 1 == 1;
+        assert_eq!((has_reply_to(), has_reply_to(), has_reply_to()), (true, false, true));
     }
 }
