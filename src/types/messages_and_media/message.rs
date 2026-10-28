@@ -80,11 +80,7 @@ impl Message {
             (None, _) if chat.kind == ChatType::Channel => sender_chat = Some(chat.clone()),
             (None, _) => {}
         }
-        // The text of a media message is its caption; a link preview keeps it a text.
-        let has_caption = !matches!(
-            raw.media,
-            None | Some(base::MessageMedia::MessageMediaEmpty | base::MessageMedia::MessageMediaWebPage(_))
-        );
+        let has_caption = takes_caption(raw.media.as_ref());
         let parsed_entities = raw.entities.as_deref().and_then(|e| MessageEntity::parse_all(e, entities));
         let (text, text_entities, caption, caption_entities) = if has_caption {
             (String::new(), None, (!raw.message.is_empty()).then(|| raw.message.clone()), parsed_entities)
@@ -145,9 +141,13 @@ impl Message {
         }
     }
 
-    /// Filters read `message`, so a rich message without plain text carries its blocks' text there.
+    /// Filters read `message`, so a rich message without plain text carries its blocks' text there. Not on media:
+    /// there `message` is the caption the sender set, and the blocks stay in `rich_message` only.
     pub(crate) fn fill_rich_text(raw: &mut types::Message) {
-        if let (true, Some(base::RichMessage::RichMessage(rich))) = (raw.message.is_empty(), &raw.rich_message) {
+        if !raw.message.is_empty() || takes_caption(raw.media.as_ref()) {
+            return;
+        }
+        if let Some(base::RichMessage::RichMessage(rich)) = &raw.rich_message {
             raw.message = RichMessage::plain_text(rich);
         }
     }
@@ -379,7 +379,10 @@ impl Message {
     pub fn download(&self) -> DownloadMedia<'_> {
         let location = self.media.as_ref().and_then(Media::file_location).cloned();
         let location = location.ok_or(Error::InvalidArgument("this message has no photo or document to download"));
-        DownloadMedia::new(&self.client, location, Some((self.chat.id, self.id)))
+        // A business chat's message ids aren't the bot's, and they can't be re-read through the connection, so an
+        // expired reference there isn't renewed.
+        let source = self.business_connection_id.is_none().then_some((self.chat.id, self.id));
+        DownloadMedia::new(&self.client, location, source)
     }
 
     pub fn command(&self) -> Option<Command<'_>> {
@@ -455,12 +458,18 @@ fn reply_fields(raw: &types::Message, service: Option<&ServiceAction>, entities:
     (reply_to_message_id, reply.todo_item_id, message_thread_id, reply.forum_topic, quote, external_reply)
 }
 
+// The text of a media message is its caption; a link preview keeps it a text.
+fn takes_caption(media: Option<&base::MessageMedia>) -> bool {
+    !matches!(media, None | Some(base::MessageMedia::MessageMediaEmpty | base::MessageMedia::MessageMediaWebPage(_)))
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::super::media::tests::document_media;
     use super::Message;
     use crate::Client;
     use crate::dispatcher::Entities;
+    use crate::errors::{Error, RpcError};
     use crate::filters;
     use crate::raw::{Identifiable, Serializable, base, functions, types};
     use crate::types::{Community, ForumTopicCreated, ForumTopicEdited, Media, MessageOrigin, ServiceAction};
@@ -811,6 +820,12 @@ pub(crate) mod tests {
         assert_eq!(message.command().map(|c| c.name), Some("start"));
         assert!(message.rich_message.is_some_and(|r| r.rtl));
         assert_eq!(message.raw.rich_message, None);
+
+        raw.media = Some(document_media("application/pdf", Vec::new()));
+        let media = parse(&raw);
+        assert_eq!((media.text.as_str(), media.caption.as_deref(), media.raw.message.as_str()), ("", None, ""));
+        let (command, filtered) = (media.command().map(|c| c.name), filters::command("start").check(&media));
+        assert_eq!((command, filtered, media.rich_message.is_some()), (None, false, true));
     }
 
     #[tokio::test]
@@ -833,6 +848,37 @@ pub(crate) mod tests {
             assert!(sent.is_err());
             assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
         }
+    }
+
+    #[tokio::test]
+    async fn live_locations_and_polls_close_through_the_business_connection() {
+        let (client, mut rx) = Client::recording();
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        let sent = [
+            client.edit_message_live_location(7, 5, 1.0, 2.0).business_connection_id("c").await.map(drop),
+            client.stop_message_live_location(7, 5).business_connection_id("c").await.map(drop),
+            client.stop_poll(7, 5).business_connection_id("c").await.map(drop),
+        ];
+        for sent in sent {
+            assert!(sent.is_err());
+            assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
+        }
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn business_media_is_not_looked_up_in_the_bots_own_messages() {
+        let expired = Err(Error::Rpc(RpcError::new(400, "FILE_REFERENCE_EXPIRED")));
+        let (client, mut rx) = Client::scripted(vec![expired]);
+        client.0.me.lock().unwrap().premium = Some(false);
+        let mut raw = Message::bare(5, get_peer(7), 0);
+        raw.media = Some(document_media("application/pdf", Vec::new()));
+        let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
+        message.business_connection_id = Some("c".into());
+        let result = message.download().await;
+        assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "FILE_REFERENCE_EXPIRED"), "{result:?}");
+        assert_eq!(std::iter::from_fn(|| rx.try_recv().ok()).count(), 1);
     }
 
     #[tokio::test]

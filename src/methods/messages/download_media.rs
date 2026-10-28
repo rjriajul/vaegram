@@ -25,9 +25,15 @@ const IN_FLIGHT: u64 = 2 << 20;
 const IN_FLIGHT_PREMIUM: u64 = 16 << 20;
 const MAX_CONNECTIONS: usize = 8;
 const MAX_MIGRATIONS: usize = 3;
-// The size comes from the server, so in-memory downloads don't trust it for preallocation.
-const MAX_PREALLOC: usize = 64 << 20;
+// Telegram's largest file, 8000 parts of 512 KiB. Reserving the declared size up to this once avoids the copies and
+// the 2x capacity of growing by doubling; a size the server overstates costs at most this, and fails as an Err.
+const MAX_PREALLOC: usize = 8000 * 512 * 1024;
+const TOO_BIG: Error = Error::Unexpected("the file is too big to hold in memory");
 const END: u64 = u64::MAX;
+
+fn out_of_memory() -> Error {
+    Error::Io(std::io::ErrorKind::OutOfMemory.into())
+}
 
 /// Awaiting it collects the file in memory; `.file_name(path)` writes it to disk, `.stream()` yields chunks.
 #[must_use = "a request does nothing until it is awaited"]
@@ -210,8 +216,9 @@ impl MediaStream<'_> {
     }
 }
 
-// The master DC is trusted, so once the CDN fails in any way (FILE_TOKEN_INVALID, a lost key, a bad hash) it serves
-// the chunk that failed and every later one; chunks already written stay as they are.
+// The master DC is trusted, so once the CDN fails in any way (FILE_TOKEN_INVALID, a lost key, a bad hash, a chunk
+// that doesn't fit the known size) it serves the chunk that failed and every later one; chunks already written stay
+// as they are.
 async fn from_cdn(
     master: &Master<'_>,
     redirect: types::upload::FileCdnRedirect,
@@ -233,7 +240,8 @@ async fn from_cdn(
     let part = move |i: usize, offset: i64| async move {
         if let (Some((cdn, dc, lease)), false) = (cdn, failed.load(Ordering::Acquire)) {
             match cdn.part(&lease.sessions[i % lease.sessions.len()], offset, CHUNK).await {
-                Ok(bytes) => return Ok(bytes),
+                Ok(bytes) if fits(offset, &bytes, size).is_ok() => return Ok(bytes),
+                Ok(_) => failed.store(true, Ordering::Release),
                 Err(e) => {
                     if let Error::Transport(404) = e {
                         client.forget_cdn(*dc);
@@ -259,11 +267,15 @@ async fn write_all<F: Future<Output = Result<Vec<u8>>>>(
     let len = first.len();
     sink.write_at(0, first).await?;
     progress.add(len);
-    if len < CHUNK as usize {
-        return Ok(());
+    let mut total = len as u64;
+    if len == CHUNK as usize {
+        let (next, part) = (AtomicI32::new(1), &part);
+        let workers = (0..workers).map(|i| chunks(&next, size, sink, progress, move |offset| part(i, offset)));
+        total += try_join_all(workers).await?.into_iter().sum::<u64>();
     }
-    let (next, part) = (AtomicI32::new(1), &part);
-    try_join_all((0..workers).map(|i| chunks(&next, size, sink, progress, move |offset| part(i, offset)))).await?;
+    if size.is_some_and(|s| u64::try_from(s).ok() != Some(total)) {
+        return Err(Error::Unexpected("upload.getFile returned fewer bytes than the file size"));
+    }
     Ok(())
 }
 
@@ -273,7 +285,8 @@ async fn chunks<F: Future<Output = Result<Vec<u8>>>>(
     sink: &Sink,
     progress: &Progress<'_>,
     part: impl Fn(i64) -> F,
-) -> Result<()> {
+) -> Result<u64> {
+    let mut total = 0;
     while let Some(n) = take(next, chunk_count(size).unwrap_or(i32::MAX)) {
         let (offset, _) = chunk(n);
         let bytes = part(offset).await?;
@@ -281,21 +294,24 @@ async fn chunks<F: Future<Output = Result<Vec<u8>>>>(
         let len = bytes.len();
         sink.write_at(offset as u64, bytes).await?;
         progress.add(len);
+        total += len as u64;
         if len < CHUNK as usize {
             break;
         }
     }
-    Ok(())
+    Ok(total)
 }
 
 fn chunk_count(size: Option<i64>) -> Option<i32> {
     size.and_then(|s| u64::try_from(s).ok()).and_then(|s| i32::try_from(s.div_ceil(CHUNK as u64)).ok())
 }
 
+// With a known size every chunk but the last is full and the last ends at the size, so a short chunk is lost
+// bytes, not the end of the file.
 fn fits(offset: i64, bytes: &[u8], size: Option<i64>) -> Result<()> {
-    let end = offset.saturating_add(bytes.len() as i64);
-    if bytes.len() > CHUNK as usize || size.is_some_and(|s| end > s) {
-        return Err(Error::Unexpected("upload.getFile returned more than the file size"));
+    let expected = size.map(|s| s.saturating_sub(offset).clamp(0, i64::from(CHUNK)));
+    if bytes.len() > CHUNK as usize || expected.is_some_and(|e| bytes.len() as i64 != e) {
+        return Err(Error::Unexpected("upload.getFile returned a chunk that doesn't match the file size"));
     }
     Ok(())
 }
@@ -312,7 +328,9 @@ impl<'a> IntoFuture for DownloadMedia<'a> {
         Box::pin(async move {
             let capacity = self.location.as_ref().ok().and_then(|l| usize::try_from(l.file_size?).ok());
             let capacity = capacity.unwrap_or(0).min(MAX_PREALLOC);
-            let sink = Sink::Memory(Mutex::new(Vec::with_capacity(capacity)));
+            let mut out = Vec::new();
+            out.try_reserve_exact(capacity).map_err(|_| out_of_memory())?;
+            let sink = Sink::Memory(Mutex::new(out));
             self.download(&sink).await?;
             let Sink::Memory(out) = sink else { unreachable!() };
             Ok(out.into_inner().unwrap())
@@ -361,11 +379,15 @@ impl Sink {
     async fn write_at(&self, offset: u64, bytes: Vec<u8>) -> Result<()> {
         match self {
             Sink::Memory(out) => {
-                let (mut out, start) = (out.lock().unwrap(), offset as usize);
-                if out.len() < start + bytes.len() {
-                    out.resize(start + bytes.len(), 0);
+                let mut out = out.lock().unwrap();
+                let start = usize::try_from(offset).map_err(|_| TOO_BIG)?;
+                let end = start.checked_add(bytes.len()).ok_or(TOO_BIG)?;
+                if out.len() < end {
+                    let more = end - out.len();
+                    out.try_reserve(more).map_err(|_| out_of_memory())?;
+                    out.resize(end, 0);
                 }
-                out[start..start + bytes.len()].copy_from_slice(&bytes);
+                out[start..end].copy_from_slice(&bytes);
             }
             Sink::File(file) => {
                 let mut file = file.lock().await;
@@ -437,6 +459,8 @@ mod tests {
         assert!(fits(0, &chunk, None).is_ok());
         assert!(fits(1, &chunk, Some(i64::from(CHUNK))).is_err());
         assert!(fits(0, &vec![0; CHUNK as usize + 1], None).is_err());
+        assert!(fits(i64::from(CHUNK), b"hi", Some(3 * i64::from(CHUNK))).is_err());
+        assert!(fits(i64::from(CHUNK), b"hi", Some(i64::from(CHUNK) + 2)).is_ok());
     }
 
     #[tokio::test]
@@ -447,6 +471,27 @@ mod tests {
         }
         let Sink::Memory(out) = sink else { unreachable!() };
         assert_eq!(out.into_inner().unwrap(), b"abcdefgh");
+    }
+
+    #[tokio::test]
+    async fn memory_that_cant_be_had_is_an_error_not_an_abort() {
+        let sink = Sink::Memory(Mutex::new(b"ab".to_vec()));
+        // Past isize::MAX no allocator can serve it, so the reservation fails before allocating anything.
+        let out_of_memory = sink.write_at(isize::MAX as u64, b"x".to_vec()).await;
+        let oom = |e: &std::io::Error| e.kind() == std::io::ErrorKind::OutOfMemory;
+        assert!(matches!(&out_of_memory, Err(Error::Io(e)) if oom(e)), "{out_of_memory:?}");
+        let unaddressable = sink.write_at(u64::MAX, b"x".to_vec()).await;
+        assert!(matches!(unaddressable, Err(Error::Unexpected(_))), "{unaddressable:?}");
+        let Sink::Memory(out) = sink else { unreachable!() };
+        assert_eq!(out.into_inner().unwrap(), b"ab");
+    }
+
+    #[tokio::test]
+    async fn a_memory_download_holds_exactly_its_declared_size() {
+        let c = CHUNK as usize;
+        let (client, _rx) = Client::scripted(vec![file(vec![1; c]), file(b"hi".into())]);
+        let bytes = download(&client, Some(c as i64 + 2), None).await.0.unwrap();
+        assert_eq!((bytes.len(), bytes.capacity()), (c + 2, c + 2));
     }
 
     #[tokio::test]
@@ -522,6 +567,8 @@ mod tests {
         source: Option<(i64, i32)>,
     ) -> (Result<Vec<u8>, String>, Vec<u64>) {
         client.0.me.lock().unwrap().premium = Some(false);
+        // Two workers when the size spans chunks; both use the scripted session, so nothing goes to the network.
+        client.0.transfers.insert(client.dc(2).unwrap(), &client.session());
         let location = FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: size };
         let done = Arc::new(Mutex::new(Vec::new()));
         let log = done.clone();
@@ -546,7 +593,7 @@ mod tests {
         let source = Some((-5, 5));
 
         let (client, mut rx) = Client::scripted(vec![error("FILE_REFERENCE_EXPIRED"), messages(), file(b"hi".into())]);
-        let (result, _) = download(&client, Some(5), source).await;
+        let (result, _) = download(&client, Some(2), source).await;
         let sent = drain(&mut rx);
         assert_eq!((result, [&sent[0], &sent[2]]), (Ok(b"hi".to_vec()), [&old, &fresh]));
         assert_eq!(sent[1][..4], get_messages);
@@ -592,8 +639,15 @@ mod tests {
         assert_eq!(master.location.lock().unwrap().1, 1);
     }
 
-    #[tokio::test]
-    async fn the_master_dc_serves_the_rest_once_the_cdn_fails() {
+    /// Chunk 0 comes from the CDN, chunk 1 gets `second` from it and `master` from the master DC if it falls back;
+    /// `next_hashes` answers the CDN check's question about a hash after a short part. Returns the requests the master
+    /// DC and the CDN got.
+    async fn via_cdn(
+        second: Result<Vec<u8>>,
+        next_hashes: Option<Vec<base::FileHash>>,
+        master: Vec<u8>,
+        size: Option<i64>,
+    ) -> (Vec<Vec<u8>>, usize) {
         let c = CHUNK as usize;
         let (key, iv) = ([1u8; 32], [2u8; 16]);
         let plain: Vec<u8> = (0..c).map(|i| (i * 7) as u8).collect();
@@ -610,13 +664,47 @@ mod tests {
         };
         let redirect = Ok(base::upload::File::FileCdnRedirect(Box::new(redirect)).to_bytes());
         let part = base::upload::CdnFile::CdnFile(Box::new(types::upload::CdnFile { bytes: cipher }));
-        let (cdn, mut cdn_rx) = Session::scripted(vec![Ok(part.to_bytes()), error("FILE_TOKEN_INVALID")]);
+        let (cdn, mut cdn_rx) = Session::scripted(vec![Ok(part.to_bytes()), second]);
 
-        let (client, mut rx) = Client::scripted(vec![redirect, file(b"hi".into())]);
+        let mut replies = vec![redirect];
+        replies.extend(next_hashes.map(|h| Ok(h.to_bytes())));
+        replies.push(file(master.clone()));
+        let (client, mut rx) = Client::scripted(replies);
         client.serve_cdn(203, &cdn);
-        let (result, done) = download(&client, None, None).await;
-        assert_eq!((result, done), (Ok([plain, b"hi".to_vec()].concat()), vec![c as u64, c as u64 + 2]));
+        client.0.transfers.insert(client.dc(203).unwrap(), &cdn);
+        let (result, done) = download(&client, size, None).await;
+        let total = (c + master.len()) as u64;
+        assert_eq!((result, done), (Ok([plain, master].concat()), vec![c as u64, total]));
+        (drain(&mut rx), drain(&mut cdn_rx).len())
+    }
+
+    #[tokio::test]
+    async fn the_master_dc_serves_the_rest_once_the_cdn_fails() {
+        let (sent, cdn_sent) = via_cdn(error("FILE_TOKEN_INVALID"), None, b"hi".to_vec(), None).await;
         let master = [get_file(b"old", 0, true).to_bytes(), get_file(b"old", i64::from(CHUNK), false).to_bytes()];
-        assert_eq!((drain(&mut rx), drain(&mut cdn_rx).len()), (master.to_vec(), 2));
+        assert_eq!((sent, cdn_sent), (master.to_vec(), 2));
+    }
+
+    #[tokio::test]
+    async fn the_master_dc_serves_a_chunk_the_cdn_cut_short() {
+        let c = CHUNK as usize;
+        let empty = base::upload::CdnFile::CdnFile(Box::new(types::upload::CdnFile { bytes: Vec::new() })).to_bytes();
+        let more = types::FileHash { offset: i64::from(CHUNK), limit: 2, hash: vec![0; 32] };
+        let more = || Some(vec![base::FileHash::FileHash(Box::new(more.clone()))]);
+        // Without a size only the master's hash after the cut shows the file goes on.
+        for (master, size) in [(vec![9; c], Some(2 * c as i64)), (b"hi".to_vec(), None)] {
+            let (sent, cdn_sent) = via_cdn(Ok(empty.clone()), more(), master, size).await;
+            assert_eq!((sent.len(), cdn_sent), (3, 2));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_short_chunk_before_the_known_end_is_an_error() {
+        let c = CHUNK as usize;
+        let short = |result: Result<Vec<u8>, String>| result.is_err_and(|e| e.contains("doesn't match the file size"));
+        let (client, _rx) = Client::scripted(vec![file(vec![1; c]), file(b"hi".into())]);
+        assert!(short(download(&client, Some(2 * c as i64), None).await.0));
+        let (client, _rx) = Client::scripted(vec![file(b"hi".into())]);
+        assert!(short(download(&client, Some(5), None).await.0));
     }
 }

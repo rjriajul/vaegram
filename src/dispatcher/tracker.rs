@@ -85,7 +85,8 @@ impl Tracker {
 
     pub(super) fn mark(&mut self, key: Key) {
         let key = if let Key::Channel(_) = key { key } else { Key::Pts };
-        if !self.due.contains(&key) {
+        // A scheduled retry (a FLOOD_WAIT or a back-off) already covers it; asking sooner only fails again.
+        if !self.due.contains(&key) && !self.retries.iter().any(|(_, k)| *k == key) {
             self.due.push(key);
         }
     }
@@ -421,6 +422,17 @@ mod tests {
         t.recover(&Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_30"))), Key::Pts);
         assert!(delivered(&mut t).is_empty());
         t.expire(Instant::now() + GAP_TIMEOUT);
+        assert!(t.due.is_empty());
+        t.expire(Instant::now() + Duration::from_secs(31));
+        assert_eq!(t.due, [Key::Pts]);
+    }
+
+    #[test]
+    fn new_gaps_wait_for_a_scheduled_retry() {
+        let mut t = tracker(10, 0, 0);
+        t.recover(&Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_30"))), Key::Pts);
+        t.mark(Key::Pts);
+        t.mark(Key::Qts);
         assert!(t.due.is_empty());
         t.expire(Instant::now() + Duration::from_secs(31));
         assert_eq!(t.due, [Key::Pts]);

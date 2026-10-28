@@ -1,5 +1,29 @@
-use super::Kind;
+use std::collections::HashMap;
+
+use super::{Kind, MAX_NESTING};
 use crate::types::Text;
+
+fn is_known(name: &str) -> bool {
+    matches!(
+        name,
+        "b" | "strong"
+            | "i"
+            | "em"
+            | "u"
+            | "ins"
+            | "s"
+            | "strike"
+            | "del"
+            | "tg-spoiler"
+            | "span"
+            | "code"
+            | "pre"
+            | "a"
+            | "blockquote"
+            | "tg-emoji"
+            | "tg-time"
+    )
+}
 
 struct Tag {
     name: String,
@@ -16,13 +40,22 @@ impl Tag {
 pub(super) fn parse(src: &str) -> Text {
     let mut out = Text::default();
     let mut open: Vec<(String, i32, Option<Kind>)> = Vec::new();
+    // Tags opened past MAX_NESTING, by name. They are always the innermost ones (every tag opened while some are
+    // left goes here too), so a closing tag pairs with them first and never ends an outer tag early.
+    let (mut deeper, mut deeper_left) = (HashMap::<String, usize>::new(), 0);
     let mut rest = src;
     while let Some(c) = rest.chars().next() {
         if c == '<' {
             if let Some((tag, len)) = read_tag(rest) {
                 rest = &rest[len..];
+                // Unknown tags format nothing; kept off the stack, unclosed ones can't use up MAX_NESTING.
+                if !is_known(&tag.name) {
+                    continue;
+                }
                 if tag.closing {
-                    if let Some(i) = open.iter().rposition(|(name, ..)| *name == tag.name) {
+                    if let Some(n) = deeper.get_mut(&tag.name).filter(|n| **n > 0) {
+                        (*n, deeper_left) = (*n - 1, deeper_left - 1);
+                    } else if let Some(i) = open.iter().rposition(|(name, ..)| *name == tag.name) {
                         let (_, start, kind) = open.remove(i);
                         for (_, s, inner) in &mut open[i..] {
                             if let Some(inner) = inner {
@@ -34,9 +67,12 @@ pub(super) fn parse(src: &str) -> Text {
                             out.span(kind, start);
                         }
                     }
-                } else {
+                } else if deeper_left == 0 && open.len() < MAX_NESTING {
                     let kind = kind_of(&tag, &mut open);
                     open.push((tag.name, out.len, kind));
+                } else {
+                    *deeper.entry(tag.name).or_default() += 1;
+                    deeper_left += 1;
                 }
                 continue;
             }

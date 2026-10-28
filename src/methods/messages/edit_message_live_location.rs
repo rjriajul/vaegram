@@ -16,6 +16,7 @@ pub struct EditMessageLiveLocation<'a> {
     proximity_alert_radius: Option<i32>,
     live_period: Option<i32>,
     reply_markup: Option<ReplyMarkup>,
+    business_connection_id: Option<String>,
 }
 
 impl Client {
@@ -37,6 +38,7 @@ impl Client {
             proximity_alert_radius: None,
             live_period: None,
             reply_markup: None,
+            business_connection_id: None,
         }
     }
 }
@@ -67,6 +69,11 @@ impl EditMessageLiveLocation<'_> {
         self
     }
 
+    pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
+        self.business_connection_id = Some(id.into());
+        self
+    }
+
     async fn send(self) -> Result<Message> {
         let point = types::InputGeoPoint {
             lat: self.latitude,
@@ -80,11 +87,18 @@ impl EditMessageLiveLocation<'_> {
             period: self.live_period,
             proximity_notification_radius: self.proximity_alert_radius,
         };
-        edit_live_location(self.client, &self.chat_id, self.message_id, media, self.reply_markup).await
+        let business = self.business_connection_id.as_deref();
+        edit_live_location(self.client, &self.chat_id, self.message_id, media, self.reply_markup, business).await
     }
 }
 
 into_future!(EditMessageLiveLocation, Message);
+
+impl crate::methods::OnBehalf for EditMessageLiveLocation<'_> {
+    fn business_connection(&mut self) -> &mut Option<String> {
+        &mut self.business_connection_id
+    }
+}
 
 pub(super) async fn edit_live_location(
     client: &Client,
@@ -92,6 +106,7 @@ pub(super) async fn edit_live_location(
     message_id: i32,
     media: types::InputMediaGeoLive,
     reply_markup: Option<ReplyMarkup>,
+    business_connection_id: Option<&str>,
 ) -> Result<Message> {
     let (chat_id, peer) = client.resolve(chat_id).await?;
     let request = functions::messages::EditMessage {
@@ -99,6 +114,6 @@ pub(super) async fn edit_live_location(
         reply_markup: reply_markup.as_ref().map(ReplyMarkup::write),
         ..edit_request(peer, message_id)
     };
-    let updates = client.invoke(&request).await?;
+    let (updates, _) = client.invoke_business(business_connection_id, request).await?;
     Message::from_updates(client, updates, chat_id, (String::new(), None))
 }

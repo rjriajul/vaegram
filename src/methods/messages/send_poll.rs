@@ -1,7 +1,7 @@
 use super::send_options::{SendOptions, send_builder};
 use crate::Client;
 use crate::enums::ParseMode;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::types::messages_and_media::PollMedia;
 use crate::types::{InputPollMedia, InputPollOption, Message, PeerRef};
@@ -112,6 +112,9 @@ impl<'a> SendPoll<'a> {
     }
 
     async fn send(mut self) -> Result<Message> {
+        if !(1..=12).contains(&self.poll.answers.len()) {
+            return Err(Error::InvalidArgument("a poll takes 1 to 12 options"));
+        }
         let solution = match self.explanation.take() {
             Some(text) => Some(self.client.parse_text(&text, self.explanation_parse_mode).await?),
             None => None,
@@ -119,7 +122,7 @@ impl<'a> SendPoll<'a> {
         let (client, chat_id, options) = (self.client, self.chat_id.clone(), std::mem::take(&mut self.options));
         let poll_media = std::mem::take(&mut self.poll_media);
         let mut media = self.media(solution);
-        poll_media.attach(client, &chat_id, &mut media).await?;
+        poll_media.attach(client, &chat_id, options.business_connection_id.as_deref(), &mut media).await?;
         client.send_media(chat_id, media, "", None, options).await
     }
 
@@ -169,8 +172,9 @@ fn text_with_entities(text: String) -> base::TextWithEntities {
 mod tests {
     use super::text_with_entities;
     use crate::Client;
+    use crate::errors::Error;
     use crate::raw::{Serializable, base, types};
-    use crate::types::{InputMedia, InputPollMedia, InputPollOption};
+    use crate::types::{FileSource, InputMedia, InputPollMedia, InputPollOption};
 
     #[test]
     fn maps_quiz_and_voting_limits() {
@@ -233,5 +237,53 @@ mod tests {
         let base::Poll::Poll(poll) = &media.poll;
         let rome = types::InputPollAnswer { text: text_with_entities("Rome".into()), media: None };
         assert_eq!(poll.answers[1], base::PollAnswer::InputPollAnswer(Box::new(rome)));
+    }
+
+    /// Attaches a URL document as description, explanation and first option media; returns the requests sent.
+    async fn attach_url_documents() -> Vec<Vec<u8>> {
+        let (client, mut sent) = Client::recording();
+        let document = || InputMedia::document(FileSource::url("https://example.com/a.pdf").unwrap());
+        let options = [InputPollOption::new("A").media(document()), "B".into()];
+        let mut send =
+            client.send_poll(-5, "Which?", options).description_media(document()).explanation_media(document());
+        let (poll_media, chat_id) = (std::mem::take(&mut send.poll_media), send.chat_id.clone());
+        let mut media = send.media(None);
+        // The recording session never answers, so every upload that went out fails.
+        let result = poll_media.attach(&client, &chat_id, Some("conn"), &mut media).await;
+        assert!(matches!(result, Err(Error::Disconnected)), "{result:?}");
+        std::iter::from_fn(|| sent.try_recv().ok()).collect()
+    }
+
+    #[tokio::test]
+    async fn poll_media_uploads_through_the_business_connection() {
+        let sent = attach_url_documents().await;
+        assert!(!sent.is_empty() && sent.iter().all(|body| body.windows(4).any(|w| w == b"conn")));
+    }
+
+    #[tokio::test]
+    async fn poll_media_uploads_side_by_side() {
+        assert_eq!(attach_url_documents().await.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn empty_or_oversized_lists_are_refused_before_sending() {
+        let (client, mut sent) = Client::recording();
+        let none: [&str; 0] = [];
+        let refused = [
+            client.send_poll(-5, "Lunch?", none).await.map(drop).err(),
+            client.send_poll(-5, "Lunch?", ["x"; 13]).await.map(drop).err(),
+            client.copy_messages(-5, -6, &[]).await.map(drop).err(),
+            client.forward_messages(-5, -6, &[]).await.map(drop).err(),
+            client.delete_messages(-5, &[]).await.err(),
+            client.delete_business_messages("c", &[]).await.err(),
+            client.copy_messages(-5, -6, &[1; 101]).await.map(drop).err(),
+            client.forward_messages(-5, -6, &[1; 101]).await.map(drop).err(),
+            client.delete_messages(-5, &[1; 101]).await.err(),
+            client.delete_business_messages("c", &[1; 101]).await.err(),
+        ];
+        for error in refused {
+            assert!(matches!(error, Some(Error::InvalidArgument(_))), "{error:?}");
+        }
+        assert!(sent.try_recv().is_err());
     }
 }

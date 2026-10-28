@@ -15,10 +15,13 @@ use crate::raw::{RemoteCall, base, functions};
 const IDLE: Duration = Duration::from_secs(15);
 const PART_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_TIMEOUTS: usize = 3;
+const MAX_CDN_FLOODS: usize = 5;
+const MAX_CDN_FLOOD_WAIT: u32 = 60;
 
-// Keyed by address, so a DC's media-only address gets its own slot and auth key.
+// Telegram shares a DC's auth key between its main and media-only addresses, so the key is kept per DC and the
+// connections per address.
 #[derive(Default)]
-pub(crate) struct TransferPool(Mutex<HashMap<Dc, Arc<Slot>>>);
+pub(crate) struct TransferPool(Mutex<HashMap<(i32, bool), Arc<Slot>>>);
 
 #[derive(Default)]
 struct Slot {
@@ -29,7 +32,7 @@ struct Slot {
 #[derive(Default)]
 struct State {
     auth_key: Option<[u8; 256]>,
-    sessions: Vec<WeakSession>,
+    sessions: HashMap<Dc, Vec<WeakSession>>,
 }
 
 #[derive(Clone, Copy)]
@@ -48,14 +51,15 @@ impl TransferPool {
     }
 
     pub(crate) fn forget(&self, dc: Dc) {
-        self.0.lock().unwrap().remove(&dc);
+        self.0.lock().unwrap().remove(&(dc.id, dc.test));
     }
 
     #[cfg(test)]
     pub(crate) fn insert(&self, dc: Dc, session: &Session) {
-        let state = State { auth_key: Some(*session.auth_key()), sessions: vec![session.downgrade()] };
-        let slot = Slot { opening: Default::default(), state: Mutex::new(state) };
-        self.0.lock().unwrap().insert(dc, Arc::new(slot));
+        let slot = self.0.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
+        let mut state = slot.state.lock().unwrap();
+        state.auth_key = Some(*session.auth_key());
+        state.sessions.entry(dc).or_default().push(session.downgrade());
     }
 
     pub(crate) async fn lease(
@@ -66,11 +70,12 @@ impl TransferPool {
         options: &Options,
         events: &Arc<Events>,
     ) -> Result<Lease> {
-        let slot = self.0.lock().unwrap().entry(dc).or_default().clone();
+        let slot = self.0.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
         let _opening = slot.opening.lock().await;
         let (mut sessions, key) = {
             let state = slot.state.lock().unwrap();
-            let live: Vec<Session> = state.sessions.iter().filter_map(WeakSession::upgrade).collect();
+            let live: Vec<Session> =
+                state.sessions.get(&dc).into_iter().flatten().filter_map(WeakSession::upgrade).collect();
             let home = match auth {
                 Auth::Home(home, _) if home.dc_id() == dc.id => Some(*home.auth_key()),
                 _ => None,
@@ -101,7 +106,7 @@ impl TransferPool {
         let connect = |_| Session::connect_transfer(dc, Some(key), None, options, events.clone());
         let opened = try_join_all((0..missing).map(connect)).await?;
         sessions.extend(opened);
-        slot.state.lock().unwrap().sessions = sessions.iter().map(Session::downgrade).collect();
+        slot.state.lock().unwrap().sessions.insert(dc, sessions.iter().map(Session::downgrade).collect());
         sessions.truncate(count);
         Ok(Lease { sessions })
     }
@@ -120,11 +125,23 @@ impl Drop for Lease {
 }
 
 pub(crate) async fn invoke_part<R: RemoteCall>(session: &Session, request: &R) -> Result<R::Return> {
-    let mut timeouts = 0;
+    invoke_part_on(session, request, false).await
+}
+
+// A CDN that keeps asking to wait is dropped instead, so the master DC serves the part.
+pub(crate) async fn invoke_cdn_part<R: RemoteCall>(session: &Session, request: &R) -> Result<R::Return> {
+    invoke_part_on(session, request, true).await
+}
+
+async fn invoke_part_on<R: RemoteCall>(session: &Session, request: &R, cdn: bool) -> Result<R::Return> {
+    let (mut timeouts, mut floods) = (0, 0);
     loop {
         match session.invoke_with_timeout(request, PART_TIMEOUT).await {
-            Err(Error::Rpc(e)) if e.code == 420 => {
-                tokio::time::sleep(Duration::from_secs(e.value.unwrap_or(1).into())).await;
+            Err(Error::Rpc(e)) if e.code == 420 && (!cdn || floods < MAX_CDN_FLOODS) => {
+                floods += 1;
+                let wait = e.value.unwrap_or(1);
+                let wait = if cdn { wait.clamp(1, MAX_CDN_FLOOD_WAIT) } else { wait };
+                tokio::time::sleep(Duration::from_secs(wait.into())).await;
             }
             Err(Error::Timeout) if timeouts + 1 < MAX_TIMEOUTS => timeouts += 1,
             result => return result,
@@ -186,8 +203,24 @@ pub(crate) async fn try_join_all<T, F: Future<Output = Result<T>>>(futures: impl
 mod tests {
     use std::sync::atomic::AtomicI32;
 
-    use super::{Progress, take, try_join_all, workers};
+    use super::{Auth, Progress, TransferPool, take, try_join_all, workers};
+    use crate::Client;
     use crate::errors::{Error, Result};
+    use crate::session::Session;
+    use crate::session::internals::data_center::Dc;
+
+    #[tokio::test]
+    async fn a_dcs_media_address_reuses_the_key_of_its_main_address() {
+        let client = Client::offline();
+        // Nothing listens on these ports, so a lease that tried to open a connection would fail.
+        let dc = |port| Dc { id: 4, addr: ([127, 0, 0, 1], port).into(), test: false };
+        let (foreign, _sent) = Session::scripted(Vec::new());
+        let pool = TransferPool::default();
+        pool.insert(dc(1), &foreign);
+        let home = client.session();
+        let lease = pool.lease(dc(2), 0, Auth::Home(&home, 1), &client.0.options, &client.0.events).await;
+        assert!(lease.is_ok_and(|l| l.sessions.is_empty()));
+    }
 
     #[test]
     fn caps_parts_in_flight_by_bytes() {

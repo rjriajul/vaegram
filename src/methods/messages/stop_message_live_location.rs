@@ -11,6 +11,7 @@ pub struct StopMessageLiveLocation<'a> {
     chat_id: PeerRef,
     message_id: i32,
     reply_markup: Option<ReplyMarkup>,
+    business_connection_id: Option<String>,
 }
 
 impl Client {
@@ -19,13 +20,24 @@ impl Client {
         chat_id: impl Into<PeerRef>,
         message_id: i32,
     ) -> StopMessageLiveLocation<'_> {
-        StopMessageLiveLocation { client: self, chat_id: chat_id.into(), message_id, reply_markup: None }
+        StopMessageLiveLocation {
+            client: self,
+            chat_id: chat_id.into(),
+            message_id,
+            reply_markup: None,
+            business_connection_id: None,
+        }
     }
 }
 
 impl StopMessageLiveLocation<'_> {
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
+        self
+    }
+
+    pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
+        self.business_connection_id = Some(id.into());
         self
     }
 
@@ -37,8 +49,15 @@ impl StopMessageLiveLocation<'_> {
             period: None,
             proximity_notification_radius: None,
         };
-        edit_live_location(self.client, &self.chat_id, self.message_id, media, self.reply_markup).await
+        let business = self.business_connection_id.as_deref();
+        edit_live_location(self.client, &self.chat_id, self.message_id, media, self.reply_markup, business).await
     }
 }
 
 into_future!(StopMessageLiveLocation, Message);
+
+impl crate::methods::OnBehalf for StopMessageLiveLocation<'_> {
+    fn business_connection(&mut self) -> &mut Option<String> {
+        &mut self.business_connection_id
+    }
+}

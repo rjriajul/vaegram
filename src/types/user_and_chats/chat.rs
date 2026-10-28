@@ -92,9 +92,41 @@ impl Chat {
             base::Peer::PeerChannel(_) => match entities.chats.get(&id) {
                 Some(base::Chat::Channel(c)) if c.megagroup => ChatType::Supergroup,
                 Some(base::Chat::Channel(_)) => ChatType::Channel,
+                Some(base::Chat::ChannelForbidden(c)) if c.megagroup || !c.broadcast => ChatType::Supergroup,
+                Some(base::Chat::ChannelForbidden(_)) => ChatType::Channel,
                 _ if is_post => ChatType::Channel,
                 _ => ChatType::Supergroup,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Chat;
+    use crate::dispatcher::Entities;
+    use crate::enums::ChatType;
+    use crate::raw::{base, types};
+    use crate::utils::{get_channel_id, get_peer};
+
+    #[test]
+    fn a_forbidden_channel_keeps_its_kind() {
+        let kind = |broadcast, megagroup| {
+            let forbidden = types::ChannelForbidden {
+                broadcast,
+                megagroup,
+                monoforum: false,
+                id: 5,
+                access_hash: 1,
+                title: "t".into(),
+                until_date: None,
+            };
+            let chats = [(get_channel_id(5), base::Chat::ChannelForbidden(Box::new(forbidden)))].into();
+            let entities = Entities { users: Default::default(), chats };
+            let chat = Chat::parse(&get_peer(get_channel_id(5)), &entities, false);
+            (chat.kind, chat.title)
+        };
+        assert_eq!(kind(true, false), (ChatType::Channel, Some("t".into())));
+        assert_eq!(kind(false, true), (ChatType::Supergroup, Some("t".into())));
     }
 }

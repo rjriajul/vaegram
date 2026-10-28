@@ -1,7 +1,7 @@
 use super::send_options::{SendOptions, send_builder};
 use crate::Client;
 use crate::crypto::random;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::types::{Message, PeerRef, SuggestedPostParameters};
 
@@ -33,6 +33,9 @@ impl Client {
 
 impl ForwardMessages<'_> {
     async fn send(self) -> Result<Vec<Message>> {
+        if !(1..=100).contains(&self.message_ids.len()) {
+            return Err(Error::InvalidArgument("forwards take 1 to 100 message ids"));
+        }
         let client = self.client;
         let (chat_id, to_peer) = client.resolve(&self.chat_id).await?;
         let from_peer = client.resolve(&self.from_chat_id).await?.1;

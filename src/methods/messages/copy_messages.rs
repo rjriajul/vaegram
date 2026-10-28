@@ -1,7 +1,7 @@
 use super::forward_messages::request;
 use super::send_options::{SendOptions, send_builder};
 use crate::Client;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::raw::base;
 use crate::types::PeerRef;
 
@@ -40,6 +40,9 @@ impl CopyMessages<'_> {
     }
 
     async fn send(self) -> Result<Vec<i32>> {
+        if !(1..=100).contains(&self.message_ids.len()) {
+            return Err(Error::InvalidArgument("copies take 1 to 100 message ids"));
+        }
         let client = self.client;
         let (chat_id, to_peer) = client.resolve(&self.chat_id).await?;
         let from_peer = client.resolve(&self.from_chat_id).await?.1;
