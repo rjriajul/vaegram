@@ -3,7 +3,7 @@ use crate::crypto::random;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::{RemoteCall, base, functions, types};
-use crate::types::{Message, PeerRef, ReplyMarkup, ReplyParameters, SuggestedPostParameters};
+use crate::types::{Message, PeerRef, ReplyMarkup, ReplyParameters, RichMessage, SuggestedPostParameters};
 
 #[derive(Default)]
 pub(crate) struct SendOptions {
@@ -160,7 +160,8 @@ impl Client {
         options: SendOptions,
     ) -> Result<Message> {
         let (message, entities) = self.parse_text(caption, parse_mode).await?;
-        self.send_parsed(chat_id, Some(media), (message, (!entities.is_empty()).then_some(entities)), options).await
+        let text = (message, (!entities.is_empty()).then_some(entities));
+        self.send_parsed(chat_id, Some(media), text, None, options).await
     }
 
     pub(crate) async fn send_parsed(
@@ -168,6 +169,7 @@ impl Client {
         chat_id: impl Into<PeerRef>,
         media: Option<base::InputMedia>,
         (message, entities): (String, Option<Vec<base::MessageEntity>>),
+        rich_message: Option<base::InputRichMessage>,
         options: SendOptions,
     ) -> Result<Message> {
         let (chat_id, peer) = self.resolve(&chat_id.into()).await?;
@@ -177,7 +179,7 @@ impl Client {
         let reply_markup = options.reply_markup.as_ref().map(ReplyMarkup::write);
         let suggested_post = options.suggested_post_parameters.map(SuggestedPostParameters::write);
         let connection_id = options.business_connection_id;
-        let (updates, sent) = match media {
+        let (updates, sent, rich_message) = match media {
             Some(media) => {
                 let request = functions::messages::SendMedia {
                     silent: options.disable_notification,
@@ -203,7 +205,7 @@ impl Client {
                     suggested_post,
                 };
                 let (updates, request) = invoke_business(self, connection_id, request).await?;
-                (updates, (request.message, request.entities))
+                (updates, (request.message, request.entities), None)
             }
             None => {
                 let request = functions::messages::SendMessage {
@@ -228,13 +230,20 @@ impl Client {
                     effect: options.message_effect_id,
                     allow_paid_stars: options.paid_message_star_count,
                     suggested_post,
-                    rich_message: None,
+                    rich_message,
                 };
                 let (updates, request) = invoke_business(self, connection_id, request).await?;
-                (updates, (request.message, request.entities))
+                (updates, (request.message, request.entities), request.rich_message)
             }
         };
-        Message::from_updates(self, updates, chat_id, sent)
+        let Some(rich_message) = rich_message else { return Message::from_updates(self, updates, chat_id, sent) };
+        // A short "sent" reply has no rich message, so it is rebuilt from the request, minus photos and documents.
+        let (text, sent_rich) = RichMessage::sent(rich_message);
+        let mut message = Message::from_updates(self, updates, chat_id, (text, None))?;
+        if message.rich_message.is_none() {
+            message.rich_message = sent_rich;
+        }
+        Ok(message)
     }
 }
 

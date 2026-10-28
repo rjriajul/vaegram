@@ -6,7 +6,8 @@ use crate::methods::{DownloadMedia, EditMessageText, SendMessage, SendReaction};
 use crate::raw::{base, types};
 use crate::types::{
     Chat, Command, DirectMessagesTopic, ExternalReplyInfo, LinkPreviewOptions, Media, MessageEntity, MessageOrigin,
-    ReactionCount, ReactionType, ReplyMarkup, ServiceAction, SuggestedPostInfo, TextQuote, User,
+    MessageText, ReactionCount, ReactionType, ReplyMarkup, RichMessage, ServiceAction, SuggestedPostInfo, TextQuote,
+    User,
 };
 use crate::utils::get_peer;
 
@@ -17,6 +18,7 @@ pub struct Message {
     pub from_user: Option<User>,
     pub sender_chat: Option<Chat>,
     pub date: i32,
+    /// A rich message without plain text gets its blocks' text here, so text filters and commands still match.
     pub text: String,
     pub outgoing: bool,
     pub edit_date: Option<i32>,
@@ -24,6 +26,7 @@ pub struct Message {
     pub caption: Option<String>,
     pub caption_entities: Option<Vec<MessageEntity>>,
     pub media: Option<Media>,
+    pub rich_message: Option<RichMessage>,
     pub link_preview_options: Option<LinkPreviewOptions>,
     pub reply_to_message_id: Option<i32>,
     pub message_thread_id: Option<i32>,
@@ -38,6 +41,7 @@ pub struct Message {
     pub service: Option<ServiceAction>,
     pub direct_messages_topic: Option<DirectMessagesTopic>,
     pub reactions: Vec<ReactionCount>,
+    /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`].
     pub raw: Box<types::Message>,
     client: Client,
 }
@@ -49,7 +53,7 @@ impl Message {
 
     fn build(
         client: &Client,
-        raw: Box<types::Message>,
+        mut raw: Box<types::Message>,
         service: Option<ServiceAction>,
         entities: &Entities,
     ) -> Message {
@@ -82,6 +86,11 @@ impl Message {
             Some(peer) if chat.is_direct_messages => Some(DirectMessagesTopic::parse(peer, entities)),
             _ => None,
         };
+        let rich_message = raw.rich_message.take().map(RichMessage::parse);
+        let text = match &rich_message {
+            Some(rich) if text.is_empty() && caption.is_none() => rich.text(),
+            _ => text,
+        };
         Message {
             id: raw.id,
             chat,
@@ -95,6 +104,7 @@ impl Message {
             caption,
             caption_entities,
             media: raw.media.as_ref().and_then(|m| Media::parse(m, entities)),
+            rich_message,
             link_preview_options: LinkPreviewOptions::parse(raw.media.as_ref(), raw.invert_media),
             reply_to_message_id,
             message_thread_id,
@@ -255,7 +265,7 @@ impl Message {
         self.raw.suggested_post.as_ref().map(SuggestedPostInfo::parse)
     }
 
-    pub fn edit_text(&self, text: impl Into<String>) -> EditMessageText<'_> {
+    pub fn edit_text(&self, text: impl Into<MessageText>) -> EditMessageText<'_> {
         self.client.edit_message_text(self.chat.id, self.id, text)
     }
 
@@ -553,5 +563,29 @@ mod tests {
             service(None, edit(None, None, Some(false))).service,
             Some(ServiceAction::GeneralForumTopicUnhidden)
         );
+    }
+
+    #[test]
+    fn rich_message_moves_out_of_raw_and_fills_text() {
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        let plain = |text: &str| base::RichText::TextPlain(Box::new(types::TextPlain { text: text.into() }));
+        let link = types::TextUrl { text: plain("Bob"), url: "https://t.me".into(), webpage_id: 0 };
+        let bold =
+            base::RichText::TextBold(Box::new(types::TextBold { text: base::RichText::TextUrl(Box::new(link)) }));
+        let texts = vec![plain("hi "), bold, base::RichText::TextEmpty];
+        let blocks = vec![
+            base::PageBlock::PageBlockHeading1(Box::new(types::PageBlockHeading1 { text: plain("/start") })),
+            base::PageBlock::PageBlockDivider,
+            base::PageBlock::PageBlockParagraph(Box::new(types::PageBlockParagraph {
+                text: base::RichText::TextConcat(Box::new(types::TextConcat { texts })),
+            })),
+        ];
+        let rich = types::RichMessage { rtl: true, part: false, blocks, photos: vec![], documents: vec![] };
+        raw.rich_message = Some(base::RichMessage::RichMessage(Box::new(rich)));
+        let message = parse(&raw);
+        assert_eq!(message.text, "/start\nhi Bob");
+        assert_eq!(message.command().map(|c| c.name), Some("start"));
+        assert!(message.rich_message.is_some_and(|r| r.rtl));
+        assert_eq!(message.raw.rich_message, None);
     }
 }

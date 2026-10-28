@@ -6,7 +6,7 @@ use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::methods::{AnswerCallbackQuery, EditEphemeralMessage, EditMessageText, into_future};
 use crate::raw::types;
-use crate::types::{Chat, EphemeralMessage, ReplyMarkup, User};
+use crate::types::{Chat, EphemeralMessage, MessageText, ReplyMarkup, User};
 
 #[derive(Clone)]
 pub struct CallbackQuery {
@@ -61,7 +61,7 @@ impl CallbackQuery {
         self.client.answer_callback_query(self.id)
     }
 
-    pub fn edit_message_text(&self, text: impl Into<String>) -> EditCallbackMessageText<'_> {
+    pub fn edit_message_text(&self, text: impl Into<MessageText>) -> EditCallbackMessageText<'_> {
         match &self.ephemeral_message {
             Some(message) => EditCallbackMessageText::Ephemeral(message.edit_text(text)),
             None => {

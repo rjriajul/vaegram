@@ -3,14 +3,14 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::functions;
-use crate::types::{Message, PeerRef, ReplyMarkup};
+use crate::types::{Message, MessageText, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct EditMessageText<'a> {
     client: &'a Client,
     chat_id: PeerRef,
     message_id: i32,
-    text: String,
+    text: MessageText,
     parse_mode: Option<ParseMode>,
     reply_markup: Option<ReplyMarkup>,
 }
@@ -20,7 +20,7 @@ impl Client {
         &self,
         chat_id: impl Into<PeerRef>,
         message_id: i32,
-        text: impl Into<String>,
+        text: impl Into<MessageText>,
     ) -> EditMessageText<'_> {
         EditMessageText {
             client: self,
@@ -42,26 +42,48 @@ impl EditMessageText<'_> {
     async fn send(self) -> Result<Message> {
         let client = self.client;
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
-        let (message, entities) = client.parse_text(&self.text, self.parse_mode).await?;
-        let entities = (!entities.is_empty()).then_some(entities);
+        let (message, entities, rich_message) = self.text.write(client, self.parse_mode).await?;
         let request = functions::messages::EditMessage {
             no_webpage: false,
             invert_media: false,
             peer,
             id: self.message_id,
-            message: Some(message.clone()),
+            message,
             media: None,
             reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
-            entities: entities.clone(),
+            entities,
             schedule_date: None,
             schedule_repeat_period: None,
             quick_reply_shortcut_id: None,
-            rich_message: None,
+            rich_message,
         };
         let updates = client.invoke(&request).await?;
-        Message::from_updates(client, updates, chat_id, (message, entities))
+        Message::from_updates(client, updates, chat_id, (request.message.unwrap_or_default(), request.entities))
     }
 }
 
 caption_setters!(EditMessageText);
 into_future!(EditMessageText, Message);
+
+#[cfg(test)]
+mod tests {
+    use crate::Client;
+    use crate::raw::{Serializable, base, types};
+    use crate::types::InputRichMessage;
+
+    #[tokio::test]
+    async fn rich_message_replaces_text() {
+        let (client, mut rx) = Client::recording();
+        assert!(client.edit_message_text("me", 5, InputRichMessage::markdown("_x_")).await.is_err());
+        let body = rx.try_recv().expect("no request sent");
+        let flags = u32::from_le_bytes(body[4..8].try_into().unwrap());
+        assert_eq!((flags & 1 << 11, flags & 1 << 3, flags & 1 << 23 != 0), (0, 0, true));
+        let markdown =
+            types::InputRichMessageMarkdown { rtl: false, noautolink: false, markdown: "_x_".into(), files: None };
+        assert!(body.ends_with(&base::InputRichMessage::InputRichMessageMarkdown(Box::new(markdown)).to_bytes()));
+
+        assert!(client.edit_message_text("me", 5, "hi").await.is_err());
+        let flags = u32::from_le_bytes(rx.try_recv().unwrap()[4..8].try_into().unwrap());
+        assert_eq!((flags & 1 << 11 != 0, flags & 1 << 23), (true, 0));
+    }
+}

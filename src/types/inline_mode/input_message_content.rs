@@ -2,6 +2,7 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::{base, types};
+use crate::types::InputRichMessage;
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -39,7 +40,7 @@ pub enum InputMessageContent {
         last_name: String,
         vcard: String,
     },
-    Rich(base::InputRichMessage),
+    Rich(InputRichMessage),
 }
 
 impl InputMessageContent {
@@ -175,9 +176,11 @@ impl InputMessageContent {
                     },
                 ))
             }
-            InputMessageContent::Rich(rich_message) => base::InputBotInlineMessage::InputBotInlineMessageRichMessage(
-                Box::new(types::InputBotInlineMessageRichMessage { reply_markup, rich_message }),
-            ),
+            InputMessageContent::Rich(rich) => {
+                let rich_message = rich.write();
+                let rich = types::InputBotInlineMessageRichMessage { reply_markup, rich_message };
+                base::InputBotInlineMessage::InputBotInlineMessageRichMessage(Box::new(rich))
+            }
         })
     }
 }

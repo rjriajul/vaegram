@@ -2,14 +2,14 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
-use crate::types::PeerRef;
+use crate::types::{MessageText, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendMessageDraft<'a> {
     pub(super) client: &'a Client,
     pub(super) chat_id: PeerRef,
     pub(super) draft_id: i64,
-    pub(super) text: String,
+    pub(super) text: MessageText,
     pub(super) options: DraftOptions,
 }
 
@@ -63,7 +63,7 @@ impl Client {
         &self,
         chat_id: impl Into<PeerRef>,
         draft_id: i64,
-        text: impl Into<String>,
+        text: impl Into<MessageText>,
     ) -> SendMessageDraft<'_> {
         SendMessageDraft {
             client: self,
@@ -80,21 +80,50 @@ impl SendMessageDraft<'_> {
         let client = self.client;
         let options = self.options;
         let peer = client.resolve_peer(self.chat_id).await?;
-        let (text, entities) = client.parse_text(&self.text, options.parse_mode).await?;
-        let action = types::SendMessageTextDraftAction {
-            can_stop: options.can_stop,
-            keep_on_stop: options.keep_on_stop,
-            random_id: self.draft_id,
-            text: base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities })),
+        let (can_stop, keep_on_stop, random_id) = (options.can_stop, options.keep_on_stop, self.draft_id);
+        let action = match self.text.write(client, options.parse_mode).await? {
+            (_, _, Some(rich_message)) => {
+                let action =
+                    types::InputSendMessageRichMessageDraftAction { can_stop, keep_on_stop, random_id, rich_message };
+                base::SendMessageAction::InputSendMessageRichMessageDraftAction(Box::new(action))
+            }
+            (text, entities, None) => {
+                let text =
+                    types::TextWithEntities { text: text.unwrap_or_default(), entities: entities.unwrap_or_default() };
+                let text = base::TextWithEntities::TextWithEntities(Box::new(text));
+                let action = types::SendMessageTextDraftAction { can_stop, keep_on_stop, random_id, text };
+                base::SendMessageAction::SendMessageTextDraftAction(Box::new(action))
+            }
         };
-        let request = functions::messages::SetTyping {
-            peer,
-            top_msg_id: options.message_thread_id,
-            action: base::SendMessageAction::SendMessageTextDraftAction(Box::new(action)),
-        };
+        let request = functions::messages::SetTyping { peer, top_msg_id: options.message_thread_id, action };
         client.invoke(&request).await
     }
 }
 
 draft_setters!(SendMessageDraft);
 into_future!(SendMessageDraft, bool);
+
+#[cfg(test)]
+mod tests {
+    use crate::Client;
+    use crate::raw::{Serializable, base, types};
+    use crate::types::InputRichMessage;
+
+    #[tokio::test]
+    async fn rich_drafts_send_the_rich_action() {
+        let (client, mut rx) = Client::recording();
+        let draft = client.send_message_draft("me", 42, InputRichMessage::html("<b>…</b>"));
+        assert!(draft.message_thread_id(3).can_stop().await.is_err());
+        let body = rx.try_recv().expect("no request sent");
+        let html =
+            types::InputRichMessageHTML { rtl: false, noautolink: false, html: "<b>…</b>".into(), files: None };
+        let action = types::InputSendMessageRichMessageDraftAction {
+            can_stop: true,
+            keep_on_stop: false,
+            random_id: 42,
+            rich_message: base::InputRichMessage::InputRichMessageHTML(Box::new(html)),
+        };
+        let action = base::SendMessageAction::InputSendMessageRichMessageDraftAction(Box::new(action));
+        assert!(body.ends_with(&[3i32.to_bytes(), action.to_bytes()].concat()));
+    }
+}

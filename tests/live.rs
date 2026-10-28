@@ -10,8 +10,8 @@ use vaegram::session::Session;
 use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
-    ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, KeyboardButton, Message,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove, Upload,
+    ButtonStyle, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputRichMessage,
+    KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Upload,
 };
 use vaegram::{Client, filters};
 
@@ -120,6 +120,11 @@ async fn bot_sends_and_edits_messages() {
     assert_eq!((edited.id, edited.text.as_str(), entities(&edited)), (asked.id, "Buttons work, edited.", 1));
     assert!(edited.edit_date.is_some());
     assert!(edited.raw.reply_markup.is_none());
+
+    // updateShortSentMessage has no rich_message field; this shows whether Telegram answers with it.
+    let rich = app.send_rich_message(chat_id, InputRichMessage::html("<b>rich</b> hello")).await.unwrap();
+    assert!(rich.rich_message.is_some());
+    rich.delete().await.unwrap();
 
     let reply = app.send_message(chat_id, "a reply").reply_to(hello.id).await.unwrap();
     assert!(reply.raw.reply_to.is_some());

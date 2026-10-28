@@ -2,6 +2,7 @@ mod authorization;
 mod bots_and_keyboards;
 mod inline_mode;
 pub(crate) mod messages_and_media;
+mod rich_messages;
 mod user_and_chats;
 
 pub use authorization::SentCode;
@@ -23,11 +24,12 @@ pub use inline_mode::{
 pub use messages_and_media::{
     Animation, Audio, Command, Contact, DeletedEphemeralMessages, Dice, Document, EphemeralMessage, ExternalReplyInfo,
     FileLocation, GuestMessage, LinkPreviewOptions, Location, Media, Message, MessageEntity, MessageGenerationStopped,
-    MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, Photo, Poll, PollOption, ReactionCount,
-    ReactionType, ReplyParameters, ServiceAction, Sticker, SuggestedPostApprovalFailed, SuggestedPostApproved,
-    SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice,
-    SuggestedPostRefunded, TextQuote, Upload, Venue, Video, VideoNote, Voice,
+    MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, MessageText, Photo, Poll, PollOption,
+    ReactionCount, ReactionType, ReplyParameters, ServiceAction, Sticker, SuggestedPostApprovalFailed,
+    SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters,
+    SuggestedPostPrice, SuggestedPostRefunded, TextQuote, Upload, Venue, Video, VideoNote, Voice,
 };
+pub use rich_messages::{InputRichMessage, RichMessage};
 pub use user_and_chats::{
     Chat, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatPermissions, ChatPrivileges, Community,
     DirectMessagesTopic, ForumTopic, ForumTopicCreated, ForumTopicEdited, PeerRef, User,

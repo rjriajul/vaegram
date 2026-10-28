@@ -3,7 +3,7 @@ use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::methods::{EditEphemeralMessage, SendEphemeralMessage};
 use crate::raw::{base, types};
-use crate::types::{Chat, User};
+use crate::types::{Chat, MessageText, User};
 use crate::utils::get_peer;
 
 #[derive(Debug, Clone)]
@@ -67,7 +67,7 @@ impl EphemeralMessage {
             .ok_or(Error::Unexpected("Telegram sent no ephemeral message back"))
     }
 
-    pub fn edit_text(&self, text: impl Into<String>) -> EditEphemeralMessage<'_> {
+    pub fn edit_text(&self, text: impl Into<MessageText>) -> EditEphemeralMessage<'_> {
         self.client.edit_ephemeral_message_text(self.chat.id, self.receiver_user.id, self.id, text)
     }
 
