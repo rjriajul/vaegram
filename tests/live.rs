@@ -392,3 +392,26 @@ async fn next(rx: &mut tokio::sync::mpsc::UnboundedReceiver<(&'static str, Messa
         }
     }
 }
+
+#[tokio::test]
+#[ignore = "logs in as a bot and changes its own and a chat's photo"]
+async fn bot_sets_and_removes_photos() {
+    let vars = ["VAEGRAM_API_ID", "VAEGRAM_API_HASH", "VAEGRAM_BOT_TOKEN", "VAEGRAM_PHOTO_CHAT_ID", "VAEGRAM_PHOTO"];
+    if vars.iter().any(|k| std::env::var(k).is_err()) {
+        eprintln!("skipped: set {}; the bot must be an admin of the chat and the photo a JPEG", vars.join(", "));
+        return;
+    }
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let app =
+        Client::builder("target/vaegram-live-photos", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+            .bot_token(env("VAEGRAM_BOT_TOKEN"))
+            .start()
+            .await
+            .unwrap();
+    let (chat_id, photo) = (env("VAEGRAM_PHOTO_CHAT_ID").parse::<i64>().unwrap(), env("VAEGRAM_PHOTO"));
+
+    app.set_profile_photo(photo.as_str()).await.unwrap();
+    app.remove_profile_photo().await.unwrap();
+    app.set_chat_photo(chat_id, photo.as_str()).await.unwrap();
+    app.delete_chat_photo(chat_id).await.unwrap();
+}

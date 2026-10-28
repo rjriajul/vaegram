@@ -165,6 +165,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   `edit_story`, `repost_story`, `delete_story` (not yet tested live)
 - [ ] Chat member, poll, poll answer, deleted message and user status handlers, business callback queries
   (not yet tested live)
+- [ ] Chat and profile photos: `set_chat_photo(chat, "a.jpg")`, `set_profile_photo("a.jpg").video()`,
+  `delete_chat_photo`, `remove_profile_photo`, business account photos (not yet tested live)
 
 ### Development
 

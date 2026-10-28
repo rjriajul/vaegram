@@ -35,6 +35,7 @@ pub use bots::{
 pub use business::{EditStory, PostStory, RepostStory};
 pub use chats::{
     BanChatMember, CreateForumTopic, EditForumTopic, GetChatAdministrators, GetChatMembers, RestrictChatMember,
+    SetChatPhoto,
 };
 pub use invite_links::{
     CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
@@ -50,4 +51,4 @@ pub use messages::{
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
 };
-pub use users::GetChatPhotos;
+pub use users::{GetChatPhotos, SetProfilePhoto};
