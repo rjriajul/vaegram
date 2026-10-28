@@ -30,7 +30,7 @@ mod utilities;
 
 pub use bots::{
     AnswerCallbackQuery, AnswerInlineQuery, AnswerPreCheckoutQuery, AnswerShippingQuery, CreateInvoiceLink,
-    SavePreparedInlineMessage, SendInvoice, VerifyChat,
+    SavePreparedInlineMessage, SendGame, SendInvoice, SetGameScore, SetInlineGameScore, VerifyChat,
 };
 pub use chats::{
     BanChatMember, CreateForumTopic, EditForumTopic, GetChatAdministrators, GetChatMembers, RestrictChatMember,
@@ -40,11 +40,11 @@ pub use invite_links::{
 };
 pub(crate) use messages::StreamShared;
 pub use messages::{
-    ApproveSuggestedPost, CopyMessage, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage, EditMessageChecklist,
-    EditMessageReplyMarkup, EditMessageText, ForwardMessages, GetChatHistory, MessageStream, PinChatMessage,
-    SearchMessages, SendChecklist, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLocation,
-    SendMessage, SendMessageDraft, SendPhoto, SendPoll, SendReaction, SendRichMessage, SendVenue, StopPoll,
-    StreamMessage,
+    ApproveSuggestedPost, CopyMessage, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage, EditInlineText,
+    EditMessageChecklist, EditMessageReplyMarkup, EditMessageText, ForwardMessages, GetChatHistory, MessageStream,
+    PinChatMessage, SearchMessages, SendChecklist, SendContact, SendDice, SendDocument, SendEphemeralMessage,
+    SendLocation, SendMessage, SendMessageDraft, SendPhoto, SendPoll, SendReaction, SendRichMessage, SendVenue,
+    StopPoll, StreamMessage,
 };
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,

@@ -158,6 +158,8 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   `msg.service` (`ServiceAction::Gift`, ..), `verify_chat(chat)` (not yet tested live)
 - [ ] Checklists: `send_checklist(chat, InputChecklist::new("Trip").task(1, "Tickets"))`, `edit_message_checklist`,
   `msg.checklist()`, `msg.service` (`ServiceAction::ChecklistTasksDone`, ..) (not yet tested live)
+- [ ] Games: `send_game(chat, "race")`, `set_game_score`, `get_game_high_scores`, `msg.game()`, inline callback
+  queries and their game variants on the message's own data center (not yet tested live)
 
 ### Development
 

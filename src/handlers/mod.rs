@@ -114,7 +114,11 @@ impl Routed for Message {
 
 impl Routed for CallbackQuery {
     fn chat_id(&self) -> Option<i64> {
-        Some(self.chat.id)
+        self.chat().map(|c| c.id)
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.chat().map_or(self.from_user.id, |c| c.id))
     }
 }
 

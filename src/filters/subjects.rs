@@ -72,8 +72,11 @@ subject!(Message: HasChat, HasSender, HasText, HasMedia; |s, me| {
 });
 
 subject!(CallbackQuery: HasChat, HasSender, HasData; |s, me| {
-    let kinds = PeerKinds { chat: Some(s.chat.kind), sender_bot: s.from_user.is_bot };
-    Facts::query(s.chat.id, s.from_user.id, s.data.as_bytes(), kinds, me)
+    let chat = s.chat();
+    let kinds = PeerKinds { chat: chat.map(|c| c.kind), sender_bot: s.from_user.is_bot };
+    // Inline messages have no chat; 0 is what chat-less updates carry, so chat filters reject them.
+    let chat_id = chat.map_or(0, |c| c.id);
+    Facts::query(chat_id, s.from_user.id, s.data.as_bytes(), kinds, me)
 });
 
 subject!(InlineQuery: HasSender, HasText; |s, me| Facts::inline(s.from_user.id, &s.query, me));

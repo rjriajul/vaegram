@@ -96,6 +96,7 @@ fn inline_button(raw: &base::KeyboardInlineButton) -> Option<InlineKeyboardButto
         }
         T::InlineButtonTypeCopy(t) => InlineAction::CopyText(t.copy_text.clone()),
         T::InlineButtonTypeDisabled => InlineAction::Disabled,
+        T::InlineButtonTypeGame => InlineAction::CallbackGame,
         _ => return None,
     };
     Some(InlineKeyboardButton { text: b.text.clone(), action, style: style(b.style.as_ref()) })
@@ -189,8 +190,8 @@ mod tests {
         };
 
         assert!(ReplyMarkup::parse(&markup(vec![callback(b"ok")])).is_some());
-        let game = button(base::InlineButtonType::InlineButtonTypeGame);
-        assert_eq!(ReplyMarkup::parse(&markup(vec![callback(b"ok"), game])), None);
+        let buy = button(base::InlineButtonType::InlineButtonTypeBuy);
+        assert_eq!(ReplyMarkup::parse(&markup(vec![callback(b"ok"), buy])), None);
         assert_eq!(ReplyMarkup::parse(&markup(vec![callback(&[0xff])])), None);
     }
 }

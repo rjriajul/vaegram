@@ -31,6 +31,7 @@ pub enum ServiceAction {
     RefundedPayment(Box<RefundedPayment>),
     ChecklistTasksDone(ChecklistTasksDone),
     ChecklistTasksAdded(ChecklistTasksAdded),
+    GameHighScore { game_id: i64, score: i32 },
 }
 
 impl ServiceAction {
@@ -98,6 +99,7 @@ impl ServiceAction {
             A::MessageActionTodoAppendTasks(a) => ServiceAction::ChecklistTasksAdded(ChecklistTasksAdded {
                 tasks: a.list.iter().map(|item| ChecklistTask::parse(item, entities)).collect(),
             }),
+            A::MessageActionGameScore(a) => ServiceAction::GameHighScore { game_id: a.game_id, score: a.score },
             _ => return None,
         })
     }
@@ -108,7 +110,7 @@ mod tests {
     use super::super::checklist::tests::item;
     use super::ServiceAction;
     use crate::dispatcher::Entities;
-    use crate::enums::SuggestedPostRefundReason;
+    use crate::enums::{ServiceKind, SuggestedPostRefundReason};
     use crate::raw::{base, types};
     use crate::types::{
         ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone, SuggestedPostApproved, SuggestedPostPrice,
@@ -161,5 +163,16 @@ mod tests {
         let added = parse(base::MessageAction::MessageActionTodoAppendTasks(Box::new(added)));
         let tasks = vec![ChecklistTask::parse(&item(4, "Visa"), &entities)];
         assert_eq!(added, ServiceAction::ChecklistTasksAdded(ChecklistTasksAdded { tasks }));
+    }
+
+    #[test]
+    fn game_scores_agree_with_their_service_kind() {
+        let action = base::MessageAction::MessageActionGameScore(Box::new(types::MessageActionGameScore {
+            game_id: 7,
+            score: 42,
+        }));
+        let parsed = ServiceAction::parse(&action, 1, &Entities::default());
+        assert_eq!(parsed, Some(ServiceAction::GameHighScore { game_id: 7, score: 42 }));
+        assert_eq!(ServiceKind::of(&action, None), ServiceKind::GameHighScore);
     }
 }

@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use crate::errors::{Error, Result};
 use crate::raw::{Serializable, base, types};
-use crate::storage::session_string;
+use crate::utils::{base64url_decode, base64url_encode};
 
 /// Prints and parses as the Bot API `inline_message_id` string.
 #[derive(Debug, Clone, PartialEq)]
@@ -21,7 +21,7 @@ impl InlineMessageId {
 impl fmt::Display for InlineMessageId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // The Bot API string is the bare TL body, so the constructor id is dropped and the length tells them apart.
-        f.write_str(&session_string::encode(&self.0.to_bytes()[4..]))
+        f.write_str(&base64url_encode(&self.0.to_bytes()[4..]))
     }
 }
 
@@ -29,7 +29,7 @@ impl FromStr for InlineMessageId {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
-        let bytes = session_string::decode(s).ok_or(Error::InvalidArgument("inline message id isn't base64url"))?;
+        let bytes = base64url_decode(s).ok_or(Error::InvalidArgument("inline message id isn't base64url"))?;
         let buf = &mut &bytes[..];
         let damaged = |_| Error::InvalidArgument("inline message id is damaged");
         let id = match bytes.len() {

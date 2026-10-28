@@ -11,7 +11,7 @@ use crate::dispatcher::Routes;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::methods::StreamShared;
-use crate::raw::{base, functions};
+use crate::raw::{RemoteCall, base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Lease, TransferPool};
 use crate::session::{Events, Session, UpdatesRx, init_connection};
@@ -339,6 +339,17 @@ impl Client {
     pub(crate) async fn transfer_sessions(&self, dc_id: i32, count: usize) -> Result<Lease> {
         let dc = self.dc(dc_id)?;
         self.0.transfers.lease(dc, count, &self.session(), self.0.api_id, &self.0.options, &self.0.events).await
+    }
+
+    /// Sends a request about an inline message to `dc_id`, the DC its id names, which is the only one that
+    /// serves it.
+    pub(crate) async fn invoke_inline<R: RemoteCall>(&self, dc_id: i32, request: R) -> Result<R::Return> {
+        if dc_id == self.session().dc_id() {
+            return self.invoke(&request).await;
+        }
+        let lease = self.transfer_sessions(dc_id, 1).await?;
+        // A reopened file connection hasn't sent its layer, and the answer can carry users.
+        lease.sessions[0].invoke(&init_connection(self.0.api_id, &self.0.options, request)).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {

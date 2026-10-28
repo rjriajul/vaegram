@@ -8,12 +8,12 @@ mod user_and_chats;
 
 pub use authorization::SentCode;
 pub use bots_and_keyboards::{
-    AffiliateInfo, BotAccessSettings, BotCommand, BotCommandScope, BotSubscriptionUpdated, ButtonStyle, CallbackQuery,
-    EditCallbackMessageText, ForceReply, InlineAction, InlineKeyboardButton, InlineKeyboardMarkup, InputInvoice,
-    KeyboardButton, KeyboardButtonRequestManagedBot, LabeledPrice, ManagedBotUpdated, MenuButton, OrderInfo,
-    PreCheckoutQuery, PurchasedPaidMedia, ReplyKeyboardMarkup, ReplyKeyboardRemove, ReplyMarkup,
-    RevenueWithdrawalState, ShippingAddress, ShippingOption, ShippingQuery, StarTransaction, StarTransactions,
-    TransactionPartner,
+    AffiliateInfo, BotAccessSettings, BotCommand, BotCommandScope, BotSubscriptionUpdated, ButtonStyle, CallbackOrigin,
+    CallbackQuery, EditCallbackMessageText, ForceReply, GameHighScore, InlineAction, InlineKeyboardButton,
+    InlineKeyboardMarkup, InputInvoice, KeyboardButton, KeyboardButtonRequestManagedBot, LabeledPrice,
+    ManagedBotUpdated, MenuButton, OrderInfo, PreCheckoutQuery, PurchasedPaidMedia, ReplyKeyboardMarkup,
+    ReplyKeyboardRemove, ReplyMarkup, RevenueWithdrawalState, ShippingAddress, ShippingOption, ShippingQuery,
+    StarTransaction, StarTransactions, TransactionPartner,
 };
 pub use inline_mode::{
     ChosenInlineResult, InlineMessageId, InlineQuery, InlineQueryResult, InlineQueryResultArticle,
@@ -27,10 +27,10 @@ pub use inline_mode::{
 pub use messages_and_media::{
     Animation, Audio, Checklist, ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone, Command, Contact,
     DeletedBusinessMessages, DeletedEphemeralMessages, Dice, Document, EphemeralMessage, ExternalReplyInfo,
-    FileLocation, GuestMessage, InputChecklist, Invoice, LinkPreviewOptions, Location, Media, Message, MessageEntity,
-    MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, MessageText, Photo,
-    Poll, PollOption, ReactionCount, ReactionType, RefundedPayment, ReplyParameters, ServiceAction, StarAmount,
-    Sticker, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
+    FileLocation, Game, GuestMessage, InputChecklist, Invoice, LinkPreviewOptions, Location, Media, Message,
+    MessageEntity, MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated,
+    MessageText, Photo, Poll, PollOption, ReactionCount, ReactionType, RefundedPayment, ReplyParameters, ServiceAction,
+    StarAmount, Sticker, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
     SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded,
     TextQuote, Upload, Venue, Video, VideoNote, Voice,
 };

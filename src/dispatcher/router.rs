@@ -218,6 +218,10 @@ impl Router {
                 let query = CallbackQuery::parse_ephemeral(client, *u, entities);
                 self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me(), (Vec::new(), Some(0)), query);
             }
+            U::UpdateInlineBotCallbackQuery(u) if !self.callback_query.0.is_empty() => {
+                let query = CallbackQuery::parse_inline(client, *u, entities);
+                self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me(), (Vec::new(), Some(0)), query);
+            }
             U::UpdateBotInlineQuery(u) if !self.inline_query.0.is_empty() => {
                 let query = InlineQuery::parse(client, &u, entities);
                 self.inline_query.finish(UpdateKind::InlineQuery, tasks, &me(), (Vec::new(), Some(0)), query);

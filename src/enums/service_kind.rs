@@ -47,6 +47,7 @@ pub enum ServiceKind {
     SuggestedPostPaid,
     SuggestedPostRefunded,
     BoostAdded,
+    GameHighScore,
     Unknown,
 }
 
@@ -108,6 +109,7 @@ impl ServiceKind {
             A::MessageActionSuggestedPostSuccess(_) => K::SuggestedPostPaid,
             A::MessageActionSuggestedPostRefund(_) => K::SuggestedPostRefunded,
             A::MessageActionBoostApply(_) => K::BoostAdded,
+            A::MessageActionGameScore(_) => K::GameHighScore,
             _ => K::Unknown,
         }
     }
