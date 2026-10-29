@@ -180,9 +180,11 @@ impl ClientBuilder {
             None => (DEFAULT_DC, None, 0, false, self.test_mode, None),
         };
         let built_in = data_center::address(dc_id, test_mode, self.ipv6);
-        let first = addr.filter(|a| a.is_ipv6() == self.ipv6).or(built_in).ok_or(Error::InvalidDc(dc_id))?;
-        // A session on localhost (a replay, a test server) is offline by design: every DC is that address.
-        let pinned = first.ip().is_loopback().then_some(first);
+        // A session on localhost (a replay, a test server) is offline by design: every DC is that address, over
+        // whichever IP family it has.
+        let pinned = addr.filter(|a| a.ip().is_loopback());
+        let first = pinned.or_else(|| addr.filter(|a| a.is_ipv6() == self.ipv6)).or(built_in);
+        let first = first.ok_or(Error::InvalidDc(dc_id))?;
         let dc = |addr| Dc { id: dc_id, addr, test: test_mode };
         let state_file = storage_path.as_ref().map(|path| Arc::new(StateFile::new(path.with_extension("state"))));
         let (peers, state, salt) = match &state_file {

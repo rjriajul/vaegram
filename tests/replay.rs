@@ -91,14 +91,20 @@ async fn refusing_proxy() -> (u16, Arc<Mutex<Vec<[u8; 6]>>>) {
 #[tokio::test]
 async fn an_unreachable_replay_is_never_swapped_for_telegram() {
     let session = Replay::start(&bot_session()).await.unwrap().session_string();
-    let (port, targets) = refusing_proxy().await;
-    let proxy = Proxy::Socks5 { host: "127.0.0.1".into(), port, auth: None };
-    let client = Client::builder("replay", 1, "replay").session_string(session.clone()).proxy(proxy).connect().await;
-    assert!(client.is_err());
     let addr = session_string::parse(&session).unwrap().addr.unwrap();
     let SocketAddr::V4(addr) = addr else { panic!("{addr}") };
     let replay = [addr.ip().octets().as_slice(), &addr.port().to_be_bytes()].concat();
-    assert_eq!(*targets.lock().unwrap(), [<[u8; 6]>::try_from(replay).unwrap()]);
+    // `.ipv6()` picks IPv6 addresses, but a replay's IPv4 loopback address still wins.
+    for ipv6 in [false, true] {
+        let (port, targets) = refusing_proxy().await;
+        let proxy = Proxy::Socks5 { host: "127.0.0.1".into(), port, auth: None };
+        let mut builder = Client::builder("replay", 1, "replay").session_string(session.clone()).proxy(proxy);
+        if ipv6 {
+            builder = builder.ipv6();
+        }
+        assert!(builder.connect().await.is_err());
+        assert_eq!(*targets.lock().unwrap(), [<[u8; 6]>::try_from(replay.clone()).unwrap()], "ipv6: {ipv6}");
+    }
 }
 
 #[cfg(feature = "json")]
@@ -155,14 +161,25 @@ fn bot_session_with(config: base::Config) -> Vec<Record> {
     let mut r = Vec::new();
     let new_session = types::NewSessionCreated { first_msg_id: 4, unique_id: 1, server_salt: 1 };
     unasked(&mut r, base::NewSession::NewSessionCreated(Box::new(new_session)).to_bytes());
+    // The replay matches requests by constructor id only; full bodies where they're short put the call decoder
+    // in the golden file.
     let init = <functions::InvokeWithLayer<functions::help::GetConfig> as Identifiable>::CONSTRUCTOR_ID;
-    call(&mut r, init, config.to_bytes());
-    call(&mut r, functions::users::GetUsers::CONSTRUCTOR_ID, vec![user(BOT, true)].to_bytes());
+    call(&mut r, init.to_le_bytes().to_vec(), config.to_bytes());
+    let get_users = functions::users::GetUsers { id: vec![base::InputUser::InputUserSelf] };
+    call(&mut r, get_users.to_bytes(), vec![user(BOT, true)].to_bytes());
     let state = types::updates::State { pts: 10, qts: 0, date: DATE, seq: 0, unread_count: 0 };
-    call(&mut r, functions::updates::GetState::CONSTRUCTOR_ID, base::updates::State::State(Box::new(state)).to_bytes());
+    call(&mut r, functions::updates::GetState {}.to_bytes(), base::updates::State::State(Box::new(state)).to_bytes());
+    let get_difference = functions::updates::GetDifference {
+        pts: 10,
+        pts_limit: None,
+        pts_total_limit: Some(1000),
+        date: DATE,
+        qts: 0,
+        qts_limit: None,
+    };
     let empty = types::updates::DifferenceEmpty { date: DATE, seq: 0 };
     let difference = base::updates::Difference::DifferenceEmpty(empty);
-    call(&mut r, functions::updates::GetDifference::CONSTRUCTOR_ID, difference.to_bytes());
+    call(&mut r, get_difference.to_bytes(), difference.to_bytes());
     for (pts, text) in [(11, "/start"), (13, "ping")] {
         unasked(&mut r, new_message(pts, text).to_bytes());
         let sent = types::UpdateShortSentMessage {
@@ -175,14 +192,14 @@ fn bot_session_with(config: base::Config) -> Vec<Record> {
             entities: None,
             ttl_period: None,
         };
-        call(&mut r, SEND_MESSAGE, base::Updates::UpdateShortSentMessage(Box::new(sent)).to_bytes());
+        call(&mut r, SEND_MESSAGE.to_le_bytes().to_vec(), base::Updates::UpdateShortSentMessage(Box::new(sent)).to_bytes());
     }
     r
 }
 
-fn call(records: &mut Vec<Record>, method: u32, result: Vec<u8>) {
+fn call(records: &mut Vec<Record>, request: Vec<u8>, result: Vec<u8>) {
     let msg_id = 4 * records.len() as i64 + 4;
-    records.push(Record { outgoing: true, msg_id, unix_ms: 0, body: method.to_le_bytes().to_vec() });
+    records.push(Record { outgoing: true, msg_id, unix_ms: 0, body: request });
     let body = [&RPC_RESULT.to_le_bytes()[..], &msg_id.to_le_bytes()[..], &result[..]].concat();
     records.push(Record { outgoing: false, msg_id: msg_id + 1, unix_ms: 0, body });
 }
