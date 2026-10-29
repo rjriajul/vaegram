@@ -65,7 +65,8 @@ pub struct Record {
 impl Record {
     /// One line for a readable dump: `{"outgoing":true,"msg_id":4,"unix_ms":0,"body":{..}}`, the body in the
     /// shape of [`ToJson`](crate::raw::ToJson). A body this layer can't decode, such as one cut down to its
-    /// constructor id, is `{"cut":"<TL name>"}`, or `{"cut":<id>}` for an id it doesn't know.
+    /// constructor id, is `{"cut":"<TL name>"}`, or `{"cut":<id>}` for an id it doesn't know. A bare vector answer,
+    /// whose element type only its request knows, is `{"cut":"vector"}`.
     pub fn to_json(&self) -> String {
         use crate::raw::ToJson;
         let mut out = format!(r#"{{"outgoing":{},"msg_id":"#, self.outgoing);
@@ -73,27 +74,30 @@ impl Record {
         out.push_str(r#","unix_ms":"#);
         self.unix_ms.to_json(&mut out);
         out.push_str(r#","body":"#);
-        body_json(&self.body, &mut out);
+        body_json(&self.body, &mut out, 0);
         out.push('}');
         out
     }
 }
 
 #[cfg(feature = "json")]
-fn body_json(body: &[u8], out: &mut String) {
+fn body_json(body: &[u8], out: &mut String, depth: usize) {
     use crate::raw::ToJson;
+    const VECTOR: u32 = 0x1cb5c415;
     match constructor_id(body) {
+        Some(gzip_packed::ID | RPC_RESULT) if depth > MAX_DEPTH => out.push_str(r#"{"cut":"too deep"}"#),
         Some(gzip_packed::ID) => match gzip_packed::unpack(body) {
-            Ok(plain) => body_json(&plain, out),
+            Ok(plain) => body_json(&plain, out, depth + 1),
             Err(_) => out.push_str(r#"{"cut":"gzip_packed"}"#),
         },
         Some(RPC_RESULT) if body.len() >= 12 => {
             out.push_str(r#"{"_":"rpc_result","req_msg_id":"#);
             i64::from_le_bytes(body[4..12].try_into().unwrap()).to_json(out);
             out.push_str(r#","result":"#);
-            body_json(&body[12..], out);
+            body_json(&body[12..], out, depth + 1);
             out.push('}');
         }
+        Some(VECTOR) => out.push_str(r#"{"cut":"vector"}"#),
         Some(id) => match crate::raw::json_of(body) {
             Some(json) => out.push_str(&json),
             None => match crate::raw::tl_name(id) {
@@ -544,6 +548,32 @@ mod tests {
             out.extend_from_slice(body);
         }
         out
+    }
+
+    #[cfg(feature = "json")]
+    #[test]
+    fn a_dump_decodes_calls_and_names_what_it_cannot() {
+        let json = |body: Vec<u8>| Record { outgoing: true, msg_id: 4, unix_ms: 0, body }.to_json();
+        let init = crate::session::init_connection(1, &Default::default(), functions::help::GetConfig {});
+        let init = json(init.to_bytes());
+        for part in [r#""_":"invokeWithLayer""#, r#""query":{"_":"initConnection""#, r#""query":{"_":"help.getConfig"}"#] {
+            assert!(init.contains(part), "{part} missing in {init}");
+        }
+        let users = json(functions::users::GetUsers { id: vec![base::InputUser::InputUserSelf] }.to_bytes());
+        assert!(users.ends_with(r#""body":{"_":"users.getUsers","id":[{"_":"inputUserSelf"}]}}"#), "{users}");
+        let vector = json(rpc_result(8, &Vec::<i64>::new().to_bytes()));
+        assert!(vector.ends_with(r#""result":{"cut":"vector"}}}"#), "{vector}");
+    }
+
+    #[cfg(feature = "json")]
+    #[test]
+    fn a_dump_stops_at_nested_gzip_past_the_depth_limit() {
+        let mut body = functions::updates::GetState {}.to_bytes();
+        for _ in 0..=super::MAX_DEPTH + 1 {
+            body = gzip(&body);
+        }
+        let json = Record { outgoing: false, msg_id: 1, unix_ms: 0, body }.to_json();
+        assert!(json.ends_with(r#""body":{"cut":"too deep"}}"#), "{json}");
     }
 
     #[test]
