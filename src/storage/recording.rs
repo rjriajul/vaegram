@@ -556,7 +556,9 @@ mod tests {
         let json = |body: Vec<u8>| Record { outgoing: true, msg_id: 4, unix_ms: 0, body }.to_json();
         let init = crate::session::init_connection(1, &Default::default(), functions::help::GetConfig {});
         let init = json(init.to_bytes());
-        for part in [r#""_":"invokeWithLayer""#, r#""query":{"_":"initConnection""#, r#""query":{"_":"help.getConfig"}"#] {
+        for part in
+            [r#""_":"invokeWithLayer""#, r#""query":{"_":"initConnection""#, r#""query":{"_":"help.getConfig"}"#]
+        {
             assert!(init.contains(part), "{part} missing in {init}");
         }
         let users = json(functions::users::GetUsers { id: vec![base::InputUser::InputUserSelf] }.to_bytes());

@@ -192,7 +192,11 @@ fn bot_session_with(config: base::Config) -> Vec<Record> {
             entities: None,
             ttl_period: None,
         };
-        call(&mut r, SEND_MESSAGE.to_le_bytes().to_vec(), base::Updates::UpdateShortSentMessage(Box::new(sent)).to_bytes());
+        call(
+            &mut r,
+            SEND_MESSAGE.to_le_bytes().to_vec(),
+            base::Updates::UpdateShortSentMessage(Box::new(sent)).to_bytes(),
+        );
     }
     r
 }
