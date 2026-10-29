@@ -827,6 +827,15 @@ async fn an_unanswered_bind_is_sent_again() {
 }
 
 #[tokio::test]
+async fn a_request_timeout_of_duration_max_does_not_break_the_bind() {
+    let (mut r, mut frames, _updates) = runner().await;
+    Arc::make_mut(&mut r.options).request_timeout = Duration::MAX;
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
+    r.flush().await.unwrap();
+    assert_eq!(constructor_id(&recv(&mut frames, &r).await.2), Some(test_dc::BIND));
+}
+
+#[tokio::test]
 async fn a_bad_msg_notification_for_the_bind_sends_it_again() {
     for error_code in [16, 17, 32, 33] {
         let (mut r, mut frames, _updates) = runner().await;
