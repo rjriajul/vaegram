@@ -1,3 +1,5 @@
+mod support;
+
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -5,7 +7,7 @@ use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
 use vaegram::enums::{MessageEntityType, ParseMode, PollType, StickerType};
-use vaegram::raw::{base, functions, types};
+use vaegram::raw::{Serializable, base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
 use vaegram::storage::state;
@@ -20,7 +22,7 @@ use vaegram::{Client, filters};
 #[ignore = "connects to Telegram"]
 async fn creates_auth_key_and_pings() {
     let dc = data_center::find(&[], 2, false, false).unwrap();
-    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default()).await.unwrap();
+    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 42 }).await.unwrap();
     assert_eq!(pong.ping_id, 42);
 }
@@ -29,9 +31,20 @@ async fn creates_auth_key_and_pings() {
 #[ignore = "connects to Telegram's test servers"]
 async fn creates_auth_key_on_test_server() {
     let dc = data_center::find(&[], 2, true, false).unwrap();
-    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default()).await.unwrap();
+    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
     assert_eq!(pong.ping_id, 7);
+}
+
+#[tokio::test]
+#[ignore = "connects to Telegram's test servers"]
+async fn binds_temp_key_on_test_server() {
+    let dc = data_center::find(&[], 2, true, false).unwrap();
+    let init = Some(functions::help::GetNearestDc {}.to_bytes());
+    let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), init).await.unwrap();
+    // Requests wait for auth.bindTempAuthKey to succeed, so an answer means it did.
+    let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 11 }).await.unwrap();
+    assert_eq!(pong.ping_id, 11);
 }
 
 #[tokio::test]
@@ -40,8 +53,8 @@ async fn handshakes_over_every_transport() {
     let dc = data_center::find(&[], 2, false, false).unwrap();
     for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
         for obfuscated in [false, true] {
-            let options = Options { transport, obfuscated, proxy: None };
-            let (session, _updates) = Session::connect(dc, None, &options, Arc::default()).await.unwrap();
+            let options = Options { transport, obfuscated, ..Options::default() };
+            let (session, _updates) = Session::connect(dc, None, &options, Arc::default(), None).await.unwrap();
             let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
             assert_eq!(pong.ping_id, 7, "{options:?}");
         }
@@ -72,7 +85,7 @@ async fn handshakes_through_proxies() {
     }
     for proxy in proxies {
         let options = Options { proxy: Some(proxy), ..Options::default() };
-        let (session, _updates) = Session::connect(dc, None, &options, Arc::default()).await.unwrap();
+        let (session, _updates) = Session::connect(dc, None, &options, Arc::default(), None).await.unwrap();
         let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 9 }).await.unwrap();
         assert_eq!(pong.ping_id, 9, "{options:?}");
     }
@@ -541,13 +554,25 @@ async fn user_keeps_peers_across_restarts() {
     let id = user.resolve_username("BotFather").await.unwrap();
     drop(user);
 
-    let (peers, _) = state::load(Path::new(&state_path), me.id).unwrap();
+    let (peers, _, _) = state::load(Path::new(&state_path), me.id).unwrap();
     let saved = peers.get(&id).cloned().expect("BotFather was saved on drop");
     let user = Client::builder(name, api_id, api_hash).connect().await.unwrap();
     assert_eq!(user.resolve_peer(id).await.unwrap(), saved);
     drop(user);
     std::fs::remove_file(format!("{name}.session")).unwrap();
     std::fs::remove_file(state_path).unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session and a bot"]
+async fn user_gets_the_bots_reply_through_the_kit() {
+    let Some(kit) = support::Kit::from_env().await else { return };
+    kit.bot.on_message(filters::private() & filters::text(), |m| async move {
+        m.reply(format!("echo: {}", m.text)).await?;
+        Ok(())
+    });
+    let reply = kit.user.send_and_wait_reply(&kit.bot, "hi from the kit").await.unwrap();
+    assert_eq!((reply.text.as_str(), reply.outgoing), ("echo: hi from the kit", false));
 }
 
 async fn next(rx: &mut tokio::sync::mpsc::UnboundedReceiver<(&'static str, Message)>, kind: &str) -> Message {

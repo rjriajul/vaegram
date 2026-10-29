@@ -167,7 +167,7 @@ mod tests {
             tasks,
             vec![
                 (1, text("Ann books", vec![base::MessageEntity::InputMessageEntityMentionName(Box::new(mention))])),
-                (2, text("Hotel", vec![base::MessageEntity::MessageEntityBold(Box::new(bold))])),
+                (2, text("Hotel", vec![base::MessageEntity::MessageEntityBold(bold)])),
             ]
         );
     }

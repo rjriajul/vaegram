@@ -327,7 +327,7 @@ mod tests {
         (uploaded.video_cover, uploaded.video_timestamp) =
             (Some(base::InputPhoto::InputPhoto(Box::new(cover.clone()))), Some(5));
         let media = base::InputMedia::InputMediaUploadedDocument(Box::new(uploaded));
-        let peer = base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: 5 }));
+        let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
 
         let stored = client.upload_media(&peer, media, Some("conn")).await.unwrap();
         let base::InputMedia::InputMediaDocument(d) = stored else { panic!("not a stored document") };

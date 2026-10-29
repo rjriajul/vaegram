@@ -24,7 +24,7 @@ impl ReactionType {
                 base::Reaction::ReactionEmoji(Box::new(types::ReactionEmoji { emoticon: emoticon.clone() }))
             }
             ReactionType::CustomEmoji(document_id) => {
-                base::Reaction::ReactionCustomEmoji(Box::new(types::ReactionCustomEmoji { document_id: *document_id }))
+                base::Reaction::ReactionCustomEmoji(types::ReactionCustomEmoji { document_id: *document_id })
             }
             ReactionType::Paid => base::Reaction::ReactionPaid,
         }

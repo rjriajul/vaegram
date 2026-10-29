@@ -20,7 +20,7 @@ impl MessageGenerationStopped {
         let base::SendMessageAction::SendMessageStopDraftAction(action) = &raw.action else {
             return None;
         };
-        let peer = base::Peer::PeerUser(Box::new(types::PeerUser { user_id: raw.user_id }));
+        let peer = base::Peer::PeerUser(types::PeerUser { user_id: raw.user_id });
         Some(MessageGenerationStopped {
             chat: Chat::parse(&peer, entities, false),
             message_thread_id: raw.top_msg_id,
@@ -47,9 +47,8 @@ mod tests {
 
     #[test]
     fn maps_stop_draft_action() {
-        let stop = base::SendMessageAction::SendMessageStopDraftAction(Box::new(types::SendMessageStopDraftAction {
-            random_id: 42,
-        }));
+        let stop =
+            base::SendMessageAction::SendMessageStopDraftAction(types::SendMessageStopDraftAction { random_id: 42 });
         let event = MessageGenerationStopped::parse(&Client::offline(), &typing(stop), &Entities::default()).unwrap();
         assert_eq!((event.chat.id, event.message_thread_id, event.draft_id), (7, Some(3), 42));
     }

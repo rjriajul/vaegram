@@ -61,16 +61,18 @@ impl Deserializable for bool {
 impl Serializable for [u8] {
     fn serialize(&self, buf: &mut Vec<u8>) {
         assert!(self.len() < 1 << 24, "TL bytes can't be 16 MiB or longer; split the data first");
-        let header = if self.len() < 254 {
+        let header = if self.len() < 254 { 1 } else { 4 };
+        let end = buf.len() + (header + self.len()).next_multiple_of(4);
+        // Reserve the padding with the data, so a full buffer doesn't double just to fit up to 3 zeros.
+        buf.reserve(end - buf.len());
+        if header == 1 {
             buf.push(self.len() as u8);
-            1
         } else {
             buf.push(254);
             buf.extend_from_slice(&(self.len() as u32).to_le_bytes()[..3]);
-            4
-        };
+        }
         buf.extend_from_slice(self);
-        buf.resize(buf.len() + (4 - (header + self.len()) % 4) % 4, 0);
+        buf.resize(end, 0);
     }
 }
 
@@ -80,18 +82,22 @@ impl Serializable for Vec<u8> {
     }
 }
 
+fn read_bytes<'a>(buf: &mut &'a [u8]) -> Result<&'a [u8], Error> {
+    let (len, header) = match take(buf, 1)?[0] {
+        254 => {
+            let b = take(buf, 3)?;
+            (u32::from_le_bytes([b[0], b[1], b[2], 0]) as usize, 4)
+        }
+        n => (n as usize, 1),
+    };
+    let data = take(buf, len)?;
+    take(buf, (4 - (header + len) % 4) % 4)?;
+    Ok(data)
+}
+
 impl Deserializable for Vec<u8> {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
-        let (len, header) = match take(buf, 1)?[0] {
-            254 => {
-                let b = take(buf, 3)?;
-                (u32::from_le_bytes([b[0], b[1], b[2], 0]) as usize, 4)
-            }
-            n => (n as usize, 1),
-        };
-        let data = take(buf, len)?.to_vec();
-        take(buf, (4 - (header + len) % 4) % 4)?;
-        Ok(data)
+        Ok(read_bytes(buf)?.to_vec())
     }
 }
 
@@ -103,7 +109,7 @@ impl Serializable for String {
 
 impl Deserializable for String {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
-        Ok(String::from_utf8_lossy(&Vec::<u8>::deserialize(buf)?).into_owned())
+        Ok(String::from_utf8_lossy(read_bytes(buf)?).into_owned())
     }
 }
 
@@ -124,11 +130,29 @@ impl<T: Deserializable> Deserializable for Vec<T> {
             id => return Err(Error::UnexpectedConstructor { id }),
         }
         let len = u32::deserialize(buf)?;
-        // No `with_capacity(len)`: `len` comes from the network.
-        let mut items = Vec::new();
+        let mut items = Vec::with_capacity(capacity::<T>(len, buf.len()));
         for _ in 0..len {
             items.push(T::deserialize(buf)?);
         }
         Ok(items)
+    }
+}
+
+// `len` comes from the network: cap it by what the input can hold (4+ bytes per value), and the allocation by the
+// input's size, since a value can take more room in memory than on the wire.
+fn capacity<T>(len: u32, input: usize) -> usize {
+    (len as usize).min(input / size_of::<T>().max(4))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::capacity;
+
+    #[test]
+    fn a_claimed_vector_length_allocates_no_more_than_the_input() {
+        let input = 4096;
+        assert!(capacity::<String>(u32::MAX, input) * size_of::<String>() <= input);
+        assert!(capacity::<Vec<u8>>(u32::MAX, input) * size_of::<Vec<u8>>() <= input);
+        assert_eq!((capacity::<i32>(u32::MAX, input), capacity::<i32>(3, input)), (1024, 3));
     }
 }

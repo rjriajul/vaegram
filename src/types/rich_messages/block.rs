@@ -467,7 +467,7 @@ impl RichButtonStyle {
             RichButtonStyle::Link => (false, false, false, true),
         };
         let style = types::RichButtonStyle { bg_primary, bg_danger, bg_success, link };
-        Some(base::RichButtonStyle::RichButtonStyle(Box::new(style)))
+        Some(base::RichButtonStyle::RichButtonStyle(style))
     }
 }
 
@@ -613,7 +613,7 @@ mod tests {
         let url = types::InlineButtonTypeUrl { url: "https://t.me".into() };
         assert_eq!(b.r#type, base::InlineButtonType::InlineButtonTypeUrl(Box::new(url)));
         let style = types::RichButtonStyle { bg_primary: false, bg_danger: false, bg_success: false, link: true };
-        assert_eq!(b.style, Some(base::RichButtonStyle::RichButtonStyle(Box::new(style))));
+        assert_eq!(b.style, Some(base::RichButtonStyle::RichButtonStyle(style)));
         assert_eq!((row.align_left, row.align_center, b.text.clone()), (false, true, RichText::from("Docs").0));
 
         let details = RichBlock::details(Text::new().italic("more"), [RichBlock::divider()]).open();

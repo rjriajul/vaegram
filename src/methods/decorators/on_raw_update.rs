@@ -4,15 +4,15 @@ use std::sync::Arc;
 use crate::Client;
 use crate::errors::Result;
 use crate::handlers::{BoxFuture, HandlerRef, UpdateKind};
-use crate::raw::base;
+use crate::types::RawUpdate;
 
 impl Client {
     pub fn on_raw_update<F, Fut, T>(&self, callback: F) -> HandlerRef<'_>
     where
-        F: Fn(Client, base::Update) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, RawUpdate) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
-        let callback = Arc::new(move |c: Client, u: base::Update| {
+        let callback = Arc::new(move |c: Client, u: RawUpdate| {
             let future = callback(c, u);
             Box::pin(async move { future.await.map(drop) }) as BoxFuture
         });

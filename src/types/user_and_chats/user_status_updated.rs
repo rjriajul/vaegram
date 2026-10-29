@@ -30,7 +30,7 @@ mod tests {
 
     #[test]
     fn parses_offline_status() {
-        let status = base::UserStatus::UserStatusOffline(Box::new(types::UserStatusOffline { was_online: 100 }));
+        let status = base::UserStatus::UserStatusOffline(types::UserStatusOffline { was_online: 100 });
         let raw = types::UpdateUserStatus { user_id: 7, status };
         let user = UserStatusUpdated::parse(&Client::offline(), &raw, &Entities::default()).user;
         assert_eq!((user.id, user.status), (7, Some(UserStatus::Offline)));

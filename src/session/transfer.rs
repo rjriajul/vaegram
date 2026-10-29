@@ -6,17 +6,23 @@ use std::task::Poll;
 use std::time::Duration;
 
 use super::internals::data_center::Dc;
-use super::{Events, Session, WeakSession, init_connection};
+use super::{Events, Known, MAX_FLOOD_SLEEPS, Salt, Session, WeakSession, init_connection};
 use crate::connection::Options;
 use crate::crypto::rsa::PublicKey;
 use crate::errors::{Error, Result};
 use crate::raw::{RemoteCall, base, functions};
 
 const IDLE: Duration = Duration::from_secs(15);
-const PART_TIMEOUT: Duration = Duration::from_secs(120);
+// Telegram's largest part, both ways.
+const MAX_PART: u64 = 512 << 10;
+// Uploads keep two parts in flight per connection (downloads one), so a part can wait behind another.
+const PARTS_PER_CONNECTION: u64 = 2;
+// The slowest link a transfer still survives, in bytes per second per connection.
+const MIN_RATE: u64 = 8 << 10;
+const PART_TIMEOUT: Duration = Duration::from_secs(MAX_PART * PARTS_PER_CONNECTION / MIN_RATE);
 const MAX_TIMEOUTS: usize = 3;
-const MAX_CDN_FLOODS: usize = 5;
-const MAX_CDN_FLOOD_WAIT: u32 = 60;
+// A CDN gets at most this per wait, so one that keeps flooding is soon given up on and the master DC serves the part.
+const MAX_CDN_FLOOD_WAIT: Duration = Duration::from_secs(60);
 
 // Telegram shares a DC's auth key between its main and media-only addresses, so the key is kept per DC and the
 // connections per address.
@@ -32,7 +38,12 @@ struct Slot {
 #[derive(Default)]
 struct State {
     auth_key: Option<[u8; 256]>,
+    key_made: Option<tokio::time::Instant>,
+    // The salt a connection on this key last had, so a new one doesn't start from 0 and bounce its first parts.
+    salt: Salt,
     sessions: HashMap<Dc, Vec<WeakSession>>,
+    // Numbers handed out so far, so an observer can tell this DC's connections apart.
+    opened: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -58,7 +69,7 @@ impl TransferPool {
     pub(crate) fn insert(&self, dc: Dc, session: &Session) {
         let slot = self.0.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
         let mut state = slot.state.lock().unwrap();
-        state.auth_key = Some(*session.auth_key());
+        (state.auth_key, state.key_made, state.salt) = (Some(*session.auth_key()), session.key_made, session.salt());
         state.sessions.entry(dc).or_default().push(session.downgrade());
     }
 
@@ -70,17 +81,28 @@ impl TransferPool {
         options: &Options,
         events: &Arc<Events>,
     ) -> Result<Lease> {
+        // CDN DCs keep no permanent key to bind a temporary one to.
+        let rebind = || match auth {
+            Auth::Home(home, _) => home.pfs.clone(),
+            Auth::Cdn(_) => None,
+        };
         let slot = self.0.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
         let _opening = slot.opening.lock().await;
+        let number = || {
+            let mut state = slot.state.lock().unwrap();
+            state.opened += 1;
+            state.opened
+        };
         let (mut sessions, key) = {
             let state = slot.state.lock().unwrap();
             let live: Vec<Session> =
                 state.sessions.get(&dc).into_iter().flatten().filter_map(WeakSession::upgrade).collect();
             let home = match auth {
-                Auth::Home(home, _) if home.dc_id() == dc.id => Some(*home.auth_key()),
+                Auth::Home(home, _) if home.dc_id() == dc.id => Some(home.known_key()),
                 _ => None,
             };
-            (live, home.or(state.auth_key))
+            let salt = live.first().map_or(state.salt, Session::salt);
+            (live, home.or(state.auth_key.map(|key| Known { key, salt, made: state.key_made })))
         };
         let key = match key {
             Some(key) => key,
@@ -89,24 +111,30 @@ impl TransferPool {
                     Auth::Cdn(key) => Some(key),
                     Auth::Home(..) => None,
                 };
-                let session = Session::connect_transfer(dc, None, cdn_key, options, events.clone()).await?;
+                let session =
+                    Session::connect_transfer(dc, None, cdn_key, options, events.clone(), rebind(), number()).await?;
                 if let Auth::Home(home, api_id) = auth {
                     let base::auth::ExportedAuthorization::ExportedAuthorization(e) =
                         home.invoke(&functions::auth::ExportAuthorization { dc_id: dc.id }).await?;
                     let import = functions::auth::ImportAuthorization { id: e.id, bytes: e.bytes };
                     session.invoke(&init_connection(api_id, options, import)).await?;
                 }
-                let key = *session.auth_key();
-                slot.state.lock().unwrap().auth_key = Some(key);
+                let key = session.known_key();
+                let mut state = slot.state.lock().unwrap();
+                (state.auth_key, state.key_made) = (Some(key.key), key.made);
+                drop(state);
                 sessions.push(session);
                 key
             }
         };
         let missing = count.saturating_sub(sessions.len());
-        let connect = |_| Session::connect_transfer(dc, Some(key), None, options, events.clone());
+        let connect = |_| Session::connect_transfer(dc, Some(key), None, options, events.clone(), rebind(), number());
         let opened = try_join_all((0..missing).map(connect)).await?;
         sessions.extend(opened);
-        slot.state.lock().unwrap().sessions.insert(dc, sessions.iter().map(Session::downgrade).collect());
+        let mut state = slot.state.lock().unwrap();
+        state.salt = sessions.first().map_or(key.salt, Session::salt);
+        state.sessions.insert(dc, sessions.iter().map(Session::downgrade).collect());
+        drop(state);
         sessions.truncate(count);
         Ok(Lease { sessions })
     }
@@ -128,23 +156,26 @@ pub(crate) async fn invoke_part<R: RemoteCall>(session: &Session, request: &R) -
     invoke_part_on(session, request, false).await
 }
 
-// A CDN that keeps asking to wait is dropped instead, so the master DC serves the part.
 pub(crate) async fn invoke_cdn_part<R: RemoteCall>(session: &Session, request: &R) -> Result<R::Return> {
     invoke_part_on(session, request, true).await
 }
 
 async fn invoke_part_on<R: RemoteCall>(session: &Session, request: &R, cdn: bool) -> Result<R::Return> {
+    // Parts go straight to their session, so the user's request_timeout still has to count.
+    let timeout = PART_TIMEOUT.max(session.options().request_timeout);
+    let cap = cdn.then_some(MAX_CDN_FLOOD_WAIT);
     let (mut timeouts, mut floods) = (0, 0);
     loop {
-        match session.invoke_with_timeout(request, PART_TIMEOUT).await {
-            Err(Error::Rpc(e)) if e.code == 420 && (!cdn || floods < MAX_CDN_FLOODS) => {
+        let result = session.invoke_with_timeout(request, timeout).await;
+        let wait =
+            result.as_ref().err().and_then(|e| session.flood_sleep(e, cap)).filter(|_| floods < MAX_FLOOD_SLEEPS);
+        match (&result, wait) {
+            (_, Some(wait)) => {
                 floods += 1;
-                let wait = e.value.unwrap_or(1);
-                let wait = if cdn { wait.clamp(1, MAX_CDN_FLOOD_WAIT) } else { wait };
-                tokio::time::sleep(Duration::from_secs(wait.into())).await;
+                tokio::time::sleep(wait).await;
             }
-            Err(Error::Timeout) if timeouts + 1 < MAX_TIMEOUTS => timeouts += 1,
-            result => return result,
+            (Err(Error::Timeout), None) if timeouts + 1 < MAX_TIMEOUTS => timeouts += 1,
+            _ => return result,
         }
     }
 }
@@ -202,11 +233,13 @@ pub(crate) async fn try_join_all<T, F: Future<Output = Result<T>>>(futures: impl
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicI32;
+    use std::time::Duration;
 
-    use super::{Auth, Progress, TransferPool, take, try_join_all, workers};
+    use super::{Auth, PART_TIMEOUT, Progress, Session, TransferPool, invoke_part, take, try_join_all, workers};
     use crate::Client;
-    use crate::errors::{Error, Result};
-    use crate::session::Session;
+    use crate::connection::Options;
+    use crate::errors::{Error, Result, RpcError};
+    use crate::raw::functions;
     use crate::session::internals::data_center::Dc;
 
     #[tokio::test]
@@ -240,6 +273,24 @@ mod tests {
         drop(progress);
         assert_eq!((seen.len(), seen.last().copied()), (800, Some((2400, 2400))));
         assert!(seen.windows(2).all(|w| w[0].0 < w[1].0 && w[1].1 == 2400));
+    }
+
+    #[test]
+    fn part_timeout_covers_two_parts_at_8_kb_per_second() {
+        assert_eq!(PART_TIMEOUT, Duration::from_secs(128));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_flood_wait_over_the_threshold_comes_back_without_sleeping() {
+        let (mut session, mut sent) = Session::scripted(vec![Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_120")))]);
+        session.set_options(Options { flood_sleep_threshold: Duration::from_secs(60), ..Options::default() });
+        let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };
+
+        let start = tokio::time::Instant::now();
+        let e = invoke_part(&session, &part).await.unwrap_err();
+        assert_eq!(start.elapsed(), Duration::ZERO);
+        assert!(matches!(e, Error::Rpc(e) if (e.name.as_str(), e.value) == ("FLOOD_WAIT", Some(120))));
+        assert_eq!(std::iter::from_fn(|| sent.try_recv().ok()).count(), 1);
     }
 
     #[test]

@@ -40,7 +40,7 @@ fn be_trimmed(p: u64) -> Vec<u8> {
     b[b.iter().position(|&x| x != 0).unwrap_or(7)..].to_vec()
 }
 
-fn tmp_aes(new_nonce: &[u8; 32], server_nonce: &[u8; 16]) -> ([u8; 32], [u8; 32]) {
+pub(super) fn tmp_aes(new_nonce: &[u8; 32], server_nonce: &[u8; 16]) -> ([u8; 32], [u8; 32]) {
     let ns = sha1(&[new_nonce, server_nonce]);
     let sn = sha1(&[server_nonce, new_nonce]);
     let nn = sha1(&[new_nonce, new_nonce]);
@@ -59,7 +59,8 @@ fn check_dh_value(x: &BigUint, dh_prime: &BigUint, what: &'static str) -> Result
     check(*x > margin && *x < dh_prime - &margin, what)
 }
 
-pub(crate) async fn create(conn: &mut Connection, dc: Dc, key: &PublicKey) -> Result<Created> {
+/// With `expires_in` the key is a temporary one for PFS.
+pub(crate) async fn create(conn: &mut Connection, dc: Dc, key: &PublicKey, expires_in: Option<i32>) -> Result<Created> {
     let mut msg_ids = MsgId::new(0);
 
     let nonce: [u8; 16] = random();
@@ -72,22 +73,21 @@ pub(crate) async fn create(conn: &mut Connection, dc: Dc, key: &PublicKey) -> Re
 
     let server_nonce = res_pq.server_nonce;
     let new_nonce: [u8; 32] = random();
-    let inner = types::PQInnerDataDc {
-        pq: res_pq.pq.clone(),
-        p: be_trimmed(p),
-        q: be_trimmed(q),
-        nonce,
-        server_nonce,
-        new_nonce,
-        dc: dc.wire_id(),
+    let (pq, p, q, dc) = (res_pq.pq, be_trimmed(p), be_trimmed(q), dc.wire_id());
+    let inner = match expires_in {
+        None => types::PQInnerDataDc { pq, p: p.clone(), q: q.clone(), nonce, server_nonce, new_nonce, dc }.to_bytes(),
+        Some(expires_in) => {
+            let (p, q) = (p.clone(), q.clone());
+            types::PQInnerDataTempDc { pq, p, q, nonce, server_nonce, new_nonce, dc, expires_in }.to_bytes()
+        }
     };
     let request = functions::ReqDHParams {
         nonce,
         server_nonce,
-        p: be_trimmed(p),
-        q: be_trimmed(q),
+        p,
+        q,
         public_key_fingerprint: key.fingerprint(),
-        encrypted_data: key.encrypt_pad(&inner.to_bytes()).to_vec(),
+        encrypted_data: key.encrypt_pad(&inner).to_vec(),
     };
     let params = match invoke_plain(conn, &mut msg_ids, &request).await? {
         base::ServerDHParams::ServerDHParamsOk(ok) => ok,

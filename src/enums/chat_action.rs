@@ -26,30 +26,30 @@ impl ChatAction {
         match self {
             ChatAction::Typing => A::SendMessageTypingAction,
             ChatAction::UploadPhoto => {
-                A::SendMessageUploadPhotoAction(Box::new(types::SendMessageUploadPhotoAction { progress: 0 }))
+                A::SendMessageUploadPhotoAction(types::SendMessageUploadPhotoAction { progress: 0 })
             }
             ChatAction::RecordVideo => A::SendMessageRecordVideoAction,
             ChatAction::UploadVideo => {
-                A::SendMessageUploadVideoAction(Box::new(types::SendMessageUploadVideoAction { progress: 0 }))
+                A::SendMessageUploadVideoAction(types::SendMessageUploadVideoAction { progress: 0 })
             }
             ChatAction::RecordAudio => A::SendMessageRecordAudioAction,
             ChatAction::UploadAudio => {
-                A::SendMessageUploadAudioAction(Box::new(types::SendMessageUploadAudioAction { progress: 0 }))
+                A::SendMessageUploadAudioAction(types::SendMessageUploadAudioAction { progress: 0 })
             }
             ChatAction::UploadDocument => {
-                A::SendMessageUploadDocumentAction(Box::new(types::SendMessageUploadDocumentAction { progress: 0 }))
+                A::SendMessageUploadDocumentAction(types::SendMessageUploadDocumentAction { progress: 0 })
             }
             ChatAction::FindLocation => A::SendMessageGeoLocationAction,
             ChatAction::RecordVideoNote => A::SendMessageRecordRoundAction,
             ChatAction::UploadVideoNote => {
-                A::SendMessageUploadRoundAction(Box::new(types::SendMessageUploadRoundAction { progress: 0 }))
+                A::SendMessageUploadRoundAction(types::SendMessageUploadRoundAction { progress: 0 })
             }
             ChatAction::Playing => A::SendMessageGamePlayAction,
             ChatAction::ChooseContact => A::SendMessageChooseContactAction,
             ChatAction::ChooseSticker => A::SendMessageChooseStickerAction,
             ChatAction::Speaking => A::SpeakingInGroupCallAction,
             ChatAction::ImportHistory => {
-                A::SendMessageHistoryImportAction(Box::new(types::SendMessageHistoryImportAction { progress: 0 }))
+                A::SendMessageHistoryImportAction(types::SendMessageHistoryImportAction { progress: 0 })
             }
             ChatAction::Cancel => A::SendMessageCancelAction,
         }

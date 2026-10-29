@@ -73,8 +73,9 @@ More in [examples](examples).
 ### Sessions
 
 The first run logs in and writes `my_bot.session`. Later runs reuse it, so you log in once.
-Next to it, `my_bot.state` keeps known chats and the update state, so after a restart you can
-still message chats by id and `run()` delivers the updates you missed while offline.
+Next to it, `my_bot.state` keeps known chats, the update state and the server salt, so after a restart
+you can still message chats by id, `run()` delivers the updates you missed while offline, and the
+first request doesn't bounce off a stale salt.
 
 You can also keep the whole session in one line, in an env var or a database (the line holds
 only the login, so known chats and missed updates aren't kept across restarts):
@@ -88,31 +89,88 @@ let app = Client::builder("my_bot", api_id, api_hash)
     .await?;
 ```
 
+`.session_string(…)` also takes strings exported by wzgram (`WZ_…`) and Pyrogram, so you can move an
+existing login over without signing in again. Exports are always `VAE_…`.
+
 > A session file or string **is** the login: anyone who has it is logged in as that account.
 > Never commit or share it. `*.session` and `*.state` are already in `.gitignore`.
 
 `.test_mode()` logs in on Telegram's test servers and `.ipv6()` connects over IPv6. Session strings remember
-the test mode and the data center address.
+the test mode and the data center address. `.pfs()` turns on perfect forward secrecy: traffic runs under
+temporary keys that are replaced every day, and only the permanent key is stored. Each temporary key brings its
+own salt, so with `.pfs()` a restart doesn't reuse the saved one.
 
 ### Raw API and Errors
 
 Anything without a friendly method yet can be called directly:
 
 ```rust
-use vaegram::{Error, raw::functions};
+use vaegram::raw::functions;
 
 let config = app.invoke(&functions::help::GetConfig {}).await?;
 
 match app.send_message(chat_id, "hi").await {
-    Err(Error::Rpc(e)) if e.name == "FLOOD_WAIT" => println!("wait {} seconds", e.value.unwrap_or(0)),
+    Err(e) if e.is("CHAT_WRITE_FORBIDDEN") => println!("no rights to write there"),
+    Err(e) if e.is("FLOOD_WAIT") => println!("wait {:?}", e.flood_wait().unwrap_or_default()),
     other => { other?; }
 }
 ```
+
+FLOOD_WAITs up to a minute are slept off and retried, up to 5 times per call, and a request gives up after 30
+seconds. Both are settings, and an observer sees every request, including the ones vaegram makes on its own:
+
+```rust
+let app = Client::builder("my_account", api_id, api_hash)
+    .flood_sleep_threshold(Duration::ZERO) // every FLOOD_WAIT goes to the caller
+    .request_timeout(Duration::from_secs(40))
+    .observer(|call| println!("{} #{} took {:?}: {:?}", call.name, call.msg_id, call.duration, call.result.err()))
+    .start()
+    .await?;
+
+let config = app.invoke_with_timeout(&functions::help::GetConfig {}, Duration::from_secs(5)).await?;
+```
+
+`on_raw_update` sees every update as Telegram sent it, with the users and chats that came with it:
+
+```rust
+app.on_raw_update(|_, update| async move {
+    println!("{:#010x} with users {:?}", update.constructor_id(), update.user_ids().collect::<Vec<_>>());
+    Ok(())
+});
+```
+
+With the `json` feature, `update.to_json(&mut out)` writes the update and all its users and chats. The `unstable-raw`
+feature adds `update.raw()`, `raw_users()`, `raw_chats()` and `Incoming::into_updates()` with the TL objects
+themselves; it is experimental and may change or go away in any release.
+
+The JSON shape is stable: TL names under `"_"`, bytes as base64url without padding, longs past 2^53 as strings,
+absent flag fields left out and `false` flags kept. New layers may add fields; anything else is a breaking change.
 
 Chat ids use the Bot API style: users are positive, groups are negative, and channels and
 supergroups start with `-100`. Anywhere a method takes a chat or user you can also pass `"me"`, `"@username"`,
 a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`. Invite links (`t.me/+…`) join with
 `join_chat`; other methods accept them once you're a member.
+
+### Testing Offline
+
+`.record("bot.rec")` writes every message the client sends and receives. `Replay` serves such a file back on
+localhost, so handlers run against real Telegram traffic with no network and no credentials:
+
+```rust
+use vaegram::session::Replay;
+use vaegram::storage::recording;
+
+let replay = Replay::start(&recording::read("bot.rec".as_ref())?).await?;
+let app = Client::builder("test", 1, "replay").session_string(replay.session_string()).connect().await?;
+// Register the handlers under test, then `app.run()`.
+```
+
+Each request gets the next answer Telegram gave for that method, and recorded updates arrive once the run reaches
+the point where they came in, so a test that strays stops getting them. A client on a replay sends every data
+center's traffic to it and never falls back to Telegram. Recordings cut credentials but keep chats and messages:
+keep them private. On Unix only the owner can read the file; on Windows it gets the permissions of its folder.
+[examples/replay_test.rs](examples/replay_test.rs) shows the whole loop, and
+[examples/dump_recording.rs](examples/dump_recording.rs) (`json` feature) prints a recording as JSON lines.
 
 ### Roadmap
 
@@ -128,7 +186,10 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [x] Buttons, edited messages, callback queries, inline queries, `edit_text`, `delete`
 - [x] User login (phone code, 2FA password)
 - [x] Auto-reconnect, short `FLOOD_WAIT`s slept off
-- [ ] Abridged and padded transports, obfuscation, SOCKS5 and MTProxy: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
+- [ ] Jittered reconnect backoff, dead-connection detection, no duplicate requests after a reconnect, the server salt
+  kept across restarts (not yet tested live)
+- [x] Perfect forward secrecy with temporary keys: `.pfs()`
+- [ ] Abridged and padded transports, obfuscation, SOCKS5/SOCKS4/HTTP proxies and MTProxy including fake-TLS `ee` secrets: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
 - [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat` (not yet tested live)
 - [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)
 - [ ] Locations, venues, contacts, dice and polls: `send_poll(chat, "Lunch?", ["Pizza", "Sushi"]).quiz([0])` (not yet tested live)
@@ -145,7 +206,10 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
 - [ ] Invite links and join requests: `create_chat_invite_link(chat).creates_join_request()`, `request.approve()`, Star subscription links (not yet tested live)
 - [ ] Managed bots: `on_managed_bot`, token get/replace, `KeyboardButton::request_managed_bot`,
   `ServiceAction::ManagedBotCreated` (not yet tested live)
-- [ ] Client events: reconnects, dropped packets, skipped or unknown updates and failed handlers via `app.on_event(|e| ..)` (not yet tested live)
+- [ ] Raw updates with their users and chats: `update.user(id)`, `update.chat(id)`, `update.to_json(..)`; TL objects
+  only behind the experimental `unstable-raw` feature (not yet tested live)
+- [ ] Client events: reconnects, dropped packets, skipped or unknown updates and failed handlers via `app.on_event(|e| ..)`;
+  updates that will never arrive (`UpdatesSkipped`, `UpdatesDropped`) and failed recording writes (not yet tested live)
 - [ ] Bot commands, reaction removal, personal channel messages, Stars subscription updates (not yet tested live)
 - [ ] Communities: `msg.service` (`ServiceAction::CommunityChatAdded`, ..), `get_chat(..).community` (not yet tested live)
 - [ ] Message drafts and streaming: `stream_message(chat).can_stop()`, `on_message_generation_stopped` (not yet tested live)
@@ -191,6 +255,10 @@ a `t.me` link (`t.me/name`, `t.me/c/123/4`) or a `&Chat`, `&User` or `&Message`.
   (not yet tested live)
 - [ ] Graceful shutdown: `client.stop()` makes `run()` return `Ok(())` once the running handlers finish; wire Ctrl-C
   with your own `tokio::signal::ctrl_c()` (not yet tested live)
+- [ ] Request observer, per-call timeouts and `.flood_sleep_threshold(Duration::ZERO)` to get every FLOOD_WAIT
+  (not yet tested live)
+- [ ] Record traffic, replay it offline and dump it as JSON lines: `.record("bot.rec")`,
+  `Replay::start(&recording::read(path)?)` (not yet tested live)
 
 ### Development
 
@@ -204,6 +272,9 @@ cargo test --workspace
 
 # Run the live tests against Telegram's servers
 cargo test --test live -- --ignored
+
+# Run the benchmarks
+cargo bench --bench tl
 ```
 
 ### Resources

@@ -1,0 +1,206 @@
+# Bot API method -> vaegram Client method, checked by tests/botapi_coverage.rs against botapi.txt and src/methods.
+# `name` is merged, `todo name` is planned, `n/a: reason` has no MTProto counterpart.
+# Refresh botapi.txt: `python tools/botapi/scrape.py`. Score: `cargo test --test botapi_coverage -- --nocapture`.
+
+## Getting updates
+getUpdates                         n/a: updates arrive over the MTProto session; run() hands them to the on_* handlers
+setWebhook                         n/a: webhooks are a Bot API server feature; MTProto pushes updates over the session
+deleteWebhook                      n/a: webhooks are a Bot API server feature; MTProto pushes updates over the session
+getWebhookInfo                     n/a: webhooks are a Bot API server feature; MTProto pushes updates over the session
+
+## Available methods
+getMe                              get_me
+logOut                             log_out
+close                              n/a: closes a Bot API server instance; an MTProto client just disconnects
+sendMessage                        send_message
+forwardMessage                     forward_messages
+forwardMessages                    forward_messages
+copyMessage                        copy_message
+copyMessages                       copy_messages
+sendPhoto                          send_photo
+sendLivePhoto                      send_live_photo
+sendAudio                          send_audio
+sendDocument                       send_document
+sendVideo                          send_video
+sendAnimation                      send_animation
+sendVoice                          send_voice
+sendVideoNote                      send_video_note
+sendPaidMedia                      send_paid_media
+sendMediaGroup                     send_media_group
+sendLocation                       send_location
+sendVenue                          send_venue
+sendContact                        send_contact
+sendPoll                           send_poll
+sendChecklist                      send_checklist
+sendDice                           send_dice
+sendMessageDraft                   send_message_draft
+sendChatAction                     send_chat_action
+setMessageReaction                 send_reaction
+getUserProfilePhotos               get_chat_photos
+getUserProfileAudios               get_user_profile_audios
+setUserEmojiStatus                 set_user_emoji_status
+getFile                            n/a: Bot API server download links; download_media fetches files directly
+banChatMember                      ban_chat_member
+unbanChatMember                    unban_chat_member
+restrictChatMember                 restrict_chat_member
+promoteChatMember                  promote_chat_member
+setChatAdministratorCustomTitle    set_chat_administrator_custom_title
+setChatMemberTag                   set_chat_member_tag
+banChatSenderChat                  ban_chat_sender_chat
+unbanChatSenderChat                unban_chat_sender_chat
+setChatPermissions                 set_chat_permissions
+exportChatInviteLink               export_chat_invite_link
+createChatInviteLink               create_chat_invite_link
+editChatInviteLink                 edit_chat_invite_link
+createChatSubscriptionInviteLink   create_chat_subscription_invite_link
+editChatSubscriptionInviteLink     edit_chat_subscription_invite_link
+revokeChatInviteLink               revoke_chat_invite_link
+approveChatJoinRequest             approve_chat_join_request
+declineChatJoinRequest             decline_chat_join_request
+answerChatJoinRequestQuery         answer_chat_join_request_query
+sendChatJoinRequestWebApp          send_chat_join_request_web_app
+setChatPhoto                       set_chat_photo
+deleteChatPhoto                    delete_chat_photo
+setChatTitle                       set_chat_title
+setChatDescription                 set_chat_description
+pinChatMessage                     pin_chat_message
+unpinChatMessage                   unpin_chat_message
+unpinAllChatMessages               unpin_all_chat_messages
+leaveChat                          leave_chat
+getChat                            get_chat
+getChatAdministrators              get_chat_administrators
+getChatMemberCount                 get_chat_members_count
+getChatMember                      get_chat_member
+getUserPersonalChatMessages        get_user_personal_chat_messages
+setChatStickerSet                  set_chat_sticker_set
+deleteChatStickerSet               delete_chat_sticker_set
+getForumTopicIconStickers          get_forum_topic_icon_stickers
+createForumTopic                   create_forum_topic
+editForumTopic                     edit_forum_topic
+closeForumTopic                    close_forum_topic
+reopenForumTopic                   reopen_forum_topic
+deleteForumTopic                   delete_forum_topic
+unpinAllForumTopicMessages         unpin_all_forum_topic_messages
+editGeneralForumTopic              edit_general_forum_topic
+closeGeneralForumTopic             close_general_forum_topic
+reopenGeneralForumTopic            reopen_general_forum_topic
+hideGeneralForumTopic              hide_general_forum_topic
+unhideGeneralForumTopic            unhide_general_forum_topic
+unpinAllGeneralForumTopicMessages  unpin_all_general_forum_topic_messages
+answerCallbackQuery                answer_callback_query
+answerGuestQuery                   answer_guest_query
+getUserChatBoosts                  get_user_chat_boosts
+getBusinessConnection              get_business_connection
+getManagedBotToken                 get_managed_bot_token
+replaceManagedBotToken             replace_managed_bot_token
+getManagedBotAccessSettings        get_managed_bot_access_settings
+setManagedBotAccessSettings        set_managed_bot_access_settings
+setMyCommands                      set_bot_commands
+deleteMyCommands                   delete_bot_commands
+getMyCommands                      get_bot_commands
+setMyName                          set_bot_name
+getMyName                          get_bot_name
+setMyDescription                   set_bot_description
+getMyDescription                   get_bot_description
+setMyShortDescription              set_bot_short_description
+getMyShortDescription              get_bot_short_description
+setMyProfilePhoto                  set_profile_photo
+removeMyProfilePhoto               remove_profile_photo
+setChatMenuButton                  set_chat_menu_button
+getChatMenuButton                  get_chat_menu_button
+setMyDefaultAdministratorRights    set_bot_default_privileges
+getMyDefaultAdministratorRights    get_bot_default_privileges
+getAvailableGifts                  get_available_gifts
+sendGift                           send_gift
+giftPremiumSubscription            gift_premium_subscription
+verifyUser                         verify_user
+verifyChat                         verify_chat
+removeUserVerification             remove_user_verification
+removeChatVerification             remove_chat_verification
+readBusinessMessage                read_business_message
+deleteBusinessMessages             delete_business_messages
+setBusinessAccountName             set_business_account_name
+setBusinessAccountUsername         set_business_account_username
+setBusinessAccountBio              set_business_account_bio
+setBusinessAccountProfilePhoto     set_business_account_profile_photo
+removeBusinessAccountProfilePhoto  remove_business_account_profile_photo
+setBusinessAccountGiftSettings     set_business_account_gift_settings
+getBusinessAccountStarBalance      get_business_account_star_balance
+transferBusinessAccountStars       transfer_business_account_stars
+getBusinessAccountGifts            get_business_account_gifts
+getUserGifts                       get_user_gifts
+getChatGifts                       get_chat_gifts
+convertGiftToStars                 convert_gift_to_stars
+upgradeGift                        upgrade_gift
+transferGift                       transfer_gift
+postStory                          post_story
+repostStory                        repost_story
+editStory                          edit_story
+deleteStory                        delete_story
+answerWebAppQuery                  answer_web_app_query
+savePreparedInlineMessage          save_prepared_inline_message
+savePreparedKeyboardButton         save_prepared_keyboard_button
+
+## Updating messages
+editMessageText                    edit_message_text
+editMessageCaption                 edit_message_caption
+editMessageMedia                   edit_message_media
+editMessageLiveLocation            edit_message_live_location
+stopMessageLiveLocation            stop_message_live_location
+editMessageChecklist               edit_message_checklist
+editMessageReplyMarkup             edit_message_reply_markup
+stopPoll                           stop_poll
+editEphemeralMessageText           edit_ephemeral_message_text
+editEphemeralMessageMedia          edit_ephemeral_message_media
+editEphemeralMessageCaption        edit_ephemeral_message_caption
+editEphemeralMessageReplyMarkup    edit_ephemeral_message_reply_markup
+approveSuggestedPost               approve_suggested_post
+declineSuggestedPost               decline_suggested_post
+deleteMessage                      delete_messages
+deleteMessages                     delete_messages
+deleteEphemeralMessage             delete_ephemeral_message
+deleteMessageReaction              delete_message_reaction
+deleteAllMessageReactions          delete_all_message_reactions
+
+## Stickers
+sendSticker                        send_sticker
+getStickerSet                      get_sticker_set
+getCustomEmojiStickers             get_custom_emoji_stickers
+uploadStickerFile                  upload_sticker_file
+createNewStickerSet                create_new_sticker_set
+addStickerToSet                    add_sticker_to_set
+setStickerPositionInSet            set_sticker_position_in_set
+deleteStickerFromSet               delete_sticker_from_set
+replaceStickerInSet                replace_sticker_in_set
+setStickerEmojiList                set_sticker_emoji_list
+setStickerKeywords                 set_sticker_keywords
+setStickerMaskPosition             set_sticker_mask_position
+setStickerSetTitle                 set_sticker_set_title
+setStickerSetThumbnail             set_sticker_set_thumbnail
+setCustomEmojiStickerSetThumbnail  set_custom_emoji_sticker_set_thumbnail
+deleteStickerSet                   delete_sticker_set
+
+## Rich messages
+sendRichMessage                    send_rich_message
+sendRichMessageDraft               todo send_rich_message_draft
+
+## Inline mode
+answerInlineQuery                  answer_inline_query
+
+## Payments
+sendInvoice                        send_invoice
+createInvoiceLink                  create_invoice_link
+answerShippingQuery                answer_shipping_query
+answerPreCheckoutQuery             answer_pre_checkout_query
+getMyStarBalance                   get_my_star_balance
+getStarTransactions                get_star_transactions
+refundStarPayment                  refund_star_payment
+editUserStarSubscription           edit_user_star_subscription
+
+## Telegram Passport
+setPassportDataErrors              set_passport_data_errors
+
+## Games
+sendGame                           send_game
+setGameScore                       set_game_score
+getGameHighScores                  get_game_high_scores

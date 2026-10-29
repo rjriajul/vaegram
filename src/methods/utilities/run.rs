@@ -44,9 +44,8 @@ mod tests {
 
     #[tokio::test]
     async fn stop_before_run_returns_at_once_and_saves_the_state() {
-        let me = vec![base::User::UserEmpty(Box::new(types::UserEmpty { id: 1 }))];
-        let empty =
-            base::updates::Difference::DifferenceEmpty(Box::new(types::updates::DifferenceEmpty { date: 2, seq: 3 }));
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
         let (mut client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         let dir = std::env::temp_dir().join(format!("vaegram-stop-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -60,7 +59,7 @@ mod tests {
         client.stop();
         let result = client.run().await;
         let owner = client.0.me.lock().unwrap().id;
-        let saved = state::load(&path, owner).map(|(_, state)| state.map(|s| s.pts));
+        let saved = state::load(&path, owner).map(|(_, state, _)| state.map(|s| s.pts));
         let _ = std::fs::remove_dir_all(&dir);
         assert!(result.is_ok(), "{result:?}");
         assert_eq!(saved.ok(), Some(Some(10)));
@@ -68,9 +67,8 @@ mod tests {
 
     #[tokio::test]
     async fn the_state_stays_in_memory_after_stop() {
-        let me = vec![base::User::UserEmpty(Box::new(types::UserEmpty { id: 1 }))];
-        let empty =
-            base::updates::Difference::DifferenceEmpty(Box::new(types::updates::DifferenceEmpty { date: 2, seq: 3 }));
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
         let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         let (_updates, rx) = UpdatesRx::channel();
@@ -82,9 +80,8 @@ mod tests {
 
     #[tokio::test]
     async fn stop_waits_for_running_handlers_then_returns_ok() {
-        let me = vec![base::User::UserEmpty(Box::new(types::UserEmpty { id: 1 }))];
-        let empty =
-            base::updates::Difference::DifferenceEmpty(Box::new(types::updates::DifferenceEmpty { date: 2, seq: 3 }));
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
         let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         let (updates, rx) = UpdatesRx::channel();
@@ -124,9 +121,9 @@ mod tests {
 
     #[tokio::test]
     async fn restart_catches_up_from_saved_state() {
-        let me = vec![base::User::UserEmpty(Box::new(types::UserEmpty { id: 1 }))];
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = types::updates::DifferenceEmpty { date: 2, seq: 3 };
-        let empty = base::updates::Difference::DifferenceEmpty(Box::new(empty));
+        let empty = base::updates::Difference::DifferenceEmpty(empty);
         let (client, mut sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
 

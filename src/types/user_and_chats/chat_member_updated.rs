@@ -20,7 +20,7 @@ pub struct ChatMemberUpdated {
 
 impl ChatMemberUpdated {
     pub(crate) fn parse_channel(client: &Client, raw: types::UpdateChannelParticipant, entities: &Entities) -> Self {
-        let peer = base::Peer::PeerChannel(Box::new(types::PeerChannel { channel_id: raw.channel_id }));
+        let peer = base::Peer::PeerChannel(types::PeerChannel { channel_id: raw.channel_id });
         let self_request = matches!(
             &raw.new_participant,
             Some(base::ChannelParticipant::ChannelParticipantSelf(p)) if p.via_request
@@ -40,7 +40,7 @@ impl ChatMemberUpdated {
     }
 
     pub(crate) fn parse_chat(client: &Client, raw: types::UpdateChatParticipant, entities: &Entities) -> Self {
-        let peer = base::Peer::PeerChat(Box::new(types::PeerChat { chat_id: raw.chat_id }));
+        let peer = base::Peer::PeerChat(types::PeerChat { chat_id: raw.chat_id });
         let (invite_link, via_join_request) = invite(raw.invite, entities);
         ChatMemberUpdated {
             chat: Chat::parse(&peer, entities, false),
@@ -68,7 +68,7 @@ impl ChatMemberUpdated {
             username: me.username.as_deref().map(Into::into),
             ..User::parse(me.id, entities)
         };
-        let peer = base::Peer::PeerUser(Box::new(types::PeerUser { user_id: raw.user_id }));
+        let peer = base::Peer::PeerUser(types::PeerUser { user_id: raw.user_id });
         let (old, new) = if raw.stopped {
             (ChatMemberStatus::Member, ChatMemberStatus::Banned)
         } else {

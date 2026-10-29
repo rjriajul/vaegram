@@ -127,7 +127,7 @@ mod tests {
     use crate::types::{FileSource, InputMedia, InputRichMessage};
 
     fn request(edit: EditEphemeralMessage<'_>) -> functions::ephemeral::EditMessage {
-        let peer = base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: 1 }));
+        let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 1 });
         edit.request(peer, base::InputUser::InputUserSelf, None, None, None, None)
     }
 
@@ -173,12 +173,12 @@ mod tests {
         let request = functions::ephemeral::EditMessage {
             invert_media: true,
             welcome: false,
-            peer: Some(base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: 5 }))),
+            peer: Some(base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 })),
             receiver_id: base::InputUser::InputUserSelf,
             id: 3,
             message: Some("new".into()),
             media: Some(stored),
-            entities: Some(vec![base::MessageEntity::MessageEntityBold(Box::new(bold))]),
+            entities: Some(vec![base::MessageEntity::MessageEntityBold(bold)]),
             reply_markup: None,
             rich_message: None,
         };

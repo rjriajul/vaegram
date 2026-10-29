@@ -21,7 +21,7 @@ impl DeletedMessages {
         raw: types::UpdateDeleteChannelMessages,
         entities: &Entities,
     ) -> DeletedMessages {
-        let peer = base::Peer::PeerChannel(Box::new(types::PeerChannel { channel_id: raw.channel_id }));
+        let peer = base::Peer::PeerChannel(types::PeerChannel { channel_id: raw.channel_id });
         let chat = Some(Chat::parse(&peer, entities, false));
         DeletedMessages { chat, message_ids: raw.messages, client: client.clone() }
     }

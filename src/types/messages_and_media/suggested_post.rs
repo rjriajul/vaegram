@@ -20,9 +20,7 @@ impl SuggestedPostPrice {
             SuggestedPostPrice::Stars(amount) => {
                 base::StarsAmount::StarsAmount(Box::new(types::StarsAmount { amount, nanos: 0 }))
             }
-            SuggestedPostPrice::Ton(amount) => {
-                base::StarsAmount::StarsTonAmount(Box::new(types::StarsTonAmount { amount }))
-            }
+            SuggestedPostPrice::Ton(amount) => base::StarsAmount::StarsTonAmount(types::StarsTonAmount { amount }),
         }
     }
 }

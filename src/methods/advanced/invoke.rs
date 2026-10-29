@@ -3,15 +3,21 @@ use std::time::Duration;
 use crate::Client;
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, functions};
-use crate::session::Session;
+use crate::session::{MAX_FLOOD_SLEEPS, Session};
 
 const MAX_MIGRATIONS: usize = 3;
-// FLOOD_WAITs up to this many seconds are slept off and retried; longer ones go to the caller.
-const FLOOD_SLEEP_THRESHOLD: u32 = 60;
 
 impl Client {
     pub async fn invoke<R: RemoteCall>(&self, request: &R) -> Result<R::Return> {
-        invoke_sleeping_floods(&self.session(), request).await
+        self.invoke_with_timeout(request, self.session().options().request_timeout).await
+    }
+
+    /// A request that times out is forgotten: the server is asked not to send its answer, and the connection
+    /// carries on. FLOOD_WAITs up to `flood_sleep_threshold` are slept off and retried, each try with the full
+    /// `timeout`, at most 5 times; the next one goes to the caller. `tokio::time::timeout` around the call bounds
+    /// the whole wait.
+    pub async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
+        invoke_sleeping_floods(&self.session(), request, timeout).await
     }
 
     /// Hands the request back: a short "sent" update only carries what Telegram changed, the rest comes from it.
@@ -33,37 +39,45 @@ impl Client {
     pub(crate) async fn invoke_migrating<R: RemoteCall>(&self, request: &R) -> Result<R::Return> {
         let mut migrations = 0;
         loop {
-            match self.invoke(request).await {
-                Err(Error::Rpc(e)) if e.code == 303 && migrations < MAX_MIGRATIONS => {
-                    let dc_id = e.value.ok_or(Error::Unexpected("migrate error without a DC number"))?;
-                    self.switch_dc(dc_id as i32).await?;
+            let result = self.invoke(request).await;
+            match result.as_ref().err().and_then(Error::rpc).and_then(RpcError::migrate_dc) {
+                Some(dc_id) if migrations < MAX_MIGRATIONS => {
+                    self.switch_dc(dc_id).await?;
                     migrations += 1;
                 }
-                result => return result,
+                _ => return result,
             }
         }
     }
 }
 
-pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(session: &Session, request: &R) -> Result<R::Return> {
+pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(
+    session: &Session,
+    request: &R,
+    timeout: Duration,
+) -> Result<R::Return> {
+    let mut slept = 0;
     loop {
-        match session.invoke(request).await {
-            Err(Error::Rpc(RpcError { code: 420, value: Some(wait), .. })) if wait <= FLOOD_SLEEP_THRESHOLD => {
-                tokio::time::sleep(Duration::from_secs(wait.max(1).into())).await;
+        let result = session.invoke_with_timeout(request, timeout).await;
+        match result.as_ref().err().and_then(|e| session.flood_sleep(e, None)) {
+            Some(wait) if slept < MAX_FLOOD_SLEEPS => {
+                slept += 1;
+                tokio::time::sleep(wait).await;
             }
-            result => return result,
+            _ => return result,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use tokio::time::{Duration, Instant};
+    use tokio::sync::mpsc;
+    use tokio::time::Instant;
 
-    use crate::Client;
-    use crate::errors::{Error, RpcError};
-    use crate::raw::{Serializable, functions};
-    use crate::session::Session;
+    use super::*;
+    use crate::connection::Options;
+    use crate::errors::RpcError;
+    use crate::raw::{Serializable, base, types};
 
     const FOREIGN_DC: i32 = 4;
 
@@ -71,11 +85,38 @@ mod tests {
         Error::Rpc(RpcError::new(420, &format!("FLOOD_WAIT_{seconds}")))
     }
 
-    async fn invoke_on_foreign_dc(replies: Vec<crate::errors::Result<Vec<u8>>>) -> crate::errors::Result<bool> {
+    // Answers FLOOD_WAIT_1 first, then a pong.
+    fn flooded(flood_sleep_threshold: Duration) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (mut client, sent) =
+            Client::scripted(vec![Err(flood(1)), Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes())]);
+        client.set_options(Options { flood_sleep_threshold, ..Options::default() });
+        (client, sent)
+    }
+
+    fn count(sent: &mut mpsc::UnboundedReceiver<Vec<u8>>) -> usize {
+        std::iter::from_fn(|| sent.try_recv().ok()).count()
+    }
+
+    async fn invoke_on_foreign_dc(replies: Vec<Result<Vec<u8>>>) -> Result<bool> {
         let client = Client::offline();
         let (foreign, _sent) = Session::scripted(replies);
         client.0.transfers.insert(client.dc(FOREIGN_DC).unwrap(), &foreign);
         client.invoke_inline(FOREIGN_DC, functions::account::UpdateStatus { offline: false }).await
+    }
+
+    #[tokio::test]
+    async fn zero_threshold_hands_flood_waits_to_the_caller() {
+        let (client, mut sent) = flooded(Duration::ZERO);
+        let e = client.invoke(&functions::Ping { ping_id: 7 }).await.unwrap_err();
+        let Error::Rpc(e) = e else { panic!("{e}") };
+        assert_eq!((e.name.as_str(), e.value, count(&mut sent)), ("FLOOD_WAIT", Some(1), 1));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn short_flood_waits_are_slept_off() {
+        let (client, mut sent) = flooded(Duration::from_secs(60));
+        let base::Pong::Pong(pong) = client.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
+        assert_eq!((pong.ping_id, count(&mut sent)), (7, 2));
     }
 
     #[tokio::test(start_paused = true)]
@@ -89,8 +130,59 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn inline_call_on_another_dc_returns_a_long_flood_wait() {
         let start = Instant::now();
-        let result = invoke_on_foreign_dc(vec![Err(flood(super::FLOOD_SLEEP_THRESHOLD + 1))]).await;
+        let result = invoke_on_foreign_dc(vec![Err(flood(61))]).await;
         assert!(matches!(result, Err(Error::Rpc(e)) if e.code == 420));
         assert_eq!(start.elapsed(), Duration::ZERO);
+    }
+
+    fn rpc_420(message: &str) -> Result<Vec<u8>> {
+        Err(Error::Rpc(RpcError::new(420, message)))
+    }
+
+    async fn ping(mut replies: Vec<Result<Vec<u8>>>) -> (Result<base::Pong>, usize) {
+        replies.push(Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes()));
+        let (client, mut sent) = Client::scripted(replies);
+        let result = client.invoke(&functions::Ping { ping_id: 7 }).await;
+        (result, count(&mut sent))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn at_most_five_flood_waits_are_slept_per_call() {
+        let (result, sends) = ping((0..6).map(|_| rpc_420("FLOOD_WAIT_1")).collect()).await;
+        assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
+        assert_eq!(sends, 6);
+        let (result, sends) = ping((0..5).map(|_| rpc_420("FLOOD_WAIT_1")).collect()).await;
+        assert!(result.is_ok());
+        assert_eq!(sends, 6);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn only_real_waits_within_the_threshold_are_slept() {
+        let caller_gets = [
+            "FLOOD_WAIT_61",
+            "2FA_CONFIRM_WAIT_604800",
+            "PREMIUM_SUB_ACTIVE_UNTIL_1700000000",
+            "STORY_SEND_FLOOD_60",
+            "FROZEN_METHOD_INVALID",
+            "ADDRESS_INVALID",
+        ];
+        for name in caller_gets {
+            let (result, sends) = ping(vec![rpc_420(name)]).await;
+            assert!(result.is_err() && sends == 1, "{name}");
+        }
+        for name in ["SLOWMODE_WAIT_10", "FLOOD_PREMIUM_WAIT_5", "FLOOD_TEST_PHONE_WAIT_3", "FLOOD_SKIP_FAILED_WAIT"] {
+            let (result, sends) = ping(vec![rpc_420(name)]).await;
+            assert!(result.is_ok() && sends == 2, "{name}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_caller_timeout_ends_the_flood_sleep() {
+        let pong = Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes());
+        let (client, mut sent) = Client::scripted(vec![rpc_420("FLOOD_WAIT_30"), pong]);
+        let call = client.invoke(&functions::Ping { ping_id: 7 });
+        assert!(tokio::time::timeout(Duration::from_secs(10), call).await.is_err());
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        assert_eq!(count(&mut sent), 1);
     }
 }

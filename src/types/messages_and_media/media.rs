@@ -349,7 +349,7 @@ pub(crate) mod tests {
             video_sizes: None,
             dc_id: 2,
         }));
-        let empty = base::Document::DocumentEmpty(Box::new(types::DocumentEmpty { id: 1 }));
+        let empty = base::Document::DocumentEmpty(types::DocumentEmpty { id: 1 });
         [None, Some(empty)]
             .into_iter()
             .map(|video| {

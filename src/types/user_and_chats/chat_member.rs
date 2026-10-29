@@ -109,7 +109,7 @@ mod tests {
         rights.view_messages = view_messages;
         base::ChannelParticipant::ChannelParticipantBanned(Box::new(types::ChannelParticipantBanned {
             left: false,
-            peer: base::Peer::PeerUser(Box::new(types::PeerUser { user_id: 7 })),
+            peer: base::Peer::PeerUser(types::PeerUser { user_id: 7 }),
             kicked_by: 1,
             date: 100,
             banned_rights: base::ChatBannedRights::ChatBannedRights(Box::new(rights)),

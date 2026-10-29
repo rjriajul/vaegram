@@ -313,10 +313,10 @@ fn attributes(kind: &str, file: &WebFile, title: Option<&str>) -> Vec<base::Docu
             }))
         }
         _ if file.width > 0 || file.height > 0 => {
-            base::DocumentAttribute::DocumentAttributeImageSize(Box::new(types::DocumentAttributeImageSize {
+            base::DocumentAttribute::DocumentAttributeImageSize(types::DocumentAttributeImageSize {
                 w: file.width,
                 h: file.height,
-            }))
+            })
         }
         _ => return Vec::new(),
     };

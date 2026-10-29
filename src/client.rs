@@ -3,6 +3,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
+use std::time::Duration;
 
 use tokio::sync::Semaphore;
 
@@ -12,10 +13,11 @@ use crate::dispatcher::Routes;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::methods::{StreamShared, invoke_sleeping_floods};
-use crate::raw::{RemoteCall, base, functions};
+use crate::raw::{RemoteCall, Serializable, base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Auth, Lease, TransferPool};
-use crate::session::{Events, Session, UpdatesRx, init_connection};
+use crate::session::{Call, Events, Observer, Salt, Session, UpdatesRx, init_connection};
+use crate::storage::recording::Recorder;
 use crate::storage::state::{StateFile, UpdateState};
 use crate::storage::{self, SessionData, session_string};
 
@@ -29,11 +31,13 @@ pub struct ClientBuilder {
     session_string: Option<String>,
     test_mode: bool,
     ipv6: bool,
+    pfs: bool,
     login: Login,
     parse_mode: ParseMode,
     options: Options,
     ordered: bool,
     max_concurrent_handlers: Option<usize>,
+    record: Option<PathBuf>,
 }
 
 #[derive(Default)]
@@ -97,6 +101,12 @@ impl ClientBuilder {
         self
     }
 
+    /// Perfect forward secrecy: day-long temporary keys, so a leaked session can't decrypt recorded traffic.
+    pub fn pfs(mut self) -> Self {
+        self.pfs = true;
+        self
+    }
+
     /// Runs one chat's handlers one update at a time, in arrival order (by user for inline
     /// queries). Off by default: in a big group, one slow handler then holds up every member.
     pub fn ordered(mut self, ordered: bool) -> Self {
@@ -114,6 +124,33 @@ impl ClientBuilder {
         self
     }
 
+    /// 30 seconds by default; `invoke_with_timeout` overrides it per call.
+    pub fn request_timeout(mut self, timeout: Duration) -> Self {
+        self.options.request_timeout = timeout;
+        self
+    }
+
+    /// FLOOD_WAITs up to this long are slept off and retried, at most 5 times per call; longer ones go to the
+    /// caller as `Error::Rpc`. 60 seconds by default; `Duration::ZERO` hands every one to the caller.
+    pub fn flood_sleep_threshold(mut self, threshold: Duration) -> Self {
+        self.options.flood_sleep_threshold = threshold;
+        self
+    }
+
+    /// Sees every request, including the ones vaegram makes on its own (`getDifference`, `initConnection`).
+    /// It runs on the connection's task, so it should return quickly.
+    pub fn observer(mut self, f: impl Fn(&Call<'_>) + Send + Sync + 'static) -> Self {
+        self.options.observer = Some(Observer(Arc::new(f)));
+        self
+    }
+
+    /// Replaces `path`, which only its owner can read on Unix; [`recording`](crate::storage::recording) says what
+    /// goes in, what's left out and how Windows treats the file.
+    pub fn record(mut self, path: impl Into<PathBuf>) -> Self {
+        self.record = Some(path.into());
+        self
+    }
+
     pub async fn start(self) -> Result<Client> {
         let (client, login) = self.open().await?;
         if client.0.me.lock().unwrap().id == 0 {
@@ -126,7 +163,10 @@ impl ClientBuilder {
         Ok(self.open().await?.0)
     }
 
-    async fn open(self) -> Result<(Client, Login)> {
+    async fn open(mut self) -> Result<(Client, Login)> {
+        if let Some(path) = &self.record {
+            self.options.record = Some(Recorder::create(path)?);
+        }
         let (storage_path, stored) = match &self.session_string {
             Some(s) => (None, Some(session_string::parse(s).map_err(Error::InvalidSession)?)),
             None => {
@@ -140,20 +180,23 @@ impl ClientBuilder {
             None => (DEFAULT_DC, None, 0, false, self.test_mode, None),
         };
         let built_in = data_center::address(dc_id, test_mode, self.ipv6);
-        let first = addr.filter(|a| a.is_ipv6() == self.ipv6).or(built_in).ok_or(Error::InvalidDc(dc_id))?;
+        // A session on localhost (a replay, a test server) is offline by design: every DC is that address, over
+        // whichever IP family it has.
+        let pinned = addr.filter(|a| a.ip().is_loopback());
+        let first = pinned.or_else(|| addr.filter(|a| a.is_ipv6() == self.ipv6)).or(built_in);
+        let first = first.ok_or(Error::InvalidDc(dc_id))?;
         let dc = |addr| Dc { id: dc_id, addr, test: test_mode };
         let state_file = storage_path.as_ref().map(|path| Arc::new(StateFile::new(path.with_extension("state"))));
-        let (peers, state) = match &state_file {
+        let (peers, state, salt) = match &state_file {
             Some(file) => storage::state::load(&file.path, user_id)?,
             None => Default::default(),
         };
         let events = Arc::new(Events::default());
+        let saved = auth_key.map(|key| (key, salt));
+        let try_addr = |addr| connect(dc(addr), saved, self.api_id, &self.options, events.clone(), self.pfs);
         // A saved address comes from help.getConfig and can go stale.
-        let first_try = connect(dc(first), auth_key, self.api_id, &self.options, events.clone()).await;
-        let (session, updates, dc_options) = match (first_try, built_in) {
-            (Err(_), Some(built_in)) if built_in != first => {
-                connect(dc(built_in), auth_key, self.api_id, &self.options, events).await?
-            }
+        let (session, updates, dc_options) = match (try_addr(first).await, built_in) {
+            (Err(_), Some(built_in)) if built_in != first && pinned.is_none() => try_addr(built_in).await?,
             (result, _) => result?,
         };
         let mut inner = Inner::new(session, updates);
@@ -162,6 +205,7 @@ impl ClientBuilder {
         inner.dcs = RwLock::new(data_center::table(&dc_options, self.ipv6, false));
         inner.media_dcs = RwLock::new(data_center::table(&dc_options, self.ipv6, true));
         inner.test_mode = test_mode;
+        inner.pinned = pinned;
         inner.ipv6 = self.ipv6;
         inner.storage_path = Mutex::new(storage_path);
         inner.state_file = state_file;
@@ -198,6 +242,7 @@ pub(crate) struct Inner {
     cdn_keys: Mutex<Vec<(i32, PublicKey)>>,
     test_mode: bool,
     ipv6: bool,
+    pinned: Option<SocketAddr>,
     // Taken by log_out, so a later save can't write the dead login back.
     pub(crate) storage_path: Mutex<Option<PathBuf>>,
     pub(crate) state_file: Option<Arc<StateFile>>,
@@ -243,6 +288,7 @@ impl Inner {
             cdn_keys: Mutex::new(Vec::new()),
             test_mode: false,
             ipv6: false,
+            pinned: None,
             storage_path: Mutex::new(None),
             state_file: None,
             options: Options::default(),
@@ -261,8 +307,9 @@ impl Inner {
 
     fn encode_state(&self, file: &StateFile, state: Option<&UpdateState>) -> (u64, Vec<u8>) {
         let user_id = self.me.lock().unwrap_or_else(PoisonError::into_inner).id;
+        let salt = self.session.read().unwrap_or_else(PoisonError::into_inner).salt();
         let peers = self.peers.lock().unwrap_or_else(PoisonError::into_inner);
-        (file.ticket(), storage::state::encode(user_id, &peers, state))
+        (file.ticket(), storage::state::encode(user_id, salt, &peers, state))
     }
 
     /// Returns once the state is on disk, so a stopped client resumes exactly where it left off.
@@ -298,11 +345,13 @@ impl Client {
             session_string: None,
             test_mode: false,
             ipv6: false,
+            pfs: false,
             login: Login::default(),
             parse_mode: ParseMode::Disabled,
             options: Options::default(),
             ordered: false,
             max_concurrent_handlers: None,
+            record: None,
         }
     }
 
@@ -332,6 +381,14 @@ impl Client {
         self.0.dcs.write().unwrap().push((dc_id, SocketAddr::from(([127, 0, 0, 1], 443))));
         self.0.cdn_keys.lock().unwrap().push((dc_id, PublicKey::test()));
         self.0.transfers.insert(self.dc(dc_id).unwrap(), session);
+    }
+
+    /// Replaces the options, also on the current session.
+    #[cfg(test)]
+    pub(crate) fn set_options(&mut self, options: Options) {
+        let inner = Arc::get_mut(&mut self.0).expect("set_options needs the only handle");
+        inner.session.get_mut().unwrap().set_options(options.clone());
+        inner.options = options;
     }
 
     pub(crate) fn session(&self) -> Session {
@@ -364,22 +421,25 @@ impl Client {
     }
 
     pub(crate) fn dc(&self, dc_id: i32) -> Result<Dc> {
+        if let Some(addr) = self.0.pinned {
+            return Ok(Dc { id: dc_id, addr, test: self.0.test_mode });
+        }
         data_center::find(&self.0.dcs.read().unwrap(), dc_id, self.0.test_mode, self.0.ipv6)
             .ok_or(Error::InvalidDc(dc_id))
     }
 
     pub(crate) fn media_dc(&self, dc_id: i32) -> Result<Dc> {
         let media = self.0.media_dcs.read().unwrap().iter().find(|(id, _)| *id == dc_id).map(|&(_, addr)| addr);
-        match media {
+        match media.filter(|_| self.0.pinned.is_none()) {
             Some(addr) => Ok(Dc { id: dc_id, addr, test: self.0.test_mode }),
             None => self.dc(dc_id),
         }
     }
 
     pub(crate) async fn switch_dc(&self, dc_id: i32) -> Result<()> {
-        let events = self.0.events.clone();
+        let (inner, events, pfs) = (&self.0, self.0.events.clone(), self.session().pfs());
         let (session, updates, dc_options) =
-            connect(self.dc(dc_id)?, None, self.0.api_id, &self.0.options, events).await?;
+            connect(self.dc(dc_id)?, None, inner.api_id, &inner.options, events, pfs).await?;
         *self.0.dcs.write().unwrap() = data_center::table(&dc_options, self.0.ipv6, false);
         *self.0.media_dcs.write().unwrap() = data_center::table(&dc_options, self.0.ipv6, true);
         *self.0.session.write().unwrap() = session;
@@ -429,7 +489,9 @@ impl Client {
         }
         let lease = self.transfer_sessions(self.dc(dc_id)?, 1).await?;
         // A reopened file connection hasn't sent its layer, and the answer can carry users.
-        invoke_sleeping_floods(&lease.sessions[0], &init_connection(self.0.api_id, &self.0.options, request)).await
+        let session = &lease.sessions[0];
+        let request = init_connection(self.0.api_id, &self.0.options, request);
+        invoke_sleeping_floods(session, &request, self.0.options.request_timeout).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {
@@ -456,12 +518,14 @@ impl Client {
 
 async fn connect(
     dc: Dc,
-    auth_key: Option<[u8; 256]>,
+    auth_key: Option<([u8; 256], Salt)>,
     api_id: i32,
     options: &Options,
     events: Arc<Events>,
+    pfs: bool,
 ) -> Result<(Session, UpdatesRx, Vec<base::DcOption>)> {
-    let (session, updates) = Session::connect(dc, auth_key, options, events).await?;
+    let rebind = pfs.then(|| init_connection(api_id, options, functions::help::GetNearestDc {}).to_bytes());
+    let (session, updates) = Session::connect(dc, auth_key, options, events, rebind).await?;
     let init = init_connection(api_id, options, functions::help::GetConfig {});
     let base::Config::Config(config) = session.invoke(&init).await?;
     Ok((session, updates, config.dc_options))

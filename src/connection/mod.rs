@@ -1,30 +1,56 @@
+mod fake_tls;
 mod obfuscated;
 mod proxy;
 mod transport;
 
 pub use proxy::{Proxy, Secret};
-pub use transport::Transport;
+pub use transport::{RecvBuf, Transport};
 
 use std::io;
 use std::pin::Pin;
-use std::task::{Context, Poll, ready};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::errors::Result;
+use crate::session::Observer;
 use crate::session::internals::data_center::Dc;
+use crate::storage::recording::Recorder;
+use fake_tls::{RecordReader, RecordWriter};
 use obfuscated::Ctr;
+
+const READ_CHUNK: usize = 64 << 10;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Options {
     pub transport: Transport,
     pub obfuscated: bool,
     pub proxy: Option<Proxy>,
+    pub request_timeout: Duration,
+    /// The longest FLOOD_WAIT `Client::invoke` and file transfers sleep off and retry; zero hands every one to
+    /// the caller.
+    pub flood_sleep_threshold: Duration,
+    pub observer: Option<Observer>,
+    pub record: Option<Recorder>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            transport: Transport::default(),
+            obfuscated: false,
+            proxy: None,
+            request_timeout: Duration::from_secs(30),
+            flood_sleep_threshold: Duration::from_secs(60),
+            observer: None,
+            record: None,
+        }
+    }
 }
 
 pub struct Connection {
@@ -43,33 +69,44 @@ impl Connection {
 
     async fn open(dc: &Dc, options: &Options) -> Result<Self> {
         let addr = dc.addr;
-        let (stream, secret) = match &options.proxy {
-            None => (TcpStream::connect(addr).await?, None),
-            Some(Proxy::Socks5 { host, port, auth }) => {
-                let mut stream = TcpStream::connect((host.as_str(), *port)).await?;
-                proxy::socks5(&mut stream, addr, auth.as_ref()).await?;
-                (stream, None)
+        let stream = match &options.proxy {
+            None => TcpStream::connect(addr).await?,
+            Some(proxy) => {
+                let mut stream = TcpStream::connect(proxy.endpoint()).await?;
+                proxy.handshake(&mut stream, addr).await?;
+                stream
             }
-            Some(Proxy::MtProxy { host, port, secret }) => {
-                (TcpStream::connect((host.as_str(), *port)).await?, Some(secret))
-            }
+        };
+        let secret = match &options.proxy {
+            Some(Proxy::MtProxy { secret, .. }) => Some(secret),
+            _ => None,
         };
         let transport =
             if secret.is_some_and(|s| s.padded) { Transport::PaddedIntermediate } else { options.transport };
         stream.set_nodelay(true)?;
+        let tls = secret.is_some_and(|s| s.domain.is_some());
         let (read, mut write) = stream.into_split();
         let tag = transport.tag();
-        let (encrypt, decrypt) = if options.obfuscated || secret.is_some() {
+        let (encrypt, decrypt, records) = if options.obfuscated || secret.is_some() {
             let (header, encrypt, decrypt) = obfuscated::init(tag, dc.wire_id() as i16, secret.map(|s| &s.key));
-            write.write_all(&header).await?;
-            (Some(encrypt), Some(decrypt))
+            // Behind fake TLS the header rides in the first record together with the first packet.
+            let records = tls.then(|| RecordWriter::new(header));
+            if !tls {
+                write.write_all(&header).await?;
+            }
+            (Some(encrypt), Some(decrypt), records)
         } else {
             write.write_all(if transport == Transport::Abridged { &tag[..1] } else { &tag[..] }).await?;
-            (None, None)
+            (None, None, None)
         };
         Ok(Self {
-            reader: Reader { half: read, transport, decrypt },
-            writer: Writer { half: write, transport, encrypt, buf: Vec::new() },
+            reader: Reader {
+                wire: Wire { half: read, records: tls.then(RecordReader::default) },
+                transport,
+                decrypt,
+                buf: RecvBuf::default(),
+            },
+            writer: Writer { half: write, transport, encrypt, records, buf: Vec::new() },
         })
     }
 
@@ -87,27 +124,44 @@ impl Connection {
 }
 
 pub(crate) struct Reader {
-    half: OwnedReadHalf,
+    wire: Wire,
     transport: Transport,
     decrypt: Option<Ctr>,
+    buf: RecvBuf,
 }
 
 impl Reader {
+    /// Cancel-safe: bytes wait in the buffer until a whole packet is there.
     pub(crate) async fn recv(&mut self) -> Result<Vec<u8>> {
-        let transport = self.transport;
-        transport.read(self).await
+        loop {
+            if let Some(packet) = self.transport.decode(&mut self.buf)? {
+                return Ok(packet);
+            }
+            let buf = self.buf.make_room();
+            buf.reserve(READ_CHUNK);
+            let start = buf.len();
+            if self.wire.read_buf(buf).await? == 0 {
+                return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
+            }
+            if let Some(decrypt) = &mut self.decrypt {
+                decrypt.apply(&mut buf[start..]);
+            }
+        }
     }
 }
 
-impl AsyncRead for Reader {
+struct Wire {
+    half: OwnedReadHalf,
+    records: Option<RecordReader>,
+}
+
+impl AsyncRead for Wire {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
-        let start = buf.filled().len();
         let this = &mut *self;
-        ready!(Pin::new(&mut this.half).poll_read(cx, buf))?;
-        if let Some(decrypt) = &mut this.decrypt {
-            decrypt.apply(&mut buf.filled_mut()[start..]);
+        match &mut this.records {
+            Some(records) => records.poll_read(&mut this.half, cx, buf),
+            None => Pin::new(&mut this.half).poll_read(cx, buf),
         }
-        Poll::Ready(Ok(()))
     }
 }
 
@@ -115,17 +169,32 @@ pub(crate) struct Writer {
     half: OwnedWriteHalf,
     transport: Transport,
     encrypt: Option<Ctr>,
-    buf: Vec<u8>,
+    records: Option<RecordWriter>,
+    pub(crate) buf: Vec<u8>,
 }
 
 impl Writer {
-    pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<()> {
+    pub(crate) fn begin(&mut self) {
         self.buf.clear();
-        self.transport.encode(payload, &mut self.buf);
+        self.buf.resize(Transport::ROOM, 0);
+    }
+
+    pub(crate) async fn finish(&mut self) -> Result<()> {
+        let start = self.transport.frame(&mut self.buf);
         if let Some(encrypt) = &mut self.encrypt {
-            encrypt.apply(&mut self.buf);
+            encrypt.apply(&mut self.buf[start..]);
         }
-        self.half.write_all(&self.buf).await?;
+        let wire = match &mut self.records {
+            Some(records) => records.wrap(&self.buf[start..]),
+            None => &self.buf[start..],
+        };
+        self.half.write_all(wire).await?;
         Ok(())
+    }
+
+    pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<()> {
+        self.begin();
+        self.buf.extend_from_slice(payload);
+        self.finish().await
     }
 }

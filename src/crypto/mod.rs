@@ -19,6 +19,15 @@ pub(crate) fn sha256(parts: &[&[u8]]) -> [u8; 32] {
     h.finalize().into()
 }
 
+pub(crate) fn hmac_sha256(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
+    let mut k = [0u8; 64];
+    k[..key.len()].copy_from_slice(key);
+    let mut inner = sha2::Sha256::new();
+    inner.update(k.map(|b| b ^ 0x36));
+    parts.iter().for_each(|p| inner.update(p));
+    sha256(&[&k.map(|b| b ^ 0x5c), &inner.finalize()])
+}
+
 pub(crate) fn random_fill(buf: &mut [u8]) {
     getrandom::getrandom(buf).expect("the OS random number generator failed");
 }

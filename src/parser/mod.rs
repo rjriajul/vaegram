@@ -71,12 +71,12 @@ impl Span {
         use base::MessageEntity as E;
         let (offset, length) = (self.start, self.end - self.start);
         match &self.kind {
-            Kind::Bold => E::MessageEntityBold(Box::new(types::MessageEntityBold { offset, length })),
-            Kind::Italic => E::MessageEntityItalic(Box::new(types::MessageEntityItalic { offset, length })),
-            Kind::Underline => E::MessageEntityUnderline(Box::new(types::MessageEntityUnderline { offset, length })),
-            Kind::Strike => E::MessageEntityStrike(Box::new(types::MessageEntityStrike { offset, length })),
-            Kind::Spoiler => E::MessageEntitySpoiler(Box::new(types::MessageEntitySpoiler { offset, length })),
-            Kind::Code => E::MessageEntityCode(Box::new(types::MessageEntityCode { offset, length })),
+            Kind::Bold => E::MessageEntityBold(types::MessageEntityBold { offset, length }),
+            Kind::Italic => E::MessageEntityItalic(types::MessageEntityItalic { offset, length }),
+            Kind::Underline => E::MessageEntityUnderline(types::MessageEntityUnderline { offset, length }),
+            Kind::Strike => E::MessageEntityStrike(types::MessageEntityStrike { offset, length }),
+            Kind::Spoiler => E::MessageEntitySpoiler(types::MessageEntitySpoiler { offset, length }),
+            Kind::Code => E::MessageEntityCode(types::MessageEntityCode { offset, length }),
             Kind::Pre(language) => {
                 E::MessageEntityPre(Box::new(types::MessageEntityPre { offset, length, language: language.clone() }))
             }

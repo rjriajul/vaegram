@@ -11,6 +11,8 @@ fn request_bytes() {
     assert_eq!(b[8..], [0x6b, 0x18, 0xf9, 0xc4]);
 
     let _: fn(<functions::InvokeWithLayer<functions::help::GetConfig> as RemoteCall>::Return) -> base::Config = |c| c;
+    let names = [<functions::help::GetConfig as RemoteCall>::NAME, <functions::InvokeWithLayer<functions::Ping>>::NAME];
+    assert_eq!(names, ["help.getConfig", "invokeWithLayer"]);
 }
 
 #[test]

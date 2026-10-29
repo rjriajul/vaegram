@@ -73,7 +73,7 @@ impl Client {
                 .ok_or(Error::PeerNotFound(chat_id))?;
             base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id, access_hash }))
         } else {
-            base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: -chat_id }))
+            base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: -chat_id })
         };
 
         self.0.peers.lock().unwrap().insert(chat_id, peer.clone());
@@ -137,7 +137,7 @@ mod tests {
         let channel = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         let channel = base::InputPeer::InputPeerChannel(Box::new(channel));
         client.0.peers.lock().unwrap().insert(get_channel_id(9), channel.clone());
-        let group = base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: 5 }));
+        let group = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
 
         let offline = [
             (PeerRef::from("me"), (1, base::InputPeer::InputPeerSelf)),
@@ -178,7 +178,7 @@ mod tests {
             can_refulfill_subscription: false,
             title: "Private".into(),
             about: None,
-            photo: base::Photo::PhotoEmpty(Box::new(types::PhotoEmpty { id: 0 })),
+            photo: base::Photo::PhotoEmpty(types::PhotoEmpty { id: 0 }),
             participants_count: 3,
             participants: None,
             color: 0,

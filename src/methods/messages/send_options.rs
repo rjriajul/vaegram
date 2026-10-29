@@ -312,7 +312,7 @@ mod tests {
         let client = &Client::offline();
         let reply = ReplyParameters::new(4).chat_id(-6).quote("<b>hi</b>").quote_position(2).checklist_task_id(3);
         let m = message(written(client, SendOptions { reply_to: Some(reply), ..Default::default() }).await);
-        let other_chat = base::InputPeer::InputPeerChat(Box::new(types::InputPeerChat { chat_id: 6 }));
+        let other_chat = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 6 });
         assert_eq!((m.reply_to_msg_id, m.quote_offset, m.todo_item_id), (4, Some(2), Some(3)));
         assert_eq!((m.quote_text.as_deref(), m.reply_to_peer_id), (Some("<b>hi</b>"), Some(other_chat)));
 

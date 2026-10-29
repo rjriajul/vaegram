@@ -5,20 +5,19 @@ use std::sync::Arc;
 use crate::Client;
 use crate::dispatcher::Router;
 use crate::errors::{Error, Result};
-use crate::raw::base;
 use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated, ChatJoinRequest,
     ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages,
     EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
     MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
-    ShippingQuery, UserStatusUpdated,
+    RawUpdate, ShippingQuery, UserStatusUpdated,
 };
 
 pub use crate::dispatcher::router::UpdateKind;
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 pub(crate) type Callback<T> = Arc<dyn Fn(T) -> BoxFuture + Send + Sync>;
-pub(crate) type RawCallback = Arc<dyn Fn(Client, base::Update) -> BoxFuture + Send + Sync>;
+pub(crate) type RawCallback = Arc<dyn Fn(Client, RawUpdate) -> BoxFuture + Send + Sync>;
 pub(crate) type ErrorCallback = Arc<dyn Fn(HandlerError) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 pub(crate) fn callback<T, F, Fut, R>(f: F) -> Callback<T>
