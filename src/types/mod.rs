@@ -52,10 +52,12 @@ pub use rich_messages::{
 };
 pub(crate) use user_and_chats::BoostUpdate;
 pub use user_and_chats::{
-    AcceptedGiftTypes, BoostsStatus, BusinessBotRights, BusinessConnection, Chat, ChatBoost, ChatBoostRemoved,
-    ChatBoostSource, ChatBoostUpdated, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated,
-    ChatNotifications, ChatPermissions, ChatPrivileges, Community, Dialog, DirectMessagesTopic, Folder,
-    FolderInviteLink, FolderInviteLinkInfo, ForumTopic, ForumTopicCreated, ForumTopicEdited, GlobalPrivacySettings,
-    InputPhoneContact, MyBoost, PassportElementError, PeerRef, PremiumPromo, PremiumSubscriptionOption, PrivacyRule,
-    SavedDialog, User, UserProfileAudios, UserProfilePhotos, UserStatusUpdated,
+    AcceptedGiftTypes, BoostsStatus, BusinessBotRights, BusinessConnection, ChannelStatistics, Chat, ChatBoost,
+    ChatBoostRemoved, ChatBoostSource, ChatBoostUpdated, ChatEvent, ChatEventAction, ChatEventFilter, ChatInviteLink,
+    ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated, ChatNotifications, ChatPermissions, ChatPrivileges,
+    Community, Dialog, DirectMessagesTopic, Folder, FolderInviteLink, FolderInviteLinkInfo, ForumTopic,
+    ForumTopicCreated, ForumTopicEdited, GlobalPrivacySettings, InputPhoneContact, MessageStatistics, MyBoost,
+    PassportElementError, PeerRef, PostInteractions, PremiumPromo, PremiumSubscriptionOption, PrivacyRule, SavedDialog,
+    StatisticalGraph, StatisticalValue, SupergroupStatistics, TopAdmin, TopInviter, TopPoster, User, UserProfileAudios,
+    UserProfilePhotos, UserStatusUpdated,
 };

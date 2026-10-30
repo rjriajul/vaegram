@@ -44,8 +44,8 @@ pub use bots::{
 };
 pub use business::{EditStory, PostStory, RepostStory};
 pub use chats::{
-    BanChatMember, CreateForumTopic, DeleteChatHistory, EditForumTopic, GetChatAdministrators, GetChatMembers,
-    GetDialogs, RestrictChatMember, SetChatPhoto, UpdateChatNotifications,
+    BanChatMember, CreateForumTopic, DeleteChatHistory, EditForumTopic, GetChatAdministrators, GetChatEventLog,
+    GetChatMembers, GetDialogs, GetMessagePublicForwards, RestrictChatMember, SetChatPhoto, UpdateChatNotifications,
 };
 pub use contacts::AddContact;
 pub use folders::{CreateFolderInviteLink, EditFolderInviteLink, LeaveFolder};

@@ -268,6 +268,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Global and public-post search, search counts, comments, translation, voice transcription (not yet tested live)
 - [ ] Boosts, gift codes, giveaways and the Premium promo: `get_boosts_status`, `apply_boost`, `check_gift_code`,
   `get_giveaway_info`, `get_premium_promo` (not yet tested live)
+- [ ] Admin log and statistics: `get_chat_event_log`, `get_channel_statistics`, `get_message_public_forwards` (not yet
+  tested live)
 
 ### Development
 
