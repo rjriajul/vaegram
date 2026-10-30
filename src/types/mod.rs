@@ -9,12 +9,13 @@ mod user_and_chats;
 
 pub use authorization::{ActiveSession, ActiveSessions, LoginToken, SentCode};
 pub use bots_and_keyboards::{
-    AffiliateInfo, BotAccessSettings, BotCommand, BotCommandScope, BotInfo, BotSubscriptionUpdated, ButtonStyle,
-    CallbackAnswer, CallbackOrigin, CallbackQuery, ChatShared, ClickResult, EditCallbackMessageText, ForceReply,
-    GameHighScore, InlineAction, InlineKeyboardButton, InlineKeyboardMarkup, InputInvoice, KeyboardButton,
-    KeyboardButtonRequestManagedBot, LabeledPrice, ManagedBotUpdated, MenuButton, OrderInfo, PreCheckoutQuery,
-    PurchasedPaidMedia, ReplyKeyboardMarkup, ReplyKeyboardRemove, ReplyMarkup, RevenueWithdrawalState, SharedUser,
-    ShippingAddress, ShippingOption, ShippingQuery, StarTransaction, StarTransactions, TransactionPartner, UsersShared,
+    AffiliateInfo, AttachMenuBot, BotAccessSettings, BotApp, BotCommand, BotCommandScope, BotInfo, BotPreviewInfo,
+    BotPreviewMedia, BotSubscriptionUpdated, ButtonStyle, CallbackAnswer, CallbackOrigin, CallbackQuery, ChatShared,
+    ClickResult, EditCallbackMessageText, ForceReply, GameHighScore, InlineAction, InlineKeyboardButton,
+    InlineKeyboardMarkup, InputInvoice, KeyboardButton, KeyboardButtonRequestManagedBot, LabeledPrice,
+    ManagedBotUpdated, MenuButton, OrderInfo, PreCheckoutQuery, PurchasedPaidMedia, ReplyKeyboardMarkup,
+    ReplyKeyboardRemove, ReplyMarkup, RevenueWithdrawalState, SharedUser, ShippingAddress, ShippingOption,
+    ShippingQuery, StarTransaction, StarTransactions, TransactionPartner, UsersShared, WebView, WebViewSession,
 };
 pub use inline_mode::{
     ChosenInlineResult, InlineBotResult, InlineBotResults, InlineMessageId, InlineQuery, InlineQueryResult,
@@ -52,12 +53,13 @@ pub use rich_messages::{
 };
 pub(crate) use user_and_chats::BoostUpdate;
 pub use user_and_chats::{
-    AcceptedGiftTypes, BoostsStatus, BusinessBotRights, BusinessConnection, ChannelStatistics, Chat, ChatBoost,
-    ChatBoostRemoved, ChatBoostSource, ChatBoostUpdated, ChatEvent, ChatEventAction, ChatEventFilter, ChatInviteLink,
-    ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated, ChatNotifications, ChatPermissions, ChatPrivileges,
-    Community, Dialog, DirectMessagesTopic, EmojiStatus, Folder, FolderInviteLink, FolderInviteLinkInfo, ForumTopic,
-    ForumTopicCreated, ForumTopicEdited, GlobalPrivacySettings, InputPhoneContact, MessageStatistics, MyBoost,
-    PassportElementError, PeerRef, PostInteractions, PremiumPromo, PremiumSubscriptionOption, PrivacyRule, SavedDialog,
+    AcceptedGiftTypes, BoostsStatus, BusinessBotRights, BusinessChatLink, BusinessChatLinkInfo, BusinessConnection,
+    BusinessOpeningHours, BusinessRecipients, ChannelStatistics, Chat, ChatBoost, ChatBoostRemoved, ChatBoostSource,
+    ChatBoostUpdated, ChatEvent, ChatEventAction, ChatEventFilter, ChatInviteLink, ChatJoinRequest, ChatJoiner,
+    ChatMember, ChatMemberUpdated, ChatNotifications, ChatPermissions, ChatPrivileges, Community, ConnectedBot, Dialog,
+    DirectMessagesTopic, EmojiStatus, Folder, FolderInviteLink, FolderInviteLinkInfo, ForumTopic, ForumTopicCreated,
+    ForumTopicEdited, GlobalPrivacySettings, InputPhoneContact, MessageStatistics, MyBoost, PassportElementError,
+    PeerRef, PostInteractions, PremiumPromo, PremiumSubscriptionOption, PrivacyRule, QuickReply, SavedDialog,
     StatisticalGraph, StatisticalValue, SupergroupStatistics, TopAdmin, TopInviter, TopPoster, User, UserProfileAudios,
     UserProfilePhotos, UserStatusUpdated,
 };

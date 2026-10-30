@@ -84,6 +84,18 @@ impl User {
         };
         self
     }
+
+    pub(crate) fn parse_all(client: &Client, users: Vec<base::User>) -> Vec<User> {
+        let ids: Vec<i64> = users
+            .iter()
+            .filter_map(|u| match u {
+                base::User::User(u) => Some(u.id),
+                base::User::UserEmpty(_) => None,
+            })
+            .collect();
+        let entities = Entities::new(client, users, Vec::new());
+        ids.into_iter().map(|id| User::parse(id, &entities)).collect()
+    }
 }
 
 #[cfg(test)]

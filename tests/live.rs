@@ -941,3 +941,51 @@ async fn admin_reads_event_log_and_statistics() {
     let refused = |e: &vaegram::Error| matches!(e, vaegram::Error::Rpc(e) if matches!(e.name.as_str(), "CHAT_ADMIN_REQUIRED" | "STATS_MIGRATE"));
     assert!(statistics.as_ref().err().is_none_or(refused), "{statistics:?}");
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_browses_app_bots() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name), optionally VAEGRAM_BOT_APP=bot/app");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let (api_id, api_hash): (i32, String) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
+    let user = Client::builder(session, api_id, api_hash).connect().await.unwrap();
+
+    let mut popular = user.get_popular_app_bots().limit(3);
+    let mut bots = Vec::new();
+    while let Some(bot) = popular.next().await.unwrap() {
+        bots.push(bot);
+    }
+    assert_eq!((bots.len(), bots.iter().all(|b| b.is_bot)), (3, true));
+    let similar = user.get_similar_bots(bots[0].id).await.unwrap();
+    assert!(similar.iter().all(|b| b.is_bot && b.id != bots[0].id));
+
+    if let Some(added) = user.get_attach_menu_bots().await.unwrap().first() {
+        let again = user.get_attach_menu_bot(added.bot.id).await.unwrap();
+        assert_eq!((again.bot.id, again.short_name.as_str()), (added.bot.id, added.short_name.as_str()));
+    }
+
+    if let Some((bot, short_name)) = std::env::var("VAEGRAM_BOT_APP").ok().as_deref().and_then(|l| l.split_once('/')) {
+        let app = user.get_bot_app(bot, short_name).await.unwrap();
+        assert_eq!(app.short_name, short_name);
+    }
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session with Telegram Business"]
+async fn user_manages_business_links_and_quick_replies() {
+    let Some(user) = user_client().await else { return };
+    let replies = user.get_quick_replies().await.unwrap();
+    assert!(replies.iter().all(|q| !q.shortcut.is_empty()));
+    user.get_connected_bots().await.unwrap();
+
+    let link = user.create_business_chat_link("**hi** from vaegram").markdown().title("vaegram").await.unwrap();
+    let got = (link.text.as_str(), link.title.as_deref(), link.entities.as_ref().map(Vec::len));
+    assert_eq!(got, ("hi from vaegram", Some("vaegram"), Some(1)));
+    let link = user.edit_business_chat_link(link.slug(), "edited").await.unwrap();
+    assert!(user.get_business_chat_links().await.unwrap().iter().any(|l| l.link == link.link && l.text == "edited"));
+    assert_eq!(user.resolve_business_chat_link(link.slug()).await.unwrap().text, "edited");
+    assert!(user.delete_business_chat_link(link.slug()).await.unwrap());
+}
