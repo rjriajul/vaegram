@@ -1,27 +1,40 @@
 mod delete_stories;
+mod edit_story_caption;
+mod edit_story_media;
+mod edit_story_privacy;
+mod enable_stealth_mode;
 mod export_story_link;
 mod get_all_stories;
 mod get_chat_stories;
+mod get_pinned_stories;
 mod get_stories;
+mod get_stories_archive;
 mod get_story_viewers;
 mod hide_chat_stories;
+mod pin_chat_stories;
 mod read_stories;
+mod send_story;
 mod send_story_reaction;
 mod show_chat_stories;
+mod unpin_chat_stories;
 mod view_stories;
 
+pub use edit_story_caption::EditStoryCaption;
+pub use enable_stealth_mode::EnableStealthMode;
+pub use get_stories_archive::StoryPages;
 pub use get_story_viewers::GetStoryViewers;
+pub use send_story::SendStory;
 
 #[cfg(test)]
 mod tests {
     use crate::Client;
     use crate::dispatcher::Entities;
-    use crate::enums::MessageEntityType;
+    use crate::enums::{MessageEntityType, StoriesPrivacyRules};
     use crate::errors::Error;
     use crate::raw::functions::stories;
     use crate::raw::{Serializable, base, types};
     use crate::types::{Media, ReactionType, Story, StoryViewer};
-    use crate::utils::get_peer;
+    use crate::utils::{get_channel_id, get_peer};
 
     #[tokio::test]
     async fn reaction_none_sends_empty_reaction() {
@@ -47,8 +60,10 @@ mod tests {
             matches!(client.get_stories(0_i64, &[]).await, Err(Error::InvalidArgument(_))),
             matches!(client.view_stories(0_i64, &[]).await, Err(Error::InvalidArgument(_))),
             matches!(client.delete_stories(0_i64, &[]).await, Err(Error::InvalidArgument(_))),
+            matches!(client.pin_chat_stories(0_i64, &[]).await, Err(Error::InvalidArgument(_))),
+            matches!(client.unpin_chat_stories(0_i64, &[]).await, Err(Error::InvalidArgument(_))),
         );
-        assert_eq!(results, (true, true, true));
+        assert_eq!(results, (true, true, true, true, true));
         assert!(rx.try_recv().is_err());
     }
 
@@ -213,5 +228,90 @@ mod tests {
             story: base::StoryItem::StoryItemDeleted(types::StoryItemDeleted { id: 1 }),
         };
         assert!(StoryViewer::parse(base::StoryView::StoryViewPublicRepost(Box::new(repost)), &entities).is_none());
+    }
+
+    fn edit(id: i32) -> stories::EditStory {
+        let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
+        stories::EditStory {
+            peer: base::InputPeer::InputPeerChannel(Box::new(peer)),
+            id,
+            media: None,
+            media_areas: None,
+            caption: None,
+            entities: None,
+            privacy_rules: None,
+            music: None,
+        }
+    }
+
+    fn known_channel(client: &Client) -> i64 {
+        let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(get_channel_id(9), base::InputPeer::InputPeerChannel(Box::new(peer)));
+        get_channel_id(9)
+    }
+
+    #[tokio::test]
+    async fn edits_and_pins_send_only_what_changes() {
+        let (client, mut rx) = Client::recording();
+        let channel = known_channel(&client);
+
+        let _ = client.edit_story_caption(channel, 3, "<i>new</i>").html().await;
+        let italic = types::MessageEntityItalic { offset: 0, length: 3 };
+        let expected = stories::EditStory {
+            caption: Some("new".into()),
+            entities: Some(vec![base::MessageEntity::MessageEntityItalic(italic)]),
+            ..edit(3)
+        };
+        assert_eq!(rx.try_recv().unwrap(), expected.to_bytes());
+
+        let _ = client.edit_story_caption(channel, 3, "").await;
+        let expected = stories::EditStory { caption: Some(String::new()), entities: Some(Vec::new()), ..edit(3) };
+        assert_eq!(rx.try_recv().unwrap(), expected.to_bytes());
+
+        let peer = edit(0).peer;
+        let _ = client.pin_chat_stories(channel, &[1, 2]).await;
+        let pin = stories::TogglePinned { peer: peer.clone(), id: vec![1, 2], pinned: true };
+        assert_eq!(rx.try_recv().unwrap(), pin.to_bytes());
+        let _ = client.unpin_chat_stories(channel, &[2]).await;
+        let unpin = stories::TogglePinned { peer: peer.clone(), id: vec![2], pinned: false };
+        assert_eq!(rx.try_recv().unwrap(), unpin.to_bytes());
+
+        let _ = client.get_stories_archive(channel).limit(5).next().await;
+        let archive = stories::GetStoriesArchive { peer: peer.clone(), offset_id: 0, limit: 5 };
+        assert_eq!(rx.try_recv().unwrap(), archive.to_bytes());
+        let _ = client.get_pinned_stories(channel).offset_id(8).next().await;
+        assert_eq!(rx.try_recv().unwrap(), stories::GetPinnedStories { peer, offset_id: 8, limit: 100 }.to_bytes());
+
+        let _ = client.enable_stealth_mode().past().future().await;
+        assert_eq!(rx.try_recv().unwrap(), stories::ActivateStealthMode { past: true, future: true }.to_bytes());
+        let _ = client.enable_stealth_mode().future().await;
+        assert_eq!(rx.try_recv().unwrap(), stories::ActivateStealthMode { past: false, future: true }.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn privacy_edit_returns_the_story_telegram_sent_back() {
+        let skipped = types::StoryItemSkipped { close_friends: true, live: false, id: 4, date: 101, expire_date: 201 };
+        let story = base::StoryItem::StoryItemSkipped(Box::new(skipped));
+        let update = types::UpdateStory { peer: get_peer(get_channel_id(9)), story };
+        let updates = types::Updates {
+            updates: vec![
+                base::Update::UpdateStoryID(Box::new(types::UpdateStoryID { id: 4, random_id: 1 })),
+                base::Update::UpdateStory(Box::new(update)),
+            ],
+            users: Vec::new(),
+            chats: Vec::new(),
+            date: 0,
+            seq: 0,
+        };
+        let reply = base::Updates::Updates(Box::new(updates)).to_bytes();
+        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let channel = known_channel(&client);
+
+        let story = client.edit_story_privacy(channel, 4, StoriesPrivacyRules::CloseFriends).await.unwrap();
+        assert_eq!((story.chat.id, story.id, story.date, story.is_close_friends), (channel, 4, 101, true));
+        let rules = vec![base::InputPrivacyRule::InputPrivacyValueAllowCloseFriends];
+        assert_eq!(rx.try_recv().unwrap(), stories::EditStory { privacy_rules: Some(rules), ..edit(4) }.to_bytes());
+
+        assert!(client.edit_story_privacy(channel, 4, StoriesPrivacyRules::default()).await.is_err());
     }
 }

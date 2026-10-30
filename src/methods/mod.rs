@@ -66,5 +66,5 @@ pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
 };
 pub use stickers::CreateNewStickerSet;
-pub use stories::GetStoryViewers;
+pub use stories::{EditStoryCaption, EnableStealthMode, GetStoryViewers, SendStory, StoryPages};
 pub use users::{GetChatPhotos, GetUserProfileAudios, SetEmojiStatus, SetProfilePhoto, UpdateProfile};

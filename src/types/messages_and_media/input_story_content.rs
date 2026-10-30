@@ -16,6 +16,16 @@ pub enum InputStoryContent<'a> {
     },
 }
 
+impl<'a> InputStoryContent<'a> {
+    pub fn photo(photo: impl Into<Upload<'a>>) -> Self {
+        InputStoryContent::Photo(photo.into())
+    }
+
+    pub fn video(video: impl Into<Upload<'a>>, duration: f64) -> Self {
+        InputStoryContent::Video { video: video.into(), duration, cover_frame_timestamp: 0.0, is_animation: false }
+    }
+}
+
 impl InputStoryContent<'_> {
     pub(crate) async fn upload(self, client: &Client) -> Result<base::InputMedia> {
         Ok(match self {

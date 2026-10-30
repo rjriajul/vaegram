@@ -7,6 +7,12 @@ use crate::utils::get_peer;
 
 impl Client {
     pub async fn set_privacy(&self, key: PrivacyKey, rules: &[PrivacyRule]) -> Result<Vec<PrivacyRule>> {
+        let input = self.input_privacy_rules(rules).await?;
+        let rules = self.invoke(&functions::account::SetPrivacy { key: key.write(), rules: input }).await?;
+        Ok(PrivacyRule::parse_all(self, rules))
+    }
+
+    pub(crate) async fn input_privacy_rules(&self, rules: &[PrivacyRule]) -> Result<Vec<base::InputPrivacyRule>> {
         let mut input = Vec::with_capacity(rules.len());
         for rule in rules {
             use base::InputPrivacyRule as I;
@@ -39,8 +45,7 @@ impl Client {
                 )),
             });
         }
-        let rules = self.invoke(&functions::account::SetPrivacy { key: key.write(), rules: input }).await?;
-        Ok(PrivacyRule::parse_all(self, rules))
+        Ok(input)
     }
 
     async fn input_users(&self, ids: &[i64]) -> Result<Vec<base::InputUser>> {

@@ -6,14 +6,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
-use vaegram::enums::{MessageEntityType, ParseMode, PollType, StickerType};
+use vaegram::enums::{MessageEntityType, ParseMode, PollType, StickerType, StoriesPrivacyRules};
 use vaegram::raw::{Serializable, base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
     ButtonStyle, FileSource, Folder, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
-    InputPollMedia, InputPollOption, InputRichMessage, InputSticker, KeyboardButton, Media, Message,
+    InputPollMedia, InputPollOption, InputRichMessage, InputSticker, InputStoryContent, KeyboardButton, Media, Message,
     ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
 };
 use vaegram::{Client, filters};
@@ -754,6 +754,37 @@ async fn user_reads_stories() {
     assert!(user.get_chat_stories(chat_id).await.unwrap().iter().any(|s| s.id == story.id));
     user.view_stories(chat_id, &[story.id]).await.unwrap();
     user.read_stories(chat_id, story.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "posts, edits, pins and deletes a story with a logged-in user session"]
+async fn user_posts_and_edits_a_story() {
+    let Ok(photo) = std::env::var("VAEGRAM_STORY_PHOTO") else {
+        eprintln!("skipped: set VAEGRAM_STORY_PHOTO (a JPEG path) and VAEGRAM_USER_SESSION");
+        return;
+    };
+    let Some(user) = user_client().await else { return };
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let story = user
+        .send_story(me.id, InputStoryContent::photo(photo.as_str()))
+        .caption("<b>vaegram</b>")
+        .html()
+        .privacy(StoriesPrivacyRules::CloseFriends)
+        .protect_content()
+        .await
+        .unwrap();
+    assert_eq!((story.chat.id, story.caption.as_deref(), story.is_close_friends), (me.id, Some("vaegram"), true));
+
+    let edited = user.edit_story_caption(me.id, story.id, "edited").await.unwrap();
+    assert_eq!(edited.caption.as_deref(), Some("edited"));
+    let only_me = StoriesPrivacyRules::SelectedUsers(vec![me.id]);
+    assert!(!user.edit_story_privacy(me.id, story.id, only_me).await.unwrap().is_close_friends);
+
+    assert_eq!(user.pin_chat_stories(me.id, &[story.id]).await.unwrap(), [story.id]);
+    assert_eq!(user.get_pinned_stories(me.id).limit(10).next().await.unwrap().map(|s| s.id), Some(story.id));
+    assert_eq!(user.unpin_chat_stories(me.id, &[story.id]).await.unwrap(), [story.id]);
+    assert_eq!(user.get_stories_archive(me.id).limit(10).next().await.unwrap().map(|s| s.id), Some(story.id));
+    assert_eq!(user.delete_stories(me.id, &[story.id]).await.unwrap(), [story.id]);
 }
 
 #[tokio::test]
