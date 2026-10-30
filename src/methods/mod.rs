@@ -66,9 +66,12 @@ pub use messages::{
 pub(crate) use messages::{DownloadSource, StreamShared, caption_setters, geo_point, input_venue};
 pub use password::{ChangeCloudPassword, EnableCloudPassword};
 pub use payments::{
-    ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
+    ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SearchGiftsForResale, SendGift,
+    TransferGift, UpgradeGift,
 };
 pub use premium::GetBoostsList;
-pub use stickers::CreateNewStickerSet;
+pub use stickers::{
+    CreateNewStickerSet, GetArchivedStickerSets, GetFeaturedStickerSets, SearchStickerSets, SearchStickers,
+};
 pub use stories::{EditStoryCaption, EnableStealthMode, GetStoryViewers, SendStory, StoryPages};
 pub use users::{GetChatPhotos, GetUserProfileAudios, SetEmojiStatus, SetProfilePhoto, UpdateProfile};

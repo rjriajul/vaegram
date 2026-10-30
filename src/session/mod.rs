@@ -145,15 +145,23 @@ pub struct UpdatesRx {
 
 impl UpdatesRx {
     pub async fn recv(&mut self) -> Option<Incoming> {
-        let (count, unrecoverable) = self.events.take_dropped();
-        if count > 0 {
-            self.events.emit(ClientEvent::UpdatesDropped { count, unrecoverable });
-            return Some(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
+        loop {
+            let (count, unrecoverable) = self.events.take_dropped();
+            if count > 0 {
+                self.events.emit(ClientEvent::UpdatesDropped { count, unrecoverable });
+                return Some(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false });
+            }
+            if let Some(affected) = self.events.take_affected() {
+                return Some(Incoming { updates: affected.into_updates(), from_request: true });
+            }
+            if let Some(updates) = self.events.take_nested() {
+                return Some(Incoming { updates, from_request: true });
+            }
+            tokio::select! {
+                incoming = self.rx.recv() => return incoming,
+                () = self.events.wake.notified() => {}
+            }
         }
-        if let Some(affected) = self.events.take_affected() {
-            return Some(Incoming { updates: affected.into_updates(), from_request: true });
-        }
-        self.rx.recv().await
     }
 
     #[cfg(test)]
@@ -163,8 +171,13 @@ impl UpdatesRx {
 
     #[cfg(test)]
     pub(crate) fn channel() -> (mpsc::Sender<Incoming>, UpdatesRx) {
+        UpdatesRx::channel_with(Arc::default())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn channel_with(events: Arc<Events>) -> (mpsc::Sender<Incoming>, UpdatesRx) {
         let (tx, rx) = mpsc::channel(8);
-        (tx, UpdatesRx { rx, events: Arc::default() })
+        (tx, UpdatesRx { rx, events })
     }
 }
 

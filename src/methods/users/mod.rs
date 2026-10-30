@@ -1,7 +1,12 @@
+mod clear_recent_emoji_statuses;
 mod delete_profile_photos;
 mod get_chat_photos;
+mod get_collectible_emoji_statuses;
 mod get_common_chats;
+mod get_default_channel_emoji_statuses;
+mod get_default_emoji_statuses;
 mod get_me;
+mod get_recent_emoji_statuses;
 mod get_user_profile_audios;
 mod get_users;
 mod remove_birthday;

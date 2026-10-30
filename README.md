@@ -270,6 +270,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   `get_giveaway_info`, `get_premium_promo` (not yet tested live)
 - [ ] Admin log and statistics: `get_chat_event_log`, `get_channel_statistics`, `get_message_public_forwards` (not yet
   tested live)
+- [ ] Installed, archived, featured, recent and favorite stickers, sticker search, emoji status lists, gift resale,
+  hiding and pinning gifts, Stars balance and history for owned chats (not yet tested live)
 
 ### Development
 

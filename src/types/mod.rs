@@ -42,8 +42,8 @@ pub use messages_and_media::{
     TranscribedAudio, TranslatedText, Upload, Venue, Video, VideoNote, Voice, WriteAccessAllowed,
 };
 pub use payments::{
-    Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,
-    UniqueGiftBackdrop, UniqueGiftInfo,
+    Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, ResaleGift, StarPaymentOption,
+    UniqueGift, UniqueGiftAttribute, UniqueGiftBackdrop, UniqueGiftInfo,
 };
 pub use raw_update::RawUpdate;
 pub use rich_messages::{
@@ -55,7 +55,7 @@ pub use user_and_chats::{
     AcceptedGiftTypes, BoostsStatus, BusinessBotRights, BusinessConnection, ChannelStatistics, Chat, ChatBoost,
     ChatBoostRemoved, ChatBoostSource, ChatBoostUpdated, ChatEvent, ChatEventAction, ChatEventFilter, ChatInviteLink,
     ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated, ChatNotifications, ChatPermissions, ChatPrivileges,
-    Community, Dialog, DirectMessagesTopic, Folder, FolderInviteLink, FolderInviteLinkInfo, ForumTopic,
+    Community, Dialog, DirectMessagesTopic, EmojiStatus, Folder, FolderInviteLink, FolderInviteLinkInfo, ForumTopic,
     ForumTopicCreated, ForumTopicEdited, GlobalPrivacySettings, InputPhoneContact, MessageStatistics, MyBoost,
     PassportElementError, PeerRef, PostInteractions, PremiumPromo, PremiumSubscriptionOption, PrivacyRule, SavedDialog,
     StatisticalGraph, StatisticalValue, SupergroupStatistics, TopAdmin, TopInviter, TopPoster, User, UserProfileAudios,
