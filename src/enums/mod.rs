@@ -1,3 +1,4 @@
+mod attach_menu_peer_type;
 mod chat_action;
 mod chat_join_request_result;
 mod chat_member_status;
@@ -23,6 +24,7 @@ mod suggested_post_state;
 mod unique_gift_origin;
 mod user_status;
 
+pub use attach_menu_peer_type::AttachMenuPeerType;
 pub use chat_action::ChatAction;
 pub use chat_join_request_result::ChatJoinRequestResult;
 pub use chat_member_status::ChatMemberStatus;

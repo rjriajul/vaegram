@@ -39,8 +39,9 @@ mod utilities;
 pub(crate) use advanced::invoke_sleeping_floods;
 pub use bots::{
     AnswerCallbackQuery, AnswerInlineQuery, AnswerPreCheckoutQuery, AnswerShippingQuery, CreateInvoiceLink,
-    GetInlineBotResults, RequestCallbackAnswer, SavePreparedInlineMessage, SendGame, SendInlineBotResult, SendInvoice,
-    SetGameScore, SetInlineGameScore, SetUserEmojiStatus, VerifyChat,
+    GetInlineBotResults, GetPopularAppBots, RequestCallbackAnswer, SavePreparedInlineMessage, SendGame,
+    SendInlineBotResult, SendInvoice, SetGameScore, SetInlineGameScore, SetUserEmojiStatus, ToggleBotInAttachMenu,
+    VerifyChat,
 };
 pub use business::{EditStory, PostStory, RepostStory};
 pub use chats::{
