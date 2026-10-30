@@ -265,6 +265,7 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   `start_bot`, `vote_poll` (not yet tested live)
 - [ ] Saved GIFs, media search filters and message links: `.filter(MessagesFilter::Photo)`, `get_message_by_link`
   (not yet tested live)
+- [ ] Global and public-post search, search counts, comments, translation, voice transcription (not yet tested live)
 
 ### Development
 

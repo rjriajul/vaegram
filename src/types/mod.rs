@@ -34,11 +34,12 @@ pub use messages_and_media::{
     LinkPreviewOptions, LivePhoto, Location, LocationAddress, MaskPosition, Media, Message, MessageEntity,
     MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, MessageText,
     MessageViews, PaidMedia, PaidMediaInfo, PeerReaction, Photo, Poll, PollAnswer, PollOption, PollUpdated, PollVote,
-    ProximityAlertTriggered, ReactionCount, ReactionType, RefundedPayment, ReplyParameters, SavedReactionTag,
-    ServiceAction, StarAmount, Sticker, StickerSet, StoriesStealthMode, Story, StoryArea, StoryAreaPosition,
-    StoryAreaType, StoryViewer, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved,
-    SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice,
-    SuggestedPostRefunded, Text, TextQuote, Upload, Venue, Video, VideoNote, Voice, WriteAccessAllowed,
+    ProximityAlertTriggered, ReactionCount, ReactionType, ReadParticipant, RefundedPayment, ReplyParameters,
+    SavedReactionTag, ServiceAction, StarAmount, Sticker, StickerSet, StoriesStealthMode, Story, StoryArea,
+    StoryAreaPosition, StoryAreaType, StoryViewer, SuccessfulPayment, SuggestedPostApprovalFailed,
+    SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters,
+    SuggestedPostPrice, SuggestedPostRefunded, Text, TextQuote, TranscribedAudio, TranslatedText, Upload, Venue, Video,
+    VideoNote, Voice, WriteAccessAllowed,
 };
 pub use payments::{
     Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,

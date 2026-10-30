@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
-use vaegram::enums::{MessageEntityType, ParseMode, PollType, StickerType, StoriesPrivacyRules};
+use vaegram::enums::{MessageEntityType, MessagesFilter, ParseMode, PollType, StickerType, StoriesPrivacyRules};
 use vaegram::raw::{Serializable, base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
@@ -873,4 +873,32 @@ async fn user_uses_inline_bot() {
     let started = user.start_bot(gif, gif, "vaegram").await.unwrap();
     assert_eq!((started.chat.id, started.outgoing), (gif, true));
     started.delete().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_searches_and_translates() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let user = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+        .connect()
+        .await
+        .unwrap();
+
+    let marker = format!("vaegram search {}", std::process::id());
+    let saved = user.send_message("me", marker.clone()).await.unwrap();
+    // Search indexing lags a little behind sending, so counts and results may not include the marker yet.
+    user.search_messages_count("me").query(marker.as_str()).await.unwrap();
+    let mut found = user.search_global(marker.as_str()).limit(5);
+    while let Some(message) = found.next().await.unwrap() {
+        assert!(message.text.contains(&marker));
+    }
+    user.search_global_count("telegram", MessagesFilter::Url).await.unwrap();
+    saved.delete().await.unwrap();
+
+    let spanish = user.translate_text("es", "<b>Good morning</b>").html().await.unwrap();
+    assert_eq!((spanish.text.is_empty(), spanish.entities.map(|e| e.len())), (false, Some(1)));
 }

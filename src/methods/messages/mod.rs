@@ -32,9 +32,13 @@ mod get_available_reactions;
 mod get_chat_history;
 mod get_chat_history_count;
 mod get_custom_emoji_stickers;
+mod get_discussion_message;
+mod get_discussion_replies;
+mod get_discussion_replies_count;
 mod get_message_by_link;
 mod get_message_reactions_list;
 mod get_message_read_date;
+mod get_message_read_participants;
 mod get_messages;
 mod get_messages_views;
 mod get_poll_votes;
@@ -56,7 +60,11 @@ mod read_reactions;
 mod remove_from_gifs;
 mod retract_vote;
 mod save_draft;
+mod search_global;
+mod search_global_count;
 mod search_messages;
+mod search_messages_count;
+mod search_posts;
 mod send_animation;
 mod send_audio;
 mod send_chat_action;
@@ -87,6 +95,9 @@ mod set_default_reaction;
 mod stop_message_live_location;
 mod stop_poll;
 mod stream_message;
+mod transcribe_audio;
+mod translate_message_text;
+mod translate_text;
 mod unpin_all_chat_messages;
 mod unpin_chat_message;
 mod unpin_saved_dialog;
@@ -111,13 +122,17 @@ pub use edit_message_text::EditMessageText;
 pub use export_message_link::ExportMessageLink;
 pub use forward_messages::ForwardMessages;
 pub use get_chat_history::GetChatHistory;
+pub use get_discussion_replies::GetDiscussionReplies;
 pub use get_message_reactions_list::GetMessageReactionsList;
 pub use get_poll_votes::GetPollVotes;
 pub use get_saved_dialogs::GetSavedDialogs;
 pub use get_saved_history::GetSavedHistory;
 pub use pin_chat_message::PinChatMessage;
 pub use save_draft::SaveDraft;
+pub use search_global::SearchGlobal;
 pub use search_messages::SearchMessages;
+pub use search_messages_count::SearchMessagesCount;
+pub use search_posts::SearchPosts;
 pub use send_animation::SendAnimation;
 pub use send_audio::SendAudio;
 pub use send_chat_action::SendChatAction;
@@ -149,6 +164,7 @@ pub use stop_message_live_location::StopMessageLiveLocation;
 pub use stop_poll::StopPoll;
 pub(crate) use stream_message::StreamShared;
 pub use stream_message::{MessageStream, StreamMessage};
+pub use translate_text::TranslateText;
 pub use unpin_chat_message::UnpinChatMessage;
 
 #[cfg(test)]
@@ -507,6 +523,64 @@ mod saved_tests {
             hash: 0,
         };
         assert_eq!(rx.try_recv().unwrap(), second.to_bytes());
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use crate::Client;
+    use crate::client::sent;
+    use crate::enums::MessagesFilter;
+    use crate::errors::Error;
+    use crate::raw::functions::{channels, messages};
+    use crate::raw::{Identifiable, base, types};
+    use crate::utils::get_channel_id;
+
+    const GROUP: i64 = -5;
+
+    #[tokio::test]
+    async fn each_call_sends_its_request() {
+        let (client, mut rx) = Client::recording();
+        let channel = get_channel_id(9);
+        let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
+        let rx = &mut rx;
+
+        assert_eq!(sent(rx, client.search_global("x").next()).await, messages::SearchGlobal::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.search_posts().hashtag("x").next()).await, channels::SearchPosts::CONSTRUCTOR_ID);
+        let count = client.search_global_count("x", MessagesFilter::Url);
+        assert_eq!(sent(rx, count).await, messages::SearchGlobal::CONSTRUCTOR_ID);
+        let photos = client.search_messages_count(GROUP).filter(MessagesFilter::Photo);
+        assert_eq!(sent(rx, photos).await, messages::GetSearchCounters::CONSTRUCTOR_ID);
+        let matches = client.search_messages_count(GROUP).query("x").filter(MessagesFilter::Photo);
+        assert_eq!(sent(rx, matches).await, messages::Search::CONSTRUCTOR_ID);
+        let all = client.search_messages_count(GROUP);
+        assert_eq!(sent(rx, all).await, messages::Search::CONSTRUCTOR_ID);
+
+        let post = client.get_discussion_message(channel, 1);
+        assert_eq!(sent(rx, post).await, messages::GetDiscussionMessage::CONSTRUCTOR_ID);
+        let mut comments = client.get_discussion_replies(channel, 1);
+        assert_eq!(sent(rx, comments.next()).await, messages::GetReplies::CONSTRUCTOR_ID);
+        let comments = client.get_discussion_replies_count(channel, 1);
+        assert_eq!(sent(rx, comments).await, messages::GetReplies::CONSTRUCTOR_ID);
+        let read = client.get_message_read_participants(GROUP, 1);
+        assert_eq!(sent(rx, read).await, messages::GetMessageReadParticipants::CONSTRUCTOR_ID);
+
+        let text = client.translate_text("es", "hi");
+        assert_eq!(sent(rx, text).await, messages::TranslateText::CONSTRUCTOR_ID);
+        let posted = client.translate_message_text("es", GROUP, &[1, 2]);
+        assert_eq!(sent(rx, posted).await, messages::TranslateText::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.transcribe_audio(GROUP, 1)).await, messages::TranscribeAudio::CONSTRUCTOR_ID);
+
+        assert_eq!(sent(rx, client.get_chat_online_count(GROUP)).await, messages::GetOnlines::CONSTRUCTOR_ID);
+        let similar = client.get_similar_channels(channel);
+        assert_eq!(sent(rx, similar).await, channels::GetChannelRecommendations::CONSTRUCTOR_ID);
+        let recommended = client.get_recommended_channels();
+        assert_eq!(sent(rx, recommended).await, channels::GetChannelRecommendations::CONSTRUCTOR_ID);
+
+        let refused = client.get_similar_channels(GROUP).await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))));
+        assert!(rx.try_recv().is_err());
     }
 }
 
