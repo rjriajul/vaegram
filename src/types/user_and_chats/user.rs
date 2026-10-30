@@ -1,3 +1,4 @@
+use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::UserStatus;
 use crate::raw::base;
@@ -31,6 +32,14 @@ pub struct User {
 }
 
 impl User {
+    pub(crate) fn from_raw(client: &Client, user: base::User) -> User {
+        let id = match &user {
+            base::User::User(u) => u.id,
+            base::User::UserEmpty(u) => u.id,
+        };
+        User::parse(id, &Entities::new(client, vec![user], Vec::new()))
+    }
+
     pub(crate) fn parse(id: i64, entities: &Entities) -> User {
         match entities.users.get(&id) {
             Some(base::User::User(u)) => User {

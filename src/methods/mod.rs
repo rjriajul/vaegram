@@ -16,6 +16,7 @@ pub(crate) trait OnBehalf {
     fn business_connection(&mut self) -> &mut Option<String>;
 }
 
+mod account;
 mod advanced;
 mod auth;
 mod bots;
@@ -24,6 +25,7 @@ mod chats;
 mod decorators;
 mod invite_links;
 mod messages;
+mod password;
 mod payments;
 mod stickers;
 mod users;
@@ -37,7 +39,7 @@ pub use bots::{
 pub use business::{EditStory, PostStory, RepostStory};
 pub use chats::{
     BanChatMember, CreateForumTopic, EditForumTopic, GetChatAdministrators, GetChatMembers, RestrictChatMember,
-    SetChatPhoto,
+    SetChatPhoto, UpdateChatNotifications,
 };
 pub use invite_links::{
     CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
@@ -52,8 +54,9 @@ pub use messages::{
     SendVideoNote, SendVoice, StopMessageLiveLocation, StopPoll, StreamMessage, UnpinChatMessage,
 };
 pub(crate) use messages::{StreamShared, caption_setters, geo_point, input_venue};
+pub use password::{ChangeCloudPassword, EnableCloudPassword};
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
 };
 pub use stickers::CreateNewStickerSet;
-pub use users::{GetChatPhotos, GetUserProfileAudios, SetProfilePhoto};
+pub use users::{GetChatPhotos, GetUserProfileAudios, SetEmojiStatus, SetProfilePhoto, UpdateProfile};

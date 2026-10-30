@@ -7,7 +7,7 @@ mod raw_update;
 mod rich_messages;
 mod user_and_chats;
 
-pub use authorization::SentCode;
+pub use authorization::{ActiveSession, ActiveSessions, LoginToken, SentCode};
 pub use bots_and_keyboards::{
     AffiliateInfo, BotAccessSettings, BotCommand, BotCommandScope, BotSubscriptionUpdated, ButtonStyle, CallbackOrigin,
     CallbackQuery, ChatShared, EditCallbackMessageText, ForceReply, GameHighScore, InlineAction, InlineKeyboardButton,
@@ -50,7 +50,8 @@ pub use rich_messages::{
 pub(crate) use user_and_chats::BoostUpdate;
 pub use user_and_chats::{
     AcceptedGiftTypes, BusinessBotRights, BusinessConnection, Chat, ChatBoost, ChatBoostRemoved, ChatBoostSource,
-    ChatBoostUpdated, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated, ChatPermissions,
-    ChatPrivileges, Community, DirectMessagesTopic, ForumTopic, ForumTopicCreated, ForumTopicEdited,
-    PassportElementError, PeerRef, User, UserProfileAudios, UserProfilePhotos, UserStatusUpdated,
+    ChatBoostUpdated, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated, ChatNotifications,
+    ChatPermissions, ChatPrivileges, Community, DirectMessagesTopic, ForumTopic, ForumTopicCreated, ForumTopicEdited,
+    GlobalPrivacySettings, PassportElementError, PeerRef, PrivacyRule, User, UserProfileAudios, UserProfilePhotos,
+    UserStatusUpdated,
 };

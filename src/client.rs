@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::Duration;
 
@@ -66,6 +67,26 @@ impl ClientBuilder {
 
     pub fn password(mut self, password: impl Into<String>) -> Self {
         self.login.password = Some(password.into());
+        self
+    }
+
+    pub fn device_model(mut self, model: impl Into<String>) -> Self {
+        self.options.device.model = model.into();
+        self
+    }
+
+    pub fn system_version(mut self, version: impl Into<String>) -> Self {
+        self.options.device.system_version = version.into();
+        self
+    }
+
+    pub fn app_version(mut self, version: impl Into<String>) -> Self {
+        self.options.device.app_version = version.into();
+        self
+    }
+
+    pub fn lang_code(mut self, code: impl Into<String>) -> Self {
+        self.options.device.lang_code = code.into();
         self
     }
 
@@ -249,6 +270,9 @@ pub(crate) struct Inner {
     pub(crate) options: Options,
     pub(crate) parse_mode: ParseMode,
     pub(crate) state: Mutex<Option<UpdateState>>,
+    // Bumped by log_out under the `state` lock, so a dispatcher started for the old account can't hand its
+    // state back.
+    pub(crate) account: AtomicU64,
     pub(crate) me: Mutex<Me>,
     pub(crate) peers: Mutex<HashMap<i64, base::InputPeer>>,
     pub(crate) handlers: Routes,
@@ -295,6 +319,7 @@ impl Inner {
             parse_mode: ParseMode::Disabled,
             transfers: TransferPool::default(),
             state: Mutex::new(None),
+            account: AtomicU64::new(0),
             me: Mutex::new(Me::default()),
             peers: Mutex::new(HashMap::new()),
             handlers: Routes::default(),
@@ -449,6 +474,16 @@ impl Client {
         drop(me);
         self.0.transfers.clear();
         self.save()
+    }
+
+    pub(crate) fn forget_account(&self) {
+        let mut state = self.0.state.lock().unwrap();
+        self.0.account.fetch_add(1, Ordering::Relaxed);
+        *state = None;
+        drop(state);
+        *self.0.me.lock().unwrap() = Me::default();
+        self.0.peers.lock().unwrap().clear();
+        self.0.transfers.clear();
     }
 
     pub(crate) async fn transfer_sessions(&self, dc: Dc, count: usize) -> Result<Lease> {

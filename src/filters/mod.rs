@@ -261,9 +261,21 @@ pub fn data_prefix<T: HasData>(prefix: impl AsRef<[u8]>) -> Filter<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::facts::*;
     use super::*;
+    use crate::Client;
+    use crate::dispatcher::Entities;
+    use crate::raw::{base, types};
     use crate::types::CallbackQuery;
+    use crate::utils::get_peer;
+
+    fn message(client: &Client, chat_id: i64, text: &str, media: Option<base::MessageMedia>) -> Message {
+        let mut raw = Message::bare(1, get_peer(chat_id), 0);
+        (raw.message, raw.media) = (text.into(), media);
+        Message::parse(client, Box::new(raw), &Entities::default())
+    }
 
     fn hit<T>(filter: &Filter<T>, facts: Facts<'_>) -> bool {
         filter.decide(&facts).unwrap()
@@ -340,5 +352,76 @@ mod tests {
         assert_eq!(f.decide(&private_chat), Some(true));
         let f: Filter = private() & create(|_| false);
         assert_eq!(f.decide(&private_chat), None);
+    }
+
+    #[test]
+    fn composed_filters_follow_boolean_logic() {
+        type Rule = fn(bool, bool, bool, bool, bool) -> bool;
+        let cases: Vec<(Filter, Rule)> = vec![
+            (text() & reply() & incoming(), |t, r, o, _, _| t && r && !o),
+            (!(text() & incoming()), |t, _, o, _, _| !(t && !o)),
+            (incoming() & outgoing(), |_, _, _, _, _| false),
+            (text() & !text(), |_, _, _, _, _| false),
+            ((text() | reply()) & !incoming(), |t, r, o, _, _| (t || r) && o),
+            (private() | channel() | text(), |t, _, _, p, c| p || c || t),
+            (!(private() | channel()) & !text(), |t, _, _, p, c| !(p || c) && !t),
+            (!!reply() & (all() | text()), |_, r, _, _, _| r),
+            (!all() | (channel() & outgoing()), |_, _, o, _, c| c && o),
+        ];
+        for bits in 0..8u32 {
+            let (t, r, o) = (bits & 1 != 0, bits & 2 != 0, bits & 4 != 0);
+            let flags = [(t, TEXT), (r, REPLY), (o, OUTGOING)].iter().filter(|(on, _)| *on).fold(0, |f, (_, b)| f | b);
+            for chat in [ChatType::Private, ChatType::Group, ChatType::Channel] {
+                let facts = Facts { flags, chat: Some(chat), ..Facts::default() };
+                let (p, c) = (chat == ChatType::Private, chat == ChatType::Channel);
+                for (i, (filter, rule)) in cases.iter().enumerate() {
+                    assert_eq!(hit(filter, facts), rule(t, r, o, p, c), "case {i}, flags {flags:b}, {chat:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn closures_run_only_when_needed() {
+        let client = Client::offline();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = {
+            let calls = calls.clone();
+            create(move |_: &Message| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                true
+            })
+        };
+        let (plain, empty) = (message(&client, 7, "hi", None), message(&client, 7, "", None));
+        assert!(!(!all() & counted.clone()).check(&plain));
+        assert!((all() | counted.clone()).check(&plain));
+        assert!(!(text() & counted.clone()).check(&empty));
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        assert!((all() & text() & counted).check(&plain));
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn check_reads_a_parsed_message() {
+        let client = Client::offline();
+        client.0.me.lock().unwrap().username = Some("mybot".into());
+        let start: Filter = command(["start", "help"]);
+        let cases = [("/START@MyBot now", true), ("/help", true), ("/start@otherbot", false), ("/stop", false)];
+        for (input, matches) in cases {
+            assert_eq!(start.check(&message(&client, 7, input, None)), matches, "{input}");
+        }
+
+        let (dm, group) = (message(&client, 7, "hi", None), message(&client, -5, "hi", None));
+        let private: Filter = private();
+        assert_eq!((private.check(&dm), private.check(&group)), (true, false));
+        let dice = types::MessageMediaDice { value: 6, emoticon: "🎲".into(), game_outcome: None };
+        let dice = Some(base::MessageMedia::MessageMediaDice(Box::new(dice)));
+        let captioned = message(&client, 7, "/start", dice.clone());
+        let (text, caption): (Filter, Filter) = (text(), caption());
+        let shapes = |m: &Message| (text.check(m), caption.check(m), start.check(m));
+        assert_eq!(shapes(&dm), (true, false, false));
+        assert_eq!(shapes(&captioned), (false, true, true));
+        assert_eq!(shapes(&message(&client, 7, "", dice)), (false, false, false));
+        assert_eq!(shapes(&message(&client, 7, "", None)), (false, false, false));
     }
 }

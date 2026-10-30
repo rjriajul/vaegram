@@ -69,4 +69,18 @@ mod tests {
         assert_eq!(Command::parse(".ban", "!.").map(|c| c.name), Some("ban"));
         assert_eq!(Command::parse("/ban", "!."), None);
     }
+
+    #[test]
+    fn commands_check_the_bot_name_and_split_on_whitespace() {
+        assert_eq!(read("/start@mybot", Some("MyBot")), Some(("start", vec![])));
+        assert_eq!(read("/start@", Some("mybot")), None);
+        assert_eq!(read("/@mybot", Some("mybot")), None);
+        assert_eq!(read("/start@mybot@x", Some("mybot")), None);
+        assert_eq!(read("/start@mybotx", Some("mybot")), None);
+        assert_eq!(read(" /start", None), None);
+        assert_eq!(read("/go\tfast\nnow ", None), Some(("go", vec!["fast", "now"])));
+        assert_eq!(read("/go@mybot\nx", Some("mybot")), Some(("go", vec!["x"])));
+        assert_eq!(read("/пуск арг", None), Some(("пуск", vec!["арг"])));
+        assert_eq!(Command::parse("пуск", "п").map(|c| c.name), Some("уск"));
+    }
 }

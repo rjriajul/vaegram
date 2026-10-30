@@ -68,16 +68,31 @@ pub(crate) struct Srp<'a> {
     pub(crate) g_b: &'a [u8],
 }
 
+fn group(g: i32, p: &[u8]) -> Result<(BigUint, BigUint), &'static str> {
+    let p = BigUint::from_bytes_be(p);
+    if p != prime::dh_prime() {
+        return Err("server sent an unknown password prime");
+    }
+    if !(2..=7).contains(&g) {
+        return Err("password g is out of range");
+    }
+    Ok((BigUint::from(g as u32), p))
+}
+
+pub(crate) fn verifier(
+    password: &[u8],
+    salt1: &[u8],
+    salt2: &[u8],
+    g: i32,
+    p: &[u8],
+) -> Result<[u8; 256], &'static str> {
+    let (g, p) = group(g, p)?;
+    Ok(to_be_padded::<256>(&g.modpow(&password_hash(password, salt1, salt2), &p)))
+}
+
 impl Srp<'_> {
     pub(crate) fn check(&self, password: &[u8], a: &[u8; 256]) -> Result<([u8; 256], [u8; 32]), &'static str> {
-        let p = BigUint::from_bytes_be(self.p);
-        if p != prime::dh_prime() {
-            return Err("server sent an unknown password prime");
-        }
-        if !(2..=7).contains(&self.g) {
-            return Err("password g is out of range");
-        }
-        let g = BigUint::from(self.g as u32);
+        let (g, p) = group(self.g, self.p)?;
         let g_b = BigUint::from_bytes_be(self.g_b);
         if !in_safe_range(&g_b, &p) {
             return Err("srp_B is out of the safe range");
@@ -108,7 +123,7 @@ impl Srp<'_> {
 mod tests {
     use num_bigint::BigUint;
 
-    use super::{Srp, password_hash, pbkdf2_sha512};
+    use super::{Srp, password_hash, pbkdf2_sha512, verifier};
     use crate::crypto::{prime, random, sha256, to_be_padded};
 
     #[test]
@@ -152,5 +167,59 @@ mod tests {
 
         let (g_a, m1) = srp.check(b"wrong", &random()).unwrap();
         assert_ne!(m1, server_expects(&g_a));
+    }
+
+    #[test]
+    fn verifier_is_what_the_server_checks_against() {
+        let (salt1, salt2) = (b"salt one".as_slice(), b"salt two".as_slice());
+        let p = to_be_padded::<256>(&prime::dh_prime());
+        let v = verifier(b"hunter2", salt1, salt2, 3, &p).unwrap();
+        let x = password_hash(b"hunter2", salt1, salt2);
+        assert_eq!(BigUint::from_bytes_be(&v), BigUint::from(3u8).modpow(&x, &prime::dh_prime()));
+
+        assert!(verifier(b"hunter2", salt1, salt2, 8, &p).is_err());
+        let mut other = p;
+        other[255] ^= 2;
+        assert!(verifier(b"hunter2", salt1, salt2, 3, &other).is_err());
+    }
+
+    // m1 was computed independently in Python (hashlib) from the steps at core.telegram.org/api/srp.
+    #[test]
+    fn proof_matches_fixed_vector() {
+        let p = prime::dh_prime();
+        let a: [u8; 256] = std::array::from_fn(|i| i as u8);
+        let b = BigUint::from_bytes_be(&std::array::from_fn::<u8, 256, _>(|i| 255 - i as u8));
+        let g_b = to_be_padded::<256>(&BigUint::from(3u8).modpow(&b, &p));
+        let srp = Srp { salt1: b"salt one", salt2: b"salt two", g: 3, p: &to_be_padded::<256>(&p), g_b: &g_b };
+
+        let (g_a, m1) = srp.check(b"hunter2", &a).unwrap();
+        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        assert_eq!(hex(&sha256(&[&g_a])), "5a6121b88303c209ca550110abaf7a46068b0347e4b7904c3c3b9ea55e8de9cb");
+        assert_eq!(hex(&m1), "10674de1c3b744ff8ea677d224ef7657d83487475c995750a2c7ad515e0e019c");
+    }
+
+    #[test]
+    fn rejects_unsafe_parameters() {
+        let p = to_be_padded::<256>(&prime::dh_prime());
+        let g_b = to_be_padded::<256>(&BigUint::from(3u8).modpow(&BigUint::from(1u32 << 31), &prime::dh_prime()));
+        let a = [7u8; 256];
+        let fails = |g, p: &[u8], g_b: &[u8]| Srp { salt1: b"s", salt2: b"t", g, p, g_b }.check(b"pw", &a).is_err();
+        assert!(!fails(3, &p, &g_b));
+        let mut other = p;
+        other[255] ^= 2;
+        let tiny = to_be_padded::<256>(&BigUint::from(2u8));
+        let mut big = p;
+        big[255] -= 1;
+        let cases: [(i32, &[u8], &[u8], &str); 6] = [
+            (1, &p, &g_b, "g = 1"),
+            (8, &p, &g_b, "g = 8"),
+            (3, &other, &g_b, "unknown prime"),
+            (3, &p, &tiny, "tiny g_b"),
+            (3, &p, &big, "g_b = p - 1"),
+            (3, &p, &[0; 256], "zero g_b"),
+        ];
+        for (g, p, g_b, why) in cases {
+            assert!(fails(g, p, g_b), "{why}");
+        }
     }
 }
