@@ -263,6 +263,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   stealth mode (not yet tested live)
 - [ ] Using bots as a user: `get_inline_bot_results`, `send_inline_bot_result`, `msg.click(0)`, `request_callback_answer`,
   `start_bot`, `vote_poll` (not yet tested live)
+- [ ] Saved GIFs, media search filters and message links: `.filter(MessagesFilter::Photo)`, `get_message_by_link`
+  (not yet tested live)
 
 ### Development
 

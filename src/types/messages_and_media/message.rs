@@ -387,6 +387,26 @@ impl Message {
         DownloadMedia::new(&self.client, location, source)
     }
 
+    pub fn has_media_spoiler(&self) -> bool {
+        match &self.raw.media {
+            Some(base::MessageMedia::MessageMediaPhoto(m)) => m.spoiler,
+            Some(base::MessageMedia::MessageMediaDocument(m)) => m.spoiler,
+            _ => false,
+        }
+    }
+
+    pub fn ttl_seconds(&self) -> Option<i32> {
+        match &self.raw.media {
+            Some(base::MessageMedia::MessageMediaPhoto(m)) => m.ttl_seconds,
+            Some(base::MessageMedia::MessageMediaDocument(m)) => m.ttl_seconds,
+            _ => None,
+        }
+    }
+
+    pub async fn read_contents(&self) -> Result<()> {
+        self.client.read_message_contents(self.chat.id, &[self.id]).await
+    }
+
     pub fn command(&self) -> Option<Command<'_>> {
         self.command_with("/")
     }
@@ -897,5 +917,31 @@ pub(crate) mod tests {
         // reply_to is flags.0 of messages.sendMessage, right after the constructor id.
         let mut has_reply_to = || rx.try_recv().expect("no request sent")[4] & 1 == 1;
         assert_eq!((has_reply_to(), has_reply_to(), has_reply_to()), (true, false, true));
+    }
+
+    #[test]
+    fn reads_spoiler_and_ttl_off_the_media() {
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        let text = parse(&raw);
+        assert_eq!((text.has_media_spoiler(), text.ttl_seconds()), (false, None));
+
+        let photo = types::MessageMediaPhoto {
+            spoiler: true,
+            live_photo: false,
+            photo: None,
+            ttl_seconds: Some(10),
+            video: None,
+        };
+        raw.media = Some(base::MessageMedia::MessageMediaPhoto(Box::new(photo)));
+        let photo = parse(&raw);
+        assert_eq!((photo.has_media_spoiler(), photo.ttl_seconds()), (true, Some(10)));
+
+        let mut document = document_media("video/mp4", Vec::new());
+        if let base::MessageMedia::MessageMediaDocument(d) = &mut document {
+            (d.spoiler, d.ttl_seconds) = (true, Some(5));
+        }
+        raw.media = Some(document);
+        let document = parse(&raw);
+        assert_eq!((document.has_media_spoiler(), document.ttl_seconds()), (true, Some(5)));
     }
 }

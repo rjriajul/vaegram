@@ -1,7 +1,8 @@
 use super::pages::Pages;
 use crate::Client;
+use crate::enums::MessagesFilter;
 use crate::errors::Result;
-use crate::raw::{base, functions};
+use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
 #[must_use = "call .next() to fetch messages"]
@@ -10,6 +11,7 @@ pub struct SearchMessages<'a> {
     chat_id: PeerRef,
     query: String,
     from_user: Option<PeerRef>,
+    filter: MessagesFilter,
     pages: Pages,
 }
 
@@ -20,6 +22,7 @@ impl Client {
             chat_id: chat_id.into(),
             query: String::new(),
             from_user: None,
+            filter: MessagesFilter::Empty,
             pages: Pages::new(),
         }
     }
@@ -33,6 +36,11 @@ impl SearchMessages<'_> {
 
     pub fn from_user(mut self, user_id: impl Into<PeerRef>) -> Self {
         self.from_user = Some(user_id.into());
+        self
+    }
+
+    pub fn filter(mut self, filter: MessagesFilter) -> Self {
+        self.filter = filter;
         self
     }
 
@@ -64,7 +72,7 @@ impl SearchMessages<'_> {
                 saved_peer_id: None,
                 saved_reaction: None,
                 top_msg_id: None,
-                filter: base::MessagesFilter::InputMessagesFilterEmpty,
+                filter: self.filter.write(),
                 min_date: 0,
                 max_date: 0,
                 offset_id: self.pages.offset_id,
@@ -77,5 +85,20 @@ impl SearchMessages<'_> {
             let page = self.client.invoke(&request).await?;
             self.pages.fill(self.client, page);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Client;
+    use crate::enums::MessagesFilter;
+
+    #[tokio::test]
+    async fn sends_the_filter() {
+        let (client, mut rx) = Client::recording();
+        let _ = client.search_messages(-5).filter(MessagesFilter::VideoNote).next().await;
+        let body = rx.try_recv().expect("no request sent");
+        let round_video = 0xb549da53u32.to_le_bytes();
+        assert!(body.windows(4).any(|w| w == round_video));
     }
 }
