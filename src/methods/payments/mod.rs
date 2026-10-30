@@ -1,7 +1,10 @@
+mod apply_gift_code;
+mod check_gift_code;
 mod convert_gift_to_stars;
 mod get_available_gifts;
 mod get_business_account_gifts;
 mod get_chat_gifts;
+mod get_giveaway_info;
 mod get_my_star_balance;
 mod get_star_transactions;
 mod get_user_gifts;

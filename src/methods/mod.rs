@@ -30,6 +30,7 @@ mod messages;
 mod pages;
 mod password;
 mod payments;
+mod premium;
 mod stickers;
 mod stories;
 mod users;
@@ -67,6 +68,7 @@ pub use password::{ChangeCloudPassword, EnableCloudPassword};
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
 };
+pub use premium::GetBoostsList;
 pub use stickers::CreateNewStickerSet;
 pub use stories::{EditStoryCaption, EnableStealthMode, GetStoryViewers, SendStory, StoryPages};
 pub use users::{GetChatPhotos, GetUserProfileAudios, SetEmojiStatus, SetProfilePhoto, UpdateProfile};

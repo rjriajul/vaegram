@@ -902,3 +902,14 @@ async fn user_searches_and_translates() {
     let spanish = user.translate_text("es", "<b>Good morning</b>").html().await.unwrap();
     assert_eq!((spanish.text.is_empty(), spanish.entities.map(|e| e.len())), (false, Some(1)));
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_reads_premium_and_boosts() {
+    let Some(user) = user_client().await else { return };
+    user.get_premium_promo().await.unwrap();
+    let boosts = user.get_my_boosts().await.unwrap();
+    assert!(boosts.iter().all(|b| b.expire_date >= b.date));
+    let err = user.check_gift_code("https://t.me/giftcode/vaegram-no-such-code").await.unwrap_err();
+    assert!(matches!(err, vaegram::Error::Rpc(_)), "{err}");
+}
