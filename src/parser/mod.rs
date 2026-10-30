@@ -288,4 +288,89 @@ mod tests {
         let unknown = format!("{}<b>a</b>", "<x>".repeat(70));
         assert_eq!(run(&unknown, ParseMode::Html), ("a".into(), vec!["bold 0 1".into()]));
     }
+
+    #[test]
+    fn html_tags_nest_and_overlap() {
+        assert_eq!(html("<b>a<b>b</b>c</b>"), ("abc".into(), vec!["bold 0 3".into(), "bold 1 1".into()]));
+        assert_eq!(
+            html("<b><i>x</b>y</i>"),
+            ("xy".into(), vec!["italic 0 1".into(), "bold 0 1".into(), "italic 1 1".into()])
+        );
+        assert_eq!(html("<B>x</B><EM>y</em>"), ("xy".into(), vec!["bold 0 1".into(), "italic 1 1".into()]));
+        assert_eq!(html("<b></b>x<i></i>"), ("x".into(), vec![]));
+        assert_eq!(html("<code>a</code><pre>b</pre>"), ("ab".into(), vec!["code 0 1".into(), "pre: 1 1".into()]));
+    }
+
+    #[test]
+    fn html_malformed_input_stays_text() {
+        assert_eq!(html("a<1 and <b x"), ("a<1 and <b x".into(), vec![]));
+        assert_eq!(html("x &amp y &#xD800; &#; &#99999999;"), ("x &amp y &#xD800; &#; &#99999999;".into(), vec![]));
+        assert_eq!(html("<tg-emoji emoji-id=\"nope\">e</tg-emoji>"), ("e".into(), vec![]));
+        assert_eq!(html("<a href=\"x>y\">l</a>"), ("l".into(), vec!["url:x>y 0 1".into()]));
+        assert_eq!(html("<a href=\"tg://user?id=abc\">l</a>"), ("l".into(), vec!["url:tg://user?id=abc 0 1".into()]));
+        assert_eq!(html("<span>s</span>"), ("s".into(), vec![]));
+    }
+
+    #[test]
+    fn decoded_entities_count_utf16_units() {
+        assert_eq!(html("&#128512;<b>x</b>"), ("😀x".into(), vec!["bold 2 1".into()]));
+        assert_eq!(html("&#x1F600;&nbsp;<i>y</i>"), ("😀\u{a0}y".into(), vec!["italic 3 1".into()]));
+        assert_eq!(md("😀[x](u) `😀`"), ("😀x 😀".into(), vec!["url:u 2 1".into(), "code 4 2".into()]));
+        assert_eq!(md("> 😀\nz"), ("😀\nz".into(), vec!["quote:false 0 2".into()]));
+    }
+
+    #[test]
+    fn markdown_edge_cases_parse_or_stay_text() {
+        let mut same = md("**__x__**");
+        same.1.sort();
+        assert_eq!(same, ("x".into(), vec!["bold 0 1".into(), "italic 0 1".into()]));
+        assert_eq!(md("**a** **b**"), ("a b".into(), vec!["bold 0 1".into(), "bold 2 1".into()]));
+        assert_eq!(md("**a"), ("**a".into(), vec![]));
+        assert_eq!(md(r"\\ \a"), (r"\ \a".into(), vec![]));
+        assert_eq!(md("``"), ("".into(), vec![]));
+        assert_eq!(md("```\ncode\n```"), ("code".into(), vec!["pre: 0 4".into()]));
+        assert_eq!(md("```two words\nx```"), ("two words\nx".into(), vec!["pre: 0 11".into()]));
+        assert_eq!(md("[a](b"), ("[a](b".into(), vec![]));
+    }
+
+    #[test]
+    fn entities_fit_the_text_and_are_ordered() {
+        let inputs = [
+            "<b>a<i>b<u>c</b>d</i>e",
+            "</i></b><b>😀",
+            "<pre><code class=\"language-x\">a</pre></code>",
+            "**a __b** c__ ||d",
+            "> q\n> **😀**\n`x` [y](z) ~~",
+            "<a href=\"u\"><b>😀</b></a>&#65;",
+        ];
+        for input in inputs {
+            for mode in [ParseMode::Html, ParseMode::Markdown] {
+                let parsed = parse(input, mode);
+                let (text, entities) = (parsed.text.clone(), parsed.write_entities());
+                let len = text.encode_utf16().count() as i32;
+                let mut last = (0, i32::MAX);
+                for e in &entities {
+                    let (offset, length) = bounds(e);
+                    assert!(offset >= 0 && length > 0 && offset + length <= len, "{input:?} {mode:?} {e:?}");
+                    assert!((offset, -length) >= (last.0, -last.1), "{input:?} {mode:?} out of order");
+                    last = (offset, length);
+                }
+            }
+        }
+    }
+
+    fn bounds(e: &E) -> (i32, i32) {
+        match e {
+            E::MessageEntityBold(e) => (e.offset, e.length),
+            E::MessageEntityItalic(e) => (e.offset, e.length),
+            E::MessageEntityUnderline(e) => (e.offset, e.length),
+            E::MessageEntityStrike(e) => (e.offset, e.length),
+            E::MessageEntitySpoiler(e) => (e.offset, e.length),
+            E::MessageEntityCode(e) => (e.offset, e.length),
+            E::MessageEntityPre(e) => (e.offset, e.length),
+            E::MessageEntityTextUrl(e) => (e.offset, e.length),
+            E::MessageEntityBlockquote(e) => (e.offset, e.length),
+            other => panic!("unexpected entity {other:?}"),
+        }
+    }
 }

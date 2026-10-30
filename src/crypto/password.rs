@@ -79,7 +79,6 @@ fn group(g: i32, p: &[u8]) -> Result<(BigUint, BigUint), &'static str> {
     Ok((BigUint::from(g as u32), p))
 }
 
-/// The `new_password_hash` Telegram stores for a new password: g^x mod p, padded to 256 bytes.
 pub(crate) fn verifier(
     password: &[u8],
     salt1: &[u8],
@@ -182,5 +181,45 @@ mod tests {
         let mut other = p;
         other[255] ^= 2;
         assert!(verifier(b"hunter2", salt1, salt2, 3, &other).is_err());
+    }
+
+    // m1 was computed independently in Python (hashlib) from the steps at core.telegram.org/api/srp.
+    #[test]
+    fn proof_matches_fixed_vector() {
+        let p = prime::dh_prime();
+        let a: [u8; 256] = std::array::from_fn(|i| i as u8);
+        let b = BigUint::from_bytes_be(&std::array::from_fn::<u8, 256, _>(|i| 255 - i as u8));
+        let g_b = to_be_padded::<256>(&BigUint::from(3u8).modpow(&b, &p));
+        let srp = Srp { salt1: b"salt one", salt2: b"salt two", g: 3, p: &to_be_padded::<256>(&p), g_b: &g_b };
+
+        let (g_a, m1) = srp.check(b"hunter2", &a).unwrap();
+        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        assert_eq!(hex(&sha256(&[&g_a])), "5a6121b88303c209ca550110abaf7a46068b0347e4b7904c3c3b9ea55e8de9cb");
+        assert_eq!(hex(&m1), "10674de1c3b744ff8ea677d224ef7657d83487475c995750a2c7ad515e0e019c");
+    }
+
+    #[test]
+    fn rejects_unsafe_parameters() {
+        let p = to_be_padded::<256>(&prime::dh_prime());
+        let g_b = to_be_padded::<256>(&BigUint::from(3u8).modpow(&BigUint::from(1u32 << 31), &prime::dh_prime()));
+        let a = [7u8; 256];
+        let fails = |g, p: &[u8], g_b: &[u8]| Srp { salt1: b"s", salt2: b"t", g, p, g_b }.check(b"pw", &a).is_err();
+        assert!(!fails(3, &p, &g_b));
+        let mut other = p;
+        other[255] ^= 2;
+        let tiny = to_be_padded::<256>(&BigUint::from(2u8));
+        let mut big = p;
+        big[255] -= 1;
+        let cases: [(i32, &[u8], &[u8], &str); 6] = [
+            (1, &p, &g_b, "g = 1"),
+            (8, &p, &g_b, "g = 8"),
+            (3, &other, &g_b, "unknown prime"),
+            (3, &p, &tiny, "tiny g_b"),
+            (3, &p, &big, "g_b = p - 1"),
+            (3, &p, &[0; 256], "zero g_b"),
+        ];
+        for (g, p, g_b, why) in cases {
+            assert!(fails(g, p, g_b), "{why}");
+        }
     }
 }
