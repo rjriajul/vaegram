@@ -826,3 +826,25 @@ async fn user_shares_a_folder() {
     user.delete_folder_invite_link(folder.id, &link.invite_link).await.unwrap();
     user.delete_folder(folder.id).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_reads_reaction_and_effect_lists() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let user = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+        .connect()
+        .await
+        .unwrap();
+
+    let available = user.get_available_reactions().await.unwrap();
+    assert!(available.iter().any(|r| r.emoji == "👍" && !r.premium));
+    let effects = user.get_available_effects().await.unwrap();
+    assert!(effects.iter().all(|e| e.id != 0 && !e.emoji.is_empty()));
+    assert!(user.get_top_reactions(10).await.unwrap().len() <= 10);
+    user.get_recent_reactions(10).await.unwrap();
+    user.get_saved_reaction_tags().await.unwrap();
+}

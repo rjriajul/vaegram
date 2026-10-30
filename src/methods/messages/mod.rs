@@ -25,15 +25,22 @@ mod edit_message_reply_markup;
 mod edit_message_text;
 mod forward_messages;
 mod get_all_drafts;
+mod get_available_effects;
+mod get_available_reactions;
 mod get_chat_history;
 mod get_chat_history_count;
 mod get_custom_emoji_stickers;
+mod get_message_reactions_list;
 mod get_message_read_date;
 mod get_messages;
 mod get_messages_views;
+mod get_poll_votes;
+mod get_recent_reactions;
 mod get_saved_dialogs;
 mod get_saved_history;
+mod get_saved_reaction_tags;
 mod get_scheduled_messages;
+mod get_top_reactions;
 mod get_user_personal_chat_messages;
 mod pages;
 mod pin_chat_message;
@@ -58,6 +65,7 @@ mod send_message;
 mod send_message_draft;
 mod send_options;
 mod send_paid_media;
+mod send_paid_reaction;
 mod send_photo;
 mod send_poll;
 mod send_reaction;
@@ -68,12 +76,14 @@ mod send_venue;
 mod send_video;
 mod send_video_note;
 mod send_voice;
+mod set_default_reaction;
 mod stop_message_live_location;
 mod stop_poll;
 mod stream_message;
 mod unpin_all_chat_messages;
 mod unpin_chat_message;
 mod unpin_saved_dialog;
+mod update_saved_reaction_tag;
 mod upload_media;
 
 pub use approve_suggested_post::ApproveSuggestedPost;
@@ -92,6 +102,8 @@ pub use edit_message_reply_markup::EditMessageReplyMarkup;
 pub use edit_message_text::EditMessageText;
 pub use forward_messages::ForwardMessages;
 pub use get_chat_history::GetChatHistory;
+pub use get_message_reactions_list::GetMessageReactionsList;
+pub use get_poll_votes::GetPollVotes;
 pub use get_saved_dialogs::GetSavedDialogs;
 pub use get_saved_history::GetSavedHistory;
 pub use pin_chat_message::PinChatMessage;
@@ -113,6 +125,7 @@ pub use send_message::SendMessage;
 pub use send_message_draft::SendMessageDraft;
 pub(crate) use send_options::{SendOptions, caption_setters, send_builder};
 pub use send_paid_media::SendPaidMedia;
+pub use send_paid_reaction::SendPaidReaction;
 pub use send_photo::SendPhoto;
 pub use send_poll::SendPoll;
 pub use send_reaction::SendReaction;
@@ -485,5 +498,92 @@ mod saved_tests {
             hash: 0,
         };
         assert_eq!(rx.try_recv().unwrap(), second.to_bytes());
+    }
+}
+
+#[cfg(test)]
+mod reaction_tests {
+    use crate::Client;
+    use crate::client::sent;
+    use crate::raw::functions::messages;
+    use crate::raw::{Identifiable, Serializable, base, types};
+
+    const USER: i64 = 7;
+
+    fn setup(answers: Vec<Vec<u8>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (client, rx) = Client::scripted(answers.into_iter().map(Ok).collect());
+        let peer = types::InputPeerUser { user_id: USER, access_hash: 2 };
+        client.0.peers.lock().unwrap().insert(USER, base::InputPeer::InputPeerUser(Box::new(peer)));
+        (client, rx)
+    }
+
+    #[tokio::test]
+    async fn reaction_calls_hit_their_methods() {
+        let (client, mut rx) = setup(Vec::new());
+        let rx = &mut rx;
+        let mut reactors = client.get_message_reactions_list(USER, 1).reaction("👍");
+
+        assert_eq!(sent(rx, reactors.next()).await, messages::GetMessageReactionsList::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.send_paid_reaction(USER, 1, 5)).await, messages::SendPaidReaction::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.set_default_reaction("👍")).await, messages::SetDefaultReaction::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_available_reactions()).await, messages::GetAvailableReactions::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_top_reactions(10)).await, messages::GetTopReactions::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_recent_reactions(10)).await, messages::GetRecentReactions::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_saved_reaction_tags()).await, messages::GetSavedReactionTags::CONSTRUCTOR_ID);
+        assert_eq!(
+            sent(rx, client.update_saved_reaction_tag("👍", "")).await,
+            messages::UpdateSavedReactionTag::CONSTRUCTOR_ID
+        );
+        assert_eq!(sent(rx, client.get_available_effects()).await, messages::GetAvailableEffects::CONSTRUCTOR_ID);
+    }
+
+    #[tokio::test]
+    async fn poll_votes_follow_next_offset() {
+        let page = |options: &[u8], next_offset: Option<&str>| {
+            let peer = base::Peer::PeerUser(types::PeerUser { user_id: USER });
+            let votes = options.iter().map(|&o| {
+                let vote = types::MessagePeerVote { peer: peer.clone(), option: vec![o], date: 1 };
+                base::MessagePeerVote::MessagePeerVote(Box::new(vote))
+            });
+            let list = types::messages::VotesList {
+                count: 3,
+                votes: votes.collect(),
+                chats: Vec::new(),
+                users: Vec::new(),
+                next_offset: next_offset.map(Into::into),
+            };
+            base::messages::VotesList::VotesList(Box::new(list)).to_bytes()
+        };
+        let (client, mut rx) = setup(vec![page(&[0, 1], Some("next")), page(&[2], None)]);
+        let peer = || base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: USER, access_hash: 2 }));
+
+        let mut votes = client.get_poll_votes(USER, 9);
+        let mut options = Vec::new();
+        while let Some(vote) = votes.next().await.unwrap() {
+            options.extend(vote.options);
+        }
+        assert_eq!(options, [vec![0], vec![1], vec![2]]);
+        let first = messages::GetPollVotes { peer: peer(), id: 9, option: None, offset: None, limit: 50 };
+        let second =
+            messages::GetPollVotes { peer: peer(), id: 9, option: None, offset: Some("next".into()), limit: 50 };
+        assert_eq!((rx.try_recv().unwrap(), rx.try_recv().unwrap()), (first.to_bytes(), second.to_bytes()));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn filtered_votes_carry_the_queried_option() {
+        let peer = base::Peer::PeerUser(types::PeerUser { user_id: 8 });
+        let vote = types::MessagePeerVoteInputOption { peer, date: 1 };
+        let list = types::messages::VotesList {
+            count: 1,
+            votes: vec![base::MessagePeerVote::MessagePeerVoteInputOption(Box::new(vote))],
+            chats: Vec::new(),
+            users: Vec::new(),
+            next_offset: None,
+        };
+        let (client, _rx) = setup(vec![base::messages::VotesList::VotesList(Box::new(list)).to_bytes()]);
+
+        let vote = client.get_poll_votes(USER, 9).option(vec![1]).next().await.unwrap().unwrap();
+        assert_eq!((vote.voter_id, vote.options), (8, vec![vec![1]]));
     }
 }
