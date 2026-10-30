@@ -1,13 +1,15 @@
 mod authorization;
 mod bots_and_keyboards;
+mod help;
 mod inline_mode;
+mod langpack;
 pub(crate) mod messages_and_media;
 mod payments;
 mod raw_update;
 mod rich_messages;
 mod user_and_chats;
 
-pub use authorization::{ActiveSession, ActiveSessions, LoginToken, SentCode};
+pub use authorization::{ActiveSession, ActiveSessions, LoginToken, SentCode, TermsOfService};
 pub use bots_and_keyboards::{
     AffiliateInfo, AttachMenuBot, BotAccessSettings, BotApp, BotCommand, BotCommandScope, BotInfo, BotPreviewInfo,
     BotPreviewMedia, BotSubscriptionUpdated, ButtonStyle, CallbackAnswer, CallbackOrigin, CallbackQuery, ChatShared,
@@ -17,6 +19,7 @@ pub use bots_and_keyboards::{
     ReplyKeyboardRemove, ReplyMarkup, RevenueWithdrawalState, SharedUser, ShippingAddress, ShippingOption,
     ShippingQuery, StarTransaction, StarTransactions, TransactionPartner, UsersShared, WebView, WebViewSession,
 };
+pub use help::{Country, CountryCode, Json, NearestDc, PendingSuggestion, PromoData, Support, Timezone};
 pub use inline_mode::{
     ChosenInlineResult, InlineBotResult, InlineBotResults, InlineMessageId, InlineQuery, InlineQueryResult,
     InlineQueryResultArticle, InlineQueryResultAudio, InlineQueryResultCachedAudio, InlineQueryResultCachedDocument,
@@ -27,6 +30,7 @@ pub use inline_mode::{
     InlineQueryResultVideo, InlineQueryResultVoice, InlineQueryResultsButton, InputMessageContent,
     PreparedInlineMessage, SentGuestMessage,
 };
+pub use langpack::{LangPackDifference, LangPackString, Language};
 pub use messages_and_media::{
     Animation, Audio, AvailableEffect, AvailableReaction, ButtonRef, CheckedGiftCode, Checklist, ChecklistTask,
     ChecklistTasksAdded, ChecklistTasksDone, Click, Command, Contact, DeletedBusinessMessages,

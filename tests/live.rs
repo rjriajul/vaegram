@@ -13,8 +13,8 @@ use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
     ButtonStyle, FileSource, Folder, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
-    InputPollMedia, InputPollOption, InputRichMessage, InputSticker, InputStoryContent, KeyboardButton, Media, Message,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
+    InputPollMedia, InputPollOption, InputRichMessage, InputSticker, InputStoryContent, Json, KeyboardButton, Media,
+    Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
 };
 use vaegram::{Client, filters};
 
@@ -988,4 +988,25 @@ async fn user_manages_business_links_and_quick_replies() {
     assert!(user.get_business_chat_links().await.unwrap().iter().any(|l| l.link == link.link && l.text == "edited"));
     assert_eq!(user.resolve_business_chat_link(link.slug()).await.unwrap().text, "edited");
     assert!(user.delete_business_chat_link(link.slug()).await.unwrap());
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_reads_app_config_and_languages() {
+    let Some(user) = user_client().await else { return };
+    assert!((1..=5).contains(&user.get_nearest_dc().await.unwrap().this_dc));
+    assert!(matches!(user.get_app_config().await.unwrap(), Json::Object(_)));
+    assert!(user.get_countries_list("en").await.unwrap().iter().any(|c| c.iso2 == "US"));
+    assert!(!user.get_timezones_list().await.unwrap().is_empty());
+    user.get_terms_of_service_update().await.unwrap();
+    user.get_promo_data().await.unwrap();
+
+    let languages = user.get_languages("android").await.unwrap();
+    assert!(languages.iter().any(|l| l.lang_code == "en" && l.official));
+    let en = user.get_language("android", "en").await.unwrap();
+    assert_eq!((en.lang_code.as_str(), en.rtl), ("en", false));
+    let pack = user.get_lang_pack("android", "en").await.unwrap();
+    assert!(!pack.strings.is_empty());
+    let diff = user.get_lang_pack_difference("android", "en", pack.version).await.unwrap();
+    assert!(diff.version >= pack.version);
 }
