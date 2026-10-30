@@ -80,6 +80,7 @@ pub use approve_suggested_post::ApproveSuggestedPost;
 pub use copy_message::CopyMessage;
 pub use copy_messages::CopyMessages;
 pub use decline_suggested_post::DeclineSuggestedPost;
+pub(crate) use download_media::DownloadSource;
 pub use download_media::{DownloadMedia, MediaStream};
 pub use edit_ephemeral_message_text::EditEphemeralMessage;
 pub use edit_inline_media::EditInlineMedia;

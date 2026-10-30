@@ -88,6 +88,18 @@ impl Client {
         }
     }
 
+    /// Resolves one at a time, so it's meant for cached ids: each unknown username costs a request.
+    pub(crate) async fn resolve_peers(
+        &self,
+        chats: impl IntoIterator<Item = impl Into<PeerRef>>,
+    ) -> Result<Vec<base::InputPeer>> {
+        let mut peers = Vec::new();
+        for chat in chats {
+            peers.push(self.resolve_peer(chat).await?);
+        }
+        Ok(peers)
+    }
+
     pub(crate) async fn resolve_user(&self, user: &PeerRef) -> Result<base::InputUser> {
         let (id, peer) = self.resolve(user).await?;
         input_user(peer).ok_or(Error::PeerNotFound(id))

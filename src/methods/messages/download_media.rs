@@ -35,12 +35,21 @@ fn out_of_memory() -> Error {
     Error::Io(std::io::ErrorKind::OutOfMemory.into())
 }
 
+/// Where a file came from, re-read for a fresh file_reference once it expires.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum DownloadSource {
+    /// A chat and message id.
+    Message(i64, i32),
+    /// A chat and story id.
+    Story(i64, i32),
+}
+
 /// Awaiting it collects the file in memory; `.file_name(path)` writes it to disk, `.stream()` yields chunks.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct DownloadMedia<'a> {
     client: &'a Client,
     location: Result<FileLocation>,
-    source: Option<(i64, i32)>,
+    source: Option<DownloadSource>,
     progress: Option<Report<'a>>,
 }
 
@@ -58,8 +67,7 @@ impl Client {
 }
 
 impl<'a> DownloadMedia<'a> {
-    /// `source` is the chat and message the file came from, re-read for a fresh file_reference once it expires.
-    pub(crate) fn new(client: &'a Client, location: Result<FileLocation>, source: Option<(i64, i32)>) -> Self {
+    pub(crate) fn new(client: &'a Client, location: Result<FileLocation>, source: Option<DownloadSource>) -> Self {
         DownloadMedia { client, location, source, progress: None }
     }
 
@@ -155,7 +163,7 @@ impl<'a> DownloadMedia<'a> {
 struct Master<'a> {
     client: &'a Client,
     sessions: &'a [Session],
-    source: Option<(i64, i32)>,
+    source: Option<DownloadSource>,
     location: Mutex<(base::InputFileLocation, usize)>,
     renewing: tokio::sync::Mutex<()>,
 }
@@ -338,18 +346,34 @@ impl<'a> IntoFuture for DownloadMedia<'a> {
     }
 }
 
-/// False when there is no message to re-read or it no longer holds this file.
-async fn refresh(client: &Client, source: Option<(i64, i32)>, location: &mut base::InputFileLocation) -> Result<bool> {
-    let Some((chat_id, message_id)) = source else { return Ok(false) };
+/// False when there is no message or story to re-read or it no longer holds this file.
+async fn refresh(
+    client: &Client,
+    source: Option<DownloadSource>,
+    location: &mut base::InputFileLocation,
+) -> Result<bool> {
+    let Some(source) = source else { return Ok(false) };
     let (file_id, reference) = match location {
         base::InputFileLocation::InputPhotoFileLocation(l) => (l.id, &mut l.file_reference),
         base::InputFileLocation::InputDocumentFileLocation(l) => (l.id, &mut l.file_reference),
         _ => return Ok(false),
     };
-    let (found, _) = client.get_raw_messages(chat_id, &[message_id]).await?;
-    let Some(fresh) = found.into_iter().flatten().find_map(|m| fresh_reference(m.media?, file_id)) else {
-        return Ok(false);
+    let fresh = match source {
+        DownloadSource::Message(chat_id, message_id) => {
+            let (found, _) = client.get_raw_messages(chat_id, &[message_id]).await?;
+            found.into_iter().flatten().find_map(|m| fresh_reference(m.media?, file_id))
+        }
+        DownloadSource::Story(chat_id, story_id) => {
+            let peer = client.resolve_peer(chat_id).await?;
+            let request = functions::stories::GetStoriesByID { peer, id: vec![story_id] };
+            let base::stories::Stories::Stories(found) = client.invoke(&request).await?;
+            found.stories.into_iter().find_map(|item| match item {
+                base::StoryItem::StoryItem(s) => fresh_reference(s.media, file_id),
+                _ => None,
+            })
+        }
     };
+    let Some(fresh) = fresh else { return Ok(false) };
     *reference = fresh;
     Ok(true)
 }
@@ -418,15 +442,16 @@ mod tests {
 
     use tokio::sync::{mpsc, watch};
 
-    use super::{CHUNK, DownloadMedia, Master, MediaStream, Sink, chunk, chunk_count, fits};
+    use super::{CHUNK, DownloadMedia, DownloadSource, Master, MediaStream, Sink, chunk, chunk_count, fits};
     use crate::Client;
     use crate::crypto::{aes, sha256};
+    use crate::dispatcher::Entities;
     use crate::errors::{Error, Result, RpcError};
     use crate::raw::{Identifiable, Serializable, base, functions, types};
     use crate::session::Session;
     use crate::session::transfer::{take, try_join_all};
     use crate::types::messages_and_media::media::tests::document_media;
-    use crate::types::{FileLocation, Message};
+    use crate::types::{FileLocation, Message, Story};
     use crate::utils::get_peer;
 
     #[test]
@@ -564,7 +589,7 @@ mod tests {
     async fn download(
         client: &Client,
         size: Option<i64>,
-        source: Option<(i64, i32)>,
+        source: Option<DownloadSource>,
     ) -> (Result<Vec<u8>, String>, Vec<u64>) {
         client.0.me.lock().unwrap().premium = Some(false);
         // Two workers when the size spans chunks; both use the scripted session, so nothing goes to the network.
@@ -590,7 +615,7 @@ mod tests {
         let get_messages = functions::messages::GetMessages::CONSTRUCTOR_ID.to_le_bytes();
         let (old, fresh) = (get_file(b"old", 0, true).to_bytes(), get_file(&[3], 0, true).to_bytes());
         let expired = || Err("FILE_REFERENCE_EXPIRED".into());
-        let source = Some((-5, 5));
+        let source = Some(DownloadSource::Message(-5, 5));
 
         let (client, mut rx) = Client::scripted(vec![error("FILE_REFERENCE_EXPIRED"), messages(), file(b"hi".into())]);
         let (result, _) = download(&client, Some(2), source).await;
@@ -605,12 +630,75 @@ mod tests {
         assert_eq!((download(&client, Some(5), None).await.0, drain(&mut rx)), (expired(), vec![old]));
     }
 
+    /// Story 7, holding document 1 under reference [3].
+    fn story_item() -> types::StoryItem {
+        types::StoryItem {
+            pinned: false,
+            public: false,
+            close_friends: false,
+            min: false,
+            noforwards: false,
+            edited: false,
+            contacts: false,
+            selected_contacts: false,
+            out: false,
+            id: 7,
+            date: 0,
+            from_id: None,
+            fwd_from: None,
+            expire_date: 0,
+            caption: None,
+            entities: None,
+            media: document_media("text/plain", Vec::new()),
+            media_areas: None,
+            privacy: None,
+            views: None,
+            sent_reaction: None,
+            albums: None,
+            music: None,
+        }
+    }
+
+    fn stories() -> Result<Vec<u8>> {
+        let stories = types::stories::Stories {
+            count: 1,
+            stories: vec![base::StoryItem::StoryItem(Box::new(story_item()))],
+            pinned_to_top: None,
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        Ok(base::stories::Stories::Stories(Box::new(stories)).to_bytes())
+    }
+
+    #[tokio::test]
+    async fn refetches_the_story_once_for_an_expired_reference() {
+        let (old, fresh) = (get_file(b"old", 0, true).to_bytes(), get_file(&[3], 0, true).to_bytes());
+        let (client, mut rx) = Client::scripted(vec![error("FILE_REFERENCE_EXPIRED"), stories(), file(b"hi".into())]);
+        let (result, _) = download(&client, Some(2), Some(DownloadSource::Story(-5, 7))).await;
+        let sent = drain(&mut rx);
+        assert_eq!((result, [&sent[0], &sent[2]]), (Ok(b"hi".to_vec()), [&old, &fresh]));
+        let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
+        assert_eq!(sent[1], functions::stories::GetStoriesByID { peer, id: vec![7] }.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn a_story_download_renews_through_the_story() {
+        let (client, mut rx) =
+            Client::scripted(vec![error("FILE_REFERENCE_EXPIRED"), stories(), file(b"hello".into())]);
+        client.0.me.lock().unwrap().premium = Some(false);
+        let item = base::StoryItem::StoryItem(Box::new(story_item()));
+        let story = Story::parse(&get_peer(-5), item, &Entities::default()).unwrap();
+        assert_eq!(story.download(&client).await.unwrap(), b"hello");
+        let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
+        assert_eq!(drain(&mut rx)[1], functions::stories::GetStoriesByID { peer, id: vec![7] }.to_bytes());
+    }
+
     #[tokio::test]
     async fn renews_a_reference_that_expires_mid_file() {
         let c = CHUNK as usize;
         let replies = vec![file(vec![1; c]), error("FILE_REFERENCE_EXPIRED"), messages(), file(b"hi".into())];
         let (client, mut rx) = Client::scripted(replies);
-        let (result, done) = download(&client, None, Some((-5, 5))).await;
+        let (result, done) = download(&client, None, Some(DownloadSource::Message(-5, 5))).await;
         let sent = drain(&mut rx);
         let expected = [vec![1; c], b"hi".to_vec()].concat();
         assert_eq!((result, done), (Ok(expected), vec![c as u64, c as u64 + 2]));
@@ -627,7 +715,7 @@ mod tests {
         let master = Master {
             client: &client,
             sessions: &sessions,
-            source: Some((-5, 5)),
+            source: Some(DownloadSource::Message(-5, 5)),
             location: Mutex::new((get_file(b"old", 0, false).location, 0)),
             renewing: tokio::sync::Mutex::new(()),
         };

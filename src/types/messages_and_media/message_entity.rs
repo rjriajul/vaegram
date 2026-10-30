@@ -16,6 +16,8 @@ pub struct MessageEntity {
     pub unix_time: Option<i32>,
     /// For [`MessageEntityType::DateTime`], in the Bot API's `r|w?[dD]?[tT]?` syntax.
     pub date_time_format: Option<String>,
+    /// For [`MessageEntityType::DiffReplace`], the text it replaces.
+    pub old_text: Option<String>,
 }
 
 impl MessageEntity {
@@ -65,6 +67,7 @@ impl MessageEntity {
             custom_emoji_id: None,
             unix_time: None,
             date_time_format: None,
+            old_text: None,
         };
         match raw {
             E::MessageEntityPre(e) if !e.language.is_empty() => entity.language = Some(e.language.clone()),
@@ -76,6 +79,7 @@ impl MessageEntity {
                 }
             }
             E::MessageEntityCustomEmoji(e) => entity.custom_emoji_id = Some(e.document_id),
+            E::MessageEntityDiffReplace(e) => entity.old_text = Some(e.old_text.clone()),
             E::MessageEntityFormattedDate(e) => {
                 entity.unix_time = Some(e.date);
                 let format: String = if e.relative {

@@ -259,6 +259,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   (not yet tested live)
 - [ ] Record traffic, replay it offline and dump it as JSON lines: `.record("bot.rec")`,
   `Replay::start(&recording::read(path)?)` (not yet tested live)
+- [ ] Story posting for users: `send_story(me, InputStoryContent::photo("a.jpg")).privacy(..)`, edits, pins, archive,
+  stealth mode (not yet tested live)
 
 ### Development
 

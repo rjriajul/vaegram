@@ -51,6 +51,7 @@ mod service_action;
 mod star_amount;
 mod sticker;
 mod sticker_set;
+mod stories_stealth_mode;
 mod story;
 mod story_area;
 mod successful_payment;
@@ -118,7 +119,8 @@ pub use service_action::ServiceAction;
 pub use star_amount::StarAmount;
 pub use sticker::Sticker;
 pub use sticker_set::StickerSet;
-pub use story::Story;
+pub use stories_stealth_mode::StoriesStealthMode;
+pub use story::{Story, StoryViewer};
 pub use story_area::{LocationAddress, StoryArea, StoryAreaPosition, StoryAreaType};
 pub use successful_payment::SuccessfulPayment;
 pub use suggested_post::{

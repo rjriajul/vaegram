@@ -33,10 +33,11 @@ pub use messages_and_media::{
     LocationAddress, MaskPosition, Media, Message, MessageEntity, MessageGenerationStopped, MessageOrigin,
     MessageReactionCountUpdated, MessageReactionUpdated, MessageText, MessageViews, PaidMedia, PaidMediaInfo, Photo,
     Poll, PollAnswer, PollOption, PollUpdated, ProximityAlertTriggered, ReactionCount, ReactionType, RefundedPayment,
-    ReplyParameters, ServiceAction, StarAmount, Sticker, StickerSet, Story, StoryArea, StoryAreaPosition,
-    StoryAreaType, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
-    SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded, Text,
-    TextQuote, Upload, Venue, Video, VideoNote, Voice, WriteAccessAllowed,
+    ReplyParameters, ServiceAction, StarAmount, Sticker, StickerSet, StoriesStealthMode, Story, StoryArea,
+    StoryAreaPosition, StoryAreaType, StoryViewer, SuccessfulPayment, SuggestedPostApprovalFailed,
+    SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters,
+    SuggestedPostPrice, SuggestedPostRefunded, Text, TextQuote, Upload, Venue, Video, VideoNote, Voice,
+    WriteAccessAllowed,
 };
 pub use payments::{
     Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,
@@ -51,7 +52,8 @@ pub(crate) use user_and_chats::BoostUpdate;
 pub use user_and_chats::{
     AcceptedGiftTypes, BusinessBotRights, BusinessConnection, Chat, ChatBoost, ChatBoostRemoved, ChatBoostSource,
     ChatBoostUpdated, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated, ChatNotifications,
-    ChatPermissions, ChatPrivileges, Community, Dialog, DirectMessagesTopic, ForumTopic, ForumTopicCreated,
-    ForumTopicEdited, GlobalPrivacySettings, InputPhoneContact, PassportElementError, PeerRef, PrivacyRule,
-    SavedDialog, User, UserProfileAudios, UserProfilePhotos, UserStatusUpdated,
+    ChatPermissions, ChatPrivileges, Community, Dialog, DirectMessagesTopic, Folder, FolderInviteLink,
+    FolderInviteLinkInfo, ForumTopic, ForumTopicCreated, ForumTopicEdited, GlobalPrivacySettings, InputPhoneContact,
+    PassportElementError, PeerRef, PrivacyRule, SavedDialog, User, UserProfileAudios, UserProfilePhotos,
+    UserStatusUpdated,
 };

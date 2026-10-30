@@ -6,14 +6,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
-use vaegram::enums::{MessageEntityType, ParseMode, PollType, StickerType};
+use vaegram::enums::{MessageEntityType, ParseMode, PollType, StickerType, StoriesPrivacyRules};
 use vaegram::raw::{Serializable, base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
-    ButtonStyle, FileSource, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
-    InputPollMedia, InputPollOption, InputRichMessage, InputSticker, KeyboardButton, Media, Message,
+    ButtonStyle, FileSource, Folder, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
+    InputPollMedia, InputPollOption, InputRichMessage, InputSticker, InputStoryContent, KeyboardButton, Media, Message,
     ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
 };
 use vaegram::{Client, filters};
@@ -628,6 +628,16 @@ async fn user_lists_active_sessions() {
     assert_eq!(current.device_model, "vaegram live test");
 }
 
+async fn user_client() -> Option<Client> {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return None;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let client = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
+    Some(client.connect().await.unwrap())
+}
+
 #[tokio::test]
 #[ignore = "uses a logged-in user session"]
 async fn account_settings_round_trip() {
@@ -730,4 +740,89 @@ async fn user_lists_dialogs_and_contacts() {
     user.unblock_user(botfather).await.unwrap();
     assert!(blocked.unwrap().iter().any(|c| c.id == botfather));
     user.get_common_chats(botfather).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_reads_stories() {
+    let Some(user) = user_client().await else { return };
+    let stories = user.get_all_stories(false).await.unwrap();
+    let Some(story) = stories.first() else { return };
+    let chat_id = story.chat.id;
+    let fetched = user.get_stories(chat_id, &[story.id]).await.unwrap();
+    assert_eq!(fetched.first().map(|s| s.id), Some(story.id));
+    assert!(user.get_chat_stories(chat_id).await.unwrap().iter().any(|s| s.id == story.id));
+    user.view_stories(chat_id, &[story.id]).await.unwrap();
+    user.read_stories(chat_id, story.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "posts, edits, pins and deletes a story with a logged-in user session"]
+async fn user_posts_and_edits_a_story() {
+    let Ok(photo) = std::env::var("VAEGRAM_STORY_PHOTO") else {
+        eprintln!("skipped: set VAEGRAM_STORY_PHOTO (a JPEG path) and VAEGRAM_USER_SESSION");
+        return;
+    };
+    let Some(user) = user_client().await else { return };
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let story = user
+        .send_story(me.id, InputStoryContent::photo(photo.as_str()))
+        .caption("<b>vaegram</b>")
+        .html()
+        .privacy(StoriesPrivacyRules::CloseFriends)
+        .protect_content()
+        .await
+        .unwrap();
+    assert_eq!((story.chat.id, story.caption.as_deref(), story.is_close_friends), (me.id, Some("vaegram"), true));
+
+    let edited = user.edit_story_caption(me.id, story.id, "edited").await.unwrap();
+    assert_eq!(edited.caption.as_deref(), Some("edited"));
+    let only_me = StoriesPrivacyRules::SelectedUsers(vec![me.id]);
+    assert!(!user.edit_story_privacy(me.id, story.id, only_me).await.unwrap().is_close_friends);
+
+    assert_eq!(user.pin_chat_stories(me.id, &[story.id]).await.unwrap(), [story.id]);
+    assert_eq!(user.get_pinned_stories(me.id).limit(10).next().await.unwrap().map(|s| s.id), Some(story.id));
+    assert_eq!(user.unpin_chat_stories(me.id, &[story.id]).await.unwrap(), [story.id]);
+    assert_eq!(user.get_stories_archive(me.id).limit(10).next().await.unwrap().map(|s| s.id), Some(story.id));
+    assert_eq!(user.delete_stories(me.id, &[story.id]).await.unwrap(), [story.id]);
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_manages_folders() {
+    let Some(user) = user_client().await else { return };
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let folder = Folder { title: "vaegram".into(), included_chats: vec![me.id], ..Folder::default() };
+    let mut folder = user.create_folder(folder).await.unwrap();
+    assert!(user.get_folders().await.unwrap().iter().any(|f| f.id == folder.id && f.title == "vaegram"));
+
+    folder.title = "vaegram 2".into();
+    user.edit_folder(&folder).await.unwrap();
+    let ids: Vec<i32> = user.get_folders().await.unwrap().iter().map(|f| f.id).collect();
+    user.reorder_folders(&ids).await.unwrap();
+    user.delete_folder(folder.id).await.unwrap();
+    assert!(!user.get_folders().await.unwrap().iter().any(|f| f.id == folder.id));
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_shares_a_folder() {
+    let Ok(chat_id) = std::env::var("VAEGRAM_CHAT_ID") else {
+        eprintln!("skipped: set VAEGRAM_CHAT_ID (a channel or supergroup you're in)");
+        return;
+    };
+    let Some(user) = user_client().await else { return };
+    let chat_id: i64 = chat_id.parse().unwrap();
+    let folder = Folder { title: "vaegram".into(), included_chats: vec![chat_id], ..Folder::default() };
+    let folder = user.create_folder(folder).await.unwrap();
+
+    let link = user.create_folder_invite_link(folder.id, [chat_id]).name("vaegram").await.unwrap();
+    assert_eq!((link.name.as_str(), link.chat_ids.as_slice()), ("vaegram", [chat_id].as_slice()));
+    let info = user.check_folder_invite_link(&link.invite_link).await.unwrap();
+    assert_eq!((info.folder_id, info.added_chats.len()), (Some(folder.id), 1));
+    let link = user.edit_folder_invite_link(folder.id, &link.invite_link).name("edited").await.unwrap();
+    assert_eq!(link.name, "edited");
+    assert!(user.get_folder_invite_links(folder.id).await.unwrap().iter().any(|l| l.invite_link == link.invite_link));
+    user.delete_folder_invite_link(folder.id, &link.invite_link).await.unwrap();
+    user.delete_folder(folder.id).await.unwrap();
 }
