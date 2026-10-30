@@ -261,6 +261,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   `Replay::start(&recording::read(path)?)` (not yet tested live)
 - [ ] Story posting for users: `send_story(me, InputStoryContent::photo("a.jpg")).privacy(..)`, edits, pins, archive,
   stealth mode (not yet tested live)
+- [ ] Using bots as a user: `get_inline_bot_results`, `send_inline_bot_result`, `msg.click(0)`, `request_callback_answer`,
+  `start_bot`, `vote_poll` (not yet tested live)
 
 ### Development
 

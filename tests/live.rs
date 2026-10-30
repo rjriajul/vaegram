@@ -848,3 +848,29 @@ async fn user_reads_reaction_and_effect_lists() {
     user.get_recent_reactions(10).await.unwrap();
     user.get_saved_reaction_tags().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session and the public @gif bot"]
+async fn user_uses_inline_bot() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let user = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+        .connect()
+        .await
+        .unwrap();
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let gif = user.resolve_username("gif").await.unwrap();
+
+    let results = user.get_inline_bot_results(gif, "cat").await.unwrap();
+    let id = results.results.first().expect("@gif found no cats").id.clone();
+    let sent = user.send_inline_bot_result(me.id, results.query_id, id).await.unwrap();
+    assert_eq!(sent.chat.id, me.id);
+    sent.delete().await.unwrap();
+
+    let started = user.start_bot(gif, gif, "vaegram").await.unwrap();
+    assert_eq!((started.chat.id, started.outgoing), (gif, true));
+    started.delete().await.unwrap();
+}

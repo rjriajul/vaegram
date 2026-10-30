@@ -48,6 +48,7 @@ mod pin_saved_dialog;
 mod read_chat_history;
 mod read_mentions;
 mod read_reactions;
+mod retract_vote;
 mod save_draft;
 mod search_messages;
 mod send_animation;
@@ -85,6 +86,7 @@ mod unpin_chat_message;
 mod unpin_saved_dialog;
 mod update_saved_reaction_tag;
 mod upload_media;
+mod vote_poll;
 
 pub use approve_suggested_post::ApproveSuggestedPost;
 pub use copy_message::CopyMessage;
