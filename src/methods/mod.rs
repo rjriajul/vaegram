@@ -46,6 +46,7 @@ pub use chats::{
     GetDialogs, RestrictChatMember, SetChatPhoto, UpdateChatNotifications,
 };
 pub use contacts::AddContact;
+pub use folders::{CreateFolderInviteLink, EditFolderInviteLink, LeaveFolder};
 pub use invite_links::{
     CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
 };

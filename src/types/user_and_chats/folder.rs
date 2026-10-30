@@ -6,7 +6,6 @@ use crate::raw::{base, types};
 use crate::types::MessageEntity;
 use crate::utils::get_channel_id;
 
-/// A chat folder. Chats are Bot API style ids.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Folder {
     pub id: i32,
@@ -31,7 +30,6 @@ pub struct Folder {
 }
 
 impl Folder {
-    /// `None` for the built-in "All chats" entry.
     pub(crate) fn parse(client: &Client, filter: base::DialogFilter) -> Option<Folder> {
         match filter {
             base::DialogFilter::DialogFilterDefault => None,
@@ -77,8 +75,8 @@ impl Folder {
         }
         let title = types::TextWithEntities { text: self.title.clone(), entities };
         let title = base::TextWithEntities::TextWithEntities(Box::new(title));
-        let pinned_peers = input_peers(client, &self.pinned_chats).await?;
-        let include_peers = input_peers(client, &self.included_chats).await?;
+        let pinned_peers = client.resolve_peers(self.pinned_chats.iter().copied()).await?;
+        let include_peers = client.resolve_peers(self.included_chats.iter().copied()).await?;
         if self.is_shareable {
             let folder = types::DialogFilterChatlist {
                 has_my_invites: false,
@@ -108,7 +106,7 @@ impl Folder {
             color: self.color,
             pinned_peers,
             include_peers,
-            exclude_peers: input_peers(client, &self.excluded_chats).await?,
+            exclude_peers: client.resolve_peers(self.excluded_chats.iter().copied()).await?,
         };
         Ok(base::DialogFilter::DialogFilter(Box::new(folder)))
     }
@@ -212,12 +210,4 @@ fn chat_ids(client: &Client, peers: Vec<base::InputPeer>) -> Vec<i64> {
         ids.push(id);
     }
     ids
-}
-
-async fn input_peers(client: &Client, chat_ids: &[i64]) -> Result<Vec<base::InputPeer>> {
-    let mut peers = Vec::with_capacity(chat_ids.len());
-    for &chat_id in chat_ids {
-        peers.push(client.resolve_peer(chat_id).await?);
-    }
-    Ok(peers)
 }

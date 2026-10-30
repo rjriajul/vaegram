@@ -772,3 +772,26 @@ async fn user_manages_folders() {
     user.delete_folder(folder.id).await.unwrap();
     assert!(!user.get_folders().await.unwrap().iter().any(|f| f.id == folder.id));
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_shares_a_folder() {
+    let Ok(chat_id) = std::env::var("VAEGRAM_CHAT_ID") else {
+        eprintln!("skipped: set VAEGRAM_CHAT_ID (a channel or supergroup you're in)");
+        return;
+    };
+    let Some(user) = user_client().await else { return };
+    let chat_id: i64 = chat_id.parse().unwrap();
+    let folder = Folder { title: "vaegram".into(), included_chats: vec![chat_id], ..Folder::default() };
+    let folder = user.create_folder(folder).await.unwrap();
+
+    let link = user.create_folder_invite_link(folder.id, [chat_id]).name("vaegram").await.unwrap();
+    assert_eq!((link.name.as_str(), link.chat_ids.as_slice()), ("vaegram", [chat_id].as_slice()));
+    let info = user.check_folder_invite_link(&link.invite_link).await.unwrap();
+    assert_eq!((info.folder_id, info.added_chats.len()), (Some(folder.id), 1));
+    let link = user.edit_folder_invite_link(folder.id, &link.invite_link).name("edited").await.unwrap();
+    assert_eq!(link.name, "edited");
+    assert!(user.get_folder_invite_links(folder.id).await.unwrap().iter().any(|l| l.invite_link == link.invite_link));
+    user.delete_folder_invite_link(folder.id, &link.invite_link).await.unwrap();
+    user.delete_folder(folder.id).await.unwrap();
+}
