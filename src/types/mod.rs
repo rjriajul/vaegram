@@ -9,13 +9,13 @@ mod user_and_chats;
 
 pub use authorization::{ActiveSession, ActiveSessions, LoginToken, SentCode};
 pub use bots_and_keyboards::{
-    AffiliateInfo, AttachMenuBot, BotAccessSettings, BotApp, BotCommand, BotCommandScope, BotInfo,
-    BotSubscriptionUpdated, ButtonStyle, CallbackAnswer, CallbackOrigin, CallbackQuery, ChatShared, ClickResult,
-    EditCallbackMessageText, ForceReply, GameHighScore, InlineAction, InlineKeyboardButton, InlineKeyboardMarkup,
-    InputInvoice, KeyboardButton, KeyboardButtonRequestManagedBot, LabeledPrice, ManagedBotUpdated, MenuButton,
-    OrderInfo, PreCheckoutQuery, PurchasedPaidMedia, ReplyKeyboardMarkup, ReplyKeyboardRemove, ReplyMarkup,
-    RevenueWithdrawalState, SharedUser, ShippingAddress, ShippingOption, ShippingQuery, StarTransaction,
-    StarTransactions, TransactionPartner, UsersShared,
+    AffiliateInfo, AttachMenuBot, BotAccessSettings, BotApp, BotCommand, BotCommandScope, BotInfo, BotPreviewInfo,
+    BotPreviewMedia, BotSubscriptionUpdated, ButtonStyle, CallbackAnswer, CallbackOrigin, CallbackQuery, ChatShared,
+    ClickResult, EditCallbackMessageText, ForceReply, GameHighScore, InlineAction, InlineKeyboardButton,
+    InlineKeyboardMarkup, InputInvoice, KeyboardButton, KeyboardButtonRequestManagedBot, LabeledPrice,
+    ManagedBotUpdated, MenuButton, OrderInfo, PreCheckoutQuery, PurchasedPaidMedia, ReplyKeyboardMarkup,
+    ReplyKeyboardRemove, ReplyMarkup, RevenueWithdrawalState, SharedUser, ShippingAddress, ShippingOption,
+    ShippingQuery, StarTransaction, StarTransactions, TransactionPartner, UsersShared, WebView, WebViewSession,
 };
 pub use inline_mode::{
     ChosenInlineResult, InlineBotResult, InlineBotResults, InlineMessageId, InlineQuery, InlineQueryResult,
