@@ -1,5 +1,8 @@
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+
+use tokio::sync::Notify;
 
 use crate::enums::ClientEvent;
 use crate::raw::{base, types};
@@ -13,7 +16,12 @@ pub struct Events {
     dropped: AtomicU64,
     reconnected: AtomicBool,
     affected: Mutex<Vec<Affected>>,
+    nested: Mutex<VecDeque<base::Updates>>,
+    pub(crate) wake: Notify,
 }
+
+// Past this many unread batches the oldest is dropped, which asks for a getDifference.
+const NESTED_LIMIT: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Affected {
@@ -87,6 +95,22 @@ impl Events {
         self.affected.lock().unwrap().pop()
     }
 
+    /// Updates that came inside another reply, to go the way the ones on the update stream go.
+    pub(crate) fn nested(&self, updates: base::Updates) {
+        let mut nested = self.nested.lock().unwrap();
+        if nested.len() == NESTED_LIMIT {
+            let lost = nested.pop_front().expect("a full queue has a front");
+            self.drop_updates(&lost);
+        }
+        nested.push_back(updates);
+        drop(nested);
+        self.wake.notify_one();
+    }
+
+    pub(crate) fn take_nested(&self) -> Option<base::Updates> {
+        self.nested.lock().unwrap().pop_front()
+    }
+
     #[cfg(test)]
     pub(crate) fn record(&self) -> std::sync::mpsc::Receiver<ClientEvent> {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -110,7 +134,8 @@ fn unrecoverable(updates: &base::Updates) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Affected, Events};
+    use super::{Affected, Events, NESTED_LIMIT};
+    use crate::raw::base;
 
     #[test]
     fn affected_pts_merge_per_box() {
@@ -120,5 +145,15 @@ mod tests {
             events.affected(affected);
         }
         assert_eq!(*events.affected.lock().unwrap(), [a(None, 20, 1), a(Some(7), 5, 1)]);
+    }
+
+    #[test]
+    fn unread_nested_updates_are_capped_and_the_overflow_asks_for_a_difference() {
+        let events = Events::default();
+        for _ in 0..NESTED_LIMIT + 2 {
+            events.nested(base::Updates::UpdatesTooLong);
+        }
+        assert_eq!(events.nested.lock().unwrap().len(), NESTED_LIMIT);
+        assert_eq!(events.take_dropped(), (2, 0));
     }
 }

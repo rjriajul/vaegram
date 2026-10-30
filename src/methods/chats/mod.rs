@@ -16,8 +16,10 @@ mod delete_forum_topic;
 mod delete_supergroup;
 mod edit_forum_topic;
 mod edit_general_forum_topic;
+mod get_channel_statistics;
 mod get_chat;
 mod get_chat_administrators;
+mod get_chat_event_log;
 mod get_chat_member;
 mod get_chat_members;
 mod get_chat_members_count;
@@ -26,9 +28,14 @@ mod get_chat_online_count;
 mod get_dialogs;
 mod get_dialogs_count;
 mod get_forum_topic_icon_stickers;
+mod get_message_public_forwards;
+mod get_message_statistics;
 mod get_recommended_channels;
 mod get_send_as_chats;
 mod get_similar_channels;
+mod get_statistical_graph;
+mod get_story_statistics;
+mod get_supergroup_statistics;
 mod hide_general_forum_topic;
 mod join_chat;
 mod leave_chat;
@@ -70,8 +77,10 @@ pub use create_forum_topic::CreateForumTopic;
 pub use delete_chat_history::DeleteChatHistory;
 pub use edit_forum_topic::EditForumTopic;
 pub use get_chat_administrators::GetChatAdministrators;
+pub use get_chat_event_log::GetChatEventLog;
 pub use get_chat_members::GetChatMembers;
 pub use get_dialogs::GetDialogs;
+pub use get_message_public_forwards::GetMessagePublicForwards;
 pub use restrict_chat_member::RestrictChatMember;
 pub use set_chat_photo::SetChatPhoto;
 pub use update_chat_notifications::UpdateChatNotifications;
@@ -237,6 +246,43 @@ mod dialog_tests {
         let unarchived = client.unarchive_chats(Vec::<i64>::new()).await;
         let refused = |r: &Result<()>| matches!(r, Err(Error::InvalidArgument(_)));
         assert!(refused(&archived) && refused(&unarchived), "{archived:?} {unarchived:?}");
+        assert!(rx.try_recv().is_err());
+    }
+}
+
+#[cfg(test)]
+mod statistics_tests {
+    use crate::client::sent;
+    use crate::raw::functions::{channels, stats};
+    use crate::raw::{Identifiable, base, types};
+    use crate::types::ChatEventFilter;
+    use crate::utils::get_channel_id;
+    use crate::{Client, Error};
+
+    #[tokio::test]
+    async fn statistics_and_admin_log_hit_the_right_calls() {
+        let (client, mut rx) = Client::recording();
+        let channel = get_channel_id(9);
+        let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
+        let rx = &mut rx;
+
+        assert_eq!(sent(rx, client.get_channel_statistics(channel)).await, stats::GetBroadcastStats::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_supergroup_statistics(channel)).await, stats::GetMegagroupStats::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_message_statistics(channel, 1)).await, stats::GetMessageStats::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_story_statistics(channel, 1)).await, stats::GetStoryStats::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_statistical_graph("t", None)).await, stats::LoadAsyncGraph::CONSTRUCTOR_ID);
+        let mut forwards = client.get_message_public_forwards(channel, 1);
+        assert_eq!(sent(rx, forwards.next()).await, stats::GetMessagePublicForwards::CONSTRUCTOR_ID);
+        let filter = ChatEventFilter { deleted_messages: true, ..Default::default() };
+        let mut log = client.get_chat_event_log(channel).filter(filter).query("spam");
+        assert_eq!(sent(rx, log.next()).await, channels::GetAdminLog::CONSTRUCTOR_ID);
+
+        let statistics = client.get_channel_statistics(-5).await.map(drop);
+        let log = client.get_chat_event_log(-5).next().await.map(drop);
+        for result in [statistics, log] {
+            assert!(matches!(result, Err(Error::InvalidArgument(_))));
+        }
         assert!(rx.try_recv().is_err());
     }
 }

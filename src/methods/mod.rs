@@ -30,6 +30,7 @@ mod messages;
 mod pages;
 mod password;
 mod payments;
+mod premium;
 mod stickers;
 mod stories;
 mod users;
@@ -43,8 +44,8 @@ pub use bots::{
 };
 pub use business::{EditStory, PostStory, RepostStory};
 pub use chats::{
-    BanChatMember, CreateForumTopic, DeleteChatHistory, EditForumTopic, GetChatAdministrators, GetChatMembers,
-    GetDialogs, RestrictChatMember, SetChatPhoto, UpdateChatNotifications,
+    BanChatMember, CreateForumTopic, DeleteChatHistory, EditForumTopic, GetChatAdministrators, GetChatEventLog,
+    GetChatMembers, GetDialogs, GetMessagePublicForwards, RestrictChatMember, SetChatPhoto, UpdateChatNotifications,
 };
 pub use contacts::AddContact;
 pub use folders::{CreateFolderInviteLink, EditFolderInviteLink, LeaveFolder};
@@ -65,8 +66,12 @@ pub use messages::{
 pub(crate) use messages::{DownloadSource, StreamShared, caption_setters, geo_point, input_venue};
 pub use password::{ChangeCloudPassword, EnableCloudPassword};
 pub use payments::{
-    ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
+    ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SearchGiftsForResale, SendGift,
+    TransferGift, UpgradeGift,
 };
-pub use stickers::CreateNewStickerSet;
+pub use premium::GetBoostsList;
+pub use stickers::{
+    CreateNewStickerSet, GetArchivedStickerSets, GetFeaturedStickerSets, SearchStickerSets, SearchStickers,
+};
 pub use stories::{EditStoryCaption, EnableStealthMode, GetStoryViewers, SendStory, StoryPages};
 pub use users::{GetChatPhotos, GetUserProfileAudios, SetEmojiStatus, SetProfilePhoto, UpdateProfile};

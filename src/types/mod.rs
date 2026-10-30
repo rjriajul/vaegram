@@ -27,23 +27,23 @@ pub use inline_mode::{
     PreparedInlineMessage, SentGuestMessage,
 };
 pub use messages_and_media::{
-    Animation, Audio, AvailableEffect, AvailableReaction, ButtonRef, Checklist, ChecklistTask, ChecklistTasksAdded,
-    ChecklistTasksDone, Click, Command, Contact, DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages,
-    Dice, Document, Draft, EphemeralMessage, ExternalReplyInfo, FileLocation, FileSource, Game, GuestMessage,
-    InputChecklist, InputMedia, InputPollMedia, InputPollOption, InputSticker, InputStoryContent, Invoice,
-    LinkPreviewOptions, LivePhoto, Location, LocationAddress, MaskPosition, Media, Message, MessageEntity,
-    MessageGenerationStopped, MessageOrigin, MessageReactionCountUpdated, MessageReactionUpdated, MessageText,
-    MessageViews, PaidMedia, PaidMediaInfo, PeerReaction, Photo, Poll, PollAnswer, PollOption, PollUpdated, PollVote,
-    ProximityAlertTriggered, ReactionCount, ReactionType, ReadParticipant, RefundedPayment, ReplyParameters,
-    SavedReactionTag, ServiceAction, StarAmount, Sticker, StickerSet, StoriesStealthMode, Story, StoryArea,
-    StoryAreaPosition, StoryAreaType, StoryViewer, SuccessfulPayment, SuggestedPostApprovalFailed,
-    SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid, SuggestedPostParameters,
-    SuggestedPostPrice, SuggestedPostRefunded, Text, TextQuote, TranscribedAudio, TranslatedText, Upload, Venue, Video,
-    VideoNote, Voice, WriteAccessAllowed,
+    Animation, Audio, AvailableEffect, AvailableReaction, ButtonRef, CheckedGiftCode, Checklist, ChecklistTask,
+    ChecklistTasksAdded, ChecklistTasksDone, Click, Command, Contact, DeletedBusinessMessages,
+    DeletedEphemeralMessages, DeletedMessages, Dice, Document, Draft, EphemeralMessage, ExternalReplyInfo,
+    FileLocation, FileSource, Game, GiveawayInfo, GuestMessage, InputChecklist, InputMedia, InputPollMedia,
+    InputPollOption, InputSticker, InputStoryContent, Invoice, LinkPreviewOptions, LivePhoto, Location,
+    LocationAddress, MaskPosition, Media, Message, MessageEntity, MessageGenerationStopped, MessageOrigin,
+    MessageReactionCountUpdated, MessageReactionUpdated, MessageText, MessageViews, PaidMedia, PaidMediaInfo,
+    PeerReaction, Photo, Poll, PollAnswer, PollOption, PollUpdated, PollVote, ProximityAlertTriggered, ReactionCount,
+    ReactionType, ReadParticipant, RefundedPayment, ReplyParameters, SavedReactionTag, ServiceAction, StarAmount,
+    Sticker, StickerSet, StoriesStealthMode, Story, StoryArea, StoryAreaPosition, StoryAreaType, StoryViewer,
+    SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo,
+    SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded, Text, TextQuote,
+    TranscribedAudio, TranslatedText, Upload, Venue, Video, VideoNote, Voice, WriteAccessAllowed,
 };
 pub use payments::{
-    Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, UniqueGift, UniqueGiftAttribute,
-    UniqueGiftBackdrop, UniqueGiftInfo,
+    Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, ResaleGift, StarPaymentOption,
+    UniqueGift, UniqueGiftAttribute, UniqueGiftBackdrop, UniqueGiftInfo,
 };
 pub use raw_update::RawUpdate;
 pub use rich_messages::{
@@ -52,10 +52,12 @@ pub use rich_messages::{
 };
 pub(crate) use user_and_chats::BoostUpdate;
 pub use user_and_chats::{
-    AcceptedGiftTypes, BusinessBotRights, BusinessConnection, Chat, ChatBoost, ChatBoostRemoved, ChatBoostSource,
-    ChatBoostUpdated, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated, ChatNotifications,
-    ChatPermissions, ChatPrivileges, Community, Dialog, DirectMessagesTopic, Folder, FolderInviteLink,
-    FolderInviteLinkInfo, ForumTopic, ForumTopicCreated, ForumTopicEdited, GlobalPrivacySettings, InputPhoneContact,
-    PassportElementError, PeerRef, PrivacyRule, SavedDialog, User, UserProfileAudios, UserProfilePhotos,
-    UserStatusUpdated,
+    AcceptedGiftTypes, BoostsStatus, BusinessBotRights, BusinessConnection, ChannelStatistics, Chat, ChatBoost,
+    ChatBoostRemoved, ChatBoostSource, ChatBoostUpdated, ChatEvent, ChatEventAction, ChatEventFilter, ChatInviteLink,
+    ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated, ChatNotifications, ChatPermissions, ChatPrivileges,
+    Community, Dialog, DirectMessagesTopic, EmojiStatus, Folder, FolderInviteLink, FolderInviteLinkInfo, ForumTopic,
+    ForumTopicCreated, ForumTopicEdited, GlobalPrivacySettings, InputPhoneContact, MessageStatistics, MyBoost,
+    PassportElementError, PeerRef, PostInteractions, PremiumPromo, PremiumSubscriptionOption, PrivacyRule, SavedDialog,
+    StatisticalGraph, StatisticalValue, SupergroupStatistics, TopAdmin, TopInviter, TopPoster, User, UserProfileAudios,
+    UserProfilePhotos, UserStatusUpdated,
 };

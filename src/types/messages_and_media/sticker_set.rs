@@ -22,16 +22,34 @@ impl StickerSet {
             return Err(Error::Unexpected("Telegram returned stickerSetNotModified"));
         };
         let types::messages::StickerSet { set, documents, .. } = *set;
+        Ok(StickerSet::from_raw(&set, &documents))
+    }
+
+    /// Set lists carry a few cover stickers at most, or none for installed sets.
+    pub(crate) fn parse_covered(set: &base::StickerSetCovered) -> StickerSet {
+        match set {
+            base::StickerSetCovered::StickerSetCovered(s) => Self::from_raw(&s.set, std::slice::from_ref(&s.cover)),
+            base::StickerSetCovered::StickerSetMultiCovered(s) => Self::from_raw(&s.set, &s.covers),
+            base::StickerSetCovered::StickerSetFullCovered(s) => Self::from_raw(&s.set, &s.documents),
+            base::StickerSetCovered::StickerSetNoCovered(s) => Self::from_raw(&s.set, &[]),
+        }
+    }
+
+    pub(crate) fn from_raw(set: &base::StickerSet, documents: &[base::Document]) -> StickerSet {
         let base::StickerSet::StickerSet(set) = set;
         let sticker_type = match (set.masks, set.emojis) {
             (true, _) => StickerType::Mask,
             (_, true) => StickerType::CustomEmoji,
             _ => StickerType::Regular,
         };
-        let thumbnail = thumbnail(&set);
-        let types::StickerSet { id, title, short_name, .. } = *set;
-        let stickers = documents.iter().filter_map(Sticker::parse).collect();
-        Ok(StickerSet { id, name: short_name, title, sticker_type, stickers, thumbnail })
+        StickerSet {
+            id: set.id,
+            name: set.short_name.clone(),
+            title: set.title.clone(),
+            sticker_type,
+            stickers: documents.iter().filter_map(Sticker::parse).collect(),
+            thumbnail: thumbnail(set),
+        }
     }
 }
 
@@ -118,5 +136,16 @@ mod tests {
         assert_eq!((masks.sticker_type, masks.thumbnail.is_none()), (StickerType::Mask, true));
         assert_eq!(StickerSet::parse(set(false, true, None)).unwrap().sticker_type, StickerType::CustomEmoji);
         assert!(StickerSet::parse(base::messages::StickerSet::StickerSetNotModified).is_err());
+    }
+
+    #[test]
+    fn reads_covered_sets() {
+        let base::messages::StickerSet::StickerSet(full) = set(false, true, None) else { panic!("no set") };
+        let types::messages::StickerSet { set, mut documents, .. } = *full;
+        let covered = types::StickerSetCovered { set: set.clone(), cover: documents.remove(0) };
+        let covered = StickerSet::parse_covered(&base::StickerSetCovered::StickerSetCovered(Box::new(covered)));
+        assert_eq!((covered.sticker_type, covered.stickers.len()), (StickerType::CustomEmoji, 1));
+        let bare = base::StickerSetCovered::StickerSetNoCovered(Box::new(types::StickerSetNoCovered { set }));
+        assert!(StickerSet::parse_covered(&bare).stickers.is_empty());
     }
 }

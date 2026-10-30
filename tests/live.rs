@@ -902,3 +902,42 @@ async fn user_searches_and_translates() {
     let spanish = user.translate_text("es", "<b>Good morning</b>").html().await.unwrap();
     assert_eq!((spanish.text.is_empty(), spanish.entities.map(|e| e.len())), (false, Some(1)));
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_reads_premium_and_boosts() {
+    let Some(user) = user_client().await else { return };
+    user.get_premium_promo().await.unwrap();
+    let boosts = user.get_my_boosts().await.unwrap();
+    assert!(boosts.iter().all(|b| b.expire_date >= b.date));
+    let err = user.check_gift_code("https://t.me/giftcode/vaegram-no-such-code").await.unwrap_err();
+    assert!(matches!(err, vaegram::Error::Rpc(_)), "{err}");
+}
+
+#[tokio::test]
+#[ignore = "reads the admin log and statistics of a chat the user administers"]
+async fn admin_reads_event_log_and_statistics() {
+    let Some(user) = user_client().await else { return };
+    let Ok(chat_id) = std::env::var("VAEGRAM_ADMIN_CHAT_ID") else {
+        eprintln!("skipped: set VAEGRAM_ADMIN_CHAT_ID (a chat you administer)");
+        return;
+    };
+    let chat_id: i64 = chat_id.parse().unwrap();
+
+    let mut log = user.get_chat_event_log(chat_id).limit(150);
+    let mut ids = Vec::new();
+    while let Some(event) = log.next().await.unwrap() {
+        ids.push(event.id);
+    }
+    assert!(ids.len() <= 150 && ids.windows(2).all(|w| w[0] > w[1]), "events come newest first, without repeats");
+
+    // Chats too small for statistics are refused with CHAT_ADMIN_REQUIRED; big ones may live on another DC.
+    let statistics = match user.get_channel_statistics(chat_id).await {
+        Err(vaegram::Error::Rpc(e)) if e.name == "BROADCAST_REQUIRED" => {
+            user.get_supergroup_statistics(chat_id).await.map(drop)
+        }
+        other => other.map(drop),
+    };
+    let refused = |e: &vaegram::Error| matches!(e, vaegram::Error::Rpc(e) if matches!(e.name.as_str(), "CHAT_ADMIN_REQUIRED" | "STATS_MIGRATE"));
+    assert!(statistics.as_ref().err().is_none_or(refused), "{statistics:?}");
+}

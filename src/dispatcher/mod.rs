@@ -189,6 +189,7 @@ mod tests {
     use crate::Client;
     use crate::errors::{Error, RpcError};
     use crate::raw::{Identifiable, Serializable};
+    use crate::session::UpdatesRx;
     use crate::types::{Message, RawUpdate};
     use crate::utils::{get_channel_id, get_peer};
 
@@ -319,6 +320,47 @@ mod tests {
         }
         for _ in 0..20 {
             tokio::task::yield_now().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn an_update_in_a_reply_and_on_the_stream_runs_once() {
+        for reply_first in [true, false] {
+            let client = Client::offline();
+            let seen = raw_updates(&client);
+            let (tx, mut rx) = UpdatesRx::channel_with(client.0.events.clone());
+            let mut d = Dispatcher::new(client.clone(), &state());
+            let copy = || {
+                let updates =
+                    types::Updates { updates: vec![new_message(2)], users: vec![], chats: vec![], date: 0, seq: 0 };
+                base::Updates::Updates(Box::new(updates))
+            };
+            if reply_first {
+                client.feed_updates(copy());
+            }
+            tx.send(Incoming { updates: copy(), from_request: false }).await.unwrap();
+            if !reply_first {
+                d.process(rx.recv().await.unwrap());
+                client.feed_updates(copy());
+            }
+            for _ in 0..if reply_first { 2 } else { 1 } {
+                // Only a guard against a copy that never comes; nothing asserts on the time.
+                let wait = rx.recv();
+                let incoming = tokio::time::timeout(std::time::Duration::from_secs(5), wait).await;
+                d.process(incoming.expect("the reply's copy never arrived").unwrap());
+            }
+            d.resolve().await;
+            for (update, entities) in std::mem::take(&mut d.tracker.ready) {
+                d.dispatch(update, &entities);
+            }
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
+            // A reply's copy only moves the counters, as for any request's answer; the stream's copy is what a
+            // handler sees. Either way pts moves once and nothing is asked of getDifference.
+            let handled = seen.lock().unwrap().len();
+            let counted = (d.tracker.state.pts, d.tracker.due.is_empty());
+            assert_eq!((handled, counted), (usize::from(!reply_first), (2, true)), "reply first: {reply_first}");
         }
     }
 

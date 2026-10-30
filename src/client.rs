@@ -416,6 +416,11 @@ impl Client {
         inner.options = options;
     }
 
+    /// Hands the updates that came inside another reply to the dispatcher, the way the ones on the stream arrive.
+    pub(crate) fn feed_updates(&self, updates: base::Updates) {
+        self.0.events.nested(updates);
+    }
+
     pub(crate) fn session(&self) -> Session {
         self.0.session.read().unwrap().clone()
     }
