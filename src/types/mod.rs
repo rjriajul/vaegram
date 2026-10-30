@@ -51,7 +51,7 @@ pub(crate) use user_and_chats::BoostUpdate;
 pub use user_and_chats::{
     AcceptedGiftTypes, BusinessBotRights, BusinessConnection, Chat, ChatBoost, ChatBoostRemoved, ChatBoostSource,
     ChatBoostUpdated, ChatInviteLink, ChatJoinRequest, ChatJoiner, ChatMember, ChatMemberUpdated, ChatNotifications,
-    ChatPermissions, ChatPrivileges, Community, DirectMessagesTopic, ForumTopic, ForumTopicCreated, ForumTopicEdited,
-    GlobalPrivacySettings, PassportElementError, PeerRef, PrivacyRule, User, UserProfileAudios, UserProfilePhotos,
-    UserStatusUpdated,
+    ChatPermissions, ChatPrivileges, Community, Dialog, DirectMessagesTopic, ForumTopic, ForumTopicCreated,
+    ForumTopicEdited, GlobalPrivacySettings, InputPhoneContact, PassportElementError, PeerRef, PrivacyRule, User,
+    UserProfileAudios, UserProfilePhotos, UserStatusUpdated,
 };

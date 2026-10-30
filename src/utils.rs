@@ -16,6 +16,17 @@ pub fn get_peer_id(peer: &base::Peer) -> i64 {
     }
 }
 
+pub(crate) fn get_chat_id(chat: &base::Chat) -> Option<i64> {
+    match chat {
+        base::Chat::ChatEmpty(c) => Some(-c.id),
+        base::Chat::Chat(c) => Some(-c.id),
+        base::Chat::ChatForbidden(c) => Some(-c.id),
+        base::Chat::Channel(c) => Some(get_channel_id(c.id)),
+        base::Chat::ChannelForbidden(c) => Some(get_channel_id(c.id)),
+        base::Chat::Community(_) | base::Chat::CommunityForbidden(_) => None,
+    }
+}
+
 pub fn get_channel_id(channel_id: i64) -> i64 {
     (-CHANNEL_OFFSET).wrapping_sub(channel_id)
 }

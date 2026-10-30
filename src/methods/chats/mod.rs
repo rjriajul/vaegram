@@ -1,4 +1,5 @@
 mod add_chat_members;
+mod archive_chats;
 mod ban_chat_member;
 mod ban_chat_sender_chat;
 mod close_forum_topic;
@@ -21,12 +22,16 @@ mod get_chat_member;
 mod get_chat_members;
 mod get_chat_members_count;
 mod get_chat_notifications;
+mod get_dialogs;
+mod get_dialogs_count;
 mod get_forum_topic_icon_stickers;
 mod get_send_as_chats;
 mod hide_general_forum_topic;
 mod join_chat;
 mod leave_chat;
+mod mark_chat_unread;
 mod mute_chat;
+mod pin_chat;
 mod promote_chat_member;
 mod reopen_forum_topic;
 mod reopen_general_forum_topic;
@@ -47,12 +52,14 @@ mod toggle_join_request;
 mod toggle_join_to_send;
 mod toggle_signatures;
 mod transfer_chat_ownership;
+mod unarchive_chats;
 mod unban_chat_member;
 mod unban_chat_sender_chat;
 mod unhide_general_forum_topic;
 mod unmute_chat;
 mod unpin_all_forum_topic_messages;
 mod unpin_all_general_forum_topic_messages;
+mod unpin_chat;
 mod update_chat_notifications;
 
 pub use ban_chat_member::BanChatMember;
@@ -61,6 +68,7 @@ pub use delete_chat_history::DeleteChatHistory;
 pub use edit_forum_topic::EditForumTopic;
 pub use get_chat_administrators::GetChatAdministrators;
 pub use get_chat_members::GetChatMembers;
+pub use get_dialogs::GetDialogs;
 pub use restrict_chat_member::RestrictChatMember;
 pub use set_chat_photo::SetChatPhoto;
 pub use update_chat_notifications::UpdateChatNotifications;
@@ -174,5 +182,58 @@ mod creation_tests {
             missing_invitees: vec![missing(7), missing(8)],
         };
         assert_eq!(missing_ids(&invited), [7, 8]);
+    }
+}
+
+#[cfg(test)]
+mod dialog_tests {
+    use tokio::sync::mpsc::UnboundedReceiver;
+
+    use crate::Client;
+    use crate::errors::{Error, Result};
+    use crate::raw::Identifiable;
+    use crate::raw::functions::{folders, messages};
+
+    const GROUP: i64 = -5;
+
+    async fn sent(rx: &mut UnboundedReceiver<Vec<u8>>, call: impl Future) -> Vec<u8> {
+        let _ = call.await;
+        rx.try_recv().expect("no request sent")
+    }
+
+    fn word(body: &[u8], at: usize) -> u32 {
+        u32::from_le_bytes(body[at..at + 4].try_into().unwrap())
+    }
+
+    #[tokio::test]
+    async fn dialog_toggles_set_the_right_flags() {
+        let (client, mut rx) = Client::recording();
+        let rx = &mut rx;
+
+        let pin = sent(rx, client.pin_chat(GROUP)).await;
+        assert_eq!((word(&pin, 0), word(&pin, 4)), (messages::ToggleDialogPin::CONSTRUCTOR_ID, 1));
+        let unpin = sent(rx, client.unpin_chat(GROUP)).await;
+        assert_eq!((word(&unpin, 0), word(&unpin, 4)), (messages::ToggleDialogPin::CONSTRUCTOR_ID, 0));
+        let unread = sent(rx, client.mark_chat_unread(GROUP)).await;
+        assert_eq!((word(&unread, 0), word(&unread, 4)), (messages::MarkDialogUnread::CONSTRUCTOR_ID, 1));
+
+        let archive = sent(rx, client.archive_chats([GROUP, -6])).await;
+        assert_eq!(word(&archive, 0), folders::EditPeerFolders::CONSTRUCTOR_ID);
+        assert_eq!((word(&archive, 8), word(&archive, archive.len() - 4)), (2, 1));
+        let unarchive = sent(rx, client.unarchive_chats([GROUP])).await;
+        assert_eq!(word(&unarchive, unarchive.len() - 4), 0);
+
+        let count = sent(rx, client.get_dialogs_count(true)).await;
+        assert_eq!((word(&count, 0), word(&count, 4)), (messages::GetDialogs::CONSTRUCTOR_ID, 2));
+    }
+
+    #[tokio::test]
+    async fn moving_no_chats_is_refused_without_a_request() {
+        let (client, mut rx) = Client::recording();
+        let archived = client.archive_chats(Vec::<i64>::new()).await;
+        let unarchived = client.unarchive_chats(Vec::<i64>::new()).await;
+        let refused = |r: &Result<()>| matches!(r, Err(Error::InvalidArgument(_)));
+        assert!(refused(&archived) && refused(&unarchived), "{archived:?} {unarchived:?}");
+        assert!(rx.try_recv().is_err());
     }
 }

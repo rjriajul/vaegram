@@ -22,6 +22,7 @@ mod auth;
 mod bots;
 mod business;
 mod chats;
+mod contacts;
 mod decorators;
 mod invite_links;
 mod messages;
@@ -39,8 +40,9 @@ pub use bots::{
 pub use business::{EditStory, PostStory, RepostStory};
 pub use chats::{
     BanChatMember, CreateForumTopic, DeleteChatHistory, EditForumTopic, GetChatAdministrators, GetChatMembers,
-    RestrictChatMember, SetChatPhoto, UpdateChatNotifications,
+    GetDialogs, RestrictChatMember, SetChatPhoto, UpdateChatNotifications,
 };
+pub use contacts::AddContact;
 pub use invite_links::{
     CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
 };
