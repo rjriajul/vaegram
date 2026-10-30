@@ -1,6 +1,7 @@
+use super::pages::count;
 use crate::Client;
 use crate::errors::Result;
-use crate::raw::{base, functions};
+use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
@@ -15,11 +16,6 @@ impl Client {
             min_id: 0,
             hash: 0,
         };
-        Ok(match self.invoke(&request).await? {
-            base::messages::Messages::Messages(m) => m.messages.len() as i32,
-            base::messages::Messages::MessagesSlice(m) => m.count,
-            base::messages::Messages::ChannelMessages(m) => m.count,
-            base::messages::Messages::MessagesNotModified(m) => m.count,
-        })
+        Ok(count(&self.invoke(&request).await?))
     }
 }

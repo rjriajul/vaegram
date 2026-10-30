@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
-use vaegram::enums::{MessageEntityType, ParseMode, PollType, StickerType, StoriesPrivacyRules};
+use vaegram::enums::{MessageEntityType, MessagesFilter, ParseMode, PollType, StickerType, StoriesPrivacyRules};
 use vaegram::raw::{Serializable, base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
@@ -825,4 +825,80 @@ async fn user_shares_a_folder() {
     assert!(user.get_folder_invite_links(folder.id).await.unwrap().iter().any(|l| l.invite_link == link.invite_link));
     user.delete_folder_invite_link(folder.id, &link.invite_link).await.unwrap();
     user.delete_folder(folder.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_reads_reaction_and_effect_lists() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let user = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+        .connect()
+        .await
+        .unwrap();
+
+    let available = user.get_available_reactions().await.unwrap();
+    assert!(available.iter().any(|r| r.emoji == "👍" && !r.premium));
+    let effects = user.get_available_effects().await.unwrap();
+    assert!(effects.iter().all(|e| e.id != 0 && !e.emoji.is_empty()));
+    assert!(user.get_top_reactions(10).await.unwrap().len() <= 10);
+    user.get_recent_reactions(10).await.unwrap();
+    user.get_saved_reaction_tags().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session and the public @gif bot"]
+async fn user_uses_inline_bot() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let user = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+        .connect()
+        .await
+        .unwrap();
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let gif = user.resolve_username("gif").await.unwrap();
+
+    let results = user.get_inline_bot_results(gif, "cat").await.unwrap();
+    let id = results.results.first().expect("@gif found no cats").id.clone();
+    let sent = user.send_inline_bot_result(me.id, results.query_id, id).await.unwrap();
+    assert_eq!(sent.chat.id, me.id);
+    sent.delete().await.unwrap();
+
+    let started = user.start_bot(gif, gif, "vaegram").await.unwrap();
+    assert_eq!((started.chat.id, started.outgoing), (gif, true));
+    started.delete().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_searches_and_translates() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let user = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+        .connect()
+        .await
+        .unwrap();
+
+    let marker = format!("vaegram search {}", std::process::id());
+    let saved = user.send_message("me", marker.clone()).await.unwrap();
+    // Search indexing lags a little behind sending, so counts and results may not include the marker yet.
+    user.search_messages_count("me").query(marker.as_str()).await.unwrap();
+    let mut found = user.search_global(marker.as_str()).limit(5);
+    while let Some(message) = found.next().await.unwrap() {
+        assert!(message.text.contains(&marker));
+    }
+    user.search_global_count("telegram", MessagesFilter::Url).await.unwrap();
+    saved.delete().await.unwrap();
+
+    let spanish = user.translate_text("es", "<b>Good morning</b>").html().await.unwrap();
+    assert_eq!((spanish.text.is_empty(), spanish.entities.map(|e| e.len())), (false, Some(1)));
 }

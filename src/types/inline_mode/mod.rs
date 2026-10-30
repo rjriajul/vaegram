@@ -1,4 +1,5 @@
 mod chosen_inline_result;
+mod inline_bot_results;
 mod inline_message_id;
 mod inline_query;
 mod inline_query_result;
@@ -28,6 +29,7 @@ mod prepared_inline_message;
 mod sent_guest_message;
 
 pub use chosen_inline_result::ChosenInlineResult;
+pub use inline_bot_results::{InlineBotResult, InlineBotResults};
 pub use inline_message_id::InlineMessageId;
 pub use inline_query::InlineQuery;
 pub use inline_query_result::InlineQueryResult;

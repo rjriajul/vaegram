@@ -1,3 +1,4 @@
+mod add_to_gifs;
 mod approve_suggested_post;
 mod clear_all_drafts;
 mod copy_message;
@@ -23,26 +24,47 @@ mod edit_message_live_location;
 mod edit_message_media;
 mod edit_message_reply_markup;
 mod edit_message_text;
+mod export_message_link;
 mod forward_messages;
 mod get_all_drafts;
+mod get_available_effects;
+mod get_available_reactions;
 mod get_chat_history;
 mod get_chat_history_count;
 mod get_custom_emoji_stickers;
+mod get_discussion_message;
+mod get_discussion_replies;
+mod get_discussion_replies_count;
+mod get_message_by_link;
+mod get_message_reactions_list;
 mod get_message_read_date;
+mod get_message_read_participants;
 mod get_messages;
 mod get_messages_views;
+mod get_poll_votes;
+mod get_recent_reactions;
 mod get_saved_dialogs;
+mod get_saved_gifs;
 mod get_saved_history;
+mod get_saved_reaction_tags;
 mod get_scheduled_messages;
+mod get_top_reactions;
 mod get_user_personal_chat_messages;
 mod pages;
 mod pin_chat_message;
 mod pin_saved_dialog;
 mod read_chat_history;
 mod read_mentions;
+mod read_message_contents;
 mod read_reactions;
+mod remove_from_gifs;
+mod retract_vote;
 mod save_draft;
+mod search_global;
+mod search_global_count;
 mod search_messages;
+mod search_messages_count;
+mod search_posts;
 mod send_animation;
 mod send_audio;
 mod send_chat_action;
@@ -58,6 +80,7 @@ mod send_message;
 mod send_message_draft;
 mod send_options;
 mod send_paid_media;
+mod send_paid_reaction;
 mod send_photo;
 mod send_poll;
 mod send_reaction;
@@ -68,13 +91,19 @@ mod send_venue;
 mod send_video;
 mod send_video_note;
 mod send_voice;
+mod set_default_reaction;
 mod stop_message_live_location;
 mod stop_poll;
 mod stream_message;
+mod transcribe_audio;
+mod translate_message_text;
+mod translate_text;
 mod unpin_all_chat_messages;
 mod unpin_chat_message;
 mod unpin_saved_dialog;
+mod update_saved_reaction_tag;
 mod upload_media;
+mod vote_poll;
 
 pub use approve_suggested_post::ApproveSuggestedPost;
 pub use copy_message::CopyMessage;
@@ -90,13 +119,20 @@ pub use edit_message_live_location::EditMessageLiveLocation;
 pub use edit_message_media::EditMessageMedia;
 pub use edit_message_reply_markup::EditMessageReplyMarkup;
 pub use edit_message_text::EditMessageText;
+pub use export_message_link::ExportMessageLink;
 pub use forward_messages::ForwardMessages;
 pub use get_chat_history::GetChatHistory;
+pub use get_discussion_replies::GetDiscussionReplies;
+pub use get_message_reactions_list::GetMessageReactionsList;
+pub use get_poll_votes::GetPollVotes;
 pub use get_saved_dialogs::GetSavedDialogs;
 pub use get_saved_history::GetSavedHistory;
 pub use pin_chat_message::PinChatMessage;
 pub use save_draft::SaveDraft;
+pub use search_global::SearchGlobal;
 pub use search_messages::SearchMessages;
+pub use search_messages_count::SearchMessagesCount;
+pub use search_posts::SearchPosts;
 pub use send_animation::SendAnimation;
 pub use send_audio::SendAudio;
 pub use send_chat_action::SendChatAction;
@@ -113,6 +149,7 @@ pub use send_message::SendMessage;
 pub use send_message_draft::SendMessageDraft;
 pub(crate) use send_options::{SendOptions, caption_setters, send_builder};
 pub use send_paid_media::SendPaidMedia;
+pub use send_paid_reaction::SendPaidReaction;
 pub use send_photo::SendPhoto;
 pub use send_poll::SendPoll;
 pub use send_reaction::SendReaction;
@@ -127,6 +164,7 @@ pub use stop_message_live_location::StopMessageLiveLocation;
 pub use stop_poll::StopPoll;
 pub(crate) use stream_message::StreamShared;
 pub use stream_message::{MessageStream, StreamMessage};
+pub use translate_text::TranslateText;
 pub use unpin_chat_message::UnpinChatMessage;
 
 #[cfg(test)]
@@ -485,5 +523,150 @@ mod saved_tests {
             hash: 0,
         };
         assert_eq!(rx.try_recv().unwrap(), second.to_bytes());
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use crate::Client;
+    use crate::client::sent;
+    use crate::enums::MessagesFilter;
+    use crate::errors::Error;
+    use crate::raw::functions::{channels, messages};
+    use crate::raw::{Identifiable, base, types};
+    use crate::utils::get_channel_id;
+
+    const GROUP: i64 = -5;
+
+    #[tokio::test]
+    async fn each_call_sends_its_request() {
+        let (client, mut rx) = Client::recording();
+        let channel = get_channel_id(9);
+        let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
+        let rx = &mut rx;
+
+        assert_eq!(sent(rx, client.search_global("x").next()).await, messages::SearchGlobal::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.search_posts().hashtag("x").next()).await, channels::SearchPosts::CONSTRUCTOR_ID);
+        let count = client.search_global_count("x", MessagesFilter::Url);
+        assert_eq!(sent(rx, count).await, messages::SearchGlobal::CONSTRUCTOR_ID);
+        let photos = client.search_messages_count(GROUP).filter(MessagesFilter::Photo);
+        assert_eq!(sent(rx, photos).await, messages::GetSearchCounters::CONSTRUCTOR_ID);
+        let matches = client.search_messages_count(GROUP).query("x").filter(MessagesFilter::Photo);
+        assert_eq!(sent(rx, matches).await, messages::Search::CONSTRUCTOR_ID);
+        let all = client.search_messages_count(GROUP);
+        assert_eq!(sent(rx, all).await, messages::Search::CONSTRUCTOR_ID);
+
+        let post = client.get_discussion_message(channel, 1);
+        assert_eq!(sent(rx, post).await, messages::GetDiscussionMessage::CONSTRUCTOR_ID);
+        let mut comments = client.get_discussion_replies(channel, 1);
+        assert_eq!(sent(rx, comments.next()).await, messages::GetReplies::CONSTRUCTOR_ID);
+        let comments = client.get_discussion_replies_count(channel, 1);
+        assert_eq!(sent(rx, comments).await, messages::GetReplies::CONSTRUCTOR_ID);
+        let read = client.get_message_read_participants(GROUP, 1);
+        assert_eq!(sent(rx, read).await, messages::GetMessageReadParticipants::CONSTRUCTOR_ID);
+
+        let text = client.translate_text("es", "hi");
+        assert_eq!(sent(rx, text).await, messages::TranslateText::CONSTRUCTOR_ID);
+        let posted = client.translate_message_text("es", GROUP, &[1, 2]);
+        assert_eq!(sent(rx, posted).await, messages::TranslateText::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.transcribe_audio(GROUP, 1)).await, messages::TranscribeAudio::CONSTRUCTOR_ID);
+
+        assert_eq!(sent(rx, client.get_chat_online_count(GROUP)).await, messages::GetOnlines::CONSTRUCTOR_ID);
+        let similar = client.get_similar_channels(channel);
+        assert_eq!(sent(rx, similar).await, channels::GetChannelRecommendations::CONSTRUCTOR_ID);
+        let recommended = client.get_recommended_channels();
+        assert_eq!(sent(rx, recommended).await, channels::GetChannelRecommendations::CONSTRUCTOR_ID);
+
+        let refused = client.get_similar_channels(GROUP).await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))));
+        assert!(rx.try_recv().is_err());
+    }
+}
+
+#[cfg(test)]
+mod reaction_tests {
+    use crate::Client;
+    use crate::client::sent;
+    use crate::raw::functions::messages;
+    use crate::raw::{Identifiable, Serializable, base, types};
+
+    const USER: i64 = 7;
+
+    fn setup(answers: Vec<Vec<u8>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (client, rx) = Client::scripted(answers.into_iter().map(Ok).collect());
+        let peer = types::InputPeerUser { user_id: USER, access_hash: 2 };
+        client.0.peers.lock().unwrap().insert(USER, base::InputPeer::InputPeerUser(Box::new(peer)));
+        (client, rx)
+    }
+
+    #[tokio::test]
+    async fn reaction_calls_hit_their_methods() {
+        let (client, mut rx) = setup(Vec::new());
+        let rx = &mut rx;
+        let mut reactors = client.get_message_reactions_list(USER, 1).reaction("👍");
+
+        assert_eq!(sent(rx, reactors.next()).await, messages::GetMessageReactionsList::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.send_paid_reaction(USER, 1, 5)).await, messages::SendPaidReaction::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.set_default_reaction("👍")).await, messages::SetDefaultReaction::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_available_reactions()).await, messages::GetAvailableReactions::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_top_reactions(10)).await, messages::GetTopReactions::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_recent_reactions(10)).await, messages::GetRecentReactions::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.get_saved_reaction_tags()).await, messages::GetSavedReactionTags::CONSTRUCTOR_ID);
+        assert_eq!(
+            sent(rx, client.update_saved_reaction_tag("👍", "")).await,
+            messages::UpdateSavedReactionTag::CONSTRUCTOR_ID
+        );
+        assert_eq!(sent(rx, client.get_available_effects()).await, messages::GetAvailableEffects::CONSTRUCTOR_ID);
+    }
+
+    #[tokio::test]
+    async fn poll_votes_follow_next_offset() {
+        let page = |options: &[u8], next_offset: Option<&str>| {
+            let peer = base::Peer::PeerUser(types::PeerUser { user_id: USER });
+            let votes = options.iter().map(|&o| {
+                let vote = types::MessagePeerVote { peer: peer.clone(), option: vec![o], date: 1 };
+                base::MessagePeerVote::MessagePeerVote(Box::new(vote))
+            });
+            let list = types::messages::VotesList {
+                count: 3,
+                votes: votes.collect(),
+                chats: Vec::new(),
+                users: Vec::new(),
+                next_offset: next_offset.map(Into::into),
+            };
+            base::messages::VotesList::VotesList(Box::new(list)).to_bytes()
+        };
+        let (client, mut rx) = setup(vec![page(&[0, 1], Some("next")), page(&[2], None)]);
+        let peer = || base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: USER, access_hash: 2 }));
+
+        let mut votes = client.get_poll_votes(USER, 9);
+        let mut options = Vec::new();
+        while let Some(vote) = votes.next().await.unwrap() {
+            options.extend(vote.options);
+        }
+        assert_eq!(options, [vec![0], vec![1], vec![2]]);
+        let first = messages::GetPollVotes { peer: peer(), id: 9, option: None, offset: None, limit: 50 };
+        let second =
+            messages::GetPollVotes { peer: peer(), id: 9, option: None, offset: Some("next".into()), limit: 50 };
+        assert_eq!((rx.try_recv().unwrap(), rx.try_recv().unwrap()), (first.to_bytes(), second.to_bytes()));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn filtered_votes_carry_the_queried_option() {
+        let peer = base::Peer::PeerUser(types::PeerUser { user_id: 8 });
+        let vote = types::MessagePeerVoteInputOption { peer, date: 1 };
+        let list = types::messages::VotesList {
+            count: 1,
+            votes: vec![base::MessagePeerVote::MessagePeerVoteInputOption(Box::new(vote))],
+            chats: Vec::new(),
+            users: Vec::new(),
+            next_offset: None,
+        };
+        let (client, _rx) = setup(vec![base::messages::VotesList::VotesList(Box::new(list)).to_bytes()]);
+
+        let vote = client.get_poll_votes(USER, 9).option(vec![1]).next().await.unwrap().unwrap();
+        assert_eq!((vote.voter_id, vote.options), (8, vec![vec![1]]));
     }
 }
