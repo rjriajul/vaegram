@@ -12,7 +12,7 @@ use vaegram::session::Session;
 use vaegram::session::internals::data_center;
 use vaegram::storage::state;
 use vaegram::types::{
-    ButtonStyle, FileSource, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
+    ButtonStyle, FileSource, Folder, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
     InputPollMedia, InputPollOption, InputRichMessage, InputSticker, KeyboardButton, Media, Message,
     ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
 };
@@ -628,6 +628,16 @@ async fn user_lists_active_sessions() {
     assert_eq!(current.device_model, "vaegram live test");
 }
 
+async fn user_client() -> Option<Client> {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return None;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let client = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
+    Some(client.connect().await.unwrap())
+}
+
 #[tokio::test]
 #[ignore = "uses a logged-in user session"]
 async fn account_settings_round_trip() {
@@ -730,4 +740,35 @@ async fn user_lists_dialogs_and_contacts() {
     user.unblock_user(botfather).await.unwrap();
     assert!(blocked.unwrap().iter().any(|c| c.id == botfather));
     user.get_common_chats(botfather).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_reads_stories() {
+    let Some(user) = user_client().await else { return };
+    let stories = user.get_all_stories(false).await.unwrap();
+    let Some(story) = stories.first() else { return };
+    let chat_id = story.chat.id;
+    let fetched = user.get_stories(chat_id, &[story.id]).await.unwrap();
+    assert_eq!(fetched.first().map(|s| s.id), Some(story.id));
+    assert!(user.get_chat_stories(chat_id).await.unwrap().iter().any(|s| s.id == story.id));
+    user.view_stories(chat_id, &[story.id]).await.unwrap();
+    user.read_stories(chat_id, story.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_manages_folders() {
+    let Some(user) = user_client().await else { return };
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let folder = Folder { title: "vaegram".into(), included_chats: vec![me.id], ..Folder::default() };
+    let mut folder = user.create_folder(folder).await.unwrap();
+    assert!(user.get_folders().await.unwrap().iter().any(|f| f.id == folder.id && f.title == "vaegram"));
+
+    folder.title = "vaegram 2".into();
+    user.edit_folder(&folder).await.unwrap();
+    let ids: Vec<i32> = user.get_folders().await.unwrap().iter().map(|f| f.id).collect();
+    user.reorder_folders(&ids).await.unwrap();
+    user.delete_folder(folder.id).await.unwrap();
+    assert!(!user.get_folders().await.unwrap().iter().any(|f| f.id == folder.id));
 }

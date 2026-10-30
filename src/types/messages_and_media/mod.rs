@@ -118,7 +118,7 @@ pub use service_action::ServiceAction;
 pub use star_amount::StarAmount;
 pub use sticker::Sticker;
 pub use sticker_set::StickerSet;
-pub use story::Story;
+pub use story::{Story, StoryViewer};
 pub use story_area::{LocationAddress, StoryArea, StoryAreaPosition, StoryAreaType};
 pub use successful_payment::SuccessfulPayment;
 pub use suggested_post::{

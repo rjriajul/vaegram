@@ -24,12 +24,14 @@ mod business;
 mod chats;
 mod contacts;
 mod decorators;
+mod folders;
 mod invite_links;
 mod messages;
 mod pages;
 mod password;
 mod payments;
 mod stickers;
+mod stories;
 mod users;
 mod utilities;
 
@@ -57,10 +59,11 @@ pub use messages::{
     SendSticker, SendVenue, SendVideo, SendVideoNote, SendVoice, StopMessageLiveLocation, StopPoll, StreamMessage,
     UnpinChatMessage,
 };
-pub(crate) use messages::{StreamShared, caption_setters, geo_point, input_venue};
+pub(crate) use messages::{DownloadSource, StreamShared, caption_setters, geo_point, input_venue};
 pub use password::{ChangeCloudPassword, EnableCloudPassword};
 pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
 };
 pub use stickers::CreateNewStickerSet;
+pub use stories::GetStoryViewers;
 pub use users::{GetChatPhotos, GetUserProfileAudios, SetEmojiStatus, SetProfilePhoto, UpdateProfile};

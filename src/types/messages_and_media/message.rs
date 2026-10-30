@@ -3,8 +3,8 @@ use crate::dispatcher::Entities;
 use crate::enums::ChatType;
 use crate::errors::{Error, Result};
 use crate::methods::{
-    CopyMessage, DownloadMedia, EditMessageReplyMarkup, EditMessageText, ForwardMessages, OnBehalf, PinChatMessage,
-    SendMessage, SendReaction, UnpinChatMessage,
+    CopyMessage, DownloadMedia, DownloadSource, EditMessageReplyMarkup, EditMessageText, ForwardMessages, OnBehalf,
+    PinChatMessage, SendMessage, SendReaction, UnpinChatMessage,
 };
 use crate::raw::{base, types};
 use crate::types::{
@@ -383,7 +383,7 @@ impl Message {
         let location = location.ok_or(Error::InvalidArgument("this message has no photo or document to download"));
         // A business chat's message ids aren't the bot's, and they can't be re-read through the connection, so an
         // expired reference there isn't renewed.
-        let source = self.business_connection_id.is_none().then_some((self.chat.id, self.id));
+        let source = self.business_connection_id.is_none().then_some(DownloadSource::Message(self.chat.id, self.id));
         DownloadMedia::new(&self.client, location, source)
     }
 
