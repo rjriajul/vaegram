@@ -43,7 +43,9 @@ pub use bots::{
     SendInlineBotResult, SendInvoice, SetGameScore, SetInlineGameScore, SetUserEmojiStatus, ToggleBotInAttachMenu,
     VerifyChat,
 };
-pub use business::{EditStory, PostStory, RepostStory};
+pub use business::{
+    CreateBusinessChatLink, EditBusinessChatLink, EditStory, PostStory, RepostStory, SetBusinessAwayMessage,
+};
 pub use chats::{
     BanChatMember, CreateForumTopic, DeleteChatHistory, EditForumTopic, GetChatAdministrators, GetChatEventLog,
     GetChatMembers, GetDialogs, GetMessagePublicForwards, RestrictChatMember, SetChatPhoto, UpdateChatNotifications,

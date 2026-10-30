@@ -274,6 +274,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   hiding and pinning gifts, Stars balance and history for owned chats (not yet tested live)
 - [ ] Attachment menu bots, bot apps, popular and similar bots: `get_attach_menu_bots`, `get_bot_app` (not yet tested live)
 - [ ] Mini Apps: `request_web_view` and friends, write access, custom methods, preview media (not yet tested live)
+- [ ] Business account settings: opening hours, location, intro, greeting and away messages, quick replies, chat links
+  and connected bots: `create_business_chat_link`, `update_connected_bot` (not yet tested live)
 
 ### Development
 

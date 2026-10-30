@@ -972,3 +972,20 @@ async fn user_browses_app_bots() {
         assert_eq!(app.short_name, short_name);
     }
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session with Telegram Business"]
+async fn user_manages_business_links_and_quick_replies() {
+    let Some(user) = user_client().await else { return };
+    let replies = user.get_quick_replies().await.unwrap();
+    assert!(replies.iter().all(|q| !q.shortcut.is_empty()));
+    user.get_connected_bots().await.unwrap();
+
+    let link = user.create_business_chat_link("**hi** from vaegram").markdown().title("vaegram").await.unwrap();
+    let got = (link.text.as_str(), link.title.as_deref(), link.entities.as_ref().map(Vec::len));
+    assert_eq!(got, ("hi from vaegram", Some("vaegram"), Some(1)));
+    let link = user.edit_business_chat_link(link.slug(), "edited").await.unwrap();
+    assert!(user.get_business_chat_links().await.unwrap().iter().any(|l| l.link == link.link && l.text == "edited"));
+    assert_eq!(user.resolve_business_chat_link(link.slug()).await.unwrap().text, "edited");
+    assert!(user.delete_business_chat_link(link.slug()).await.unwrap());
+}

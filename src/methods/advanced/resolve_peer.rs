@@ -100,6 +100,17 @@ impl Client {
         Ok(peers)
     }
 
+    pub(crate) async fn resolve_users(
+        &self,
+        users: impl IntoIterator<Item = impl Into<PeerRef>>,
+    ) -> Result<Vec<base::InputUser>> {
+        let mut input = Vec::new();
+        for user in users {
+            input.push(self.resolve_user(&user.into()).await?);
+        }
+        Ok(input)
+    }
+
     pub(crate) async fn resolve_user(&self, user: &PeerRef) -> Result<base::InputUser> {
         let (id, peer) = self.resolve(user).await?;
         input_user(peer).ok_or(Error::PeerNotFound(id))
