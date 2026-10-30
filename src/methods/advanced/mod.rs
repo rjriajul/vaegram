@@ -1,5 +1,6 @@
 mod invoke;
 mod resolve_peer;
+mod resolve_phone;
 mod resolve_username;
 mod save_file;
 

@@ -22,9 +22,11 @@ mod auth;
 mod bots;
 mod business;
 mod chats;
+mod contacts;
 mod decorators;
 mod invite_links;
 mod messages;
+mod pages;
 mod password;
 mod payments;
 mod stickers;
@@ -38,20 +40,22 @@ pub use bots::{
 };
 pub use business::{EditStory, PostStory, RepostStory};
 pub use chats::{
-    BanChatMember, CreateForumTopic, EditForumTopic, GetChatAdministrators, GetChatMembers, RestrictChatMember,
-    SetChatPhoto, UpdateChatNotifications,
+    BanChatMember, CreateForumTopic, DeleteChatHistory, EditForumTopic, GetChatAdministrators, GetChatMembers,
+    GetDialogs, RestrictChatMember, SetChatPhoto, UpdateChatNotifications,
 };
+pub use contacts::AddContact;
 pub use invite_links::{
     CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
 };
 pub use messages::{
     ApproveSuggestedPost, CopyMessage, CopyMessages, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage,
     EditInlineMedia, EditInlineText, EditMessageChecklist, EditMessageLiveLocation, EditMessageMedia,
-    EditMessageReplyMarkup, EditMessageText, ForwardMessages, GetChatHistory, MediaStream, MessageStream,
-    PinChatMessage, SearchMessages, SendAnimation, SendAudio, SendChatAction, SendChecklist, SendContact, SendDice,
-    SendDocument, SendEphemeralMessage, SendLivePhoto, SendLocation, SendMediaGroup, SendMessage, SendMessageDraft,
-    SendPaidMedia, SendPhoto, SendPoll, SendReaction, SendRichMessage, SendSticker, SendVenue, SendVideo,
-    SendVideoNote, SendVoice, StopMessageLiveLocation, StopPoll, StreamMessage, UnpinChatMessage,
+    EditMessageReplyMarkup, EditMessageText, ForwardMessages, GetChatHistory, GetSavedDialogs, GetSavedHistory,
+    MediaStream, MessageStream, PinChatMessage, SaveDraft, SearchMessages, SendAnimation, SendAudio, SendChatAction,
+    SendChecklist, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLivePhoto, SendLocation,
+    SendMediaGroup, SendMessage, SendMessageDraft, SendPaidMedia, SendPhoto, SendPoll, SendReaction, SendRichMessage,
+    SendSticker, SendVenue, SendVideo, SendVideoNote, SendVoice, StopMessageLiveLocation, StopPoll, StreamMessage,
+    UnpinChatMessage,
 };
 pub(crate) use messages::{StreamShared, caption_setters, geo_point, input_venue};
 pub use password::{ChangeCloudPassword, EnableCloudPassword};

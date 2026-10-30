@@ -15,6 +15,7 @@ pub struct EditMessageText<'a> {
     show_caption_above_media: bool,
     reply_markup: Option<ReplyMarkup>,
     business_connection_id: Option<String>,
+    schedule_date: Option<i32>,
 }
 
 impl Client {
@@ -33,6 +34,7 @@ impl Client {
             show_caption_above_media: false,
             reply_markup: None,
             business_connection_id: None,
+            schedule_date: None,
         }
     }
 }
@@ -54,6 +56,11 @@ impl EditMessageText<'_> {
         self
     }
 
+    pub fn schedule_date(mut self, date: i32) -> Self {
+        self.schedule_date = Some(date);
+        self
+    }
+
     async fn send(self) -> Result<Message> {
         let client = self.client;
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
@@ -63,6 +70,7 @@ impl EditMessageText<'_> {
             message,
             reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
             entities,
+            schedule_date: self.schedule_date,
             rich_message,
             ..edit_request(peer, self.message_id)
         };

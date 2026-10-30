@@ -1,5 +1,6 @@
 mod delete_profile_photos;
 mod get_chat_photos;
+mod get_common_chats;
 mod get_me;
 mod get_user_profile_audios;
 mod get_users;
