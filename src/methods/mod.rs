@@ -38,6 +38,7 @@ mod stories;
 mod users;
 mod utilities;
 
+pub use account::{CreateTheme, InstallTheme};
 pub(crate) use advanced::invoke_sleeping_floods;
 pub use bots::{
     AnswerCallbackQuery, AnswerInlineQuery, AnswerPreCheckoutQuery, AnswerShippingQuery, CreateInvoiceLink,
@@ -49,8 +50,9 @@ pub use business::{
     CreateBusinessChatLink, EditBusinessChatLink, EditStory, PostStory, RepostStory, SetBusinessAwayMessage,
 };
 pub use chats::{
-    BanChatMember, CreateForumTopic, DeleteChatHistory, EditForumTopic, GetChatAdministrators, GetChatEventLog,
-    GetChatMembers, GetDialogs, GetMessagePublicForwards, RestrictChatMember, SetChatPhoto, UpdateChatNotifications,
+    BanChatMember, CreateForumTopic, DeleteChatHistory, DeleteChatWallpaper, EditForumTopic, GetChatAdministrators,
+    GetChatEventLog, GetChatMembers, GetDialogs, GetMessagePublicForwards, RestrictChatMember, SetChatAccentColor,
+    SetChatPhoto, SetChatWallpaper, UpdateChatNotifications,
 };
 pub use contacts::AddContact;
 pub use folders::{CreateFolderInviteLink, EditFolderInviteLink, LeaveFolder};

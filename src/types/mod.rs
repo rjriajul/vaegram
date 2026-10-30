@@ -31,9 +31,10 @@ pub use inline_mode::{
     PreparedInlineMessage, SentGuestMessage,
 };
 pub use langpack::{LangPackDifference, LangPackString, Language};
+pub(crate) use messages_and_media::THEME_FORMAT;
 pub use messages_and_media::{
-    Animation, Audio, AvailableEffect, AvailableReaction, ButtonRef, CheckedGiftCode, Checklist, ChecklistTask,
-    ChecklistTasksAdded, ChecklistTasksDone, Click, Command, Contact, DeletedBusinessMessages,
+    Animation, Audio, AvailableEffect, AvailableReaction, ButtonRef, ChatBackground, CheckedGiftCode, Checklist,
+    ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone, Click, Command, Contact, DeletedBusinessMessages,
     DeletedEphemeralMessages, DeletedMessages, Dice, Document, Draft, EphemeralMessage, ExternalReplyInfo,
     FileLocation, FileSource, Game, GiveawayInfo, GuestMessage, InputChecklist, InputMedia, InputPollMedia,
     InputPollOption, InputSticker, InputStoryContent, Invoice, LinkPreviewOptions, LivePhoto, Location,
@@ -43,8 +44,8 @@ pub use messages_and_media::{
     ReactionType, ReadParticipant, RefundedPayment, ReplyParameters, SavedReactionTag, ServiceAction, StarAmount,
     Sticker, StickerSet, StoriesStealthMode, Story, StoryArea, StoryAreaPosition, StoryAreaType, StoryViewer,
     SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo,
-    SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded, Text, TextQuote,
-    TranscribedAudio, TranslatedText, Upload, Venue, Video, VideoNote, Voice, WriteAccessAllowed,
+    SuggestedPostPaid, SuggestedPostParameters, SuggestedPostPrice, SuggestedPostRefunded, Text, TextQuote, Theme,
+    ThemeSettings, TranscribedAudio, TranslatedText, Upload, Venue, Video, VideoNote, Voice, WriteAccessAllowed,
 };
 pub use payments::{
     Gift, GiftInfo, OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts, ResaleGift, StarPaymentOption,
@@ -57,13 +58,13 @@ pub use rich_messages::{
 };
 pub(crate) use user_and_chats::BoostUpdate;
 pub use user_and_chats::{
-    AcceptedGiftTypes, BoostsStatus, BusinessBotRights, BusinessChatLink, BusinessChatLinkInfo, BusinessConnection,
-    BusinessOpeningHours, BusinessRecipients, ChannelStatistics, Chat, ChatBoost, ChatBoostRemoved, ChatBoostSource,
-    ChatBoostUpdated, ChatEvent, ChatEventAction, ChatEventFilter, ChatInviteLink, ChatJoinRequest, ChatJoiner,
-    ChatMember, ChatMemberUpdated, ChatNotifications, ChatPermissions, ChatPrivileges, Community, ConnectedBot, Dialog,
-    DirectMessagesTopic, EmojiStatus, Folder, FolderInviteLink, FolderInviteLinkInfo, ForumTopic, ForumTopicCreated,
-    ForumTopicEdited, GlobalPrivacySettings, InputPhoneContact, MessageStatistics, MyBoost, PassportElementError,
-    PeerRef, PostInteractions, PremiumPromo, PremiumSubscriptionOption, PrivacyRule, QuickReply, SavedDialog,
-    StatisticalGraph, StatisticalValue, SupergroupStatistics, TopAdmin, TopInviter, TopPoster, User, UserProfileAudios,
-    UserProfilePhotos, UserStatusUpdated,
+    AccentColor, AcceptedGiftTypes, BoostsStatus, BusinessBotRights, BusinessChatLink, BusinessChatLinkInfo,
+    BusinessConnection, BusinessOpeningHours, BusinessRecipients, ChannelStatistics, Chat, ChatBoost, ChatBoostRemoved,
+    ChatBoostSource, ChatBoostUpdated, ChatEvent, ChatEventAction, ChatEventFilter, ChatInviteLink, ChatJoinRequest,
+    ChatJoiner, ChatMember, ChatMemberUpdated, ChatNotifications, ChatPermissions, ChatPrivileges, Community,
+    ConnectedBot, Dialog, DirectMessagesTopic, EmojiStatus, Folder, FolderInviteLink, FolderInviteLinkInfo, ForumTopic,
+    ForumTopicCreated, ForumTopicEdited, GlobalPrivacySettings, InputPhoneContact, MessageStatistics, MyBoost,
+    PassportElementError, PeerRef, PostInteractions, PremiumPromo, PremiumSubscriptionOption, PrivacyRule,
+    ProfileAccentColor, QuickReply, SavedDialog, StatisticalGraph, StatisticalValue, SupergroupStatistics, TopAdmin,
+    TopInviter, TopPoster, User, UserProfileAudios, UserProfilePhotos, UserStatusUpdated,
 };
