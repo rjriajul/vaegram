@@ -38,8 +38,8 @@ pub use bots::{
 };
 pub use business::{EditStory, PostStory, RepostStory};
 pub use chats::{
-    BanChatMember, CreateForumTopic, EditForumTopic, GetChatAdministrators, GetChatMembers, RestrictChatMember,
-    SetChatPhoto, UpdateChatNotifications,
+    BanChatMember, CreateForumTopic, DeleteChatHistory, EditForumTopic, GetChatAdministrators, GetChatMembers,
+    RestrictChatMember, SetChatPhoto, UpdateChatNotifications,
 };
 pub use invite_links::{
     CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,

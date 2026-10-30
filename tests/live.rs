@@ -660,3 +660,26 @@ async fn account_settings_round_trip() {
     assert_eq!(user.update_profile().first_name(first_name.as_str()).await.unwrap().first_name, first_name);
     assert!(user.update_status(false).await.unwrap());
 }
+
+#[tokio::test]
+#[ignore = "creates and deletes a supergroup with a logged-in user session"]
+async fn user_creates_and_manages_a_supergroup() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let user = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+        .connect()
+        .await
+        .unwrap();
+
+    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
+    assert_eq!(group.kind, vaegram::enums::ChatType::Supergroup);
+    user.set_slow_mode(group.id, Some(10)).await.unwrap();
+    user.set_chat_protected_content(group.id, true).await.unwrap();
+    user.toggle_forum_topics(group.id, true, false).await.unwrap();
+    assert!(!user.get_send_as_chats(group.id).await.unwrap().is_empty());
+    user.delete_chat_history(group.id).revoke().await.unwrap();
+    user.delete_supergroup(group.id).await.unwrap();
+}
