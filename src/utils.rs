@@ -1,3 +1,6 @@
+use crate::crypto::password::Srp;
+use crate::crypto::random;
+use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 
 pub(crate) const CHANNEL_OFFSET: i64 = 1_000_000_000_000;
@@ -117,6 +120,29 @@ pub(crate) fn base64_decode(s: &str) -> Option<Vec<u8>> {
         }
     }
     Some(out)
+}
+
+pub(crate) fn known_algo(
+    algo: &base::PasswordKdfAlgo,
+) -> Result<&types::PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow> {
+    match algo {
+        base::PasswordKdfAlgo::PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow(algo) => Ok(algo),
+        _ => Err(Error::Unexpected("unknown password algorithm; update vaegram")),
+    }
+}
+
+pub(crate) fn compute_password_check(
+    p: &types::account::Password,
+    password: &str,
+) -> Result<base::InputCheckPasswordSRP> {
+    let (Some(algo), Some(g_b), Some(srp_id)) = (&p.current_algo, &p.srp_b, p.srp_id) else {
+        return Err(Error::InvalidArgument("this account has no password"));
+    };
+    let algo = known_algo(algo)?;
+    let srp = Srp { salt1: &algo.salt1, salt2: &algo.salt2, g: algo.g, p: &algo.p, g_b };
+    let (a, m1) = srp.check(password.as_bytes(), &random()).map_err(Error::Security)?;
+    let check = types::InputCheckPasswordSRP { srp_id, a: a.to_vec(), m1: m1.to_vec() };
+    Ok(base::InputCheckPasswordSRP::InputCheckPasswordSRP(Box::new(check)))
 }
 
 #[cfg(test)]

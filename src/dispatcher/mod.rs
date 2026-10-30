@@ -5,6 +5,7 @@ mod tasks;
 mod tracker;
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tokio::time::Instant;
@@ -31,6 +32,7 @@ pub(crate) struct Dispatcher {
     saved: (UpdateState, usize),
     router: Arc<Router>,
     generation: u64,
+    account: u64,
     tasks: Tasks,
 }
 
@@ -48,11 +50,17 @@ impl Dispatcher {
     fn with(client: Client, mut tracker: Tracker) -> Self {
         tracker.touch(Instant::now());
         let generation = client.0.handlers.generation();
+        let account = client.0.account.load(Ordering::Relaxed);
         let router = client.0.handlers.current();
         let mut tasks = Tasks::new(client.0.ordered, client.0.handler_permits.clone());
         tasks.on_error = router.on_error.clone();
         tasks.events = client.0.events.clone();
-        Dispatcher { client, tracker, saved_at: Instant::now(), saved: Default::default(), router, generation, tasks }
+        let saved = Default::default();
+        Dispatcher { client, tracker, saved_at: Instant::now(), saved, router, generation, account, tasks }
+    }
+
+    fn same_account(&self) -> bool {
+        self.client.0.account.load(Ordering::Relaxed) == self.account
     }
 
     /// `true` when `Client::stop` ended it, after the running handlers finished; `false` when the connection did.
@@ -67,7 +75,7 @@ impl Dispatcher {
             if self.saved_at.elapsed() >= SAVE_EVERY {
                 self.saved_at = Instant::now();
                 let now = (self.tracker.state.clone(), self.client.0.peers.lock().unwrap().len());
-                if now != self.saved {
+                if now != self.saved && self.same_account() {
                     self.client.0.save_state_in_background(&now.0);
                     self.saved = now;
                 }
@@ -84,7 +92,9 @@ impl Dispatcher {
                 // The watch guard `wait_for` returns isn't Send, so it is dropped before awaiting the handlers.
                 _ = async { drop(stop.wait_for(|stopped| *stopped).await) } => {
                     self.tasks.finish().await;
-                    self.client.0.save_state(&self.tracker.state).await;
+                    if self.same_account() {
+                        self.client.0.save_state(&self.tracker.state).await;
+                    }
                     return true;
                 }
                 next = next => next,
@@ -164,7 +174,8 @@ impl Dispatcher {
 
 impl Drop for Dispatcher {
     fn drop(&mut self) {
-        if let Ok(mut state) = self.client.0.state.lock() {
+        let Ok(mut state) = self.client.0.state.lock() else { return };
+        if self.same_account() {
             *state = Some(std::mem::take(&mut self.tracker.state));
         }
     }

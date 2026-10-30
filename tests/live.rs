@@ -609,3 +609,21 @@ async fn bot_sets_and_removes_photos() {
     app.set_chat_photo(chat_id, photo.as_str()).await.unwrap();
     app.delete_chat_photo(chat_id).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_lists_active_sessions() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let user = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+        .device_model("vaegram live test")
+        .connect()
+        .await
+        .unwrap();
+    let sessions = user.get_active_sessions().await.unwrap();
+    let current = sessions.active_sessions.iter().find(|s| s.is_current).expect("no current session listed");
+    assert_eq!(current.device_model, "vaegram live test");
+}

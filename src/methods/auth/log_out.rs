@@ -4,9 +4,11 @@ use crate::raw::functions;
 use crate::storage;
 
 impl Client {
-    /// Terminates the authorization on Telegram's side and deletes the local session and state files.
+    /// Terminates the authorization on Telegram's side, forgets the account's cached peers, update state and
+    /// transfer connections, and deletes the local session and state files.
     pub async fn log_out(&self) -> Result<()> {
         self.invoke(&functions::auth::LogOut {}).await?;
+        self.forget_account();
         let path = self.0.storage_path.lock().unwrap().take();
         let session = path.map_or(Ok(()), |path| storage::delete(&path));
         let state = self.0.state_file.as_ref().map_or(Ok(()), |file| file.delete());
@@ -21,24 +23,101 @@ mod tests {
     use std::sync::Arc;
 
     use crate::Client;
+    use crate::dispatcher::Dispatcher;
+    use crate::errors::Result;
     use crate::raw::{Serializable, base, types};
-    use crate::storage::state::StateFile;
+    use crate::storage::state::{StateFile, UpdateState};
 
-    fn stored_client(dir: &Path) -> (Client, PathBuf, PathBuf) {
+    fn logged_out() -> Vec<u8> {
+        base::auth::LoggedOut::LoggedOut(Box::new(types::auth::LoggedOut { future_auth_token: None })).to_bytes()
+    }
+
+    fn user(id: i64) -> base::User {
+        let mut buf = Vec::new();
+        0u32.serialize(&mut buf);
+        0u32.serialize(&mut buf);
+        id.serialize(&mut buf);
+        base::User::User(Box::new(types::User::deserialize_bare(&mut &buf[..]).unwrap()))
+    }
+
+    fn signed_in(id: i64) -> Vec<u8> {
+        let auth = types::auth::Authorization {
+            setup_password_required: false,
+            otherwise_relogin_days: None,
+            tmp_sessions: None,
+            future_auth_token: None,
+            user: user(id),
+        };
+        base::auth::Authorization::Authorization(Box::new(auth)).to_bytes()
+    }
+
+    fn stored_client(dir: &Path, replies: Vec<Result<Vec<u8>>>) -> (Client, PathBuf, PathBuf) {
         std::fs::create_dir_all(dir).unwrap();
         let (session, state) = (dir.join("bot.session"), dir.join("bot.state"));
-        let logged_out = base::auth::LoggedOut::LoggedOut(Box::new(types::auth::LoggedOut { future_auth_token: None }));
-        let (mut client, _) = Client::scripted(vec![Ok(logged_out.to_bytes())]);
+        let (mut client, _) = Client::scripted(replies);
         let inner = Arc::get_mut(&mut client.0).unwrap();
         *inner.storage_path.get_mut().unwrap() = Some(session.clone());
         inner.state_file = Some(Arc::new(StateFile::new(state.clone())));
         (client, session, state)
     }
 
+    async fn log_in_a(client: &Client) {
+        client.set_me(&user(1001));
+        let peer = types::InputPeerUser { user_id: 777, access_hash: 5 };
+        client.0.peers.lock().unwrap().insert(777, base::InputPeer::InputPeerUser(Box::new(peer)));
+        let state = UpdateState { pts: 50, date: 1, ..Default::default() };
+        client.save().unwrap();
+        client.0.save_state(&state).await;
+        *client.0.state.lock().unwrap() = Some(state);
+    }
+
+    #[tokio::test]
+    async fn log_out_forgets_the_account_in_memory_and_on_disk() {
+        let dir = std::env::temp_dir().join(format!("vaegram-log-out-forget-{}", std::process::id()));
+        let (client, session, state) = stored_client(&dir, vec![Ok(logged_out())]);
+        log_in_a(&client).await;
+        let saved = state.exists();
+
+        client.log_out().await.unwrap();
+        let me = client.0.me.lock().unwrap().id;
+        let peers = client.0.peers.lock().unwrap().len();
+        let update_state = client.0.state.lock().unwrap().is_some();
+        drop(client);
+
+        let left = (session.exists(), state.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(saved);
+        assert_eq!((me, peers, update_state), (0, 0, false));
+        assert_eq!(left, (false, false));
+    }
+
+    #[tokio::test]
+    async fn the_next_account_inherits_nothing_of_the_last() {
+        let dir = std::env::temp_dir().join(format!("vaegram-log-out-next-{}", std::process::id()));
+        let (client, session, state) = stored_client(&dir, vec![Ok(logged_out()), Ok(signed_in(2002))]);
+        log_in_a(&client).await;
+        let running = client.0.state.lock().unwrap().take().unwrap();
+        let dispatcher = Dispatcher::resume(client.clone(), running);
+
+        client.log_out().await.unwrap();
+        client.sign_in("8801", "hash", "12345").await.unwrap();
+        drop(dispatcher);
+        let me = client.0.me.lock().unwrap().id;
+        let peers = client.0.peers.lock().unwrap().len();
+        let update_state = client.0.state.lock().unwrap().is_some();
+        client.save().unwrap();
+        drop(client);
+
+        let left = (session.exists(), state.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!((me, peers, update_state), (2002, 0, false));
+        assert_eq!(left, (false, false));
+    }
+
     #[tokio::test]
     async fn log_out_leaves_no_session_or_state_behind() {
         let dir = std::env::temp_dir().join(format!("vaegram-log-out-{}", std::process::id()));
-        let (client, session, state) = stored_client(&dir);
+        let (client, session, state) = stored_client(&dir, vec![Ok(logged_out())]);
         client.save().unwrap();
         client.0.save_state_in_background(&Default::default());
 
@@ -54,7 +133,7 @@ mod tests {
     #[tokio::test]
     async fn failed_session_delete_still_removes_state() {
         let dir = std::env::temp_dir().join(format!("vaegram-log-out-err-{}", std::process::id()));
-        let (client, session, state) = stored_client(&dir);
+        let (client, session, state) = stored_client(&dir, vec![Ok(logged_out())]);
         std::fs::create_dir_all(&session).unwrap();
         std::fs::write(&state, b"old").unwrap();
 

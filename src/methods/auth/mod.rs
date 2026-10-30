@@ -1,6 +1,11 @@
 mod authorize;
+mod authorize_qr;
 mod check_password;
 mod log_out;
+mod recover_password;
 mod send_code;
+mod send_recovery_code;
 mod sign_in;
 mod sign_in_bot;
+mod sign_in_qrcode;
+mod sign_up;

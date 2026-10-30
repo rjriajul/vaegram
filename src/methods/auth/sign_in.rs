@@ -1,6 +1,8 @@
 use crate::Client;
+use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
+use crate::types::User;
 
 impl Client {
     pub async fn sign_in(&self, phone_number: &str, phone_code_hash: &str, phone_code: &str) -> Result<base::User> {
@@ -23,5 +25,14 @@ impl Client {
             }
             base::auth::Authorization::AuthorizationSignUpRequired(_) => Err(Error::SignUpRequired),
         }
+    }
+
+    pub(crate) fn authorized_user(&self, auth: base::auth::Authorization) -> Result<User> {
+        let user = self.authorized(auth)?;
+        let id = match &user {
+            base::User::User(u) => u.id,
+            base::User::UserEmpty(u) => u.id,
+        };
+        Ok(User::parse(id, &Entities::new(self, vec![user], Vec::new())))
     }
 }

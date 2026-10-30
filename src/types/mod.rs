@@ -7,7 +7,7 @@ mod raw_update;
 mod rich_messages;
 mod user_and_chats;
 
-pub use authorization::SentCode;
+pub use authorization::{ActiveSession, ActiveSessions, LoginToken, SentCode};
 pub use bots_and_keyboards::{
     AffiliateInfo, BotAccessSettings, BotCommand, BotCommandScope, BotSubscriptionUpdated, ButtonStyle, CallbackOrigin,
     CallbackQuery, ChatShared, EditCallbackMessageText, ForceReply, GameHighScore, InlineAction, InlineKeyboardButton,

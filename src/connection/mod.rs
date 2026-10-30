@@ -37,6 +37,7 @@ pub struct Options {
     pub flood_sleep_threshold: Duration,
     pub observer: Option<Observer>,
     pub record: Option<Recorder>,
+    pub device: Device,
 }
 
 impl Default for Options {
@@ -49,6 +50,26 @@ impl Default for Options {
             flood_sleep_threshold: Duration::from_secs(60),
             observer: None,
             record: None,
+            device: Device::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Device {
+    pub model: String,
+    pub system_version: String,
+    pub app_version: String,
+    pub lang_code: String,
+}
+
+impl Default for Device {
+    fn default() -> Self {
+        Device {
+            model: "vaegram".into(),
+            system_version: std::env::consts::OS.into(),
+            app_version: env!("CARGO_PKG_VERSION").into(),
+            lang_code: "en".into(),
         }
     }
 }

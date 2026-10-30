@@ -130,7 +130,7 @@ impl fmt::Display for Error {
             Error::InvalidArgument(what) => write!(f, "invalid argument: {what}"),
             Error::InvalidSession(why) => write!(f, "invalid session string: {why}"),
             Error::SignUpRequired => {
-                f.write_str("this phone number has no Telegram account yet; sign up in an app first")
+                f.write_str("this phone number has no Telegram account yet; create one with sign_up")
             }
             Error::FileSize { size: 0, .. } => f.write_str("can't upload an empty file"),
             Error::FileSize { size, limit } => {

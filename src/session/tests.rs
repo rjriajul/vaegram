@@ -975,6 +975,30 @@ async fn every_connection_on_a_new_permanent_key_waits_for_it_to_propagate() {
 }
 
 #[tokio::test]
+async fn after_log_out_a_transfer_lease_authorizes_again() {
+    use test_dc::{IMPORT_AUTHORIZATION, INIT_CONNECTION, INVOKE_WITH_LAYER as LAYER};
+    let dc = TestDc::start([5; 256], false).await;
+    let logged_out = base::auth::LoggedOut::LoggedOut(Box::new(types::auth::LoggedOut { future_auth_token: None }));
+    let export = types::auth::ExportedAuthorization { id: 1, bytes: vec![1] };
+    let export = base::auth::ExportedAuthorization::ExportedAuthorization(Box::new(export));
+    let (client, mut home_sent) = crate::Client::scripted(vec![Ok(logged_out.to_bytes()), Ok(export.to_bytes())]);
+    let (imported, mut on_imported) = Session::scripted(Vec::new());
+    client.0.transfers.insert(dc.dc(4), &imported);
+
+    client.log_out().await.unwrap();
+    let options = Options { transport: crate::connection::Transport::Intermediate, ..Options::default() };
+    let home = client.session();
+    let lease = client.0.transfers.lease(dc.dc(4), 1, Auth::Home(&home, 1), &options, &Arc::default()).await;
+    drop(lease.unwrap());
+
+    let sent: Vec<Vec<u8>> = std::iter::from_fn(|| home_sent.try_recv().ok()).collect();
+    let export = functions::auth::ExportAuthorization { dc_id: 4 }.to_bytes();
+    assert_eq!(sent, [functions::auth::LogOut {}.to_bytes(), export]);
+    assert_eq!(calls(&dc, 1), [vec![LAYER, INIT_CONNECTION, IMPORT_AUTHORIZATION]]);
+    assert!(on_imported.try_recv().is_err());
+}
+
+#[tokio::test]
 async fn saved_clock_offset_is_confirmed_by_the_server() {
     let (mut r, _frames, _updates) = runner_with(Salt { value: 9, time_offset: -3600 }).await;
     r.clock_synced = false;

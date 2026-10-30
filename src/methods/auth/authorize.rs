@@ -2,7 +2,7 @@ use std::io::{self, BufRead, IsTerminal, Write};
 
 use crate::Client;
 use crate::client::Login;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 
 async fn ask(prompt: &'static str, hidden: bool) -> Result<String> {
@@ -53,6 +53,11 @@ impl Client {
                 Ok(_) => return Ok(()),
                 Err(e) if e.is("PHONE_CODE_INVALID") => println!("Wrong code, try again"),
                 Err(e) if e.is("SESSION_PASSWORD_NEEDED") => break,
+                Err(Error::SignUpRequired) => {
+                    let first_name = ask("Enter first name: ", false).await?;
+                    let last_name = ask("Enter last name (optional): ", false).await?;
+                    return self.sign_up(&phone, &sent.phone_code_hash, &first_name, &last_name).await.map(drop);
+                }
                 Err(e) => return Err(e),
             }
         }
