@@ -1,4 +1,5 @@
 mod attach_menu_peer_type;
+mod base_theme;
 mod business_away_message_schedule;
 mod chat_action;
 mod chat_join_request_result;
@@ -26,6 +27,7 @@ mod unique_gift_origin;
 mod user_status;
 
 pub use attach_menu_peer_type::AttachMenuPeerType;
+pub use base_theme::BaseTheme;
 pub use business_away_message_schedule::BusinessAwayMessageSchedule;
 pub use chat_action::ChatAction;
 pub use chat_join_request_result::ChatJoinRequestResult;

@@ -16,6 +16,33 @@ fn request_bytes() {
 }
 
 #[test]
+fn help_and_langpack_request_bytes() {
+    assert_eq!(functions::help::GetAppConfig { hash: 0 }.to_bytes(), [0x54, 0xf8, 0xe3, 0x61, 0, 0, 0, 0]);
+    assert_eq!(
+        functions::help::GetCountriesList { lang_code: "en".into(), hash: 7 }.to_bytes(),
+        [0xa8, 0x87, 0x57, 0x73, 2, b'e', b'n', 0, 7, 0, 0, 0]
+    );
+    let id = base::DataJSON::DataJSON(Box::new(types::DataJSON { data: "{}".into() }));
+    assert_eq!(
+        functions::help::AcceptTermsOfService { id }.to_bytes(),
+        [0x9a, 0xf7, 0x72, 0xee, 0x04, 0x8d, 0x74, 0x7d, 2, b'{', b'}', 0]
+    );
+
+    let request =
+        functions::langpack::GetDifference { lang_pack: "android".into(), lang_code: "en".into(), from_version: 5 };
+    assert_eq!(
+        request.to_bytes(),
+        [0xa5, 0x4a, 0x98, 0xcd, 7, b'a', b'n', b'd', b'r', b'o', b'i', b'd', 2, b'e', b'n', 0, 5, 0, 0, 0]
+    );
+    let request =
+        functions::langpack::GetStrings { lang_pack: "".into(), lang_code: "en".into(), keys: vec!["k".into()] };
+    assert_eq!(
+        request.to_bytes(),
+        [0x03, 0x38, 0xea, 0xef, 0, 0, 0, 0, 2, b'e', b'n', 0, 0x15, 0xc4, 0xb5, 0x1c, 1, 0, 0, 0, 1, b'k', 0, 0]
+    );
+}
+
+#[test]
 fn bytes_are_length_prefixed_and_padded() {
     assert_eq!("hi".to_string().to_bytes(), [2, b'h', b'i', 0]);
 

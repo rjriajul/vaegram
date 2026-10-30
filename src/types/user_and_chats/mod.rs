@@ -1,3 +1,4 @@
+mod accent_color;
 mod accepted_gift_types;
 mod boosts_status;
 mod business_bot_rights;
@@ -46,6 +47,7 @@ mod user_profile_audios;
 mod user_profile_photos;
 mod user_status_updated;
 
+pub use accent_color::{AccentColor, ProfileAccentColor};
 pub use accepted_gift_types::AcceptedGiftTypes;
 pub use boosts_status::BoostsStatus;
 pub use business_bot_rights::BusinessBotRights;

@@ -12,6 +12,7 @@ mod delete_channel;
 mod delete_chat_history;
 mod delete_chat_photo;
 mod delete_chat_sticker_set;
+mod delete_chat_wallpaper;
 mod delete_forum_topic;
 mod delete_supergroup;
 mod edit_forum_topic;
@@ -30,6 +31,8 @@ mod get_dialogs_count;
 mod get_forum_topic_icon_stickers;
 mod get_message_public_forwards;
 mod get_message_statistics;
+mod get_peer_colors;
+mod get_peer_profile_colors;
 mod get_recommended_channels;
 mod get_send_as_chats;
 mod get_similar_channels;
@@ -46,15 +49,19 @@ mod promote_chat_member;
 mod reopen_forum_topic;
 mod reopen_general_forum_topic;
 mod restrict_chat_member;
+mod set_chat_accent_color;
 mod set_chat_administrator_custom_title;
 mod set_chat_description;
 mod set_chat_member_tag;
 mod set_chat_permissions;
 mod set_chat_photo;
+mod set_chat_profile_accent_color;
 mod set_chat_protected_content;
 mod set_chat_sticker_set;
+mod set_chat_theme;
 mod set_chat_title;
 mod set_chat_username;
+mod set_chat_wallpaper;
 mod set_send_as_chat;
 mod set_slow_mode;
 mod toggle_forum_topics;
@@ -75,6 +82,7 @@ mod update_chat_notifications;
 pub use ban_chat_member::BanChatMember;
 pub use create_forum_topic::CreateForumTopic;
 pub use delete_chat_history::DeleteChatHistory;
+pub use delete_chat_wallpaper::DeleteChatWallpaper;
 pub use edit_forum_topic::EditForumTopic;
 pub use get_chat_administrators::GetChatAdministrators;
 pub use get_chat_event_log::GetChatEventLog;
@@ -82,7 +90,9 @@ pub use get_chat_members::GetChatMembers;
 pub use get_dialogs::GetDialogs;
 pub use get_message_public_forwards::GetMessagePublicForwards;
 pub use restrict_chat_member::RestrictChatMember;
+pub use set_chat_accent_color::SetChatAccentColor;
 pub use set_chat_photo::SetChatPhoto;
+pub use set_chat_wallpaper::SetChatWallpaper;
 pub use update_chat_notifications::UpdateChatNotifications;
 
 #[cfg(test)]
@@ -283,6 +293,61 @@ mod statistics_tests {
         for result in [statistics, log] {
             assert!(matches!(result, Err(Error::InvalidArgument(_))));
         }
+        assert!(rx.try_recv().is_err());
+    }
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    use tokio::sync::mpsc::UnboundedReceiver;
+
+    use crate::raw::Identifiable;
+    use crate::raw::functions::{account, channels, messages};
+    use crate::raw::{base, types};
+    use crate::types::ChatBackground;
+    use crate::utils::get_channel_id;
+    use crate::{Client, Error};
+
+    const GROUP: i64 = -5;
+
+    async fn flags(rx: &mut UnboundedReceiver<Vec<u8>>, call: impl IntoFuture) -> (u32, u32) {
+        let _ = call.await;
+        let body = rx.try_recv().expect("no request sent");
+        let word = |at: usize| u32::from_le_bytes(body[at..at + 4].try_into().unwrap());
+        (word(0), word(4))
+    }
+
+    #[tokio::test]
+    async fn wallpaper_calls_set_their_flags() {
+        let (client, mut rx) = Client::recording();
+        let rx = &mut rx;
+        let fill = ChatBackground { background_color: Some(0xffffff), ..Default::default() };
+        let id = messages::SetChatWallPaper::CONSTRUCTOR_ID;
+
+        assert_eq!(flags(rx, client.set_chat_wallpaper(GROUP, &fill)).await, (id, 0b101));
+        assert_eq!(flags(rx, client.set_chat_wallpaper(GROUP, &fill).for_both()).await, (id, 0b1101));
+        assert_eq!(flags(rx, client.delete_chat_wallpaper(GROUP)).await, (id, 0));
+        assert_eq!(flags(rx, client.delete_chat_wallpaper(GROUP).restore_previous()).await, (id, 0b10000));
+    }
+
+    #[tokio::test]
+    async fn accent_colors_go_to_the_account_or_the_channel() {
+        let (client, mut rx) = Client::recording();
+        let rx = &mut rx;
+        let channel = get_channel_id(9);
+        let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
+        client.0.me.lock().unwrap().id = 7;
+        let (me, channel_color) = (account::UpdateColor::CONSTRUCTOR_ID, channels::UpdateColor::CONSTRUCTOR_ID);
+
+        assert_eq!(flags(rx, client.set_chat_accent_color(7, Some(3))).await, (me, 0b100));
+        assert_eq!(flags(rx, client.set_chat_accent_color(7, None)).await, (me, 0));
+        assert_eq!(flags(rx, client.set_chat_profile_accent_color(7, Some(3))).await, (me, 0b110));
+        let emoji = client.set_chat_accent_color(channel, Some(3)).background_custom_emoji_id(5);
+        assert_eq!(flags(rx, emoji).await, (channel_color, 0b101));
+
+        let refused = client.set_chat_accent_color(GROUP, Some(3)).await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
     }
 }

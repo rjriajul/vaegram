@@ -1,6 +1,8 @@
+mod accept_terms_of_service;
 mod authorize;
 mod authorize_qr;
 mod check_password;
+mod get_terms_of_service_update;
 mod log_out;
 mod recover_password;
 mod send_code;
