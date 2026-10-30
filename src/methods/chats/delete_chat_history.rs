@@ -14,14 +14,12 @@ pub struct DeleteChatHistory<'a> {
 }
 
 impl Client {
-    /// Deletes the chat history for you, or for everyone with `.revoke()`.
     pub fn delete_chat_history(&self, chat_id: impl Into<PeerRef>) -> DeleteChatHistory<'_> {
         DeleteChatHistory { client: self, chat_id: chat_id.into(), max_id: 0, revoke: false, just_clear: false }
     }
 }
 
 impl DeleteChatHistory<'_> {
-    /// Only deletes messages up to this id.
     pub fn max_id(mut self, max_id: i32) -> Self {
         self.max_id = max_id;
         self
@@ -32,7 +30,6 @@ impl DeleteChatHistory<'_> {
         self
     }
 
-    /// Clears the messages but keeps the chat in your dialog list.
     pub fn just_clear(mut self) -> Self {
         self.just_clear = true;
         self

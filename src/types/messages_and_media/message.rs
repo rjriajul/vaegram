@@ -286,6 +286,8 @@ impl Message {
                 base::Update::UpdateBotEditBusinessMessage(u) => {
                     (u.message, Some((u.connection_id, u.reply_to_message)))
                 }
+                // Scheduling a message, or editing one that is still scheduled, answers with this.
+                base::Update::UpdateNewScheduledMessage(u) => (u.message, None),
                 _ => return None,
             };
             let mut message = Message::from_raw(client, message, &entities)?;

@@ -1,40 +1,25 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::pages::DialogPages;
 use crate::raw::{base, functions};
 use crate::types::Dialog;
 use crate::utils::get_peer_id;
 
-const PAGE_SIZE: usize = 100;
-
 pub struct GetDialogs<'a> {
     client: &'a Client,
     folder_id: Option<i32>,
-    buffer: std::vec::IntoIter<Dialog>,
-    remaining: usize,
-    offset_date: i32,
-    offset_id: i32,
-    offset_peer: base::InputPeer,
-    done: bool,
+    pages: DialogPages<Dialog>,
 }
 
 impl Client {
     pub fn get_dialogs(&self) -> GetDialogs<'_> {
-        GetDialogs {
-            client: self,
-            folder_id: None,
-            buffer: Vec::new().into_iter(),
-            remaining: usize::MAX,
-            offset_date: 0,
-            offset_id: 0,
-            offset_peer: base::InputPeer::InputPeerEmpty,
-            done: false,
-        }
+        GetDialogs { client: self, folder_id: None, pages: DialogPages::new() }
     }
 }
 
 impl GetDialogs<'_> {
     pub fn limit(mut self, limit: usize) -> Self {
-        self.remaining = limit;
+        self.pages.remaining = limit;
         self
     }
 
@@ -45,40 +30,23 @@ impl GetDialogs<'_> {
 
     pub async fn next(&mut self) -> Result<Option<Dialog>> {
         loop {
-            if self.remaining == 0 {
-                return Ok(None);
-            }
-            if let Some(dialog) = self.buffer.next() {
-                self.remaining -= 1;
+            if let Some(dialog) = self.pages.pop() {
                 return Ok(Some(dialog));
             }
-            if self.done {
-                return Ok(None);
-            }
-            let limit = self.remaining.min(PAGE_SIZE) as i32;
+            let Some(limit) = self.pages.limit() else { return Ok(None) };
             let request = functions::messages::GetDialogs {
                 exclude_pinned: false,
                 folder_id: self.folder_id,
-                offset_date: self.offset_date,
-                offset_id: self.offset_id,
-                offset_peer: self.offset_peer.clone(),
+                offset_date: self.pages.offset_date,
+                offset_id: self.pages.offset_id,
+                offset_peer: self.pages.offset_peer.clone(),
                 limit,
                 hash: 0,
             };
             let page = self.client.invoke(&request).await?;
             let (last_page, next) = page_end(&page, limit);
-            self.done = last_page;
-            match next {
-                // Same offset again would fetch the same page forever.
-                Some((date, id, _)) if (date, id) == (self.offset_date, self.offset_id) => self.done = true,
-                Some((date, id, chat_id)) => {
-                    self.offset_date = date;
-                    self.offset_id = id;
-                    self.offset_peer = self.client.resolve_peer(chat_id).await?;
-                }
-                None => self.done = true,
-            }
-            self.buffer = Dialog::unpack(self.client, page).0.into_iter();
+            let (dialogs, _) = Dialog::unpack(self.client, page);
+            self.pages.refill(self.client, dialogs, last_page, next).await?;
         }
     }
 }

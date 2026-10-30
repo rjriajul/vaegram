@@ -118,9 +118,9 @@ mod creation_tests {
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
 
-        assert_eq!(sent(rx, client.add_chat_members(GROUP, [7], 100)).await, messages::AddChatUser::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, client.add_chat_members(GROUP, [7_i64], 100)).await, messages::AddChatUser::CONSTRUCTOR_ID);
         assert_eq!(
-            sent(rx, client.add_chat_members(channel, [7], 100)).await,
+            sent(rx, client.add_chat_members(channel, [7_i64], 100)).await,
             channels::InviteToChannel::CONSTRUCTOR_ID
         );
         assert_eq!(sent(rx, client.delete_chat_history(GROUP)).await, messages::DeleteHistory::CONSTRUCTOR_ID);
