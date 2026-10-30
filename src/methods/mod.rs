@@ -39,7 +39,7 @@ pub use bots::{
 pub use business::{EditStory, PostStory, RepostStory};
 pub use chats::{
     BanChatMember, CreateForumTopic, EditForumTopic, GetChatAdministrators, GetChatMembers, RestrictChatMember,
-    SetChatPhoto,
+    SetChatPhoto, UpdateChatNotifications,
 };
 pub use invite_links::{
     CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
@@ -59,4 +59,4 @@ pub use payments::{
     ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SendGift, TransferGift, UpgradeGift,
 };
 pub use stickers::CreateNewStickerSet;
-pub use users::{GetChatPhotos, GetUserProfileAudios, SetProfilePhoto};
+pub use users::{GetChatPhotos, GetUserProfileAudios, SetEmojiStatus, SetProfilePhoto, UpdateProfile};

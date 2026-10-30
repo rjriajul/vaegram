@@ -10,6 +10,17 @@ pub struct AcceptedGiftTypes {
 }
 
 impl AcceptedGiftTypes {
+    pub(crate) fn parse(settings: &base::DisallowedGiftsSettings) -> AcceptedGiftTypes {
+        let base::DisallowedGiftsSettings::DisallowedGiftsSettings(d) = settings;
+        AcceptedGiftTypes {
+            unlimited_gifts: !d.disallow_unlimited_stargifts,
+            limited_gifts: !d.disallow_limited_stargifts,
+            unique_gifts: !d.disallow_unique_stargifts,
+            premium_subscription: !d.disallow_premium_gifts,
+            gifts_from_channels: !d.disallow_stargifts_from_channels,
+        }
+    }
+
     pub(crate) fn write(self) -> base::DisallowedGiftsSettings {
         base::DisallowedGiftsSettings::DisallowedGiftsSettings(types::DisallowedGiftsSettings {
             disallow_unlimited_stargifts: !self.unlimited_gifts,

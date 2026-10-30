@@ -1,5 +1,4 @@
 use crate::Client;
-use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::types::User;
@@ -28,11 +27,6 @@ impl Client {
     }
 
     pub(crate) fn authorized_user(&self, auth: base::auth::Authorization) -> Result<User> {
-        let user = self.authorized(auth)?;
-        let id = match &user {
-            base::User::User(u) => u.id,
-            base::User::UserEmpty(u) => u.id,
-        };
-        Ok(User::parse(id, &Entities::new(self, vec![user], Vec::new())))
+        Ok(User::from_raw(self, self.authorized(auth)?))
     }
 }

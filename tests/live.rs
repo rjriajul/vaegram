@@ -627,3 +627,36 @@ async fn user_lists_active_sessions() {
     let current = sessions.active_sessions.iter().find(|s| s.is_current).expect("no current session listed");
     assert_eq!(current.device_model, "vaegram live test");
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn account_settings_round_trip() {
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let user = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
+        .connect()
+        .await
+        .unwrap();
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+
+    // Every call writes back what it read, so the account is left as it was.
+    let days = user.get_account_ttl().await.unwrap();
+    assert!(user.set_account_ttl(days).await.unwrap());
+
+    let key = vaegram::enums::PrivacyKey::Bio;
+    let rules = user.get_privacy(key).await.unwrap();
+    assert_eq!(user.set_privacy(key, &rules).await.unwrap(), rules);
+
+    let global = user.get_global_privacy_settings().await.unwrap();
+    assert_eq!(user.set_global_privacy_settings(global).await.unwrap(), global);
+
+    let notify = user.get_chat_notifications(me.id).await.unwrap();
+    assert!(user.update_chat_notifications(me.id).mute_until(notify.mute_until.unwrap_or(0)).await.unwrap());
+
+    let first_name = me.first_name.unwrap_or_default();
+    assert_eq!(user.update_profile().first_name(first_name.as_str()).await.unwrap().first_name, first_name);
+    assert!(user.update_status(false).await.unwrap());
+}
