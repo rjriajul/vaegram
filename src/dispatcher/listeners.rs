@@ -142,10 +142,23 @@ impl<T> Criteria<T> {
         let alert = self.alert.as_ref().filter(|_| pinned && !self.users.is_empty())?;
         (self.places(id) && !fits(&self.users, id.user.as_ref())).then(|| alert.clone())
     }
+
+    /// Whether this stop pattern covers `listener`: each list the pattern fills must share a value with the
+    /// listener's, so a listener without that criterion isn't covered.
+    pub(crate) fn includes(&self, listener: &Criteria<T>) -> bool {
+        overlaps(&self.chats, &listener.chats)
+            && overlaps(&self.users, &listener.users)
+            && overlaps(&self.messages, &listener.messages)
+            && overlaps(&self.inline, &listener.inline)
+    }
 }
 
 fn fits<V: PartialEq>(list: &[V], value: Option<&V>) -> bool {
     list.is_empty() || value.is_some_and(|v| list.contains(v))
+}
+
+fn overlaps<V: PartialEq>(pattern: &[V], listener: &[V]) -> bool {
+    pattern.is_empty() || listener.iter().any(|v| pattern.contains(v))
 }
 
 struct Entry<T> {
@@ -249,6 +262,19 @@ impl<T> Book<T> {
 
     pub(crate) fn call(&self, id: u64, criteria: Criteria<T>, callback: Callback<T>) -> Result<()> {
         self.add(Entry { id, criteria, sink: Sink::Call(callback) })
+    }
+
+    /// Stops every listener `pattern` covers and returns how many; waiters fail with `Error::ListenerStopped`.
+    pub(crate) fn stop(&self, pattern: &Criteria<T>) -> usize {
+        let stopped: Vec<Entry<T>> = {
+            let mut shelf = self.shelf();
+            let (stopped, kept) =
+                mem::take(&mut shelf.entries).into_iter().partition(|e| pattern.includes(&e.criteria));
+            shelf.entries = kept;
+            self.count(&shelf);
+            stopped
+        };
+        stopped.len()
     }
 
     /// Waits for the update `criteria` describes. Dropping the future removes the listener.
@@ -400,6 +426,10 @@ pub(crate) mod tests {
         let mut tasks = Tasks::new(false, None);
         (tasks.on_error, tasks.events) = (router.on_error.clone(), client.0.events.clone());
         router.dispatch(client, update, &Arc::default(), &mut tasks);
+    }
+
+    pub(crate) fn entries<T>(book: &Book<T>) -> usize {
+        book.waiting.load(Ordering::Acquire)
     }
 
     pub(crate) async fn until_waiting<T>(book: &Book<T>) {

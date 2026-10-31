@@ -82,12 +82,14 @@ macro_rules! listener_setters {
 mod ask;
 mod listen;
 mod register_next_step_handler;
+mod stop_listening;
 mod wait_for_callback_query;
 mod wait_for_message;
 
 pub use ask::Ask;
 pub use listen::Listen;
 pub use register_next_step_handler::RegisterNextStepHandler;
+pub use stop_listening::StopListening;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 
