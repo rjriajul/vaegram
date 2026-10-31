@@ -104,3 +104,21 @@ async fn bot_stores_and_deletes_a_welcome_message() {
     assert!(!user.get_welcome_messages(chat_id).await.unwrap().iter().any(|m| m.id == welcome.id));
     bot.delete_all_welcome_messages(chat_id).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "needs VAEGRAM_CALL_CHAT_ID: a group with an active video chat"]
+async fn user_lists_group_call_members() {
+    let Ok(chat_id) = std::env::var("VAEGRAM_CALL_CHAT_ID") else {
+        eprintln!("skipped: set VAEGRAM_CALL_CHAT_ID (a group with an active video chat) and VAEGRAM_USER_SESSION");
+        return;
+    };
+    let chat_id: i64 = chat_id.parse().unwrap();
+    let Some(user) = user_client().await else { return };
+    let mut members = user.get_call_members(chat_id).limit(5);
+    let mut count = 0;
+    while let Some(member) = members.next().await.unwrap() {
+        assert!(member.date > 0);
+        count += 1;
+    }
+    assert!(count <= 5);
+}
