@@ -90,6 +90,12 @@ impl SendMediaGroup<'_> {
 
 send_builder!(SendMediaGroup, Vec<Message>);
 
+impl crate::methods::OnBehalf for SendMediaGroup<'_> {
+    fn business_connection(&mut self) -> &mut Option<String> {
+        &mut self.options.business_connection_id
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::Client;

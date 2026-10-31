@@ -4,11 +4,11 @@ use crate::enums::ChatType;
 use crate::errors::{Error, Result};
 use crate::methods::{
     CopyMessage, DownloadMedia, DownloadSource, EditMessageReplyMarkup, EditMessageText, ForwardMessages, OnBehalf,
-    PinChatMessage, SendMessage, SendReaction, UnpinChatMessage,
+    PinChatMessage, SendMediaGroup, SendMessage, SendReaction, UnpinChatMessage,
 };
 use crate::raw::{base, types};
 use crate::types::{
-    Chat, Command, DirectMessagesTopic, ExternalReplyInfo, InlineKeyboardMarkup, LinkPreviewOptions, Media,
+    Chat, Command, DirectMessagesTopic, ExternalReplyInfo, InlineKeyboardMarkup, InputMedia, LinkPreviewOptions, Media,
     MessageEntity, MessageOrigin, MessageText, PeerRef, ReactionCount, ReactionType, ReplyMarkup, RichMessage,
     ServiceAction, SuggestedPostInfo, Text, TextQuote, User,
 };
@@ -407,6 +407,14 @@ impl Message {
         self.client.read_message_contents(self.chat.id, &[self.id]).await
     }
 
+    /// Marks the chat as read up to and including this message.
+    pub async fn mark_as_read(&self) -> Result<()> {
+        match &self.business_connection_id {
+            Some(id) => self.client.read_business_message(id, self.chat.id, self.id).await,
+            None => self.client.read_chat_history(self.chat.id, self.id).await,
+        }
+    }
+
     pub fn command(&self) -> Option<Command<'_>> {
         self.command_with("/")
     }
@@ -429,6 +437,15 @@ impl Message {
         Ok(self.client.get_messages(self.chat.id, &[id]).await?.pop().flatten())
     }
 
+    /// Fetches this message again, as it is now; `None` when it was deleted.
+    pub async fn refetch(&self) -> Result<Option<Message>> {
+        // A business chat's message ids belong to the other account, so the bot can't look them up.
+        if self.business_connection_id.is_some() {
+            return Err(Error::InvalidArgument("a business message can't be fetched again"));
+        }
+        Ok(self.client.get_messages(self.chat.id, &[self.id]).await?.pop().flatten())
+    }
+
     pub fn reply(&self, text: impl Into<Text>) -> SendMessage<'_> {
         self.answer(text).reply_to(self.id)
     }
@@ -436,6 +453,22 @@ impl Message {
     /// Sends `text` to this chat without a quote, in the same topic and through the same business connection.
     pub fn answer(&self, text: impl Into<Text>) -> SendMessage<'_> {
         let mut send = self.on_behalf(self.client.send_message(self.chat.id, text));
+        if let Some(topic) = &self.direct_messages_topic {
+            send = send.direct_messages_topic_id(topic.topic_id);
+        }
+        match self.message_thread_id {
+            Some(thread) if self.is_topic_message => send.message_thread_id(thread),
+            _ => send,
+        }
+    }
+
+    pub fn reply_media_group<'a>(&'a self, media: impl IntoIterator<Item = InputMedia<'a>>) -> SendMediaGroup<'a> {
+        self.answer_media_group(media).reply_to(self.id)
+    }
+
+    /// Sends an album to this chat without a quote, in the same topic and through the same business connection.
+    pub fn answer_media_group<'a>(&'a self, media: impl IntoIterator<Item = InputMedia<'a>>) -> SendMediaGroup<'a> {
+        let mut send = self.on_behalf(self.client.send_media_group(self.chat.id, media));
         if let Some(topic) = &self.direct_messages_topic {
             send = send.direct_messages_topic_id(topic.topic_id);
         }
@@ -494,7 +527,9 @@ pub(crate) mod tests {
     use crate::errors::{Error, RpcError};
     use crate::filters;
     use crate::raw::{Identifiable, Serializable, base, functions, types};
-    use crate::types::{Community, ForumTopicCreated, ForumTopicEdited, Media, MessageOrigin, ServiceAction};
+    use crate::types::{
+        Community, FileSource, ForumTopicCreated, ForumTopicEdited, InputMedia, Media, MessageOrigin, ServiceAction,
+    };
     use crate::utils::{get_channel_id, get_peer};
 
     pub(crate) fn header() -> types::MessageReplyHeader {
@@ -943,5 +978,96 @@ pub(crate) mod tests {
         raw.media = Some(document);
         let document = parse(&raw);
         assert_eq!((document.has_media_spoiler(), document.ttl_seconds()), (true, Some(5)));
+    }
+
+    const PHOTO: &str = "AgACAgIAAxkBAAIENGfeY4AfRquwTL2LpDrzqvFMVNt_AAIG9DEbXX3wSq3oI7t_PqQGAQADAgADbQADNgQ";
+
+    fn seeded() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (client, rx) = Client::recording();
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        let channel = types::InputPeerChannel { channel_id: 9, access_hash: 2 };
+        client.0.peers.lock().unwrap().insert(get_channel_id(9), base::InputPeer::InputPeerChannel(Box::new(channel)));
+        (client, rx)
+    }
+
+    #[tokio::test]
+    async fn refetch_reads_the_message_again() {
+        let mut fresh = Message::bare(5, get_peer(-5), 0);
+        fresh.message = "edited".into();
+        let messages = types::messages::Messages {
+            messages: vec![base::Message::Message(Box::new(fresh))],
+            topics: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        let reply = Ok(base::messages::Messages::Messages(Box::new(messages)).to_bytes());
+        let (client, mut sent) = Client::scripted(vec![reply]);
+        let message = Message::parse(&client, Box::new(Message::bare(5, get_peer(-5), 0)), &Entities::default());
+        let again = message.refetch().await.unwrap().unwrap();
+        assert_eq!((again.id, again.chat.id, again.text.as_str()), (5, -5, "edited"));
+        let request = functions::messages::GetMessages {
+            id: vec![base::InputMessage::InputMessageID(types::InputMessageID { id: 5 })],
+        };
+        assert_eq!(sent.try_recv().unwrap(), request.to_bytes());
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn refetch_refuses_a_business_message_without_a_request() {
+        let (client, mut rx) = seeded();
+        let mut message = Message::parse(&client, Box::new(Message::bare(5, get_peer(7), 0)), &Entities::default());
+        message.business_connection_id = Some("c".into());
+        assert!(matches!(message.refetch().await, Err(Error::InvalidArgument(_))));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn mark_as_read_reads_up_to_the_message() {
+        let (client, mut rx) = seeded();
+        let message =
+            |chat_id| Message::parse(&client, Box::new(Message::bare(5, get_peer(chat_id), 0)), &Entities::default());
+
+        assert!(message(7).mark_as_read().await.is_err());
+        let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
+        assert_eq!(rx.try_recv().unwrap(), functions::messages::ReadHistory { peer, max_id: 5 }.to_bytes());
+
+        assert!(message(get_channel_id(9)).mark_as_read().await.is_err());
+        let channel = base::InputChannel::InputChannel(Box::new(types::InputChannel { channel_id: 9, access_hash: 2 }));
+        assert_eq!(rx.try_recv().unwrap(), functions::channels::ReadHistory { channel, max_id: 5 }.to_bytes());
+
+        let mut business = message(7);
+        business.business_connection_id = Some("c".into());
+        assert!(business.mark_as_read().await.is_err());
+        assert_eq!(rx.try_recv().unwrap()[..4], 0xdd289f8e_u32.to_le_bytes());
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn album_replies_quote_and_answers_stay_in_the_topic() {
+        let (client, mut rx) = seeded();
+        let album = || [0, 1].map(|_| InputMedia::photo(FileSource::file_id(PHOTO).unwrap()));
+        let mut message = Message::parse(&client, Box::new(Message::bare(5, get_peer(7), 0)), &Entities::default());
+        let _ = message.reply_media_group(album()).await;
+        let _ = message.answer_media_group(album()).await;
+        (message.message_thread_id, message.is_topic_message) = (Some(3), true);
+        let _ = message.answer_media_group(album()).await;
+        // reply_to is flags.0 of messages.sendMultiMedia, right after the constructor id.
+        let mut has_reply_to = || {
+            let body = rx.try_recv().expect("no request sent");
+            assert_eq!(body[..4], functions::messages::SendMultiMedia::CONSTRUCTOR_ID.to_le_bytes());
+            body[4] & 1 == 1
+        };
+        assert_eq!((has_reply_to(), has_reply_to(), has_reply_to()), (true, false, true));
+    }
+
+    #[tokio::test]
+    async fn business_albums_go_through_the_connection() {
+        let (client, mut rx) = seeded();
+        let album = [0, 1].map(|_| InputMedia::photo(FileSource::file_id(PHOTO).unwrap()));
+        let mut message = Message::parse(&client, Box::new(Message::bare(5, get_peer(7), 0)), &Entities::default());
+        message.business_connection_id = Some("c".into());
+        assert!(message.reply_media_group(album).await.is_err());
+        assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
     }
 }
