@@ -655,6 +655,8 @@ async fn account_settings_round_trip() {
     // Every call writes back what it read, so the account is left as it was.
     let days = user.get_account_ttl().await.unwrap();
     assert!(user.set_account_ttl(days).await.unwrap());
+    let days = user.get_active_sessions().await.unwrap().inactive_session_ttl_days;
+    assert!(user.set_inactive_session_ttl(days).await.unwrap());
 
     let key = vaegram::enums::PrivacyKey::Bio;
     let rules = user.get_privacy(key).await.unwrap();
