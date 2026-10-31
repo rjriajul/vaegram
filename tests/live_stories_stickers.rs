@@ -122,3 +122,17 @@ async fn user_lists_group_call_members() {
     }
     assert!(count <= 5);
 }
+
+#[tokio::test]
+#[ignore = "needs a user account with Telegram's TON wallet available"]
+async fn user_looks_up_ton_wallet_addresses() {
+    let Some(user) = user_client().await else { return };
+    let found = user.get_user_ton_wallet_addresses(["me"]).await.unwrap();
+    let Some(first) = found.first() else {
+        eprintln!("skipped the address lookup: the account has no wallet");
+        return;
+    };
+    let by_address =
+        user.get_address_ton_wallet(&first.wallet_address).await.unwrap().expect("no wallet at the address");
+    assert_eq!(by_address.public_key, first.public_key);
+}

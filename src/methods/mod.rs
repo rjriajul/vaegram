@@ -38,6 +38,7 @@ mod stickers;
 mod stories;
 mod users;
 mod utilities;
+mod wallet;
 
 pub use account::*;
 pub(crate) use advanced::invoke_sleeping_floods;

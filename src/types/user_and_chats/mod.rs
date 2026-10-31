@@ -50,6 +50,7 @@ mod user;
 mod user_profile_audios;
 mod user_profile_photos;
 mod user_status_updated;
+mod user_ton_wallet_address;
 
 pub use accent_color::{AccentColor, ProfileAccentColor};
 pub use accepted_gift_types::AcceptedGiftTypes;
@@ -104,3 +105,4 @@ pub use user::User;
 pub use user_profile_audios::UserProfileAudios;
 pub use user_profile_photos::UserProfilePhotos;
 pub use user_status_updated::UserStatusUpdated;
+pub use user_ton_wallet_address::UserTonWalletAddress;
