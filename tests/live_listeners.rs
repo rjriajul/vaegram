@@ -37,3 +37,24 @@ async fn wait_for_callback_query_gets_the_click() {
     assert!(click.is_ok(), "{click:?}");
     assert_eq!(picked.text, "picked pick");
 }
+
+#[tokio::test]
+#[ignore = "uses a bot token and a logged-in user session"]
+async fn ask_returns_the_users_answer() {
+    let Some(kit) = Kit::from_env().await else { return };
+    let bot = kit.bot.clone();
+    kit.bot.on_message(filters::private() & filters::command("ask"), move |m| {
+        let bot = bot.clone();
+        async move {
+            let answer = bot.ask(m.chat.id, "Your name?").filter(filters::text()).timeout(WAIT).await?;
+            answer.reply(format!("Hi {}", answer.text)).await?;
+            Ok(())
+        }
+    });
+
+    let question = kit.user.send_and_wait_reply(&kit.bot, "/ask").await.unwrap();
+    let greeting = kit.user.send_and_wait_reply(&kit.bot, "Ada").await.unwrap();
+    kit.user.client.delete_messages(question.chat.id, &[question.id, greeting.id]).await.unwrap();
+    assert_eq!(question.text, "Your name?");
+    assert_eq!(greeting.text, "Hi Ada");
+}
