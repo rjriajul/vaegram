@@ -205,7 +205,9 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Shared send options: replies with quotes, topics, silent, protected, scheduled and business sends; a default
   parse mode via `Client::builder(..).parse_mode(enums::ParseMode::Html)` (not yet tested live)
 - [ ] Chat join requests and join request queries, managed bot access settings (not yet tested live)
-- [ ] Invite links and join requests: `create_chat_invite_link(chat).creates_join_request()`, `request.approve()`, Star subscription links (not yet tested live)
+- [ ] Invite links and join requests: `create_chat_invite_link(chat).creates_join_request()`, `request.approve()`, Star
+  subscription links, `get_chat_invite_link_joiners`, `get_chat_admin_invite_links(chat, admin)`,
+  `get_chat_admins_with_invite_links`, `delete_chat_invite_link` (not yet tested live)
 - [ ] Managed bots: `on_managed_bot`, token get/replace, `KeyboardButton::request_managed_bot`,
   `ServiceAction::ManagedBotCreated` (not yet tested live)
 - [ ] Raw updates with their users and chats: `update.user(id)`, `update.chat(id)`, `update.to_json(..)`; TL objects

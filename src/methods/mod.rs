@@ -57,7 +57,8 @@ pub use chats::{
 pub use contacts::AddContact;
 pub use folders::{CreateFolderInviteLink, EditFolderInviteLink, LeaveFolder};
 pub use invite_links::{
-    CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
+    CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatAdminInviteLinks,
+    GetChatInviteLinkJoiners, GetChatJoinRequests,
 };
 pub use messages::{
     ApproveSuggestedPost, CopyMediaGroup, CopyMessage, CopyMessages, DeclineSuggestedPost, DownloadMedia,

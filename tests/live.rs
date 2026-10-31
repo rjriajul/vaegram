@@ -1071,3 +1071,29 @@ async fn user_adds_and_deletes_poll_options() {
     assert_eq!(options(user.get_messages(group.id, &[sent.id]).await.unwrap()), 2);
     user.delete_supergroup(group.id).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "creates and deletes a supergroup with a logged-in user session"]
+async fn user_manages_invite_links() {
+    let Some(user) = user_client().await else { return };
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
+    let link = user.create_chat_invite_link(group.id).name("t").await.unwrap().invite_link;
+
+    assert_eq!(user.get_chat_invite_link(group.id, &link).await.unwrap().name.as_deref(), Some("t"));
+    assert!(user.get_chat_invite_link_joiners(group.id, &link).await.unwrap().is_empty());
+    assert_eq!(user.get_chat_invite_link_joiners_count(group.id, &link).await.unwrap(), 0);
+
+    let active = user.get_chat_admin_invite_links(group.id, "me").await.unwrap();
+    assert!(active.iter().any(|l| l.invite_link == link));
+    assert!(user.get_chat_admin_invite_links_count(group.id, "me", false).await.unwrap() >= 1);
+    let admins = user.get_chat_admins_with_invite_links(group.id).await.unwrap();
+    assert!(admins.iter().any(|a| a.admin.id == me.id));
+
+    user.revoke_chat_invite_link(group.id, &link).await.unwrap();
+    let revoked = user.get_chat_admin_invite_links(group.id, "me").revoked().await.unwrap();
+    assert!(revoked.iter().any(|l| l.invite_link == link));
+    user.delete_chat_invite_link(group.id, &link).await.unwrap();
+    user.delete_chat_admin_invite_links(group.id, "me").await.unwrap();
+    user.delete_supergroup(group.id).await.unwrap();
+}
