@@ -81,6 +81,8 @@ struct Shared {
     keys: HashMap<[u8; 8], ([u8; 256], bool)>,
     seen: Vec<Seen>,
     connections: usize,
+    // The client drops a repeated msg_id as a replay, even one that comes on a new connection.
+    last_msg_id: i64,
     // Answer each connection's first bind with ENCRYPTED_MESSAGE_INVALID, as a server the key hasn't reached yet.
     refuse_first_bind: bool,
 }
@@ -160,10 +162,11 @@ async fn serve(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) -> Option<()> 
     let mut tag = [0; 4];
     stream.read_exact(&mut tag).await.ok()?;
     let mut buf = RecvBuf::default();
-    let (mut exchange, mut last_msg_id, mut content, mut binds) = (Exchange::default(), 0i64, 0, 0);
-    let mut msg_id = || {
-        last_msg_id = (last_msg_id + 4).max((internals::now() << 32) | 1);
-        last_msg_id
+    let (mut exchange, mut content, mut binds) = (Exchange::default(), 0, 0);
+    let msg_id = || {
+        let mut s = shared.lock().unwrap();
+        s.last_msg_id = (s.last_msg_id + 4).max((internals::now() << 32) | 1);
+        s.last_msg_id
     };
     loop {
         let mut packet = loop {
