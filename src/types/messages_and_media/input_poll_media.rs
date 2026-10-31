@@ -32,7 +32,12 @@ impl InputPollMedia<'_> {
         }))))
     }
 
-    async fn upload(self, client: &Client, peer: &base::InputPeer, business: Option<&str>) -> Result<base::InputMedia> {
+    pub(crate) async fn upload(
+        self,
+        client: &Client,
+        peer: &base::InputPeer,
+        business: Option<&str>,
+    ) -> Result<base::InputMedia> {
         match self.0 {
             Kind::File(media) => {
                 client.upload_media(peer, client.input_media(peer, &media, None, business).await?, business).await

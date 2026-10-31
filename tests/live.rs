@@ -1055,3 +1055,19 @@ async fn user_copies_and_forwards_an_album() {
     let ids: Vec<i32> = [album, forwarded, copied].iter().flatten().map(|m| m.id).collect();
     user.delete_messages("me", &ids).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "creates and deletes a supergroup with a logged-in user session"]
+async fn user_adds_and_deletes_poll_options() {
+    let Some(user) = user_client().await else { return };
+    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
+    let sent = user.send_poll(group.id, "Lunch?", ["A", "B"]).allow_adding_options().await.unwrap();
+    user.add_poll_option(group.id, sent.id, "C").await.unwrap();
+    let options = |messages: Vec<Option<Message>>| {
+        messages[0].as_ref().and_then(Message::poll).map(|p| p.options.len()).expect("the poll is gone")
+    };
+    assert_eq!(options(user.get_messages(group.id, &[sent.id]).await.unwrap()), 3);
+    user.delete_poll_option(group.id, sent.id, 2).await.unwrap();
+    assert_eq!(options(user.get_messages(group.id, &[sent.id]).await.unwrap()), 2);
+    user.delete_supergroup(group.id).await.unwrap();
+}

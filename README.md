@@ -192,7 +192,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Abridged and padded transports, obfuscation, SOCKS5/SOCKS4/HTTP proxies and MTProxy including fake-TLS `ee` secrets: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
 - [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat` (not yet tested live)
 - [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)
-- [ ] Locations, venues, contacts, dice and polls: `send_poll(chat, "Lunch?", ["Pizza", "Sushi"]).quiz([0])` (not yet tested live)
+- [ ] Locations, venues, contacts, dice and polls: `send_poll(chat, "Lunch?", ["Pizza", "Sushi"]).quiz([0])`,
+  `.allow_adding_options()`, `add_poll_option`, `delete_poll_option` (not yet tested live)
 - [ ] Parallel file upload and download: `send_document`, `send_photo`, `msg.download()`, with
   `.progress(|done, total| ..)` and `.stream()` for chunks in order; downloads use media-only and CDN DCs and refresh
   expired file references (not yet tested live)

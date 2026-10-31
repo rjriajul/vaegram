@@ -1,3 +1,4 @@
+mod add_poll_option;
 mod add_to_gifs;
 mod approve_suggested_post;
 mod clear_all_drafts;
@@ -9,6 +10,7 @@ mod delete_all_message_reactions;
 mod delete_ephemeral_message;
 mod delete_message_reaction;
 mod delete_messages;
+mod delete_poll_option;
 mod delete_saved_history;
 mod delete_scheduled_messages;
 mod download_media;
