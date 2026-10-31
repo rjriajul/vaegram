@@ -262,14 +262,14 @@ impl ClientBuilder {
         inner.ordered = self.ordered;
         inner.catch_up = self.catch_up;
         inner.handler_permits = self.max_concurrent_handlers.map(|n| Arc::new(Semaphore::new(n.max(1))));
-        let client = Client(Arc::new(inner));
+        let client = Client(Arc::new(inner), None);
         client.save()?;
         Ok((client, self.login))
     }
 }
 
 #[derive(Clone)]
-pub struct Client(pub(crate) Arc<Inner>);
+pub struct Client(pub(crate) Arc<Inner>, pub(crate) Option<i64>);
 
 impl fmt::Debug for Client {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -413,7 +413,7 @@ impl Client {
     pub(crate) fn offline() -> Client {
         let mut inner = Inner::new(Session::offline(), UpdatesRx::offline());
         inner.me.get_mut().unwrap().is_bot = true;
-        Client(Arc::new(inner))
+        Client(Arc::new(inner), None)
     }
 
     #[cfg(test)]
@@ -559,7 +559,7 @@ impl Client {
             let kind = if up { UpdateKind::Connect } else { UpdateKind::Disconnect };
             let hook = inner.handlers.current().hooks.get(kind);
             if let Some(hook) = hook {
-                tokio::spawn(run_hook(Client(inner), kind, hook));
+                tokio::spawn(run_hook(Client(inner, None), kind, hook));
             }
         }));
     }
@@ -616,7 +616,7 @@ async fn connect(
 }
 
 // Wraps a request in initConnection without cloning it.
-struct Borrowed<'a, R>(&'a R);
+pub(crate) struct Borrowed<'a, R>(pub(crate) &'a R);
 
 impl<R: Serializable> Serializable for Borrowed<'_, R> {
     fn serialize(&self, buf: &mut Vec<u8>) {
