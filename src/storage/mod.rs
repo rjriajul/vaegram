@@ -1,6 +1,12 @@
 pub mod recording;
 pub mod session_string;
 pub mod state;
+mod store;
+
+#[cfg(test)]
+pub(crate) use store::Recording;
+pub(crate) use store::Store;
+pub use store::{FileStore, MemoryStore, SessionStore};
 
 use std::fs;
 use std::io::{self, Write};

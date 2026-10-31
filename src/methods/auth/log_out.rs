@@ -1,19 +1,15 @@
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::functions;
-use crate::storage;
 
 impl Client {
     /// Terminates the authorization on Telegram's side, forgets the account's cached peers, update state and
-    /// transfer connections, and deletes the local session and state files.
+    /// transfer connections, and deletes the saved session and state: the local files, unless the client was built
+    /// with a [`store`](crate::ClientBuilder::store).
     pub async fn log_out(&self) -> Result<()> {
         self.invoke(&functions::auth::LogOut {}).await?;
         self.forget_account();
-        let path = self.0.storage_path.lock().unwrap().take();
-        let session = path.map_or(Ok(()), |path| storage::delete(&path));
-        let state = self.0.state_file.as_ref().map_or(Ok(()), |file| file.delete());
-        session?;
-        Ok(state?)
+        Ok(self.0.store.delete()?)
     }
 }
 
@@ -24,9 +20,10 @@ mod tests {
 
     use crate::Client;
     use crate::dispatcher::Dispatcher;
-    use crate::errors::Result;
+    use crate::errors::{Error, Result};
     use crate::raw::{Serializable, base, types};
-    use crate::storage::state::{StateFile, UpdateState};
+    use crate::storage::state::UpdateState;
+    use crate::storage::{FileStore, Recording, Store};
 
     fn logged_out() -> Vec<u8> {
         base::auth::LoggedOut::LoggedOut(Box::new(types::auth::LoggedOut { future_auth_token: None })).to_bytes()
@@ -56,8 +53,7 @@ mod tests {
         let (session, state) = (dir.join("bot.session"), dir.join("bot.state"));
         let (mut client, _) = Client::scripted(replies);
         let inner = Arc::get_mut(&mut client.0).unwrap();
-        *inner.storage_path.get_mut().unwrap() = Some(session.clone());
-        inner.state_file = Some(Arc::new(StateFile::new(state.clone())));
+        inner.store = Arc::new(Store::new(FileStore::new(dir.join("bot"))));
         (client, session, state)
     }
 
@@ -144,5 +140,38 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(result.is_err());
         assert!(!left);
+    }
+
+    fn client_with(store: Arc<Recording>, replies: Vec<Result<Vec<u8>>>) -> Client {
+        let (mut client, _) = Client::scripted(replies);
+        Arc::get_mut(&mut client.0).unwrap().store = Arc::new(Store::new(store));
+        client
+    }
+
+    #[tokio::test]
+    async fn log_out_deletes_both_keys_from_a_custom_store() {
+        let store = Arc::new(Recording::default());
+        let client = client_with(store.clone(), vec![Ok(logged_out())]);
+        log_in_a(&client).await;
+        let saved = (store.value("session").is_some(), store.value("state").is_some());
+
+        client.log_out().await.unwrap();
+        client.save().unwrap();
+        drop(client);
+
+        assert_eq!(saved, (true, true));
+        assert_eq!(store.calls(), ["save session", "save state", "delete session", "delete state"]);
+        assert_eq!((store.value("session"), store.value("state")), (None, None));
+    }
+
+    #[tokio::test]
+    async fn a_failing_store_is_an_error_not_a_panic() {
+        let store = Arc::new(Recording::failing());
+        let client = client_with(store.clone(), vec![Ok(logged_out())]);
+        let saved = client.save();
+        let result = client.log_out().await;
+        assert!(matches!(saved, Err(Error::Io(_))), "{saved:?}");
+        assert!(matches!(result, Err(Error::Io(_))), "{result:?}");
+        assert_eq!(store.calls(), ["save session", "delete session", "delete state"]);
     }
 }

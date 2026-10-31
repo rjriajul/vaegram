@@ -57,7 +57,8 @@ mod tests {
     use crate::raw::functions::{updates, users};
     use crate::raw::{Identifiable, Serializable, base, types};
     use crate::session::{Incoming, UpdatesRx};
-    use crate::storage::state::{self, StateFile, UpdateState};
+    use crate::storage::state::{self, UpdateState};
+    use crate::storage::{FileStore, Store};
 
     type Log = Arc<Mutex<Vec<&'static str>>>;
 
@@ -89,7 +90,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("vaegram-stop-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("bot.state");
-        Arc::get_mut(&mut client.0).unwrap().state_file = Some(Arc::new(StateFile::new(path.clone())));
+        Arc::get_mut(&mut client.0).unwrap().store = Arc::new(Store::new(FileStore::new(dir.join("bot"))));
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         // Updates never arrive and the channel stays open, so only the stop can end run.
         let (_updates, rx) = UpdatesRx::channel();
