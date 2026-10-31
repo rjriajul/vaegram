@@ -7,8 +7,8 @@ use tokio::net::TcpListener;
 use super::{
     Affected, Answer, Arc, Call, ClientEvent, Connection, DEAD_AFTER, Identifiable, Incoming, MAX_CONTAINER_MSGS,
     Observer, Options, PING_EVERY, PROBE_AFTER, PROBE_DEAD_AFTER, RPC_RESULT, Request, Runner, Salt, Serializable,
-    Session, UPDATES_BUFFER, UpdatesRx, base, constructor_id, functions, gzip_packed, internals, jitter, mpsc,
-    msg_container, mtproto, oneshot, outbox, types,
+    Session, UpdatesRx, base, constructor_id, functions, gzip_packed, internals, jitter, mpsc, msg_container, mtproto,
+    oneshot, outbox, skips_backoff, types,
 };
 use crate::errors::{Error, RpcError};
 use crate::session::internals::data_center::Dc;
@@ -46,7 +46,7 @@ async fn listening(salt: Salt) -> (Runner, Frames, UpdatesRx, TcpListener) {
         }
     });
 
-    let (events, (tx, rx)) = (Arc::default(), mpsc::channel(UPDATES_BUFFER));
+    let (events, (tx, rx)) = (Arc::default(), mpsc::channel(Options::default().updates_capacity));
     let runner = Runner::new(dc, Arc::new(options), conn, ([7; 256], salt, true), Arc::clone(&events), Some(tx));
     let updates = UpdatesRx { rx, events };
     (runner, frames, updates, listener)
@@ -405,7 +405,7 @@ async fn dropped_updates_ask_for_a_difference() {
     let events = r.events.record();
     let empty = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 0, seq: 0 };
     let body = base::Updates::Updates(Box::new(empty)).to_bytes();
-    for id in 0..=UPDATES_BUFFER as i64 {
+    for id in 0..=Options::default().updates_capacity as i64 {
         r.handle_message(id, 0, &body);
     }
     let first = updates.recv().await.unwrap().updates;
@@ -519,11 +519,94 @@ async fn reconnect_is_reported() {
     let events = r.events.record();
     let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
     let (_sender, requests) = mpsc::unbounded_channel();
-    r.reconnect(&requests, false).await;
+    r.reconnect(&requests, false, false).await;
     let _server = server.await.unwrap();
     assert!(matches!(events.try_recv(), Ok(ClientEvent::Reconnected { dc: 2, attempt: 1 })));
     assert!(r.events.take_reconnected());
     assert!(matches!(updates.recv().await, Some(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
+}
+
+#[tokio::test]
+async fn restart_reconnects_and_is_reported() {
+    let (mut r, _frames, mut updates, listener) = listening(Salt::default()).await;
+    let events = r.events.record();
+    let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
+    let (_sender, requests) = mpsc::unbounded_channel();
+    r.reconnect(&requests, false, true).await;
+    let _server = server.await.unwrap();
+    assert!(matches!(events.try_recv(), Ok(ClientEvent::Reconnected { dc: 2, attempt: 1 })));
+    assert!(matches!(updates.recv().await, Some(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
+}
+
+#[tokio::test]
+async fn close_ends_the_runner_and_fails_waiting_requests() {
+    let (r, mut frames, mut updates) = runner().await;
+    let control = r.control.clone();
+    let (requests, rx) = mpsc::unbounded_channel();
+    let task = tokio::spawn(r.run(rx));
+    let (answer, waiting) = oneshot::channel();
+    requests.send(Request { name: "ping", body: ping(1), answer }).unwrap();
+    frames.recv().await.unwrap();
+    control.close();
+    tokio::time::timeout(Duration::from_secs(5), task).await.expect("the runner kept going").unwrap();
+    assert!(matches!(waiting.await, Ok(Err(Error::Disconnected))));
+    assert!(updates.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn close_during_backoff_ends_the_reconnect_at_once() {
+    let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
+    drop(listener);
+    // Paused only after connecting; nothing connects again before the close.
+    tokio::time::pause();
+    let start = tokio::time::Instant::now();
+    let control = r.control.clone();
+    let (_sender, requests) = mpsc::unbounded_channel();
+    let events = r.events.record();
+    let closer = async {
+        tokio::task::yield_now().await;
+        control.close();
+    };
+    let reconnect = r.reconnect(&requests, false, false);
+    let done = tokio::time::timeout(Duration::from_secs(5), async { tokio::join!(reconnect, closer) }).await;
+    assert!(done.is_ok(), "the reconnect kept backing off");
+    assert_eq!(start.elapsed(), Duration::ZERO, "the backoff sleep wasn't cut short");
+    assert!(events.try_recv().is_err(), "it reconnected after the close");
+}
+
+#[test]
+fn only_a_renewal_or_restart_skips_the_first_backoff() {
+    assert!(skips_backoff(true, false, 1) && skips_backoff(false, true, 1));
+    assert!(!skips_backoff(false, false, 1));
+    assert!(!skips_backoff(true, true, 2), "a failed first attempt must back off");
+}
+
+#[tokio::test]
+async fn a_request_racing_close_is_reported_to_the_observer() {
+    let (mut r, _frames, _updates) = runner().await;
+    let seen = observe(&mut r);
+    // Closed without the wake, so only the request can end the loop.
+    r.control.closed.store(true, std::sync::atomic::Ordering::Release);
+    let (requests, rx) = mpsc::unbounded_channel();
+    let (answer, waiting) = oneshot::channel();
+    requests.send(Request { name: "ping", body: ping(1), answer }).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), r.run(rx)).await.expect("the runner kept going");
+    assert!(matches!(waiting.await, Ok(Err(Error::Disconnected))));
+    let disconnected = Err(Error::Disconnected.to_string());
+    assert_eq!(seen.lock().unwrap().iter().filter(|s| s.0 == "ping" && s.2 == disconnected).count(), 1);
+}
+
+#[test]
+fn restart_after_close_is_refused() {
+    let (requests, _open) = mpsc::unbounded_channel();
+    let session = Session::local(requests);
+    assert!(session.restart().is_ok());
+    session.close();
+    assert!(matches!(session.restart(), Err(Error::Disconnected)));
+
+    let (requests, gone) = mpsc::unbounded_channel();
+    drop(gone);
+    assert!(matches!(Session::local(requests).restart(), Err(Error::Disconnected)));
 }
 
 #[tokio::test]
@@ -889,14 +972,58 @@ async fn renewing_the_temp_key_is_not_reported_as_a_reconnect() {
     assert!(r.temp_key_expiring());
 
     r.dc = dc.dc(2);
-    let events = r.events.record();
+    let (events, links) = (r.events.record(), r.events.record_link());
     let (session_id, salt) = (r.session_id, r.salt());
     let (_sender, requests) = mpsc::unbounded_channel();
-    r.reconnect(&requests, true).await;
+    r.reconnect(&requests, true, false).await;
     assert!(!events.try_iter().any(|e| matches!(e, ClientEvent::Reconnected { .. })));
     assert!(!r.events.take_reconnected());
+    assert!(links.try_iter().next().is_none(), "a renewal reported a link change");
     assert!(r.session_id != session_id && r.salt() != salt && r.unbound());
     assert!(matches!(updates.recv().await, Some(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
+}
+
+// Reconnects `r` as a restart does, against a listener that accepts once, and returns the link changes seen.
+async fn restart_links(mut r: Runner, listener: TcpListener) -> Vec<bool> {
+    let links = r.events.record_link();
+    let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
+    let (_sender, requests) = mpsc::unbounded_channel();
+    r.reconnect(&requests, false, true).await;
+    let _server = server.await.unwrap();
+    links.try_iter().collect()
+}
+
+#[tokio::test]
+async fn restart_reports_down_then_up_once() {
+    let (r, _frames, _updates, listener) = listening(Salt::default()).await;
+    assert_eq!(restart_links(r, listener).await, [false, true]);
+}
+
+#[tokio::test]
+async fn transfer_connections_report_no_link_changes() {
+    let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
+    r.updates = None;
+    assert!(restart_links(r, listener).await.is_empty());
+}
+
+#[tokio::test]
+async fn closing_reports_down_but_dropping_the_handles_does_not() {
+    let guard = Duration::from_secs(5);
+    let (r, _frames, _updates) = runner().await;
+    let (links, control) = (r.events.record_link(), r.control.clone());
+    let (_requests, rx) = mpsc::unbounded_channel();
+    let task = tokio::spawn(r.run(rx));
+    control.close();
+    tokio::time::timeout(guard, task).await.unwrap().unwrap();
+    assert_eq!(links.try_iter().collect::<Vec<_>>(), [false]);
+
+    let (r, _frames, _updates) = runner().await;
+    let links = r.events.record_link();
+    let (requests, rx) = mpsc::unbounded_channel::<Request>();
+    let task = tokio::spawn(r.run(rx));
+    drop(requests);
+    tokio::time::timeout(guard, task).await.unwrap().unwrap();
+    assert!(links.try_iter().next().is_none(), "a client drop or DC switch looked like a lost connection");
 }
 
 #[tokio::test]
@@ -922,7 +1049,7 @@ async fn a_silent_server_does_not_pin_the_pfs_reconnect() {
         tokio::time::pause();
         drop(tx);
     };
-    let reconnect = r.reconnect(&requests, false);
+    let reconnect = r.reconnect(&requests, false, false);
     let done = tokio::time::timeout(Duration::from_secs(60), async { tokio::join!(reconnect, closer) }).await;
     assert!(done.is_ok(), "the runner sits in the key exchange forever");
 }
@@ -1059,7 +1186,8 @@ async fn dropped_updates_without_pts_are_counted_as_lost() {
     let (mut r, _frames, mut updates) = runner().await;
     let events = r.events.record();
     let empty = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 0, seq: 0 };
-    for id in 0..UPDATES_BUFFER as i64 {
+    let capacity = Options::default().updates_capacity as i64;
+    for id in 0..capacity {
         r.handle_message(id, 0, &base::Updates::Updates(Box::new(empty.clone())).to_bytes());
     }
     let query = types::UpdateBotCallbackQuery {
@@ -1072,7 +1200,7 @@ async fn dropped_updates_without_pts_are_counted_as_lost() {
         game_short_name: None,
     };
     let update = types::UpdateShort { update: base::Update::UpdateBotCallbackQuery(Box::new(query)), date: 0 };
-    r.handle_message(UPDATES_BUFFER as i64, 0, &base::Updates::UpdateShort(Box::new(update)).to_bytes());
+    r.handle_message(capacity, 0, &base::Updates::UpdateShort(Box::new(update)).to_bytes());
     assert!(matches!(updates.recv().await.unwrap().updates, base::Updates::UpdatesTooLong));
     assert!(matches!(events.try_recv(), Ok(ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 })));
 }

@@ -35,6 +35,11 @@ pub struct Options {
     /// The longest FLOOD_WAIT `Client::invoke` and file transfers sleep off and retry; zero hands every one to
     /// the caller.
     pub flood_sleep_threshold: Duration,
+    /// How many FLOOD_WAITs one call sleeps off; the next goes to the caller.
+    pub max_flood_sleeps: usize,
+    /// Update batches held for the dispatcher. When it's full, a batch is dropped and a getDifference brings
+    /// back what it held.
+    pub updates_capacity: usize,
     pub observer: Option<Observer>,
     pub record: Option<Recorder>,
     pub device: Device,
@@ -48,6 +53,8 @@ impl Default for Options {
             proxy: None,
             request_timeout: Duration::from_secs(30),
             flood_sleep_threshold: Duration::from_secs(60),
+            max_flood_sleeps: 5,
+            updates_capacity: 1024,
             observer: None,
             record: None,
             device: Device::default(),

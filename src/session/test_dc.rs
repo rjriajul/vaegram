@@ -22,13 +22,13 @@ use crate::storage::{SessionData, recording, session_string};
 
 type Any = functions::Ping;
 pub(super) const BIND: u32 = <functions::auth::BindTempAuthKey as Identifiable>::CONSTRUCTOR_ID;
-pub(super) const INVOKE_WITH_LAYER: u32 = <functions::InvokeWithLayer<Any> as Identifiable>::CONSTRUCTOR_ID;
+pub(crate) const INVOKE_WITH_LAYER: u32 = <functions::InvokeWithLayer<Any> as Identifiable>::CONSTRUCTOR_ID;
 pub(super) const GET_NEAREST_DC: u32 = <functions::help::GetNearestDc as Identifiable>::CONSTRUCTOR_ID;
 pub(super) const GET_CONFIG: u32 = <functions::help::GetConfig as Identifiable>::CONSTRUCTOR_ID;
-pub(super) const EXPORT_AUTHORIZATION: u32 = <functions::auth::ExportAuthorization as Identifiable>::CONSTRUCTOR_ID;
-pub(super) const IMPORT_AUTHORIZATION: u32 = <functions::auth::ImportAuthorization as Identifiable>::CONSTRUCTOR_ID;
-pub(super) const PING: u32 = <functions::Ping as Identifiable>::CONSTRUCTOR_ID;
-pub(super) const INIT_CONNECTION: u32 = <functions::InitConnection<Any> as Identifiable>::CONSTRUCTOR_ID;
+pub(crate) const EXPORT_AUTHORIZATION: u32 = <functions::auth::ExportAuthorization as Identifiable>::CONSTRUCTOR_ID;
+pub(crate) const IMPORT_AUTHORIZATION: u32 = <functions::auth::ImportAuthorization as Identifiable>::CONSTRUCTOR_ID;
+pub(crate) const PING: u32 = <functions::Ping as Identifiable>::CONSTRUCTOR_ID;
+pub(crate) const INIT_CONNECTION: u32 = <functions::InitConnection<Any> as Identifiable>::CONSTRUCTOR_ID;
 const PING_DELAY_DISCONNECT: u32 = <functions::PingDelayDisconnect as Identifiable>::CONSTRUCTOR_ID;
 const REQ_PQ_MULTI: u32 = <functions::ReqPqMulti as Identifiable>::CONSTRUCTOR_ID;
 const REQ_DH_PARAMS: u32 = <functions::ReqDHParams as Identifiable>::CONSTRUCTOR_ID;
@@ -70,10 +70,10 @@ pub(super) fn public_key() -> PublicKey {
 /// One encrypted call: the connection (from 1), whether it came under a temp key, and its constructor ids from
 /// the outer wrapper in.
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct Seen {
-    pub(super) connection: usize,
-    pub(super) temp: bool,
-    pub(super) ids: Vec<u32>,
+pub(crate) struct Seen {
+    pub(crate) connection: usize,
+    pub(crate) temp: bool,
+    pub(crate) ids: Vec<u32>,
 }
 
 #[derive(Default)]
@@ -85,7 +85,7 @@ struct Shared {
     refuse_first_bind: bool,
 }
 
-pub(super) struct TestDc {
+pub(crate) struct TestDc {
     addr: SocketAddr,
     shared: Arc<Mutex<Shared>>,
     server: JoinHandle<()>,
@@ -93,7 +93,7 @@ pub(super) struct TestDc {
 
 impl TestDc {
     /// Knows `perm_key` already, as if it had been made before; others come from key exchanges.
-    pub(super) async fn start(perm_key: [u8; 256], refuse_first_bind: bool) -> TestDc {
+    pub(crate) async fn start(perm_key: [u8; 256], refuse_first_bind: bool) -> TestDc {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let mut shared = Shared { refuse_first_bind, ..Shared::default() };
@@ -108,7 +108,7 @@ impl TestDc {
         TestDc { addr, shared, server }
     }
 
-    pub(super) fn dc(&self, id: i32) -> Dc {
+    pub(crate) fn dc(&self, id: i32) -> Dc {
         Dc { id, addr: self.addr, test: false }
     }
 
@@ -125,7 +125,13 @@ impl TestDc {
         })
     }
 
-    pub(super) fn seen(&self) -> Vec<Seen> {
+    /// A client on this data center, with `auth_key` as its login.
+    pub(crate) async fn client(&self, auth_key: [u8; 256]) -> crate::Client {
+        let builder = crate::Client::builder("test-dc", 1, "test-dc").session_string(self.session_string(auth_key));
+        builder.connect().await.unwrap()
+    }
+
+    pub(crate) fn seen(&self) -> Vec<Seen> {
         self.shared.lock().unwrap().seen.clone()
     }
 }

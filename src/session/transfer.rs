@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::future::{Future, poll_fn};
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
 
 use super::internals::data_center::Dc;
-use super::{Events, Known, MAX_FLOOD_SLEEPS, Salt, Session, WeakSession, init_connection};
+use super::{Events, Known, Salt, Session, WeakSession, init_connection};
 use crate::connection::Options;
 use crate::crypto::rsa::PublicKey;
 use crate::errors::{Error, Result};
@@ -27,7 +27,13 @@ const MAX_CDN_FLOOD_WAIT: Duration = Duration::from_secs(60);
 // Telegram shares a DC's auth key between its main and media-only addresses, so the key is kept per DC and the
 // connections per address.
 #[derive(Default)]
-pub(crate) struct TransferPool(Mutex<HashMap<(i32, bool), Arc<Slot>>>);
+pub(crate) struct TransferPool {
+    slots: Mutex<HashMap<(i32, bool), Arc<Slot>>>,
+    // Goes up on each `close_all`, so a lease still opening connections knows to close them.
+    epoch: AtomicU64,
+    // Set by `shut`: no lease opens anything any more.
+    shut: AtomicBool,
+}
 
 #[derive(Default)]
 struct Slot {
@@ -58,16 +64,37 @@ pub(crate) struct Lease {
 
 impl TransferPool {
     pub(crate) fn clear(&self) {
-        self.0.lock().unwrap().clear();
+        self.slots.lock().unwrap().clear();
     }
 
     pub(crate) fn forget(&self, dc: Dc) {
-        self.0.lock().unwrap().remove(&(dc.id, dc.test));
+        self.slots.lock().unwrap().remove(&(dc.id, dc.test));
+    }
+
+    /// Closes every file connection, also the ones a lease is still opening, and forgets the keys, so the next
+    /// lease starts over.
+    pub(crate) fn close_all(&self) {
+        // Bumped under the map lock, so a lease either gets a slot this drains or sees the new epoch.
+        let slots: Vec<Arc<Slot>> = {
+            let mut map = self.slots.lock().unwrap();
+            self.epoch.fetch_add(1, Ordering::AcqRel);
+            map.drain().map(|(_, slot)| slot).collect()
+        };
+        for slot in slots {
+            let state = slot.state.lock().unwrap();
+            state.sessions.values().flatten().filter_map(WeakSession::upgrade).for_each(|s| s.close());
+        }
+    }
+
+    /// `close_all` for good: later leases fail with `Error::Disconnected`.
+    pub(crate) fn shut(&self) {
+        self.shut.store(true, Ordering::Release);
+        self.close_all();
     }
 
     #[cfg(test)]
     pub(crate) fn insert(&self, dc: Dc, session: &Session) {
-        let slot = self.0.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
+        let slot = self.slots.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
         let mut state = slot.state.lock().unwrap();
         (state.auth_key, state.key_made, state.salt) = (Some(*session.auth_key()), session.key_made, session.salt());
         state.sessions.entry(dc).or_default().push(session.downgrade());
@@ -86,7 +113,13 @@ impl TransferPool {
             Auth::Home(home, _) => home.pfs.clone(),
             Auth::Cdn(_) => None,
         };
-        let slot = self.0.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
+        if self.shut.load(Ordering::Acquire) {
+            return Err(Error::Disconnected);
+        }
+        let (epoch, slot) = {
+            let mut map = self.slots.lock().unwrap();
+            (self.epoch.load(Ordering::Acquire), map.entry((dc.id, dc.test)).or_default().clone())
+        };
         let _opening = slot.opening.lock().await;
         let number = || {
             let mut state = slot.state.lock().unwrap();
@@ -132,6 +165,12 @@ impl TransferPool {
         let opened = try_join_all((0..missing).map(connect)).await?;
         sessions.extend(opened);
         let mut state = slot.state.lock().unwrap();
+        // Checked under the lock close_all takes after its bump: either it sees these sessions, or this sees the bump.
+        if self.shut.load(Ordering::Acquire) || self.epoch.load(Ordering::Acquire) != epoch {
+            drop(state);
+            sessions.iter().for_each(Session::close);
+            return Err(Error::Disconnected);
+        }
         state.salt = sessions.first().map_or(key.salt, Session::salt);
         state.sessions.insert(dc, sessions.iter().map(Session::downgrade).collect());
         drop(state);
@@ -167,8 +206,8 @@ async fn invoke_part_on<R: RemoteCall>(session: &Session, request: &R, cdn: bool
     let (mut timeouts, mut floods) = (0, 0);
     loop {
         let result = session.invoke_with_timeout(request, timeout).await;
-        let wait =
-            result.as_ref().err().and_then(|e| session.flood_sleep(e, cap)).filter(|_| floods < MAX_FLOOD_SLEEPS);
+        let floods_left = floods < session.options().max_flood_sleeps;
+        let wait = result.as_ref().err().and_then(|e| session.flood_sleep(e, cap)).filter(|_| floods_left);
         match (&result, wait) {
             (_, Some(wait)) => {
                 floods += 1;
@@ -232,15 +271,17 @@ pub(crate) async fn try_join_all<T, F: Future<Output = Result<T>>>(futures: impl
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::atomic::AtomicI32;
     use std::time::Duration;
 
     use super::{Auth, PART_TIMEOUT, Progress, Session, TransferPool, invoke_part, take, try_join_all, workers};
     use crate::Client;
-    use crate::connection::Options;
+    use crate::connection::{Options, Transport};
     use crate::errors::{Error, Result, RpcError};
-    use crate::raw::functions;
+    use crate::raw::{Serializable, base, functions, types};
     use crate::session::internals::data_center::Dc;
+    use crate::session::test_dc::TestDc;
 
     #[tokio::test]
     async fn a_dcs_media_address_reuses_the_key_of_its_main_address() {
@@ -291,6 +332,57 @@ mod tests {
         assert_eq!(start.elapsed(), Duration::ZERO);
         assert!(matches!(e, Error::Rpc(e) if (e.name.as_str(), e.value) == ("FLOOD_WAIT", Some(120))));
         assert_eq!(std::iter::from_fn(|| sent.try_recv().ok()).count(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn parts_follow_the_flood_sleep_setting() {
+        let flood = || Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_1")));
+        let (mut session, mut sent) = Session::scripted(vec![flood(), flood()]);
+        session.set_options(Options { max_flood_sleeps: 1, ..Options::default() });
+        let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };
+        let e = invoke_part(&session, &part).await.unwrap_err();
+        assert!(matches!(e, Error::Rpc(e) if e.is("FLOOD_WAIT")));
+        assert_eq!(std::iter::from_fn(|| sent.try_recv().ok()).count(), 2);
+    }
+
+    #[tokio::test]
+    async fn close_all_fails_leased_connections_and_empties_the_pool() {
+        let dc = TestDc::start([5; 256], false).await;
+        let export = types::auth::ExportedAuthorization { id: 1, bytes: vec![1] };
+        let export = base::auth::ExportedAuthorization::ExportedAuthorization(Box::new(export)).to_bytes();
+        let (home, _sent) = Session::scripted(vec![Ok(export)]);
+        let options = Options { transport: Transport::Intermediate, ..Options::default() };
+        let pool = TransferPool::default();
+        let lease = pool.lease(dc.dc(4), 1, Auth::Home(&home, 1), &options, &Arc::default()).await.unwrap();
+        let ping = functions::Ping { ping_id: 1 };
+        assert!(lease.sessions[0].invoke(&ping).await.is_ok());
+
+        pool.close_all();
+        assert!(matches!(lease.sessions[0].invoke(&ping).await, Err(Error::Disconnected)));
+        assert!(pool.slots.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_lease_opening_during_close_all_is_closed_too() {
+        let client = Client::offline();
+        // Nothing listens here: the lease must get by on the session it already has.
+        let dc = Dc { id: 4, addr: ([127, 0, 0, 1], 1).into(), test: false };
+        let (foreign, _sent) = Session::scripted(Vec::new());
+        let pool = Arc::new(TransferPool::default());
+        pool.insert(dc, &foreign);
+        let slot = pool.slots.lock().unwrap()[&(4, false)].clone();
+        let opening = slot.opening.lock().await;
+        let lease = tokio::spawn({
+            let (pool, home, options, events) =
+                (pool.clone(), client.session(), client.0.options.clone(), client.0.events.clone());
+            async move { pool.lease(dc, 1, Auth::Home(&home, 1), &options, &events).await.map(|l| l.sessions.len()) }
+        });
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        pool.close_all();
+        drop(opening);
+        assert!(matches!(lease.await.unwrap(), Err(Error::Disconnected)));
     }
 
     #[test]

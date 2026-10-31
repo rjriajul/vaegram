@@ -11,8 +11,10 @@ use tokio::sync::Semaphore;
 use crate::connection::{Options, Proxy, Transport};
 use crate::crypto::rsa::PublicKey;
 use crate::dispatcher::Routes;
+use crate::dispatcher::router::run_hook;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
+use crate::handlers::UpdateKind;
 use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, Serializable, base, functions};
 use crate::session::internals::data_center::{self, Dc};
@@ -37,6 +39,7 @@ pub struct ClientBuilder {
     parse_mode: ParseMode,
     options: Options,
     ordered: bool,
+    catch_up: bool,
     max_concurrent_handlers: Option<usize>,
     record: Option<PathBuf>,
 }
@@ -135,6 +138,13 @@ impl ClientBuilder {
         self
     }
 
+    /// `false` makes every `run` start from now: what came while the client was stopped is skipped. Gaps while it
+    /// runs, such as after a reconnect, are still filled. `true` by default.
+    pub fn catch_up(mut self, catch_up: bool) -> Self {
+        self.catch_up = catch_up;
+        self
+    }
+
     pub fn max_concurrent_handlers(mut self, n: usize) -> Self {
         self.max_concurrent_handlers = Some(n);
         self
@@ -151,10 +161,24 @@ impl ClientBuilder {
         self
     }
 
-    /// FLOOD_WAITs up to this long are slept off and retried, at most 5 times per call; longer ones go to the
-    /// caller as `Error::Rpc`. 60 seconds by default; `Duration::ZERO` hands every one to the caller.
+    /// FLOOD_WAITs up to this long are slept off and retried, at most `max_flood_sleeps` times per call; longer
+    /// ones go to the caller as `Error::Rpc`. 60 seconds by default; `Duration::ZERO` hands every one to the caller.
     pub fn flood_sleep_threshold(mut self, threshold: Duration) -> Self {
         self.options.flood_sleep_threshold = threshold;
+        self
+    }
+
+    /// How many FLOOD_WAITs one call sleeps off, 5 by default; 0 hands every one to the caller. Lost connections
+    /// need no retry setting: they are reconnected and the waiting requests sent again on their own.
+    pub fn max_flood_sleeps(mut self, n: usize) -> Self {
+        self.options.max_flood_sleeps = n;
+        self
+    }
+
+    /// Update batches waiting for `run`, 1024 by default and at least 1. When it's full, a batch is dropped,
+    /// `ClientEvent::UpdatesDropped` fires and a getDifference fetches what it held.
+    pub fn updates_capacity(mut self, n: usize) -> Self {
+        self.options.updates_capacity = n.max(1);
         self
     }
 
@@ -236,6 +260,7 @@ impl ClientBuilder {
         inner.me = Mutex::new(Me { id: user_id, is_bot, premium: None, username: None });
         inner.peers = Mutex::new(peers);
         inner.ordered = self.ordered;
+        inner.catch_up = self.catch_up;
         inner.handler_permits = self.max_concurrent_handlers.map(|n| Arc::new(Semaphore::new(n.max(1))));
         let client = Client(Arc::new(inner));
         client.save()?;
@@ -277,6 +302,8 @@ pub(crate) struct Inner {
     pub(crate) peers: Mutex<HashMap<i64, base::InputPeer>>,
     pub(crate) handlers: Routes,
     pub(crate) ordered: bool,
+    // Whether `run` resumes from the saved update state or starts from now.
+    pub(crate) catch_up: bool,
     pub(crate) handler_permits: Option<Arc<Semaphore>>,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
@@ -324,6 +351,7 @@ impl Inner {
             peers: Mutex::new(HashMap::new()),
             handlers: Routes::default(),
             ordered: false,
+            catch_up: true,
             handler_permits: None,
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
@@ -375,6 +403,7 @@ impl Client {
             parse_mode: ParseMode::Disabled,
             options: Options::default(),
             ordered: false,
+            catch_up: true,
             max_concurrent_handlers: None,
             record: None,
         }
@@ -521,17 +550,32 @@ impl Client {
         key.ok_or(Error::InvalidDc(dc_id))
     }
 
+    /// Has the main connection's ups and downs run the connect hooks, each in its own task so user code never
+    /// runs on the connection's. The listener holds a `Weak`, so it doesn't keep the client alive.
+    pub(crate) fn watch_link(&self) {
+        let client = Arc::downgrade(&self.0);
+        self.0.events.on_link(Arc::new(move |up| {
+            let Some(inner) = client.upgrade() else { return };
+            let kind = if up { UpdateKind::Connect } else { UpdateKind::Disconnect };
+            let hook = inner.handlers.current().hooks.get(kind);
+            if let Some(hook) = hook {
+                tokio::spawn(run_hook(Client(inner), kind, hook));
+            }
+        }));
+    }
+
     /// Sends a request about an inline message to `dc_id`, the DC its id names, which is the only one that
     /// serves it.
     pub(crate) async fn invoke_inline<R: RemoteCall>(&self, dc_id: i32, request: R) -> Result<R::Return> {
-        if dc_id == self.session().dc_id() {
-            return self.invoke(&request).await;
-        }
-        let lease = self.transfer_sessions(self.dc(dc_id)?, 1).await?;
+        self.invoke_in_dc(dc_id, &request).await
+    }
+
+    /// `invoke_in_dc` away from home, on a file connection with the login imported.
+    pub(crate) async fn invoke_on_file_connection<R: RemoteCall>(&self, dc: Dc, request: &R) -> Result<R::Return> {
+        let lease = self.transfer_sessions(dc, 1).await?;
         // A reopened file connection hasn't sent its layer, and the answer can carry users.
-        let session = &lease.sessions[0];
-        let request = init_connection(self.0.api_id, &self.0.options, request);
-        invoke_sleeping_floods(session, &request, self.0.options.request_timeout).await
+        let request = init_connection(self.0.api_id, &self.0.options, Borrowed(request));
+        invoke_sleeping_floods(&lease.sessions[0], &request, self.0.options.request_timeout).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {
@@ -571,9 +615,54 @@ async fn connect(
     Ok((session, updates, config.dc_options))
 }
 
+// Wraps a request in initConnection without cloning it.
+struct Borrowed<'a, R>(&'a R);
+
+impl<R: Serializable> Serializable for Borrowed<'_, R> {
+    fn serialize(&self, buf: &mut Vec<u8>) {
+        self.0.serialize(buf);
+    }
+}
+
+impl<R: RemoteCall> RemoteCall for Borrowed<'_, R> {
+    const NAME: &'static str = R::NAME;
+    type Return = R::Return;
+}
+
 #[cfg(test)]
 pub(crate) async fn sent<F: IntoFuture>(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>, call: F) -> u32 {
     let _ = call.await;
     let body = rx.try_recv().expect("no request sent");
     u32::from_le_bytes(body[..4].try_into().unwrap())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::Client;
+
+    #[test]
+    fn builder_defaults_match_todays_behaviour() {
+        let builder = Client::builder("defaults", 1, "hash");
+        let options = &builder.options;
+        assert_eq!((options.max_flood_sleeps, options.updates_capacity), (5, 1024));
+        assert_eq!(options.flood_sleep_threshold, Duration::from_secs(60));
+        assert!(builder.catch_up);
+    }
+
+    #[test]
+    fn a_zero_update_queue_is_stored_as_one() {
+        assert_eq!(Client::builder("zero", 1, "hash").updates_capacity(0).options.updates_capacity, 1);
+    }
+
+    #[test]
+    fn the_link_listener_does_not_keep_the_client_alive() {
+        let client = Client::offline();
+        client.on_connect(|_| async { Ok(()) });
+        let (weak, events) = (std::sync::Arc::downgrade(&client.0), client.0.events.clone());
+        drop(client);
+        assert!(weak.upgrade().is_none());
+        events.link(true);
+    }
 }

@@ -8,10 +8,13 @@ use crate::enums::ClientEvent;
 use crate::raw::{base, types};
 
 type Listener = Arc<dyn Fn(ClientEvent) + Send + Sync>;
+type LinkListener = Arc<dyn Fn(bool) + Send + Sync>;
 
 #[derive(Default)]
 pub struct Events {
     listener: RwLock<Option<Listener>>,
+    // Told when the main connection goes down (false) or comes back (true).
+    link: RwLock<Option<LinkListener>>,
     // Dropped batches in the low half, the unrecoverable ones among them in the high half.
     dropped: AtomicU64,
     reconnected: AtomicBool,
@@ -56,6 +59,17 @@ impl Events {
         if let Some(listener) = listener {
             // A panicking listener would otherwise take the connection down with it; the panic hook still reports it.
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(event)));
+        }
+    }
+
+    pub(crate) fn on_link(&self, listener: LinkListener) {
+        *self.link.write().unwrap() = Some(listener);
+    }
+
+    pub(crate) fn link(&self, up: bool) {
+        let listener = self.link.read().unwrap().clone();
+        if let Some(listener) = listener {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(up)));
         }
     }
 
@@ -116,6 +130,15 @@ impl Events {
         let (tx, rx) = std::sync::mpsc::channel();
         self.listen(Arc::new(move |e| {
             let _ = tx.send(e);
+        }));
+        rx
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_link(&self) -> std::sync::mpsc::Receiver<bool> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.on_link(Arc::new(move |up| {
+            let _ = tx.send(up);
         }));
         rx
     }
