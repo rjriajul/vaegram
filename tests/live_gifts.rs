@@ -65,6 +65,20 @@ async fn user_reads_stars_and_gift_counts() {
     user.get_ton_balance().await.unwrap();
     let count = user.get_chat_gifts_count("me").await.unwrap();
     assert_eq!(count, user.get_chat_gifts("me").limit(1).await.unwrap().total_count);
+
+    let gifts = user.get_available_gifts().await.unwrap();
+    let Some(gift) = gifts.iter().find(|g| g.upgrade_star_count.is_some()) else {
+        eprintln!("skipped the upgrade checks: no gift on sale can be upgraded");
+        return;
+    };
+    assert!(!user.get_gift_upgrade_preview(gift.id).await.unwrap().variants.models.is_empty());
+    assert!(!user.get_gift_upgrade_variants(gift.id).await.unwrap().models.is_empty());
+
+    if let Some(resale) = user.search_gifts_for_resale(gift.id).limit(1).next().await.unwrap() {
+        let name = resale.gift.name;
+        assert_eq!(user.get_upgraded_gift(&name).await.unwrap().name, name);
+        assert!(!user.get_upgraded_gift_value_info(&name).await.unwrap().currency.is_empty());
+    }
 }
 
 async fn subscriptions(user: &Client) -> Vec<types::StarsSubscription> {

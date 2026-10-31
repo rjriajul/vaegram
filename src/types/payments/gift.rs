@@ -77,16 +77,7 @@ impl UniqueGift {
                 base::StarGiftAttribute::StarGiftAttributePattern(a) => {
                     symbol = attribute(&a.name, &a.document, &a.rarity)
                 }
-                base::StarGiftAttribute::StarGiftAttributeBackdrop(a) => {
-                    backdrop = Some(UniqueGiftBackdrop {
-                        name: a.name.clone(),
-                        center_color: a.center_color,
-                        edge_color: a.edge_color,
-                        symbol_color: a.pattern_color,
-                        text_color: a.text_color,
-                        rarity_per_mille: permille(&a.rarity),
-                    })
-                }
+                base::StarGiftAttribute::StarGiftAttributeBackdrop(a) => backdrop = Some(self::backdrop(a)),
                 _ => {}
             }
         }
@@ -105,7 +96,7 @@ impl UniqueGift {
     }
 }
 
-fn attribute(
+pub(super) fn attribute(
     name: &str,
     document: &base::Document,
     rarity: &base::StarGiftAttributeRarity,
@@ -113,7 +104,18 @@ fn attribute(
     Some(UniqueGiftAttribute { name: name.to_owned(), sticker: sticker(document)?, rarity_per_mille: permille(rarity) })
 }
 
-fn sticker(document: &base::Document) -> Option<Sticker> {
+pub(super) fn backdrop(raw: &types::StarGiftAttributeBackdrop) -> UniqueGiftBackdrop {
+    UniqueGiftBackdrop {
+        name: raw.name.clone(),
+        center_color: raw.center_color,
+        edge_color: raw.edge_color,
+        symbol_color: raw.pattern_color,
+        text_color: raw.text_color,
+        rarity_per_mille: permille(&raw.rarity),
+    }
+}
+
+pub(super) fn sticker(document: &base::Document) -> Option<Sticker> {
     match Media::from_document(document)? {
         Media::Sticker(sticker) => Some(sticker),
         _ => None,
