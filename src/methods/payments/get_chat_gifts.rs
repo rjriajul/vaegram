@@ -83,6 +83,12 @@ impl<'a> GetChatGifts<'a> {
         self
     }
 
+    /// Lists only the gifts in this collection.
+    pub fn collection(mut self, collection_id: i32) -> Self {
+        self.request.collection_id = Some(collection_id);
+        self
+    }
+
     async fn send(mut self) -> Result<OwnedGifts> {
         let client = self.client;
         // No chat leaves InputPeerSelf, which through a business connection is the business account.
@@ -94,21 +100,53 @@ impl<'a> GetChatGifts<'a> {
             }
             None => 0,
         };
-        let (base::payments::SavedStarGifts::SavedStarGifts(page), _) =
-            client.invoke_business(self.connection_id.as_deref(), self.request).await?;
-        let entities = Entities::new(client, page.users, page.chats);
-        Ok(OwnedGifts {
-            total_count: page.count,
-            gifts: page
-                .gifts
-                .iter()
-                .filter_map(|g| match g {
-                    base::SavedStarGift::SavedStarGift(g) => OwnedGift::parse(g, owner_id, &entities),
-                })
-                .collect(),
-            next_offset: page.next_offset,
-        })
+        let (page, _) = client.invoke_business(self.connection_id.as_deref(), self.request).await?;
+        Ok(owned_gifts(client, page, owner_id))
+    }
+}
+
+pub(super) fn owned_gifts(client: &Client, page: base::payments::SavedStarGifts, owner_id: i64) -> OwnedGifts {
+    let base::payments::SavedStarGifts::SavedStarGifts(page) = page;
+    let page = *page;
+    let entities = Entities::new(client, page.users, page.chats);
+    OwnedGifts {
+        total_count: page.count,
+        gifts: page
+            .gifts
+            .iter()
+            .filter_map(|g| match g {
+                base::SavedStarGift::SavedStarGift(g) => OwnedGift::parse(g, owner_id, &entities),
+            })
+            .collect(),
+        next_offset: page.next_offset,
     }
 }
 
 into_future!(GetChatGifts, OwnedGifts);
+
+#[cfg(test)]
+pub(super) mod tests {
+    use crate::Client;
+    use crate::raw::{Serializable, base, types};
+
+    pub(in crate::methods::payments) fn empty_page() -> Vec<u8> {
+        let page = types::payments::SavedStarGifts {
+            count: 0,
+            chat_notifications_enabled: None,
+            gifts: Vec::new(),
+            next_offset: None,
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        base::payments::SavedStarGifts::SavedStarGifts(Box::new(page)).to_bytes()
+    }
+
+    #[tokio::test]
+    async fn lists_one_collection() {
+        let (client, mut sent) = Client::scripted(vec![Ok(empty_page())]);
+        client.get_chat_gifts("me").collection(4).await.unwrap();
+        let mut request = client.get_chat_gifts("me").request;
+        request.collection_id = Some(4);
+        assert_eq!(sent.try_recv().unwrap(), request.to_bytes());
+    }
+}

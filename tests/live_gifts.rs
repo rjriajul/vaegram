@@ -5,7 +5,7 @@ mod support;
 
 use vaegram::Client;
 use vaegram::raw::{base, functions, types};
-use vaegram::types::InvoiceRef;
+use vaegram::types::{InvoiceRef, OwnedGift, OwnedGifts};
 
 async fn user() -> Option<Client> {
     Some(support::Kit::from_env().await?.user.client)
@@ -109,4 +109,53 @@ async fn user_cancels_and_restores_a_star_subscription() {
     if let Some(lapsed) = subscriptions(&user).await.into_iter().find(|s| s.can_refulfill) {
         user.reuse_star_subscription(&lapsed.id).await.unwrap();
     }
+}
+
+fn owned_gift_ids(gifts: &OwnedGifts) -> Vec<String> {
+    let id = |g: &OwnedGift| match g {
+        OwnedGift::Regular(g) => g.owned_gift_id.clone(),
+        OwnedGift::Unique(g) => g.owned_gift_id.clone(),
+    };
+    gifts.gifts.iter().filter_map(id).collect()
+}
+
+#[tokio::test]
+#[ignore = "creates and deletes a gift collection on the user's profile"]
+async fn user_manages_gift_collections() {
+    let Some(user) = user().await else { return };
+    let ids = owned_gift_ids(&user.get_chat_gifts("me").await.unwrap());
+    let Some(first) = ids.first().map(String::as_str) else {
+        eprintln!("skipped: the account owns no gift");
+        return;
+    };
+    let first = first.to_owned();
+    let created = user.create_gift_collection("me", "Live test", &[first.as_str()]).await.unwrap();
+    let id = created.id;
+    // The checks run in their own task so the collection is deleted even when one of them fails.
+    let checks = tokio::spawn({
+        let user = user.clone();
+        async move {
+            let listed = user.get_gift_collections("me").await.unwrap();
+            assert!(listed.iter().any(|c| c.id == id));
+            assert_eq!(user.set_gift_collection_name("me", id, "Live test 2").await.unwrap().name, "Live test 2");
+
+            if let Some(second) = ids.get(1).map(String::as_str) {
+                assert_eq!(user.add_collection_gifts("me", id, &[second]).await.unwrap().gift_count, 2);
+                user.reorder_collection_gifts("me", id, &[second, first.as_str()]).await.unwrap();
+                assert_eq!(user.remove_collection_gifts("me", id, &[second]).await.unwrap().gift_count, 1);
+            }
+            let inside = user.get_chat_gifts("me").collection(id).await.unwrap();
+            assert_eq!(owned_gift_ids(&inside), [first]);
+
+            // Only the test collection moves, so the others keep their order once it is deleted.
+            let order: Vec<i32> = std::iter::once(id).chain(listed.iter().map(|c| c.id).filter(|&c| c != id)).collect();
+            user.reorder_gift_collections("me", &order).await.unwrap();
+        }
+    })
+    .await;
+    user.delete_gift_collection("me", id).await.unwrap();
+    if let Err(failed) = checks {
+        std::panic::resume_unwind(failed.into_panic());
+    }
+    assert!(!user.get_gift_collections("me").await.unwrap().iter().any(|c| c.id == id));
 }
