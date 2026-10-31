@@ -2,7 +2,7 @@
 mod support;
 
 use vaegram::Client;
-use vaegram::enums::StoriesPrivacyRules;
+use vaegram::enums::{StickerType, StoriesPrivacyRules};
 use vaegram::raw::base;
 use vaegram::types::InputStoryContent;
 
@@ -41,4 +41,24 @@ async fn user_checks_forwards_and_copies_a_story() {
     assert!(copy.media.is_some());
 
     user.delete_stories(me.id, &[story.id, copy.id]).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "reorders and restores the user's installed sticker sets with a logged-in user session"]
+async fn user_reorders_sticker_sets_and_restores_them() {
+    let Some(user) = user_client().await else { return };
+    assert!(!user.get_suggested_sticker_set_name("vaegram test").await.unwrap().is_empty());
+    user.get_owned_sticker_sets().limit(10).await.unwrap();
+
+    let ids = |sets: Vec<vaegram::types::StickerSet>| sets.into_iter().map(|s| s.id).collect::<Vec<_>>();
+    let original = ids(user.get_installed_sticker_sets(StickerType::Regular).await.unwrap());
+    if original.len() < 2 {
+        eprintln!("skipped the reorder: it needs two installed sticker sets");
+        return;
+    }
+    let reversed: Vec<i64> = original.iter().rev().copied().collect();
+    user.reorder_installed_sticker_sets(StickerType::Regular, &reversed).await.unwrap();
+    assert_eq!(ids(user.get_installed_sticker_sets(StickerType::Regular).await.unwrap()), reversed);
+    user.reorder_installed_sticker_sets(StickerType::Regular, &original).await.unwrap();
+    assert_eq!(ids(user.get_installed_sticker_sets(StickerType::Regular).await.unwrap()), original);
 }
