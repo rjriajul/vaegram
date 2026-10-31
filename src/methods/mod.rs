@@ -51,25 +51,26 @@ pub use business::{
 };
 pub use chats::{
     BanChatMember, CreateForumTopic, DeleteChatHistory, DeleteChatWallpaper, EditForumTopic, GetChatAdministrators,
-    GetChatEventLog, GetChatMembers, GetDialogs, GetMessagePublicForwards, RestrictChatMember, SetChatAccentColor,
-    SetChatPhoto, SetChatWallpaper, UpdateChatNotifications,
+    GetChatEventLog, GetChatMembers, GetDialogs, GetForumTopics, GetMessagePublicForwards, RestrictChatMember,
+    SetChatAccentColor, SetChatPhoto, SetChatWallpaper, UpdateChatNotifications,
 };
 pub use contacts::AddContact;
 pub use folders::{CreateFolderInviteLink, EditFolderInviteLink, LeaveFolder};
 pub use invite_links::{
-    CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
+    CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatAdminInviteLinks,
+    GetChatInviteLinkJoiners, GetChatJoinRequests,
 };
 pub use messages::{
-    ApproveSuggestedPost, CopyMessage, CopyMessages, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage,
-    EditInlineMedia, EditInlineText, EditMessageChecklist, EditMessageLiveLocation, EditMessageMedia,
-    EditMessageReplyMarkup, EditMessageText, ExportMessageLink, ForwardMessages, GetChatHistory, GetDiscussionReplies,
-    GetMessageReactionsList, GetPollVotes, GetSavedDialogs, GetSavedHistory, MediaStream, MessageStream,
-    PinChatMessage, RequestAppWebView, RequestMainWebView, RequestSimpleWebView, RequestWebView, SaveDraft,
-    SearchGlobal, SearchMessages, SearchMessagesCount, SearchPosts, SendAnimation, SendAudio, SendChatAction,
-    SendChecklist, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLivePhoto, SendLocation,
-    SendMediaGroup, SendMessage, SendMessageDraft, SendPaidMedia, SendPaidReaction, SendPhoto, SendPoll, SendReaction,
-    SendRichMessage, SendSticker, SendVenue, SendVideo, SendVideoNote, SendVoice, StopMessageLiveLocation, StopPoll,
-    StreamMessage, TranslateText, UnpinChatMessage,
+    ApproveSuggestedPost, CopyMediaGroup, CopyMessage, CopyMessages, DeclineSuggestedPost, DownloadMedia,
+    EditEphemeralMessage, EditInlineMedia, EditInlineText, EditMessageChecklist, EditMessageLiveLocation,
+    EditMessageMedia, EditMessageReplyMarkup, EditMessageText, ExportMessageLink, ForwardMediaGroup, ForwardMessages,
+    GetChatHistory, GetDiscussionReplies, GetMessageReactionsList, GetPollVotes, GetSavedDialogs, GetSavedHistory,
+    MediaStream, MessageStream, PinChatMessage, RequestAppWebView, RequestMainWebView, RequestSimpleWebView,
+    RequestWebView, SaveDraft, SearchGlobal, SearchMessages, SearchMessagesCount, SearchPosts, SendAnimation,
+    SendAudio, SendChatAction, SendChecklist, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLivePhoto,
+    SendLocation, SendMediaGroup, SendMessage, SendMessageDraft, SendPaidMedia, SendPaidReaction, SendPhoto, SendPoll,
+    SendReaction, SendRichMessage, SendSticker, SendVenue, SendVideo, SendVideoNote, SendVoice,
+    StopMessageLiveLocation, StopPoll, StreamMessage, TranslateText, UnpinChatMessage,
 };
 pub(crate) use messages::{DownloadSource, StreamShared, caption_setters, geo_point, input_venue};
 pub use password::{ChangeCloudPassword, EnableCloudPassword};

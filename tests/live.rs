@@ -655,6 +655,8 @@ async fn account_settings_round_trip() {
     // Every call writes back what it read, so the account is left as it was.
     let days = user.get_account_ttl().await.unwrap();
     assert!(user.set_account_ttl(days).await.unwrap());
+    let days = user.get_active_sessions().await.unwrap().inactive_session_ttl_days;
+    assert!(user.set_inactive_session_ttl(days).await.unwrap());
 
     let key = vaegram::enums::PrivacyKey::Bio;
     let rules = user.get_privacy(key).await.unwrap();
@@ -1009,4 +1011,91 @@ async fn user_reads_app_config_and_languages() {
     assert!(!pack.strings.is_empty());
     let diff = user.get_lang_pack_difference("android", "en", pack.version).await.unwrap();
     assert!(diff.version >= pack.version);
+}
+
+#[tokio::test]
+#[ignore = "creates and deletes a supergroup with a logged-in user session"]
+async fn user_lists_and_pins_forum_topics() {
+    let Some(user) = user_client().await else { return };
+    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
+    user.toggle_forum_topics(group.id, true, false).await.unwrap();
+    let first = user.create_forum_topic(group.id, "first").await.unwrap();
+    let second = user.create_forum_topic(group.id, "second").await.unwrap();
+
+    let mut topics = user.get_forum_topics(group.id).limit(10);
+    let mut ids = Vec::new();
+    while let Some(topic) = topics.next().await.unwrap() {
+        ids.push(topic.id);
+    }
+    assert!(ids.contains(&first.id) && ids.contains(&second.id), "{ids:?}");
+
+    user.pin_forum_topic(group.id, first.id).await.unwrap();
+    assert!(user.get_forum_topics_by_id(group.id, &[first.id]).await.unwrap()[0].is_pinned);
+    user.unpin_forum_topic(group.id, first.id).await.unwrap();
+    assert!(!user.get_forum_topics_by_id(group.id, &[first.id]).await.unwrap()[0].is_pinned);
+    user.delete_supergroup(group.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_copies_and_forwards_an_album() {
+    let Some(user) = user_client().await else { return };
+    let data: Vec<u8> = (0..200_000u32).map(|i| (i * 13 + i / 7) as u8).collect();
+    let album =
+        [InputMedia::document(Upload::bytes("a.bin", &data)), InputMedia::document(Upload::bytes("b.bin", &data))];
+    let album = user.send_media_group("me", album).await.unwrap();
+    assert_eq!(user.get_media_group("me", album[1].id).await.unwrap().len(), 2);
+
+    let forwarded = user.forward_media_group("me", "me", album[0].id).await.unwrap();
+    assert_eq!(forwarded.len(), 2);
+    assert!(forwarded[0].media_group_id.is_some() && forwarded[0].media_group_id == forwarded[1].media_group_id);
+    assert_ne!(forwarded[0].media_group_id, album[0].media_group_id);
+
+    let copied = user.copy_media_group("me", "me", album[0].id).caption(0, "copied").await.unwrap();
+    assert_eq!((copied.len(), copied[0].caption.as_deref()), (2, Some("copied")));
+
+    let ids: Vec<i32> = [album, forwarded, copied].iter().flatten().map(|m| m.id).collect();
+    user.delete_messages("me", &ids).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "creates and deletes a supergroup with a logged-in user session"]
+async fn user_adds_and_deletes_poll_options() {
+    let Some(user) = user_client().await else { return };
+    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
+    let sent = user.send_poll(group.id, "Lunch?", ["A", "B"]).allow_adding_options().await.unwrap();
+    user.add_poll_option(group.id, sent.id, "C").await.unwrap();
+    let options = |messages: Vec<Option<Message>>| {
+        messages[0].as_ref().and_then(Message::poll).map(|p| p.options.len()).expect("the poll is gone")
+    };
+    assert_eq!(options(user.get_messages(group.id, &[sent.id]).await.unwrap()), 3);
+    user.delete_poll_option(group.id, sent.id, 2).await.unwrap();
+    assert_eq!(options(user.get_messages(group.id, &[sent.id]).await.unwrap()), 2);
+    user.delete_supergroup(group.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "creates and deletes a supergroup with a logged-in user session"]
+async fn user_manages_invite_links() {
+    let Some(user) = user_client().await else { return };
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
+    let link = user.create_chat_invite_link(group.id).name("t").await.unwrap().invite_link;
+
+    assert_eq!(user.get_chat_invite_link(group.id, &link).await.unwrap().name.as_deref(), Some("t"));
+    assert!(user.get_chat_invite_link_joiners(group.id, &link).await.unwrap().is_empty());
+    assert_eq!(user.get_chat_invite_link_joiners_count(group.id, &link).await.unwrap(), 0);
+
+    let active = user.get_chat_admin_invite_links(group.id, "me").await.unwrap();
+    assert!(active.iter().any(|l| l.invite_link == link));
+    assert!(user.get_chat_admin_invite_links_count(group.id, "me", false).await.unwrap() >= 1);
+    let admins = user.get_chat_admins_with_invite_links(group.id).await.unwrap();
+    assert!(admins.iter().any(|a| a.admin.id == me.id));
+
+    user.revoke_chat_invite_link(group.id, &link).await.unwrap();
+    let revoked = user.get_chat_admin_invite_links(group.id, "me").revoked().await.unwrap();
+    assert!(revoked.iter().any(|l| l.invite_link == link));
+    user.delete_chat_invite_link(group.id, &link).await.unwrap();
+    user.delete_chat_admin_invite_links(group.id, "me").await.unwrap();
+    user.delete_supergroup(group.id).await.unwrap();
 }

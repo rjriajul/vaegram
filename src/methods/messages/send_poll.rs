@@ -96,6 +96,12 @@ impl<'a> SendPoll<'a> {
         self
     }
 
+    /// Lets members add options later, through [`Client::add_poll_option`].
+    pub fn allow_adding_options(mut self) -> Self {
+        self.poll.open_answers = true;
+        self
+    }
+
     pub fn country_codes(mut self, codes: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.poll.countries_iso2 = Some(codes.into_iter().map(Into::into).collect());
         self
@@ -164,7 +170,7 @@ pub(crate) fn poll(id: i64, question: String, answers: Vec<base::PollAnswer>) ->
     }
 }
 
-fn text_with_entities(text: String) -> base::TextWithEntities {
+pub(super) fn text_with_entities(text: String) -> base::TextWithEntities {
     base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities: Vec::new() }))
 }
 
@@ -220,6 +226,15 @@ mod tests {
         let base::Poll::Poll(poll) = &media.poll;
         assert!(poll.multiple_choice && !poll.public_voters && !poll.quiz);
         assert_eq!(poll.countries_iso2, None);
+    }
+
+    #[test]
+    fn allowing_new_options_opens_the_answers() {
+        let client = Client::offline();
+        let media = client.send_poll(1, "Lunch?", ["Pizza", "Sushi"]).allow_adding_options().media(None);
+        let base::InputMedia::InputMediaPoll(media) = media else { panic!("not a poll") };
+        let base::Poll::Poll(poll) = &media.poll;
+        assert!(poll.open_answers && !poll.quiz && !poll.multiple_choice);
     }
 
     #[test]

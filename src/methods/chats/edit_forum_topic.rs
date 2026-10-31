@@ -184,6 +184,14 @@ mod tests {
             icon_color: 0x6FB9F0,
             icon_emoji_id: Some(42),
             is_name_implicit: false,
+            date: 1,
+            top_message_id: 77,
+            unread_messages_count: 0,
+            unread_mentions_count: 0,
+            unread_reactions_count: 0,
+            is_closed: false,
+            is_pinned: false,
+            is_hidden: false,
         };
         assert_eq!(topic, expected);
         let request = messages::CreateForumTopic {

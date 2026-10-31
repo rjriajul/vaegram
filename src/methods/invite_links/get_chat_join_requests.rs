@@ -33,45 +33,52 @@ impl GetChatJoinRequests<'_> {
     }
 
     async fn send(self) -> Result<Vec<ChatJoiner>> {
-        let client = self.client;
-        let mut request = functions::messages::GetChatInviteImporters {
+        let request = functions::messages::GetChatInviteImporters {
             requested: true,
             subscription_expired: false,
-            peer: client.resolve_peer(self.chat_id).await?,
+            peer: self.client.resolve_peer(self.chat_id).await?,
             link: None,
             q: self.query,
             offset_date: 0,
             offset_user: base::InputUser::InputUserEmpty,
             limit: 0,
         };
-        let mut joiners = Vec::new();
-        while joiners.len() < self.limit {
-            request.limit = IMPORTERS_LIMIT.min(self.limit - joiners.len()) as i32;
-            let base::messages::ChatInviteImporters::ChatInviteImporters(page) = client.invoke(&request).await?;
-            let page = *page;
-            let Some(base::ChatInviteImporter::ChatInviteImporter(last)) = page.importers.last() else { break };
-            let (offset_date, offset_user) = (last.date, last.user_id);
-            let entities = Entities::new(client, page.users, Vec::new());
-            joiners.extend(
-                page.importers
-                    .into_iter()
-                    .map(|base::ChatInviteImporter::ChatInviteImporter(i)| ChatJoiner::parse(*i, &entities)),
-            );
-            if joiners.len() >= page.count as usize {
-                break;
-            }
-            // The next page starts after this (date, user) pair; the user's access hash was just cached.
-            request.offset_date = offset_date;
-            request.offset_user = client.resolve_user(&offset_user.into()).await?;
-        }
-        Ok(joiners)
+        importers(self.client, request, self.limit).await
     }
 }
 
 into_future!(GetChatJoinRequests, Vec<ChatJoiner>);
 
+pub(super) async fn importers(
+    client: &Client,
+    mut request: functions::messages::GetChatInviteImporters,
+    limit: usize,
+) -> Result<Vec<ChatJoiner>> {
+    let mut joiners = Vec::new();
+    while joiners.len() < limit {
+        request.limit = IMPORTERS_LIMIT.min(limit - joiners.len()) as i32;
+        let base::messages::ChatInviteImporters::ChatInviteImporters(page) = client.invoke(&request).await?;
+        let page = *page;
+        let Some(base::ChatInviteImporter::ChatInviteImporter(last)) = page.importers.last() else { break };
+        let (offset_date, offset_user) = (last.date, last.user_id);
+        let entities = Entities::new(client, page.users, Vec::new());
+        joiners.extend(
+            page.importers
+                .into_iter()
+                .map(|base::ChatInviteImporter::ChatInviteImporter(i)| ChatJoiner::parse(*i, &entities)),
+        );
+        if joiners.len() >= page.count as usize {
+            break;
+        }
+        // The next page starts after this (date, user) pair; the user's access hash was just cached.
+        request.offset_date = offset_date;
+        request.offset_user = client.resolve_user(&offset_user.into()).await?;
+    }
+    Ok(joiners)
+}
+
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::super::create_chat_invite_link::tests::{CHANNEL_ID, channel, setup};
     use crate::raw::functions::messages;
     use crate::raw::{Deserializable, Serializable, base, types};
@@ -88,7 +95,7 @@ mod tests {
         base::User::from_bytes(&bytes).unwrap()
     }
 
-    fn page(count: i32, joiners: &[(i64, i32)]) -> Vec<u8> {
+    pub(crate) fn page(count: i32, joiners: &[(i64, i32)]) -> Vec<u8> {
         let (mut importers, mut users) = (Vec::new(), Vec::new());
         for &(user_id, date) in joiners {
             let importer = types::ChatInviteImporter {

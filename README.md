@@ -192,18 +192,22 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Abridged and padded transports, obfuscation, SOCKS5/SOCKS4/HTTP proxies and MTProxy including fake-TLS `ee` secrets: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
 - [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat` (not yet tested live)
 - [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)
-- [ ] Locations, venues, contacts, dice and polls: `send_poll(chat, "Lunch?", ["Pizza", "Sushi"]).quiz([0])` (not yet tested live)
+- [ ] Locations, venues, contacts, dice and polls: `send_poll(chat, "Lunch?", ["Pizza", "Sushi"]).quiz([0])`,
+  `.allow_adding_options()`, `add_poll_option`, `delete_poll_option` (not yet tested live)
 - [ ] Parallel file upload and download: `send_document`, `send_photo`, `msg.download()`, with
   `.progress(|done, total| ..)` and `.stream()` for chunks in order; downloads use media-only and CDN DCs and refresh
   expired file references (not yet tested live)
 - [ ] Bot API file ids: `photo.file_id`, `send_photo(chat, FileSource::file_id(id)?)`, `download_media(file_id)`;
   the `file_unique_id` format is not yet checked against the Bot API (not yet tested live)
 - [ ] Videos, audio, voice, GIFs, video notes, stickers, albums and media edits: `send_video(chat, "clip.mp4").supports_streaming()`,
-  `send_media_group`, `edit_message_media`, `edit_inline_media` (not yet tested live)
+  `send_media_group`, `get_media_group`, `copy_media_group`, `forward_media_group`, `edit_message_media`,
+  `edit_inline_media` (not yet tested live)
 - [ ] Shared send options: replies with quotes, topics, silent, protected, scheduled and business sends; a default
   parse mode via `Client::builder(..).parse_mode(enums::ParseMode::Html)` (not yet tested live)
 - [ ] Chat join requests and join request queries, managed bot access settings (not yet tested live)
-- [ ] Invite links and join requests: `create_chat_invite_link(chat).creates_join_request()`, `request.approve()`, Star subscription links (not yet tested live)
+- [ ] Invite links and join requests: `create_chat_invite_link(chat).creates_join_request()`, `request.approve()`, Star
+  subscription links, `get_chat_invite_link_joiners`, `get_chat_admin_invite_links(chat, admin)`,
+  `get_chat_admins_with_invite_links`, `delete_chat_invite_link` (not yet tested live)
 - [ ] Managed bots: `on_managed_bot`, token get/replace, `KeyboardButton::request_managed_bot`,
   `ServiceAction::ManagedBotCreated` (not yet tested live)
 - [ ] Raw updates with their users and chats: `update.user(id)`, `update.chat(id)`, `update.to_json(..)`; TL objects
@@ -220,8 +224,9 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   `.suggested_post_parameters(..)`, `.direct_messages_topic_id(user)`, `msg.direct_messages_topic` (not yet tested live)
 - [ ] Ephemeral messages: send, edit, delete, handlers and callback queries (not yet tested live)
 - [ ] Reactions: `send_reaction`, `msg.react(..)`, `msg.reactions`, `on_message_reaction`, `on_message_reaction_count` (not yet tested live)
-- [ ] Forum topics, also in private chats with bots: `create_forum_topic(chat, "Ideas")`, `msg.service`
-  (`ServiceAction::ForumTopicCreated`, ..), `msg.message_thread_id` (not yet tested live)
+- [ ] Forum topics, also in private chats with bots: `create_forum_topic(chat, "Ideas")`, `get_forum_topics(chat)`,
+  `pin_forum_topic(chat, id)`, `msg.service` (`ServiceAction::ForumTopicCreated`, ..), `msg.message_thread_id` (not
+  yet tested live)
 - [ ] Business accounts: `on_business_message`, `on_business_connection`, `on_deleted_business_messages`, replies on
   behalf of the account, `read_business_message`, name, bio, username, gift settings and Stars (not yet tested live)
 - [ ] Rich messages: `send_rich_message(chat, InputRichMessage::html("<b>hi</b>"))`, blocks such as

@@ -14,6 +14,7 @@ mod reset_wallpapers;
 mod save_wallpaper;
 mod set_account_ttl;
 mod set_global_privacy_settings;
+mod set_inactive_session_ttl;
 mod set_privacy;
 mod terminate_all_other_sessions;
 mod terminate_session;

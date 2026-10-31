@@ -48,26 +48,37 @@ impl<T> DialogPages<T> {
         last_page: bool,
         next: Option<(i32, i32, i64)>,
     ) -> Result<()> {
+        let moved = self.advance(items, last_page, next.map(|(date, id, _)| (date, id)))?;
+        if let (true, Some((_, _, chat_id))) = (moved, next) {
+            self.offset_peer = client.resolve_peer(chat_id).await?;
+        }
+        Ok(())
+    }
+
+    // Returns whether the date and id moved, so a caller with more cursor fields moves those too.
+    pub(crate) fn advance(&mut self, items: Vec<T>, last_page: bool, next: Option<(i32, i32)>) -> Result<bool> {
         self.done = last_page;
+        let mut moved = false;
         match next {
             // Same offset again would fetch the same page forever.
-            Some((date, id, _)) if (date, id) == (self.offset_date, self.offset_id) => self.done = true,
-            Some((date, id, chat_id)) => {
+            Some(at) if at == (self.offset_date, self.offset_id) => self.done = true,
+            Some((date, id)) => {
                 self.offset_date = date;
                 self.offset_id = id;
-                self.offset_peer = client.resolve_peer(chat_id).await?;
                 self.widened = false;
+                moved = true;
             }
-            // A full page of communities only has nothing to continue from. Ask again for a whole page, which
-            // reaches the chats after them; failing that, say so rather than end the list early.
+            // A full page of entries with no cursor (communities, deleted topics) has nothing to continue from. Ask
+            // again for a whole page, which reaches the entries after them; failing that, say so rather than end the
+            // list early.
             None if !last_page && items.is_empty() && !self.widened => self.widened = true,
             None if !last_page && items.is_empty() => {
-                return Err(Error::Unexpected("a full page of chats had none to continue from"));
+                return Err(Error::Unexpected("a full page had nothing to continue from"));
             }
             None => self.done = true,
         }
         self.buffer = items.into_iter();
-        Ok(())
+        Ok(moved)
     }
 }
 

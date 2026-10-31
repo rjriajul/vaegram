@@ -71,7 +71,7 @@ fn created_topic(update: base::Update) -> Option<ForumTopic> {
         _ => return None,
     };
     let base::Message::MessageService(m) = message else { return None };
-    let (id, action) = (m.id, m.action);
+    let (id, date, action) = (m.id, m.date, m.action);
     let base::MessageAction::MessageActionTopicCreate(a) = action else { return None };
     Some(ForumTopic {
         id,
@@ -79,5 +79,13 @@ fn created_topic(update: base::Update) -> Option<ForumTopic> {
         icon_color: a.icon_color,
         icon_emoji_id: a.icon_emoji_id,
         is_name_implicit: a.title_missing,
+        date,
+        top_message_id: id,
+        unread_messages_count: 0,
+        unread_mentions_count: 0,
+        unread_reactions_count: 0,
+        is_closed: false,
+        is_pinned: false,
+        is_hidden: false,
     })
 }
