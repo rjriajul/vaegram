@@ -6,9 +6,11 @@ mod get_contacts;
 mod get_contacts_count;
 mod import_contacts;
 mod search_contacts;
+mod set_contact_note;
 mod unblock_user;
 
 pub use add_contact::AddContact;
+pub use set_contact_note::SetContactNote;
 
 #[cfg(test)]
 mod tests {

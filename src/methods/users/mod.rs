@@ -1,3 +1,4 @@
+mod check_username;
 mod clear_recent_emoji_statuses;
 mod delete_profile_photos;
 mod get_chat_photos;
@@ -17,6 +18,7 @@ mod set_passport_data_errors;
 mod set_personal_channel;
 mod set_profile_photo;
 mod set_username;
+mod suggest_birthday;
 mod toggle_username;
 mod update_birthday;
 mod update_profile;

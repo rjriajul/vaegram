@@ -1,10 +1,15 @@
 mod accept_terms_of_service;
 mod authorize;
 mod authorize_qr;
+mod change_phone_number;
 mod check_password;
+mod get_password_hint;
 mod get_terms_of_service_update;
+mod is_authorized;
 mod log_out;
 mod recover_password;
+mod resend_code;
+mod send_change_phone_code;
 mod send_code;
 mod send_recovery_code;
 mod sign_in;
