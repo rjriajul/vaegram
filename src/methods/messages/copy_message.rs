@@ -64,7 +64,7 @@ caption_setters!(CopyMessage);
 send_builder!(CopyMessage);
 
 /// Received mentions carry a bare user id; sending them needs the user's access hash.
-async fn input_entities(
+pub(super) async fn input_entities(
     client: &Client,
     mut entities: Option<Vec<base::MessageEntity>>,
 ) -> Result<Option<Vec<base::MessageEntity>>> {
@@ -78,9 +78,9 @@ async fn input_entities(
     Ok(entities)
 }
 
-fn input_media(media: base::MessageMedia) -> Result<Option<base::InputMedia>> {
+pub(super) fn input_media(media: base::MessageMedia) -> Result<Option<base::InputMedia>> {
     use base::MessageMedia as M;
-    let unsupported = Error::Unexpected("getMessages returned media that copy_message can't resend");
+    let unsupported = Error::Unexpected("getMessages returned media that can't be copied");
     let media = match media {
         M::MessageMediaEmpty | M::MessageMediaWebPage(_) => return Ok(None),
         M::MessageMediaPhoto(m) => {

@@ -1033,3 +1033,25 @@ async fn user_lists_and_pins_forum_topics() {
     assert!(!user.get_forum_topics_by_id(group.id, &[first.id]).await.unwrap()[0].is_pinned);
     user.delete_supergroup(group.id).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_copies_and_forwards_an_album() {
+    let Some(user) = user_client().await else { return };
+    let data: Vec<u8> = (0..200_000u32).map(|i| (i * 13 + i / 7) as u8).collect();
+    let album =
+        [InputMedia::document(Upload::bytes("a.bin", &data)), InputMedia::document(Upload::bytes("b.bin", &data))];
+    let album = user.send_media_group("me", album).await.unwrap();
+    assert_eq!(user.get_media_group("me", album[1].id).await.unwrap().len(), 2);
+
+    let forwarded = user.forward_media_group("me", "me", album[0].id).await.unwrap();
+    assert_eq!(forwarded.len(), 2);
+    assert!(forwarded[0].media_group_id.is_some() && forwarded[0].media_group_id == forwarded[1].media_group_id);
+    assert_ne!(forwarded[0].media_group_id, album[0].media_group_id);
+
+    let copied = user.copy_media_group("me", "me", album[0].id).caption(0, "copied").await.unwrap();
+    assert_eq!((copied.len(), copied[0].caption.as_deref()), (2, Some("copied")));
+
+    let ids: Vec<i32> = [album, forwarded, copied].iter().flatten().map(|m| m.id).collect();
+    user.delete_messages("me", &ids).await.unwrap();
+}

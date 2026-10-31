@@ -1,6 +1,7 @@
 mod add_to_gifs;
 mod approve_suggested_post;
 mod clear_all_drafts;
+mod copy_media_group;
 mod copy_message;
 mod copy_messages;
 mod decline_suggested_post;
@@ -25,6 +26,7 @@ mod edit_message_media;
 mod edit_message_reply_markup;
 mod edit_message_text;
 mod export_message_link;
+mod forward_media_group;
 mod forward_messages;
 mod get_all_drafts;
 mod get_available_effects;
@@ -35,6 +37,7 @@ mod get_custom_emoji_stickers;
 mod get_discussion_message;
 mod get_discussion_replies;
 mod get_discussion_replies_count;
+mod get_media_group;
 mod get_message_by_link;
 mod get_message_reactions_list;
 mod get_message_read_date;
@@ -112,6 +115,7 @@ mod vote_poll;
 mod web_view_options;
 
 pub use approve_suggested_post::ApproveSuggestedPost;
+pub use copy_media_group::CopyMediaGroup;
 pub use copy_message::CopyMessage;
 pub use copy_messages::CopyMessages;
 pub use decline_suggested_post::DeclineSuggestedPost;
@@ -126,6 +130,7 @@ pub use edit_message_media::EditMessageMedia;
 pub use edit_message_reply_markup::EditMessageReplyMarkup;
 pub use edit_message_text::EditMessageText;
 pub use export_message_link::ExportMessageLink;
+pub use forward_media_group::ForwardMediaGroup;
 pub use forward_messages::ForwardMessages;
 pub use get_chat_history::GetChatHistory;
 pub use get_discussion_replies::GetDiscussionReplies;
@@ -678,5 +683,184 @@ mod reaction_tests {
 
         let vote = client.get_poll_votes(USER, 9).option(vec![1]).next().await.unwrap().unwrap();
         assert_eq!((vote.voter_id, vote.options), (8, vec![vec![1]]));
+    }
+}
+
+#[cfg(test)]
+mod media_group_tests {
+    use crate::Client;
+    use crate::client::sent;
+    use crate::errors::Error;
+    use crate::raw::functions::{channels, contacts, messages};
+    use crate::raw::{Identifiable, Serializable, base, types};
+    use crate::types::messages_and_media::media::tests::document_media;
+    use crate::types::{Message, SuggestedPostParameters};
+    use crate::utils::{get_channel_id, get_peer};
+
+    const GROUP: i64 = -5;
+
+    fn item(id: i32, chat_id: i64, grouped_id: Option<i64>, caption: &str) -> types::Message {
+        types::Message {
+            grouped_id,
+            message: caption.into(),
+            media: Some(document_media("application/pdf", Vec::new())),
+            ..Message::bare(id, get_peer(chat_id), 1)
+        }
+    }
+
+    fn found(messages: Vec<types::Message>) -> Vec<u8> {
+        let messages = messages.into_iter().map(|m| base::Message::Message(Box::new(m))).collect();
+        let found = types::messages::Messages { messages, topics: Vec::new(), chats: Vec::new(), users: Vec::new() };
+        base::messages::Messages::Messages(Box::new(found)).to_bytes()
+    }
+
+    // Messages 10 and 11 are album 1; 12 is another album, and 9 is in album 1 of another chat.
+    fn album() -> Vec<types::Message> {
+        vec![
+            item(9, 7, Some(1), "elsewhere"),
+            item(10, GROUP, Some(1), "first"),
+            item(11, GROUP, Some(1), "second"),
+            item(12, GROUP, Some(2), "other"),
+        ]
+    }
+
+    fn new_messages(ids: &[i32]) -> Vec<u8> {
+        let updates = ids
+            .iter()
+            .map(|&id| {
+                let message = base::Message::Message(Box::new(item(id, GROUP, Some(3), "")));
+                base::Update::UpdateNewMessage(Box::new(types::UpdateNewMessage { message, pts: 1, pts_count: 1 }))
+            })
+            .collect();
+        let updates = types::Updates { updates, users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
+        base::Updates::Updates(Box::new(updates)).to_bytes()
+    }
+
+    fn get_messages(ids: impl Iterator<Item = i32>) -> Vec<u8> {
+        let id = ids.map(|id| base::InputMessage::InputMessageID(types::InputMessageID { id })).collect();
+        messages::GetMessages { id }.to_bytes()
+    }
+
+    fn word(body: &[u8], at: usize) -> u32 {
+        u32::from_le_bytes(body[at..at + 4].try_into().unwrap())
+    }
+
+    fn ids(messages: &[Message]) -> Vec<i32> {
+        messages.iter().map(|m| m.id).collect()
+    }
+
+    #[tokio::test]
+    async fn non_positive_ids_are_refused_without_a_request() {
+        let (client, mut rx) = Client::recording();
+        for id in [0, -1] {
+            let result = client.get_media_group(GROUP, id).await;
+            assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
+        }
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn the_window_covers_nine_ids_either_side() {
+        let (client, mut rx) = Client::recording();
+        let _ = client.get_media_group(GROUP, 3).await;
+        assert_eq!(rx.try_recv().unwrap(), get_messages(1..=12));
+        let _ = client.get_media_group(GROUP, 20).await;
+        assert_eq!(rx.try_recv().unwrap(), get_messages(11..=29));
+        let _ = client.get_media_group(GROUP, i32::MAX).await;
+        assert_eq!(rx.try_recv().unwrap(), get_messages(i32::MAX - 9..=i32::MAX));
+
+        let channel = get_channel_id(9);
+        let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
+        assert_eq!(sent(&mut rx, client.get_media_group(channel, 3)).await, channels::GetMessages::CONSTRUCTOR_ID);
+    }
+
+    #[tokio::test]
+    async fn returns_only_the_anchors_album_in_order() {
+        let (client, _rx) = Client::scripted(vec![Ok(found(album()))]);
+        assert_eq!(ids(&client.get_media_group(GROUP, 11).await.unwrap()), [10, 11]);
+    }
+
+    #[tokio::test]
+    async fn a_missing_or_ungrouped_anchor_is_refused() {
+        let ungrouped = found(vec![item(13, GROUP, None, "")]);
+        let (client, _rx) = Client::scripted(vec![Ok(found(album())), Ok(ungrouped)]);
+        let missing = client.get_media_group(GROUP, 13).await;
+        assert!(matches!(missing, Err(Error::InvalidArgument("no message with this id"))), "{missing:?}");
+        let ungrouped = client.get_media_group(GROUP, 13).await;
+        let refused = matches!(ungrouped, Err(Error::InvalidArgument("this message isn't part of a media group")));
+        assert!(refused, "{ungrouped:?}");
+    }
+
+    #[tokio::test]
+    async fn forwards_the_whole_album() {
+        let replies = vec![Ok(found(album())), Ok(new_messages(&[21, 20])), Ok(found(album()))];
+        let (client, mut rx) = Client::scripted(replies);
+        assert_eq!(ids(&client.forward_media_group(GROUP, GROUP, 11).await.unwrap()), [20, 21]);
+        rx.try_recv().unwrap();
+        let body = rx.try_recv().unwrap();
+        assert_eq!((word(&body, 0), word(&body, 4)), (messages::ForwardMessages::CONSTRUCTOR_ID, 0));
+        // from_peer is a 12-byte inputPeerChat; the id vector follows it.
+        assert_eq!((word(&body, 24), word(&body, 28), word(&body, 32)), (2, 10, 11));
+
+        let _ = client.forward_media_group(GROUP, GROUP, 11).hide_sender_name().hide_captions().await;
+        rx.try_recv().unwrap();
+        let body = rx.try_recv().unwrap();
+        assert_eq!(
+            (word(&body, 0), word(&body, 4)),
+            (messages::ForwardMessages::CONSTRUCTOR_ID, (1 << 11) | (1 << 12))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_named_source_chat_is_resolved_once() {
+        let peer = base::Peer::PeerChat(types::PeerChat { chat_id: 5 });
+        let resolved = types::contacts::ResolvedPeer { peer, chats: Vec::new(), users: Vec::new() };
+        let resolved = base::contacts::ResolvedPeer::ResolvedPeer(Box::new(resolved)).to_bytes();
+        let replies = vec![Ok(resolved), Ok(found(album())), Ok(new_messages(&[20, 21]))];
+        let (client, mut rx) = Client::scripted(replies);
+        assert_eq!(ids(&client.forward_media_group(GROUP, "@group", 11).await.unwrap()), [20, 21]);
+        let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).map(|body| word(&body, 0)).collect();
+        let expected = [
+            contacts::ResolveUsername::CONSTRUCTOR_ID,
+            messages::GetMessages::CONSTRUCTOR_ID,
+            messages::ForwardMessages::CONSTRUCTOR_ID,
+        ];
+        assert_eq!(sent, expected);
+    }
+
+    #[tokio::test]
+    async fn copies_the_album_with_a_new_caption() {
+        let mut source = album();
+        source[2].invert_media = true;
+        let (client, mut rx) = Client::scripted(vec![Ok(found(source)), Ok(new_messages(&[21, 20]))]);
+        let copied = client.copy_media_group(GROUP, GROUP, 10).caption(1, "new").await.unwrap();
+        assert_eq!(ids(&copied), [20, 21]);
+        rx.try_recv().unwrap();
+        let body = rx.try_recv().unwrap();
+        assert_eq!((word(&body, 0), word(&body, 4)), (messages::SendMultiMedia::CONSTRUCTOR_ID, 1 << 16));
+        let has = |text: &str| body.windows(text.len()).any(|w| w == text.as_bytes());
+        assert_eq!((has("first"), has("new"), has("second")), (true, true, false));
+    }
+
+    #[tokio::test]
+    async fn bad_copies_are_refused_before_sending() {
+        let ungrouped = found(vec![item(13, GROUP, None, "")]);
+        let (client, mut rx) = Client::scripted(vec![Ok(found(album())), Ok(ungrouped)]);
+        let past_the_end = client.copy_media_group(GROUP, GROUP, 10).caption(2, "x").await;
+        assert!(matches!(past_the_end, Err(Error::InvalidArgument(_))), "{past_the_end:?}");
+        let ungrouped = client.copy_media_group(GROUP, GROUP, 13).await;
+        assert!(matches!(ungrouped, Err(Error::InvalidArgument(_))), "{ungrouped:?}");
+        let fetches = (rx.try_recv().map(|b| word(&b, 0)), rx.try_recv().map(|b| word(&b, 0)));
+        assert_eq!(fetches, (Ok(messages::GetMessages::CONSTRUCTOR_ID), Ok(messages::GetMessages::CONSTRUCTOR_ID)));
+        assert!(rx.try_recv().is_err());
+
+        let suggested = SuggestedPostParameters::default();
+        let copy = client.copy_media_group(GROUP, GROUP, 10).suggested_post_parameters(suggested).await;
+        let forward = client.forward_media_group(GROUP, GROUP, 10).suggested_post_parameters(suggested).await;
+        for result in [copy, forward] {
+            assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
+        }
+        assert!(rx.try_recv().is_err());
     }
 }

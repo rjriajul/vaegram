@@ -60,16 +60,16 @@ pub use invite_links::{
     CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatJoinRequests,
 };
 pub use messages::{
-    ApproveSuggestedPost, CopyMessage, CopyMessages, DeclineSuggestedPost, DownloadMedia, EditEphemeralMessage,
-    EditInlineMedia, EditInlineText, EditMessageChecklist, EditMessageLiveLocation, EditMessageMedia,
-    EditMessageReplyMarkup, EditMessageText, ExportMessageLink, ForwardMessages, GetChatHistory, GetDiscussionReplies,
-    GetMessageReactionsList, GetPollVotes, GetSavedDialogs, GetSavedHistory, MediaStream, MessageStream,
-    PinChatMessage, RequestAppWebView, RequestMainWebView, RequestSimpleWebView, RequestWebView, SaveDraft,
-    SearchGlobal, SearchMessages, SearchMessagesCount, SearchPosts, SendAnimation, SendAudio, SendChatAction,
-    SendChecklist, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLivePhoto, SendLocation,
-    SendMediaGroup, SendMessage, SendMessageDraft, SendPaidMedia, SendPaidReaction, SendPhoto, SendPoll, SendReaction,
-    SendRichMessage, SendSticker, SendVenue, SendVideo, SendVideoNote, SendVoice, StopMessageLiveLocation, StopPoll,
-    StreamMessage, TranslateText, UnpinChatMessage,
+    ApproveSuggestedPost, CopyMediaGroup, CopyMessage, CopyMessages, DeclineSuggestedPost, DownloadMedia,
+    EditEphemeralMessage, EditInlineMedia, EditInlineText, EditMessageChecklist, EditMessageLiveLocation,
+    EditMessageMedia, EditMessageReplyMarkup, EditMessageText, ExportMessageLink, ForwardMediaGroup, ForwardMessages,
+    GetChatHistory, GetDiscussionReplies, GetMessageReactionsList, GetPollVotes, GetSavedDialogs, GetSavedHistory,
+    MediaStream, MessageStream, PinChatMessage, RequestAppWebView, RequestMainWebView, RequestSimpleWebView,
+    RequestWebView, SaveDraft, SearchGlobal, SearchMessages, SearchMessagesCount, SearchPosts, SendAnimation,
+    SendAudio, SendChatAction, SendChecklist, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLivePhoto,
+    SendLocation, SendMediaGroup, SendMessage, SendMessageDraft, SendPaidMedia, SendPaidReaction, SendPhoto, SendPoll,
+    SendReaction, SendRichMessage, SendSticker, SendVenue, SendVideo, SendVideoNote, SendVoice,
+    StopMessageLiveLocation, StopPoll, StreamMessage, TranslateText, UnpinChatMessage,
 };
 pub(crate) use messages::{DownloadSource, StreamShared, caption_setters, geo_point, input_venue};
 pub use password::{ChangeCloudPassword, EnableCloudPassword};
