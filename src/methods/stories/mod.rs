@@ -1,9 +1,12 @@
+mod can_post_stories;
+mod copy_story;
 mod delete_stories;
 mod edit_story_caption;
 mod edit_story_media;
 mod edit_story_privacy;
 mod enable_stealth_mode;
 mod export_story_link;
+mod forward_story;
 mod get_all_stories;
 mod get_chat_stories;
 mod get_pinned_stories;
@@ -19,8 +22,10 @@ mod show_chat_stories;
 mod unpin_chat_stories;
 mod view_stories;
 
+pub use copy_story::CopyStory;
 pub use edit_story_caption::EditStoryCaption;
 pub use enable_stealth_mode::EnableStealthMode;
+pub use forward_story::ForwardStory;
 pub use get_stories_archive::StoryPages;
 pub use get_story_viewers::GetStoryViewers;
 pub use send_story::SendStory;
