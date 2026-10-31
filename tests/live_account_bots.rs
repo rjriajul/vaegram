@@ -1,7 +1,8 @@
 #[allow(dead_code)]
 mod support;
 
-use vaegram::raw::base;
+use vaegram::enums::ParseMode;
+use vaegram::raw::{base, functions, types};
 use vaegram::{Client, Error};
 
 fn api() -> (i32, String) {
@@ -123,4 +124,46 @@ async fn user_creates_a_managed_bot() {
     let bot = kit.user.client.create_bot(manager.id, "vaegram managed", username.as_str()).await.unwrap();
     assert!(bot.is_bot);
     assert_eq!(bot.username.as_deref(), Some(username.as_str()));
+}
+
+fn env_id(key: &str) -> Option<i64> {
+    let id = std::env::var(key).ok().and_then(|v| v.parse().ok());
+    if id.is_none() {
+        eprintln!("skipped: set {key} (a user id)");
+    }
+    id
+}
+
+async fn contact_note(user: &Client, user_id: i64) -> Option<String> {
+    let base::InputPeer::InputPeerUser(peer) = user.resolve_peer(user_id).await.unwrap() else { panic!("not a user") };
+    let id = base::InputUser::InputUser(Box::new(types::InputUser { user_id, access_hash: peer.access_hash }));
+    let base::users::UserFull::UserFull(full) = user.invoke(&functions::users::GetFullUser { id }).await.unwrap();
+    let base::UserFull::UserFull(full) = full.full_user;
+    full.note.map(|base::TextWithEntities::TextWithEntities(note)| note.text)
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session; changes a contact's note and puts back its text without formatting"]
+async fn user_sets_a_contact_note() {
+    let Some(contact) = env_id("VAEGRAM_CONTACT_ID") else { return };
+    let Some(user) = user_client().await else { return };
+    let old = contact_note(&user, contact).await.unwrap_or_default();
+
+    user.set_contact_note(contact, "<b>vaegram</b> note").html().await.unwrap();
+    let set = contact_note(&user, contact).await;
+    user.set_contact_note(contact, old.as_str()).parse_mode(ParseMode::Disabled).await.unwrap();
+    assert_eq!(set.as_deref(), Some("vaegram note"));
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session; sends a birthday suggestion"]
+async fn user_suggests_a_birthday() {
+    let Some(target) = env_id("VAEGRAM_BIRTHDAY_USER_ID") else { return };
+    let Some(user) = user_client().await else { return };
+    match user.suggest_birthday(target, 1, 1, None).await {
+        Ok(()) => {}
+        // The user already shows a birthday, so Telegram doesn't take a suggestion.
+        Err(e) if rpc_is(&e, "BIRTHDAY_ALREADY") => {}
+        Err(e) => panic!("{e}"),
+    }
 }
