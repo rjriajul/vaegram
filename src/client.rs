@@ -21,8 +21,8 @@ use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Auth, Lease, TransferPool};
 use crate::session::{Call, Events, Observer, Salt, Session, UpdatesRx, init_connection};
 use crate::storage::recording::Recorder;
-use crate::storage::state::{StateFile, UpdateState};
-use crate::storage::{self, SessionData, session_string};
+use crate::storage::state::UpdateState;
+use crate::storage::{FileStore, MemoryStore, SessionData, SessionStore, Store, session_string};
 
 const DEFAULT_DC: i32 = 2;
 
@@ -42,6 +42,7 @@ pub struct ClientBuilder {
     catch_up: bool,
     max_concurrent_handlers: Option<usize>,
     record: Option<PathBuf>,
+    store: Option<Arc<Store>>,
 }
 
 #[derive(Default)]
@@ -196,6 +197,15 @@ impl ClientBuilder {
         self
     }
 
+    /// Keeps the login and the update state in `store` instead of `<name>.session` and `<name>.state`; see
+    /// [`SessionStore`] for what a store has to protect. With [`session_string`](Self::session_string) too, the
+    /// client starts from the string and saves to `store`.
+    pub fn store(mut self, store: impl SessionStore) -> Self {
+        let store: Arc<Store> = Arc::new(Store::new(store));
+        self.store = Some(store);
+        self
+    }
+
     pub async fn start(self) -> Result<Client> {
         let (client, login) = self.open().await?;
         if client.0.me.lock().unwrap().id == 0 {
@@ -212,13 +222,14 @@ impl ClientBuilder {
         if let Some(path) = &self.record {
             self.options.record = Some(Recorder::create(path)?);
         }
-        let (storage_path, stored) = match &self.session_string {
-            Some(s) => (None, Some(session_string::parse(s).map_err(Error::InvalidSession)?)),
-            None => {
-                let path = PathBuf::from(format!("{}.session", self.name));
-                let stored = storage::load(&path)?;
-                (Some(path), stored)
-            }
+        let store: Arc<Store> = match self.store.take() {
+            Some(store) => store,
+            None if self.session_string.is_some() => Arc::new(Store::new(MemoryStore::default())),
+            None => Arc::new(Store::new(FileStore::new(&self.name))),
+        };
+        let stored = match &self.session_string {
+            Some(s) => Some(session_string::parse(s).map_err(Error::InvalidSession)?),
+            None => store.load_session()?,
         };
         let (dc_id, auth_key, user_id, is_bot, test_mode, addr) = match &stored {
             Some(s) => (s.dc_id, Some(s.auth_key), s.user_id, s.is_bot, s.test_mode, s.addr),
@@ -231,11 +242,7 @@ impl ClientBuilder {
         let first = pinned.or_else(|| addr.filter(|a| a.is_ipv6() == self.ipv6)).or(built_in);
         let first = first.ok_or(Error::InvalidDc(dc_id))?;
         let dc = |addr| Dc { id: dc_id, addr, test: test_mode };
-        let state_file = storage_path.as_ref().map(|path| Arc::new(StateFile::new(path.with_extension("state"))));
-        let (peers, state, salt) = match &state_file {
-            Some(file) => storage::state::load(&file.path, user_id)?,
-            None => Default::default(),
-        };
+        let (peers, state, salt) = store.load_state(user_id)?;
         let events = Arc::new(Events::default());
         let saved = auth_key.map(|key| (key, salt));
         let try_addr = |addr| connect(dc(addr), saved, self.api_id, &self.options, events.clone(), self.pfs);
@@ -244,7 +251,7 @@ impl ClientBuilder {
             (Err(_), Some(built_in)) if built_in != first && pinned.is_none() => try_addr(built_in).await?,
             (result, _) => result?,
         };
-        let mut inner = Inner::new(session, updates);
+        let mut inner = Inner::new(session, updates, store);
         inner.api_id = self.api_id;
         inner.api_hash = self.api_hash;
         inner.dcs = RwLock::new(data_center::table(&dc_options, self.ipv6, false));
@@ -252,8 +259,6 @@ impl ClientBuilder {
         inner.test_mode = test_mode;
         inner.pinned = pinned;
         inner.ipv6 = self.ipv6;
-        inner.storage_path = Mutex::new(storage_path);
-        inner.state_file = state_file;
         inner.options = self.options;
         inner.parse_mode = self.parse_mode;
         inner.state = Mutex::new(state);
@@ -289,9 +294,7 @@ pub(crate) struct Inner {
     test_mode: bool,
     ipv6: bool,
     pinned: Option<SocketAddr>,
-    // Taken by log_out, so a later save can't write the dead login back.
-    pub(crate) storage_path: Mutex<Option<PathBuf>>,
-    pub(crate) state_file: Option<Arc<StateFile>>,
+    pub(crate) store: Arc<Store>,
     pub(crate) options: Options,
     pub(crate) parse_mode: ParseMode,
     pub(crate) state: Mutex<Option<UpdateState>>,
@@ -327,7 +330,7 @@ mod me {
 }
 
 impl Inner {
-    fn new(session: Session, updates: UpdatesRx) -> Inner {
+    fn new(session: Session, updates: UpdatesRx, store: Arc<Store>) -> Inner {
         Inner {
             session: RwLock::new(session),
             events: updates.events.clone(),
@@ -340,8 +343,7 @@ impl Inner {
             test_mode: false,
             ipv6: false,
             pinned: None,
-            storage_path: Mutex::new(None),
-            state_file: None,
+            store,
             options: Options::default(),
             parse_mode: ParseMode::Disabled,
             transfers: TransferPool::default(),
@@ -358,34 +360,30 @@ impl Inner {
         }
     }
 
-    fn encode_state(&self, file: &StateFile, state: Option<&UpdateState>) -> (u64, Vec<u8>) {
+    fn encode_state(&self, state: Option<&UpdateState>) -> (u64, Vec<u8>) {
         let user_id = self.me.lock().unwrap_or_else(PoisonError::into_inner).id;
         let salt = self.session.read().unwrap_or_else(PoisonError::into_inner).salt();
         let peers = self.peers.lock().unwrap_or_else(PoisonError::into_inner);
-        (file.ticket(), storage::state::encode(user_id, salt, &peers, state))
+        (self.store.ticket(), crate::storage::state::encode(user_id, salt, &peers, state))
     }
 
-    /// Returns once the state is on disk, so a stopped client resumes exactly where it left off.
+    /// Returns once the store has the state, so a stopped client resumes exactly where it left off.
     pub(crate) async fn save_state(&self, state: &UpdateState) {
-        let Some(file) = self.state_file.clone() else { return };
-        let (ticket, bytes) = self.encode_state(&file, Some(state));
-        let _ = tokio::task::spawn_blocking(move || file.write(ticket, &bytes)).await;
+        let (store, (ticket, bytes)) = (self.store.clone(), self.encode_state(Some(state)));
+        let _ = tokio::task::spawn_blocking(move || store.save_state(ticket, &bytes)).await;
     }
 
     pub(crate) fn save_state_in_background(&self, state: &UpdateState) {
-        let Some(file) = self.state_file.clone() else { return };
-        let (ticket, bytes) = self.encode_state(&file, Some(state));
-        tokio::task::spawn_blocking(move || file.write(ticket, &bytes));
+        let (store, (ticket, bytes)) = (self.store.clone(), self.encode_state(Some(state)));
+        tokio::task::spawn_blocking(move || store.save_state(ticket, &bytes));
     }
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
         let state = self.state.get_mut().ok().and_then(Option::take);
-        if let Some(file) = &self.state_file {
-            let (ticket, bytes) = self.encode_state(file, state.as_ref());
-            file.write(ticket, &bytes);
-        }
+        let (ticket, bytes) = self.encode_state(state.as_ref());
+        self.store.save_state(ticket, &bytes);
     }
 }
 
@@ -406,12 +404,14 @@ impl Client {
             catch_up: true,
             max_concurrent_handlers: None,
             record: None,
+            store: None,
         }
     }
 
     #[cfg(test)]
     pub(crate) fn offline() -> Client {
-        let mut inner = Inner::new(Session::offline(), UpdatesRx::offline());
+        let store = Arc::new(Store::new(MemoryStore::default()));
+        let mut inner = Inner::new(Session::offline(), UpdatesRx::offline(), store);
         inner.me.get_mut().unwrap().is_bot = true;
         Client(Arc::new(inner), None)
     }
@@ -593,10 +593,7 @@ impl Client {
     }
 
     pub(crate) fn save(&self) -> Result<()> {
-        match &*self.0.storage_path.lock().unwrap() {
-            Some(path) => Ok(storage::save(path, &self.session_data())?),
-            None => Ok(()),
-        }
+        Ok(self.0.store.save_session(&self.session_data())?)
     }
 }
 
@@ -638,9 +635,28 @@ pub(crate) async fn sent<F: IntoFuture>(rx: &mut tokio::sync::mpsc::UnboundedRec
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
     use std::time::Duration;
 
-    use super::Client;
+    use super::{Client, Me};
+    use crate::errors::Error;
+    use crate::raw::{base, types};
+    use crate::session::Salt;
+    use crate::session::test_dc::TestDc;
+    use crate::storage::state::{self, Peers, UpdateState};
+    use crate::storage::{self, FileStore, Recording, SessionStore, Store};
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("vaegram-client-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn peers() -> Peers {
+        let peer = types::InputPeerUser { user_id: 777, access_hash: 5 };
+        Peers::from([(777, base::InputPeer::InputPeerUser(Box::new(peer)))])
+    }
 
     #[test]
     fn builder_defaults_match_todays_behaviour() {
@@ -664,5 +680,102 @@ mod tests {
         drop(client);
         assert!(weak.upgrade().is_none());
         events.link(true);
+    }
+
+    #[tokio::test]
+    async fn the_file_store_writes_the_bytes_the_file_code_wrote() {
+        let dir = temp_dir("files");
+        let (mut client, _) = Client::scripted(Vec::new());
+        Arc::get_mut(&mut client.0).unwrap().store = Arc::new(Store::new(FileStore::new(dir.join("bot"))));
+        *client.0.me.lock().unwrap() = Me { id: 1001, is_bot: true, ..Me::default() };
+        *client.0.peers.lock().unwrap() = peers();
+        let update_state = UpdateState { pts: 50, date: 1, ..Default::default() };
+        client.save().unwrap();
+        client.0.save_state(&update_state).await;
+        // What the code before the store wrote: storage::save, and write_private of the encoded state.
+        storage::save(&dir.join("old.session"), &client.session_data()).unwrap();
+        let old_state = state::encode(1001, client.session().salt(), &peers(), Some(&update_state));
+        storage::write_private(&dir.join("old.state"), &old_state).unwrap();
+
+        let read = |name: &str| std::fs::read(dir.join(name)).unwrap();
+        let files = [read("bot.session"), read("old.session"), read("bot.state"), read("old.state")];
+        let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        names.sort();
+        #[cfg(unix)]
+        let modes = ["bot.session", "bot.state"].map(|name| {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::metadata(dir.join(name)).unwrap().permissions().mode() & 0o777
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(files[0], files[1]);
+        assert_eq!(files[2], files[3]);
+        assert_eq!(names, ["bot.session", "bot.state", "old.session", "old.state"]);
+        #[cfg(unix)]
+        assert_eq!(modes, [0o600, 0o600]);
+    }
+
+    #[tokio::test]
+    async fn files_from_before_the_store_still_open() {
+        let dc = TestDc::start([5; 256], false).await;
+        let (dir, login) = (temp_dir("old-files"), dc.session_string([5; 256]));
+        let update_state = UpdateState { pts: 50, date: 1, ..Default::default() };
+        std::fs::write(dir.join("bot.session"), &login).unwrap();
+        std::fs::write(dir.join("bot.state"), state::encode(0, Salt::default(), &peers(), Some(&update_state)))
+            .unwrap();
+
+        let client = Client::builder(dir.join("bot").to_str().unwrap(), 1, "hash").connect().await;
+        let opened = client.map(|c| {
+            let known = c.0.peers.lock().unwrap().clone();
+            (known, c.0.state.lock().unwrap().clone())
+        });
+        let saved = std::fs::read(dir.join("bot.session"));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(opened.unwrap(), (peers(), Some(update_state)));
+        assert_eq!(saved.unwrap(), login.into_bytes(), "the login is saved back unchanged");
+    }
+
+    #[tokio::test]
+    async fn a_custom_store_is_read_on_connect_and_given_the_login() {
+        let dc = TestDc::start([5; 256], false).await;
+        let login = dc.session_string([5; 256]);
+        let store = Arc::new(Recording::default());
+        store.save("session", login.as_bytes()).unwrap();
+
+        let client = Client::builder("custom-store", 1, "hash").store(store.clone()).connect().await;
+        drop(client.unwrap());
+        assert_eq!(store.calls()[..4], ["save session", "load session", "load state", "save session"]);
+        assert_eq!(store.value("session"), Some(login.into_bytes()));
+        assert!(!Path::new("custom-store.session").exists());
+    }
+
+    #[tokio::test]
+    async fn a_session_string_is_saved_into_a_given_store() {
+        let dc = TestDc::start([5; 256], false).await;
+        let login = dc.session_string([5; 256]);
+        let store = Arc::new(Recording::default());
+
+        let builder = Client::builder("imported", 1, "hash").session_string(login.clone()).store(store.clone());
+        drop(builder.connect().await.unwrap());
+        assert_eq!(store.calls()[..2], ["load state", "save session"]);
+        assert_eq!(store.value("session"), Some(login.into_bytes()));
+    }
+
+    #[tokio::test]
+    async fn a_session_string_client_writes_no_files() {
+        let dc = TestDc::start([5; 256], false).await;
+        let dir = temp_dir("string");
+        let builder = Client::builder(dir.join("bot").to_str().unwrap(), 1, "hash");
+        let client = builder.session_string(dc.session_string([5; 256])).connect().await.unwrap();
+        client.0.save_state(&UpdateState { pts: 1, date: 1, ..Default::default() }).await;
+        drop(client);
+        let files = std::fs::read_dir(&dir).unwrap().count();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(files, 0);
+    }
+
+    #[tokio::test]
+    async fn a_failing_store_fails_connect_instead_of_panicking() {
+        let result = Client::builder("failing-store", 1, "hash").store(Recording::failing()).connect().await;
+        assert!(matches!(result, Err(Error::Io(_))), "{result:?}");
     }
 }

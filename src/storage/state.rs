@@ -1,5 +1,6 @@
-//! `<name>.state`, kept next to `<name>.session`: access hashes and the update state, so a restart
-//! can still reach known chats and fetch what it missed with `updates.getDifference`.
+//! The `"state"` value of a [`SessionStore`](super::SessionStore), `<name>.state` by default: access hashes and
+//! the update state, so a restart can still reach known chats and fetch what it missed with
+//! `updates.getDifference`.
 //!
 //! Little-endian: version 2 (u8), owner user_id (i64), server salt and clock offset (i64, not in version 1),
 //! pts, qts, date, seq (i32, date 0 means none),
@@ -10,9 +11,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::path::Path;
 
 use crate::raw::{base, types};
 use crate::session::Salt;
@@ -120,39 +119,6 @@ pub fn load(path: &Path, user_id: i64) -> io::Result<(Peers, Option<UpdateState>
     }))
 }
 
-pub(crate) struct StateFile {
-    pub(crate) path: PathBuf,
-    encoded: AtomicU64,
-    written: Mutex<u64>,
-}
-
-impl StateFile {
-    pub(crate) fn new(path: PathBuf) -> Self {
-        StateFile { path, encoded: AtomicU64::new(0), written: Mutex::new(0) }
-    }
-
-    pub(crate) fn ticket(&self) -> u64 {
-        self.encoded.fetch_add(1, Ordering::Relaxed) + 1
-    }
-
-    pub(crate) fn write(&self, ticket: u64, bytes: &[u8]) {
-        let mut written = self.written.lock().unwrap_or_else(PoisonError::into_inner);
-        if ticket < *written {
-            return;
-        }
-        match super::write_private(&self.path, bytes) {
-            Ok(()) => *written = ticket,
-            Err(e) => eprintln!("vaegram: failed to save {}: {e}", self.path.display()),
-        }
-    }
-
-    /// Removes the file for good: no later write, even one already queued, recreates it.
-    pub(crate) fn delete(&self) -> io::Result<()> {
-        *self.written.lock().unwrap_or_else(PoisonError::into_inner) = u64::MAX;
-        super::delete(&self.path)
-    }
-}
-
 fn take<const N: usize>(b: &mut &[u8]) -> Option<[u8; N]> {
     let (head, rest) = b.split_first_chunk::<N>()?;
     *b = rest;
@@ -161,7 +127,7 @@ fn take<const N: usize>(b: &mut &[u8]) -> Option<[u8; N]> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Peers, Salt, StateFile, decode, encode};
+    use super::{Peers, Salt, decode, encode};
 
     #[test]
     fn min_peer_id_is_damage_not_a_panic() {
@@ -171,17 +137,5 @@ mod tests {
         b.extend_from_slice(&i64::MIN.to_le_bytes());
         b.extend_from_slice(&0i64.to_le_bytes());
         assert!(decode(&b, 1).is_none());
-    }
-
-    #[test]
-    fn older_snapshot_never_replaces_newer() {
-        let path = std::env::temp_dir().join(format!("vaegram-order-{}.state", std::process::id()));
-        let file = StateFile::new(path.clone());
-        let (old, new) = (file.ticket(), file.ticket());
-        file.write(new, b"new");
-        file.write(old, b"old");
-        let saved = std::fs::read(&path).unwrap();
-        std::fs::remove_file(&path).unwrap();
-        assert_eq!(saved, b"new");
     }
 }
