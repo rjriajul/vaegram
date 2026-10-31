@@ -177,26 +177,37 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [x] TL compiler, transport, auth key handshake, encrypted session
 - [x] Bot login, data center migration, `send_message`, `get_me`, raw `invoke`
 - [x] Session files and session strings
+- [ ] Pluggable session stores: `SessionStore` with `load`, `save` and `delete`, the default `FileStore`, `MemoryStore`
+  for session strings, `Client::builder(..).store(..)` (not yet tested live)
 - [x] Update handlers and filters: `filters::command("start") & filters::private()`
 - [x] Friendly types: `msg.text`, `msg.reply()`, `msg.from_user`
 - [ ] Message media and metadata: `msg.caption`, `msg.entities`, `msg.photo()`, `msg.poll()`, replies and forwards (not yet tested live)
 - [x] HTML and Markdown formatting: `send_message(chat, "<b>hi</b>").html()`
-- [ ] Formatting with nothing to escape: `Text::new().plain("Hi ").bold(name)`, `<tg-time>`, `text.split(4096)` (not yet
-  tested live)
+- [ ] Formatting with nothing to escape: `Text::new().plain("Hi ").bold(name)`, `<tg-time>`, `text.split(4096)`;
+  back to markup with `msg.html_text()`, `msg.markdown_text()`, `Text::to_html`, `Text::to_markdown` (not yet tested
+  live)
 - [x] Buttons, edited messages, callback queries, inline queries, `edit_text`, `delete`
 - [x] User login (phone code, 2FA password)
+- [ ] Login and account extras: `resend_code`, `get_password_hint`, `is_authorized`, `send_change_phone_code`,
+  `change_phone_number`, `check_username`, `set_contact_note`, `suggest_birthday`, profile music with
+  `add_profile_audio`, `remove_profile_audio`, `set_profile_audio_position` (not yet tested live)
 - [x] Auto-reconnect, short `FLOOD_WAIT`s slept off
 - [ ] Jittered reconnect backoff, dead-connection detection, no duplicate requests after a reconnect, the server salt
   kept across restarts (not yet tested live)
 - [x] Perfect forward secrecy with temporary keys: `.pfs()`
 - [ ] Abridged and padded transports, obfuscation, SOCKS5/SOCKS4/HTTP proxies and MTProxy including fake-TLS `ee` secrets: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
-- [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat` (not yet tested live)
+- [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat`,
+  `get_pinned_message`, group call members via `get_call_members`, `get_welcome_messages`, `delete_welcome_message`,
+  `delete_all_welcome_messages` (not yet tested live)
 - [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)
 - [ ] Locations, venues, contacts, dice and polls: `send_poll(chat, "Lunch?", ["Pizza", "Sushi"]).quiz([0])`,
-  `.allow_adding_options()`, `add_poll_option`, `delete_poll_option` (not yet tested live)
+  `.allow_adding_options()`, `add_poll_option`, `delete_poll_option`, `get_poll_results`, `get_poll_statistics` (not
+  yet tested live)
 - [ ] Parallel file upload and download: `send_document`, `send_photo`, `msg.download()`, with
   `.progress(|done, total| ..)` and `.stream()` for chunks in order; downloads use media-only and CDN DCs and refresh
   expired file references (not yet tested live)
+- [ ] Uploads sent later and more than once: `upload_file("a.jpg").progress(..)`, `upload_stream(reader, size, name)`,
+  an `&UploadedFile` wherever a file is accepted, `send_cached_media` by file id (not yet tested live)
 - [ ] Bot API file ids: `photo.file_id`, `send_photo(chat, FileSource::file_id(id)?)`, `download_media(file_id)`;
   the `file_unique_id` format is not yet checked against the Bot API (not yet tested live)
 - [ ] Videos, audio, voice, GIFs, video notes, stickers, albums and media edits: `send_video(chat, "clip.mp4").supports_streaming()`,
@@ -209,7 +220,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   subscription links, `get_chat_invite_link_joiners`, `get_chat_admin_invite_links(chat, admin)`,
   `get_chat_admins_with_invite_links`, `delete_chat_invite_link` (not yet tested live)
 - [ ] Managed bots: `on_managed_bot`, token get/replace, `KeyboardButton::request_managed_bot`,
-  `ServiceAction::ManagedBotCreated` (not yet tested live)
+  `ServiceAction::ManagedBotCreated`; for users `check_bot_username`, `create_bot`, `get_owned_bots` (not yet tested
+  live)
 - [ ] Raw updates with their users and chats: `update.user(id)`, `update.chat(id)`, `update.to_json(..)`; TL objects
   only behind the experimental `unstable-raw` feature (not yet tested live)
 - [ ] Client events: reconnects, dropped packets, skipped or unknown updates and failed handlers via `app.on_event(|e| ..)`;
@@ -230,11 +242,22 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Business accounts: `on_business_message`, `on_business_connection`, `on_deleted_business_messages`, replies on
   behalf of the account, `read_business_message`, name, bio, username, gift settings and Stars (not yet tested live)
 - [ ] Rich messages: `send_rich_message(chat, InputRichMessage::html("<b>hi</b>"))`, blocks such as
-  `RichBlock::paragraph(Text::new().bold("hi"))`, rich drafts and edits, `msg.rich_message` (not yet tested live)
+  `RichBlock::paragraph(Text::new().bold("hi"))`, rich drafts and edits, `msg.rich_message`, `get_rich_message` (not
+  yet tested live)
 - [ ] Gifts and verification: `send_gift(chat, id)`, `get_chat_gifts(chat)`, `upgrade_gift(id)`, `transfer_gift(id, chat)`,
-  `msg.service` (`ServiceAction::Gift`, ..), `verify_chat(chat)` (not yet tested live)
+  `msg.service` (`ServiceAction::Gift`, ..), `verify_chat(chat)`; upgraded gifts: `get_upgraded_gift`,
+  `get_upgraded_gift_value_info`, `get_gift_upgrade_preview`, `get_gift_upgrade_variants`, `buy_gift_upgrade`,
+  `drop_gift_original_details`, `set_gift_resale_price`, `delete_gift`, `get_chat_gifts_count`; collections:
+  `create_gift_collection`, `get_gift_collections`, `add_collection_gifts`, `reorder_collection_gifts`; crafting with
+  `get_gifts_for_crafting`, `craft_gift`; auctions with `get_gift_auction_state`, `place_gift_auction_bid`,
+  `increase_gift_auction_bid`; offers with `send_gift_purchase_offer`, `process_gift_purchase_offer` (not yet tested
+  live)
+- [ ] Star payments with a price cap: `get_payment_form`, `send_payment_form`, `edit_star_subscription`,
+  `reuse_star_subscription`, `get_ton_balance`, TON wallets via `get_user_ton_wallet_addresses`,
+  `get_address_ton_wallet` (not yet tested live)
 - [ ] Checklists: `send_checklist(chat, InputChecklist::new("Trip").task(1, "Tickets"))`, `edit_message_checklist`,
-  `msg.checklist()`, `msg.service` (`ServiceAction::ChecklistTasksDone`, ..) (not yet tested live)
+  `msg.checklist()`, `msg.service` (`ServiceAction::ChecklistTasksDone`, ..), `add_checklist_tasks`,
+  `mark_checklist_tasks_as_done` (not yet tested live)
 - [ ] Games: `send_game(chat, "race")`, `set_game_score`, `get_game_high_scores`, `msg.game()`, inline callback
   queries and their game variants on the message's own data center (not yet tested live)
 - [ ] Boosts, profile photos and stories: `get_user_chat_boosts(chat, user)`, `on_chat_boost`, `on_removed_chat_boost`,
@@ -245,10 +268,12 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Chat and profile photos: `set_chat_photo(chat, "a.jpg")`, `set_profile_photo("a.jpg").video()`,
   `delete_chat_photo`, `remove_profile_photo`, business account photos (not yet tested live)
 - [ ] Sticker sets: `create_new_sticker_set`, `add_sticker_to_set`, `upload_sticker_file`, `get_sticker_set`,
-  `get_custom_emoji_stickers`, `set_chat_sticker_set` (not yet tested live)
+  `get_custom_emoji_stickers`, `set_chat_sticker_set`, `get_owned_sticker_sets`, `get_suggested_sticker_set_name`,
+  `reorder_installed_sticker_sets` (not yet tested live)
 - [ ] Shortcuts: `msg.reply()` always quotes and `msg.answer()` never does, both staying in the topic; `msg.forward`,
   `copy`, `pin`, `unpin`, `edit_caption`, `edit_reply_markup`; `query.edit_message_reply_markup`,
-  `query.delete_message`; `request.approve()` answers guard bot queries (not yet tested live)
+  `query.delete_message`; `request.approve()` answers guard bot queries; `msg.refetch()`, `msg.mark_as_read()`,
+  `msg.reply_media_group`, `msg.answer_media_group` (not yet tested live)
 - [ ] Live photos, paid media and poll media: `send_live_photo(chat, photo, video)`, `msg.live_photo()`,
   `send_paid_media(chat, stars, media)`, `InputPollOption::new("Paris").media(..)` (not yet tested live)
 - [ ] Fields: `msg.reply_to_message().await` fetches the replied message on demand, `msg.is_automatic_forward`,
@@ -259,18 +284,25 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Send by URL: `send_photo(chat, FileSource::url("https://..")?)` and `send_document`; Telegram fetches the file
   (not yet tested live)
 - [ ] Graceful shutdown: `client.stop()` makes `run()` return `Ok(())` once the running handlers finish; wire Ctrl-C
-  with your own `tokio::signal::ctrl_c()` (not yet tested live)
-- [ ] Request observer, per-call timeouts and `.flood_sleep_threshold(Duration::ZERO)` to get every FLOOD_WAIT
-  (not yet tested live)
+  with your own `tokio::signal::ctrl_c()`; `disconnect`, `restart`, `stop_transmission`, hooks `on_start`, `on_stop`,
+  `on_connect`, `on_disconnect`, `remove_handler(id)` (not yet tested live)
+- [ ] Request observer, per-call timeouts and `.flood_sleep_threshold(Duration::ZERO)` to get every FLOOD_WAIT;
+  `.max_flood_sleeps(..)`, `.updates_capacity(..)`, `.catch_up(false)`, `invoke_in_dc` (not yet tested live)
+- [ ] Conversations: `listen`, `ask`, `wait_for_message`, `wait_for_callback_query`, `register_next_step_handler`,
+  `stop_listening` (not yet tested live)
+- [ ] Account exports: `client.takeout()` starts a `TakeoutSession`, `session.client()` runs requests inside it,
+  `session.finish(true)` (not yet tested live)
 - [ ] Record traffic, replay it offline and dump it as JSON lines: `.record("bot.rec")`,
   `Replay::start(&recording::read(path)?)` (not yet tested live)
 - [ ] Story posting for users: `send_story(me, InputStoryContent::photo("a.jpg")).privacy(..)`, edits, pins, archive,
-  stealth mode (not yet tested live)
+  stealth mode, `can_post_stories`, `forward_story`, `copy_story` (not yet tested live)
 - [ ] Using bots as a user: `get_inline_bot_results`, `send_inline_bot_result`, `msg.click(0)`, `request_callback_answer`,
   `start_bot`, `vote_poll` (not yet tested live)
 - [ ] Saved GIFs, media search filters and message links: `.filter(MessagesFilter::Photo)`, `get_message_by_link`
   (not yet tested live)
-- [ ] Global and public-post search, search counts, comments, translation, voice transcription (not yet tested live)
+- [ ] Global and public-post search, search counts, comments, translation, voice transcription, `search_posts_count`,
+  `edit_fact_check`, `send_screenshot_notification` (not yet tested live)
+- [ ] Telegram's AI text tools: `summarize_message`, `compose_text_with_ai`, `fix_text_with_ai` (not yet tested live)
 - [ ] Boosts, gift codes, giveaways and the Premium promo: `get_boosts_status`, `apply_boost`, `check_gift_code`,
   `get_giveaway_info`, `get_premium_promo` (not yet tested live)
 - [ ] Admin log and statistics: `get_chat_event_log`, `get_channel_statistics`, `get_message_public_forwards` (not yet
