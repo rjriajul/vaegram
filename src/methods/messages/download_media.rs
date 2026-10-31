@@ -14,7 +14,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::session::Session;
 use crate::session::cdn::Cdn;
-use crate::session::transfer::{Progress, Report, invoke_part, take, try_join_all, workers};
+use crate::session::transfer::{Progress, Report, take, try_join_all, workers};
 use crate::types::FileLocation;
 
 // https://core.telegram.org/api/files#downloading-files: a limit that divides 1 MB, at offsets that are
@@ -117,7 +117,8 @@ impl<'a> DownloadMedia<'a> {
         let workers = count.map_or(1, |c| workers(c, CHUNK as u64, budget));
         let mut request = functions::upload::GetFile {
             precise: false,
-            cdn_supported: true,
+            // A CDN connection can't carry the takeout wrapper.
+            cdn_supported: client.1.is_none(),
             location: location.location,
             offset: 0,
             limit: CHUNK,
@@ -127,7 +128,7 @@ impl<'a> DownloadMedia<'a> {
         let (mut migrations, mut refreshed) = (0, false);
         let (lease, file) = loop {
             let lease = client.transfer_sessions(client.media_dc(dc_id)?, workers.min(MAX_CONNECTIONS)).await?;
-            match invoke_part(&lease.sessions[0], &request).await {
+            match client.invoke_file_part(&lease.sessions[0], &request).await {
                 Ok(file) => break (lease, file),
                 Err(Error::Rpc(e)) if e.is("FILE_MIGRATE") && migrations < MAX_MIGRATIONS => {
                     dc_id = e.migrate_dc().ok_or(Error::Unexpected("FILE_MIGRATE without a DC number"))?;
@@ -176,7 +177,7 @@ impl Master<'_> {
             let (location, seen) = self.location.lock().unwrap().clone();
             let request =
                 functions::upload::GetFile { precise: false, cdn_supported: false, location, offset, limit: CHUNK };
-            match invoke_part(session, &request).await {
+            match self.client.invoke_file_part(session, &request).await {
                 Ok(base::upload::File::File(f)) => return Ok(f.bytes),
                 Ok(base::upload::File::FileCdnRedirect(_)) => {
                     return Err(Error::Unexpected("upload.getFile redirected to a CDN without cdn_supported"));
@@ -794,5 +795,16 @@ mod tests {
         assert!(short(download(&client, Some(2 * c as i64), None).await.0));
         let (client, _rx) = Client::scripted(vec![file(b"hi".into())]);
         assert!(short(download(&client, Some(5), None).await.0));
+    }
+
+    #[tokio::test]
+    async fn a_takeout_download_wraps_every_chunk_and_skips_the_cdn() {
+        let c = CHUNK as usize;
+        let (client, mut rx) = Client::scripted(vec![file(vec![1; c]), file(b"hi".into())]);
+        let takeout = Client(client.0.clone(), Some(7));
+        let (result, _) = download(&takeout, None, None).await;
+        assert_eq!(result, Ok([vec![1; c], b"hi".to_vec()].concat()));
+        let wrapped = |offset| functions::InvokeWithTakeout { takeout_id: 7, query: get_file(b"old", offset, false) };
+        assert_eq!(drain(&mut rx), [wrapped(0).to_bytes(), wrapped(i64::from(CHUNK)).to_bytes()]);
     }
 }

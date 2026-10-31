@@ -5,6 +5,7 @@ use crate::client::Borrowed;
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, functions};
 use crate::session::Session;
+use crate::session::transfer::invoke_part;
 
 const MAX_MIGRATIONS: usize = 3;
 
@@ -43,6 +44,17 @@ impl Client {
                 self.invoke_on_file_connection(dc, &request).await
             }
             None => self.invoke_on_file_connection(dc, request).await,
+        }
+    }
+
+    /// A file part on a transfer connection, inside this client's takeout session if it has one.
+    pub(crate) async fn invoke_file_part<R: RemoteCall>(&self, session: &Session, request: &R) -> Result<R::Return> {
+        match self.1 {
+            Some(takeout_id) => {
+                let request = functions::InvokeWithTakeout { takeout_id, query: Borrowed(request) };
+                invoke_part(session, &request).await
+            }
+            None => invoke_part(session, request).await,
         }
     }
 
