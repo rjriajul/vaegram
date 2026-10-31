@@ -13,6 +13,7 @@ mod join_folder;
 mod join_folder_updates;
 mod leave_folder;
 mod reorder_folders;
+mod toggle_folder_tags;
 
 pub use create_folder_invite_link::CreateFolderInviteLink;
 pub use edit_folder_invite_link::EditFolderInviteLink;
@@ -23,7 +24,7 @@ mod tests {
     use tokio::sync::mpsc::UnboundedReceiver;
 
     use crate::Client;
-    use crate::errors::Error;
+    use crate::errors::{Error, RpcError};
     use crate::raw::functions::chatlists;
     use crate::raw::{Serializable, base, types};
     use crate::types::{Folder, FolderInviteLinkInfo};
@@ -300,5 +301,17 @@ mod tests {
         let _ = client.leave_folder(3).leave_chats().await;
         let sent = chatlists::GetLeaveChatlistSuggestions { chatlist: chatlist(3) };
         assert_eq!(rx.try_recv().unwrap(), sent.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn folder_tags_send_the_flag_and_return_telegram_errors() {
+        use crate::raw::functions::messages::ToggleDialogFilterTags;
+        let premium = Error::Rpc(RpcError::new(400, "PREMIUM_ACCOUNT_REQUIRED"));
+        let (client, mut rx) = Client::scripted(vec![Err(premium)]);
+        let result = client.toggle_folder_tags(true).await;
+        assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "PREMIUM_ACCOUNT_REQUIRED"), "{result:?}");
+        assert_eq!(rx.try_recv().unwrap(), ToggleDialogFilterTags { enabled: true }.to_bytes());
+        let _ = client.toggle_folder_tags(false).await;
+        assert_eq!(rx.try_recv().unwrap(), ToggleDialogFilterTags { enabled: false }.to_bytes());
     }
 }

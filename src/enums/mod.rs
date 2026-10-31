@@ -24,6 +24,7 @@ mod stories_privacy_rules;
 mod subscription_state;
 mod suggested_post_refund_reason;
 mod suggested_post_state;
+mod top_chat_category;
 mod unique_gift_origin;
 mod user_status;
 
@@ -53,5 +54,6 @@ pub use stories_privacy_rules::StoriesPrivacyRules;
 pub use subscription_state::SubscriptionState;
 pub use suggested_post_refund_reason::SuggestedPostRefundReason;
 pub use suggested_post_state::SuggestedPostState;
+pub use top_chat_category::TopChatCategory;
 pub use unique_gift_origin::UniqueGiftOrigin;
 pub use user_status::UserStatus;

@@ -8,6 +8,7 @@ use std::time::Duration;
 use vaegram::connection::{Options, Proxy, Transport};
 use vaegram::enums::{
     MessageEntityType, MessagesFilter, ParseMode, PollType, ProfileTab, StickerType, StoriesPrivacyRules,
+    TopChatCategory,
 };
 use vaegram::raw::{Serializable, base, functions, types};
 use vaegram::session::Session;
@@ -1221,4 +1222,16 @@ async fn user_links_a_discussion_group() {
 
     user.delete_supergroup(group.id).await.unwrap();
     user.delete_channel(channel.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_reads_chat_settings_and_top_chats() {
+    let Some(user) = user_client().await else { return };
+    user.get_chat_settings("me").await.unwrap();
+    assert!(user.get_top_chats(TopChatCategory::Users, 10).await.unwrap().len() <= 10);
+    let base::messages::DialogFilters::DialogFilters(folders) =
+        user.invoke(&functions::messages::GetDialogFilters {}).await.unwrap();
+    // Writing the current value back changes nothing, so accounts without Premium pass while tags are off.
+    user.toggle_folder_tags(folders.tags_enabled).await.unwrap();
 }

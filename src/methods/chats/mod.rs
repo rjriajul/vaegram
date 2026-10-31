@@ -27,6 +27,7 @@ mod get_chat_members;
 mod get_chat_members_count;
 mod get_chat_notifications;
 mod get_chat_online_count;
+mod get_chat_settings;
 mod get_dialogs;
 mod get_dialogs_count;
 mod get_direct_messages_topics_by_id;
@@ -45,6 +46,7 @@ mod get_statistical_graph;
 mod get_story_statistics;
 mod get_suitable_discussion_chats;
 mod get_supergroup_statistics;
+mod get_top_chats;
 mod hide_general_forum_topic;
 mod join_chat;
 mod leave_chat;
@@ -378,12 +380,12 @@ mod settings_tests {
     use tokio::sync::mpsc::UnboundedReceiver;
 
     use crate::Client;
-    use crate::enums::ProfileTab;
+    use crate::enums::{ProfileTab, TopChatCategory};
     use crate::errors::{Error, Result, RpcError};
-    use crate::raw::functions::{account, channels, messages};
+    use crate::raw::functions::{account, channels, contacts, messages};
     use crate::raw::{Serializable, base, types};
     use crate::session::Affected;
-    use crate::types::User;
+    use crate::types::{ChatSettings, User};
     use crate::utils::{get_channel_id, get_peer};
 
     const GROUP: i64 = -5;
@@ -709,6 +711,96 @@ mod settings_tests {
         let reply = Ok(base::messages::SavedDialogs::SavedDialogsNotModified(not_modified).to_bytes());
         let (client, _rx) = settings_client(vec![reply]);
         assert!(client.get_direct_messages_topics_by_id(get_channel_id(9), &[USER]).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn chat_settings_of_a_chat_with_no_action_bar_are_the_default() {
+        let settings = types::PeerSettings::deserialize_bare(&mut &[0u8; 4][..]).unwrap();
+        let settings = base::PeerSettings::PeerSettings(Box::new(settings));
+        let reply = types::messages::PeerSettings { settings, chats: Vec::new(), users: Vec::new() };
+        let reply = Ok(base::messages::PeerSettings::PeerSettings(Box::new(reply)).to_bytes());
+        let (client, mut rx) = settings_client(vec![reply]);
+        assert_eq!(client.get_chat_settings(USER).await.unwrap(), ChatSettings::default());
+        assert_eq!(rx.try_recv().unwrap(), messages::GetPeerSettings { peer: user_peer() }.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn top_chat_categories_set_their_flags() {
+        use TopChatCategory as C;
+        let (client, mut rx) = Client::recording();
+        let cases = [
+            (C::Users, 0x1),
+            (C::Bots, 0x2),
+            (C::InlineBots, 0x4),
+            (C::Calls, 0x8),
+            (C::ForwardChats, 0x30),
+            (C::Groups, 0x400),
+            (C::Channels, 0x8000),
+            (C::WebAppBots, 0x1_0000),
+            (C::GuestBots, 0x2_0000),
+        ];
+        for (category, flags) in cases {
+            let sent = body(&mut rx, client.get_top_chats(category, 10)).await;
+            assert_eq!(u32::from_le_bytes(sent[4..8].try_into().unwrap()), flags, "{category:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn top_chats_ask_once_and_refuse_a_zero_limit() {
+        let (client, mut rx) = Client::recording();
+        let refused = client.get_top_chats(TopChatCategory::Users, 0).await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
+        assert!(rx.try_recv().is_err());
+
+        let request = contacts::GetTopPeers {
+            correspondents: true,
+            bots_pm: false,
+            bots_inline: false,
+            phone_calls: false,
+            forward_users: false,
+            forward_chats: false,
+            groups: false,
+            channels: false,
+            bots_app: false,
+            bots_guestchat: false,
+            offset: 0,
+            limit: 10,
+            hash: 0,
+        };
+        assert_eq!(body(&mut rx, client.get_top_chats(TopChatCategory::Users, 10)).await, request.to_bytes());
+        assert!(rx.try_recv().is_err());
+    }
+
+    fn top_category(category: base::TopPeerCategory, peers: Vec<(i64, f64)>) -> base::TopPeerCategoryPeers {
+        let peers: Vec<_> = peers
+            .into_iter()
+            .map(|(id, rating)| base::TopPeer::TopPeer(Box::new(types::TopPeer { peer: get_peer(id), rating })))
+            .collect();
+        let category = types::TopPeerCategoryPeers { category, count: peers.len() as i32, peers };
+        base::TopPeerCategoryPeers::TopPeerCategoryPeers(Box::new(category))
+    }
+
+    #[tokio::test]
+    async fn forwarded_top_chats_merge_by_rating() {
+        use base::TopPeerCategory as T;
+        let categories = vec![
+            top_category(T::TopPeerCategoryForwardUsers, vec![(USER, 1.0), (8, 3.0)]),
+            top_category(T::TopPeerCategoryForwardChats, vec![(GROUP, 2.0)]),
+        ];
+        let top = types::contacts::TopPeers { categories, chats: Vec::new(), users: Vec::new() };
+        let (client, _rx) = settings_client(vec![Ok(base::contacts::TopPeers::TopPeers(Box::new(top)).to_bytes())]);
+        let chats = client.get_top_chats(TopChatCategory::ForwardChats, 10).await.unwrap();
+        assert_eq!(chats.iter().map(|c| c.id).collect::<Vec<_>>(), [8, GROUP, USER]);
+    }
+
+    #[tokio::test]
+    async fn disabled_or_unchanged_top_chats_are_empty() {
+        // Disabled means the user switched suggestions off, so there are none.
+        let replies = [base::contacts::TopPeers::TopPeersDisabled, base::contacts::TopPeers::TopPeersNotModified];
+        let (client, _rx) = settings_client(replies.iter().map(|r| Ok(r.to_bytes())).collect());
+        for _ in replies {
+            assert!(client.get_top_chats(TopChatCategory::Users, 10).await.unwrap().is_empty());
+        }
     }
 }
 
