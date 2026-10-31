@@ -49,6 +49,12 @@ async fn screenshots_and_rich_messages(kit: &support::Kit, group: i64) {
     assert!(found.rich_message.is_some_and(|r| !r.part));
 }
 
+async fn text_tools(user: &Client) {
+    let fixed = user.fix_text_with_ai("Ths is a tset").await.unwrap();
+    assert!(!fixed.text.text.is_empty());
+    user.compose_text_with_ai("hello").to_language_code("es").await.unwrap();
+}
+
 #[tokio::test]
 #[ignore = "creates and deletes a supergroup with a logged-in user session and a bot"]
 async fn user_uses_message_extras() {
@@ -59,6 +65,7 @@ async fn user_uses_message_extras() {
     screenshots_and_rich_messages(&kit, group).await;
     if premium() {
         checklists(user, group).await;
+        text_tools(user).await;
     }
     user.delete_supergroup(group).await.unwrap();
 }
