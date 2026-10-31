@@ -19,9 +19,11 @@ mod set_global_privacy_settings;
 mod set_inactive_session_ttl;
 mod set_privacy;
 mod set_profile_audio_position;
+mod takeout;
 mod terminate_all_other_sessions;
 mod terminate_session;
 mod unsave_wallpaper;
 
 pub use create_theme::CreateTheme;
 pub use install_theme::InstallTheme;
+pub use takeout::{Takeout, TakeoutSession};
