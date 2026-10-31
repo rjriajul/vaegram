@@ -23,22 +23,27 @@ impl Client {
             api_hash: self.0.api_hash.clone(),
             settings: base::CodeSettings::CodeSettings(Box::new(settings)),
         };
-        match self.invoke_migrating(&request).await? {
-            base::auth::SentCode::SentCode(s) => Ok(SentCode {
-                kind: SentCodeType::parse(&s.r#type),
-                phone_code_hash: s.phone_code_hash,
-                timeout: s.timeout,
-            }),
-            base::auth::SentCode::SentCodeSuccess(_) => Err(Error::Unexpected("logged in without a code")),
-            base::auth::SentCode::SentCodePaymentRequired(_) => {
-                Err(Error::Unexpected("Telegram asks for a payment before it sends the login code"))
-            }
+        parse_sent_code(self.invoke_migrating(&request).await?)
+    }
+}
+
+pub(super) fn parse_sent_code(raw: base::auth::SentCode) -> Result<SentCode> {
+    match raw {
+        base::auth::SentCode::SentCode(s) => Ok(SentCode {
+            kind: SentCodeType::parse(&s.r#type),
+            phone_code_hash: s.phone_code_hash,
+            next_kind: s.next_type.as_ref().map(SentCodeType::parse_next),
+            timeout: s.timeout,
+        }),
+        base::auth::SentCode::SentCodeSuccess(_) => Err(Error::Unexpected("logged in without a code")),
+        base::auth::SentCode::SentCodePaymentRequired(_) => {
+            Err(Error::Unexpected("Telegram asks for a payment before it sends the login code"))
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use crate::Client;
     use crate::enums::SentCodeType;
     use crate::errors::{Error, Result, RpcError};
@@ -53,13 +58,22 @@ mod tests {
         base::User::User(Box::new(types::User::deserialize_bare(&mut &buf[..]).unwrap()))
     }
 
-    fn sms_code(hash: &str, timeout: Option<i32>) -> Vec<u8> {
-        let sms = base::auth::SentCodeType::SentCodeTypeSms(types::auth::SentCodeTypeSms { length: 5 });
-        let s = types::auth::SentCode { r#type: sms, phone_code_hash: hash.into(), next_type: None, timeout };
+    pub(crate) fn sent_code(
+        kind: base::auth::SentCodeType,
+        hash: &str,
+        next_type: Option<base::auth::CodeType>,
+        timeout: Option<i32>,
+    ) -> Vec<u8> {
+        let s = types::auth::SentCode { r#type: kind, phone_code_hash: hash.into(), next_type, timeout };
         base::auth::SentCode::SentCode(Box::new(s)).to_bytes()
     }
 
-    fn logged_in() -> Vec<u8> {
+    pub(crate) fn sms_code(hash: &str, timeout: Option<i32>) -> Vec<u8> {
+        let sms = base::auth::SentCodeType::SentCodeTypeSms(types::auth::SentCodeTypeSms { length: 5 });
+        sent_code(sms, hash, None, timeout)
+    }
+
+    pub(crate) fn logged_in() -> Vec<u8> {
         let auth = types::auth::Authorization {
             setup_password_required: false,
             otherwise_relogin_days: None,
@@ -71,7 +85,7 @@ mod tests {
         base::auth::SentCode::SentCodeSuccess(Box::new(types::auth::SentCodeSuccess { authorization })).to_bytes()
     }
 
-    fn payment_required() -> Vec<u8> {
+    pub(crate) fn payment_required() -> Vec<u8> {
         let payment = types::auth::SentCodePaymentRequired {
             store_product: "p".into(),
             phone_code_hash: "h1".into(),
@@ -116,7 +130,8 @@ mod tests {
     #[tokio::test]
     async fn a_sent_code_keeps_its_kind_hash_and_timeout() {
         let code = answer(Ok(sms_code("h1", Some(60)))).await.unwrap();
-        let expected = SentCode { kind: SentCodeType::Sms, phone_code_hash: "h1".into(), timeout: Some(60) };
+        let expected =
+            SentCode { kind: SentCodeType::Sms, phone_code_hash: "h1".into(), next_kind: None, timeout: Some(60) };
         assert_eq!(code, expected);
     }
 

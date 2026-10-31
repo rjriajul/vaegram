@@ -35,6 +35,17 @@ impl SentCodeType {
             T::SentCodeTypeSmsPhrase(_) => Self::SmsPhrase,
         }
     }
+
+    pub(crate) fn parse_next(kind: &base::auth::CodeType) -> Self {
+        use base::auth::CodeType as T;
+        match kind {
+            T::CodeTypeSms => Self::Sms,
+            T::CodeTypeCall => Self::Call,
+            T::CodeTypeFlashCall => Self::FlashCall,
+            T::CodeTypeMissedCall => Self::MissedCall,
+            T::CodeTypeFragmentSms => Self::FragmentSms,
+        }
+    }
 }
 
 impl fmt::Display for SentCodeType {
@@ -49,5 +60,31 @@ impl fmt::Display for SentCodeType {
             Self::FragmentSms => "Fragment SMS",
             Self::SetUpEmailRequired => "email (set one up in an official app first)",
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SentCodeType;
+    use crate::raw::base::auth::CodeType;
+
+    #[test]
+    fn every_next_code_type_has_a_kind() {
+        let kinds = [
+            CodeType::CodeTypeSms,
+            CodeType::CodeTypeCall,
+            CodeType::CodeTypeFlashCall,
+            CodeType::CodeTypeMissedCall,
+            CodeType::CodeTypeFragmentSms,
+        ]
+        .map(|t| SentCodeType::parse_next(&t));
+        let expected = [
+            SentCodeType::Sms,
+            SentCodeType::Call,
+            SentCodeType::FlashCall,
+            SentCodeType::MissedCall,
+            SentCodeType::FragmentSms,
+        ];
+        assert_eq!(kinds, expected);
     }
 }
