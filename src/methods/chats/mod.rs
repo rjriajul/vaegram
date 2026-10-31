@@ -39,6 +39,7 @@ mod get_message_statistics;
 mod get_peer_colors;
 mod get_peer_profile_colors;
 mod get_personal_channels;
+mod get_poll_statistics;
 mod get_recommended_channels;
 mod get_send_as_chats;
 mod get_similar_channels;

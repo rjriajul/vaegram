@@ -28,12 +28,19 @@ async fn checklists(user: &Client, group: i64) {
     assert!(tasks.iter().any(|t| t.id == 1 && t.completion_date.is_some()));
 }
 
+async fn polls(user: &Client, group: i64) {
+    let sent = user.send_poll(group, "Lunch?", ["A", "B"]).await.unwrap();
+    let poll = user.get_poll_results(group, sent.id).await.unwrap();
+    assert_eq!((poll.question.as_str(), poll.options.len()), ("Lunch?", 2));
+}
+
 #[tokio::test]
 #[ignore = "creates and deletes a supergroup with a logged-in user session and a bot"]
 async fn user_uses_message_extras() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let user = &kit.user.client;
     let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap().id;
+    polls(user, group).await;
     if premium() {
         checklists(user, group).await;
     }

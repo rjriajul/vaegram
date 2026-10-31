@@ -47,6 +47,7 @@ mod get_message_read_date;
 mod get_message_read_participants;
 mod get_messages;
 mod get_messages_views;
+mod get_poll_results;
 mod get_poll_votes;
 mod get_recent_reactions;
 mod get_saved_dialogs;
