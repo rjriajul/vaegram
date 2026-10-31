@@ -1,3 +1,4 @@
+mod add_checklist_tasks;
 mod add_poll_option;
 mod add_to_gifs;
 mod approve_suggested_post;
@@ -55,6 +56,7 @@ mod get_saved_reaction_tags;
 mod get_scheduled_messages;
 mod get_top_reactions;
 mod get_user_personal_chat_messages;
+mod mark_checklist_tasks_as_done;
 mod pages;
 mod pin_chat_message;
 mod pin_saved_dialog;
@@ -116,6 +118,7 @@ mod upload_media;
 mod vote_poll;
 mod web_view_options;
 
+pub use add_checklist_tasks::AddChecklistTasks;
 pub use approve_suggested_post::ApproveSuggestedPost;
 pub use copy_media_group::CopyMediaGroup;
 pub use copy_message::CopyMessage;
