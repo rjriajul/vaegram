@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
-use vaegram::enums::{MessageEntityType, MessagesFilter, ParseMode, PollType, StickerType, StoriesPrivacyRules};
+use vaegram::enums::{
+    MessageEntityType, MessagesFilter, ParseMode, PollType, ProfileTab, StickerType, StoriesPrivacyRules,
+};
 use vaegram::raw::{Serializable, base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
@@ -16,6 +18,7 @@ use vaegram::types::{
     InputPollMedia, InputPollOption, InputRichMessage, InputSticker, InputStoryContent, Json, KeyboardButton, Media,
     Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
 };
+use vaegram::utils::get_channel_id;
 use vaegram::{Client, filters};
 
 #[tokio::test]
@@ -1187,4 +1190,26 @@ async fn owner_flips_and_restores_channel_toggles() {
     user.toggle_auto_translation(chat, translated).await.unwrap();
     assert_eq!(read(channel_full(&user, chat).await), (antispam, hidden, restricted));
     assert_eq!(channel_info(&user, chat).await.autotranslation, translated);
+}
+
+#[tokio::test]
+#[ignore = "creates and deletes a channel and a supergroup with a logged-in user session"]
+async fn user_links_a_discussion_group() {
+    let Some(user) = user_client().await else { return };
+    let channel = user.create_channel("vaegram live test", "deleted right away").await.unwrap();
+    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
+    let suitable = user.get_suitable_discussion_chats().await.unwrap();
+    assert!(suitable.iter().any(|c| c.id == group.id), "{suitable:?}");
+
+    user.set_chat_discussion_group(channel.id, Some(group.id.into())).await.unwrap();
+    assert_eq!(channel_full(&user, channel.id).await.linked_chat_id.map(get_channel_id), Some(group.id));
+    user.set_chat_discussion_group(channel.id, None).await.unwrap();
+    assert_eq!(channel_full(&user, channel.id).await.linked_chat_id, None);
+
+    user.set_main_profile_tab(channel.id, ProfileTab::Media).await.unwrap();
+    assert_eq!(channel_full(&user, channel.id).await.main_tab, Some(base::ProfileTab::ProfileTabMedia));
+    user.get_personal_channels().await.unwrap();
+
+    user.delete_supergroup(group.id).await.unwrap();
+    user.delete_channel(channel.id).await.unwrap();
 }

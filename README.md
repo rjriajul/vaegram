@@ -277,7 +277,9 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   tested live)
 - [ ] Group and channel admin settings for users: `toggle_anti_spam`, `toggle_participants_hidden`,
   `toggle_pre_history_hidden`, `toggle_auto_translation`, `toggle_view_forum_as_messages`,
-  `restrict_sponsored_messages`, `set_chat_ttl`, `delete_user_history` (not yet tested live)
+  `restrict_sponsored_messages`, `set_chat_ttl`, `delete_user_history`, `set_chat_discussion_group`,
+  `get_suitable_discussion_chats`, `get_personal_channels`, `set_main_profile_tab(chat, ProfileTab::Media)` (not yet
+  tested live)
 - [ ] Installed, archived, featured, recent and favorite stickers, sticker search, emoji status lists, gift resale,
   hiding and pinning gifts, Stars balance and history for owned chats (not yet tested live)
 - [ ] Attachment menu bots, bot apps, popular and similar bots: `get_attach_menu_bots`, `get_bot_app` (not yet tested live)

@@ -36,11 +36,13 @@ mod get_message_public_forwards;
 mod get_message_statistics;
 mod get_peer_colors;
 mod get_peer_profile_colors;
+mod get_personal_channels;
 mod get_recommended_channels;
 mod get_send_as_chats;
 mod get_similar_channels;
 mod get_statistical_graph;
 mod get_story_statistics;
+mod get_suitable_discussion_chats;
 mod get_supergroup_statistics;
 mod hide_general_forum_topic;
 mod join_chat;
@@ -57,6 +59,7 @@ mod restrict_sponsored_messages;
 mod set_chat_accent_color;
 mod set_chat_administrator_custom_title;
 mod set_chat_description;
+mod set_chat_discussion_group;
 mod set_chat_member_tag;
 mod set_chat_permissions;
 mod set_chat_photo;
@@ -68,6 +71,7 @@ mod set_chat_title;
 mod set_chat_ttl;
 mod set_chat_username;
 mod set_chat_wallpaper;
+mod set_main_profile_tab;
 mod set_send_as_chat;
 mod set_slow_mode;
 mod toggle_anti_spam;
@@ -372,8 +376,9 @@ mod settings_tests {
     use tokio::sync::mpsc::UnboundedReceiver;
 
     use crate::Client;
+    use crate::enums::ProfileTab;
     use crate::errors::{Error, Result, RpcError};
-    use crate::raw::functions::{channels, messages};
+    use crate::raw::functions::{account, channels, messages};
     use crate::raw::{Serializable, base, types};
     use crate::session::Affected;
     use crate::utils::get_channel_id;
@@ -509,6 +514,95 @@ mod settings_tests {
         let (client, mut rx) = settings_client(Vec::new());
         let sent = body(&mut rx, client.delete_user_history(get_channel_id(9), "me")).await;
         assert_eq!(sent, delete_history(base::InputPeer::InputPeerSelf));
+    }
+
+    fn group_channel() -> base::InputChannel {
+        base::InputChannel::InputChannel(Box::new(types::InputChannel { channel_id: 10, access_hash: 3 }))
+    }
+
+    fn chats_reply(chats: Vec<base::Chat>) -> Result<Vec<u8>> {
+        Ok(base::messages::Chats::Chats(Box::new(types::messages::Chats { chats })).to_bytes())
+    }
+
+    #[tokio::test]
+    async fn discussion_group_links_and_unlinks() {
+        let (client, mut rx) = settings_client(Vec::new());
+        let group = types::InputPeerChannel { channel_id: 10, access_hash: 3 };
+        client.0.peers.lock().unwrap().insert(get_channel_id(10), base::InputPeer::InputPeerChannel(Box::new(group)));
+        let (rx, chat) = (&mut rx, get_channel_id(9));
+
+        let linked = channels::SetDiscussionGroup { broadcast: channel(), group: group_channel() };
+        let link = client.set_chat_discussion_group(chat, Some(get_channel_id(10).into()));
+        assert_eq!(body(rx, link).await, linked.to_bytes());
+        let unlinked =
+            channels::SetDiscussionGroup { broadcast: channel(), group: base::InputChannel::InputChannelEmpty };
+        assert_eq!(body(rx, client.set_chat_discussion_group(chat, None)).await, unlinked.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn discussion_group_refuses_a_basic_group() {
+        let (client, mut rx) = settings_client(Vec::new());
+        let result = client.set_chat_discussion_group(get_channel_id(9), Some(GROUP.into())).await;
+        assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn personal_channels_ask_only_for_personal_ones() {
+        let channel = types::ChannelForbidden {
+            broadcast: true,
+            megagroup: false,
+            monoforum: false,
+            id: 9,
+            access_hash: 1,
+            title: "channel".into(),
+            until_date: None,
+        };
+        let group = types::ChatForbidden { id: 5, title: "group".into() };
+        let chats = vec![base::Chat::ChannelForbidden(Box::new(channel)), base::Chat::ChatForbidden(Box::new(group))];
+        let slice = types::messages::ChatsSlice { count: 2, chats };
+        let slice = Ok(base::messages::Chats::ChatsSlice(Box::new(slice)).to_bytes());
+        let (client, mut rx) = settings_client(vec![slice, chats_reply(Vec::new())]);
+
+        let found = client.get_personal_channels().await.unwrap();
+        assert_eq!(found.iter().map(|c| c.id).collect::<Vec<_>>(), [get_channel_id(9), GROUP]);
+        let request = channels::GetAdminedPublicChannels {
+            by_location: false,
+            check_limit: false,
+            for_personal: true,
+            for_community_peer: false,
+        };
+        assert_eq!(rx.try_recv().unwrap(), request.to_bytes());
+        // An account that owns no channel gets an empty list.
+        assert!(client.get_personal_channels().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn suitable_discussion_chats_send_their_request() {
+        let (client, mut rx) = settings_client(vec![chats_reply(Vec::new())]);
+        assert!(client.get_suitable_discussion_chats().await.unwrap().is_empty());
+        assert_eq!(rx.try_recv().unwrap(), channels::GetGroupsForDiscussion {}.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn main_profile_tab_goes_to_the_account_or_the_channel() {
+        let (client, mut rx) = Client::recording();
+        let other = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 8, access_hash: 2 }));
+        client.0.peers.lock().unwrap().extend([(get_channel_id(9), channel_peer()), (8, other)]);
+        client.0.me.lock().unwrap().id = USER;
+        let rx = &mut rx;
+
+        let gifts = account::SetMainProfileTab { tab: base::ProfileTab::ProfileTabGifts }.to_bytes();
+        assert_eq!(body(rx, client.set_main_profile_tab("me", ProfileTab::Gifts)).await, gifts);
+        assert_eq!(body(rx, client.set_main_profile_tab(USER, ProfileTab::Gifts)).await, gifts);
+        let media = channels::SetMainProfileTab { channel: channel(), tab: base::ProfileTab::ProfileTabMedia };
+        assert_eq!(body(rx, client.set_main_profile_tab(get_channel_id(9), ProfileTab::Media)).await, media.to_bytes());
+
+        for chat in [GROUP, 8] {
+            let result = client.set_main_profile_tab(chat, ProfileTab::Media).await;
+            assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
+        }
+        assert!(rx.try_recv().is_err());
     }
 }
 
