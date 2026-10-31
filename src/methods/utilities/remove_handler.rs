@@ -3,9 +3,10 @@ use crate::handlers::HandlerId;
 
 impl Client {
     /// Unregisters a handler from the next update on; runs already started finish. `false` when nothing matched:
-    /// it was removed before, or, for a lifecycle hook, replaced.
+    /// it was removed before, or, for a lifecycle hook, replaced, or, for a next-step handler, it already ran,
+    /// expired or was stopped.
     pub fn remove_handler(&self, handler: HandlerId) -> bool {
-        self.0.handlers.add(|r| r.remove(handler.kind, handler.id))
+        self.0.handlers.remove(handler)
     }
 }
 
@@ -72,5 +73,28 @@ mod tests {
         assert!(client.remove_handler(id));
         assert!(client.0.handlers.current().raw.is_empty());
         assert!(client.0.handlers.generation() > generation, "a running dispatcher would keep the old router");
+    }
+
+    #[tokio::test]
+    async fn next_step_handlers_can_be_removed() {
+        let client = Client::offline();
+        let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = ran.clone();
+        let id = client
+            .register_next_step_handler(move |_: crate::types::Message| {
+                flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                async { Ok(()) }
+            })
+            .await
+            .unwrap();
+        let generation = client.0.handlers.generation();
+        assert!(client.remove_handler(id));
+        assert!(!client.remove_handler(id));
+        assert_eq!(client.0.handlers.generation(), generation, "a listener removal needs no new router");
+        crate::dispatcher::listeners::tests::dispatch(&client, crate::dispatcher::listeners::tests::new_message(1, 7));
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!ran.load(std::sync::atomic::Ordering::Relaxed), "the removed next step ran");
     }
 }

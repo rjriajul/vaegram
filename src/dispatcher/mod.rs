@@ -1,5 +1,6 @@
 mod difference;
 mod entities;
+pub(crate) mod listeners;
 pub(crate) mod router;
 mod tasks;
 mod tracker;
@@ -66,6 +67,7 @@ impl Dispatcher {
     /// `true` when `Client::stop` ended it, after the running handlers finished; `false` when the connection did.
     pub(crate) async fn run(&mut self, updates: &mut UpdatesRx) -> bool {
         let mut stop = self.client.0.stop.subscribe();
+        self.client.0.handlers.listeners.open();
         self.resolve().await;
         loop {
             for (update, entities) in std::mem::take(&mut self.tracker.ready) {
@@ -91,6 +93,8 @@ impl Dispatcher {
                 biased;
                 // The watch guard `wait_for` returns isn't Send, so it is dropped before awaiting the handlers.
                 _ = async { drop(stop.wait_for(|stopped| *stopped).await) } => {
+                    // Before waiting: a handler parked in `listen` would otherwise hold `stop` up to its timeout.
+                    self.client.0.handlers.listeners.close();
                     self.tasks.finish().await;
                     if self.same_account() {
                         self.client.0.save_state(&self.tracker.state).await;
@@ -174,6 +178,7 @@ impl Dispatcher {
 
 impl Drop for Dispatcher {
     fn drop(&mut self) {
+        self.client.0.handlers.listeners.close();
         let Ok(mut state) = self.client.0.state.lock() else { return };
         if self.same_account() {
             *state = Some(std::mem::take(&mut self.tracker.state));
@@ -187,9 +192,11 @@ mod tests {
 
     use super::{ClientEvent, Dispatcher, Entities, Incoming, Key, SkipReason, base, types};
     use crate::Client;
+    use crate::dispatcher::listeners::tests::until_waiting;
     use crate::errors::{Error, RpcError};
     use crate::raw::{Identifiable, Serializable};
     use crate::session::UpdatesRx;
+    use crate::storage::state::UpdateState;
     use crate::types::{Message, RawUpdate};
     use crate::utils::{get_channel_id, get_peer};
 
@@ -528,5 +535,39 @@ mod tests {
         let skipped = ClientEvent::UpdatesSkipped { chat_id, from: 10, to: 10, reason: SkipReason::Refused };
         assert!(matches!(got[..], [ClientEvent::DifferenceFailed { .. }, _]), "{got:?}");
         assert_eq!(format!("{:?}", got[1]), format!("{skipped:?}"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stop_ends_waiting_listeners_before_waiting_for_handlers() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
+        let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        *client.0.state.lock().unwrap() = Some(UpdateState { pts: 1, date: 1, ..Default::default() });
+        let (updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let (tx, mut answers) = tokio::sync::mpsc::unbounded_channel();
+        let listener = client.clone();
+        client.on_message(crate::filters::all(), move |m| {
+            let (client, tx) = (listener.clone(), tx.clone());
+            async move {
+                let _ = tx.send(client.wait_for_message(m.chat.id).await.map(|m| m.id));
+                Ok(())
+            }
+        });
+        let start = tokio::time::Instant::now();
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        let batch = types::Updates { updates: vec![new_message(2)], users: vec![], chats: vec![], date: 0, seq: 0 };
+        let incoming = Incoming { updates: base::Updates::Updates(Box::new(batch)), from_request: false };
+        updates.send(incoming).await.unwrap();
+        until_waiting(&client.0.handlers.listeners.messages).await;
+
+        client.stop();
+        assert!(run.await.unwrap().is_ok());
+        let got = answers.recv().await.expect("the handler never answered");
+        assert!(matches!(got, Err(Error::ListenerStopped)), "{got:?}");
+        assert!(start.elapsed() < std::time::Duration::from_secs(300), "stop waited for the listener's timeout");
     }
 }

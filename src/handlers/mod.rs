@@ -13,6 +13,7 @@ use crate::types::{
     RawUpdate, ShippingQuery, UserStatusUpdated,
 };
 
+pub use crate::dispatcher::listeners::Listenable;
 pub use crate::dispatcher::router::UpdateKind;
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
@@ -63,15 +64,19 @@ impl HandlerRef<'_> {
 
     /// An id to pass to `Client::remove_handler`, which can be kept after the client borrow ends.
     pub fn id(self) -> HandlerId {
-        HandlerId { kind: self.kind, id: self.id }
+        HandlerId(Registered::Route(self.kind, self.id))
     }
 }
 
 /// One registered handler. Ids are never reused, so a stale one removes nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct HandlerId {
-    pub(crate) kind: UpdateKind,
-    pub(crate) id: u32,
+pub struct HandlerId(pub(crate) Registered);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum Registered {
+    Route(UpdateKind, u32),
+    /// A next-step handler, which lives in the listener registry.
+    Listener(u64),
 }
 
 impl Client {

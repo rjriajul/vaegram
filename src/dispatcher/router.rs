@@ -2,12 +2,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use super::Entities;
+use super::listeners::{Listeners, Offer};
 use super::tasks::Tasks;
 pub(crate) use super::tasks::run_hook;
 use crate::Client;
 use crate::client::Me;
 use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
-use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed};
+use crate::handlers::{Callback, ErrorCallback, HandlerId, RawCallback, Registered, Routed, callback};
 use crate::raw::base;
 use crate::types::{
     BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated,
@@ -128,18 +129,32 @@ impl Handlers<Message> {
         entities: &Entities,
         business: Option<(String, Option<base::Message>)>,
     ) {
-        if self.0.is_empty() {
+        // Only new messages reach listeners: never edits, and never business messages.
+        let listening =
+            kind == UpdateKind::Message && business.is_none() && client.0.handlers.listeners.messages.waiting();
+        if self.0.is_empty() && !listening {
             return;
         }
         let me = client.0.me.lock().unwrap().clone();
         if let base::Message::Message(m) = &mut raw {
             Message::fill_rich_text(m);
         }
-        let Some(scan) = self.scan(&Facts::message(&raw, PeerKinds::message(&raw, entities), &me)) else { return };
-        if let Some(mut message) = Message::from_raw(client, raw, entities) {
-            if let Some((connection_id, reply_to)) = business {
-                message.set_business(client, connection_id, reply_to, entities);
+        let scan = self.scan(&Facts::message(&raw, PeerKinds::message(&raw, entities), &me));
+        if scan.is_none() && !listening {
+            return;
+        }
+        let Some(mut message) = Message::from_raw(client, raw, entities) else { return };
+        if let Some((connection_id, reply_to)) = business {
+            message.set_business(client, connection_id, reply_to, entities);
+        }
+        if listening {
+            match client.0.handlers.listeners.messages.offer(message, &me) {
+                Offer::Claimed => return,
+                Offer::Call(callback, m) => return tasks.run(kind, m, vec![callback]),
+                Offer::Unclaimed(m) | Offer::Stranger(m, _) => message = m,
             }
+        }
+        if let Some(scan) = scan {
             self.finish(kind, tasks, &me, scan, message);
         }
     }
@@ -362,6 +377,12 @@ impl Router {
             let raw = RawUpdate { update: update.clone(), entities: entities.clone() };
             tasks.raw(callback(client.clone(), raw));
         }
+        let update = if client.0.handlers.listeners.callbacks.waiting() {
+            let Some(update) = self.listen_callback(client, update, entities, tasks) else { return };
+            update
+        } else {
+            update
+        };
         let Some(update) = self.route(client, update, entities, tasks) else { return };
         let me = || client.0.me.lock().unwrap().clone();
         match update {
@@ -417,6 +438,42 @@ impl Router {
         }
     }
 
+    /// Offers any callback query to the listeners; `None` once it was handled here.
+    fn listen_callback(
+        &self,
+        client: &Client,
+        update: base::Update,
+        entities: &Entities,
+        tasks: &mut Tasks,
+    ) -> Option<base::Update> {
+        use base::Update as U;
+        let query = match update {
+            U::UpdateBotCallbackQuery(u) => CallbackQuery::parse(client, &u, entities),
+            U::UpdateInlineBotCallbackQuery(u) => CallbackQuery::parse_inline(client, *u, entities),
+            U::UpdateBusinessBotCallbackQuery(u) => CallbackQuery::parse_business(client, *u, entities),
+            U::UpdateEphemeralBotCallbackQuery(u) => CallbackQuery::parse_ephemeral(client, *u, entities),
+            update => return Some(update),
+        };
+        let me = client.0.me.lock().unwrap().clone();
+        let kind = UpdateKind::CallbackQuery;
+        match client.0.handlers.listeners.callbacks.offer(query, &me) {
+            Offer::Claimed => {}
+            Offer::Call(callback, query) => tasks.run(kind, query, vec![callback]),
+            Offer::Unclaimed(query) if !self.callback_query.0.is_empty() => {
+                self.callback_query.finish(kind, tasks, &me, PARSED, query)
+            }
+            Offer::Unclaimed(_) => {}
+            Offer::Stranger(query, alert) => {
+                let answer = callback(move |query: CallbackQuery| {
+                    let alert = alert.clone();
+                    async move { query.answer().text(&*alert).alert().await }
+                });
+                tasks.run(kind, query, vec![answer]);
+            }
+        }
+        None
+    }
+
     fn member_update(&self, tasks: &mut Tasks, me: &Me, user_id: i64, parse: impl FnOnce() -> ChatMemberUpdated) {
         let (handlers, kind) = if user_id == me.id {
             (&self.my_chat_member, UpdateKind::MyChatMember)
@@ -433,6 +490,7 @@ impl Router {
 pub(crate) struct Routes {
     router: RwLock<Arc<Router>>,
     generation: AtomicU64,
+    pub(crate) listeners: Listeners,
 }
 
 impl Routes {
@@ -450,6 +508,14 @@ impl Routes {
     pub(crate) fn current(&self) -> Arc<Router> {
         self.router.read().unwrap().clone()
     }
+
+    /// A route or a next-step handler. Only a route change makes running dispatchers take a new router.
+    pub(crate) fn remove(&self, handler: HandlerId) -> bool {
+        match handler.0 {
+            Registered::Route(kind, id) => self.add(|r| r.remove(kind, id)),
+            Registered::Listener(id) => self.listeners.remove(id),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -460,10 +526,10 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use super::*;
+    use crate::dispatcher::listeners::tests::{dispatch as dispatch_on, raw_inline_query, raw_query, until_waiting};
     use crate::errors::Error;
     use crate::filters;
-    use crate::handlers::callback;
-    use crate::raw::types;
+    use crate::raw::{Serializable, functions, types};
     use crate::types::messages_and_media::ephemeral_message::tests::{channel, ephemeral};
     use crate::types::messages_and_media::message::tests::service;
     use crate::utils::{get_channel_id, get_peer};
@@ -998,5 +1064,154 @@ mod tests {
         let base::Message::Message(raw) = &raw.message else { unreachable!() };
         let message = Message::parse(&client, raw.clone(), &entities);
         assert_eq!((filters::text().check(&message), filters::private().check(&message)), (true, true));
+    }
+
+    fn spawn_listen<T: crate::handlers::Listenable>(
+        client: &Client,
+        criteria: impl FnOnce(crate::methods::Listen<'_, T>) -> crate::methods::Listen<'_, T> + Send + 'static,
+    ) -> tokio::task::JoinHandle<crate::errors::Result<T>> {
+        let client = client.clone();
+        tokio::spawn(async move { criteria(client.listen::<T>()).await })
+    }
+
+    #[tokio::test]
+    async fn a_listener_takes_the_message_before_every_group() {
+        let (client, log) = (Client::offline(), Log::default());
+        client.0.handlers.add(|r| {
+            r.message.push(1, filters::all(), record(&log, "group -1"));
+            r.message.push(2, filters::all(), record(&log, "group 0"));
+            r.configure(UpdateKind::Message, 1, Some(-1), false);
+            r.raw.push((3, record_raw(&log)));
+        });
+        let waiter = spawn_listen::<Message>(&client, |l| l.chat(1));
+        until_waiting(&client.0.handlers.listeners.messages).await;
+        dispatch_on(&client, new_message(7, false));
+        settle().await;
+        assert_eq!(waiter.await.unwrap().unwrap().id, 7);
+        assert_eq!(*log.lock().unwrap(), ["raw"]);
+    }
+
+    #[tokio::test]
+    async fn an_unmatched_message_still_reaches_handlers() {
+        let (client, log) = (Client::offline(), Log::default());
+        client.0.handlers.add(|r| r.message.push(1, filters::all(), record(&log, "handler")));
+        let waiter = spawn_listen::<Message>(&client, |l| l.filter(filters::create(|m: &Message| m.text == "yes")));
+        until_waiting(&client.0.handlers.listeners.messages).await;
+        dispatch_on(&client, new_message(7, false));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["handler"]);
+        assert!(client.0.handlers.listeners.messages.waiting() && !waiter.is_finished());
+        waiter.abort();
+    }
+
+    #[tokio::test]
+    async fn listeners_see_messages_with_no_message_handlers() {
+        let client = Client::offline();
+        let waiter = spawn_listen::<Message>(&client, |l| l);
+        until_waiting(&client.0.handlers.listeners.messages).await;
+        dispatch_on(&client, new_message(7, false));
+        assert_eq!(waiter.await.unwrap().unwrap().id, 7);
+    }
+
+    #[tokio::test]
+    async fn every_callback_origin_reaches_callback_listeners() {
+        let (client, log) = (Client::offline(), Log::default());
+        client.0.handlers.add(|r| r.callback_query.push(1, filters::all(), record(&log, "handler")));
+        let business = types::UpdateBusinessBotCallbackQuery {
+            query_id: 1,
+            user_id: 7,
+            connection_id: "conn".into(),
+            message: base::Message::Message(Box::new(Message::bare(5, get_peer(7), 0))),
+            reply_to_message: None,
+            chat_instance: 3,
+            data: None,
+        };
+        let ephemeral = types::UpdateEphemeralBotCallbackQuery {
+            query_id: 9,
+            user_id: 1000,
+            peer: None,
+            msg_id: 7,
+            data: b"tap".to_vec(),
+            chat_instance: None,
+            message: ephemeral(true, None),
+        };
+        let updates = [
+            base::Update::UpdateBotCallbackQuery(Box::new(raw_query(7, 7, 2))),
+            base::Update::UpdateInlineBotCallbackQuery(Box::new(raw_inline_query(7, 1))),
+            base::Update::UpdateBusinessBotCallbackQuery(Box::new(business)),
+            base::Update::UpdateEphemeralBotCallbackQuery(Box::new(ephemeral)),
+        ];
+        for (i, update) in updates.into_iter().enumerate() {
+            let waiter = spawn_listen::<CallbackQuery>(&client, |l| l);
+            until_waiting(&client.0.handlers.listeners.callbacks).await;
+            dispatch_on(&client, update);
+            assert!(waiter.await.unwrap().is_ok(), "origin {i}");
+        }
+        settle().await;
+        assert!(log.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn edited_messages_never_reach_listeners() {
+        let client = Client::offline();
+        let waiter = spawn_listen::<Message>(&client, |l| l);
+        until_waiting(&client.0.handlers.listeners.messages).await;
+        let base::Update::UpdateNewMessage(new) = new_message(7, false) else { unreachable!() };
+        let edit = types::UpdateEditMessage { message: new.message, pts: 0, pts_count: 0 };
+        dispatch_on(&client, base::Update::UpdateEditMessage(Box::new(edit)));
+        settle().await;
+        assert!(client.0.handlers.listeners.messages.waiting() && !waiter.is_finished());
+        waiter.abort();
+    }
+
+    #[tokio::test]
+    async fn a_stranger_click_is_answered_and_skips_handlers() {
+        let ((client, mut sent), log) = (Client::recording(), Log::default());
+        client.0.handlers.add(|r| r.callback_query.push(1, filters::all(), record(&log, "handler")));
+        let waiter = spawn_listen::<CallbackQuery>(&client, |l| l.user(8).message_id(2));
+        until_waiting(&client.0.handlers.listeners.callbacks).await;
+        dispatch_on(&client, base::Update::UpdateBotCallbackQuery(Box::new(raw_query(9, 7, 2))));
+        settle().await;
+        let answer = functions::messages::SetBotCallbackAnswer {
+            alert: true,
+            query_id: 1,
+            message: Some("You are not expected to click this button.".into()),
+            url: None,
+            cache_time: 0,
+        };
+        assert_eq!(sent.try_recv().expect("no answer sent"), answer.to_bytes());
+        assert!(log.lock().unwrap().is_empty());
+        assert!(!waiter.is_finished());
+        waiter.abort();
+    }
+
+    #[tokio::test]
+    async fn a_next_step_runs_through_tasks_in_order() {
+        let (client, log) = (Client::offline(), Log::default());
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let (held, handler_log) = (gate.clone(), log.clone());
+        client.on_message(filters::all(), move |_| {
+            let (held, log) = (held.clone(), handler_log.clone());
+            async move {
+                held.notified().await;
+                log.lock().unwrap().push("handler");
+                Ok(())
+            }
+        });
+        let next_log = log.clone();
+        let next = move |_: Message| {
+            next_log.lock().unwrap().push("next");
+            async { Ok(()) }
+        };
+        let mut tasks = Tasks::new(true, None);
+        router_of(&client).dispatch(&client, new_message(1, false), &Arc::default(), &mut tasks);
+        settle().await;
+        client.register_next_step_handler(next).chat(1).await.unwrap();
+        router_of(&client).dispatch(&client, new_message(2, false), &Arc::default(), &mut tasks);
+        settle().await;
+        assert!(log.lock().unwrap().is_empty(), "the next step overtook the running handler of its chat");
+        gate.notify_one();
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["handler", "next"]);
     }
 }
