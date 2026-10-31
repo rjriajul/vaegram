@@ -1149,6 +1149,11 @@ async fn user_changes_supergroup_settings() {
     user.set_chat_ttl(group.id, 0).await.unwrap();
     assert_eq!(channel_full(&user, group.id).await.ttl_period.unwrap_or(0), 0);
 
+    let first = user.send_message(group.id, "x").await.unwrap().id;
+    let second = user.send_message(group.id, "x").await.unwrap().id;
+    user.delete_user_history(group.id, "me").await.unwrap();
+    assert!(user.get_messages(group.id, &[first, second]).await.unwrap().iter().all(Option::is_none));
+
     user.toggle_forum_topics(group.id, true, false).await.unwrap();
     user.toggle_view_forum_as_messages(group.id, true).await.unwrap();
     assert!(channel_full(&user, group.id).await.view_forum_as_messages);

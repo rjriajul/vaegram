@@ -15,6 +15,7 @@ mod delete_chat_sticker_set;
 mod delete_chat_wallpaper;
 mod delete_forum_topic;
 mod delete_supergroup;
+mod delete_user_history;
 mod edit_forum_topic;
 mod edit_general_forum_topic;
 mod get_channel_statistics;
@@ -374,6 +375,7 @@ mod settings_tests {
     use crate::errors::{Error, Result, RpcError};
     use crate::raw::functions::{channels, messages};
     use crate::raw::{Serializable, base, types};
+    use crate::session::Affected;
     use crate::utils::get_channel_id;
 
     const GROUP: i64 = -5;
@@ -462,6 +464,51 @@ mod settings_tests {
         assert!(matches!(&ttl, Err(Error::Rpc(e)) if e.name == "TTL_PERIOD_INVALID"), "{ttl:?}");
         let toggle = client.toggle_anti_spam(get_channel_id(9), true).await;
         assert!(matches!(&toggle, Err(Error::Rpc(e)) if e.name == "CHAT_NOT_MODIFIED"), "{toggle:?}");
+    }
+
+    fn affected(pts: i32, pts_count: i32, offset: i32) -> Result<Vec<u8>> {
+        let affected = types::messages::AffectedHistory { pts, pts_count, offset };
+        Ok(base::messages::AffectedHistory::AffectedHistory(Box::new(affected)).to_bytes())
+    }
+
+    fn delete_history(participant: base::InputPeer) -> Vec<u8> {
+        channels::DeleteParticipantHistory { channel: channel(), participant }.to_bytes()
+    }
+
+    #[tokio::test]
+    async fn member_history_repeats_batches_and_moves_the_channel_pts() {
+        let (client, mut rx) = settings_client(vec![affected(11, 1, 3), affected(12, 1, 0)]);
+        client.delete_user_history(get_channel_id(9), USER).await.unwrap();
+        let request = delete_history(user_peer());
+        assert_eq!((rx.try_recv().unwrap(), rx.try_recv().unwrap()), (request.clone(), request));
+        assert!(rx.try_recv().is_err());
+        assert_eq!(client.0.events.take_affected(), Some(Affected { channel_id: Some(9), pts: 12, pts_count: 2 }));
+    }
+
+    #[tokio::test]
+    async fn member_history_with_nothing_deleted_moves_no_pts() {
+        // Telegram answers pts_count 0 when it found nothing it could delete.
+        let (client, _rx) = settings_client(vec![affected(11, 0, 0)]);
+        client.delete_user_history(get_channel_id(9), USER).await.unwrap();
+        assert_eq!(client.0.events.take_affected(), None);
+    }
+
+    #[tokio::test]
+    async fn member_history_refuses_basic_groups_and_users() {
+        let (client, mut rx) = settings_client(Vec::new());
+        let group = client.delete_user_history(GROUP, USER).await;
+        let user = client.delete_user_history(USER, USER).await;
+        for result in [group, user] {
+            assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
+        }
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn member_history_of_the_account_itself_sends_self() {
+        let (client, mut rx) = settings_client(Vec::new());
+        let sent = body(&mut rx, client.delete_user_history(get_channel_id(9), "me")).await;
+        assert_eq!(sent, delete_history(base::InputPeer::InputPeerSelf));
     }
 }
 
