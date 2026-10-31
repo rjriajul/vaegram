@@ -38,49 +38,19 @@ mod stories;
 mod users;
 mod utilities;
 
-pub use account::{CreateTheme, InstallTheme};
+pub use account::*;
 pub(crate) use advanced::invoke_sleeping_floods;
-pub use bots::{
-    AnswerCallbackQuery, AnswerInlineQuery, AnswerPreCheckoutQuery, AnswerShippingQuery, CreateInvoiceLink,
-    GetInlineBotResults, GetPopularAppBots, RequestCallbackAnswer, SavePreparedInlineMessage, SendGame,
-    SendInlineBotResult, SendInvoice, SetGameScore, SetInlineGameScore, SetUserEmojiStatus, ToggleBotInAttachMenu,
-    VerifyChat,
-};
-pub use business::{
-    CreateBusinessChatLink, EditBusinessChatLink, EditStory, PostStory, RepostStory, SetBusinessAwayMessage,
-};
-pub use chats::{
-    BanChatMember, CreateForumTopic, DeleteChatHistory, DeleteChatWallpaper, EditForumTopic, GetChatAdministrators,
-    GetChatEventLog, GetChatMembers, GetDialogs, GetForumTopics, GetMessagePublicForwards, RestrictChatMember,
-    SetChatAccentColor, SetChatPhoto, SetChatWallpaper, UpdateChatNotifications,
-};
-pub use contacts::AddContact;
-pub use folders::{CreateFolderInviteLink, EditFolderInviteLink, LeaveFolder};
-pub use invite_links::{
-    CreateChatInviteLink, CreateChatSubscriptionInviteLink, EditChatInviteLink, GetChatAdminInviteLinks,
-    GetChatInviteLinkJoiners, GetChatJoinRequests,
-};
-pub use messages::{
-    ApproveSuggestedPost, CopyMediaGroup, CopyMessage, CopyMessages, DeclineSuggestedPost, DownloadMedia,
-    EditEphemeralMessage, EditInlineMedia, EditInlineText, EditMessageChecklist, EditMessageLiveLocation,
-    EditMessageMedia, EditMessageReplyMarkup, EditMessageText, ExportMessageLink, ForwardMediaGroup, ForwardMessages,
-    GetChatHistory, GetDiscussionReplies, GetMessageReactionsList, GetPollVotes, GetSavedDialogs, GetSavedHistory,
-    MediaStream, MessageStream, PinChatMessage, RequestAppWebView, RequestMainWebView, RequestSimpleWebView,
-    RequestWebView, SaveDraft, SearchGlobal, SearchMessages, SearchMessagesCount, SearchPosts, SendAnimation,
-    SendAudio, SendChatAction, SendChecklist, SendContact, SendDice, SendDocument, SendEphemeralMessage, SendLivePhoto,
-    SendLocation, SendMediaGroup, SendMessage, SendMessageDraft, SendPaidMedia, SendPaidReaction, SendPhoto, SendPoll,
-    SendReaction, SendRichMessage, SendSticker, SendVenue, SendVideo, SendVideoNote, SendVoice,
-    StopMessageLiveLocation, StopPoll, StreamMessage, TranslateText, UnpinChatMessage,
-};
+pub use bots::*;
+pub use business::*;
+pub use chats::*;
+pub use contacts::*;
+pub use folders::*;
+pub use invite_links::*;
+pub use messages::*;
 pub(crate) use messages::{DownloadSource, StreamShared, caption_setters, geo_point, input_venue};
-pub use password::{ChangeCloudPassword, EnableCloudPassword};
-pub use payments::{
-    ConvertGiftToStars, GetChatGifts, GetStarTransactions, GiftPremiumSubscription, SearchGiftsForResale, SendGift,
-    TransferGift, UpgradeGift,
-};
-pub use premium::GetBoostsList;
-pub use stickers::{
-    CreateNewStickerSet, GetArchivedStickerSets, GetFeaturedStickerSets, SearchStickerSets, SearchStickers,
-};
-pub use stories::{EditStoryCaption, EnableStealthMode, GetStoryViewers, SendStory, StoryPages};
-pub use users::{GetChatPhotos, GetUserProfileAudios, SetEmojiStatus, SetProfilePhoto, UpdateProfile};
+pub use password::*;
+pub use payments::*;
+pub use premium::*;
+pub use stickers::*;
+pub use stories::*;
+pub use users::*;
