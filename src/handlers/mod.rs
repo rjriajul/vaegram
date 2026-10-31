@@ -59,6 +59,18 @@ impl HandlerRef<'_> {
         self.client.0.handlers.add(|r| r.configure(self.kind, self.id, None, true));
         self
     }
+
+    /// An id to pass to `Client::remove_handler`, which can be kept after the client borrow ends.
+    pub fn id(self) -> HandlerId {
+        HandlerId { kind: self.kind, id: self.id }
+    }
+}
+
+/// One registered handler. Ids are never reused, so a stale one removes nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct HandlerId {
+    pub(crate) kind: UpdateKind,
+    pub(crate) id: u32,
 }
 
 impl Client {

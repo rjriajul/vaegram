@@ -48,6 +48,14 @@ impl<T> Clone for Handlers<T> {
     }
 }
 
+impl<T> Handlers<T> {
+    fn remove(&mut self, id: u32) -> bool {
+        let before = self.0.len();
+        self.0.retain(|r| r.id != id);
+        self.0.len() != before
+    }
+}
+
 impl<T: Routed + Subject + Inspect> Handlers<T> {
     pub(crate) fn push(&mut self, id: u32, filter: Filter<T>, callback: Callback<T>) {
         self.insert(Route { group: 0, stop: false, id, filter, callback });
@@ -154,7 +162,7 @@ macro_rules! update_kinds {
         #[derive(Default, Clone)]
         pub(crate) struct Router {
             $(pub(crate) $field: Handlers<$ty>,)*
-            pub(crate) raw: Vec<RawCallback>,
+            pub(crate) raw: Vec<(u32, RawCallback)>,
             pub(crate) on_error: Option<ErrorCallback>,
             next_id: u32,
         }
@@ -164,6 +172,17 @@ macro_rules! update_kinds {
                 match kind {
                     $(UpdateKind::$kind => self.$field.configure(id, group, stop),)*
                     UpdateKind::Raw => {}
+                }
+            }
+
+            pub(crate) fn remove(&mut self, kind: UpdateKind, id: u32) -> bool {
+                match kind {
+                    $(UpdateKind::$kind => self.$field.remove(id),)*
+                    UpdateKind::Raw => {
+                        let before = self.raw.len();
+                        self.raw.retain(|(i, _)| *i != id);
+                        self.raw.len() != before
+                    }
                 }
             }
 
@@ -282,7 +301,7 @@ impl Router {
 
     pub(crate) fn dispatch(&self, client: &Client, update: base::Update, entities: &Arc<Entities>, tasks: &mut Tasks) {
         use base::Update as U;
-        for callback in &self.raw {
+        for (_, callback) in &self.raw {
             let raw = RawUpdate { update: update.clone(), entities: entities.clone() };
             tasks.raw(callback(client.clone(), raw));
         }
@@ -451,17 +470,44 @@ mod tests {
         router.message.push(1, filters::all(), record(&log, "message"));
         router.edited_message.push(2, filters::all(), record(&log, "edited"));
         router.inline_query.push(3, filters::all(), record(&log, "inline"));
-        let raw = log.clone();
-        router.raw.push(Arc::new(move |_, _| {
-            raw.lock().unwrap().push("raw");
-            Box::pin(async { Ok(()) })
-        }));
+        router.raw.push((4, record_raw(&log)));
         dispatch(&router, new_message(1, false));
         dispatch(&router, inline_query());
         settle().await;
         let mut seen = log.lock().unwrap().clone();
         seen.sort_unstable();
         assert_eq!(seen, ["inline", "message", "raw", "raw"]);
+    }
+
+    fn record_raw(log: &Log) -> RawCallback {
+        let log = log.clone();
+        Arc::new(move |_, _| {
+            log.lock().unwrap().push("raw");
+            Box::pin(async { Ok(()) })
+        })
+    }
+
+    #[tokio::test]
+    async fn remove_drops_only_that_route() {
+        let log = Log::default();
+        let mut router = Router::default();
+        router.message.push(1, filters::all(), record(&log, "first"));
+        router.message.push(2, filters::all(), record(&log, "second"));
+        router.raw.push((3, record_raw(&log)));
+        assert!(!router.remove(UpdateKind::EditedMessage, 1));
+        assert!(router.remove(UpdateKind::Message, 1));
+        assert!(!router.remove(UpdateKind::Message, 1));
+        dispatch(&router, new_message(1, false));
+        settle().await;
+        let mut seen = log.lock().unwrap().clone();
+        seen.sort_unstable();
+        assert_eq!(seen, ["raw", "second"]);
+
+        assert!(router.remove(UpdateKind::Raw, 3));
+        log.lock().unwrap().clear();
+        dispatch(&router, new_message(2, false));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["second"]);
     }
 
     #[tokio::test]
