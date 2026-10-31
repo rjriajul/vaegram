@@ -275,6 +275,13 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   `get_giveaway_info`, `get_premium_promo` (not yet tested live)
 - [ ] Admin log and statistics: `get_chat_event_log`, `get_channel_statistics`, `get_message_public_forwards` (not yet
   tested live)
+- [ ] Group and channel admin settings for users: `toggle_anti_spam`, `toggle_participants_hidden`,
+  `toggle_pre_history_hidden`, `toggle_auto_translation`, `toggle_view_forum_as_messages`,
+  `restrict_sponsored_messages`, `set_chat_ttl`, `delete_user_history`, `set_chat_discussion_group`,
+  `get_suitable_discussion_chats`, `get_personal_channels`, `set_main_profile_tab(chat, ProfileTab::Media)`,
+  `set_chat_direct_messages_group`, `get_direct_messages_topics_by_id` (not yet tested live)
+- [ ] Chat action bar, top chats and folder tags: `get_chat_settings`, `get_top_chats(TopChatCategory::Users, 10)`,
+  `toggle_folder_tags` (not yet tested live)
 - [ ] Installed, archived, featured, recent and favorite stickers, sticker search, emoji status lists, gift resale,
   hiding and pinning gifts, Stars balance and history for owned chats (not yet tested live)
 - [ ] Attachment menu bots, bot apps, popular and similar bots: `get_attach_menu_bots`, `get_bot_app` (not yet tested live)

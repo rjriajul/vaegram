@@ -6,7 +6,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
-use vaegram::enums::{MessageEntityType, MessagesFilter, ParseMode, PollType, StickerType, StoriesPrivacyRules};
+use vaegram::enums::{
+    MessageEntityType, MessagesFilter, ParseMode, PollType, ProfileTab, StickerType, StoriesPrivacyRules,
+    TopChatCategory,
+};
 use vaegram::raw::{Serializable, base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
@@ -16,6 +19,7 @@ use vaegram::types::{
     InputPollMedia, InputPollOption, InputRichMessage, InputSticker, InputStoryContent, Json, KeyboardButton, Media,
     Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
 };
+use vaegram::utils::get_channel_id;
 use vaegram::{Client, filters};
 
 #[tokio::test]
@@ -1098,4 +1102,136 @@ async fn user_manages_invite_links() {
     user.delete_chat_invite_link(group.id, &link).await.unwrap();
     user.delete_chat_admin_invite_links(group.id, "me").await.unwrap();
     user.delete_supergroup(group.id).await.unwrap();
+}
+
+async fn input_channel(user: &Client, chat_id: i64) -> base::InputChannel {
+    let base::InputPeer::InputPeerChannel(p) = user.resolve_peer(chat_id).await.unwrap() else {
+        panic!("{chat_id} is not a channel")
+    };
+    base::InputChannel::InputChannel(Box::new(types::InputChannel {
+        channel_id: p.channel_id,
+        access_hash: p.access_hash,
+    }))
+}
+
+async fn channel_full(user: &Client, chat_id: i64) -> types::ChannelFull {
+    let channel = input_channel(user, chat_id).await;
+    let base::messages::ChatFull::ChatFull(full) =
+        user.invoke(&functions::channels::GetFullChannel { channel }).await.unwrap();
+    let base::ChatFull::ChannelFull(full) = full.full_chat else { panic!("{chat_id} has no channel info") };
+    *full
+}
+
+async fn channel_info(user: &Client, chat_id: i64) -> types::Channel {
+    let id = vec![input_channel(user, chat_id).await];
+    let chats = match user.invoke(&functions::channels::GetChannels { id }).await.unwrap() {
+        base::messages::Chats::Chats(c) => c.chats,
+        base::messages::Chats::ChatsSlice(c) => c.chats,
+    };
+    chats
+        .into_iter()
+        .find_map(|c| match c {
+            base::Chat::Channel(c) => Some(*c),
+            _ => None,
+        })
+        .expect("the channel is gone")
+}
+
+#[tokio::test]
+#[ignore = "creates and deletes a supergroup with a logged-in user session"]
+async fn user_changes_supergroup_settings() {
+    let Some(user) = user_client().await else { return };
+    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
+    let hidden = channel_full(&user, group.id).await.hidden_prehistory;
+    user.toggle_pre_history_hidden(group.id, !hidden).await.unwrap();
+    assert_eq!(channel_full(&user, group.id).await.hidden_prehistory, !hidden);
+    user.toggle_pre_history_hidden(group.id, hidden).await.unwrap();
+    assert_eq!(channel_full(&user, group.id).await.hidden_prehistory, hidden);
+
+    user.set_chat_ttl(group.id, 86400).await.unwrap();
+    assert_eq!(channel_full(&user, group.id).await.ttl_period, Some(86400));
+    user.set_chat_ttl(group.id, 0).await.unwrap();
+    assert_eq!(channel_full(&user, group.id).await.ttl_period.unwrap_or(0), 0);
+
+    let first = user.send_message(group.id, "x").await.unwrap().id;
+    let second = user.send_message(group.id, "x").await.unwrap().id;
+    user.delete_user_history(group.id, "me").await.unwrap();
+    assert!(user.get_messages(group.id, &[first, second]).await.unwrap().iter().all(Option::is_none));
+
+    user.toggle_forum_topics(group.id, true, false).await.unwrap();
+    user.toggle_view_forum_as_messages(group.id, true).await.unwrap();
+    assert!(channel_full(&user, group.id).await.view_forum_as_messages);
+    user.delete_supergroup(group.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "flips and restores four settings of a chat the user owns; the chat must qualify for anti-spam, hidden \
+            members, auto-translation and sponsored-message limits"]
+async fn owner_flips_and_restores_channel_toggles() {
+    let Some(user) = user_client().await else { return };
+    let Ok(chat) = std::env::var("VAEGRAM_OWNED_CHAT_ID") else {
+        eprintln!("skipped: set VAEGRAM_OWNED_CHAT_ID (a chat the user owns)");
+        return;
+    };
+    let chat: i64 = chat.parse().unwrap();
+    let read = |full: types::ChannelFull| (full.antispam, full.participants_hidden, full.restricted_sponsored);
+    let (antispam, hidden, restricted) = read(channel_full(&user, chat).await);
+    let translated = channel_info(&user, chat).await.autotranslation;
+
+    user.toggle_anti_spam(chat, !antispam).await.unwrap();
+    user.toggle_participants_hidden(chat, !hidden).await.unwrap();
+    user.restrict_sponsored_messages(chat, !restricted).await.unwrap();
+    user.toggle_auto_translation(chat, !translated).await.unwrap();
+    assert_eq!(read(channel_full(&user, chat).await), (!antispam, !hidden, !restricted));
+    assert_eq!(channel_info(&user, chat).await.autotranslation, !translated);
+
+    user.toggle_anti_spam(chat, antispam).await.unwrap();
+    user.toggle_participants_hidden(chat, hidden).await.unwrap();
+    user.restrict_sponsored_messages(chat, restricted).await.unwrap();
+    user.toggle_auto_translation(chat, translated).await.unwrap();
+    assert_eq!(read(channel_full(&user, chat).await), (antispam, hidden, restricted));
+    assert_eq!(channel_info(&user, chat).await.autotranslation, translated);
+}
+
+#[tokio::test]
+#[ignore = "creates and deletes a channel and a supergroup with a logged-in user session"]
+async fn user_links_a_discussion_group() {
+    let Some(user) = user_client().await else { return };
+    let channel = user.create_channel("vaegram live test", "deleted right away").await.unwrap();
+    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
+    let suitable = user.get_suitable_discussion_chats().await.unwrap();
+    assert!(suitable.iter().any(|c| c.id == group.id), "{suitable:?}");
+
+    user.set_chat_discussion_group(channel.id, Some(group.id.into())).await.unwrap();
+    assert_eq!(channel_full(&user, channel.id).await.linked_chat_id.map(get_channel_id), Some(group.id));
+    user.set_chat_discussion_group(channel.id, None).await.unwrap();
+    assert_eq!(channel_full(&user, channel.id).await.linked_chat_id, None);
+
+    user.set_main_profile_tab(channel.id, ProfileTab::Media).await.unwrap();
+    assert_eq!(channel_full(&user, channel.id).await.main_tab, Some(base::ProfileTab::ProfileTabMedia));
+    user.get_personal_channels().await.unwrap();
+
+    user.set_chat_direct_messages_group(channel.id, true, 0).await.unwrap();
+    let info = channel_info(&user, channel.id).await;
+    assert!(info.broadcast_messages_allowed);
+    let monoforum = info.linked_monoforum_id.map(get_channel_id).expect("no direct messages chat");
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    // Nobody has written to the new direct messages chat yet.
+    assert!(user.get_direct_messages_topics_by_id(monoforum, &[me.id]).await.unwrap().is_empty());
+    user.set_chat_direct_messages_group(channel.id, false, 0).await.unwrap();
+
+    user.delete_supergroup(group.id).await.unwrap();
+    user.delete_channel(channel.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_reads_chat_settings_and_top_chats() {
+    let Some(user) = user_client().await else { return };
+    user.get_chat_settings("me").await.unwrap();
+    assert!(user.get_top_chats(TopChatCategory::Users, 10).await.unwrap().len() <= 10);
+    let base::messages::DialogFilters::DialogFilters(folders) =
+        user.invoke(&functions::messages::GetDialogFilters {}).await.unwrap();
+    // Writing the current value back changes nothing, so accounts without Premium pass while tags are off.
+    user.toggle_folder_tags(folders.tags_enabled).await.unwrap();
 }
