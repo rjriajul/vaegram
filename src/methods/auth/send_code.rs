@@ -6,25 +6,28 @@ use crate::types::SentCode;
 
 impl Client {
     pub async fn send_code(&self, phone_number: &str) -> Result<SentCode> {
-        let settings = types::CodeSettings {
-            allow_flashcall: false,
-            current_number: false,
-            allow_app_hash: false,
-            allow_missed_call: false,
-            allow_firebase: false,
-            unknown_number: false,
-            logout_tokens: None,
-            token: None,
-            app_sandbox: None,
-        };
         let request = functions::auth::SendCode {
             phone_number: phone_number.into(),
             api_id: self.0.api_id,
             api_hash: self.0.api_hash.clone(),
-            settings: base::CodeSettings::CodeSettings(Box::new(settings)),
+            settings: code_settings(),
         };
         parse_sent_code(self.invoke_migrating(&request).await?)
     }
+}
+
+pub(super) fn code_settings() -> base::CodeSettings {
+    base::CodeSettings::CodeSettings(Box::new(types::CodeSettings {
+        allow_flashcall: false,
+        current_number: false,
+        allow_app_hash: false,
+        allow_missed_call: false,
+        allow_firebase: false,
+        unknown_number: false,
+        logout_tokens: None,
+        token: None,
+        app_sandbox: None,
+    }))
 }
 
 pub(super) fn parse_sent_code(raw: base::auth::SentCode) -> Result<SentCode> {
@@ -50,7 +53,7 @@ pub(super) mod tests {
     use crate::raw::{Serializable, base, functions, types};
     use crate::types::SentCode;
 
-    fn user(id: i64) -> base::User {
+    pub(crate) fn user(id: i64) -> base::User {
         let mut buf = Vec::new();
         0u32.serialize(&mut buf);
         0u32.serialize(&mut buf);

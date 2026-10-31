@@ -1,6 +1,7 @@
 #[allow(dead_code)]
 mod support;
 
+use vaegram::raw::base;
 use vaegram::{Client, Error};
 
 fn api() -> (i32, String) {
@@ -58,6 +59,19 @@ async fn test_account_logs_in_with_a_resent_code() {
     assert!(client.is_authorized().await.unwrap());
     // A fresh test account has no cloud password.
     assert_eq!(client.get_password_hint().await.unwrap(), None);
+
+    let me = client.get_me().await.unwrap();
+    let new_phone = test_number();
+    match client.send_change_phone_code(&new_phone).await {
+        Ok(code) => {
+            let user = client.change_phone_number(&new_phone, &code.phone_code_hash, "22222").await.unwrap();
+            let base::User::User(me) = me else { panic!("no account") };
+            assert_eq!(user.id, me.id);
+        }
+        // The account was created a moment ago, and Telegram holds number changes back for about a day.
+        Err(e) if rpc_is(&e, "FRESH_CHANGE_PHONE_FORBIDDEN") => {}
+        Err(e) => panic!("{e}"),
+    }
     client.log_out().await.unwrap();
 }
 
