@@ -6,7 +6,7 @@ use std::task::Poll;
 use std::time::Duration;
 
 use super::internals::data_center::Dc;
-use super::{Events, Known, MAX_FLOOD_SLEEPS, Salt, Session, WeakSession, init_connection};
+use super::{Events, Known, Salt, Session, WeakSession, init_connection};
 use crate::connection::Options;
 use crate::crypto::rsa::PublicKey;
 use crate::errors::{Error, Result};
@@ -167,8 +167,8 @@ async fn invoke_part_on<R: RemoteCall>(session: &Session, request: &R, cdn: bool
     let (mut timeouts, mut floods) = (0, 0);
     loop {
         let result = session.invoke_with_timeout(request, timeout).await;
-        let wait =
-            result.as_ref().err().and_then(|e| session.flood_sleep(e, cap)).filter(|_| floods < MAX_FLOOD_SLEEPS);
+        let floods_left = floods < session.options().max_flood_sleeps;
+        let wait = result.as_ref().err().and_then(|e| session.flood_sleep(e, cap)).filter(|_| floods_left);
         match (&result, wait) {
             (_, Some(wait)) => {
                 floods += 1;
@@ -291,6 +291,17 @@ mod tests {
         assert_eq!(start.elapsed(), Duration::ZERO);
         assert!(matches!(e, Error::Rpc(e) if (e.name.as_str(), e.value) == ("FLOOD_WAIT", Some(120))));
         assert_eq!(std::iter::from_fn(|| sent.try_recv().ok()).count(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn parts_follow_the_flood_sleep_setting() {
+        let flood = || Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_1")));
+        let (mut session, mut sent) = Session::scripted(vec![flood(), flood()]);
+        session.set_options(Options { max_flood_sleeps: 1, ..Options::default() });
+        let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };
+        let e = invoke_part(&session, &part).await.unwrap_err();
+        assert!(matches!(e, Error::Rpc(e) if e.is("FLOOD_WAIT")));
+        assert_eq!(std::iter::from_fn(|| sent.try_recv().ok()).count(), 2);
     }
 
     #[test]

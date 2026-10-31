@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::Client;
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, functions};
-use crate::session::{MAX_FLOOD_SLEEPS, Session};
+use crate::session::Session;
 
 const MAX_MIGRATIONS: usize = 3;
 
@@ -14,8 +14,8 @@ impl Client {
 
     /// A request that times out is forgotten: the server is asked not to send its answer, and the connection
     /// carries on. FLOOD_WAITs up to `flood_sleep_threshold` are slept off and retried, each try with the full
-    /// `timeout`, at most 5 times; the next one goes to the caller. `tokio::time::timeout` around the call bounds
-    /// the whole wait.
+    /// `timeout`, at most `max_flood_sleeps` times; the next one goes to the caller. `tokio::time::timeout` around
+    /// the call bounds the whole wait.
     pub async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
         invoke_sleeping_floods(&self.session(), request, timeout).await
     }
@@ -60,7 +60,7 @@ pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(
     loop {
         let result = session.invoke_with_timeout(request, timeout).await;
         match result.as_ref().err().and_then(|e| session.flood_sleep(e, None)) {
-            Some(wait) if slept < MAX_FLOOD_SLEEPS => {
+            Some(wait) if slept < session.options().max_flood_sleeps => {
                 slept += 1;
                 tokio::time::sleep(wait).await;
             }
@@ -139,9 +139,14 @@ mod tests {
         Err(Error::Rpc(RpcError::new(420, message)))
     }
 
-    async fn ping(mut replies: Vec<Result<Vec<u8>>>) -> (Result<base::Pong>, usize) {
+    async fn ping(replies: Vec<Result<Vec<u8>>>) -> (Result<base::Pong>, usize) {
+        ping_with(Options::default(), replies).await
+    }
+
+    async fn ping_with(options: Options, mut replies: Vec<Result<Vec<u8>>>) -> (Result<base::Pong>, usize) {
         replies.push(Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes()));
-        let (client, mut sent) = Client::scripted(replies);
+        let (mut client, mut sent) = Client::scripted(replies);
+        client.set_options(options);
         let result = client.invoke(&functions::Ping { ping_id: 7 }).await;
         (result, count(&mut sent))
     }
@@ -154,6 +159,25 @@ mod tests {
         let (result, sends) = ping((0..5).map(|_| rpc_420("FLOOD_WAIT_1")).collect()).await;
         assert!(result.is_ok());
         assert_eq!(sends, 6);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_setting_of_two_sleeps_two_flood_waits() {
+        let two = || Options { max_flood_sleeps: 2, ..Options::default() };
+        let (result, sends) = ping_with(two(), (0..3).map(|_| rpc_420("FLOOD_WAIT_1")).collect()).await;
+        assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
+        assert_eq!(sends, 3);
+        let (result, sends) = ping_with(two(), (0..2).map(|_| rpc_420("FLOOD_WAIT_1")).collect()).await;
+        assert!(result.is_ok());
+        assert_eq!(sends, 3);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn zero_flood_sleeps_hand_every_wait_to_the_caller() {
+        let none = Options { max_flood_sleeps: 0, ..Options::default() };
+        let (result, sends) = ping_with(none, vec![rpc_420("FLOOD_WAIT_1")]).await;
+        assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
+        assert_eq!(sends, 1);
     }
 
     #[tokio::test(start_paused = true)]

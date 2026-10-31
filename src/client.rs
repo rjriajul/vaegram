@@ -151,10 +151,24 @@ impl ClientBuilder {
         self
     }
 
-    /// FLOOD_WAITs up to this long are slept off and retried, at most 5 times per call; longer ones go to the
-    /// caller as `Error::Rpc`. 60 seconds by default; `Duration::ZERO` hands every one to the caller.
+    /// FLOOD_WAITs up to this long are slept off and retried, at most `max_flood_sleeps` times per call; longer
+    /// ones go to the caller as `Error::Rpc`. 60 seconds by default; `Duration::ZERO` hands every one to the caller.
     pub fn flood_sleep_threshold(mut self, threshold: Duration) -> Self {
         self.options.flood_sleep_threshold = threshold;
+        self
+    }
+
+    /// How many FLOOD_WAITs one call sleeps off, 5 by default; 0 hands every one to the caller. Lost connections
+    /// need no retry setting: they are reconnected and the waiting requests sent again on their own.
+    pub fn max_flood_sleeps(mut self, n: usize) -> Self {
+        self.options.max_flood_sleeps = n;
+        self
+    }
+
+    /// Update batches waiting for `run`, 1024 by default and at least 1. When it's full, a batch is dropped,
+    /// `ClientEvent::UpdatesDropped` fires and a getDifference fetches what it held.
+    pub fn updates_capacity(mut self, n: usize) -> Self {
+        self.options.updates_capacity = n.max(1);
         self
     }
 
@@ -576,4 +590,24 @@ pub(crate) async fn sent<F: IntoFuture>(rx: &mut tokio::sync::mpsc::UnboundedRec
     let _ = call.await;
     let body = rx.try_recv().expect("no request sent");
     u32::from_le_bytes(body[..4].try_into().unwrap())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::Client;
+
+    #[test]
+    fn builder_defaults_match_todays_behaviour() {
+        let builder = Client::builder("defaults", 1, "hash");
+        let options = &builder.options;
+        assert_eq!((options.max_flood_sleeps, options.updates_capacity), (5, 1024));
+        assert_eq!(options.flood_sleep_threshold, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn a_zero_update_queue_is_stored_as_one() {
+        assert_eq!(Client::builder("zero", 1, "hash").updates_capacity(0).options.updates_capacity, 1);
+    }
 }

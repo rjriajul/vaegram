@@ -7,8 +7,8 @@ use tokio::net::TcpListener;
 use super::{
     Affected, Answer, Arc, Call, ClientEvent, Connection, DEAD_AFTER, Identifiable, Incoming, MAX_CONTAINER_MSGS,
     Observer, Options, PING_EVERY, PROBE_AFTER, PROBE_DEAD_AFTER, RPC_RESULT, Request, Runner, Salt, Serializable,
-    Session, UPDATES_BUFFER, UpdatesRx, base, constructor_id, functions, gzip_packed, internals, jitter, mpsc,
-    msg_container, mtproto, oneshot, outbox, types,
+    Session, UpdatesRx, base, constructor_id, functions, gzip_packed, internals, jitter, mpsc, msg_container, mtproto,
+    oneshot, outbox, types,
 };
 use crate::errors::{Error, RpcError};
 use crate::session::internals::data_center::Dc;
@@ -46,7 +46,7 @@ async fn listening(salt: Salt) -> (Runner, Frames, UpdatesRx, TcpListener) {
         }
     });
 
-    let (events, (tx, rx)) = (Arc::default(), mpsc::channel(UPDATES_BUFFER));
+    let (events, (tx, rx)) = (Arc::default(), mpsc::channel(Options::default().updates_capacity));
     let runner = Runner::new(dc, Arc::new(options), conn, ([7; 256], salt, true), Arc::clone(&events), Some(tx));
     let updates = UpdatesRx { rx, events };
     (runner, frames, updates, listener)
@@ -405,7 +405,7 @@ async fn dropped_updates_ask_for_a_difference() {
     let events = r.events.record();
     let empty = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 0, seq: 0 };
     let body = base::Updates::Updates(Box::new(empty)).to_bytes();
-    for id in 0..=UPDATES_BUFFER as i64 {
+    for id in 0..=Options::default().updates_capacity as i64 {
         r.handle_message(id, 0, &body);
     }
     let first = updates.recv().await.unwrap().updates;
@@ -1059,7 +1059,8 @@ async fn dropped_updates_without_pts_are_counted_as_lost() {
     let (mut r, _frames, mut updates) = runner().await;
     let events = r.events.record();
     let empty = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 0, seq: 0 };
-    for id in 0..UPDATES_BUFFER as i64 {
+    let capacity = Options::default().updates_capacity as i64;
+    for id in 0..capacity {
         r.handle_message(id, 0, &base::Updates::Updates(Box::new(empty.clone())).to_bytes());
     }
     let query = types::UpdateBotCallbackQuery {
@@ -1072,7 +1073,7 @@ async fn dropped_updates_without_pts_are_counted_as_lost() {
         game_short_name: None,
     };
     let update = types::UpdateShort { update: base::Update::UpdateBotCallbackQuery(Box::new(query)), date: 0 };
-    r.handle_message(UPDATES_BUFFER as i64, 0, &base::Updates::UpdateShort(Box::new(update)).to_bytes());
+    r.handle_message(capacity, 0, &base::Updates::UpdateShort(Box::new(update)).to_bytes());
     assert!(matches!(updates.recv().await.unwrap().updates, base::Updates::UpdatesTooLong));
     assert!(matches!(events.try_recv(), Ok(ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 })));
 }

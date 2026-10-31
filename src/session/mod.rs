@@ -58,15 +58,12 @@ const DEAD_AFTER: Duration = Duration::from_secs(75);
 const PROBE_AFTER: Duration = Duration::from_secs(10);
 const PROBE_DEAD_AFTER: Duration = Duration::from_secs(20);
 const ACKS_THRESHOLD: usize = 10;
-const UPDATES_BUFFER: usize = 1024;
 const RECONNECT_DELAY: Duration = Duration::from_millis(500);
 const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(30);
 // A server that accepts the connection but never finishes the key exchange.
 const KEY_EXCHANGE_TIMEOUT: Duration = Duration::from_secs(20);
 const TICK: Duration = Duration::from_secs(1);
 const ACK_EVERY: Duration = Duration::from_secs(15);
-// Per call: then the next FLOOD_WAIT goes to the caller, so a call under a raid still ends.
-pub(crate) const MAX_FLOOD_SLEEPS: usize = 5;
 
 type Answer = Result<Vec<u8>>;
 
@@ -227,7 +224,7 @@ impl Session {
         events: Arc<Events>,
         pfs: Option<Vec<u8>>,
     ) -> Result<(Session, UpdatesRx)> {
-        let (tx, rx) = mpsc::channel(UPDATES_BUFFER);
+        let (tx, rx) = mpsc::channel(options.updates_capacity.max(1));
         let pfs = pfs.map(Arc::from);
         let auth_key = auth_key.map(|(key, salt)| Known { key, salt, made: None });
         let session = Session::open(dc, auth_key, None, options, events.clone(), Role::Main(tx), pfs).await?;
