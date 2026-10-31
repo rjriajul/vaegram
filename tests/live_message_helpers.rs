@@ -1,14 +1,16 @@
 mod support;
 
 use vaegram::filters;
-use vaegram::types::{InputMedia, Upload};
+use vaegram::types::{InputMedia, Text, Upload};
 
 #[tokio::test]
 #[ignore = "uses a logged-in user session and a bot"]
-async fn message_helpers_reply_read_and_refetch() {
+async fn message_helpers_format_reply_read_and_refetch() {
     let Some(kit) = support::Kit::from_env().await else { return };
     kit.bot.on_message(filters::private() & filters::text(), |m| async move {
-        if m.text == "album" {
+        if m.text == "format" {
+            m.reply(Text::new().bold("b").plain(" ").link("l", "https://t.me/")).await?;
+        } else if m.text == "album" {
             let album = [
                 InputMedia::document(Upload::bytes("a.txt", b"a")),
                 InputMedia::document(Upload::bytes("b.txt", b"b")),
@@ -17,6 +19,11 @@ async fn message_helpers_reply_read_and_refetch() {
         }
         Ok(())
     });
+
+    // Asked first, so a late album item can't be taken for this reply.
+    let formatted = kit.user.send_and_wait_reply(&kit.bot, "format").await.unwrap();
+    assert_eq!(formatted.html_text(), "<b>b</b> <a href=\"https://t.me/\">l</a>");
+    assert_eq!(formatted.markdown_text(), "**b** [l](https://t.me/)");
 
     let album = kit.user.send_and_wait_reply(&kit.bot, "album").await.unwrap();
     assert!(album.media_group_id.is_some());

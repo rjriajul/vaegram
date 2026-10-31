@@ -1,4 +1,4 @@
-use super::{Kind, Span};
+use super::{Kind, Markup, Span};
 use crate::types::Text;
 
 const DELIMITERS: [&str; 5] = ["**", "__", "--", "~~", "||"];
@@ -120,4 +120,157 @@ fn find_link(rest: &str, at: usize, start: i32) -> Option<Link> {
     let url_part = rest[close + 1..].strip_prefix('(')?;
     let url_end = url_part.find(')')?;
     Some(Link { close: at + close, resume: at + close + 2 + url_end + 1, url: url_part[..url_end].to_owned(), start })
+}
+
+/// Spans the dialect can't express are dropped and their text kept: custom emoji, dates, quotes that don't cover
+/// whole lines, code holding its own fence, link text holding `]`, and a span inside one of the same kind.
+pub(super) fn unparse(text: &Text) -> String {
+    // Each char's UTF-16 offset and byte index, with the end as the last entry.
+    let mut units: Vec<(i32, usize)> = Vec::with_capacity(text.text.len() + 1);
+    let mut at = 0;
+    for (i, c) in text.text.char_indices() {
+        units.push((at, i));
+        at += c.len_utf16() as i32;
+    }
+    units.push((at, text.text.len()));
+    let byte = |at: i32| units[units.partition_point(|&(a, _)| a < at).min(units.len() - 1)].1;
+    let inside = |s: &Span| &text.text[byte(s.start)..byte(s.end)];
+    let char_at = |at: i32| {
+        let i = units.binary_search_by_key(&at, |&(a, _)| a).ok()?;
+        text.text[units[i].1..].chars().next()
+    };
+    let mut spans: Vec<Span> =
+        text.spans.iter().filter(|s| s.start >= 0 && s.end > s.start && s.end <= text.len).cloned().collect();
+    spans.sort_by_key(|s| (s.start, -s.end));
+
+    let (mut kept, mut quotes) = (Vec::<Span>::new(), Vec::<Span>::new());
+    for mut s in spans {
+        if let Kind::Blockquote(_) = s.kind {
+            quotes.push(s);
+            continue;
+        }
+        let content = inside(&s);
+        match &mut s.kind {
+            Kind::CustomEmoji(_) | Kind::DateTime(..) => continue,
+            Kind::Code if content.contains('`') => continue,
+            Kind::Pre(_) if content.contains("```") => continue,
+            Kind::Pre(language) if language.contains(|c: char| c.is_whitespace() || c == '`') => language.clear(),
+            Kind::Link(_) | Kind::Mention(_) if content.contains(']') => continue,
+            _ => {}
+        }
+        let raw = |k: &Kind| matches!(k, Kind::Code | Kind::Pre(_));
+        let class = |k: &Kind| match k {
+            Kind::Mention(_) => std::mem::discriminant(&Kind::Link(String::new())),
+            Kind::Pre(_) => std::mem::discriminant(&Kind::Code),
+            k => std::mem::discriminant(k),
+        };
+        let clashes = kept
+            .iter()
+            .filter(|k| k.start < s.end && s.start < k.end)
+            .any(|k| raw(&k.kind) || class(&k.kind) == class(&s.kind) || (raw(&s.kind) && k.end < s.end));
+        if !clashes {
+            kept.push(s);
+        }
+    }
+
+    let mut lines: Vec<(i32, i32)> = Vec::new();
+    for q in quotes {
+        let whole_lines = (q.start == 0 || char_at(q.start - 1) == Some('\n'))
+            && (q.end == text.len || char_at(q.end) == Some('\n'))
+            && char_at(q.end - 1) != Some('\n');
+        let breaks_code = kept.iter().any(|k| {
+            k.start < q.end
+                && q.start <= k.end
+                && (matches!(k.kind, Kind::Pre(_)) || (k.kind == Kind::Code && inside(k).contains('\n')))
+        });
+        let joins = lines.last().is_some_and(|&(_, end)| q.start <= end + 1);
+        if whole_lines && !breaks_code && !joins {
+            lines.push((q.start, q.end));
+        }
+    }
+
+    let mut out = Markdown { out: String::with_capacity(text.text.len()), quotes: lines, line: 0, prev: None, raw: 0 };
+    super::walk(&text.text, kept, &mut out);
+    out.out
+}
+
+struct Markdown {
+    out: String,
+    quotes: Vec<(i32, i32)>,
+    line: usize,
+    prev: Option<char>,
+    raw: usize,
+}
+
+impl Markup for Markdown {
+    fn open(&mut self, kind: &Kind) {
+        match kind {
+            Kind::Code => {
+                self.raw += 1;
+                self.out.push('`');
+            }
+            Kind::Pre(language) => {
+                self.raw += 1;
+                self.out.push_str("```");
+                self.out.push_str(language);
+                self.out.push('\n');
+            }
+            Kind::Link(_) | Kind::Mention(_) => self.out.push('['),
+            kind => self.out.push_str(delimiter(kind)),
+        }
+    }
+
+    fn close(&mut self, kind: &Kind) {
+        match kind {
+            Kind::Code => {
+                self.raw -= 1;
+                self.out.push('`');
+            }
+            Kind::Pre(_) => {
+                self.raw -= 1;
+                self.out.push_str("\n```");
+            }
+            Kind::Link(url) => {
+                self.out.push_str("](");
+                self.out.push_str(&url.replace(')', "%29"));
+                self.out.push(')');
+            }
+            Kind::Mention(user_id) => {
+                self.out.push_str("](tg://user?id=");
+                self.out.push_str(&user_id.to_string());
+                self.out.push(')');
+            }
+            kind => self.out.push_str(delimiter(kind)),
+        }
+    }
+
+    fn char(&mut self, at: i32, c: char) {
+        let line_start = matches!(self.prev, None | Some('\n'));
+        self.prev = Some(c);
+        if line_start && self.quotes.iter().any(|&(start, end)| start <= at && at < end) {
+            self.out.insert_str(self.line, "> ");
+        }
+        if self.raw > 0 {
+            self.out.push(c);
+            return;
+        }
+        if matches!(c, '\\' | '*' | '_' | '-' | '~' | '|' | '`' | '[' | ']') || (c == '>' && line_start) {
+            self.out.push('\\');
+        }
+        self.out.push(c);
+        if c == '\n' {
+            self.line = self.out.len();
+        }
+    }
+}
+
+fn delimiter(kind: &Kind) -> &'static str {
+    match kind {
+        Kind::Bold => "**",
+        Kind::Italic => "__",
+        Kind::Underline => "--",
+        Kind::Strike => "~~",
+        Kind::Spoiler => "||",
+        _ => "",
+    }
 }

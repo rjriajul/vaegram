@@ -28,6 +28,21 @@ impl Text {
         parser::parse(markdown, ParseMode::Markdown)
     }
 
+    /// A `Text` made straight from a string comes out as plain text: it was never parsed.
+    pub fn to_html(&self) -> String {
+        parser::unparse(self, ParseMode::Html)
+    }
+
+    /// Formatting Markdown can't express (custom emoji, dates, quotes not covering whole lines) is left out.
+    pub fn to_markdown(&self) -> String {
+        parser::unparse(self, ParseMode::Markdown)
+    }
+
+    pub(crate) fn from_raw(text: &str, entities: &[base::MessageEntity]) -> Text {
+        let spans = entities.iter().filter_map(Span::read).collect();
+        Text { text: text.into(), len: text.encode_utf16().count() as i32, spans, unparsed: false }
+    }
+
     pub fn plain(mut self, text: impl Into<Text>) -> Self {
         self.append(text.into());
         self
@@ -415,5 +430,12 @@ mod tests {
             assert_eq!(parts.iter().map(Text::as_str).collect::<String>(), t.as_str());
             assert_eq!(parts.iter().map(Text::len).sum::<usize>(), t.len());
         }
+    }
+
+    #[test]
+    fn unparsed_text_is_plain() {
+        let text = Text::from("<b>*x*</b>");
+        assert_eq!(text.to_html(), "&lt;b&gt;*x*&lt;/b&gt;");
+        assert_eq!(text.to_markdown(), r"<b>\*x\*</b>");
     }
 }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::fmt::Write;
 
-use super::{Kind, MAX_NESTING};
+use super::{Kind, MAX_NESTING, Markup};
 use crate::types::Text;
 
 fn is_known(name: &str) -> bool {
@@ -201,4 +202,98 @@ fn read_entity(s: &str) -> Option<(char, usize)> {
         }
     };
     Some((c, end + 1))
+}
+
+pub(super) fn unparse(text: &Text) -> String {
+    let mut out = Html(String::with_capacity(text.text.len()));
+    super::walk(&text.text, text.spans.clone(), &mut out);
+    out.0
+}
+
+struct Html(String);
+
+impl Html {
+    fn attr(&mut self, value: &str) {
+        for c in value.chars() {
+            match c {
+                '&' => self.0.push_str("&amp;"),
+                '"' => self.0.push_str("&quot;"),
+                c => self.0.push(c),
+            }
+        }
+    }
+}
+
+impl Markup for Html {
+    fn open(&mut self, kind: &Kind) {
+        let tag = match kind {
+            Kind::Bold => "<b>",
+            Kind::Italic => "<i>",
+            Kind::Underline => "<u>",
+            Kind::Strike => "<s>",
+            Kind::Spoiler => "<tg-spoiler>",
+            Kind::Code => "<code>",
+            Kind::Pre(language) if language.is_empty() => "<pre>",
+            Kind::Pre(language) => {
+                self.0.push_str("<pre><code class=\"language-");
+                self.attr(language);
+                "\">"
+            }
+            Kind::Link(url) => {
+                self.0.push_str("<a href=\"");
+                self.attr(url);
+                "\">"
+            }
+            Kind::Mention(user_id) => {
+                let _ = write!(self.0, "<a href=\"tg://user?id={user_id}\">");
+                ""
+            }
+            Kind::Blockquote(false) => "<blockquote>",
+            Kind::Blockquote(true) => "<blockquote expandable>",
+            Kind::CustomEmoji(document_id) => {
+                let _ = write!(self.0, "<tg-emoji emoji-id=\"{document_id}\">");
+                ""
+            }
+            &Kind::DateTime(unix_time, flags) => {
+                let _ = write!(self.0, "<tg-time unix=\"{unix_time}\"");
+                if flags != 0 {
+                    let format: String = "rtTdDw"
+                        .chars()
+                        .enumerate()
+                        .filter(|(bit, _)| flags & (1 << bit) != 0)
+                        .map(|(_, c)| c)
+                        .collect();
+                    let _ = write!(self.0, " format=\"{format}\"");
+                }
+                ">"
+            }
+        };
+        self.0.push_str(tag);
+    }
+
+    fn close(&mut self, kind: &Kind) {
+        self.0.push_str(match kind {
+            Kind::Bold => "</b>",
+            Kind::Italic => "</i>",
+            Kind::Underline => "</u>",
+            Kind::Strike => "</s>",
+            Kind::Spoiler => "</tg-spoiler>",
+            Kind::Code => "</code>",
+            Kind::Pre(language) if language.is_empty() => "</pre>",
+            Kind::Pre(_) => "</code></pre>",
+            Kind::Link(_) | Kind::Mention(_) => "</a>",
+            Kind::Blockquote(_) => "</blockquote>",
+            Kind::CustomEmoji(_) => "</tg-emoji>",
+            Kind::DateTime(..) => "</tg-time>",
+        });
+    }
+
+    fn char(&mut self, _: i32, c: char) {
+        match c {
+            '&' => self.0.push_str("&amp;"),
+            '<' => self.0.push_str("&lt;"),
+            '>' => self.0.push_str("&gt;"),
+            c => self.0.push(c),
+        }
+    }
 }

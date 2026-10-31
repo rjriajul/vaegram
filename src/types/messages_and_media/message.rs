@@ -415,6 +415,19 @@ impl Message {
         }
     }
 
+    /// The text or caption as HTML.
+    pub fn html_text(&self) -> String {
+        self.formatted().to_html()
+    }
+
+    pub fn markdown_text(&self) -> String {
+        self.formatted().to_markdown()
+    }
+
+    fn formatted(&self) -> Text {
+        Text::from_raw(&self.raw.message, self.raw.entities.as_deref().unwrap_or_default())
+    }
+
     pub fn command(&self) -> Option<Command<'_>> {
         self.command_with("/")
     }
@@ -1069,5 +1082,20 @@ pub(crate) mod tests {
         message.business_connection_id = Some("c".into());
         assert!(message.reply_media_group(album).await.is_err());
         assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
+    }
+
+    #[test]
+    fn message_html_text_uses_text_or_caption() {
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        raw.message = "hi <3".into();
+        let bold = types::MessageEntityBold { offset: 0, length: 2 };
+        raw.entities = Some(vec![base::MessageEntity::MessageEntityBold(bold)]);
+        let text = parse(&raw);
+        assert_eq!((text.html_text().as_str(), text.markdown_text().as_str()), ("<b>hi</b> &lt;3", "**hi** <3"));
+        raw.media = Some(document_media("application/pdf", Vec::new()));
+        let media = parse(&raw);
+        assert_eq!((media.caption.as_deref(), media.html_text().as_str()), (Some("hi <3"), "<b>hi</b> &lt;3"));
+        // A message without text or caption has nothing to format.
+        assert_eq!(parse(&Message::bare(2, get_peer(7), 0)).html_text(), "");
     }
 }
