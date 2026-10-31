@@ -4,6 +4,7 @@
 mod support;
 
 use vaegram::Client;
+use vaegram::raw::{base, functions, types};
 use vaegram::types::InvoiceRef;
 
 async fn user() -> Option<Client> {
@@ -55,4 +56,43 @@ async fn user_pays_a_stars_invoice() {
     }
     user.send_payment_form(form).await.unwrap();
     assert_eq!(user.get_my_star_balance().await.unwrap().amount, before.amount - total);
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_reads_stars_and_gift_counts() {
+    let Some(user) = user().await else { return };
+    user.get_ton_balance().await.unwrap();
+    let count = user.get_chat_gifts_count("me").await.unwrap();
+    assert_eq!(count, user.get_chat_gifts("me").limit(1).await.unwrap().total_count);
+}
+
+async fn subscriptions(user: &Client) -> Vec<types::StarsSubscription> {
+    let request = functions::payments::GetStarsSubscriptions {
+        missing_balance: false,
+        peer: base::InputPeer::InputPeerSelf,
+        offset: String::new(),
+    };
+    let base::payments::StarsStatus::StarsStatus(status) = user.invoke(&request).await.unwrap();
+    let subscriptions = status.subscriptions.unwrap_or_default();
+    subscriptions.into_iter().map(|base::StarsSubscription::StarsSubscription(s)| *s).collect()
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_cancels_and_restores_a_star_subscription() {
+    let Some(user) = user().await else { return };
+    let Some(active) = subscriptions(&user).await.into_iter().find(|s| !s.canceled) else {
+        eprintln!("skipped: the account has no active Star subscription");
+        return;
+    };
+    let canceled = async |id: &str| subscriptions(&user).await.into_iter().find(|s| s.id == id).map(|s| s.canceled);
+    user.edit_star_subscription(&active.id, true).await.unwrap();
+    assert_eq!(canceled(&active.id).await, Some(true));
+    user.edit_star_subscription(&active.id, false).await.unwrap();
+    assert_eq!(canceled(&active.id).await, Some(false));
+
+    if let Some(lapsed) = subscriptions(&user).await.into_iter().find(|s| s.can_refulfill) {
+        user.reuse_star_subscription(&lapsed.id).await.unwrap();
+    }
 }
