@@ -13,6 +13,7 @@ use crate::types::{
     RawUpdate, ShippingQuery, UserStatusUpdated,
 };
 
+pub use crate::dispatcher::listeners::Listenable;
 pub use crate::dispatcher::router::UpdateKind;
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
