@@ -567,14 +567,15 @@ impl Client {
     /// Sends a request about an inline message to `dc_id`, the DC its id names, which is the only one that
     /// serves it.
     pub(crate) async fn invoke_inline<R: RemoteCall>(&self, dc_id: i32, request: R) -> Result<R::Return> {
-        if dc_id == self.session().dc_id() {
-            return self.invoke(&request).await;
-        }
-        let lease = self.transfer_sessions(self.dc(dc_id)?, 1).await?;
+        self.invoke_in_dc(dc_id, &request).await
+    }
+
+    /// `invoke_in_dc` away from home, on a file connection with the login imported.
+    pub(crate) async fn invoke_on_file_connection<R: RemoteCall>(&self, dc: Dc, request: &R) -> Result<R::Return> {
+        let lease = self.transfer_sessions(dc, 1).await?;
         // A reopened file connection hasn't sent its layer, and the answer can carry users.
-        let session = &lease.sessions[0];
-        let request = init_connection(self.0.api_id, &self.0.options, request);
-        invoke_sleeping_floods(session, &request, self.0.options.request_timeout).await
+        let request = init_connection(self.0.api_id, &self.0.options, Borrowed(request));
+        invoke_sleeping_floods(&lease.sessions[0], &request, self.0.options.request_timeout).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {
@@ -612,6 +613,20 @@ async fn connect(
     let init = init_connection(api_id, options, functions::help::GetConfig {});
     let base::Config::Config(config) = session.invoke(&init).await?;
     Ok((session, updates, config.dc_options))
+}
+
+// Wraps a request in initConnection without cloning it.
+struct Borrowed<'a, R>(&'a R);
+
+impl<R: Serializable> Serializable for Borrowed<'_, R> {
+    fn serialize(&self, buf: &mut Vec<u8>) {
+        self.0.serialize(buf);
+    }
+}
+
+impl<R: RemoteCall> RemoteCall for Borrowed<'_, R> {
+    const NAME: &'static str = R::NAME;
+    type Return = R::Return;
 }
 
 #[cfg(test)]

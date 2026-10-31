@@ -1,11 +1,13 @@
 #[allow(dead_code)]
 mod support;
 
+use std::sync::Mutex;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
+use vaegram::raw::{base, functions};
 use vaegram::types::Upload;
-use vaegram::{Client, Error};
+use vaegram::{Client, Error, filters};
 
 const WAIT: Duration = Duration::from_secs(30);
 
@@ -106,4 +108,64 @@ async fn restart_fires_connect_hooks() {
     client.get_me().await.unwrap();
     client.stop();
     assert!(run.await.unwrap().is_ok());
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn invoke_in_dc_reaches_the_other_dc() {
+    let Some(client) = user_client().await else { return };
+    let base::NearestDc::NearestDc(home) = client.invoke(&functions::help::GetNearestDc {}).await.unwrap();
+    let other = if home.this_dc == 2 { 4 } else { 2 };
+    let base::NearestDc::NearestDc(there) =
+        client.invoke_in_dc(other, &functions::help::GetNearestDc {}).await.unwrap();
+    assert_eq!(there.this_dc, other);
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session and a bot token"]
+async fn bot_skips_missed_updates_without_catch_up() {
+    let (Ok(session), Ok(token)) = (std::env::var("VAEGRAM_USER_SESSION"), std::env::var("VAEGRAM_BOT_TOKEN")) else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name) and VAEGRAM_BOT_TOKEN");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let (api_id, api_hash): (i32, String) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
+    let user = Client::builder(session, api_id, api_hash.clone()).connect().await.unwrap();
+    let bot = |catch_up| {
+        let builder = Client::builder("target/vaegram-catch-up-bot", api_id, api_hash.clone());
+        builder.bot_token(token.clone()).catch_up(catch_up).start()
+    };
+
+    // A run that stops at once leaves the state saved.
+    let first = bot(true).await.unwrap();
+    first.stop();
+    first.run().await.unwrap();
+    let base::User::User(me) = first.get_me().await.unwrap() else { panic!("the bot has no user") };
+    drop(first);
+    let bot_id = user.resolve_username(&me.username.expect("the bot has no username")).await.unwrap();
+    let missed = user.send_message(bot_id, "/missed").await.unwrap();
+
+    let second = bot(false).await.unwrap();
+    let (tx, mut texts) = mpsc::unbounded_channel();
+    second.on_message(filters::private(), move |m| {
+        let _ = tx.send(m.text);
+        async { Ok(()) }
+    });
+    let (started, running) = oneshot::channel();
+    let started = Mutex::new(Some(started));
+    second.on_start(move |_| {
+        let _ = started.lock().unwrap().take().map(|s| s.send(()));
+        async { Ok(()) }
+    });
+    let run = tokio::spawn({
+        let second = second.clone();
+        async move { second.run().await }
+    });
+    tokio::time::timeout(WAIT, running).await.unwrap().unwrap();
+    let live = user.send_message(bot_id, "/live").await.unwrap();
+    let seen = tokio::time::timeout(WAIT, texts.recv()).await.unwrap();
+    second.stop();
+    assert!(run.await.unwrap().is_ok());
+    user.delete_messages(bot_id, &[missed.id, live.id]).await.unwrap();
+    assert_eq!(seen.as_deref(), Some("/live"));
 }

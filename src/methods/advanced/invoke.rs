@@ -20,6 +20,17 @@ impl Client {
         invoke_sleeping_floods(&self.session(), request, timeout).await
     }
 
+    /// Sends `request` to data center `dc_id` under this login, which is exported there the first time. The home
+    /// DC takes a plain `invoke`; an unknown one fails with `Error::InvalidDc` before anything is sent. Updates in
+    /// the answer aren't dispatched. Calls in flight end with `Error::Disconnected` on `stop_transmission` or
+    /// `disconnect`, which close the connections they share with file transfers.
+    pub async fn invoke_in_dc<R: RemoteCall>(&self, dc_id: i32, request: &R) -> Result<R::Return> {
+        if dc_id == self.session().dc_id() {
+            return self.invoke(request).await;
+        }
+        self.invoke_on_file_connection(self.dc(dc_id)?, request).await
+    }
+
     /// Hands the request back: a short "sent" update only carries what Telegram changed, the rest comes from it.
     pub(crate) async fn invoke_business<R: RemoteCall>(
         &self,
@@ -110,6 +121,41 @@ mod tests {
         let e = client.invoke(&functions::Ping { ping_id: 7 }).await.unwrap_err();
         let Error::Rpc(e) = e else { panic!("{e}") };
         assert_eq!((e.name.as_str(), e.value, count(&mut sent)), ("FLOOD_WAIT", Some(1), 1));
+    }
+
+    #[tokio::test]
+    async fn invoke_in_dc_on_the_home_dc_is_a_plain_invoke() {
+        let (client, mut sent) = Client::scripted(vec![Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes())]);
+        let ping = functions::Ping { ping_id: 7 };
+        assert!(client.invoke_in_dc(2, &ping).await.is_ok());
+        assert_eq!(sent.try_recv().unwrap(), ping.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn invoke_in_dc_imports_the_login_once() {
+        use crate::session::test_dc::INVOKE_WITH_LAYER as LAYER;
+        use crate::session::test_dc::{EXPORT_AUTHORIZATION, IMPORT_AUTHORIZATION, INIT_CONNECTION, PING, TestDc};
+        let dc = TestDc::start([5; 256], false).await;
+        let client = dc.client([5; 256]).await;
+        for ping_id in 1..=2 {
+            let base::Pong::Pong(pong) = client.invoke_in_dc(FOREIGN_DC, &functions::Ping { ping_id }).await.unwrap();
+            assert_eq!(pong.ping_id, ping_id);
+        }
+        let calls = |connection| -> Vec<Vec<u32>> {
+            dc.seen().into_iter().filter(|s| s.connection == connection).map(|s| s.ids).collect()
+        };
+        assert_eq!(calls(1).iter().filter(|ids| **ids == [EXPORT_AUTHORIZATION]).count(), 1);
+        let import = vec![LAYER, INIT_CONNECTION, IMPORT_AUTHORIZATION];
+        let ping = vec![LAYER, INIT_CONNECTION, PING];
+        assert_eq!(calls(2), [import, ping.clone(), ping]);
+    }
+
+    #[tokio::test]
+    async fn invoke_in_dc_on_an_unknown_dc_fails_before_any_request() {
+        let (client, mut sent) = Client::recording();
+        let result = client.invoke_in_dc(99, &functions::Ping { ping_id: 7 }).await;
+        assert!(matches!(result, Err(Error::InvalidDc(99))), "{result:?}");
+        assert!(sent.try_recv().is_err());
     }
 
     #[tokio::test(start_paused = true)]
