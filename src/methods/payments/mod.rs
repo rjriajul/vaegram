@@ -1,6 +1,9 @@
 mod apply_gift_code;
+mod buy_gift_upgrade;
 mod check_gift_code;
 mod convert_gift_to_stars;
+mod delete_gift;
+mod drop_gift_original_details;
 mod edit_star_subscription;
 mod get_available_gifts;
 mod get_business_account_gifts;
@@ -25,6 +28,7 @@ mod search_gifts_for_resale;
 mod send_gift;
 mod send_payment_form;
 mod send_resold_gift;
+mod set_gift_resale_price;
 mod set_pinned_gifts;
 mod show_gift;
 mod transfer_gift;

@@ -27,6 +27,8 @@ pub struct OwnedGiftRegular {
     pub prepaid_upgrade_star_count: Option<i64>,
     pub is_upgrade_separate: bool,
     pub unique_gift_number: Option<i32>,
+    /// Lets anyone pay for this gift's upgrade with [`Client::buy_gift_upgrade`].
+    pub prepaid_upgrade_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +41,7 @@ pub struct OwnedGiftUnique {
     pub can_be_transferred: bool,
     pub transfer_star_count: Option<i64>,
     pub next_transfer_date: Option<i32>,
+    pub drop_original_details_star_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +76,7 @@ impl OwnedGift {
                     prepaid_upgrade_star_count: raw.upgrade_stars,
                     is_upgrade_separate: raw.upgrade_separate,
                     unique_gift_number: raw.gift_num,
+                    prepaid_upgrade_hash: raw.prepaid_upgrade_hash.clone(),
                 }))
             }
             base::StarGift::StarGiftUnique(g) => OwnedGift::Unique(Box::new(OwnedGiftUnique {
@@ -84,6 +88,7 @@ impl OwnedGift {
                 can_be_transferred: raw.transfer_stars.is_some() || raw.can_transfer_at.is_some(),
                 transfer_star_count: raw.transfer_stars,
                 next_transfer_date: raw.can_transfer_at,
+                drop_original_details_star_count: raw.drop_original_details_stars,
             })),
         })
     }
@@ -148,7 +153,10 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    use super::{OwnedGiftRef, owned_gift_id, parse_owned_gift_id};
+    use super::{OwnedGift, OwnedGiftRef, owned_gift_id, parse_owned_gift_id};
+    use crate::dispatcher::Entities;
+    use crate::raw::{base, types};
+    use crate::types::messages_and_media::media::tests::document_media;
 
     #[test]
     fn owned_gift_ids_round_trip() {
@@ -161,5 +169,130 @@ mod tests {
 
         assert_eq!(owned_gift_id(7, None, None), None);
         assert!(matches!(parse_owned_gift_id("PlushPepe-12"), OwnedGiftRef::Slug("PlushPepe-12")));
+    }
+
+    fn regular_gift() -> base::StarGift {
+        let sticker = base::DocumentAttribute::DocumentAttributeSticker(Box::new(types::DocumentAttributeSticker {
+            mask: false,
+            alt: String::new(),
+            stickerset: base::InputStickerSet::InputStickerSetEmpty,
+            mask_coords: None,
+        }));
+        let base::MessageMedia::MessageMediaDocument(media) = document_media("image/webp", vec![sticker]) else {
+            panic!("expected a document")
+        };
+        base::StarGift::StarGift(Box::new(types::StarGift {
+            limited: false,
+            sold_out: false,
+            birthday: false,
+            require_premium: false,
+            limited_per_user: false,
+            peer_color_available: false,
+            auction: false,
+            id: 1,
+            sticker: media.document.expect("a sticker"),
+            stars: 50,
+            availability_remains: None,
+            availability_total: None,
+            availability_resale: None,
+            convert_stars: 40,
+            first_sale_date: None,
+            last_sale_date: None,
+            upgrade_stars: Some(25),
+            resell_min_stars: None,
+            title: None,
+            released_by: None,
+            per_user_total: None,
+            per_user_remains: None,
+            locked_until_date: None,
+            auction_slug: None,
+            gifts_per_round: None,
+            auction_start_date: None,
+            upgrade_variants: None,
+            background: None,
+        }))
+    }
+
+    fn unique_gift() -> base::StarGift {
+        base::StarGift::StarGiftUnique(Box::new(types::StarGiftUnique {
+            require_premium: false,
+            resale_ton_only: false,
+            theme_available: false,
+            burned: false,
+            crafted: false,
+            id: 1,
+            gift_id: 2,
+            title: "Plush Pepe".into(),
+            slug: "PlushPepe-3".into(),
+            num: 3,
+            owner_id: None,
+            owner_name: None,
+            owner_address: None,
+            attributes: Vec::new(),
+            availability_issued: 10,
+            availability_total: 100,
+            gift_address: None,
+            resell_amount: None,
+            released_by: None,
+            value_amount: None,
+            value_currency: None,
+            value_usd_amount: None,
+            theme_peer: None,
+            peer_color: None,
+            host_id: None,
+            offer_min_stars: None,
+            craft_chance_permille: None,
+        }))
+    }
+
+    fn saved(gift: base::StarGift) -> types::SavedStarGift {
+        types::SavedStarGift {
+            name_hidden: false,
+            unsaved: false,
+            refunded: false,
+            can_upgrade: false,
+            pinned_to_top: false,
+            upgrade_separate: false,
+            from_id: None,
+            date: 1,
+            gift,
+            message: None,
+            msg_id: Some(9),
+            saved_id: None,
+            convert_stars: None,
+            upgrade_stars: None,
+            can_export_at: None,
+            transfer_stars: None,
+            can_transfer_at: None,
+            can_resell_at: None,
+            collection_id: None,
+            prepaid_upgrade_hash: Some("h1".into()),
+            drop_original_details_stars: Some(250),
+            gift_num: None,
+            can_craft_at: None,
+        }
+    }
+
+    #[test]
+    fn maps_upgrade_hash_and_detail_drop_price() {
+        let entities = Entities::default();
+        let Some(OwnedGift::Regular(regular)) = OwnedGift::parse(&saved(regular_gift()), 7, &entities) else {
+            panic!("expected a regular gift")
+        };
+        assert_eq!(regular.prepaid_upgrade_hash.as_deref(), Some("h1"));
+        let Some(OwnedGift::Unique(unique)) = OwnedGift::parse(&saved(unique_gift()), 7, &entities) else {
+            panic!("expected a unique gift")
+        };
+        assert_eq!(unique.drop_original_details_star_count, Some(250));
+
+        let bare = types::SavedStarGift {
+            prepaid_upgrade_hash: None,
+            drop_original_details_stars: None,
+            ..saved(regular_gift())
+        };
+        let Some(OwnedGift::Regular(regular)) = OwnedGift::parse(&bare, 7, &entities) else {
+            panic!("expected a regular gift")
+        };
+        assert_eq!(regular.prepaid_upgrade_hash, None);
     }
 }
