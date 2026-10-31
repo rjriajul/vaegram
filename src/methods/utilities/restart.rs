@@ -22,6 +22,8 @@ mod tests {
     async fn restart_moves_the_main_connection_to_a_new_socket() {
         let dc = TestDc::start([5; 256], false).await;
         let client = dc.client([5; 256]).await;
+        // Two answers on the first connection, so a msg_id the second one repeats would be dropped.
+        client.invoke(&functions::Ping { ping_id: 0 }).await.unwrap();
         let events = client.0.events.record();
 
         client.restart().unwrap();
