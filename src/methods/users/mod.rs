@@ -1,3 +1,4 @@
+mod check_username;
 mod clear_recent_emoji_statuses;
 mod delete_profile_photos;
 mod get_chat_photos;

@@ -81,3 +81,46 @@ async fn user_session_is_authorized() {
     let Some(user) = user_client().await else { return };
     assert!(user.is_authorized().await.unwrap());
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session; creates and deletes a channel"]
+async fn user_checks_usernames_and_lists_owned_bots() {
+    let Some(user) = user_client().await else { return };
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("no account") };
+    if let Some(own) = me.username {
+        // Telegram's answer for the account's own name isn't documented; only a crash would be wrong.
+        let result = user.check_username("me", own).await;
+        assert!(result.is_ok() || result.as_ref().is_err_and(|e| e.rpc().is_some()), "{result:?}");
+    }
+    let channel = user.create_channel("vaegram username check", "").await.unwrap();
+    let free = user.check_username(channel.id, format!("vaegram_free_{}", test_number())).await;
+    user.delete_channel(channel.id).await.unwrap();
+    assert!(free.unwrap());
+
+    let taken = user.check_bot_username("BotFather").await;
+    assert!(matches!(taken, Ok(false)) || taken.as_ref().is_err_and(|e| e.rpc().is_some()), "{taken:?}");
+    for bot in user.get_owned_bots().await.unwrap() {
+        assert!(bot.is_bot, "{bot:?}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "creates a managed bot that stays on the account"]
+async fn user_creates_a_managed_bot() {
+    if std::env::var("VAEGRAM_CREATE_BOT").as_deref() != Ok("1") {
+        eprintln!("skipped: set VAEGRAM_CREATE_BOT=1 to create a bot that stays on the account");
+        return;
+    }
+    let Some(kit) = support::Kit::from_env().await else { return };
+    let base::User::User(manager) = kit.bot.get_me().await.unwrap() else { panic!("the bot has no user") };
+    let name = manager.username.expect("the kit's bot has no username");
+    let manager = kit.user.client.get_users([format!("@{name}")]).await.unwrap().remove(0);
+    if !manager.can_manage_bots {
+        eprintln!("skipped: the kit's bot can't manage bots");
+        return;
+    }
+    let username = format!("vaegram_{}_bot", test_number());
+    let bot = kit.user.client.create_bot(manager.id, "vaegram managed", username.as_str()).await.unwrap();
+    assert!(bot.is_bot);
+    assert_eq!(bot.username.as_deref(), Some(username.as_str()));
+}
