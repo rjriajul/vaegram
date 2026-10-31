@@ -220,8 +220,9 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   `.suggested_post_parameters(..)`, `.direct_messages_topic_id(user)`, `msg.direct_messages_topic` (not yet tested live)
 - [ ] Ephemeral messages: send, edit, delete, handlers and callback queries (not yet tested live)
 - [ ] Reactions: `send_reaction`, `msg.react(..)`, `msg.reactions`, `on_message_reaction`, `on_message_reaction_count` (not yet tested live)
-- [ ] Forum topics, also in private chats with bots: `create_forum_topic(chat, "Ideas")`, `msg.service`
-  (`ServiceAction::ForumTopicCreated`, ..), `msg.message_thread_id` (not yet tested live)
+- [ ] Forum topics, also in private chats with bots: `create_forum_topic(chat, "Ideas")`, `get_forum_topics(chat)`,
+  `pin_forum_topic(chat, id)`, `msg.service` (`ServiceAction::ForumTopicCreated`, ..), `msg.message_thread_id` (not
+  yet tested live)
 - [ ] Business accounts: `on_business_message`, `on_business_connection`, `on_deleted_business_messages`, replies on
   behalf of the account, `read_business_message`, name, bio, username, gift settings and Stars (not yet tested live)
 - [ ] Rich messages: `send_rich_message(chat, InputRichMessage::html("<b>hi</b>"))`, blocks such as

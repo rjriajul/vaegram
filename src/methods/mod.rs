@@ -51,8 +51,8 @@ pub use business::{
 };
 pub use chats::{
     BanChatMember, CreateForumTopic, DeleteChatHistory, DeleteChatWallpaper, EditForumTopic, GetChatAdministrators,
-    GetChatEventLog, GetChatMembers, GetDialogs, GetMessagePublicForwards, RestrictChatMember, SetChatAccentColor,
-    SetChatPhoto, SetChatWallpaper, UpdateChatNotifications,
+    GetChatEventLog, GetChatMembers, GetDialogs, GetForumTopics, GetMessagePublicForwards, RestrictChatMember,
+    SetChatAccentColor, SetChatPhoto, SetChatWallpaper, UpdateChatNotifications,
 };
 pub use contacts::AddContact;
 pub use folders::{CreateFolderInviteLink, EditFolderInviteLink, LeaveFolder};

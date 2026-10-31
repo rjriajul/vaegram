@@ -1010,3 +1010,26 @@ async fn user_reads_app_config_and_languages() {
     let diff = user.get_lang_pack_difference("android", "en", pack.version).await.unwrap();
     assert!(diff.version >= pack.version);
 }
+
+#[tokio::test]
+#[ignore = "creates and deletes a supergroup with a logged-in user session"]
+async fn user_lists_and_pins_forum_topics() {
+    let Some(user) = user_client().await else { return };
+    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
+    user.toggle_forum_topics(group.id, true, false).await.unwrap();
+    let first = user.create_forum_topic(group.id, "first").await.unwrap();
+    let second = user.create_forum_topic(group.id, "second").await.unwrap();
+
+    let mut topics = user.get_forum_topics(group.id).limit(10);
+    let mut ids = Vec::new();
+    while let Some(topic) = topics.next().await.unwrap() {
+        ids.push(topic.id);
+    }
+    assert!(ids.contains(&first.id) && ids.contains(&second.id), "{ids:?}");
+
+    user.pin_forum_topic(group.id, first.id).await.unwrap();
+    assert!(user.get_forum_topics_by_id(group.id, &[first.id]).await.unwrap()[0].is_pinned);
+    user.unpin_forum_topic(group.id, first.id).await.unwrap();
+    assert!(!user.get_forum_topics_by_id(group.id, &[first.id]).await.unwrap()[0].is_pinned);
+    user.delete_supergroup(group.id).await.unwrap();
+}

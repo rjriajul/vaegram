@@ -29,6 +29,8 @@ mod get_chat_online_count;
 mod get_dialogs;
 mod get_dialogs_count;
 mod get_forum_topic_icon_stickers;
+mod get_forum_topics;
+mod get_forum_topics_by_id;
 mod get_message_public_forwards;
 mod get_message_statistics;
 mod get_peer_colors;
@@ -45,6 +47,7 @@ mod leave_chat;
 mod mark_chat_unread;
 mod mute_chat;
 mod pin_chat;
+mod pin_forum_topic;
 mod promote_chat_member;
 mod reopen_forum_topic;
 mod reopen_general_forum_topic;
@@ -77,6 +80,7 @@ mod unmute_chat;
 mod unpin_all_forum_topic_messages;
 mod unpin_all_general_forum_topic_messages;
 mod unpin_chat;
+mod unpin_forum_topic;
 mod update_chat_notifications;
 
 pub use ban_chat_member::BanChatMember;
@@ -88,6 +92,7 @@ pub use get_chat_administrators::GetChatAdministrators;
 pub use get_chat_event_log::GetChatEventLog;
 pub use get_chat_members::GetChatMembers;
 pub use get_dialogs::GetDialogs;
+pub use get_forum_topics::GetForumTopics;
 pub use get_message_public_forwards::GetMessagePublicForwards;
 pub use restrict_chat_member::RestrictChatMember;
 pub use set_chat_accent_color::SetChatAccentColor;
@@ -349,5 +354,254 @@ mod appearance_tests {
         let refused = client.set_chat_accent_color(GROUP, Some(3)).await;
         assert!(matches!(refused, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
+    }
+}
+
+#[cfg(test)]
+mod forum_topic_tests {
+    use tokio::sync::mpsc::UnboundedReceiver;
+
+    use crate::Client;
+    use crate::errors::{Error, Result, RpcError};
+    use crate::raw::functions::messages;
+    use crate::raw::{Serializable, base, types};
+    use crate::types::{ForumTopic, Message};
+    use crate::utils::{get_channel_id, get_peer};
+
+    const USER: i64 = 7;
+
+    fn channel() -> base::InputPeer {
+        base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 9, access_hash: 1 }))
+    }
+
+    fn user_peer() -> base::InputPeer {
+        base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: USER, access_hash: 2 }))
+    }
+
+    fn topic_client(replies: Vec<Result<Vec<u8>>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
+        let (client, rx) = Client::scripted(replies);
+        client.0.peers.lock().unwrap().extend([(get_channel_id(9), channel()), (USER, user_peer())]);
+        (client, rx)
+    }
+
+    fn user(id: i64) -> base::User {
+        let mut buf = Vec::new();
+        // Only access_hash is set.
+        for word in [1u32, 0] {
+            word.serialize(&mut buf);
+        }
+        id.serialize(&mut buf);
+        (id * 10).serialize(&mut buf);
+        base::User::User(Box::new(types::User::deserialize_bare(&mut &buf[..]).unwrap()))
+    }
+
+    fn topic(id: i32, date: i32, top_message: i32) -> base::ForumTopic {
+        let notify_settings = types::PeerNotifySettings {
+            show_previews: None,
+            silent: None,
+            mute_until: None,
+            ios_sound: None,
+            android_sound: None,
+            other_sound: None,
+            stories_muted: None,
+            stories_hide_sender: None,
+            stories_ios_sound: None,
+            stories_android_sound: None,
+            stories_other_sound: None,
+        };
+        let topic = types::ForumTopic {
+            my: false,
+            closed: false,
+            pinned: false,
+            short: false,
+            hidden: false,
+            title_missing: false,
+            id,
+            date,
+            peer: get_peer(get_channel_id(9)),
+            title: format!("topic {id}"),
+            icon_color: 0x6FB9F0,
+            icon_emoji_id: None,
+            top_message,
+            read_inbox_max_id: 0,
+            read_outbox_max_id: 0,
+            unread_count: 0,
+            unread_mentions_count: 0,
+            unread_reactions_count: 0,
+            unread_poll_votes_count: 0,
+            from_id: get_peer(USER),
+            notify_settings: base::PeerNotifySettings::PeerNotifySettings(Box::new(notify_settings)),
+            draft: None,
+        };
+        base::ForumTopic::ForumTopic(Box::new(topic))
+    }
+
+    fn deleted(id: i32) -> base::ForumTopic {
+        base::ForumTopic::ForumTopicDeleted(types::ForumTopicDeleted { id })
+    }
+
+    fn message(id: i32, date: i32) -> base::Message {
+        base::Message::Message(Box::new(Message::bare(id, get_peer(get_channel_id(9)), date)))
+    }
+
+    fn page(topics: Vec<base::ForumTopic>, messages: Vec<base::Message>, order_by_create_date: bool) -> Vec<u8> {
+        let page = types::messages::ForumTopics {
+            order_by_create_date,
+            count: 1000,
+            topics,
+            messages,
+            chats: Vec::new(),
+            users: vec![user(8)],
+            pts: 1,
+        };
+        base::messages::ForumTopics::ForumTopics(Box::new(page)).to_bytes()
+    }
+
+    // The last topic is 100, created at 110 with top message 1100.
+    fn full() -> Vec<base::ForumTopic> {
+        (1..=100).map(|id| topic(id, 10 + id, 1000 + id)).collect()
+    }
+
+    fn list(offset_date: i32, offset_id: i32, offset_topic: i32, limit: i32) -> Vec<u8> {
+        messages::GetForumTopics { peer: channel(), q: None, offset_date, offset_id, offset_topic, limit }.to_bytes()
+    }
+
+    async fn request_after(first: Vec<u8>) -> Vec<u8> {
+        let (client, mut rx) = topic_client(vec![Ok(first)]);
+        let mut topics = client.get_forum_topics(get_channel_id(9));
+        while let Ok(Some(_)) = topics.next().await {}
+        rx.try_recv().unwrap();
+        rx.try_recv().expect("no second request")
+    }
+
+    #[test]
+    fn parses_topic_flags_and_counts() {
+        let base::ForumTopic::ForumTopic(mut raw) = topic(5, 100, 40) else { unreachable!() };
+        (raw.closed, raw.pinned, raw.hidden, raw.title_missing) = (true, true, true, true);
+        (raw.unread_count, raw.unread_mentions_count, raw.unread_reactions_count) = (3, 2, 1);
+        raw.icon_emoji_id = Some(42);
+        let expected = ForumTopic {
+            id: 5,
+            title: "topic 5".into(),
+            icon_color: 0x6FB9F0,
+            icon_emoji_id: Some(42),
+            is_name_implicit: true,
+            date: 100,
+            top_message_id: 40,
+            unread_messages_count: 3,
+            unread_mentions_count: 2,
+            unread_reactions_count: 1,
+            is_closed: true,
+            is_pinned: true,
+            is_hidden: true,
+        };
+        assert_eq!(ForumTopic::parse(base::ForumTopic::ForumTopic(raw)), Some(expected));
+    }
+
+    #[test]
+    fn deleted_topic_parses_to_none() {
+        assert_eq!(ForumTopic::parse(deleted(5)), None);
+    }
+
+    #[tokio::test]
+    async fn lists_topics_until_a_short_page() {
+        let first = page(full(), vec![message(1100, 77)], false);
+        let (client, mut rx) = topic_client(vec![Ok(first), Ok(page(vec![topic(101, 5, 1101)], Vec::new(), false))]);
+        let mut topics = client.get_forum_topics(get_channel_id(9));
+        let mut ids = Vec::new();
+        while let Some(topic) = topics.next().await.unwrap() {
+            ids.push(topic.id);
+        }
+        assert_eq!(ids, (1..=101).collect::<Vec<_>>());
+        assert_eq!(rx.try_recv().unwrap(), list(0, 0, 0, 100));
+        assert_eq!(rx.try_recv().unwrap(), list(77, 1100, 100, 100));
+        assert!(rx.try_recv().is_err());
+        assert!(client.0.peers.lock().unwrap().contains_key(&8));
+
+        let _ = client.get_forum_topics(get_channel_id(9)).limit(3).next().await;
+        assert_eq!(rx.try_recv().unwrap(), list(0, 0, 0, 3));
+    }
+
+    #[tokio::test]
+    async fn the_cursor_falls_back_to_the_topic_date() {
+        let by_creation = page(full(), vec![message(1100, 77)], true);
+        assert_eq!(request_after(by_creation).await, list(110, 1100, 100, 100));
+        let top_message_missing = page(full(), Vec::new(), false);
+        assert_eq!(request_after(top_message_missing).await, list(110, 1100, 100, 100));
+    }
+
+    #[tokio::test]
+    async fn deleted_topics_are_left_out_of_the_list_and_the_cursor() {
+        let first = page(vec![topic(5, 50, 40), topic(6, 60, 41), deleted(7)], vec![message(41, 90)], false);
+        let (client, mut rx) = topic_client(vec![Ok(first)]);
+        let mut topics = client.get_forum_topics(get_channel_id(9)).limit(3);
+        let mut ids = Vec::new();
+        while let Ok(Some(topic)) = topics.next().await {
+            ids.push(topic.id);
+        }
+        assert_eq!(ids, [5, 6]);
+        rx.try_recv().unwrap();
+        assert_eq!(rx.try_recv().unwrap(), list(90, 41, 6, 1));
+    }
+
+    #[tokio::test]
+    async fn a_repeated_page_ends_the_list() {
+        let (client, mut rx) = topic_client((0..3).map(|_| Ok(page(full(), Vec::new(), false))).collect());
+        let mut topics = client.get_forum_topics(get_channel_id(9));
+        let mut count = 0;
+        while topics.next().await.unwrap().is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 200);
+        assert_eq!((rx.try_recv().is_ok(), rx.try_recv().is_ok(), rx.try_recv().is_err()), (true, true, true));
+    }
+
+    #[tokio::test]
+    async fn full_pages_of_deleted_topics_are_retried_whole_then_refused() {
+        let all_deleted = |n| page((1..=n).map(deleted).collect(), Vec::new(), false);
+        let (client, mut rx) = topic_client(vec![Ok(all_deleted(2)), Ok(all_deleted(100))]);
+        let result = client.get_forum_topics(get_channel_id(9)).limit(2).next().await;
+        assert!(matches!(result, Err(Error::Unexpected(_))), "{result:?}");
+        assert_eq!(rx.try_recv().unwrap(), list(0, 0, 0, 2));
+        assert_eq!(rx.try_recv().unwrap(), list(0, 0, 0, 100));
+    }
+
+    #[tokio::test]
+    async fn looks_topics_up_by_id() {
+        let (client, mut rx) = topic_client(vec![Ok(page(vec![topic(5, 50, 40), deleted(6)], Vec::new(), false))]);
+        let refused = client.get_forum_topics_by_id(get_channel_id(9), &[]).await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
+        assert!(rx.try_recv().is_err());
+
+        let topics = client.get_forum_topics_by_id(get_channel_id(9), &[5, 6]).await.unwrap();
+        assert_eq!(topics.iter().map(|t| t.id).collect::<Vec<_>>(), [5]);
+        let request = messages::GetForumTopicsByID { peer: channel(), topics: vec![5, 6] };
+        assert_eq!(rx.try_recv().unwrap(), request.to_bytes());
+        assert!(client.0.peers.lock().unwrap().contains_key(&8));
+    }
+
+    #[tokio::test]
+    async fn pins_and_unpins_topics_in_channels_and_bot_chats() {
+        let updates = || {
+            let updates = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
+            Ok(base::Updates::Updates(Box::new(updates)).to_bytes())
+        };
+        let (client, mut rx) = topic_client((0..4).map(|_| updates()).collect());
+        let pin = |peer, pinned| messages::UpdatePinnedForumTopic { peer, topic_id: 5, pinned }.to_bytes();
+        client.pin_forum_topic(get_channel_id(9), 5).await.unwrap();
+        assert_eq!(rx.try_recv().unwrap(), pin(channel(), true));
+        client.unpin_forum_topic(get_channel_id(9), 5).await.unwrap();
+        assert_eq!(rx.try_recv().unwrap(), pin(channel(), false));
+        client.pin_forum_topic(USER, 5).await.unwrap();
+        assert_eq!(rx.try_recv().unwrap(), pin(user_peer(), true));
+        client.unpin_forum_topic(USER, 5).await.unwrap();
+        assert_eq!(rx.try_recv().unwrap(), pin(user_peer(), false));
+    }
+
+    #[tokio::test]
+    async fn a_refused_pin_returns_the_telegram_error() {
+        let (client, _rx) = topic_client(vec![Err(Error::Rpc(RpcError::new(400, "TOPIC_ID_INVALID")))]);
+        let result = client.pin_forum_topic(get_channel_id(9), 5).await;
+        assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "TOPIC_ID_INVALID"), "{result:?}");
     }
 }
