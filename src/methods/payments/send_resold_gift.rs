@@ -1,6 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
-use crate::raw::{base, functions, types};
+use crate::raw::{base, types};
 use crate::types::PeerRef;
 
 impl Client {
@@ -22,31 +22,11 @@ impl Client {
             to_id: self.resolve_peer(new_owner_chat_id).await?,
             message: None,
         }));
-        let request = functions::payments::GetPaymentForm { invoice: invoice.clone(), theme_params: None };
-        let base::payments::PaymentForm::PaymentFormStarGift(form) = self.invoke(&request).await? else {
-            return Err(Error::Unexpected("payments.getPaymentForm returned no star gift form"));
-        };
-        let base::Invoice::Invoice(terms) = &form.invoice;
-        if terms.currency != "XTR" {
-            return Err(Error::Unexpected("the resale form is not priced in Stars"));
-        }
-        // The seller can raise the price between listing and checkout.
-        if terms.prices.iter().map(|base::LabeledPrice::LabeledPrice(p)| p.amount).sum::<i64>() > star_count {
-            return Err(Error::InvalidArgument("the gift now costs more than star_count"));
-        }
-        match self.invoke(&functions::payments::SendStarsForm { form_id: form.form_id, invoice }).await? {
-            base::payments::PaymentResult::PaymentResult(paid) => {
-                self.feed_updates(paid.updates);
-                Ok(())
-            }
-            base::payments::PaymentResult::PaymentVerificationNeeded(_) => {
-                Err(Error::Unexpected("verification asked for a Stars payment"))
-            }
-        }
+        self.pay_in_stars_up_to(invoice, star_count).await
     }
 }
 
-fn gift_slug(gift: &str) -> Result<&str> {
+pub(super) fn gift_slug(gift: &str) -> Result<&str> {
     let slug = gift.trim().trim_end_matches('/').rsplit('/').next().unwrap_or_default();
     if slug.is_empty() || slug == "nft" {
         return Err(Error::InvalidArgument("the gift link has no name"));
