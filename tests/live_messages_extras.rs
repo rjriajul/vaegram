@@ -1,7 +1,8 @@
 mod support;
 
 use vaegram::Client;
-use vaegram::types::{InputChecklist, Message};
+use vaegram::filters;
+use vaegram::types::{InputChecklist, InputRichMessage, Message};
 
 fn premium() -> bool {
     let premium = std::env::var("VAEGRAM_USER_PREMIUM").is_ok();
@@ -34,6 +35,20 @@ async fn polls(user: &Client, group: i64) {
     assert_eq!((poll.question.as_str(), poll.options.len()), ("Lunch?", 2));
 }
 
+async fn screenshots_and_rich_messages(kit: &support::Kit, group: i64) {
+    kit.bot.on_message(filters::private() & filters::text(), |m| async move {
+        m.reply("ok").await?;
+        Ok(())
+    });
+    let reply = kit.user.send_and_wait_reply(&kit.bot, "hi").await.unwrap();
+    let user = &kit.user.client;
+    user.send_screenshot_notification(reply.chat.id).await.unwrap();
+
+    let sent = user.send_rich_message(group, InputRichMessage::html("<b>hi</b>")).await.unwrap();
+    let found = user.get_rich_message(group, sent.id).await.unwrap().expect("the rich message is gone");
+    assert!(found.rich_message.is_some_and(|r| !r.part));
+}
+
 #[tokio::test]
 #[ignore = "creates and deletes a supergroup with a logged-in user session and a bot"]
 async fn user_uses_message_extras() {
@@ -41,6 +56,7 @@ async fn user_uses_message_extras() {
     let user = &kit.user.client;
     let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap().id;
     polls(user, group).await;
+    screenshots_and_rich_messages(&kit, group).await;
     if premium() {
         checklists(user, group).await;
     }
