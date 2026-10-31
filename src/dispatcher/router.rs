@@ -8,7 +8,7 @@ pub(crate) use super::tasks::run_hook;
 use crate::Client;
 use crate::client::Me;
 use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
-use crate::handlers::{Callback, ErrorCallback, RawCallback, Routed, callback};
+use crate::handlers::{Callback, ErrorCallback, HandlerId, RawCallback, Registered, Routed, callback};
 use crate::raw::base;
 use crate::types::{
     BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated,
@@ -150,6 +150,7 @@ impl Handlers<Message> {
         if listening {
             match client.0.handlers.listeners.messages.offer(message, &me) {
                 Offer::Claimed => return,
+                Offer::Call(callback, m) => return tasks.run(kind, m, vec![callback]),
                 Offer::Unclaimed(m) | Offer::Stranger(m, _) => message = m,
             }
         }
@@ -457,6 +458,7 @@ impl Router {
         let kind = UpdateKind::CallbackQuery;
         match client.0.handlers.listeners.callbacks.offer(query, &me) {
             Offer::Claimed => {}
+            Offer::Call(callback, query) => tasks.run(kind, query, vec![callback]),
             Offer::Unclaimed(query) if !self.callback_query.0.is_empty() => {
                 self.callback_query.finish(kind, tasks, &me, PARSED, query)
             }
@@ -505,6 +507,14 @@ impl Routes {
 
     pub(crate) fn current(&self) -> Arc<Router> {
         self.router.read().unwrap().clone()
+    }
+
+    /// A route or a next-step handler. Only a route change makes running dispatchers take a new router.
+    pub(crate) fn remove(&self, handler: HandlerId) -> bool {
+        match handler.0 {
+            Registered::Route(kind, id) => self.add(|r| r.remove(kind, id)),
+            Registered::Listener(id) => self.listeners.remove(id),
+        }
     }
 }
 
@@ -1173,5 +1183,35 @@ mod tests {
         assert!(log.lock().unwrap().is_empty());
         assert!(!waiter.is_finished());
         waiter.abort();
+    }
+
+    #[tokio::test]
+    async fn a_next_step_runs_through_tasks_in_order() {
+        let (client, log) = (Client::offline(), Log::default());
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let (held, handler_log) = (gate.clone(), log.clone());
+        client.on_message(filters::all(), move |_| {
+            let (held, log) = (held.clone(), handler_log.clone());
+            async move {
+                held.notified().await;
+                log.lock().unwrap().push("handler");
+                Ok(())
+            }
+        });
+        let next_log = log.clone();
+        let next = move |_: Message| {
+            next_log.lock().unwrap().push("next");
+            async { Ok(()) }
+        };
+        let mut tasks = Tasks::new(true, None);
+        router_of(&client).dispatch(&client, new_message(1, false), &Arc::default(), &mut tasks);
+        settle().await;
+        client.register_next_step_handler(next).chat(1).await.unwrap();
+        router_of(&client).dispatch(&client, new_message(2, false), &Arc::default(), &mut tasks);
+        settle().await;
+        assert!(log.lock().unwrap().is_empty(), "the next step overtook the running handler of its chat");
+        gate.notify_one();
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["handler", "next"]);
     }
 }

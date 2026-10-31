@@ -58,3 +58,28 @@ async fn ask_returns_the_users_answer() {
     assert_eq!(question.text, "Your name?");
     assert_eq!(greeting.text, "Hi Ada");
 }
+
+#[tokio::test]
+#[ignore = "uses a bot token and a logged-in user session"]
+async fn next_step_handler_runs_on_the_next_message() {
+    let Some(kit) = Kit::from_env().await else { return };
+    let bot = kit.bot.clone();
+    kit.bot.on_message(filters::private() & filters::command("step"), move |m| {
+        let bot = bot.clone();
+        async move {
+            let step = |answer: vaegram::types::Message| async move {
+                answer.reply(format!("step {}", answer.text)).await?;
+                Ok(())
+            };
+            bot.register_next_step_handler(step).chat(m.chat.id).filter(filters::text()).timeout(WAIT).await?;
+            m.reply("Send the next one").await?;
+            Ok(())
+        }
+    });
+
+    let prompt = kit.user.send_and_wait_reply(&kit.bot, "/step").await.unwrap();
+    let done = kit.user.send_and_wait_reply(&kit.bot, "two").await.unwrap();
+    kit.user.client.delete_messages(prompt.chat.id, &[prompt.id, done.id]).await.unwrap();
+    assert_eq!(prompt.text, "Send the next one");
+    assert_eq!(done.text, "step two");
+}
