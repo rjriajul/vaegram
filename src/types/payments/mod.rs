@@ -1,3 +1,4 @@
+mod craft_gift_result;
 mod gift;
 mod gift_collection;
 mod gift_info;
@@ -10,6 +11,7 @@ mod resale_gift;
 mod star_payment_option;
 mod upgraded_gift_value_info;
 
+pub use craft_gift_result::CraftGiftResult;
 pub use gift::{Gift, UniqueGift, UniqueGiftAttribute, UniqueGiftBackdrop};
 pub use gift_collection::GiftCollection;
 pub use gift_info::{GiftInfo, UniqueGiftInfo};

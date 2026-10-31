@@ -159,3 +159,16 @@ async fn user_manages_gift_collections() {
     }
     assert!(!user.get_gift_collections("me").await.unwrap().iter().any(|c| c.id == id));
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn user_reads_crafting_and_auctions() {
+    let Some(user) = user().await else { return };
+    let gifts = user.get_available_gifts().await.unwrap();
+    match gifts.iter().find(|g| g.upgrade_star_count.is_some()) {
+        Some(gift) => {
+            user.get_gifts_for_crafting(gift.id).limit(10).await.unwrap();
+        }
+        None => eprintln!("skipped the crafting check: no gift on sale can be upgraded"),
+    }
+}
