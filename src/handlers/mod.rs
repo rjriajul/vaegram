@@ -48,7 +48,8 @@ pub struct HandlerRef<'a> {
 
 impl HandlerRef<'_> {
     /// Groups run in ascending order, default 0. Within a group the first matching handler
-    /// wins, and every group gets its own turn. Raw handlers always run and ignore this.
+    /// wins, and every group gets its own turn. Raw handlers always run and ignore this, as do the
+    /// lifecycle hooks (`on_start`, `on_stop`, `on_connect`, `on_disconnect`).
     pub fn group(self, group: i32) -> Self {
         self.client.0.handlers.add(|r| r.configure(self.kind, self.id, Some(group), false));
         self

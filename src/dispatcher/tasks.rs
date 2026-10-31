@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::task::JoinSet;
 
+use crate::Client;
 use crate::enums::ClientEvent;
 use crate::handlers::{BoxFuture, Callback, ErrorCallback, HandlerError, Routed, UpdateKind};
 use crate::session::Events;
@@ -85,6 +86,14 @@ impl Drop for Tasks {
 
 async fn permit(permits: Option<Arc<Semaphore>>) -> Option<OwnedSemaphorePermit> {
     Some(permits?.acquire_owned().await.expect("the semaphore is never closed"))
+}
+
+/// Awaits a lifecycle hook; an `Err` goes where a handler's would.
+pub(crate) async fn run_hook(client: Client, kind: UpdateKind, hook: Callback<Client>) {
+    if let Err(error) = hook(client.clone()).await {
+        let on_error = client.0.handlers.current().on_error.clone();
+        report(on_error, client.0.events.clone(), HandlerError { kind, chat_id: None, error }).await;
+    }
 }
 
 async fn report(on_error: Option<ErrorCallback>, events: Arc<Events>, error: HandlerError) {

@@ -30,4 +30,6 @@ mod on_purchased_paid_media;
 mod on_raw_update;
 mod on_removed_chat_boost;
 mod on_shipping_query;
+mod on_start;
+mod on_stop;
 mod on_user_status;
