@@ -1,6 +1,7 @@
+use std::pin::Pin;
 use std::sync::atomic::AtomicI32;
 
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::Client;
 use crate::crypto::random;
@@ -22,13 +23,28 @@ const CONNECTIONS_PREMIUM: usize = 8;
 
 pub(crate) struct SaveFile<'a> {
     client: &'a Client,
-    file: Upload<'a>,
+    input: Input<'a>,
     progress: Option<Report<'a>>,
+}
+
+enum Input<'a> {
+    Upload(Upload<'a>),
+    Stream { reader: Pin<Box<dyn AsyncRead + Send + 'a>>, size: u64, name: &'a str },
 }
 
 impl Client {
     pub(crate) fn save_file<'a>(&'a self, file: impl Into<Upload<'a>>) -> SaveFile<'a> {
-        SaveFile { client: self, file: file.into(), progress: None }
+        SaveFile { client: self, input: Input::Upload(file.into()), progress: None }
+    }
+
+    pub(crate) fn save_stream<'a>(
+        &'a self,
+        stream: impl AsyncRead + Send + 'a,
+        size: u64,
+        name: &'a str,
+    ) -> SaveFile<'a> {
+        let input = Input::Stream { reader: Box::pin(stream), size, name };
+        SaveFile { client: self, input, progress: None }
     }
 }
 
@@ -39,14 +55,21 @@ impl<'a> SaveFile<'a> {
     }
 
     async fn send(self) -> Result<base::InputFile> {
-        let (source, size) = match self.file {
-            Upload::Path(path) => {
+        let (source, size, name) = match self.input {
+            Input::Upload(upload @ Upload::Path(path)) => {
                 let disk = tokio::fs::File::open(path).await?;
                 let size = disk.metadata().await?.len();
-                (Source::File(tokio::sync::Mutex::new(disk)), size)
+                (Source::File(tokio::sync::Mutex::new(disk)), size, upload.name())
             }
-            Upload::Bytes { data, .. } => (Source::Bytes(data), data.len() as u64),
+            Input::Upload(upload @ Upload::Bytes { data, .. }) => {
+                (Source::Bytes(data), data.len() as u64, upload.name())
+            }
+            Input::Stream { reader, size, name } => (Source::Stream(tokio::sync::Mutex::new(reader)), size, name),
         };
+        // Checked before the limits: looking up Premium can cost a request.
+        if size == 0 {
+            return Err(Error::FileSize { size: 0, limit: MAX_PARTS * PART_SIZE });
+        }
         let (parts, workers, connections) = self.client.upload_limits(size).await?;
         let home = self.client.dc(self.client.session().dc_id())?;
         let lease = self.client.transfer_sessions(home, connections).await?;
@@ -54,7 +77,7 @@ impl<'a> SaveFile<'a> {
         let (next, progress) = (AtomicI32::new(0), Progress::new(self.progress, size));
         let sessions = &lease.sessions;
         try_join_all((0..workers).map(|i| upload.send(&sessions[i % sessions.len()], &next, &progress))).await?;
-        Ok(upload.input_file(self.file.name()))
+        Ok(upload.input_file(name))
     }
 }
 
@@ -82,6 +105,7 @@ fn part_count(size: u64, premium: bool) -> Result<i32> {
 
 enum Source<'a> {
     File(tokio::sync::Mutex<tokio::fs::File>),
+    Stream(tokio::sync::Mutex<Pin<Box<dyn AsyncRead + Send + 'a>>>),
     Bytes(&'a [u8]),
 }
 
@@ -94,24 +118,36 @@ struct Parts<'a> {
 }
 
 impl Parts<'_> {
+    fn len(&self, part: i32) -> usize {
+        (self.size - part as u64 * PART_SIZE).min(PART_SIZE) as usize
+    }
+
     async fn read(&self, next: &AtomicI32, buf: &mut Vec<u8>) -> Result<Option<i32>> {
-        let len = |part: i32| (self.size - part as u64 * PART_SIZE).min(PART_SIZE) as usize;
         match &self.source {
-            Source::File(file) => {
-                let mut file = file.lock().await;
-                let Some(part) = take(next, self.count) else { return Ok(None) };
-                buf.resize(len(part), 0);
-                file.read_exact(buf).await?;
-                Ok(Some(part))
-            }
+            Source::File(file) => self.read_locked(file, next, buf).await,
+            Source::Stream(stream) => self.read_locked(stream, next, buf).await,
             Source::Bytes(data) => {
                 let Some(part) = take(next, self.count) else { return Ok(None) };
                 let start = part as usize * PART_SIZE as usize;
                 buf.clear();
-                buf.extend_from_slice(&data[start..start + len(part)]);
+                buf.extend_from_slice(&data[start..start + self.len(part)]);
                 Ok(Some(part))
             }
         }
+    }
+
+    /// The part number is taken under the lock, so parts are read in order.
+    async fn read_locked<R: AsyncRead + Unpin + Send>(
+        &self,
+        reader: &tokio::sync::Mutex<R>,
+        next: &AtomicI32,
+        buf: &mut Vec<u8>,
+    ) -> Result<Option<i32>> {
+        let mut reader = reader.lock().await;
+        let Some(part) = take(next, self.count) else { return Ok(None) };
+        buf.resize(self.len(part), 0);
+        reader.read_exact(buf).await?;
+        Ok(Some(part))
     }
 
     async fn send(&self, session: &Session, next: &AtomicI32, progress: &Progress<'_>) -> Result<()> {
@@ -156,6 +192,7 @@ mod tests {
     use crate::errors::{Error, RpcError};
     use crate::raw::functions::users::GetUsers;
     use crate::raw::{Identifiable, Serializable, base, types};
+    use crate::types::Upload;
 
     fn premium_user() -> Vec<u8> {
         let mut user = Vec::new();
@@ -203,10 +240,18 @@ mod tests {
         assert!(matches!(part_count(MAX_PARTS_PREMIUM * PART_SIZE + 1, true), Err(Error::FileSize { .. })));
     }
 
+    fn stream(data: &[u8]) -> Source<'_> {
+        Source::Stream(tokio::sync::Mutex::new(Box::pin(data)))
+    }
+
     async fn split(data: &[u8]) -> Vec<usize> {
+        split_from(Source::Bytes(data), data).await
+    }
+
+    async fn split_from(source: Source<'_>, data: &[u8]) -> Vec<usize> {
         let count = part_count(data.len() as u64, false).unwrap();
         let big = data.len() as u64 > BIG_FILE_SIZE;
-        let parts = Parts { source: Source::Bytes(data), size: data.len() as u64, count, big, id: 7 };
+        let parts = Parts { source, size: data.len() as u64, count, big, id: 7 };
         let (next, mut sizes, mut joined, mut buf) = (AtomicI32::new(0), Vec::new(), Vec::new(), Vec::new());
         while let Some(n) = parts.read(&next, &mut buf).await.unwrap() {
             assert_eq!(n as usize, sizes.len());
@@ -225,6 +270,36 @@ mod tests {
         assert_eq!(split(&vec![1; part + 1]).await, [part, 1]);
         let big = split(&vec![2; BIG_FILE_SIZE as usize + 1]).await;
         assert_eq!((big.len(), big[20]), (21, 1));
+    }
+
+    #[tokio::test]
+    async fn reads_a_stream_in_part_order() {
+        let part = PART_SIZE as usize;
+        let data: Vec<u8> = (0..part + 1).map(|i| i as u8).collect();
+        assert_eq!(split_from(stream(&data[..1]), &data[..1]).await, [1]);
+        assert_eq!(split_from(stream(&data[..part]), &data[..part]).await, [part]);
+        assert_eq!(split_from(stream(&data), &data).await, [part, 1]);
+    }
+
+    #[tokio::test]
+    async fn a_short_stream_fails_with_unexpected_eof() {
+        let parts = Parts { source: stream(b"hello"), size: 10, count: 1, big: false, id: 7 };
+        let e = parts.read(&AtomicI32::new(0), &mut Vec::new()).await.err();
+        assert!(matches!(&e, Some(Error::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof), "{e:?}");
+    }
+
+    #[tokio::test]
+    async fn an_empty_upload_is_refused_before_any_request() {
+        let (client, mut sent) = Client::recording();
+        {
+            let mut me = client.0.me.lock().unwrap();
+            (me.is_bot, me.premium) = (false, None);
+        }
+        let empty = [client.save_file(Upload::bytes("a.txt", b"")).await, client.save_stream(&b""[..], 0, "a").await];
+        for e in empty {
+            assert!(matches!(e, Err(Error::FileSize { size: 0, .. })), "{e:?}");
+        }
+        assert!(sent.try_recv().is_err());
     }
 
     #[test]

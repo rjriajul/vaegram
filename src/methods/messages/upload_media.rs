@@ -73,30 +73,44 @@ impl Client {
                 }))
             }
             Source::Upload(upload) => {
-                let thumb = async {
-                    match media.thumb {
-                        Some(thumb) if !photo => self.save_file(thumb).await.map(Some),
-                        _ => Ok(None),
-                    }
-                };
                 let file = self.save_file(*upload).progress(progress).into_future();
-                let ((video, video_cover), file, thumb) = tokio::try_join!(extras, file, thumb)?;
-                if photo {
-                    base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
-                        spoiler: media.spoiler,
-                        live_photo,
-                        file,
-                        stickers: None,
-                        ttl_seconds: None,
-                        video,
-                    }))
-                } else {
-                    let mut document = uploaded_document(media.kind, media, *upload, file);
-                    (document.thumb, document.video_cover, document.video_timestamp) =
-                        (thumb, video_cover, video_timestamp);
-                    base::InputMedia::InputMediaUploadedDocument(Box::new(document))
-                }
+                self.uploaded_media(media, upload.name(), file, extras).await?
             }
+            Source::Uploaded(uploaded) => {
+                self.uploaded_media(media, uploaded.name(), async { Ok(uploaded.0.clone()) }, extras).await?
+            }
+        })
+    }
+
+    async fn uploaded_media(
+        &self,
+        media: &InputMedia<'_>,
+        name: &str,
+        file: impl Future<Output = Result<base::InputFile>>,
+        extras: impl Future<Output = Result<(Option<base::InputDocument>, Option<base::InputPhoto>)>>,
+    ) -> Result<base::InputMedia> {
+        let photo = matches!(media.kind, MediaKind::Photo | MediaKind::LivePhoto);
+        let thumb = async {
+            match media.thumb {
+                Some(thumb) if !photo => self.save_file(thumb).await.map(Some),
+                _ => Ok(None),
+            }
+        };
+        let ((video, video_cover), file, thumb) = tokio::try_join!(extras, file, thumb)?;
+        Ok(if photo {
+            base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
+                spoiler: media.spoiler,
+                live_photo: media.kind == MediaKind::LivePhoto,
+                file,
+                stickers: None,
+                ttl_seconds: None,
+                video,
+            }))
+        } else {
+            let mut document = uploaded_document(media.kind, media, name, file);
+            (document.thumb, document.video_cover, document.video_timestamp) =
+                (thumb, video_cover, media.start_timestamp);
+            base::InputMedia::InputMediaUploadedDocument(Box::new(document))
         })
     }
 
@@ -148,13 +162,14 @@ impl Client {
         media: &InputMedia<'_>,
         business_connection_id: Option<&str>,
     ) -> Result<base::InputDocument> {
-        let upload = match &video.0 {
+        let (name, file) = match &video.0 {
             Source::Stored(base::InputMedia::InputMediaDocument(d)) => return Ok(d.id.clone()),
             Source::Stored(_) => return Err(Error::InvalidArgument("a live photo's video must be a video")),
             Source::Url(_) => return Err(Error::InvalidArgument("a live photo's video can't be sent by URL")),
-            Source::Upload(upload) => *upload,
+            Source::Upload(upload) => (upload.name(), self.save_file(*upload).await?),
+            Source::Uploaded(file) => (file.name(), file.0.clone()),
         };
-        let mut uploaded = uploaded_document(MediaKind::Video, media, upload, self.save_file(upload).await?);
+        let mut uploaded = uploaded_document(MediaKind::Video, media, name, file);
         uploaded.spoiler = false;
         let uploaded = base::InputMedia::InputMediaUploadedDocument(Box::new(uploaded));
         match self.upload_media(peer, uploaded, business_connection_id).await? {
@@ -169,6 +184,16 @@ impl Client {
         media: &InputMedia<'_>,
         business_connection_id: Option<&str>,
     ) -> Result<Option<base::InputPhoto>> {
+        let uploaded = |file| {
+            base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
+                spoiler: false,
+                live_photo: false,
+                file,
+                stickers: None,
+                ttl_seconds: None,
+                video: None,
+            }))
+        };
         let photo = match media.cover.as_ref().map(|c| &c.0) {
             None => return Ok(None),
             Some(Source::Stored(base::InputMedia::InputMediaPhoto(p))) => return Ok(Some(p.id.clone())),
@@ -181,16 +206,8 @@ impl Client {
                     ttl_seconds: None,
                 }))
             }
-            Some(Source::Upload(upload)) => {
-                base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
-                    spoiler: false,
-                    live_photo: false,
-                    file: self.save_file(*upload).await?,
-                    stickers: None,
-                    ttl_seconds: None,
-                    video: None,
-                }))
-            }
+            Some(Source::Upload(upload)) => uploaded(self.save_file(*upload).await?),
+            Some(Source::Uploaded(file)) => uploaded(file.0.clone()),
         };
         match self.upload_media(peer, photo, business_connection_id).await? {
             base::InputMedia::InputMediaPhoto(p) => Ok(Some(p.id)),
@@ -203,7 +220,7 @@ impl Client {
 fn uploaded_document(
     kind: MediaKind,
     media: &InputMedia<'_>,
-    upload: Upload<'_>,
+    name: &str,
     file: base::InputFile,
 ) -> types::InputMediaUploadedDocument {
     let (duration, w, h) = (media.duration, media.width, media.height);
@@ -251,7 +268,7 @@ fn uploaded_document(
         _ => Vec::new(),
     };
     if !matches!(kind, MediaKind::Voice | MediaKind::VideoNote) {
-        let file_name = types::DocumentAttributeFilename { file_name: upload.name().into() };
+        let file_name = types::DocumentAttributeFilename { file_name: name.into() };
         attributes.push(base::DocumentAttribute::DocumentAttributeFilename(Box::new(file_name)));
     }
     types::InputMediaUploadedDocument {
@@ -260,7 +277,7 @@ fn uploaded_document(
         spoiler: media.spoiler,
         file,
         thumb: None,
-        mime_type: match upload.mime_type() {
+        mime_type: match Upload::mime_type_of(name) {
             "application/octet-stream" => fallback,
             mime => mime,
         }
@@ -303,10 +320,15 @@ fn stored_media(stored: base::MessageMedia) -> Option<base::InputMedia> {
 mod tests {
     use super::{stored_media, uploaded_document};
     use crate::Client;
+    use crate::enums::MediaKind;
+    use crate::errors::{Error, RpcError};
+    use crate::raw::Identifiable;
+    use crate::raw::functions::messages::UploadMedia;
+    use crate::raw::functions::upload::{SaveBigFilePart, SaveFilePart};
     use crate::raw::{Serializable, base, types};
     use crate::types::messages_and_media::Source;
     use crate::types::messages_and_media::media::tests::document_media;
-    use crate::types::{InputMedia, Upload};
+    use crate::types::{InputMedia, Upload, UploadedFile};
 
     #[tokio::test]
     async fn a_live_photo_uploads_its_photo_and_video_side_by_side() {
@@ -337,10 +359,86 @@ mod tests {
         assert!(body.windows(5).any(|w| w == b"\x04conn"), "uploadMedia went out without the connection");
     }
 
+    fn stored(name: &str) -> base::InputFile {
+        let file = types::InputFile { id: 7, parts: 1, name: name.into(), md5_checksum: String::new() };
+        base::InputFile::InputFile(Box::new(file))
+    }
+
+    fn uploaded_photo(file: base::InputFile) -> base::InputMedia {
+        base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
+            spoiler: false,
+            live_photo: false,
+            file,
+            stickers: None,
+            ttl_seconds: None,
+            video: None,
+        }))
+    }
+
+    fn no_part_sent(bodies: &[Vec<u8>]) -> bool {
+        let save_parts = [SaveFilePart::CONSTRUCTOR_ID, SaveBigFilePart::CONSTRUCTOR_ID].map(u32::to_le_bytes);
+        bodies.iter().all(|b| !save_parts.iter().any(|id| b[..4] == *id))
+    }
+
+    #[tokio::test]
+    async fn an_uploaded_file_is_sent_without_another_upload() {
+        let (client, mut sent) = Client::recording();
+        let peer = base::InputPeer::InputPeerEmpty;
+        let photo = UploadedFile(stored("a.jpg"));
+        let media = client.input_media(&peer, &InputMedia::photo(&photo), None, None).await.unwrap();
+        assert_eq!(media, uploaded_photo(stored("a.jpg")));
+
+        let song = UploadedFile(stored("a.mp3"));
+        let audio = InputMedia::audio(&song).duration(3);
+        let media = client.input_media(&peer, &audio, None, None).await.unwrap();
+        let expected = uploaded_document(audio.kind, &audio, "a.mp3", stored("a.mp3"));
+        assert_eq!(media, base::InputMedia::InputMediaUploadedDocument(Box::new(expected.clone())));
+        assert_eq!((expected.mime_type.as_str(), expected.attributes.last()), ("audio/mpeg", Some(&name("a.mp3"))));
+
+        let round = UploadedFile(stored("note.mp4"));
+        let note = InputMedia::video_note(&round);
+        let base::InputMedia::InputMediaUploadedDocument(d) =
+            client.input_media(&peer, &note, None, None).await.unwrap()
+        else {
+            panic!("not an uploaded document")
+        };
+        assert_eq!((d.file, d.attributes), (stored("note.mp4"), vec![video(true, false, 0.0, 0, 0)]));
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn an_uploaded_cover_and_live_video_go_through_upload_media() {
+        let failed = || Err(Error::Rpc(RpcError::new(400, "FILE_PART_0_MISSING")));
+        let (client, mut sent) = Client::scripted(vec![failed(), failed()]);
+        let peer = base::InputPeer::InputPeerEmpty;
+        let (cover, clip) = (UploadedFile(stored("cover.jpg")), UploadedFile(stored("clip.mp4")));
+
+        let with_cover = InputMedia::video(&clip).cover(&cover);
+        assert!(client.input_media(&peer, &with_cover, None, None).await.is_err());
+        let body = sent.try_recv().expect("no uploadMedia sent");
+        assert_eq!(body[..4], UploadMedia::CONSTRUCTOR_ID.to_le_bytes());
+        assert!(contains(&body, &uploaded_photo(stored("cover.jpg")).to_bytes()));
+
+        let live = InputMedia::live_photo(&cover, &clip);
+        assert!(client.input_media(&peer, &live, None, None).await.is_err());
+        let body = sent.try_recv().expect("no uploadMedia sent");
+        assert_eq!(body[..4], UploadMedia::CONSTRUCTOR_ID.to_le_bytes());
+        let mut video = uploaded_document(MediaKind::Video, &live, "clip.mp4", stored("clip.mp4"));
+        video.spoiler = false;
+        let video = base::InputMedia::InputMediaUploadedDocument(Box::new(video));
+        assert!(contains(&body, &video.to_bytes()));
+        let rest: Vec<_> = std::iter::from_fn(|| sent.try_recv().ok()).collect();
+        assert!(no_part_sent(&[body]) && no_part_sent(&rest) && rest.is_empty());
+    }
+
+    fn contains(body: &[u8], part: &[u8]) -> bool {
+        body.windows(part.len()).any(|w| w == part)
+    }
+
     fn document(media: InputMedia<'_>) -> types::InputMediaUploadedDocument {
         let Source::Upload(upload) = media.file.0 else { panic!("not an upload") };
         let file = types::InputFile { id: 1, parts: 1, name: String::new(), md5_checksum: String::new() };
-        uploaded_document(media.kind, &media, upload, base::InputFile::InputFile(Box::new(file)))
+        uploaded_document(media.kind, &media, upload.name(), base::InputFile::InputFile(Box::new(file)))
     }
 
     fn video(round_message: bool, supports_streaming: bool, duration: f64, w: i32, h: i32) -> base::DocumentAttribute {

@@ -85,7 +85,7 @@ impl<'a> InputMedia<'a> {
     }
 
     pub(crate) fn uploads(&self) -> bool {
-        let upload = |f: &FileSource<'_>| matches!(f.0, Source::Upload(_));
+        let upload = |f: &FileSource<'_>| matches!(f.0, Source::Upload(_) | Source::Uploaded(_));
         upload(&self.file) || self.cover.as_ref().is_some_and(upload) || self.video.as_ref().is_some_and(upload)
     }
 }
@@ -234,3 +234,20 @@ pub(crate) use media_setters;
 
 media_setters!(InputMedia: caption thumb cover has_spoiler show_caption_above_media supports_streaming duration
     start_timestamp width height length performer title emoji disable_content_type_detection);
+
+#[cfg(test)]
+mod tests {
+    use super::InputMedia;
+    use crate::raw::{base, types};
+    use crate::types::{FileSource, UploadedFile};
+
+    #[test]
+    fn an_uploaded_file_counts_as_an_upload() {
+        let file = types::InputFile { id: 7, parts: 1, name: "a.jpg".into(), md5_checksum: String::new() };
+        let file = UploadedFile(base::InputFile::InputFile(Box::new(file)));
+        let url = || FileSource::url("https://example.com/a.mp4").unwrap();
+        assert!(!InputMedia::video(url()).uploads());
+        assert!(InputMedia::photo(&file).uploads());
+        assert!(InputMedia::video(url()).cover(&file).uploads());
+    }
+}

@@ -4,7 +4,9 @@ use super::{input_document, input_photo};
 use crate::errors::{Error, Result};
 use crate::file_id::{FileId, FileType};
 use crate::raw::{base, types};
-use crate::types::{Animation, Audio, Document, LivePhoto, Photo, Sticker, Upload, Video, VideoNote, Voice};
+use crate::types::{
+    Animation, Audio, Document, LivePhoto, Photo, Sticker, Upload, UploadedFile, Video, VideoNote, Voice,
+};
 
 #[derive(Debug, Clone)]
 pub struct FileSource<'a>(pub(crate) Source<'a>);
@@ -12,6 +14,7 @@ pub struct FileSource<'a>(pub(crate) Source<'a>);
 #[derive(Debug, Clone)]
 pub(crate) enum Source<'a> {
     Upload(Upload<'a>),
+    Uploaded(&'a UploadedFile),
     /// An `inputMediaPhoto` or `inputMediaDocument` with every flag off.
     Stored(base::InputMedia),
     /// Fetched by Telegram itself.
@@ -91,6 +94,13 @@ impl<'a> From<&'a PathBuf> for FileSource<'a> {
     }
 }
 
+/// Sends a file that is already uploaded, so the send's `.progress(..)` is never called for it.
+impl<'a> From<&'a UploadedFile> for FileSource<'a> {
+    fn from(file: &'a UploadedFile) -> Self {
+        FileSource(Source::Uploaded(file))
+    }
+}
+
 impl From<&Photo> for FileSource<'_> {
     fn from(photo: &Photo) -> Self {
         stored_photo(input_photo(&photo.location))
@@ -116,7 +126,9 @@ mod tests {
     use crate::errors::{Error, RpcError};
     use crate::file_id::FileId;
     use crate::raw::functions::messages;
+    use crate::raw::functions::upload::{SaveBigFilePart, SaveFilePart};
     use crate::raw::{Identifiable, Serializable, base, types};
+    use crate::types::{InlineMessageId, InputMedia, UploadedFile};
 
     const PHOTO: &str = "AgACAgIAAxkBAAIENGfeY4AfRquwTL2LpDrzqvFMVNt_AAIG9DEbXX3wSq3oI7t_PqQGAQADAgADbQADNgQ";
     const DOCUMENT: &str = "BQACAgQAAxkBAAIENGfeY4AfRquwTL2LpDrzqvFMVNt_AAL6C87kooIPtf__________HgQ";
@@ -223,6 +235,46 @@ mod tests {
         for e in errors {
             assert!(matches!(e, Some(Error::InvalidArgument(_))), "{e:?}");
         }
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn sends_uploaded_files_and_keeps_telegram_errors() {
+        let missing = || Err(Error::Rpc(RpcError::new(400, "FILE_PART_0_MISSING")));
+        let (client, mut sent) = Client::scripted(vec![missing(), missing(), missing()]);
+        let input = |name: &str| {
+            let file = types::InputFile { id: 7, parts: 1, name: name.into(), md5_checksum: String::new() };
+            base::InputFile::InputFile(Box::new(file))
+        };
+        let (file, other) = (UploadedFile(input("a.jpg")), UploadedFile(input("b.txt")));
+
+        let result = client.send_photo(-5, &file).await;
+        assert!(matches!(result, Err(Error::Rpc(e)) if e.name == "FILE_PART_0_MISSING"));
+        let photo = base::InputMedia::InputMediaUploadedPhoto(Box::new(types::InputMediaUploadedPhoto {
+            spoiler: false,
+            live_photo: false,
+            file: input("a.jpg"),
+            stickers: None,
+            ttl_seconds: None,
+            video: None,
+        }));
+        let body = sent.try_recv().expect("no request sent");
+        assert_eq!(body[..4], messages::SendMedia::CONSTRUCTOR_ID.to_le_bytes());
+        assert!(contains(&body, &photo.to_bytes()));
+        assert!(sent.try_recv().is_err());
+
+        let album = [InputMedia::document(&file), InputMedia::document(&other)];
+        let result = client.send_media_group(-5, album).await;
+        assert!(matches!(result, Err(Error::Rpc(e)) if e.name == "FILE_PART_0_MISSING"));
+        let bodies: Vec<_> = std::iter::from_fn(|| sent.try_recv().ok()).collect();
+        assert_eq!(bodies[0][..4], messages::UploadMedia::CONSTRUCTOR_ID.to_le_bytes());
+        let save_parts = [SaveFilePart::CONSTRUCTOR_ID, SaveBigFilePart::CONSTRUCTOR_ID].map(u32::to_le_bytes);
+        assert!(bodies.iter().all(|b| !save_parts.contains(&b[..4].try_into().unwrap())));
+
+        let id = types::InputBotInlineMessageID { dc_id: 2, id: 1, access_hash: 1 };
+        let id = InlineMessageId(base::InputBotInlineMessageID::InputBotInlineMessageID(Box::new(id)));
+        let e = client.edit_inline_media(id, InputMedia::photo(&file)).await.err();
+        assert!(matches!(e, Some(Error::InvalidArgument(_))), "{e:?}");
         assert!(sent.try_recv().is_err());
     }
 

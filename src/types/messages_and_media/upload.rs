@@ -73,7 +73,11 @@ impl<'a> Upload<'a> {
     }
 
     pub(crate) fn mime_type(&self) -> &'static str {
-        let extension = self.name().rsplit_once('.').map_or("", |(_, e)| e);
+        Self::mime_type_of(self.name())
+    }
+
+    pub(crate) fn mime_type_of(name: &str) -> &'static str {
+        let extension = name.rsplit_once('.').map_or("", |(_, e)| e);
         let known = MIME_TYPES.iter().find(|(e, _)| e.eq_ignore_ascii_case(extension));
         known.map_or("application/octet-stream", |m| m.1)
     }
