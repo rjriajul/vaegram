@@ -1,5 +1,6 @@
 mod craft_gift_result;
 mod gift;
+mod gift_auction_state;
 mod gift_collection;
 mod gift_info;
 mod gift_upgrade_preview;
@@ -13,6 +14,10 @@ mod upgraded_gift_value_info;
 
 pub use craft_gift_result::CraftGiftResult;
 pub use gift::{Gift, UniqueGift, UniqueGiftAttribute, UniqueGiftBackdrop};
+pub use gift_auction_state::{
+    ActiveGiftAuction, FinishedGiftAuction, GiftAuctionBid, GiftAuctionBidLevel, GiftAuctionRound, GiftAuctionState,
+    GiftAuctionStatus,
+};
 pub use gift_collection::GiftCollection;
 pub use gift_info::{GiftInfo, UniqueGiftInfo};
 pub use gift_upgrade_preview::{GiftUpgradePreview, GiftUpgradePrice};

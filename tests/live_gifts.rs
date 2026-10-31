@@ -5,7 +5,7 @@ mod support;
 
 use vaegram::Client;
 use vaegram::raw::{base, functions, types};
-use vaegram::types::{InvoiceRef, OwnedGift, OwnedGifts};
+use vaegram::types::{GiftAuctionState, GiftAuctionStatus, InvoiceRef, OwnedGift, OwnedGifts};
 
 async fn user() -> Option<Client> {
     Some(support::Kit::from_env().await?.user.client)
@@ -171,4 +171,31 @@ async fn user_reads_crafting_and_auctions() {
         }
         None => eprintln!("skipped the crafting check: no gift on sale can be upgraded"),
     }
+    match gifts.iter().find(|g| g.is_auction) {
+        Some(gift) => assert_eq!(user.get_gift_auction_state(gift.id).await.unwrap().gift.id, gift.id),
+        None => eprintln!("skipped the auction check: no gift is sold by auction"),
+    }
+}
+
+#[tokio::test]
+#[ignore = "spends real Stars: needs VAEGRAM_SPEND_STARS=1 and VAEGRAM_AUCTION_GIFT_ID"]
+async fn user_bids_in_a_gift_auction() {
+    if !may_spend_stars() {
+        return;
+    }
+    let Some(gift_id) = std::env::var("VAEGRAM_AUCTION_GIFT_ID").ok().and_then(|id| id.parse().ok()) else {
+        eprintln!("skipped: set VAEGRAM_AUCTION_GIFT_ID (the id of a gift in an active auction)");
+        return;
+    };
+    let Some(user) = user().await else { return };
+    let GiftAuctionStatus::Active(auction) = user.get_gift_auction_state(gift_id).await.unwrap().status else {
+        eprintln!("skipped: the auction is not running");
+        return;
+    };
+    let bid = auction.min_bid_star_count;
+    user.place_gift_auction_bid(gift_id, bid).await.unwrap();
+    let my_bid = |state: GiftAuctionState| state.my_bid.map(|b| b.star_count);
+    assert_eq!(my_bid(user.get_gift_auction_state(gift_id).await.unwrap()), Some(bid));
+    user.increase_gift_auction_bid(gift_id, bid + 1).await.unwrap();
+    assert_eq!(my_bid(user.get_gift_auction_state(gift_id).await.unwrap()), Some(bid + 1));
 }
