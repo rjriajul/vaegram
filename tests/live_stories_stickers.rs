@@ -3,7 +3,7 @@ mod support;
 
 use vaegram::Client;
 use vaegram::enums::{StickerType, StoriesPrivacyRules};
-use vaegram::raw::base;
+use vaegram::raw::{base, functions, types};
 use vaegram::types::InputStoryContent;
 
 async fn user_client() -> Option<Client> {
@@ -61,4 +61,46 @@ async fn user_reorders_sticker_sets_and_restores_them() {
     assert_eq!(ids(user.get_installed_sticker_sets(StickerType::Regular).await.unwrap()), reversed);
     user.reorder_installed_sticker_sets(StickerType::Regular, &original).await.unwrap();
     assert_eq!(ids(user.get_installed_sticker_sets(StickerType::Regular).await.unwrap()), original);
+}
+
+#[tokio::test]
+#[ignore = "needs the kit bot and user in VAEGRAM_CHAT_ID; deletes the bot's welcome messages there"]
+async fn bot_stores_and_deletes_a_welcome_message() {
+    let Ok(chat_id) = std::env::var("VAEGRAM_CHAT_ID") else {
+        eprintln!("skipped: set VAEGRAM_CHAT_ID (a group with the kit bot and user)");
+        return;
+    };
+    let chat_id: i64 = chat_id.parse().unwrap();
+    let Some(kit) = support::Kit::from_env().await else { return };
+    let (user, bot) = (&kit.user.client, &kit.bot);
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+
+    let base::InputPeer::InputPeerUser(receiver) = bot.resolve_peer(me.id).await.unwrap() else {
+        panic!("the bot can't address the kit user")
+    };
+    let receiver = types::InputUser { user_id: receiver.user_id, access_hash: receiver.access_hash };
+    let random_id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as i64;
+    let request = functions::ephemeral::SendMessage {
+        invert_media: false,
+        welcome: true,
+        anchor: false,
+        noforwards: false,
+        peer: Some(bot.resolve_peer(chat_id).await.unwrap()),
+        receiver_id: base::InputUser::InputUser(Box::new(receiver)),
+        query_id: None,
+        message: "welcome".into(),
+        entities: None,
+        media: None,
+        reply_markup: None,
+        rich_message: None,
+        random_id,
+        reply_to: None,
+    };
+    bot.invoke(&request).await.unwrap();
+
+    let stored = user.get_welcome_messages(chat_id).await.unwrap();
+    let welcome = stored.iter().find(|m| m.text == "welcome").expect("the welcome message wasn't stored");
+    assert!(bot.delete_welcome_message(chat_id, welcome.id).await.unwrap());
+    assert!(!user.get_welcome_messages(chat_id).await.unwrap().iter().any(|m| m.id == welcome.id));
+    bot.delete_all_welcome_messages(chat_id).await.unwrap();
 }
