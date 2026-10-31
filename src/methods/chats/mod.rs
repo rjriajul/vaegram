@@ -29,6 +29,7 @@ mod get_chat_notifications;
 mod get_chat_online_count;
 mod get_dialogs;
 mod get_dialogs_count;
+mod get_direct_messages_topics_by_id;
 mod get_forum_topic_icon_stickers;
 mod get_forum_topics;
 mod get_forum_topics_by_id;
@@ -59,6 +60,7 @@ mod restrict_sponsored_messages;
 mod set_chat_accent_color;
 mod set_chat_administrator_custom_title;
 mod set_chat_description;
+mod set_chat_direct_messages_group;
 mod set_chat_discussion_group;
 mod set_chat_member_tag;
 mod set_chat_permissions;
@@ -381,7 +383,8 @@ mod settings_tests {
     use crate::raw::functions::{account, channels, messages};
     use crate::raw::{Serializable, base, types};
     use crate::session::Affected;
-    use crate::utils::get_channel_id;
+    use crate::types::User;
+    use crate::utils::{get_channel_id, get_peer};
 
     const GROUP: i64 = -5;
     const USER: i64 = 7;
@@ -603,6 +606,109 @@ mod settings_tests {
             assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         }
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn direct_messages_settings_send_the_price() {
+        let (client, mut rx) = settings_client(Vec::new());
+        let (rx, chat) = (&mut rx, get_channel_id(9));
+        let price = |broadcast_messages_allowed, send_paid_messages_stars| {
+            let request = channels::UpdatePaidMessagesPrice {
+                broadcast_messages_allowed,
+                channel: channel(),
+                send_paid_messages_stars,
+            };
+            request.to_bytes()
+        };
+        assert_eq!(body(rx, client.set_chat_direct_messages_group(chat, true, 10)).await, price(true, 10));
+        assert_eq!(body(rx, client.set_chat_direct_messages_group(chat, false, 0)).await, price(false, 0));
+    }
+
+    #[tokio::test]
+    async fn direct_messages_settings_refuse_negative_stars_and_basic_groups() {
+        let (client, mut rx) = settings_client(Vec::new());
+        let negative = client.set_chat_direct_messages_group(get_channel_id(9), true, -1).await;
+        let group = client.set_chat_direct_messages_group(GROUP, true, 0).await;
+        for result in [negative, group] {
+            assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
+        }
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn direct_messages_settings_return_the_telegram_error() {
+        let (client, _rx) = settings_client(vec![Err(rpc("CHANNEL_MONOFORUM_UNSUPPORTED"))]);
+        let result = client.set_chat_direct_messages_group(get_channel_id(9), true, 0).await;
+        assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "CHANNEL_MONOFORUM_UNSUPPORTED"), "{result:?}");
+    }
+
+    fn named_user(id: i64) -> base::User {
+        let mut buf = Vec::new();
+        // Only access_hash and first_name are set.
+        for word in [0b11u32, 0] {
+            word.serialize(&mut buf);
+        }
+        id.serialize(&mut buf);
+        (id * 10).serialize(&mut buf);
+        String::from("Ann").serialize(&mut buf);
+        base::User::User(Box::new(types::User::deserialize_bare(&mut &buf[..]).unwrap()))
+    }
+
+    fn monoforum_dialog(user_id: i64) -> base::SavedDialog {
+        let dialog = types::MonoForumDialog {
+            unread_mark: true,
+            nopaid_messages_exception: true,
+            peer: get_peer(user_id),
+            top_message: 40,
+            read_inbox_max_id: 30,
+            read_outbox_max_id: 31,
+            unread_count: 3,
+            unread_reactions_count: 2,
+            draft: None,
+        };
+        base::SavedDialog::MonoForumDialog(Box::new(dialog))
+    }
+
+    fn saved_dialogs(dialogs: Vec<base::SavedDialog>, users: Vec<base::User>) -> Result<Vec<u8>> {
+        let page = types::messages::SavedDialogs { dialogs, messages: Vec::new(), chats: Vec::new(), users };
+        Ok(base::messages::SavedDialogs::SavedDialogs(Box::new(page)).to_bytes())
+    }
+
+    #[tokio::test]
+    async fn direct_messages_topics_are_looked_up_by_user() {
+        let saved = types::SavedDialog { pinned: false, peer: get_peer(8), top_message: 1 };
+        let dialogs = vec![monoforum_dialog(USER), base::SavedDialog::SavedDialog(Box::new(saved))];
+        let (client, mut rx) = settings_client(vec![saved_dialogs(dialogs, vec![named_user(USER)])]);
+        let refused = client.get_direct_messages_topics_by_id(get_channel_id(9), &[]).await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
+        assert!(rx.try_recv().is_err());
+
+        let topics = client.get_direct_messages_topics_by_id(get_channel_id(9), &[USER]).await.unwrap();
+        let request = messages::GetSavedDialogsByID { parent_peer: Some(channel_peer()), ids: vec![user_peer()] };
+        assert_eq!(rx.try_recv().unwrap(), request.to_bytes());
+        assert_eq!(topics.len(), 1);
+        let topic = &topics[0];
+        let user = topic.topic.user.as_ref().map(|u| u.first_name.as_str());
+        assert_eq!((topic.topic.topic_id, user), (USER, Some("Ann")));
+        let counts = (topic.top_message_id, topic.unread_messages_count, topic.unread_reactions_count);
+        let read = (topic.last_read_inbox_message_id, topic.last_read_outbox_message_id);
+        assert_eq!((counts, read), ((40, 3, 2), (30, 31)));
+        assert_eq!((topic.unread_mark, topic.can_send_unpaid_messages), (true, true));
+    }
+
+    #[tokio::test]
+    async fn a_topic_user_missing_from_the_reply_keeps_its_id() {
+        let (client, _rx) = settings_client(vec![saved_dialogs(vec![monoforum_dialog(USER)], Vec::new())]);
+        let topics = client.get_direct_messages_topics_by_id(get_channel_id(9), &[USER]).await.unwrap();
+        assert_eq!(topics[0].topic.user, Some(User { id: USER, ..User::default() }));
+    }
+
+    #[tokio::test]
+    async fn unchanged_direct_messages_topics_are_an_empty_list() {
+        let not_modified = types::messages::SavedDialogsNotModified { count: 3 };
+        let reply = Ok(base::messages::SavedDialogs::SavedDialogsNotModified(not_modified).to_bytes());
+        let (client, _rx) = settings_client(vec![reply]);
+        assert!(client.get_direct_messages_topics_by_id(get_channel_id(9), &[USER]).await.unwrap().is_empty());
     }
 }
 

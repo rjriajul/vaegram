@@ -1210,6 +1210,15 @@ async fn user_links_a_discussion_group() {
     assert_eq!(channel_full(&user, channel.id).await.main_tab, Some(base::ProfileTab::ProfileTabMedia));
     user.get_personal_channels().await.unwrap();
 
+    user.set_chat_direct_messages_group(channel.id, true, 0).await.unwrap();
+    let info = channel_info(&user, channel.id).await;
+    assert!(info.broadcast_messages_allowed);
+    let monoforum = info.linked_monoforum_id.map(get_channel_id).expect("no direct messages chat");
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    // Nobody has written to the new direct messages chat yet.
+    assert!(user.get_direct_messages_topics_by_id(monoforum, &[me.id]).await.unwrap().is_empty());
+    user.set_chat_direct_messages_group(channel.id, false, 0).await.unwrap();
+
     user.delete_supergroup(group.id).await.unwrap();
     user.delete_channel(channel.id).await.unwrap();
 }
