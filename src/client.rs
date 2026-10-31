@@ -37,6 +37,7 @@ pub struct ClientBuilder {
     parse_mode: ParseMode,
     options: Options,
     ordered: bool,
+    catch_up: bool,
     max_concurrent_handlers: Option<usize>,
     record: Option<PathBuf>,
 }
@@ -132,6 +133,13 @@ impl ClientBuilder {
     /// queries). Off by default: in a big group, one slow handler then holds up every member.
     pub fn ordered(mut self, ordered: bool) -> Self {
         self.ordered = ordered;
+        self
+    }
+
+    /// `false` makes every `run` start from now: what came while the client was stopped is skipped. Gaps while it
+    /// runs, such as after a reconnect, are still filled. `true` by default.
+    pub fn catch_up(mut self, catch_up: bool) -> Self {
+        self.catch_up = catch_up;
         self
     }
 
@@ -250,6 +258,7 @@ impl ClientBuilder {
         inner.me = Mutex::new(Me { id: user_id, is_bot, premium: None, username: None });
         inner.peers = Mutex::new(peers);
         inner.ordered = self.ordered;
+        inner.catch_up = self.catch_up;
         inner.handler_permits = self.max_concurrent_handlers.map(|n| Arc::new(Semaphore::new(n.max(1))));
         let client = Client(Arc::new(inner));
         client.save()?;
@@ -291,6 +300,8 @@ pub(crate) struct Inner {
     pub(crate) peers: Mutex<HashMap<i64, base::InputPeer>>,
     pub(crate) handlers: Routes,
     pub(crate) ordered: bool,
+    // Whether `run` resumes from the saved update state or starts from now.
+    pub(crate) catch_up: bool,
     pub(crate) handler_permits: Option<Arc<Semaphore>>,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
@@ -338,6 +349,7 @@ impl Inner {
             peers: Mutex::new(HashMap::new()),
             handlers: Routes::default(),
             ordered: false,
+            catch_up: true,
             handler_permits: None,
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
@@ -389,6 +401,7 @@ impl Client {
             parse_mode: ParseMode::Disabled,
             options: Options::default(),
             ordered: false,
+            catch_up: true,
             max_concurrent_handlers: None,
             record: None,
         }
@@ -604,6 +617,7 @@ mod tests {
         let options = &builder.options;
         assert_eq!((options.max_flood_sleeps, options.updates_capacity), (5, 1024));
         assert_eq!(options.flood_sleep_threshold, Duration::from_secs(60));
+        assert!(builder.catch_up);
     }
 
     #[test]

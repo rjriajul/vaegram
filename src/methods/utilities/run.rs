@@ -7,7 +7,7 @@ impl Client {
     /// Returns `Ok(())` after `stop`, or `Error::Disconnected` when the connection ends.
     pub async fn run(&self) -> Result<()> {
         self.set_me(&self.get_me().await?);
-        let saved = self.0.state.lock().unwrap().take();
+        let saved = self.0.state.lock().unwrap().take().filter(|_| self.0.catch_up);
         let mut dispatcher = match saved {
             Some(state) => Dispatcher::resume(self.clone(), state),
             None => {
@@ -135,5 +135,23 @@ mod tests {
         assert_eq!(id(&difference), updates::GetDifference::CONSTRUCTOR_ID);
         assert_eq!(difference[8..12], 10i32.to_le_bytes());
         assert!(sent.try_recv().is_err(), "a saved state must not ask for updates.getState");
+    }
+
+    #[tokio::test]
+    async fn without_catch_up_run_starts_from_get_state() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let now = types::updates::State { pts: 50, qts: 0, date: 2, seq: 0, unread_count: 0 };
+        let now = base::updates::State::State(Box::new(now));
+        let (mut client, mut sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(now.to_bytes())]);
+        Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
+
+        assert!(client.run().await.is_err());
+
+        let ids: Vec<u32> = std::iter::from_fn(|| sent.try_recv().ok())
+            .map(|b| u32::from_le_bytes(b[..4].try_into().unwrap()))
+            .collect();
+        assert_eq!(ids, [users::GetUsers::CONSTRUCTOR_ID, updates::GetState::CONSTRUCTOR_ID]);
+        assert_eq!(client.0.state.lock().unwrap().as_ref().map(|s| s.pts), Some(50));
     }
 }
