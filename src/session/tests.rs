@@ -8,7 +8,7 @@ use super::{
     Affected, Answer, Arc, Call, ClientEvent, Connection, DEAD_AFTER, Identifiable, Incoming, MAX_CONTAINER_MSGS,
     Observer, Options, PING_EVERY, PROBE_AFTER, PROBE_DEAD_AFTER, RPC_RESULT, Request, Runner, Salt, Serializable,
     Session, UpdatesRx, base, constructor_id, functions, gzip_packed, internals, jitter, mpsc, msg_container, mtproto,
-    oneshot, outbox, types,
+    oneshot, outbox, skips_backoff, types,
 };
 use crate::errors::{Error, RpcError};
 use crate::session::internals::data_center::Dc;
@@ -519,11 +519,94 @@ async fn reconnect_is_reported() {
     let events = r.events.record();
     let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
     let (_sender, requests) = mpsc::unbounded_channel();
-    r.reconnect(&requests, false).await;
+    r.reconnect(&requests, false, false).await;
     let _server = server.await.unwrap();
     assert!(matches!(events.try_recv(), Ok(ClientEvent::Reconnected { dc: 2, attempt: 1 })));
     assert!(r.events.take_reconnected());
     assert!(matches!(updates.recv().await, Some(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
+}
+
+#[tokio::test]
+async fn restart_reconnects_and_is_reported() {
+    let (mut r, _frames, mut updates, listener) = listening(Salt::default()).await;
+    let events = r.events.record();
+    let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
+    let (_sender, requests) = mpsc::unbounded_channel();
+    r.reconnect(&requests, false, true).await;
+    let _server = server.await.unwrap();
+    assert!(matches!(events.try_recv(), Ok(ClientEvent::Reconnected { dc: 2, attempt: 1 })));
+    assert!(matches!(updates.recv().await, Some(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
+}
+
+#[tokio::test]
+async fn close_ends_the_runner_and_fails_waiting_requests() {
+    let (r, mut frames, mut updates) = runner().await;
+    let control = r.control.clone();
+    let (requests, rx) = mpsc::unbounded_channel();
+    let task = tokio::spawn(r.run(rx));
+    let (answer, waiting) = oneshot::channel();
+    requests.send(Request { name: "ping", body: ping(1), answer }).unwrap();
+    frames.recv().await.unwrap();
+    control.close();
+    tokio::time::timeout(Duration::from_secs(5), task).await.expect("the runner kept going").unwrap();
+    assert!(matches!(waiting.await, Ok(Err(Error::Disconnected))));
+    assert!(updates.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn close_during_backoff_ends_the_reconnect_at_once() {
+    let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
+    drop(listener);
+    // Paused only after connecting; nothing connects again before the close.
+    tokio::time::pause();
+    let start = tokio::time::Instant::now();
+    let control = r.control.clone();
+    let (_sender, requests) = mpsc::unbounded_channel();
+    let events = r.events.record();
+    let closer = async {
+        tokio::task::yield_now().await;
+        control.close();
+    };
+    let reconnect = r.reconnect(&requests, false, false);
+    let done = tokio::time::timeout(Duration::from_secs(5), async { tokio::join!(reconnect, closer) }).await;
+    assert!(done.is_ok(), "the reconnect kept backing off");
+    assert_eq!(start.elapsed(), Duration::ZERO, "the backoff sleep wasn't cut short");
+    assert!(events.try_recv().is_err(), "it reconnected after the close");
+}
+
+#[test]
+fn only_a_renewal_or_restart_skips_the_first_backoff() {
+    assert!(skips_backoff(true, false, 1) && skips_backoff(false, true, 1));
+    assert!(!skips_backoff(false, false, 1));
+    assert!(!skips_backoff(true, true, 2), "a failed first attempt must back off");
+}
+
+#[tokio::test]
+async fn a_request_racing_close_is_reported_to_the_observer() {
+    let (mut r, _frames, _updates) = runner().await;
+    let seen = observe(&mut r);
+    // Closed without the wake, so only the request can end the loop.
+    r.control.closed.store(true, std::sync::atomic::Ordering::Release);
+    let (requests, rx) = mpsc::unbounded_channel();
+    let (answer, waiting) = oneshot::channel();
+    requests.send(Request { name: "ping", body: ping(1), answer }).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), r.run(rx)).await.expect("the runner kept going");
+    assert!(matches!(waiting.await, Ok(Err(Error::Disconnected))));
+    let disconnected = Err(Error::Disconnected.to_string());
+    assert_eq!(seen.lock().unwrap().iter().filter(|s| s.0 == "ping" && s.2 == disconnected).count(), 1);
+}
+
+#[test]
+fn restart_after_close_is_refused() {
+    let (requests, _open) = mpsc::unbounded_channel();
+    let session = Session::local(requests);
+    assert!(session.restart().is_ok());
+    session.close();
+    assert!(matches!(session.restart(), Err(Error::Disconnected)));
+
+    let (requests, gone) = mpsc::unbounded_channel();
+    drop(gone);
+    assert!(matches!(Session::local(requests).restart(), Err(Error::Disconnected)));
 }
 
 #[tokio::test]
@@ -892,7 +975,7 @@ async fn renewing_the_temp_key_is_not_reported_as_a_reconnect() {
     let events = r.events.record();
     let (session_id, salt) = (r.session_id, r.salt());
     let (_sender, requests) = mpsc::unbounded_channel();
-    r.reconnect(&requests, true).await;
+    r.reconnect(&requests, true, false).await;
     assert!(!events.try_iter().any(|e| matches!(e, ClientEvent::Reconnected { .. })));
     assert!(!r.events.take_reconnected());
     assert!(r.session_id != session_id && r.salt() != salt && r.unbound());
@@ -922,7 +1005,7 @@ async fn a_silent_server_does_not_pin_the_pfs_reconnect() {
         tokio::time::pause();
         drop(tx);
     };
-    let reconnect = r.reconnect(&requests, false);
+    let reconnect = r.reconnect(&requests, false, false);
     let done = tokio::time::timeout(Duration::from_secs(60), async { tokio::join!(reconnect, closer) }).await;
     assert!(done.is_ok(), "the runner sits in the key exchange forever");
 }

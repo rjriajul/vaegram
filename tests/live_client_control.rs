@@ -4,7 +4,8 @@ mod support;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
-use vaegram::Client;
+use vaegram::types::Upload;
+use vaegram::{Client, Error};
 
 const WAIT: Duration = Duration::from_secs(30);
 
@@ -40,4 +41,39 @@ async fn hooks_bracket_run() {
     client.stop();
     assert!(run.await.unwrap().is_ok());
     assert_eq!(seen.recv().await, Some("stop"));
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn disconnect_ends_run_and_requests() {
+    let Some(client) = user_client().await else { return };
+    let run = tokio::spawn({
+        let client = client.clone();
+        async move { client.run().await }
+    });
+    client.get_me().await.unwrap();
+    client.disconnect();
+    assert!(tokio::time::timeout(WAIT, run).await.unwrap().unwrap().is_ok());
+    assert!(matches!(client.get_me().await, Err(Error::Disconnected)));
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn stop_transmission_cancels_an_upload() {
+    let Some(client) = user_client().await else { return };
+    let data = vec![0; 20 << 20];
+    let stopper = client.clone();
+    let sent = client
+        .send_document("me", Upload::bytes("big.bin", &data))
+        .progress(move |done, _| {
+            if done > 0 {
+                stopper.stop_transmission();
+            }
+        })
+        .await;
+    if let Ok(message) = &sent {
+        client.delete_messages("me", &[message.id]).await.unwrap();
+    }
+    assert!(matches!(sent, Err(Error::Disconnected)), "{sent:?}");
+    client.get_me().await.unwrap();
 }

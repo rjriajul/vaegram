@@ -7,7 +7,7 @@ mod pfs;
 mod replay;
 mod service;
 #[cfg(test)]
-mod test_dc;
+pub(crate) mod test_dc;
 #[cfg(test)]
 mod tests;
 pub(crate) mod transfer;
@@ -18,10 +18,10 @@ pub use replay::Replay;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 
 use crate::connection::{Connection, Options, Proxy, Reader, Writer};
 use crate::crypto::rsa::PublicKey;
@@ -188,6 +188,7 @@ pub struct Session {
     options: Arc<Options>,
     pfs: Option<Arc<[u8]>>,
     learned: Arc<Learned>,
+    control: Arc<Control>,
 }
 
 /// The server salt and the clock offset, saved so a restart skips the first bad_server_salt and starts with
@@ -214,6 +215,26 @@ struct Learned {
     time_offset: AtomicI64,
 }
 
+// Close and restart are signals to the task that owns the connection, so it never races another owner.
+#[derive(Default)]
+struct Control {
+    closed: AtomicBool,
+    restart: AtomicBool,
+    // notify_one keeps a permit, so a runner busy elsewhere still sees the signal on its next wait.
+    wake: Notify,
+}
+
+impl Control {
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+        self.wake.notify_one();
+    }
+
+    fn closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+}
+
 impl Session {
     /// `auth_key` is a stored key with the salt last saved for it; `None` makes a new one. With `pfs`, the
     /// traffic runs under a temporary key bound to it, and `pfs` is the request sent right after each bind.
@@ -233,8 +254,8 @@ impl Session {
 
     #[cfg(test)]
     fn local(requests: mpsc::UnboundedSender<Request>) -> Session {
-        let (options, learned) = (Arc::default(), Arc::default());
-        Session { requests, dc_id: 2, auth_key: [0; 256], key_made: None, options, pfs: None, learned }
+        let (options, learned, control) = (Arc::default(), Arc::default(), Arc::default());
+        Session { requests, dc_id: 2, auth_key: [0; 256], key_made: None, options, pfs: None, learned, control }
     }
 
     #[cfg(test)]
@@ -307,10 +328,25 @@ impl Session {
             }
         };
         runner.connection = connection;
-        let learned = runner.learned.clone();
+        let (learned, control) = (runner.learned.clone(), runner.control.clone());
         let (requests_tx, requests) = mpsc::unbounded_channel();
         tokio::spawn(runner.run(requests));
-        Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key, key_made, options, pfs, learned })
+        Ok(Session { requests: requests_tx, dc_id: dc.id, auth_key, key_made, options, pfs, learned, control })
+    }
+
+    /// Ends the connection for good: waiting and later requests fail with `Error::Disconnected`.
+    pub(crate) fn close(&self) {
+        self.control.close();
+    }
+
+    /// Drops the connection and reconnects at once, the way a lost one comes back.
+    pub(crate) fn restart(&self) -> Result<()> {
+        if self.requests.is_closed() || self.control.closed() {
+            return Err(Error::Disconnected);
+        }
+        self.control.restart.store(true, Ordering::Release);
+        self.control.wake.notify_one();
+        Ok(())
     }
 
     /// The key, with its salt and when this process made it, for another connection on it.
@@ -336,8 +372,9 @@ impl Session {
 
     pub(crate) fn downgrade(&self) -> WeakSession {
         let (requests, options, pfs) = (self.requests.downgrade(), self.options.clone(), self.pfs.clone());
-        let (learned, key_made) = (self.learned.clone(), self.key_made);
-        WeakSession { requests, dc_id: self.dc_id, auth_key: self.auth_key, key_made, options, pfs, learned }
+        let (learned, control, key_made) = (self.learned.clone(), self.control.clone(), self.key_made);
+        let (dc_id, auth_key) = (self.dc_id, self.auth_key);
+        WeakSession { requests, dc_id, auth_key, key_made, options, pfs, learned, control }
     }
 
     /// How long to sleep off `error` before retrying: only FLOOD_WAITs within `flood_sleep_threshold`, each
@@ -379,14 +416,15 @@ pub(crate) struct WeakSession {
     options: Arc<Options>,
     pfs: Option<Arc<[u8]>>,
     learned: Arc<Learned>,
+    control: Arc<Control>,
 }
 
 impl WeakSession {
     pub(crate) fn upgrade(&self) -> Option<Session> {
         let requests = self.requests.upgrade().filter(|r| !r.is_closed())?;
         let (options, pfs, learned) = (self.options.clone(), self.pfs.clone(), self.learned.clone());
-        let (dc_id, auth_key, key_made) = (self.dc_id, self.auth_key, self.key_made);
-        Some(Session { requests, dc_id, auth_key, key_made, options, pfs, learned })
+        let (dc_id, auth_key, key_made, control) = (self.dc_id, self.auth_key, self.key_made, self.control.clone());
+        Some(Session { requests, dc_id, auth_key, key_made, options, pfs, learned, control })
     }
 }
 
@@ -496,6 +534,7 @@ struct Runner {
     updates: Option<mpsc::Sender<Incoming>>,
     events: Arc<Events>,
     pfs: Option<Pfs>,
+    control: Arc<Control>,
     last_read: tokio::time::Instant,
     probed: bool,
 }
@@ -533,6 +572,7 @@ impl Runner {
             updates,
             events,
             pfs: None,
+            control: Arc::default(),
             last_read: tokio::time::Instant::now(),
             probed: false,
         }
@@ -544,9 +584,15 @@ impl Runner {
         let mut ack = tokio::time::interval(ACK_EVERY);
         // Set when the connection is dropped on purpose for a new temp key, which isn't a lost connection.
         let mut renewing = false;
+        let mut restarting = false;
         let reason = loop {
             let step = tokio::select! {
                 request = requests.recv() => match request {
+                    // Queued, not sent, so the exit path fails it with Disconnected where the observer sees it.
+                    Some(r) if self.control.closed() => {
+                        self.enqueue(r);
+                        break Error::Disconnected;
+                    }
                     Some(r) => {
                         self.enqueue(r);
                         while self.queue.len() < MAX_CONTAINER_MSGS {
@@ -570,13 +616,25 @@ impl Runner {
                     if renewing { Err(Error::Disconnected) } else { self.tick().await }
                 }
                 _ = ack.tick() => self.flush().await,
+                () = self.control.wake.notified() => {
+                    if self.control.closed() {
+                        break Error::Disconnected;
+                    }
+                    restarting = self.control.restart.swap(false, Ordering::AcqRel);
+                    if restarting { Err(Error::Disconnected) } else { Ok(()) }
+                }
             };
             match step {
                 Ok(()) => {}
                 Err(e) if self.ends_session(&e) => break e,
                 Err(_) => {
-                    self.reconnect(&requests, std::mem::take(&mut renewing)).await;
+                    let (renewing, restarting) = (std::mem::take(&mut renewing), std::mem::take(&mut restarting));
+                    self.reconnect(&requests, renewing, restarting).await;
                     ping.reset();
+                    // Reconnecting may have used up the close signal.
+                    if self.control.closed() {
+                        break Error::Disconnected;
+                    }
                 }
             }
         };
@@ -590,14 +648,22 @@ impl Runner {
         }
     }
 
-    async fn reconnect(&mut self, requests: &mpsc::UnboundedReceiver<Request>, renewing: bool) {
+    async fn reconnect(&mut self, requests: &mpsc::UnboundedReceiver<Request>, renewing: bool, restarting: bool) {
         let mut delay = RECONNECT_DELAY;
         let mut attempt = 0;
-        while !requests.is_closed() && self.updates.as_ref().is_none_or(|u| !u.is_closed()) {
+        while !requests.is_closed() && self.updates.as_ref().is_none_or(|u| !u.is_closed()) && !self.control.closed() {
             attempt += 1;
-            if !(renewing && attempt == 1) {
-                tokio::time::sleep(jitter(delay)).await;
+            // A restart asked for during an outage is this attempt.
+            self.control.restart.store(false, Ordering::Release);
+            if !skips_backoff(renewing, restarting, attempt) {
+                tokio::select! {
+                    () = tokio::time::sleep(jitter(delay)) => {}
+                    () = self.control.wake.notified() => {}
+                }
                 delay = (delay * 2).min(MAX_RECONNECT_DELAY);
+                if self.control.closed() {
+                    return;
+                }
             }
             self.drop_abandoned();
             let Ok(mut conn) = Connection::connect(&self.dc, &self.options).await else { continue };
@@ -923,6 +989,11 @@ impl Runner {
             self.answer(req_msg_id, answer);
         }
     }
+}
+
+/// A key renewal or a restart reconnects at once; every other attempt waits out its backoff first.
+fn skips_backoff(renewing: bool, restarting: bool, attempt: u32) -> bool {
+    (renewing || restarting) && attempt == 1
 }
 
 /// Somewhere in the upper half of `delay`, so clients cut off together don't all come back at once.
