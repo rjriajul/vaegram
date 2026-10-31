@@ -149,6 +149,14 @@ impl Client {
             }
         })
     }
+
+    pub(crate) async fn input_saved_gifts(&self, owned_gift_ids: &[&str]) -> Result<Vec<base::InputSavedStarGift>> {
+        let mut gifts = Vec::with_capacity(owned_gift_ids.len());
+        for id in owned_gift_ids {
+            gifts.push(self.input_saved_gift(id).await?);
+        }
+        Ok(gifts)
+    }
 }
 
 #[cfg(test)]

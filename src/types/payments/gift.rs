@@ -14,6 +14,8 @@ pub struct Gift {
     pub personal_remaining_count: Option<i32>,
     pub is_premium: bool,
     pub has_colors: bool,
+    /// Sold only through an auction: see [`Client::get_gift_auction_state`](crate::Client::get_gift_auction_state).
+    pub is_auction: bool,
     pub publisher_chat: Option<Chat>,
 }
 
@@ -61,6 +63,7 @@ impl Gift {
             personal_remaining_count: raw.per_user_remains,
             is_premium: raw.require_premium,
             has_colors: raw.peer_color_available,
+            is_auction: raw.auction,
             publisher_chat: raw.released_by.as_ref().map(|p| Chat::parse(p, entities, true)),
         })
     }
