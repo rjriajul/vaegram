@@ -77,3 +77,33 @@ async fn stop_transmission_cancels_an_upload() {
     assert!(matches!(sent, Err(Error::Disconnected)), "{sent:?}");
     client.get_me().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn restart_fires_connect_hooks() {
+    let Some(client) = user_client().await else { return };
+    let (tx, mut seen) = mpsc::unbounded_channel();
+    let down = tx.clone();
+    client.on_connect(move |_| {
+        let _ = tx.send("connect");
+        async { Ok(()) }
+    });
+    client.on_disconnect(move |_| {
+        let _ = down.send("disconnect");
+        async { Ok(()) }
+    });
+    let run = tokio::spawn({
+        let client = client.clone();
+        async move { client.run().await }
+    });
+    client.restart().unwrap();
+    let mut both = Vec::new();
+    while both.len() < 2 {
+        both.push(tokio::time::timeout(WAIT, seen.recv()).await.unwrap().unwrap());
+    }
+    both.sort_unstable();
+    assert_eq!(both, ["connect", "disconnect"]);
+    client.get_me().await.unwrap();
+    client.stop();
+    assert!(run.await.unwrap().is_ok());
+}

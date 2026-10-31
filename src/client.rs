@@ -11,8 +11,10 @@ use tokio::sync::Semaphore;
 use crate::connection::{Options, Proxy, Transport};
 use crate::crypto::rsa::PublicKey;
 use crate::dispatcher::Routes;
+use crate::dispatcher::router::run_hook;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
+use crate::handlers::UpdateKind;
 use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, Serializable, base, functions};
 use crate::session::internals::data_center::{self, Dc};
@@ -548,6 +550,20 @@ impl Client {
         key.ok_or(Error::InvalidDc(dc_id))
     }
 
+    /// Has the main connection's ups and downs run the connect hooks, each in its own task so user code never
+    /// runs on the connection's. The listener holds a `Weak`, so it doesn't keep the client alive.
+    pub(crate) fn watch_link(&self) {
+        let client = Arc::downgrade(&self.0);
+        self.0.events.on_link(Arc::new(move |up| {
+            let Some(inner) = client.upgrade() else { return };
+            let kind = if up { UpdateKind::Connect } else { UpdateKind::Disconnect };
+            let hook = inner.handlers.current().hooks.get(kind);
+            if let Some(hook) = hook {
+                tokio::spawn(run_hook(Client(inner), kind, hook));
+            }
+        }));
+    }
+
     /// Sends a request about an inline message to `dc_id`, the DC its id names, which is the only one that
     /// serves it.
     pub(crate) async fn invoke_inline<R: RemoteCall>(&self, dc_id: i32, request: R) -> Result<R::Return> {
@@ -623,5 +639,15 @@ mod tests {
     #[test]
     fn a_zero_update_queue_is_stored_as_one() {
         assert_eq!(Client::builder("zero", 1, "hash").updates_capacity(0).options.updates_capacity, 1);
+    }
+
+    #[test]
+    fn the_link_listener_does_not_keep_the_client_alive() {
+        let client = Client::offline();
+        client.on_connect(|_| async { Ok(()) });
+        let (weak, events) = (std::sync::Arc::downgrade(&client.0), client.0.events.clone());
+        drop(client);
+        assert!(weak.upgrade().is_none());
+        events.link(true);
     }
 }

@@ -972,14 +972,58 @@ async fn renewing_the_temp_key_is_not_reported_as_a_reconnect() {
     assert!(r.temp_key_expiring());
 
     r.dc = dc.dc(2);
-    let events = r.events.record();
+    let (events, links) = (r.events.record(), r.events.record_link());
     let (session_id, salt) = (r.session_id, r.salt());
     let (_sender, requests) = mpsc::unbounded_channel();
     r.reconnect(&requests, true, false).await;
     assert!(!events.try_iter().any(|e| matches!(e, ClientEvent::Reconnected { .. })));
     assert!(!r.events.take_reconnected());
+    assert!(links.try_iter().next().is_none(), "a renewal reported a link change");
     assert!(r.session_id != session_id && r.salt() != salt && r.unbound());
     assert!(matches!(updates.recv().await, Some(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
+}
+
+// Reconnects `r` as a restart does, against a listener that accepts once, and returns the link changes seen.
+async fn restart_links(mut r: Runner, listener: TcpListener) -> Vec<bool> {
+    let links = r.events.record_link();
+    let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
+    let (_sender, requests) = mpsc::unbounded_channel();
+    r.reconnect(&requests, false, true).await;
+    let _server = server.await.unwrap();
+    links.try_iter().collect()
+}
+
+#[tokio::test]
+async fn restart_reports_down_then_up_once() {
+    let (r, _frames, _updates, listener) = listening(Salt::default()).await;
+    assert_eq!(restart_links(r, listener).await, [false, true]);
+}
+
+#[tokio::test]
+async fn transfer_connections_report_no_link_changes() {
+    let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
+    r.updates = None;
+    assert!(restart_links(r, listener).await.is_empty());
+}
+
+#[tokio::test]
+async fn closing_reports_down_but_dropping_the_handles_does_not() {
+    let guard = Duration::from_secs(5);
+    let (r, _frames, _updates) = runner().await;
+    let (links, control) = (r.events.record_link(), r.control.clone());
+    let (_requests, rx) = mpsc::unbounded_channel();
+    let task = tokio::spawn(r.run(rx));
+    control.close();
+    tokio::time::timeout(guard, task).await.unwrap().unwrap();
+    assert_eq!(links.try_iter().collect::<Vec<_>>(), [false]);
+
+    let (r, _frames, _updates) = runner().await;
+    let links = r.events.record_link();
+    let (requests, rx) = mpsc::unbounded_channel::<Request>();
+    let task = tokio::spawn(r.run(rx));
+    drop(requests);
+    tokio::time::timeout(guard, task).await.unwrap().unwrap();
+    assert!(links.try_iter().next().is_none(), "a client drop or DC switch looked like a lost connection");
 }
 
 #[tokio::test]

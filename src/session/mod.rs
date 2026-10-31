@@ -535,6 +535,8 @@ struct Runner {
     events: Arc<Events>,
     pfs: Option<Pfs>,
     control: Arc<Control>,
+    // What `on_link` last reported for the main connection.
+    link_up: bool,
     last_read: tokio::time::Instant,
     probed: bool,
 }
@@ -573,6 +575,7 @@ impl Runner {
             events,
             pfs: None,
             control: Arc::default(),
+            link_up: true,
             last_read: tokio::time::Instant::now(),
             probed: false,
         }
@@ -642,6 +645,10 @@ impl Runner {
             Error::Transport(code) => Some(code),
             _ => None,
         };
+        // With every handle dropped (client gone, or replaced by a DC switch) nobody lost a connection.
+        if self.control.closed() || !requests.is_closed() {
+            self.link(false);
+        }
         let queued = std::mem::take(&mut self.queue).into_iter().map(|p| (0, p));
         for (msg_id, p) in std::mem::take(&mut self.pending).into_iter().chain(queued) {
             self.finish(msg_id, p, Err(code.map_or(Error::Disconnected, Error::Transport)));
@@ -653,6 +660,9 @@ impl Runner {
         let mut attempt = 0;
         while !requests.is_closed() && self.updates.as_ref().is_none_or(|u| !u.is_closed()) && !self.control.closed() {
             attempt += 1;
+            if !(renewing && attempt == 1) {
+                self.link(false);
+            }
             // A restart asked for during an outage is this attempt.
             self.control.restart.store(false, Ordering::Release);
             if !skips_backoff(renewing, restarting, attempt) {
@@ -680,10 +690,18 @@ impl Runner {
                 if !(renewing && attempt == 1) {
                     self.events.reconnected();
                     self.events.emit(ClientEvent::Reconnected { dc: self.dc.id, attempt });
+                    self.link(true);
                 }
                 self.request_difference();
                 return;
             }
+        }
+    }
+
+    fn link(&mut self, up: bool) {
+        if self.updates.is_some() && up != self.link_up {
+            self.link_up = up;
+            self.events.link(up);
         }
     }
 
