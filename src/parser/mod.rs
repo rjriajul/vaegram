@@ -17,6 +17,49 @@ pub fn parse(text: &str, mode: ParseMode) -> Text {
     }
 }
 
+pub(crate) fn unparse(text: &Text, mode: ParseMode) -> String {
+    match mode {
+        ParseMode::Disabled => text.text.clone(),
+        ParseMode::Html => html::unparse(text),
+        ParseMode::Markdown => markdown::unparse(text),
+    }
+}
+
+trait Markup {
+    fn open(&mut self, kind: &Kind);
+    fn close(&mut self, kind: &Kind);
+    fn char(&mut self, at: i32, c: char);
+}
+
+fn walk(text: &str, mut spans: Vec<Span>, out: &mut impl Markup) {
+    spans.retain(|s| s.start >= 0 && s.end > s.start);
+    spans.sort_by_key(|s| (s.start, -s.end));
+    let mut next = spans.iter().peekable();
+    let mut open: Vec<&Span> = Vec::new();
+    let mut at = 0;
+    for c in text.chars().map(Some).chain([None]) {
+        if let Some(k) = open.iter().position(|s| s.end <= at) {
+            let closed: Vec<&Span> = open.drain(k..).rev().inspect(|s| out.close(&s.kind)).collect();
+            for s in closed.into_iter().rev().filter(|s| s.end > at) {
+                out.open(&s.kind);
+                open.push(s);
+            }
+        }
+        while let Some(s) = next.next_if(|s| s.start <= at) {
+            if s.end > at {
+                out.open(&s.kind);
+                open.push(s);
+            }
+        }
+        let Some(c) = c else { break };
+        out.char(at, c);
+        at += c.len_utf16() as i32;
+    }
+    for s in open.iter().rev() {
+        out.close(&s.kind);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Kind {
     Bold,
@@ -67,6 +110,34 @@ pub(crate) struct Span {
 }
 
 impl Span {
+    pub(crate) fn read(entity: &base::MessageEntity) -> Option<Span> {
+        use base::MessageEntity as E;
+        let (kind, offset, length) = match entity {
+            E::MessageEntityBold(e) => (Kind::Bold, e.offset, e.length),
+            E::MessageEntityItalic(e) => (Kind::Italic, e.offset, e.length),
+            E::MessageEntityUnderline(e) => (Kind::Underline, e.offset, e.length),
+            E::MessageEntityStrike(e) => (Kind::Strike, e.offset, e.length),
+            E::MessageEntitySpoiler(e) => (Kind::Spoiler, e.offset, e.length),
+            E::MessageEntityCode(e) => (Kind::Code, e.offset, e.length),
+            E::MessageEntityPre(e) => (Kind::Pre(e.language.clone()), e.offset, e.length),
+            E::MessageEntityTextUrl(e) => (Kind::Link(e.url.clone()), e.offset, e.length),
+            E::MessageEntityMentionName(e) => (Kind::Mention(e.user_id), e.offset, e.length),
+            E::InputMessageEntityMentionName(e) => match &e.user_id {
+                base::InputUser::InputUser(user) => (Kind::Mention(user.user_id), e.offset, e.length),
+                _ => return None,
+            },
+            E::MessageEntityBlockquote(e) => (Kind::Blockquote(e.collapsed), e.offset, e.length),
+            E::MessageEntityCustomEmoji(e) => (Kind::CustomEmoji(e.document_id), e.offset, e.length),
+            E::MessageEntityFormattedDate(e) => {
+                let on = [e.relative, e.short_time, e.long_time, e.short_date, e.long_date, e.day_of_week];
+                let flags = on.iter().enumerate().fold(0, |flags, (bit, &on)| flags | (u8::from(on) << bit));
+                (Kind::DateTime(e.date, flags), e.offset, e.length)
+            }
+            _ => return None,
+        };
+        Some(Span { kind, start: offset, end: offset.saturating_add(length) })
+    }
+
     pub(crate) fn write(&self) -> base::MessageEntity {
         use base::MessageEntity as E;
         let (offset, length) = (self.start, self.end - self.start);
@@ -114,9 +185,11 @@ impl Span {
 
 #[cfg(test)]
 mod tests {
-    use super::parse;
+    use super::{Kind, Span, parse, unparse};
     use crate::enums::ParseMode;
     use crate::raw::base::MessageEntity as E;
+    use crate::raw::types;
+    use crate::types::Text;
 
     fn run(text: &str, mode: ParseMode) -> (String, Vec<String>) {
         let text = parse(text, mode);
@@ -356,6 +429,141 @@ mod tests {
                     last = (offset, length);
                 }
             }
+        }
+    }
+
+    fn round_trip(mode: ParseMode, inputs: &[&str]) {
+        let normal = |t: &Text| {
+            let mut entities: Vec<String> = t.write_entities().iter().map(|e| format!("{e:?}")).collect();
+            entities.sort();
+            (t.text.clone(), entities)
+        };
+        for input in inputs {
+            let text = parse(input, mode);
+            assert!(!text.spans.is_empty(), "{input:?} has no formatting to keep");
+            let output = unparse(&text, mode);
+            assert_eq!(normal(&parse(&output, mode)), normal(&text), "{input:?} became {output:?}");
+        }
+    }
+
+    #[test]
+    fn html_output_round_trips() {
+        round_trip(
+            ParseMode::Html,
+            &[
+                "<b>a<i>b</i></b> c",
+                "<b>ab <i>cd</b> ef</i>",
+                "😀<b>é😀</b>😀",
+                "<u>u</u><s>s</s><tg-spoiler>p</tg-spoiler><code>c</code><pre>p</pre>",
+                "<pre><code class=\"language-rust\">fn x() -> u8 {}</code></pre>",
+                "<a href=\"tg://user?id=42\">me</a>",
+                "<tg-emoji emoji-id=\"5368\">👍</tg-emoji>",
+                "<tg-time unix=\"1647531900\" format=\"wDT\">t</tg-time> <tg-time unix=5>u</tg-time>",
+                "<blockquote expandable>q\nr</blockquote><blockquote>s</blockquote>",
+                "1 &lt; 2 &amp;&amp; \"q\" &gt; <a href=\"https://a.b/?x=1&amp;y=&quot;2&quot;\">&amp;l</a>",
+            ],
+        );
+    }
+
+    #[test]
+    fn markdown_output_round_trips() {
+        round_trip(
+            ParseMode::Markdown,
+            &[
+                "**b** __i__ --u-- ~~s~~ ||p||",
+                "**ab __cd** ef__",
+                "😀 **😀** [😀](u)",
+                "```rust\nfn x() {}\n```",
+                "`co*de` and ``` ```",
+                "[**vae**](https://x.y) end",
+                "[me](tg://user?id=7)",
+                "> one\n> two\nafter",
+                "x\n> last",
+                "> q\n> **😀**\n`x` [y](z)",
+                r"**\*\*not bold\*\* \[x\] a\\b \> c**",
+                "**a**\n> \\> b\n\n**c**",
+                "> a\n> `b`",
+                "> `a`\nb",
+            ],
+        );
+    }
+
+    #[test]
+    fn html_output_is_exact() {
+        let text = Text::new().bold("b").plain(" ").link("l", "https://t.me/");
+        assert_eq!(text.to_html(), "<b>b</b> <a href=\"https://t.me/\">l</a>");
+        assert_eq!(text.to_markdown(), "**b** [l](https://t.me/)");
+        let text = Text::new().pre("<&>", "x\"y").plain(" ").mention("m", 4).date_time("d", 9, "rd");
+        assert_eq!(
+            text.to_html(),
+            "<pre><code class=\"language-x&quot;y\">&lt;&amp;&gt;</code></pre> <a href=\"tg://user?id=4\">m</a>\
+             <tg-time unix=\"9\" format=\"rd\">d</tg-time>"
+        );
+    }
+
+    #[test]
+    fn markdown_output_escapes() {
+        let text = Text::new().plain("a*b_c-d [x] ~|`\\\n> e");
+        let output = text.to_markdown();
+        assert_eq!(output, "a\\*b\\_c\\-d \\[x\\] \\~\\|\\`\\\\\n\\> e");
+        assert_eq!(Text::from_markdown(&output).as_str(), "a*b_c-d [x] ~|`\\\n> e");
+        assert_eq!(Text::new().link("l", "https://x.y/(a)").to_markdown(), "[l](https://x.y/(a%29)");
+    }
+
+    #[test]
+    fn markdown_drops_what_it_cannot_express() {
+        let cases = [
+            (Text::new().custom_emoji("👍", 5), "👍"),
+            (Text::new().date_time("t", 1, "r"), "t"),
+            (Text::new().code("a`b"), "a\\`b"),
+            (Text::new().pre("a```b", ""), "a\\`\\`\\`b"),
+            (Text::new().link("a]b", "u"), "a\\]b"),
+            (Text::new().plain("x ").blockquote("q", false), "x q"),
+            (Text::new().blockquote("q\n", false), "q\n"),
+            (Text::new().blockquote("q", true), "> q"),
+            (Text::new().bold(Text::new().plain("a").bold("b")), "**ab**"),
+            (Text::new().code(Text::new().plain("a").bold("x")), "`ax`"),
+            (Text::new().pre("a\n", "").blockquote("q", false), "```\na\n\n```q"),
+            (Text::new().blockquote("a", false).plain("\n").blockquote("b", false), "> a\nb"),
+        ];
+        for (text, markdown) in cases {
+            assert_eq!(text.to_markdown(), markdown, "{text:?}");
+            assert_eq!(Text::from_markdown(markdown).as_str(), text.as_str(), "{markdown:?} lost text");
+        }
+    }
+
+    #[test]
+    fn received_entities_become_spans() {
+        let mention = types::MessageEntityMentionName { offset: 0, length: 2, user_id: 7 };
+        let span = |kind, start, end| Some(Span { kind, start, end });
+        assert_eq!(Span::read(&E::MessageEntityMentionName(Box::new(mention))), span(Kind::Mention(7), 0, 2));
+        let date = types::MessageEntityFormattedDate {
+            relative: true,
+            short_time: false,
+            long_time: false,
+            short_date: false,
+            long_date: true,
+            day_of_week: false,
+            offset: 1,
+            length: 3,
+            date: 9,
+        };
+        assert_eq!(Span::read(&E::MessageEntityFormattedDate(Box::new(date))), span(Kind::DateTime(9, 0b10001), 1, 4));
+        let link = types::MessageEntityTextUrl { offset: 0, length: 1, url: "u".into() };
+        assert_eq!(Span::read(&E::MessageEntityTextUrl(Box::new(link))), span(Kind::Link("u".into()), 0, 1));
+        // Telegram finds these again in the sent text, so printing them as markup would add nothing.
+        let detected = [
+            E::MessageEntityUrl(types::MessageEntityUrl { offset: 0, length: 1 }),
+            E::MessageEntityHashtag(types::MessageEntityHashtag { offset: 0, length: 1 }),
+            E::MessageEntityDiffInsert(types::MessageEntityDiffInsert { offset: 0, length: 1 }),
+        ];
+        assert!(detected.iter().all(|e| Span::read(e).is_none()));
+
+        let all = "<b>b</b><i>i</i><u>u</u><s>s</s><tg-spoiler>p</tg-spoiler><code>c</code><pre>p</pre>\
+                   <a href=\"x\">l</a><a href=\"tg://user?id=4\">m</a><blockquote expandable>q</blockquote>\
+                   <tg-emoji emoji-id=\"5\">e</tg-emoji><tg-time unix=\"1\" format=\"rtTdDw\">t</tg-time>";
+        for s in parse(all, ParseMode::Html).spans {
+            assert_eq!(Span::read(&s.write()).as_ref(), Some(&s));
         }
     }
 
