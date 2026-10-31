@@ -52,6 +52,7 @@ mod promote_chat_member;
 mod reopen_forum_topic;
 mod reopen_general_forum_topic;
 mod restrict_chat_member;
+mod restrict_sponsored_messages;
 mod set_chat_accent_color;
 mod set_chat_administrator_custom_title;
 mod set_chat_description;
@@ -63,14 +64,20 @@ mod set_chat_protected_content;
 mod set_chat_sticker_set;
 mod set_chat_theme;
 mod set_chat_title;
+mod set_chat_ttl;
 mod set_chat_username;
 mod set_chat_wallpaper;
 mod set_send_as_chat;
 mod set_slow_mode;
+mod toggle_anti_spam;
+mod toggle_auto_translation;
 mod toggle_forum_topics;
 mod toggle_join_request;
 mod toggle_join_to_send;
+mod toggle_participants_hidden;
+mod toggle_pre_history_hidden;
 mod toggle_signatures;
+mod toggle_view_forum_as_messages;
 mod transfer_chat_ownership;
 mod unarchive_chats;
 mod unban_chat_member;
@@ -354,6 +361,107 @@ mod appearance_tests {
         let refused = client.set_chat_accent_color(GROUP, Some(3)).await;
         assert!(matches!(refused, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use std::future::IntoFuture;
+
+    use tokio::sync::mpsc::UnboundedReceiver;
+
+    use crate::Client;
+    use crate::errors::{Error, Result, RpcError};
+    use crate::raw::functions::{channels, messages};
+    use crate::raw::{Serializable, base, types};
+    use crate::utils::get_channel_id;
+
+    const GROUP: i64 = -5;
+    const USER: i64 = 7;
+
+    fn channel() -> base::InputChannel {
+        base::InputChannel::InputChannel(Box::new(types::InputChannel { channel_id: 9, access_hash: 1 }))
+    }
+
+    fn channel_peer() -> base::InputPeer {
+        base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 9, access_hash: 1 }))
+    }
+
+    fn user_peer() -> base::InputPeer {
+        base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: USER, access_hash: 2 }))
+    }
+
+    fn settings_client(replies: Vec<Result<Vec<u8>>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
+        let (client, rx) = Client::scripted(replies);
+        client.0.peers.lock().unwrap().extend([(get_channel_id(9), channel_peer()), (USER, user_peer())]);
+        (client, rx)
+    }
+
+    async fn body<F: IntoFuture>(rx: &mut UnboundedReceiver<Vec<u8>>, call: F) -> Vec<u8> {
+        let _ = call.await;
+        rx.try_recv().expect("no request sent")
+    }
+
+    fn rpc(name: &str) -> Error {
+        Error::Rpc(RpcError::new(400, name))
+    }
+
+    async fn toggles_refused(client: &Client, chat: i64) -> [bool; 6] {
+        let refused = |r: Result<()>| matches!(r, Err(Error::InvalidArgument(_)));
+        [
+            refused(client.toggle_anti_spam(chat, true).await),
+            refused(client.toggle_auto_translation(chat, true).await),
+            refused(client.toggle_participants_hidden(chat, true).await),
+            refused(client.toggle_pre_history_hidden(chat, true).await),
+            refused(client.toggle_view_forum_as_messages(chat, true).await),
+            refused(client.restrict_sponsored_messages(chat, true).await),
+        ]
+    }
+
+    #[tokio::test]
+    async fn admin_toggles_send_their_requests() {
+        let (client, mut rx) = settings_client(Vec::new());
+        let (rx, chat, enabled) = (&mut rx, get_channel_id(9), true);
+        let anti_spam = channels::ToggleAntiSpam { channel: channel(), enabled };
+        assert_eq!(body(rx, client.toggle_anti_spam(chat, true)).await, anti_spam.to_bytes());
+        let translation = channels::ToggleAutotranslation { channel: channel(), enabled };
+        assert_eq!(body(rx, client.toggle_auto_translation(chat, true)).await, translation.to_bytes());
+        let hidden = channels::ToggleParticipantsHidden { channel: channel(), enabled };
+        assert_eq!(body(rx, client.toggle_participants_hidden(chat, true)).await, hidden.to_bytes());
+        let history = channels::TogglePreHistoryHidden { channel: channel(), enabled };
+        assert_eq!(body(rx, client.toggle_pre_history_hidden(chat, true)).await, history.to_bytes());
+        let forum = channels::ToggleViewForumAsMessages { channel: channel(), enabled };
+        assert_eq!(body(rx, client.toggle_view_forum_as_messages(chat, true)).await, forum.to_bytes());
+        let sponsored = channels::RestrictSponsoredMessages { channel: channel(), restricted: true };
+        assert_eq!(body(rx, client.restrict_sponsored_messages(chat, true)).await, sponsored.to_bytes());
+
+        let ttl = messages::SetHistoryTTL { peer: channel_peer(), period: 86400 };
+        assert_eq!(body(rx, client.set_chat_ttl(chat, 86400)).await, ttl.to_bytes());
+        let ttl = messages::SetHistoryTTL { peer: user_peer(), period: 0 };
+        assert_eq!(body(rx, client.set_chat_ttl(USER, 0)).await, ttl.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn admin_toggles_refuse_basic_groups_without_a_request() {
+        let (client, mut rx) = settings_client(Vec::new());
+        assert_eq!(toggles_refused(&client, GROUP).await, [true; 6]);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn admin_toggles_refuse_a_user() {
+        let (client, mut rx) = settings_client(Vec::new());
+        assert_eq!(toggles_refused(&client, USER).await, [true; 6]);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn telegram_errors_pass_through() {
+        let (client, _rx) = settings_client(vec![Err(rpc("TTL_PERIOD_INVALID")), Err(rpc("CHAT_NOT_MODIFIED"))]);
+        let ttl = client.set_chat_ttl(get_channel_id(9), 7).await;
+        assert!(matches!(&ttl, Err(Error::Rpc(e)) if e.name == "TTL_PERIOD_INVALID"), "{ttl:?}");
+        let toggle = client.toggle_anti_spam(get_channel_id(9), true).await;
+        assert!(matches!(&toggle, Err(Error::Rpc(e)) if e.name == "CHAT_NOT_MODIFIED"), "{toggle:?}");
     }
 }
 
