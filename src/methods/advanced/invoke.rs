@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::Client;
+use crate::client::Borrowed;
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, functions};
 use crate::session::Session;
@@ -17,7 +18,14 @@ impl Client {
     /// `timeout`, at most `max_flood_sleeps` times; the next one goes to the caller. `tokio::time::timeout` around
     /// the call bounds the whole wait.
     pub async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
-        invoke_sleeping_floods(&self.session(), request, timeout).await
+        let session = self.session();
+        match self.1 {
+            Some(takeout_id) => {
+                let request = functions::InvokeWithTakeout { takeout_id, query: Borrowed(request) };
+                invoke_sleeping_floods(&session, &request, timeout).await
+            }
+            None => invoke_sleeping_floods(&session, request, timeout).await,
+        }
     }
 
     /// Sends `request` to data center `dc_id` under this login, which is exported there the first time. The home
@@ -28,7 +36,14 @@ impl Client {
         if dc_id == self.session().dc_id() {
             return self.invoke(request).await;
         }
-        self.invoke_on_file_connection(self.dc(dc_id)?, request).await
+        let dc = self.dc(dc_id)?;
+        match self.1 {
+            Some(takeout_id) => {
+                let request = functions::InvokeWithTakeout { takeout_id, query: Borrowed(request) };
+                self.invoke_on_file_connection(dc, &request).await
+            }
+            None => self.invoke_on_file_connection(dc, request).await,
+        }
     }
 
     /// Hands the request back: a short "sent" update only carries what Telegram changed, the rest comes from it.
@@ -129,6 +144,31 @@ mod tests {
         let ping = functions::Ping { ping_id: 7 };
         assert!(client.invoke_in_dc(2, &ping).await.is_ok());
         assert_eq!(sent.try_recv().unwrap(), ping.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn a_takeout_client_wraps_every_request() {
+        let pong = || Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes());
+        let (client, mut sent) = Client::scripted(vec![pong(), pong()]);
+        let takeout = Client(client.0.clone(), Some(7));
+        let ping = functions::Ping { ping_id: 7 };
+        let wrapped = functions::InvokeWithTakeout { takeout_id: 7, query: functions::Ping { ping_id: 7 } }.to_bytes();
+        assert!(takeout.invoke(&ping).await.is_ok());
+        assert_eq!(sent.try_recv().unwrap(), wrapped);
+        assert!(takeout.clone().invoke(&ping).await.is_ok());
+        assert_eq!(sent.try_recv().unwrap(), wrapped);
+    }
+
+    #[tokio::test]
+    async fn invoke_in_dc_from_a_takeout_client_wraps_inside_init_connection() {
+        let client = Client::offline();
+        let (foreign, mut sent) = Session::scripted(vec![Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes())]);
+        client.0.transfers.insert(client.dc(FOREIGN_DC).unwrap(), &foreign);
+        let takeout = Client(client.0.clone(), Some(7));
+        assert!(takeout.invoke_in_dc(FOREIGN_DC, &functions::Ping { ping_id: 7 }).await.is_ok());
+        let wrapped = functions::InvokeWithTakeout { takeout_id: 7, query: functions::Ping { ping_id: 7 } };
+        let expected = crate::session::init_connection(client.0.api_id, &client.0.options, wrapped).to_bytes();
+        assert_eq!(sent.try_recv().unwrap(), expected);
     }
 
     #[tokio::test]
