@@ -1,3 +1,4 @@
+use crate::Client;
 use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::{LivePhoto, Media, Photo, Video};
@@ -22,7 +23,7 @@ pub enum PaidMedia {
 }
 
 impl PaidMediaInfo {
-    pub(crate) fn parse(raw: &types::MessageMediaPaidMedia, entities: &Entities) -> PaidMediaInfo {
+    pub(crate) fn parse(client: &Client, raw: &types::MessageMediaPaidMedia, entities: &Entities) -> PaidMediaInfo {
         let paid_media = raw
             .extended_media
             .iter()
@@ -30,12 +31,14 @@ impl PaidMediaInfo {
                 base::MessageExtendedMedia::MessageExtendedMediaPreview(p) => {
                     Some(PaidMedia::Preview { width: p.w, height: p.h, duration: p.video_duration })
                 }
-                base::MessageExtendedMedia::MessageExtendedMedia(m) => match Media::parse(&m.media, entities)? {
-                    Media::Photo(photo) => Some(PaidMedia::Photo(photo)),
-                    Media::Video(video) => Some(PaidMedia::Video(video)),
-                    Media::LivePhoto(live) => Some(PaidMedia::LivePhoto(live)),
-                    _ => None,
-                },
+                base::MessageExtendedMedia::MessageExtendedMedia(m) => {
+                    match Media::parse(client, &m.media, entities)? {
+                        Media::Photo(photo) => Some(PaidMedia::Photo(photo)),
+                        Media::Video(video) => Some(PaidMedia::Video(video)),
+                        Media::LivePhoto(live) => Some(PaidMedia::LivePhoto(live)),
+                        _ => None,
+                    }
+                }
             })
             .collect();
         PaidMediaInfo { star_count: raw.stars_amount, paid_media }
@@ -45,6 +48,7 @@ impl PaidMediaInfo {
 #[cfg(test)]
 mod tests {
     use super::{PaidMedia, PaidMediaInfo};
+    use crate::Client;
     use crate::dispatcher::Entities;
     use crate::raw::{base, types};
 
@@ -56,7 +60,7 @@ mod tests {
             stars_amount: 5,
             extended_media: vec![base::MessageExtendedMedia::MessageExtendedMediaPreview(Box::new(preview))],
         };
-        let info = PaidMediaInfo::parse(&raw, &Entities::default());
+        let info = PaidMediaInfo::parse(&Client::offline(), &raw, &Entities::default());
         assert_eq!(info.star_count, 5);
         let [PaidMedia::Preview { width, height, duration }] = info.paid_media[..] else { panic!("{info:?}") };
         assert_eq!((width, height, duration), (Some(640), Some(480), Some(9)));
@@ -81,7 +85,7 @@ mod tests {
             stars_amount: 5,
             extended_media: vec![base::MessageExtendedMedia::MessageExtendedMedia(Box::new(media))],
         };
-        let info = PaidMediaInfo::parse(&raw, &Entities::default());
+        let info = PaidMediaInfo::parse(&Client::offline(), &raw, &Entities::default());
         let kinds: Vec<_> = info.paid_media.iter().map(|m| format!("{m:?}")).collect();
         assert!(matches!(&kinds[..], [live] if live.starts_with("LivePhoto")), "{kinds:?}");
     }

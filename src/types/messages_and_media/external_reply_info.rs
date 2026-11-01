@@ -1,3 +1,4 @@
+use crate::Client;
 use crate::dispatcher::Entities;
 use crate::raw::types;
 use crate::types::{Chat, LinkPreviewOptions, Media, MessageOrigin};
@@ -12,7 +13,11 @@ pub struct ExternalReplyInfo {
 }
 
 impl ExternalReplyInfo {
-    pub(crate) fn parse(reply: &types::MessageReplyHeader, entities: &Entities) -> Option<ExternalReplyInfo> {
+    pub(crate) fn parse(
+        client: &Client,
+        reply: &types::MessageReplyHeader,
+        entities: &Entities,
+    ) -> Option<ExternalReplyInfo> {
         let origin = MessageOrigin::parse(reply.reply_from.as_ref()?, entities)?;
         let is_channel = matches!(origin, MessageOrigin::Channel { .. });
         let chat = reply.reply_to_peer_id.as_ref().map(|peer| Chat::parse(peer, entities, is_channel));
@@ -21,7 +26,7 @@ impl ExternalReplyInfo {
             origin,
             message_id: chat.as_ref().and(reply.reply_to_msg_id),
             chat,
-            media: media.and_then(|m| Media::parse(m, entities)),
+            media: media.and_then(|m| Media::parse(client, m, entities)),
             link_preview_options: LinkPreviewOptions::parse(media, false),
         })
     }
