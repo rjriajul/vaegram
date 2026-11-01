@@ -14,6 +14,8 @@ pub struct Chat {
     pub last_name: Option<String>,
     pub bio: Option<String>,
     pub description: Option<String>,
+    /// The chat's primary invite link, from `get_chat` (Pyrogram's `invite_link`).
+    pub invite_link: Option<String>,
     pub members_count: Option<i32>,
     /// The bot answering join request queries; only admins get it from `get_chat`.
     pub guard_bot: Option<User>,
@@ -36,6 +38,7 @@ impl Chat {
             last_name: None,
             bio: None,
             description: None,
+            invite_link: None,
             members_count: None,
             guard_bot: None,
             community: None,
