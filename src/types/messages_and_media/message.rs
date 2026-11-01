@@ -553,14 +553,7 @@ impl Message {
 
     /// Sends `text` to this chat without a quote, in the same topic and through the same business connection.
     pub fn answer(&self, text: impl Into<Text>) -> SendMessage<'_> {
-        let mut send = self.on_behalf(self.client.send_message(self.chat.id, text));
-        if let Some(topic) = &self.direct_messages_topic {
-            send = send.direct_messages_topic_id(topic.topic_id);
-        }
-        match self.message_thread_id {
-            Some(thread) if self.is_topic_message => send.message_thread_id(thread),
-            _ => send,
-        }
+        self.route(self.client.send_message(self.chat.id, text))
     }
 
     pub fn reply_media_group<'a>(&'a self, media: impl IntoIterator<Item = InputMedia<'a>>) -> SendMediaGroup<'a> {
@@ -569,14 +562,7 @@ impl Message {
 
     /// Sends an album to this chat without a quote, in the same topic and through the same business connection.
     pub fn answer_media_group<'a>(&'a self, media: impl IntoIterator<Item = InputMedia<'a>>) -> SendMediaGroup<'a> {
-        let mut send = self.on_behalf(self.client.send_media_group(self.chat.id, media));
-        if let Some(topic) = &self.direct_messages_topic {
-            send = send.direct_messages_topic_id(topic.topic_id);
-        }
-        match self.message_thread_id {
-            Some(thread) if self.is_topic_message => send.message_thread_id(thread),
-            _ => send,
-        }
+        self.route(self.client.send_media_group(self.chat.id, media))
     }
 }
 

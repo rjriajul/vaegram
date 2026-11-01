@@ -52,6 +52,7 @@ mod message_origin;
 mod message_reaction_count_updated;
 mod message_reaction_updated;
 mod message_reactions;
+mod message_replies;
 mod message_text;
 mod message_views;
 mod paid_media;
