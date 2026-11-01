@@ -118,6 +118,7 @@ mod send_web_view_data;
 mod set_default_reaction;
 mod stop_message_live_location;
 mod stop_poll;
+mod stream_media;
 mod stream_message;
 mod summarize_message;
 mod transcribe_audio;
