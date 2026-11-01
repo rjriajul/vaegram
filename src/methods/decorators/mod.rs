@@ -34,4 +34,5 @@ mod on_removed_chat_boost;
 mod on_shipping_query;
 mod on_start;
 mod on_stop;
+mod on_story;
 mod on_user_status;

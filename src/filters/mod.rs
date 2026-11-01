@@ -268,7 +268,7 @@ mod tests {
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::raw::{base, types};
-    use crate::types::CallbackQuery;
+    use crate::types::{CallbackQuery, Story};
     use crate::utils::get_peer;
 
     fn message(client: &Client, chat_id: i64, text: &str, media: Option<base::MessageMedia>) -> Message {
@@ -423,5 +423,15 @@ mod tests {
         assert_eq!(shapes(&captioned), (false, true, true));
         assert_eq!(shapes(&message(&client, 7, "", dice)), (false, false, false));
         assert_eq!(shapes(&message(&client, 7, "", None)), (false, false, false));
+    }
+
+    #[test]
+    fn filter_check_works_on_a_story() {
+        let skipped = types::StoryItemSkipped { close_friends: false, live: false, id: 4, date: 1, expire_date: 2 };
+        let item = base::StoryItem::StoryItemSkipped(Box::new(skipped));
+        let story = Story::parse(&Client::offline(), &get_peer(8), item, &Entities::default()).unwrap();
+        let (private, channel, chat): (Filter<Story>, Filter<Story>, Filter<Story>) = (private(), channel(), chat(8));
+        assert_eq!((private.check(&story), channel.check(&story), chat.check(&story)), (true, false, true));
+        assert!(!outgoing::<Story>().check(&story));
     }
 }

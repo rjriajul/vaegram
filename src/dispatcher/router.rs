@@ -15,7 +15,7 @@ use crate::types::{
     ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
     DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
     MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
-    RawUpdate, ShippingQuery, UserStatusUpdated,
+    RawUpdate, ShippingQuery, Story, UserStatusUpdated,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -362,6 +362,13 @@ update_kinds! {
     }
     user_status: UserStatus => UserStatusUpdated {
         UpdateUserStatus(u) => UserStatusUpdated::parse(client, &u, entities),
+    }
+    // A deleted story parses to `None`, so it never reaches a handler.
+    story: Story => Story {
+        UpdateStory(u) => {
+            let u = *u;
+            Story::parse(client, &u.peer, u.story, entities)
+        }
     }
 }
 
@@ -1213,5 +1220,78 @@ mod tests {
         gate.notify_one();
         settle().await;
         assert_eq!(*log.lock().unwrap(), ["handler", "next"]);
+    }
+
+    fn story_update(peer: base::Peer, item: Option<types::StoryItem>) -> base::Update {
+        let story = item.map_or(base::StoryItem::StoryItemDeleted(types::StoryItemDeleted { id: 7 }), |item| {
+            base::StoryItem::StoryItem(Box::new(item))
+        });
+        base::Update::UpdateStory(Box::new(types::UpdateStory { peer, story }))
+    }
+
+    fn story_item() -> types::StoryItem {
+        types::StoryItem {
+            pinned: false,
+            public: true,
+            close_friends: false,
+            min: false,
+            noforwards: false,
+            edited: false,
+            contacts: false,
+            selected_contacts: false,
+            out: false,
+            id: 7,
+            date: 100,
+            from_id: None,
+            fwd_from: None,
+            expire_date: 200,
+            caption: None,
+            entities: None,
+            media: base::MessageMedia::MessageMediaEmpty,
+            media_areas: None,
+            privacy: None,
+            views: None,
+            sent_reaction: None,
+            albums: None,
+            music: None,
+        }
+    }
+
+    fn broadcast(id: i64) -> Entities {
+        let mut buf = Vec::new();
+        for word in [1u32 << 5, 0] {
+            word.serialize(&mut buf);
+        }
+        id.serialize(&mut buf);
+        "c".to_owned().serialize(&mut buf);
+        base::ChatPhoto::ChatPhotoEmpty.serialize(&mut buf);
+        0i32.serialize(&mut buf);
+        let channel = Box::new(types::Channel::deserialize_bare(&mut &buf[..]).unwrap());
+        Entities { users: Default::default(), chats: [(get_channel_id(id), base::Chat::Channel(channel))].into() }
+    }
+
+    #[tokio::test]
+    async fn stories_reach_story_handlers() {
+        let log = Log::default();
+        let mut router = Router::default();
+        router.story.push(1, filters::all(), record(&log, "story"));
+        dispatch(&router, story_update(get_peer(8), Some(story_item())));
+        dispatch(&router, story_update(get_peer(8), None));
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["story"]);
+        assert!(router.remove(UpdateKind::Story, 1));
+    }
+
+    #[tokio::test]
+    async fn story_filters_see_the_chat() {
+        let log = Log::default();
+        let mut router = Router::default();
+        router.story.push(1, filters::channel(), record(&log, "channel"));
+        let (client, entities) = (Client::offline(), Arc::new(broadcast(9)));
+        for peer in [get_peer(get_channel_id(9)), get_peer(8)] {
+            router.dispatch(&client, story_update(peer, Some(story_item())), &entities, &mut Tasks::default());
+        }
+        settle().await;
+        assert_eq!(*log.lock().unwrap(), ["channel"]);
     }
 }
