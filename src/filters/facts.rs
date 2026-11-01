@@ -30,18 +30,21 @@ pub(crate) const SELF_DESTRUCTION: u32 = 1 << 21;
 pub(crate) const PAID_MESSAGE: u32 = 1 << 22;
 pub(crate) const BUSINESS: u32 = 1 << 23;
 pub(crate) const FORUM: u32 = 1 << 24;
+pub(crate) const ADMIN: u32 = 1 << 25;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PeerKinds {
     pub(crate) chat: Option<ChatType>,
     pub(crate) sender_bot: bool,
     pub(crate) forum: bool,
+    pub(crate) admin: bool,
 }
 
 impl PeerKinds {
     /// What a parsed update knows about its chat; `chat_traits` reads the same from raw entities.
     pub(crate) fn of(chat: Option<&Chat>, sender_bot: bool) -> PeerKinds {
-        PeerKinds { chat: chat.map(|c| c.kind), sender_bot, forum: chat.is_some_and(|c| c.is_forum) }
+        let (forum, admin) = chat.map_or((false, false), |c| (c.is_forum, c.is_admin));
+        PeerKinds { chat: chat.map(|c| c.kind), sender_bot, forum, admin }
     }
 
     pub(crate) fn message(raw: &base::Message, entities: &Entities) -> PeerKinds {
@@ -54,31 +57,28 @@ impl PeerKinds {
             base::Peer::PeerUser(p) => matches!(entities.users.get(&p.user_id), Some(base::User::User(u)) if u.bot),
             _ => false,
         };
-        PeerKinds { chat: Some(Chat::kind_of(peer, entities, post)), sender_bot, ..chat_traits(peer, entities) }
+        let (forum, admin) = chat_traits(peer, entities);
+        PeerKinds { chat: Some(Chat::kind_of(peer, entities, post)), sender_bot, forum, admin }
     }
 
     pub(crate) fn callback(raw: &types::UpdateBotCallbackQuery, entities: &Entities) -> PeerKinds {
         let sender_bot = matches!(entities.users.get(&raw.user_id), Some(base::User::User(u)) if u.bot);
-        PeerKinds {
-            chat: Some(Chat::kind_of(&raw.peer, entities, false)),
-            sender_bot,
-            ..chat_traits(&raw.peer, entities)
-        }
+        let (forum, admin) = chat_traits(&raw.peer, entities);
+        PeerKinds { chat: Some(Chat::kind_of(&raw.peer, entities, false)), sender_bot, forum, admin }
     }
 
     fn flags(self) -> u32 {
-        flag(self.sender_bot, SENDER_BOT) | flag(self.forum, FORUM)
+        flag(self.sender_bot, SENDER_BOT) | flag(self.forum, FORUM) | flag(self.admin, ADMIN)
     }
 }
 
-fn chat_traits(peer: &base::Peer, entities: &Entities) -> PeerKinds {
-    let forum = match peer {
-        base::Peer::PeerChannel(_) => {
-            matches!(entities.chats.get(&get_peer_id(peer)), Some(base::Chat::Channel(c)) if c.forum)
-        }
-        _ => false,
-    };
-    PeerKinds { forum, ..PeerKinds::default() }
+/// `(forum, admin)` from the raw entities, the same rules as `Chat::parse`.
+fn chat_traits(peer: &base::Peer, entities: &Entities) -> (bool, bool) {
+    match (peer, entities.chats.get(&get_peer_id(peer))) {
+        (base::Peer::PeerChannel(_), Some(base::Chat::Channel(c))) => (c.forum, c.admin_rights.is_some()),
+        (base::Peer::PeerChat(_), Some(base::Chat::Chat(c))) => (false, c.admin_rights.is_some()),
+        _ => (false, false),
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -306,6 +306,65 @@ mod tests {
     fn entities() -> Entities {
         let users = [(7, user(7, true)), (8, user(8, false))].into();
         Entities { users, chats: [(get_channel_id(55), megagroup(55))].into() }
+    }
+
+    #[test]
+    fn admin_comes_from_admin_rights_on_both_paths() {
+        let (client, me) = (Client::offline(), Me::default());
+        // flags.4 is ban_users.
+        let rights = || {
+            let rights = types::ChatAdminRights::deserialize_bare(&mut &16i32.to_le_bytes()[..]).unwrap();
+            Some(base::ChatAdminRights::ChatAdminRights(rights.into()))
+        };
+        let group = |admin_rights| {
+            base::Chat::Chat(Box::new(types::Chat {
+                creator: false,
+                left: false,
+                deactivated: false,
+                call_active: false,
+                call_not_empty: false,
+                noforwards: false,
+                id: 3,
+                title: "g".into(),
+                photo: base::ChatPhoto::ChatPhotoEmpty,
+                participants_count: 2,
+                date: 0,
+                version: 1,
+                migrated_to: None,
+                admin_rights,
+                default_banned_rights: None,
+            }))
+        };
+        let broadcast =
+            |admin_rights| base::Chat::Channel(Box::new(types::Channel { admin_rights, ..channel(5, 1 << 5) }));
+        let cases = [
+            (-3, group(rights()), true),
+            (-3, group(None), false),
+            (get_channel_id(5), broadcast(rights()), true),
+            (get_channel_id(5), broadcast(None), false),
+        ];
+        for (i, (id, chat, admin)) in cases.into_iter().enumerate() {
+            let entities = Entities { chats: [(id, chat)].into(), ..entities() };
+            let mut m = Message::bare(3, get_peer(id), 0);
+            m.from_id = Some(get_peer(8));
+            let raw = base::Message::Message(Box::new(m.clone()));
+            let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
+            assert_eq!(facts, Message::parse(&client, Box::new(m), &entities).facts(&me), "case {i}");
+            assert_eq!(facts.flags & ADMIN != 0, admin, "case {i}");
+
+            let raw = types::UpdateBotCallbackQuery {
+                query_id: 1,
+                user_id: 8,
+                peer: get_peer(id),
+                msg_id: 2,
+                chat_instance: 3,
+                data: None,
+                game_short_name: None,
+            };
+            let facts = Facts::callback(&raw, PeerKinds::callback(&raw, &entities), &me);
+            assert_eq!(facts, CallbackQuery::parse(&client, &raw, &entities).facts(&me), "case {i}");
+            assert_eq!(facts.flags & ADMIN != 0, admin, "case {i}");
+        }
     }
 
     #[test]

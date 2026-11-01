@@ -235,6 +235,8 @@ flag_filters! {
     business: HasMedia => BUSINESS,
     /// In a forum supergroup.
     forum: HasChat => FORUM,
+    /// In a chat where we have admin rights.
+    admin: HasChat => ADMIN,
 }
 
 pub fn incoming<T: HasChat>() -> Filter<T> {
@@ -349,6 +351,7 @@ mod tests {
             (paid_message(), on(PAID_MESSAGE), f),
             (business(), on(BUSINESS), f),
             (forum(), on(FORUM), inside(ChatType::Supergroup)),
+            (admin(), on(ADMIN), inside(ChatType::Group)),
             (service_kind([ServiceKind::PinnedMessage]), Facts { service: Some(ServiceKind::PinnedMessage), ..f }, f),
             (private(), inside(ChatType::Bot), inside(ChatType::Group)),
             (direct(), inside(ChatType::Private), inside(ChatType::Bot)),
