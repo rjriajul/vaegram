@@ -16,6 +16,7 @@ pub struct EditMessageText<'a> {
     reply_markup: Option<ReplyMarkup>,
     business_connection_id: Option<String>,
     schedule_date: Option<i32>,
+    no_webpage: bool,
 }
 
 impl Client {
@@ -35,6 +36,7 @@ impl Client {
             reply_markup: None,
             business_connection_id: None,
             schedule_date: None,
+            no_webpage: false,
         }
     }
 }
@@ -61,11 +63,18 @@ impl EditMessageText<'_> {
         self
     }
 
+    /// Sends the text without a link preview (Pyrogram's `disable_web_page_preview`).
+    pub fn disable_web_page_preview(mut self) -> Self {
+        self.no_webpage = true;
+        self
+    }
+
     async fn send(self) -> Result<Message> {
         let client = self.client;
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let (message, entities, rich_message) = self.text.write(client, self.parse_mode).await?;
         let request = functions::messages::EditMessage {
+            no_webpage: self.no_webpage,
             invert_media: self.show_caption_above_media,
             message,
             reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
