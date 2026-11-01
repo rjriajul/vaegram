@@ -81,6 +81,7 @@ mod sticker_set;
 mod stories_stealth_mode;
 mod story;
 mod story_area;
+mod story_replies;
 mod successful_payment;
 mod suggested_post;
 mod text;
