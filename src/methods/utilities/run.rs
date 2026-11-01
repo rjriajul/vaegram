@@ -44,7 +44,7 @@ impl Client {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use std::future::{Ready, ready};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
@@ -71,7 +71,7 @@ mod tests {
     }
 
     // Stopped before it runs, with a saved state and an update stream that stays open.
-    async fn stopped_client() -> (Client, mpsc::Sender<Incoming>) {
+    pub(in crate::methods::utilities) async fn stopped_client() -> (Client, mpsc::Sender<Incoming>) {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
         let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
