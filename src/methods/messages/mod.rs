@@ -173,7 +173,7 @@ pub use search_posts::SearchPosts;
 pub use send_animation::SendAnimation;
 pub use send_audio::SendAudio;
 pub use send_cached_media::SendCachedMedia;
-pub use send_chat_action::SendChatAction;
+pub use send_chat_action::{ChatActionHandle, RepeatChatAction, SendChatAction};
 pub use send_checklist::SendChecklist;
 pub use send_contact::SendContact;
 pub use send_dice::SendDice;
