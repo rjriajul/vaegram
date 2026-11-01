@@ -21,7 +21,7 @@ impl Client {
         };
         match token {
             T::LoginToken(t) => Ok(LoginToken::Url { url: login_url(&t.token), expires: t.expires }),
-            T::LoginTokenSuccess(s) => Ok(LoginToken::Authorized(self.authorized_user(s.authorization)?)),
+            T::LoginTokenSuccess(s) => Ok(LoginToken::Authorized(Box::new(self.authorized_user(s.authorization)?))),
             T::LoginTokenMigrateTo(_) => Err(Error::Unexpected("login token migrated twice")),
         }
     }
