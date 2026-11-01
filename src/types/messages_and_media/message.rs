@@ -9,7 +9,7 @@ use crate::methods::{
 use crate::raw::{base, types};
 use crate::types::{
     Chat, Command, DirectMessagesTopic, ExternalReplyInfo, FactCheck, InlineKeyboardMarkup, InputMedia,
-    LinkPreviewOptions, Media, MessageEntity, MessageOrigin, MessageText, PeerRef, ReactionCount, ReactionType,
+    LinkPreviewOptions, Media, MessageEntity, MessageOrigin, MessageReactions, MessageText, PeerRef, ReactionType,
     ReplyMarkup, RestrictionReason, RichMessage, ServiceAction, SuggestedPostInfo, Text, TextQuote, User,
 };
 use crate::utils::{get_peer, get_peer_id};
@@ -53,7 +53,8 @@ pub struct Message {
     pub service: Option<ServiceAction>,
     pub business_connection_id: Option<String>,
     pub direct_messages_topic: Option<DirectMessagesTopic>,
-    pub reactions: Vec<ReactionCount>,
+    /// `None` when nobody has reacted, or the message comes from a request that leaves reactions out.
+    pub reactions: Option<MessageReactions>,
     /// The account was mentioned in it, or it replies to the account's message.
     pub mentioned: bool,
     /// Its voice or video note, or self-destructing media, hasn't been played yet.
@@ -189,9 +190,7 @@ impl Message {
             service,
             business_connection_id: None,
             direct_messages_topic,
-            reactions: raw.reactions.as_ref().map_or(Vec::new(), |base::MessageReactions::MessageReactions(r)| {
-                r.results.iter().filter_map(ReactionCount::parse).collect()
-            }),
+            reactions: raw.reactions.as_ref().map(|r| MessageReactions::parse(r, entities)),
             mentioned: raw.mentioned,
             unread_media: raw.media_unread,
             silent: raw.silent,
@@ -303,7 +302,7 @@ impl Message {
         let mut bare = Message::bare(raw.id, raw.peer_id.clone(), raw.date);
         (bare.out, bare.mentioned, bare.post, bare.from_id) = (raw.out, raw.mentioned, raw.post, raw.from_id.clone());
         (bare.silent, bare.media_unread) = (raw.silent, raw.media_unread);
-        bare.saved_peer_id = raw.saved_peer_id.clone();
+        (bare.saved_peer_id, bare.reactions) = (raw.saved_peer_id.clone(), raw.reactions.clone());
         // A pin's header points at the pinned message, which the service message doesn't reply to. In a forum it
         // still names the topic, so that part stays as the header of a message posted in the topic.
         let pin = matches!(raw.action, base::MessageAction::MessageActionPinMessage);
@@ -1334,5 +1333,28 @@ pub(crate) mod tests {
         let reasons: Vec<_> = m.restriction_reason.iter().map(|r| (r.platform.as_str(), r.reason.as_str())).collect();
         assert_eq!(reasons, [("ios", "porn")]);
         assert_eq!(m.fact_check.map(|f| (f.need_check, f.hash)), Some((true, 3)));
+    }
+
+    #[test]
+    fn reactions_are_none_without_a_block() {
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        assert!(parse(&raw).reactions.is_none());
+        let block = types::MessageReactions {
+            min: true,
+            can_see_list: false,
+            reactions_as_tags: false,
+            results: Vec::new(),
+            recent_reactions: None,
+            top_reactors: None,
+        };
+        raw.reactions = Some(base::MessageReactions::MessageReactions(Box::new(block)));
+        let reactions = parse(&raw).reactions.expect("the reaction block was dropped");
+        assert!(reactions.reactions.is_empty() && !reactions.can_get_added_reactions);
+
+        let mut service = service(base::MessageAction::MessageActionChatDeletePhoto);
+        service.reactions = raw.reactions.clone();
+        let message = base::Message::MessageService(Box::new(service));
+        let m = Message::from_raw(&Client::offline(), message, &Entities::default()).expect("service message dropped");
+        assert!(m.reactions.is_some());
     }
 }
