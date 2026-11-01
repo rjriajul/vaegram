@@ -83,6 +83,8 @@ pub struct Message {
     pub repeat_period: Option<i32>,
     /// The language a summary of the message was made from.
     pub summary_language_code: Option<String>,
+    /// Waiting to be sent at a scheduled date: it came from a scheduling answer or `get_scheduled_messages`.
+    pub scheduled: bool,
     /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`] and leaves its text in
     /// `message`.
     pub(crate) raw: Box<types::Message>,
@@ -195,6 +197,7 @@ impl Message {
             send_paid_messages_stars: raw.paid_message_stars,
             repeat_period: raw.schedule_repeat_period,
             summary_language_code: raw.summary_from_language.clone(),
+            scheduled: false,
             raw,
             replied: None,
             client: client.clone(),
@@ -336,6 +339,7 @@ impl Message {
         };
         let entities = Entities::new(client, users, chats);
         updates.into_iter().filter_map(move |u| {
+            let scheduled = matches!(u, base::Update::UpdateNewScheduledMessage(_));
             let (message, business) = match u {
                 base::Update::UpdateNewMessage(u) => (u.message, None),
                 base::Update::UpdateNewChannelMessage(u) => (u.message, None),
@@ -352,6 +356,7 @@ impl Message {
                 _ => return None,
             };
             let mut message = Message::from_raw(client, message, &entities)?;
+            message.scheduled = scheduled;
             if let Some((connection_id, reply_to)) = business {
                 message.set_business(client, connection_id, reply_to, &entities);
             }
@@ -1227,5 +1232,24 @@ pub(crate) mod tests {
             Message::from_raw(&Client::offline(), base::Message::MessageService(Box::new(raw)), &Entities::default());
         let m = m.expect("service message dropped");
         assert_eq!((m.silent, m.unread_media), (true, true));
+    }
+
+    #[test]
+    fn only_scheduling_updates_mark_a_message_scheduled() {
+        let message = || base::Message::Message(Box::new(Message::bare(3, get_peer(7), 1)));
+        let updates = vec![
+            base::Update::UpdateNewScheduledMessage(Box::new(types::UpdateNewScheduledMessage { message: message() })),
+            base::Update::UpdateNewMessage(Box::new(types::UpdateNewMessage {
+                message: message(),
+                pts: 1,
+                pts_count: 1,
+            })),
+        ];
+        let updates = types::Updates { updates, users: Vec::new(), chats: Vec::new(), date: 0, seq: 0 };
+        let client = Client::offline();
+        let found: Vec<bool> = Message::all_from_updates(&client, base::Updates::Updates(Box::new(updates)))
+            .map(|m| m.scheduled)
+            .collect();
+        assert_eq!(found, [true, false]);
     }
 }
