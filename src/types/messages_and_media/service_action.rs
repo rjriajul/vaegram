@@ -1,11 +1,13 @@
 use crate::dispatcher::Entities;
-use crate::enums::{ServiceKind, SuggestedPostRefundReason};
+use crate::enums::{PhoneCallDiscardReason, ServiceKind, SuggestedPostRefundReason};
 use crate::raw::{base, types};
 use crate::types::{
-    Chat, ChatShared, ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone, Community, ForumTopicCreated,
-    ForumTopicEdited, GiftInfo, Photo, ProximityAlertTriggered, RefundedPayment, SharedUser, SuccessfulPayment,
-    SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostPaid, SuggestedPostPrice,
-    SuggestedPostRefunded, UniqueGiftInfo, User, UsersShared, WriteAccessAllowed,
+    Birthday, Chat, ChatBackground, ChatShared, ChatTheme, ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone,
+    Community, ForumTopicCreated, ForumTopicEdited, GiftInfo, GiftedGrams, GiftedPremium, GiftedStars,
+    GiveawayPrizeStars, PhoneCallEnded, Photo, PollOption, PremiumGiftCode, ProximityAlertTriggered, RefundedPayment,
+    SharedUser, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
+    SuggestedPostPaid, SuggestedPostPrice, SuggestedPostRefunded, UniqueGiftInfo, UpgradedGiftPurchaseOffer,
+    UpgradedGiftPurchaseOfferRejected, User, UsersShared, WebAppData, WriteAccessAllowed,
 };
 use crate::utils::{get_channel_id, get_peer_id};
 
@@ -66,6 +68,80 @@ pub enum ServiceAction {
         score: i32,
     },
     BoostAdded(i32),
+    WebAppData(Box<WebAppData>),
+    /// The owner left; ownership passes to this user once the transfer completes.
+    ChatOwnerLeft(User),
+    ChatOwnerChanged(User),
+    ContactRegistered,
+    CustomAction(String),
+    PremiumGiftCode(Box<PremiumGiftCode>),
+    GiftedPremium(Box<GiftedPremium>),
+    GiftedStars(Box<GiftedStars>),
+    GiftedGrams(Box<GiftedGrams>),
+    GiveawayCreated {
+        /// Set for a giveaway of Telegram Stars.
+        prize_star_count: Option<i64>,
+    },
+    /// The giveaway message is the reply target.
+    GiveawayCompleted {
+        winner_count: i32,
+        unclaimed_prize_count: i32,
+        is_star_giveaway: bool,
+    },
+    GiveawayPrizeStars(Box<GiveawayPrizeStars>),
+    HistoryCleared,
+    PhoneCallStarted {
+        id: i64,
+        is_video: bool,
+    },
+    PhoneCallEnded(Box<PhoneCallEnded>),
+    ConferenceCall {
+        id: i64,
+        is_missed: bool,
+        is_active: bool,
+        is_video: bool,
+        /// In seconds.
+        duration: Option<i32>,
+    },
+    ScreenshotTaken,
+    UpgradedGiftPurchaseOffer(Box<UpgradedGiftPurchaseOffer>),
+    UpgradedGiftPurchaseOfferRejected(Box<UpgradedGiftPurchaseOfferRejected>),
+    ChatHasProtectedContentToggled {
+        old_has_protected_content: bool,
+        new_has_protected_content: bool,
+    },
+    /// A request to turn off protected content in a private chat.
+    ChatHasProtectedContentDisableRequested {
+        is_expired: bool,
+    },
+    ChatSetTheme(Box<ChatTheme>),
+    ChatBackgroundSet {
+        background: Box<ChatBackground>,
+        /// The background was already in use.
+        is_same: bool,
+        /// Set for both users of a private chat.
+        is_for_both: bool,
+    },
+    SuggestProfilePhoto(Box<Photo>),
+    SuggestBirthday(Birthday),
+    PaidMessagesRefunded {
+        message_count: i32,
+        star_count: i64,
+    },
+    PaidMessagePriceChanged {
+        paid_message_star_count: i64,
+    },
+    DirectMessagePriceChanged {
+        is_enabled: bool,
+        paid_message_star_count: i64,
+    },
+    /// The poll is the reply target.
+    PollOptionAdded(Box<PollOption>),
+    /// The poll is the reply target.
+    PollOptionDeleted(Box<PollOption>),
+    PassportDataSent,
+    /// The data stays encrypted.
+    PassportDataReceived,
 }
 
 impl ServiceAction {
@@ -231,6 +307,112 @@ impl ServiceAction {
                 ServiceAction::GameHighScore { game_id: a.game_id, score: a.score }
             }
             (K::BoostAdded, A::MessageActionBoostApply(a)) => ServiceAction::BoostAdded(a.boosts),
+            (K::WebAppData, A::MessageActionWebViewDataSentMe(a)) => ServiceAction::WebAppData(Box::new(WebAppData {
+                button_text: a.text.clone(),
+                data: Some(a.data.clone()),
+            })),
+            (K::WebAppData, A::MessageActionWebViewDataSent(a)) => {
+                ServiceAction::WebAppData(Box::new(WebAppData { button_text: a.text.clone(), data: None }))
+            }
+            (K::ChatOwnerLeft, A::MessageActionNewCreatorPending(a)) => {
+                ServiceAction::ChatOwnerLeft(User::parse(a.new_creator_id, entities))
+            }
+            (K::ChatOwnerChanged, A::MessageActionChangeCreator(a)) => {
+                ServiceAction::ChatOwnerChanged(User::parse(a.new_creator_id, entities))
+            }
+            (K::ContactRegistered, _) => ServiceAction::ContactRegistered,
+            (K::CustomAction, A::MessageActionCustomAction(a)) => ServiceAction::CustomAction(a.message.clone()),
+            (K::PremiumGiftCode, A::MessageActionGiftCode(a)) => {
+                ServiceAction::PremiumGiftCode(Box::new(PremiumGiftCode::parse(a, entities)))
+            }
+            (K::GiftedPremium, A::MessageActionGiftPremium(a)) => {
+                ServiceAction::GiftedPremium(Box::new(GiftedPremium::parse(a, entities)))
+            }
+            (K::GiftedStars, A::MessageActionGiftStars(a)) => {
+                ServiceAction::GiftedStars(Box::new(GiftedStars::parse(a)))
+            }
+            (K::GiftedGrams, A::MessageActionGiftTon(a)) => ServiceAction::GiftedGrams(Box::new(GiftedGrams::parse(a))),
+            (K::GiveawayCreated, A::MessageActionGiveawayLaunch(a)) => {
+                ServiceAction::GiveawayCreated { prize_star_count: a.stars }
+            }
+            (K::GiveawayCompleted, A::MessageActionGiveawayResults(a)) => ServiceAction::GiveawayCompleted {
+                winner_count: a.winners_count,
+                unclaimed_prize_count: a.unclaimed_count,
+                is_star_giveaway: a.stars,
+            },
+            (K::GiveawayPrizeStars, A::MessageActionPrizeStars(a)) => {
+                ServiceAction::GiveawayPrizeStars(Box::new(GiveawayPrizeStars::parse(a, entities)))
+            }
+            (K::HistoryCleared, _) => ServiceAction::HistoryCleared,
+            (K::PhoneCallStarted, A::MessageActionPhoneCall(a)) => {
+                ServiceAction::PhoneCallStarted { id: a.call_id, is_video: a.video }
+            }
+            (K::PhoneCallEnded, A::MessageActionPhoneCall(a)) => {
+                ServiceAction::PhoneCallEnded(Box::new(PhoneCallEnded {
+                    id: a.call_id,
+                    is_video: a.video,
+                    reason: PhoneCallDiscardReason::parse(a.reason.as_ref()?),
+                    duration: a.duration,
+                }))
+            }
+            (K::ConferenceCall, A::MessageActionConferenceCall(a)) => ServiceAction::ConferenceCall {
+                id: a.call_id,
+                is_missed: a.missed,
+                is_active: a.active,
+                is_video: a.video,
+                duration: a.duration,
+            },
+            (K::ScreenshotTaken, _) => ServiceAction::ScreenshotTaken,
+            (K::UpgradedGiftPurchaseOffer, A::MessageActionStarGiftPurchaseOffer(a)) => {
+                ServiceAction::UpgradedGiftPurchaseOffer(Box::new(UpgradedGiftPurchaseOffer::parse(a, entities)?))
+            }
+            (K::UpgradedGiftPurchaseOfferRejected, A::MessageActionStarGiftPurchaseOfferDeclined(a)) => {
+                let rejected = UpgradedGiftPurchaseOfferRejected::parse(a, entities)?;
+                ServiceAction::UpgradedGiftPurchaseOfferRejected(Box::new(rejected))
+            }
+            (K::ChatHasProtectedContentToggled, A::MessageActionNoForwardsToggle(a)) => {
+                ServiceAction::ChatHasProtectedContentToggled {
+                    old_has_protected_content: a.prev_value,
+                    new_has_protected_content: a.new_value,
+                }
+            }
+            (K::ChatHasProtectedContentDisableRequested, A::MessageActionNoForwardsRequest(a)) => {
+                ServiceAction::ChatHasProtectedContentDisableRequested { is_expired: a.expired }
+            }
+            (K::ChatSetTheme, A::MessageActionSetChatTheme(a)) => {
+                ServiceAction::ChatSetTheme(Box::new(ChatTheme::parse(&a.theme, entities)))
+            }
+            (K::ChatBackgroundSet, A::MessageActionSetChatWallPaper(a)) => ServiceAction::ChatBackgroundSet {
+                background: Box::new(ChatBackground::parse(a.wallpaper.clone())),
+                is_same: a.same,
+                is_for_both: a.for_both,
+            },
+            (K::SuggestProfilePhoto, A::MessageActionSuggestProfilePhoto(a)) => {
+                ServiceAction::SuggestProfilePhoto(Box::new(Photo::parse(&a.photo)?))
+            }
+            (K::SuggestBirthday, A::MessageActionSuggestBirthday(a)) => {
+                ServiceAction::SuggestBirthday(Birthday::parse(&a.birthday))
+            }
+            (K::PaidMessagesRefunded, A::MessageActionPaidMessagesRefunded(a)) => {
+                ServiceAction::PaidMessagesRefunded { message_count: a.count, star_count: a.stars }
+            }
+            (K::PaidMessagePriceChanged, A::MessageActionPaidMessagesPrice(a)) => {
+                ServiceAction::PaidMessagePriceChanged { paid_message_star_count: a.stars }
+            }
+            (K::DirectMessagePriceChanged, A::MessageActionPaidMessagesPrice(a)) => {
+                ServiceAction::DirectMessagePriceChanged {
+                    is_enabled: a.broadcast_messages_allowed,
+                    paid_message_star_count: a.stars,
+                }
+            }
+            (K::PollOptionAdded, A::MessageActionPollAppendAnswer(a)) => {
+                ServiceAction::PollOptionAdded(Box::new(PollOption::from_answer(&a.answer, entities)))
+            }
+            (K::PollOptionDeleted, A::MessageActionPollDeleteAnswer(a)) => {
+                ServiceAction::PollOptionDeleted(Box::new(PollOption::from_answer(&a.answer, entities)))
+            }
+            (K::PassportDataSent, _) => ServiceAction::PassportDataSent,
+            (K::PassportDataReceived, _) => ServiceAction::PassportDataReceived,
             _ => return None,
         })
     }
@@ -283,6 +465,38 @@ impl ServiceAction {
             S::ChecklistTasksAdded(_) => K::ChecklistTasksAdded,
             S::GameHighScore { .. } => K::GameHighScore,
             S::BoostAdded(_) => K::BoostAdded,
+            S::WebAppData(_) => K::WebAppData,
+            S::ChatOwnerLeft(_) => K::ChatOwnerLeft,
+            S::ChatOwnerChanged(_) => K::ChatOwnerChanged,
+            S::ContactRegistered => K::ContactRegistered,
+            S::CustomAction(_) => K::CustomAction,
+            S::PremiumGiftCode(_) => K::PremiumGiftCode,
+            S::GiftedPremium(_) => K::GiftedPremium,
+            S::GiftedStars(_) => K::GiftedStars,
+            S::GiftedGrams(_) => K::GiftedGrams,
+            S::GiveawayCreated { .. } => K::GiveawayCreated,
+            S::GiveawayCompleted { .. } => K::GiveawayCompleted,
+            S::GiveawayPrizeStars(_) => K::GiveawayPrizeStars,
+            S::HistoryCleared => K::HistoryCleared,
+            S::PhoneCallStarted { .. } => K::PhoneCallStarted,
+            S::PhoneCallEnded(_) => K::PhoneCallEnded,
+            S::ConferenceCall { .. } => K::ConferenceCall,
+            S::ScreenshotTaken => K::ScreenshotTaken,
+            S::UpgradedGiftPurchaseOffer(_) => K::UpgradedGiftPurchaseOffer,
+            S::UpgradedGiftPurchaseOfferRejected(_) => K::UpgradedGiftPurchaseOfferRejected,
+            S::ChatHasProtectedContentToggled { .. } => K::ChatHasProtectedContentToggled,
+            S::ChatHasProtectedContentDisableRequested { .. } => K::ChatHasProtectedContentDisableRequested,
+            S::ChatSetTheme(_) => K::ChatSetTheme,
+            S::ChatBackgroundSet { .. } => K::ChatBackgroundSet,
+            S::SuggestProfilePhoto(_) => K::SuggestProfilePhoto,
+            S::SuggestBirthday(_) => K::SuggestBirthday,
+            S::PaidMessagesRefunded { .. } => K::PaidMessagesRefunded,
+            S::PaidMessagePriceChanged { .. } => K::PaidMessagePriceChanged,
+            S::DirectMessagePriceChanged { .. } => K::DirectMessagePriceChanged,
+            S::PollOptionAdded(_) => K::PollOptionAdded,
+            S::PollOptionDeleted(_) => K::PollOptionDeleted,
+            S::PassportDataSent => K::PassportDataSent,
+            S::PassportDataReceived => K::PassportDataReceived,
         }
     }
 }
@@ -512,6 +726,96 @@ mod tests {
         }
     }
 
+    fn stars(amount: i64) -> base::StarsAmount {
+        base::StarsAmount::StarsAmount(Box::new(types::StarsAmount { amount, nanos: 0 }))
+    }
+
+    fn premium() -> types::MessageActionGiftPremium {
+        types::MessageActionGiftPremium {
+            currency: "USD".into(),
+            amount: 5,
+            days: 30,
+            crypto_currency: None,
+            crypto_amount: None,
+            message: Some(base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities {
+                text: "enjoy".into(),
+                entities: Vec::new(),
+            }))),
+        }
+    }
+
+    fn gift_code() -> types::MessageActionGiftCode {
+        types::MessageActionGiftCode {
+            via_giveaway: true,
+            unclaimed: false,
+            boost_peer: Some(get_peer(-1000000000005)),
+            days: 30,
+            slug: "code".into(),
+            currency: None,
+            amount: None,
+            crypto_currency: None,
+            crypto_amount: None,
+            message: None,
+        }
+    }
+
+    fn phone_call(reason: Option<base::PhoneCallDiscardReason>, duration: Option<i32>) -> base::MessageAction {
+        base::MessageAction::MessageActionPhoneCall(Box::new(types::MessageActionPhoneCall {
+            video: true,
+            call_id: 8,
+            reason,
+            duration,
+        }))
+    }
+
+    fn offer(gift: base::StarGift, accepted: bool, declined: bool) -> base::MessageAction {
+        base::MessageAction::MessageActionStarGiftPurchaseOffer(Box::new(types::MessageActionStarGiftPurchaseOffer {
+            accepted,
+            declined,
+            gift,
+            price: stars(5),
+            expires_at: 9,
+        }))
+    }
+
+    fn theme(theme: base::ChatTheme) -> base::MessageAction {
+        base::MessageAction::MessageActionSetChatTheme(Box::new(types::MessageActionSetChatTheme { theme }))
+    }
+
+    fn wallpaper(same: bool, for_both: bool) -> base::MessageAction {
+        let wallpaper = base::WallPaper::WallPaperNoFile(Box::new(types::WallPaperNoFile {
+            id: 1,
+            default: false,
+            dark: true,
+            settings: None,
+        }));
+        base::MessageAction::MessageActionSetChatWallPaper(Box::new(types::MessageActionSetChatWallPaper {
+            same,
+            for_both,
+            wallpaper,
+        }))
+    }
+
+    fn paid_price(broadcast_messages_allowed: bool) -> base::MessageAction {
+        base::MessageAction::MessageActionPaidMessagesPrice(Box::new(types::MessageActionPaidMessagesPrice {
+            broadcast_messages_allowed,
+            stars: 10,
+        }))
+    }
+
+    fn poll_answer() -> base::PollAnswer {
+        base::PollAnswer::PollAnswer(Box::new(types::PollAnswer {
+            text: base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities {
+                text: "Tea".into(),
+                entities: Vec::new(),
+            })),
+            option: vec![2],
+            media: None,
+            added_by: None,
+            date: None,
+        }))
+    }
+
     // One well-formed message per kind; `filters::service_kind` reads only the raw action, so a filter matches
     // exactly when `service` holds the variant of the same name.
     fn every_kind() -> Vec<types::MessageService> {
@@ -549,7 +853,9 @@ mod tests {
             service(A::MessageActionChatAddUser(Box::new(types::MessageActionChatAddUser { users: vec![3] }))),
             service(A::MessageActionChatDeleteUser(types::MessageActionChatDeleteUser { user_id: 3 })),
             service(A::MessageActionChatEditTitle(Box::new(types::MessageActionChatEditTitle { title: "T".into() }))),
-            service(A::MessageActionChatEditPhoto(Box::new(types::MessageActionChatEditPhoto { photo }))),
+            service(A::MessageActionChatEditPhoto(Box::new(types::MessageActionChatEditPhoto {
+                photo: photo.clone(),
+            }))),
             service(A::MessageActionChatDeletePhoto),
             service(A::MessageActionChatCreate(Box::new(types::MessageActionChatCreate {
                 title: "T".into(),
@@ -657,6 +963,100 @@ mod tests {
             })),
             service(A::MessageActionBoostApply(types::MessageActionBoostApply { boosts: 2 })),
             service(A::MessageActionGameScore(Box::new(types::MessageActionGameScore { game_id: 7, score: 42 }))),
+            service(A::MessageActionWebViewDataSentMe(Box::new(types::MessageActionWebViewDataSentMe {
+                text: "Go".into(),
+                data: "{}".into(),
+            }))),
+            service(A::MessageActionNewCreatorPending(types::MessageActionNewCreatorPending { new_creator_id: 4 })),
+            service(A::MessageActionChangeCreator(types::MessageActionChangeCreator { new_creator_id: 4 })),
+            service(A::MessageActionContactSignUp),
+            service(A::MessageActionCustomAction(Box::new(types::MessageActionCustomAction { message: "hi".into() }))),
+            service(A::MessageActionGiftCode(Box::new(gift_code()))),
+            service(A::MessageActionGiftPremium(Box::new(premium()))),
+            service(A::MessageActionGiftStars(Box::new(types::MessageActionGiftStars {
+                currency: "USD".into(),
+                amount: 5,
+                stars: 100,
+                crypto_currency: None,
+                crypto_amount: None,
+                transaction_id: None,
+            }))),
+            service(A::MessageActionGiftTon(Box::new(types::MessageActionGiftTon {
+                currency: "USD".into(),
+                amount: 5,
+                crypto_currency: "TON".into(),
+                crypto_amount: 1_000_000_000,
+                transaction_id: Some("tx".into()),
+            }))),
+            service(A::MessageActionGiveawayLaunch(Box::new(types::MessageActionGiveawayLaunch { stars: Some(500) }))),
+            service(A::MessageActionGiveawayResults(Box::new(types::MessageActionGiveawayResults {
+                stars: false,
+                winners_count: 3,
+                unclaimed_count: 0,
+            }))),
+            service(A::MessageActionPrizeStars(Box::new(types::MessageActionPrizeStars {
+                unclaimed: false,
+                stars: 50,
+                transaction_id: "tx".into(),
+                boost_peer: get_peer(-1000000000005),
+                giveaway_msg_id: 7,
+            }))),
+            service(A::MessageActionHistoryClear),
+            service(phone_call(None, None)),
+            service(phone_call(Some(base::PhoneCallDiscardReason::PhoneCallDiscardReasonHangup), Some(60))),
+            service(A::MessageActionConferenceCall(Box::new(types::MessageActionConferenceCall {
+                missed: false,
+                active: true,
+                video: false,
+                call_id: 1,
+                duration: None,
+                other_participants: None,
+            }))),
+            service(A::MessageActionScreenshotTaken),
+            service(offer(unique_gift().gift, false, false)),
+            service(A::MessageActionStarGiftPurchaseOfferDeclined(Box::new(
+                types::MessageActionStarGiftPurchaseOfferDeclined {
+                    expired: true,
+                    gift: unique_gift().gift,
+                    price: stars(5),
+                },
+            ))),
+            service(A::MessageActionNoForwardsToggle(types::MessageActionNoForwardsToggle {
+                prev_value: false,
+                new_value: true,
+            })),
+            service(A::MessageActionNoForwardsRequest(types::MessageActionNoForwardsRequest {
+                expired: false,
+                prev_value: true,
+                new_value: false,
+            })),
+            service(theme(base::ChatTheme::ChatTheme(Box::new(types::ChatTheme { emoticon: "🐱".into() })))),
+            service(wallpaper(false, true)),
+            service(A::MessageActionSuggestProfilePhoto(Box::new(types::MessageActionSuggestProfilePhoto { photo }))),
+            service(A::MessageActionSuggestBirthday(Box::new(types::MessageActionSuggestBirthday {
+                birthday: base::Birthday::Birthday(Box::new(types::Birthday { day: 31, month: 10, year: None })),
+            }))),
+            service(A::MessageActionPaidMessagesRefunded(Box::new(types::MessageActionPaidMessagesRefunded {
+                count: 2,
+                stars: 10,
+            }))),
+            service(paid_price(false)),
+            types::MessageService { post: true, ..service(paid_price(true)) },
+            service(A::MessageActionPollAppendAnswer(Box::new(types::MessageActionPollAppendAnswer {
+                answer: poll_answer(),
+            }))),
+            service(A::MessageActionPollDeleteAnswer(Box::new(types::MessageActionPollDeleteAnswer {
+                answer: poll_answer(),
+            }))),
+            service(A::MessageActionSecureValuesSent(Box::new(types::MessageActionSecureValuesSent {
+                types: vec![base::SecureValueType::SecureValueTypePassport],
+            }))),
+            service(A::MessageActionSecureValuesSentMe(Box::new(types::MessageActionSecureValuesSentMe {
+                values: Vec::new(),
+                credentials: base::SecureCredentialsEncrypted::SecureCredentialsEncrypted(Box::new(
+                    types::SecureCredentialsEncrypted { data: Vec::new(), hash: Vec::new(), secret: Vec::new() },
+                )),
+            }))),
         ]
     }
 
@@ -682,14 +1082,6 @@ mod tests {
             |raw: types::MessageService| (ServiceKind::of(&raw.action, None), ServiceAction::parse(&raw, &entities));
         let empty = types::MessageActionChatEditPhoto { photo: base::Photo::PhotoEmpty(types::PhotoEmpty { id: 1 }) };
         let joined = types::MessageService { from_id: None, ..service(A::MessageActionChatJoinedByRequest) };
-        let premium = types::MessageActionGiftPremium {
-            currency: "USD".into(),
-            amount: 5,
-            days: 30,
-            crypto_currency: None,
-            crypto_amount: None,
-            message: None,
-        };
         let receipt = types::MessageActionPaymentSent {
             recurring_init: false,
             recurring_used: false,
@@ -702,7 +1094,14 @@ mod tests {
             (service(A::MessageActionPinMessage), ServiceKind::PinnedMessage),
             (service(A::MessageActionChatEditPhoto(Box::new(empty))), ServiceKind::NewChatPhoto),
             (joined, ServiceKind::NewChatMembers),
-            (service(A::MessageActionGiftPremium(Box::new(premium))), ServiceKind::Unknown),
+            (service(A::MessageActionNoPaidMessagesTokenUsed), ServiceKind::Unknown),
+            (service(offer(star_gift().gift, false, false)), ServiceKind::UpgradedGiftPurchaseOffer),
+            (
+                service(A::MessageActionSuggestProfilePhoto(Box::new(types::MessageActionSuggestProfilePhoto {
+                    photo: base::Photo::PhotoEmpty(types::PhotoEmpty { id: 1 }),
+                }))),
+                ServiceKind::SuggestProfilePhoto,
+            ),
             (service(A::MessageActionPaymentSent(Box::new(receipt))), ServiceKind::Unknown),
         ];
         for (raw, kind) in cases {
@@ -740,7 +1139,7 @@ mod tests {
         };
         let site = parse(A::MessageActionBotAllowed(Box::new(site)));
         assert_eq!(site, Some(ServiceAction::ConnectedWebsite("example.com".into())));
-        assert_eq!(parse(A::MessageActionScreenshotTaken), None);
+        assert_eq!(parse(A::MessageActionScreenshotTaken), Some(ServiceAction::ScreenshotTaken));
     }
 
     #[test]
@@ -781,5 +1180,125 @@ mod tests {
         let added = parse(base::MessageAction::MessageActionTodoAppendTasks(Box::new(added)));
         let tasks = vec![ChecklistTask::parse(&item(4, "Visa"), &Entities::default())];
         assert_eq!(added, Some(ServiceAction::ChecklistTasksAdded(ChecklistTasksAdded { tasks })));
+    }
+
+    #[test]
+    fn paid_message_price_follows_the_chat_kind() {
+        let entities = Entities::default();
+        let channel = types::MessageService { post: true, ..service(paid_price(true)) };
+        assert_eq!(
+            ServiceAction::parse(&channel, &entities),
+            Some(ServiceAction::DirectMessagePriceChanged { is_enabled: true, paid_message_star_count: 10 })
+        );
+        assert_eq!(
+            parse(paid_price(false)),
+            Some(ServiceAction::PaidMessagePriceChanged { paid_message_star_count: 10 })
+        );
+    }
+
+    #[test]
+    fn maps_phone_calls() {
+        use crate::enums::PhoneCallDiscardReason;
+        assert_eq!(parse(phone_call(None, None)), Some(ServiceAction::PhoneCallStarted { id: 8, is_video: true }));
+        let ended = |duration| match parse(phone_call(
+            Some(base::PhoneCallDiscardReason::PhoneCallDiscardReasonMissed),
+            duration,
+        )) {
+            Some(ServiceAction::PhoneCallEnded(e)) => Some((e.id, e.reason, e.duration)),
+            _ => None,
+        };
+        assert_eq!(ended(None), Some((8, PhoneCallDiscardReason::Missed, None)));
+        assert_eq!(ended(Some(60)), Some((8, PhoneCallDiscardReason::Missed, Some(60))));
+    }
+
+    #[test]
+    fn maps_gift_actions() {
+        use crate::enums::GiftPurchaseOfferState;
+        let state = |accepted, declined| match parse(offer(unique_gift().gift, accepted, declined)) {
+            Some(ServiceAction::UpgradedGiftPurchaseOffer(o)) => Some((o.state, o.price.amount, o.gift.gift_id)),
+            _ => None,
+        };
+        assert_eq!(state(false, false), Some((GiftPurchaseOfferState::Pending, 5, 2)));
+        assert_eq!(state(true, false), Some((GiftPurchaseOfferState::Accepted, 5, 2)));
+        assert_eq!(state(false, true), Some((GiftPurchaseOfferState::Rejected, 5, 2)));
+
+        let Some(ServiceAction::GiftedPremium(gifted)) =
+            parse(base::MessageAction::MessageActionGiftPremium(Box::new(premium())))
+        else {
+            panic!("expected gifted Premium")
+        };
+        assert_eq!((gifted.day_count, gifted.text.as_deref()), (30, Some("enjoy")));
+        let Some(ServiceAction::PremiumGiftCode(code)) =
+            parse(base::MessageAction::MessageActionGiftCode(Box::new(gift_code())))
+        else {
+            panic!("expected a gift code")
+        };
+        assert_eq!((code.code.as_str(), code.is_from_giveaway), ("code", true));
+        assert_eq!(code.creator.map(|c| c.id), Some(-1000000000005));
+    }
+
+    #[test]
+    fn maps_themes_backgrounds_and_poll_options() {
+        let named = theme(base::ChatTheme::ChatTheme(Box::new(types::ChatTheme { emoticon: "🐱".into() })));
+        let Some(ServiceAction::ChatSetTheme(named)) = parse(named) else { panic!("expected a theme") };
+        assert_eq!((named.name.as_deref(), named.gift.is_none()), (Some("🐱"), true));
+        let gift = theme(base::ChatTheme::ChatThemeUniqueGift(Box::new(types::ChatThemeUniqueGift {
+            gift: unique_gift().gift,
+            theme_settings: Vec::new(),
+        })));
+        let Some(ServiceAction::ChatSetTheme(gift)) = parse(gift) else { panic!("expected a theme") };
+        assert_eq!((gift.name, gift.gift.map(|g| g.gift_id)), (None, Some(2)));
+
+        let Some(ServiceAction::ChatBackgroundSet { background, is_same, is_for_both }) = parse(wallpaper(true, false))
+        else {
+            panic!("expected a background")
+        };
+        assert_eq!((background.id, background.is_dark, is_same, is_for_both), (1, true, true, false));
+
+        let added = types::MessageActionPollAppendAnswer { answer: poll_answer() };
+        let Some(ServiceAction::PollOptionAdded(option)) =
+            parse(base::MessageAction::MessageActionPollAppendAnswer(Box::new(added)))
+        else {
+            panic!("expected a poll option")
+        };
+        assert_eq!((option.text.as_str(), option.data.as_slice(), option.voter_count), ("Tea", &[2u8][..], 0));
+    }
+
+    #[test]
+    fn parses_payload_structs() {
+        use crate::types::{Chat, GiftedGrams, GiftedStars, GiveawayPrizeStars, WebAppData};
+        let entities = Entities::default();
+        let actions: Vec<_> = every_kind().iter().filter_map(|raw| ServiceAction::parse(raw, &entities)).collect();
+        let stars = GiftedStars {
+            currency: "USD".into(),
+            amount: 5,
+            cryptocurrency: None,
+            cryptocurrency_amount: None,
+            star_count: 100,
+            transaction_id: None,
+        };
+        let grams = GiftedGrams { ton_amount: 1_000_000_000, transaction_id: Some("tx".into()) };
+        let prize = GiveawayPrizeStars {
+            star_count: 50,
+            transaction_id: "tx".into(),
+            boosted_chat: Chat::parse(&get_peer(-1000000000005), &entities, true),
+            giveaway_message_id: 7,
+            is_unclaimed: false,
+        };
+        let web = WebAppData { button_text: "Go".into(), data: Some("{}".into()) };
+        let expected = [
+            ServiceAction::GiftedStars(Box::new(stars)),
+            ServiceAction::GiftedGrams(Box::new(grams)),
+            ServiceAction::GiveawayPrizeStars(Box::new(prize)),
+            ServiceAction::ConferenceCall { id: 1, is_missed: false, is_active: true, is_video: false, duration: None },
+            ServiceAction::ChatHasProtectedContentToggled {
+                old_has_protected_content: false,
+                new_has_protected_content: true,
+            },
+            ServiceAction::WebAppData(Box::new(web)),
+        ];
+        for action in expected {
+            assert!(actions.contains(&action), "missing {action:?}");
+        }
     }
 }
