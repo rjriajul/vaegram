@@ -8,6 +8,15 @@ pub enum BusinessAwayMessageSchedule {
 }
 
 impl BusinessAwayMessageSchedule {
+    pub(crate) fn parse(raw: &base::BusinessAwayMessageSchedule) -> BusinessAwayMessageSchedule {
+        use base::BusinessAwayMessageSchedule as S;
+        match raw {
+            S::BusinessAwayMessageScheduleAlways => Self::Always,
+            S::BusinessAwayMessageScheduleOutsideWorkHours => Self::OutsideWorkHours,
+            S::BusinessAwayMessageScheduleCustom(c) => Self::Custom { start_date: c.start_date, end_date: c.end_date },
+        }
+    }
+
     pub(crate) fn write(self) -> base::BusinessAwayMessageSchedule {
         use base::BusinessAwayMessageSchedule as S;
         match self {

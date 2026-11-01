@@ -5,12 +5,26 @@ use crate::raw::{base, types};
 pub struct BusinessOpeningHours {
     pub time_zone_name: String,
     pub opening_hours: Vec<(i32, i32)>,
+    /// Read from Telegram; ignored when setting the hours.
+    pub is_open_now: bool,
 }
 
 impl BusinessOpeningHours {
     pub fn new(time_zone_name: impl Into<String>, opening_hours: impl IntoIterator<Item = (i32, i32)>) -> Self {
         let (time_zone_name, opening_hours) = (time_zone_name.into(), opening_hours.into_iter().collect());
-        BusinessOpeningHours { time_zone_name, opening_hours }
+        BusinessOpeningHours { time_zone_name, opening_hours, is_open_now: false }
+    }
+
+    pub(crate) fn parse(raw: base::BusinessWorkHours) -> BusinessOpeningHours {
+        let base::BusinessWorkHours::BusinessWorkHours(h) = raw;
+        let h = *h;
+        let interval =
+            |base::BusinessWeeklyOpen::BusinessWeeklyOpen(o): &base::BusinessWeeklyOpen| (o.start_minute, o.end_minute);
+        BusinessOpeningHours {
+            time_zone_name: h.timezone_id,
+            opening_hours: h.weekly_open.iter().map(interval).collect(),
+            is_open_now: h.open_now,
+        }
     }
 
     /// Minutes count from Monday 00:00; an interval may run past Sunday into the next week, up to 8*24*60.
@@ -48,6 +62,15 @@ mod tests {
         let base::BusinessWeeklyOpen::BusinessWeeklyOpen(o) = &h.weekly_open[0];
         let got = (h.timezone_id.as_str(), h.weekly_open.len(), o.start_minute, o.end_minute);
         assert_eq!(got, ("Europe/Berlin", 1, 540, 1020));
+    }
+
+    #[test]
+    fn parses_what_it_writes() {
+        let hours = BusinessOpeningHours::new("Asia/Tokyo", [(60, 120), (2000, 2100)]);
+        assert_eq!(BusinessOpeningHours::parse(hours.write().unwrap()), hours);
+        let base::BusinessWorkHours::BusinessWorkHours(mut open) = hours.write().unwrap();
+        open.open_now = true;
+        assert!(BusinessOpeningHours::parse(base::BusinessWorkHours::BusinessWorkHours(open)).is_open_now);
     }
 
     #[test]

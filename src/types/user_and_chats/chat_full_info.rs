@@ -1,7 +1,10 @@
 use crate::dispatcher::Entities;
 use crate::enums::ProfileTab;
 use crate::raw::{base, types};
-use crate::types::{BotVerification, Chat, ChatReactions};
+use crate::types::{
+    AcceptedGiftTypes, Birthday, BotVerification, BusinessAwayMessage, BusinessGreetingMessage, BusinessIntro,
+    BusinessLocation, BusinessOpeningHours, Chat, ChatPhoto, ChatPrivileges, ChatReactions, FormattedText, UserRating,
+};
 use crate::utils::{get_channel_id, get_peer};
 
 /// What only the full profile of a chat tells; `get_chat` fills it. Each group of fields says which chats have it.
@@ -67,9 +70,119 @@ pub struct ChatFullInfo {
     pub is_paid_reactions_available: bool,
     pub can_send_gift: bool,
     pub is_paid_messages_available: bool,
+
+    // Users and bots.
+    pub birthday: Option<Birthday>,
+    pub personal_channel: Option<Chat>,
+    /// The latest post of the personal channel.
+    pub personal_channel_message_id: Option<i32>,
+    /// The photo you set for this contact; only you see it.
+    pub personal_photo: Option<ChatPhoto>,
+    /// The photo shown to those who may not see the main one.
+    pub public_photo: Option<ChatPhoto>,
+    pub common_chats_count: Option<i32>,
+    /// The name shown on forwards when the user hides their account.
+    pub private_forward_name: Option<String>,
+    /// The rights a bot asks for when added to groups.
+    pub chat_admin_rights: Option<ChatPrivileges>,
+    /// The rights a bot asks for when added to channels.
+    pub channel_admin_rights: Option<ChatPrivileges>,
+    pub business_intro: Option<BusinessIntro>,
+    pub business_location: Option<BusinessLocation>,
+    pub business_opening_hours: Option<BusinessOpeningHours>,
+    pub business_greeting_message: Option<BusinessGreetingMessage>,
+    pub business_away_message: Option<BusinessAwayMessage>,
+    pub rating: Option<UserRating>,
+    /// Your rating once pending changes apply, at `pending_rating_date`.
+    pub pending_rating: Option<UserRating>,
+    pub pending_rating_date: Option<i32>,
+    pub accepted_gift_types: Option<AcceptedGiftTypes>,
+    /// Your private note about this contact.
+    pub note: Option<FormattedText>,
+    pub is_phone_calls_available: bool,
+    pub is_phone_calls_private: bool,
+    pub is_video_calls_available: bool,
+    pub can_pin_message: bool,
+    pub can_send_voice_messages: bool,
+    /// The user can't see your stories.
+    pub is_blocked_my_stories_from: bool,
+    /// Messaging this user needs Premium.
+    pub is_contact_require_premium: bool,
+    pub is_read_dates_available: bool,
+    pub is_ads_enabled: bool,
+    pub bot_can_manage_emoji_status: bool,
+    pub display_gifts_button: bool,
+    /// The user's app is not an official or verified one.
+    pub uses_unofficial_app: bool,
 }
 
 impl ChatFullInfo {
+    pub(crate) fn parse_user(u: types::UserFull, entities: &Entities) -> ChatFullInfo {
+        let id = u.id;
+        let access_hash = match entities.users.get(&id) {
+            Some(base::User::User(user)) => user.access_hash,
+            _ => None,
+        };
+        // Downloading either photo goes through the user, so it needs the user's access hash.
+        let photo = |photo: Option<base::Photo>, personal| match (access_hash, photo) {
+            (Some(hash), Some(base::Photo::Photo(p))) => {
+                Some(ChatPhoto::new(id, hash, p.id, p.dc_id, p.video_sizes.is_some(), personal))
+            }
+            _ => None,
+        };
+        ChatFullInfo {
+            pinned_message_id: u.pinned_msg_id,
+            folder_id: u.folder_id,
+            message_auto_delete_time: u.ttl_period,
+            theme: u.theme.and_then(|theme| match theme {
+                base::ChatTheme::ChatTheme(t) => Some(t.emoticon),
+                base::ChatTheme::ChatThemeUniqueGift(_) => None,
+            }),
+            can_schedule_messages: u.has_scheduled,
+            is_translations_disabled: u.translations_disabled,
+            is_blocked: u.blocked,
+            is_pinned_stories_available: u.stories_pinned_available,
+            can_view_revenue: u.can_view_revenue,
+            gift_count: u.stargifts_count,
+            main_profile_tab: u.main_tab.as_ref().map(ProfileTab::parse),
+            bot_verification: u.bot_verification.map(|v| BotVerification::parse(v, entities)),
+            birthday: u.birthday.as_ref().map(Birthday::parse),
+            personal_channel: u
+                .personal_channel_id
+                .map(|id| Chat::parse(&get_peer(get_channel_id(id)), entities, true)),
+            personal_channel_message_id: u.personal_channel_message,
+            personal_photo: photo(u.personal_photo, true),
+            public_photo: photo(u.fallback_photo, false),
+            common_chats_count: Some(u.common_chats_count),
+            private_forward_name: u.private_forward_name,
+            chat_admin_rights: u.bot_group_admin_rights.as_ref().map(ChatPrivileges::parse),
+            channel_admin_rights: u.bot_broadcast_admin_rights.as_ref().map(ChatPrivileges::parse),
+            business_intro: u.business_intro.map(BusinessIntro::parse),
+            business_location: u.business_location.map(BusinessLocation::parse),
+            business_opening_hours: u.business_work_hours.map(BusinessOpeningHours::parse),
+            business_greeting_message: u.business_greeting_message.map(BusinessGreetingMessage::parse),
+            business_away_message: u.business_away_message.map(BusinessAwayMessage::parse),
+            rating: u.stars_rating.as_ref().map(UserRating::parse),
+            pending_rating: u.stars_my_pending_rating.as_ref().map(UserRating::parse),
+            pending_rating_date: u.stars_my_pending_rating_date,
+            accepted_gift_types: u.disallowed_gifts.as_ref().map(AcceptedGiftTypes::parse),
+            note: u.note.map(FormattedText::parse),
+            is_phone_calls_available: u.phone_calls_available,
+            is_phone_calls_private: u.phone_calls_private,
+            is_video_calls_available: u.video_calls_available,
+            can_pin_message: u.can_pin_message,
+            can_send_voice_messages: !u.voice_messages_forbidden,
+            is_blocked_my_stories_from: u.blocked_my_stories_from,
+            is_contact_require_premium: u.contact_require_premium,
+            is_read_dates_available: !u.read_dates_private,
+            is_ads_enabled: u.sponsored_enabled,
+            bot_can_manage_emoji_status: u.bot_can_manage_emoji_status,
+            display_gifts_button: u.display_gifts_button,
+            uses_unofficial_app: u.unofficial_security_risk,
+            ..ChatFullInfo::default()
+        }
+    }
+
     pub(crate) fn parse_chat(c: types::ChatFull) -> ChatFullInfo {
         ChatFullInfo {
             pinned_message_id: c.pinned_msg_id,
@@ -136,6 +249,7 @@ impl ChatFullInfo {
             is_paid_reactions_available: c.paid_reactions_available,
             can_send_gift: c.stargifts_available,
             is_paid_messages_available: c.paid_messages_available,
+            ..ChatFullInfo::default()
         }
     }
 

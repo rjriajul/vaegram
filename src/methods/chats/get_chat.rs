@@ -11,11 +11,12 @@ impl Client {
         if chat_id > 0 {
             let id = self.resolve_user(&chat_id.into()).await?;
             let base::users::UserFull::UserFull(full) = self.invoke(&functions::users::GetFullUser { id }).await?;
-            let types::users::UserFull { full_user: base::UserFull::UserFull(user), chats, users } = *full;
+            let types::users::UserFull { full_user: base::UserFull::UserFull(mut user), chats, users } = *full;
             let entities = Entities::new(self, users, chats);
             let mut chat = Chat::parse(&get_peer(chat_id), &entities, false);
-            chat.bio = user.about.filter(|about| !about.is_empty());
+            chat.bio = user.about.take().filter(|about| !about.is_empty());
             chat.community = Community::linked(chat_id, &entities);
+            chat.full_info = Some(Box::new(ChatFullInfo::parse_user(*user, &entities)));
             return Ok(chat);
         }
         let (full_chat, entities) = self.full_chat(self.resolve_chat(&chat_id.into()).await?).await?;
@@ -52,9 +53,11 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use crate::client::sent;
+    use crate::dispatcher::Entities;
+    use crate::enums::BusinessAwayMessageSchedule;
     use crate::raw::functions::{channels, contacts, messages, users};
     use crate::raw::{Identifiable, Serializable, base, types};
-    use crate::types::{ChatPermissions, ChatPrivileges, ChatReactions};
+    use crate::types::{Birthday, ChatFullInfo, ChatPermissions, ChatPhoto, ChatPrivileges, ChatReactions};
     use crate::utils::{get_channel_id, get_peer};
     use crate::{Client, Error};
 
@@ -250,6 +253,129 @@ mod tests {
         let (client, _rx) = Client::scripted(vec![Ok(reply)]);
         let chat = client.get_chat(known_channel(&client, 9)).await.unwrap();
         assert_eq!(chat.members_count, Some(40));
+    }
+
+    fn user_full(id: i64) -> types::UserFull {
+        let mut buf = Vec::new();
+        for word in [0u32, 0] {
+            word.serialize(&mut buf);
+        }
+        id.serialize(&mut buf);
+        types::PeerSettings::CONSTRUCTOR_ID.serialize(&mut buf);
+        0u32.serialize(&mut buf);
+        notify_settings().serialize(&mut buf);
+        3i32.serialize(&mut buf);
+        types::UserFull::deserialize_bare(&mut &buf[..]).unwrap()
+    }
+
+    fn raw_user(id: i64, access_hash: i64) -> base::User {
+        let mut buf = Vec::new();
+        for word in [1u32, 0] {
+            word.serialize(&mut buf);
+        }
+        id.serialize(&mut buf);
+        access_hash.serialize(&mut buf);
+        base::User::User(types::User::deserialize_bare(&mut &buf[..]).unwrap().into())
+    }
+
+    fn recipients() -> base::BusinessRecipients {
+        let r = types::BusinessRecipients {
+            existing_chats: false,
+            new_chats: true,
+            contacts: false,
+            non_contacts: false,
+            exclude_selected: false,
+            users: None,
+        };
+        base::BusinessRecipients::BusinessRecipients(r.into())
+    }
+
+    #[tokio::test]
+    async fn user_full_info_reads_business_birthday_and_rating() {
+        let photo = types::Photo {
+            has_stickers: false,
+            id: 55,
+            access_hash: 1,
+            file_reference: Vec::new(),
+            date: 0,
+            sizes: Vec::new(),
+            video_sizes: None,
+            dc_id: 4,
+        };
+        let rating = |stars, next_level_stars| {
+            let r = types::StarsRating { level: 2, current_level_stars: 10, stars, next_level_stars };
+            base::StarsRating::StarsRating(r.into())
+        };
+        let intro = types::BusinessIntro { title: "Hi".into(), description: "Ask away".into(), sticker: None };
+        let location = types::BusinessLocation { geo_point: None, address: "1 Cat Street".into() };
+        let hours =
+            types::BusinessWorkHours { open_now: true, timezone_id: "Asia/Tokyo".into(), weekly_open: Vec::new() };
+        let greeting = types::BusinessGreetingMessage { shortcut_id: 1, recipients: recipients(), no_activity_days: 7 };
+        let away = types::BusinessAwayMessage {
+            offline_only: true,
+            shortcut_id: 2,
+            schedule: base::BusinessAwayMessageSchedule::BusinessAwayMessageScheduleAlways,
+            recipients: recipients(),
+        };
+        let full = types::UserFull {
+            about: Some("bio".into()),
+            voice_messages_forbidden: true,
+            read_dates_private: true,
+            phone_calls_available: true,
+            birthday: Some(base::Birthday::Birthday(types::Birthday { day: 1, month: 2, year: None }.into())),
+            personal_channel_id: Some(11),
+            personal_channel_message: Some(5),
+            fallback_photo: Some(base::Photo::Photo(photo.into())),
+            business_intro: Some(base::BusinessIntro::BusinessIntro(intro.into())),
+            business_location: Some(base::BusinessLocation::BusinessLocation(location.into())),
+            business_work_hours: Some(base::BusinessWorkHours::BusinessWorkHours(hours.into())),
+            business_greeting_message: Some(base::BusinessGreetingMessage::BusinessGreetingMessage(greeting.into())),
+            business_away_message: Some(base::BusinessAwayMessage::BusinessAwayMessage(away.into())),
+            stars_rating: Some(rating(15, Some(20))),
+            stars_my_pending_rating: Some(rating(18, None)),
+            stars_my_pending_rating_date: Some(1000),
+            theme: Some(base::ChatTheme::ChatTheme(types::ChatTheme { emoticon: "🐱".into() }.into())),
+            ..user_full(USER)
+        };
+        let reply = types::users::UserFull {
+            full_user: base::UserFull::UserFull(full.into()),
+            chats: vec![raw_channel(11, "diary")],
+            users: vec![raw_user(USER, 77)],
+        };
+        let reply = base::users::UserFull::UserFull(reply.into()).to_bytes();
+        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let user = types::InputPeerUser { user_id: USER, access_hash: 77 };
+        client.0.peers.lock().unwrap().insert(USER, base::InputPeer::InputPeerUser(Box::new(user)));
+        let chat = client.get_chat(USER).await.unwrap();
+        rx.try_recv().expect("the full user request");
+        assert!(rx.try_recv().is_err(), "get_chat sent a second request");
+
+        let info = chat.full_info.unwrap();
+        assert_eq!(chat.bio.as_deref(), Some("bio"));
+        assert_eq!(info.birthday, Some(Birthday { day: 1, month: 2, year: None }));
+        let channel = info.personal_channel.as_ref().unwrap();
+        assert_eq!((channel.id, channel.title.as_deref()), (get_channel_id(11), Some("diary")));
+        assert_eq!((info.personal_channel_message_id, info.common_chats_count), (Some(5), Some(3)));
+        assert_eq!(info.public_photo, Some(ChatPhoto::new(USER, 77, 55, 4, false, false)));
+        assert_eq!(info.personal_photo, None);
+        let flags = (info.can_send_voice_messages, info.is_read_dates_available, info.is_phone_calls_available);
+        assert_eq!(flags, (false, false, true));
+        assert_eq!(info.business_intro.map(|i| i.text), Some("Ask away".into()));
+        assert_eq!(info.business_location.map(|l| l.address), Some("1 Cat Street".into()));
+        assert_eq!(info.business_opening_hours.map(|h| h.is_open_now), Some(true));
+        assert_eq!(
+            info.business_greeting_message.map(|g| (g.no_activity_days, g.recipients.new_chats)),
+            Some((7, true))
+        );
+        let away = info.business_away_message.unwrap();
+        assert_eq!((away.schedule, away.offline_only), (BusinessAwayMessageSchedule::Always, true));
+        assert_eq!(info.rating.map(|r| (r.rating, r.is_maximum_level_reached)), Some((15, false)));
+        assert_eq!(info.pending_rating.map(|r| r.is_maximum_level_reached), Some(true));
+        assert_eq!((info.pending_rating_date, info.theme.as_deref()), (Some(1000), Some("🐱")));
+
+        // The raw flags say what is forbidden; unset, the friendly fields allow it.
+        let open = ChatFullInfo::parse_user(user_full(USER), &Entities::default());
+        assert_eq!((open.can_send_voice_messages, open.is_read_dates_available, open.public_photo), (true, true, None));
     }
 
     #[tokio::test]
