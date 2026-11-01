@@ -99,7 +99,11 @@ fn inline_button(raw: &base::KeyboardInlineButton) -> Option<InlineKeyboardButto
         T::InlineButtonTypeGame => InlineAction::CallbackGame,
         _ => return None,
     };
-    Some(InlineKeyboardButton { text: b.text.clone(), action, style: style(b.style.as_ref()) })
+    let icon_custom_emoji_id = match &b.style {
+        Some(base::KeyboardButtonStyle::KeyboardButtonStyle(s)) => s.icon,
+        None => None,
+    };
+    Some(InlineKeyboardButton { text: b.text.clone(), action, style: style(b.style.as_ref()), icon_custom_emoji_id })
 }
 
 fn style(raw: Option<&base::KeyboardButtonStyle>) -> ButtonStyle {

@@ -235,6 +235,15 @@ impl EditCallbackMessageText<'_> {
         }
     }
 
+    /// Ephemeral messages have no link previews to turn off.
+    pub fn disable_web_page_preview(self) -> Self {
+        match self {
+            Self::Message(edit) => Self::Message(edit.disable_web_page_preview()),
+            Self::Inline(edit) => Self::Inline(edit.disable_web_page_preview()),
+            ephemeral @ Self::Ephemeral(_) => ephemeral,
+        }
+    }
+
     pub fn reply_markup(self, markup: impl Into<ReplyMarkup>) -> Self {
         match self {
             Self::Message(edit) => Self::Message(edit.reply_markup(markup)),

@@ -38,7 +38,7 @@ impl Client {
         text: Text,
         mode: Option<ParseMode>,
     ) -> Result<(String, Vec<base::MessageEntity>)> {
-        let text = text.parsed(mode.unwrap_or(self.0.parse_mode));
+        let text = text.parsed(mode.unwrap_or(self.0.parse_mode)).trimmed();
         let mut entities = text.write_entities();
         for entity in &mut entities {
             if let base::MessageEntity::InputMessageEntityMentionName(m) = entity {
@@ -52,6 +52,12 @@ impl Client {
 }
 
 impl SendMessage<'_> {
+    /// Sends the text without a link preview (Pyrogram's `disable_web_page_preview`).
+    pub fn disable_web_page_preview(mut self) -> Self {
+        self.options.no_webpage = true;
+        self
+    }
+
     async fn send(self) -> Result<Message> {
         let (message, entities) = self.client.write_text(self.text, self.parse_mode).await?;
         let text = (message, (!entities.is_empty()).then_some(entities));

@@ -42,13 +42,19 @@ pub enum ButtonStyle {
 
 impl ButtonStyle {
     pub(crate) fn write(self) -> Option<base::KeyboardButtonStyle> {
+        self.write_with_icon(None)
+    }
+
+    /// The style, carrying a custom emoji icon when there is one (a plain button with an icon still needs it).
+    pub(crate) fn write_with_icon(self, icon: Option<i64>) -> Option<base::KeyboardButtonStyle> {
         let (bg_primary, bg_danger, bg_success) = match self {
-            ButtonStyle::Default => return None,
+            ButtonStyle::Default if icon.is_none() => return None,
+            ButtonStyle::Default => (false, false, false),
             ButtonStyle::Primary => (true, false, false),
             ButtonStyle::Danger => (false, true, false),
             ButtonStyle::Success => (false, false, true),
         };
-        let style = types::KeyboardButtonStyle { bg_primary, bg_danger, bg_success, icon: None };
+        let style = types::KeyboardButtonStyle { bg_primary, bg_danger, bg_success, icon };
         Some(base::KeyboardButtonStyle::KeyboardButtonStyle(Box::new(style)))
     }
 }
@@ -58,6 +64,8 @@ pub struct InlineKeyboardButton {
     pub text: String,
     pub action: InlineAction,
     pub style: ButtonStyle,
+    /// A custom emoji shown before the text.
+    pub icon_custom_emoji_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +82,7 @@ pub enum InlineAction {
 
 impl InlineKeyboardButton {
     fn new(text: impl Into<String>, action: InlineAction) -> Self {
-        InlineKeyboardButton { text: text.into(), action, style: ButtonStyle::Default }
+        InlineKeyboardButton { text: text.into(), action, style: ButtonStyle::Default, icon_custom_emoji_id: None }
     }
 
     pub fn callback(text: impl Into<String>, data: impl Into<String>) -> Self {
@@ -111,6 +119,12 @@ impl InlineKeyboardButton {
         self
     }
 
+    /// Shows the custom emoji `id` before the text, as the Bot API's `icon_custom_emoji_id`.
+    pub fn icon_custom_emoji_id(mut self, id: i64) -> Self {
+        self.icon_custom_emoji_id = Some(id);
+        self
+    }
+
     pub(crate) fn write(&self) -> base::KeyboardInlineButton {
         use base::InlineButtonType as T;
         let switch = |query: &str, same_peer| {
@@ -134,7 +148,8 @@ impl InlineKeyboardButton {
             InlineAction::Disabled => T::InlineButtonTypeDisabled,
             InlineAction::CallbackGame => T::InlineButtonTypeGame,
         };
-        let button = types::KeyboardInlineButton { style: self.style.write(), text: self.text.clone(), r#type: kind };
+        let style = self.style.write_with_icon(self.icon_custom_emoji_id);
+        let button = types::KeyboardInlineButton { style, text: self.text.clone(), r#type: kind };
         base::KeyboardInlineButton::KeyboardInlineButton(Box::new(button))
     }
 }
@@ -160,6 +175,23 @@ mod tests {
         let bytes = raw.to_bytes();
         assert_eq!(bytes[..4], 0xb2b15770u32.to_le_bytes());
         assert_eq!(bytes[4..8], (1u32 << 5).to_le_bytes());
+    }
+
+    #[test]
+    fn icons_ride_in_the_style_even_without_a_color() {
+        let style = |b: InlineKeyboardButton| {
+            let rows = inline(InlineKeyboardMarkup::new([vec![b]]).write()).rows;
+            let base::KeyboardInlineButtonRow::KeyboardInlineButtonRow(row) = &rows[0];
+            let base::KeyboardInlineButton::KeyboardInlineButton(button) = &row.buttons[0];
+            button.style.clone().map(|base::KeyboardButtonStyle::KeyboardButtonStyle(s)| *s)
+        };
+        assert_eq!(style(InlineKeyboardButton::url("a", "https://t.me")), None);
+        let plain = style(InlineKeyboardButton::url("a", "https://t.me").icon_custom_emoji_id(7)).unwrap();
+        assert_eq!((plain.icon, plain.bg_primary), (Some(7), false));
+        let primary =
+            InlineKeyboardButton::url("a", "https://t.me").style(ButtonStyle::Primary).icon_custom_emoji_id(9);
+        let primary = style(primary).unwrap();
+        assert_eq!((primary.icon, primary.bg_primary), (Some(9), true));
     }
 
     #[test]

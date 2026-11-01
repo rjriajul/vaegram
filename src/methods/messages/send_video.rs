@@ -20,5 +20,5 @@ impl Client {
     }
 }
 
-media_setters!(SendVideo.media: caption thumb cover has_spoiler show_caption_above_media supports_streaming duration start_timestamp width height progress);
+media_setters!(SendVideo.media: caption thumb cover has_spoiler show_caption_above_media supports_streaming duration start_timestamp width height file_name progress);
 send_media!(SendVideo);

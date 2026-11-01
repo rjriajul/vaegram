@@ -74,10 +74,11 @@ impl Client {
             }
             Source::Upload(upload) => {
                 let file = self.save_file(*upload).progress(progress).into_future();
-                self.uploaded_media(media, upload.name(), file, extras).await?
+                self.uploaded_media(media, media.upload_name(upload.name()), file, extras).await?
             }
             Source::Uploaded(uploaded) => {
-                self.uploaded_media(media, uploaded.name(), async { Ok(uploaded.0.clone()) }, extras).await?
+                self.uploaded_media(media, media.upload_name(uploaded.name()), async { Ok(uploaded.0.clone()) }, extras)
+                    .await?
             }
         })
     }
@@ -438,7 +439,12 @@ mod tests {
     fn document(media: InputMedia<'_>) -> types::InputMediaUploadedDocument {
         let Source::Upload(upload) = media.file.0 else { panic!("not an upload") };
         let file = types::InputFile { id: 1, parts: 1, name: String::new(), md5_checksum: String::new() };
-        uploaded_document(media.kind, &media, upload.name(), base::InputFile::InputFile(Box::new(file)))
+        uploaded_document(
+            media.kind,
+            &media,
+            media.upload_name(upload.name()),
+            base::InputFile::InputFile(Box::new(file)),
+        )
     }
 
     fn video(round_message: bool, supports_streaming: bool, duration: f64, w: i32, h: i32) -> base::DocumentAttribute {
@@ -512,6 +518,15 @@ mod tests {
         assert_eq!((file.mime_type.as_str(), file.attributes), ("application/pdf", vec![name("report.PDF")]));
         let unknown = ["data.xyz", "README"].map(|n| document(InputMedia::document(n)).mime_type);
         assert_eq!(unknown, ["application/octet-stream"; 2]);
+    }
+
+    #[test]
+    fn file_name_renames_an_upload_and_picks_its_mime_type() {
+        let zip = document(InputMedia::document("/tmp/x/7f3a.part").file_name("Album (2024).zip"));
+        assert_eq!((zip.mime_type.as_str(), zip.attributes), ("application/zip", vec![name("Album (2024).zip")]));
+        let song = document(InputMedia::audio(Upload::bytes("raw", b"x")).file_name("Song.flac"));
+        assert_eq!(song.mime_type, "audio/flac");
+        assert!(song.attributes.contains(&name("Song.flac")));
     }
 
     #[test]

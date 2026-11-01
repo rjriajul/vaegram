@@ -22,9 +22,15 @@ pub struct InputMedia<'a> {
     pub(crate) title: Option<String>,
     pub(crate) emoji: String,
     pub(crate) force_file: bool,
+    pub(crate) file_name: Option<String>,
 }
 
 impl<'a> InputMedia<'a> {
+    /// The name an upload goes by: the one set with `file_name`, else the file's own.
+    pub(crate) fn upload_name<'n>(&'n self, own: &'n str) -> &'n str {
+        self.file_name.as_deref().unwrap_or(own)
+    }
+
     fn new(kind: MediaKind, file: impl Into<FileSource<'a>>) -> Self {
         InputMedia {
             kind,
@@ -45,6 +51,7 @@ impl<'a> InputMedia<'a> {
             title: None,
             emoji: String::new(),
             force_file: false,
+            file_name: None,
         }
     }
 
@@ -221,6 +228,16 @@ macro_rules! media_setters {
             }
         }
     };
+    (@file_name $builder:ident $(. $m:ident)?) => {
+        impl $builder<'_> {
+            /// The name Telegram shows for an uploaded file, instead of the path's or bytes' own; it also picks the
+            /// MIME type. Ignored for a file id or a URL.
+            pub fn file_name(mut self, name: impl Into<String>) -> Self {
+                self$(.$m)?.file_name = Some(name.into());
+                self
+            }
+        }
+    };
     (@progress $builder:ident $(. $m:ident)?) => {
         impl<'a> $builder<'a> {
             pub fn progress(mut self, progress: impl FnMut(u64, u64) + Send + 'a) -> Self {
@@ -233,7 +250,7 @@ macro_rules! media_setters {
 pub(crate) use media_setters;
 
 media_setters!(InputMedia: caption thumb cover has_spoiler show_caption_above_media supports_streaming duration
-    start_timestamp width height length performer title emoji disable_content_type_detection);
+    start_timestamp width height length performer title emoji disable_content_type_detection file_name);
 
 #[cfg(test)]
 mod tests {

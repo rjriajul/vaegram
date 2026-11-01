@@ -20,5 +20,5 @@ impl Client {
     }
 }
 
-media_setters!(SendVoice.media: caption duration progress);
+media_setters!(SendVoice.media: caption duration file_name progress);
 send_media!(SendVoice);
