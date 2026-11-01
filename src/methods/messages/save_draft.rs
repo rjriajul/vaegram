@@ -2,7 +2,7 @@ use super::send_options::caption_setters;
 use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
-use crate::raw::{base, functions};
+use crate::raw::functions;
 use crate::types::{PeerRef, ReplyParameters, Text};
 
 #[must_use = "a request does nothing until it is awaited"]
@@ -32,10 +32,7 @@ impl SaveDraft<'_> {
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let (message, entities) = client.write_text(self.text, self.parse_mode).await?;
         let reply_to = match &self.reply_to {
-            Some(reply) => {
-                let reply = reply.write(client, chat_id).await?;
-                Some(base::InputReplyTo::InputReplyToMessage(Box::new(reply)))
-            }
+            Some(reply) => Some(reply.write(client, chat_id).await?),
             None => None,
         };
         let request = functions::messages::SaveDraft {

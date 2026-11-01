@@ -183,7 +183,7 @@ pub(crate) use send_location::geo_point;
 pub use send_media_group::SendMediaGroup;
 pub use send_message::SendMessage;
 pub use send_message_draft::SendMessageDraft;
-pub(crate) use send_options::{SendOptions, caption_setters, send_builder};
+pub(crate) use send_options::{Routable, SendOptions, caption_setters, send_builder};
 pub use send_paid_media::SendPaidMedia;
 pub use send_paid_reaction::SendPaidReaction;
 pub use send_photo::SendPhoto;

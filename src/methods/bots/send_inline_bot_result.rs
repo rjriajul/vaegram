@@ -1,7 +1,7 @@
 use crate::Client;
 use crate::crypto::random;
 use crate::errors::Result;
-use crate::raw::{base, functions};
+use crate::raw::functions;
 use crate::types::{Message, PeerRef, ReplyParameters};
 
 #[must_use = "a request does nothing until it is awaited"]
@@ -54,7 +54,7 @@ impl SendInlineBotResult<'_> {
         let client = self.client;
         let chat_id = client.peer_id(self.chat_id).await?;
         let reply_to = match &self.reply_to {
-            Some(reply) => Some(base::InputReplyTo::InputReplyToMessage(Box::new(reply.write(client, chat_id).await?))),
+            Some(reply) => Some(reply.write(client, chat_id).await?),
             None => None,
         };
         let request = functions::messages::SendInlineBotResult {

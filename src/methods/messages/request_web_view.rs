@@ -1,7 +1,7 @@
 use super::web_view_options::{WebViewOptions, web_view_builder};
 use crate::Client;
 use crate::errors::{Error, Result};
-use crate::raw::{base, functions};
+use crate::raw::functions;
 use crate::types::{PeerRef, ReplyParameters, WebView, WebViewSession};
 
 #[must_use = "a request does nothing until it is awaited"]
@@ -68,7 +68,7 @@ impl RequestWebView<'_> {
             None => None,
         };
         let reply_to = match &self.reply_to {
-            Some(reply) => Some(input_reply(client, reply, chat_id).await?),
+            Some(reply) => Some(reply.write(client, chat_id).await?),
             None => None,
         };
         let request = functions::messages::RequestWebView {
@@ -101,10 +101,6 @@ impl RequestWebView<'_> {
     }
 }
 
-async fn input_reply(client: &Client, reply: &ReplyParameters, chat_id: i64) -> Result<base::InputReplyTo> {
-    Ok(base::InputReplyTo::InputReplyToMessage(Box::new(reply.write(client, chat_id).await?)))
-}
-
 web_view_builder!(RequestWebView);
 
 into_future!(RequestWebView, WebViewSession);
@@ -115,7 +111,6 @@ mod tests {
 
     use tokio::sync::mpsc::UnboundedReceiver;
 
-    use super::input_reply;
     use crate::Client;
     use crate::errors::Result;
     use crate::raw::functions::messages;
@@ -160,7 +155,7 @@ mod tests {
             .theme_params(THEME)
             .platform("desktop")
             .fullscreen();
-        let reply = input_reply(&client, &ReplyParameters::new(42), CHAT).await.unwrap();
+        let reply = ReplyParameters::new(42).write(&client, CHAT).await.unwrap();
         let expected = messages::RequestWebView {
             from_bot_menu: true,
             silent: true,
@@ -217,7 +212,7 @@ mod tests {
             peer: chat(),
             bot: input_bot(),
             query_id: 3,
-            reply_to: Some(input_reply(&client, &ReplyParameters::new(42), CHAT).await.unwrap()),
+            reply_to: Some(ReplyParameters::new(42).write(&client, CHAT).await.unwrap()),
             send_as: Some(chat()),
         };
         assert_eq!(rx.try_recv().expect("no prolong sent"), expected.to_bytes());
