@@ -942,13 +942,17 @@ mod forum_topic_tests {
             is_closed: true,
             is_pinned: true,
             is_hidden: true,
+            creator: Some(crate::types::Chat::parse(&get_peer(USER), &Default::default(), false)),
+            is_my: false,
+            is_short: false,
+            unread_poll_vote_count: 0,
         };
-        assert_eq!(ForumTopic::parse(base::ForumTopic::ForumTopic(raw)), Some(expected));
+        assert_eq!(ForumTopic::parse(base::ForumTopic::ForumTopic(raw), &Default::default()), Some(expected));
     }
 
     #[test]
     fn deleted_topic_parses_to_none() {
-        assert_eq!(ForumTopic::parse(deleted(5)), None);
+        assert_eq!(ForumTopic::parse(deleted(5), &Default::default()), None);
     }
 
     #[tokio::test]

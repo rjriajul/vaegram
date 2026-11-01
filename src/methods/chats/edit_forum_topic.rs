@@ -192,6 +192,10 @@ mod tests {
             is_closed: false,
             is_pinned: false,
             is_hidden: false,
+            creator: None,
+            is_my: true,
+            is_short: false,
+            unread_poll_vote_count: 0,
         };
         assert_eq!(topic, expected);
         let request = messages::CreateForumTopic {

@@ -20,7 +20,7 @@ impl Client {
         };
         let base::messages::ForumTopics::ForumTopics(page) = self.invoke(&request).await?;
         let page = *page;
-        Entities::new(self, page.users, page.chats);
-        Ok(page.topics.into_iter().filter_map(ForumTopic::parse).collect())
+        let entities = Entities::new(self, page.users, page.chats);
+        Ok(page.topics.into_iter().filter_map(|t| ForumTopic::parse(t, &entities)).collect())
     }
 }
