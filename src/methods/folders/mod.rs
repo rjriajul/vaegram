@@ -5,6 +5,7 @@ mod delete_folder;
 mod delete_folder_invite_link;
 mod edit_folder;
 mod edit_folder_invite_link;
+mod get_chats_for_folder_invite_link;
 mod get_folder_invite_links;
 mod get_folder_updates;
 mod get_folders;
