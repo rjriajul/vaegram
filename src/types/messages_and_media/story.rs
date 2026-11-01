@@ -67,6 +67,27 @@ impl Story {
         Some(story)
     }
 
+    /// A story a message points at without carrying it, or one deleted since: only `chat` and `id` are known, so
+    /// the dates are 0, the counters and media `None`, and the flags `false`.
+    pub(crate) fn from_media(client: &Client, peer: &base::Peer, id: i32, entities: &Entities) -> Story {
+        Story {
+            chat: Chat::parse(peer, entities, false),
+            id,
+            date: 0,
+            expire_date: 0,
+            caption: None,
+            caption_entities: None,
+            media: None,
+            view_count: None,
+            reaction_count: None,
+            is_pinned: false,
+            is_public: false,
+            is_close_friends: false,
+            is_edited: false,
+            client: client.clone(),
+        }
+    }
+
     pub fn client(&self) -> &Client {
         &self.client
     }

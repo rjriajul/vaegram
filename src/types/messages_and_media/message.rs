@@ -1377,4 +1377,18 @@ pub(crate) mod tests {
         let m = parse(&raw);
         assert!(m.web_page.is_none() && m.media.is_none() && !m.text.is_empty());
     }
+
+    #[test]
+    fn giveaway_and_story_media_have_their_accessors() {
+        let mut raw = Message::bare(1, get_peer(get_channel_id(9)), 0);
+        let giveaway = super::super::giveaway::tests::giveaway();
+        raw.media = Some(base::MessageMedia::MessageMediaGiveaway(Box::new(giveaway)));
+        let m = parse(&raw);
+        assert_eq!(m.giveaway().map(|g| g.winner_count), Some(3));
+        assert!(m.story().is_none() && m.giveaway_winners().is_none() && m.paid_media().is_none());
+
+        let story = types::MessageMediaStory { via_mention: true, peer: get_peer(7), id: 4, story: None };
+        raw.media = Some(base::MessageMedia::MessageMediaStory(Box::new(story)));
+        assert_eq!(parse(&raw).story().map(|s| (s.chat.id, s.id)), Some((7, 4)));
+    }
 }
