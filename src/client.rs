@@ -43,6 +43,7 @@ pub struct ClientBuilder {
     max_concurrent_handlers: Option<usize>,
     record: Option<PathBuf>,
     store: Option<Arc<Store>>,
+    client_platform: String,
 }
 
 #[derive(Default)]
@@ -225,6 +226,19 @@ impl ClientBuilder {
         self
     }
 
+    /// Keeps the login and the update state in memory only: nothing is written, and the next run logs in again
+    /// unless the login is exported with `export_session_string`.
+    pub fn in_memory(self) -> Self {
+        self.store(MemoryStore::default())
+    }
+
+    /// The platform web apps are told the client runs on (`android`, `ios`, `tdesktop`, …), `"unknown"` by
+    /// default; each request's `.platform()` still overrides it.
+    pub fn client_platform(mut self, platform: impl Into<String>) -> Self {
+        self.client_platform = platform.into();
+        self
+    }
+
     pub async fn start(self) -> Result<Client> {
         let (client, login) = self.open().await?;
         if client.0.me.lock().unwrap().id == 0 {
@@ -286,6 +300,7 @@ impl ClientBuilder {
         inner.ordered = self.ordered;
         inner.catch_up = self.catch_up;
         inner.handler_permits = self.max_concurrent_handlers.map(|n| Arc::new(Semaphore::new(n.max(1))));
+        inner.client_platform = self.client_platform;
         let client = Client(Arc::new(inner), None);
         client.save()?;
         Ok((client, self.login))
@@ -327,6 +342,8 @@ pub(crate) struct Inner {
     // Whether `run` resumes from the saved update state or starts from now.
     pub(crate) catch_up: bool,
     pub(crate) handler_permits: Option<Arc<Semaphore>>,
+    // The default platform of web view requests.
+    pub(crate) client_platform: String,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
@@ -374,6 +391,7 @@ impl Inner {
             ordered: false,
             catch_up: true,
             handler_permits: None,
+            client_platform: "unknown".into(),
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
         }
@@ -424,6 +442,7 @@ impl Client {
             max_concurrent_handlers: None,
             record: None,
             store: None,
+            client_platform: "unknown".into(),
         }
     }
 
@@ -684,6 +703,7 @@ mod tests {
         assert_eq!((options.max_flood_sleeps, options.updates_capacity), (5, 1024));
         assert_eq!(options.flood_sleep_threshold, Duration::from_secs(60));
         assert!(builder.catch_up);
+        assert_eq!(builder.client_platform, "unknown");
         let device = &options.device;
         assert_eq!((device.lang_pack.as_str(), device.system_lang_code.as_deref(), device.tz_offset), ("", None, None));
         let set = Client::builder("set", 1, "hash").lang_pack("android").system_lang_code("fr").tz_offset(60);
@@ -783,6 +803,21 @@ mod tests {
         drop(builder.connect().await.unwrap());
         assert_eq!(store.calls()[..2], ["load state", "save session"]);
         assert_eq!(store.value("session"), Some(login.into_bytes()));
+    }
+
+    #[tokio::test]
+    async fn an_in_memory_client_writes_no_files() {
+        assert!(Client::builder("memory", 1, "hash").in_memory().store.is_some());
+        let dc = TestDc::start([5; 256], false).await;
+        let dir = temp_dir("memory");
+        let builder = Client::builder(dir.join("bot").to_str().unwrap(), 1, "hash").in_memory();
+        let client = builder.session_string(dc.session_string([5; 256])).connect().await.unwrap();
+        client.0.save_state(&UpdateState { pts: 1, date: 1, ..Default::default() }).await;
+        client.save().unwrap();
+        drop(client);
+        let files = std::fs::read_dir(&dir).unwrap().count();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(files, 0);
     }
 
     #[tokio::test]

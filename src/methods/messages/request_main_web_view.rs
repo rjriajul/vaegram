@@ -22,7 +22,7 @@ impl Client {
             client: self,
             chat_id: chat_id.into(),
             bot_id: bot_id.into(),
-            options: WebViewOptions::default(),
+            options: WebViewOptions::new(self),
         }
     }
 }
