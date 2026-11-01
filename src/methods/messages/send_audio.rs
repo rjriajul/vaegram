@@ -20,5 +20,5 @@ impl Client {
     }
 }
 
-media_setters!(SendAudio.media: caption thumb duration performer title progress);
+media_setters!(SendAudio.media: caption thumb duration performer title file_name progress);
 send_media!(SendAudio);

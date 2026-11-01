@@ -24,5 +24,5 @@ impl Client {
     }
 }
 
-media_setters!(SendDocument.media: caption thumb disable_content_type_detection progress);
+media_setters!(SendDocument.media: caption thumb disable_content_type_detection file_name progress);
 send_media!(SendDocument);

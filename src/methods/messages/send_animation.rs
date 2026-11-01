@@ -24,5 +24,5 @@ impl Client {
     }
 }
 
-media_setters!(SendAnimation.media: caption thumb has_spoiler show_caption_above_media duration width height progress);
+media_setters!(SendAnimation.media: caption thumb has_spoiler show_caption_above_media duration width height file_name progress);
 send_media!(SendAnimation);
