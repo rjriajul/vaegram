@@ -1,5 +1,6 @@
 mod craft_gift_result;
 mod gift;
+mod gift_actions;
 mod gift_auction_state;
 mod gift_collection;
 mod gift_info;
