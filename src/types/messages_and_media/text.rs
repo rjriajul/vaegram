@@ -162,6 +162,25 @@ impl Text {
         self.spans.push(Span { kind, start, end: self.len });
     }
 
+    /// Leading and trailing whitespace dropped, with spans clamped to what's left: Telegram trims a message
+    /// itself and refuses entities past its end (`ENTITY_BOUNDS_INVALID`), e.g. `<pre>out\n</pre>`.
+    pub(crate) fn trimmed(mut self) -> Text {
+        let lead: i32 = self.text.chars().take_while(|c| c.is_whitespace()).map(|c| c.len_utf16() as i32).sum();
+        let trail: i32 = self.text.chars().rev().take_while(|c| c.is_whitespace()).map(|c| c.len_utf16() as i32).sum();
+        if lead == 0 && trail == 0 {
+            return self;
+        }
+        let end = (self.len - trail).max(lead);
+        for span in &mut self.spans {
+            span.start = span.start.clamp(lead, end) - lead;
+            span.end = span.end.clamp(lead, end) - lead;
+        }
+        self.spans.retain(|s| s.end > s.start);
+        self.text = self.text.trim().to_string();
+        self.len = self.text.encode_utf16().count() as i32;
+        self
+    }
+
     pub(crate) fn parsed(self, mode: ParseMode) -> Text {
         match mode {
             ParseMode::Html | ParseMode::Markdown if self.unparsed => parser::parse(&self.text, mode),
@@ -291,6 +310,24 @@ mod tests {
 
     fn texts(parts: &[Text]) -> Vec<&str> {
         parts.iter().map(Text::as_str).collect()
+    }
+
+    #[test]
+    fn trimmed_clamps_entities_to_the_trimmed_text() {
+        let pre = Text::from_html("<pre>2\n</pre>").trimmed();
+        assert_eq!((pre.text.as_str(), pre.len), ("2", 1));
+        assert_eq!((pre.spans[0].start, pre.spans[0].end), (0, 1));
+
+        let t = Text::from_html("\n  <b> hi</b> <i>x</i>  \n").trimmed();
+        assert_eq!(t.text, "hi x");
+        let spans: Vec<_> = t.spans.iter().map(|s| (s.start, s.end)).collect();
+        assert_eq!(spans, [(0, 2), (3, 4)]);
+
+        // Whitespace-only formatting disappears instead of becoming an empty entity.
+        let gone = Text::from_html("ok<b>  </b>").trimmed();
+        assert_eq!((gone.text.as_str(), gone.spans.len()), ("ok", 0));
+        let emoji = Text::from_html(" 😀<b>é</b> ").trimmed();
+        assert_eq!((emoji.spans[0].start, emoji.spans[0].end), (2, 3));
     }
 
     #[test]
