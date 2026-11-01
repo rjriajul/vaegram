@@ -8,9 +8,9 @@ use crate::methods::{
 };
 use crate::raw::{base, types};
 use crate::types::{
-    Chat, Command, DirectMessagesTopic, ExternalReplyInfo, InlineKeyboardMarkup, InputMedia, LinkPreviewOptions, Media,
-    MessageEntity, MessageOrigin, MessageText, PeerRef, ReactionCount, ReactionType, ReplyMarkup, RichMessage,
-    ServiceAction, SuggestedPostInfo, Text, TextQuote, User,
+    Chat, Command, DirectMessagesTopic, ExternalReplyInfo, FactCheck, InlineKeyboardMarkup, InputMedia,
+    LinkPreviewOptions, Media, MessageEntity, MessageOrigin, MessageText, PeerRef, ReactionCount, ReactionType,
+    ReplyMarkup, RestrictionReason, RichMessage, ServiceAction, SuggestedPostInfo, Text, TextQuote, User,
 };
 use crate::utils::{get_peer, get_peer_id};
 
@@ -91,6 +91,9 @@ pub struct Message {
     pub summary_language_code: Option<String>,
     /// Waiting to be sent at a scheduled date: it came from a scheduling answer or `get_scheduled_messages`.
     pub scheduled: bool,
+    /// Why the message is hidden on some platforms; empty when it isn't.
+    pub restriction_reason: Vec<RestrictionReason>,
+    pub fact_check: Option<FactCheck>,
     /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`] and leaves its text in
     /// `message`.
     pub(crate) raw: Box<types::Message>,
@@ -210,6 +213,11 @@ impl Message {
             repeat_period: raw.schedule_repeat_period,
             summary_language_code: raw.summary_from_language.clone(),
             scheduled: false,
+            restriction_reason: raw
+                .restriction_reason
+                .as_deref()
+                .map_or(Vec::new(), |r| r.iter().map(RestrictionReason::parse).collect()),
+            fact_check: raw.factcheck.as_ref().map(|f| FactCheck::parse(f, entities)),
             raw,
             replied: None,
             client: client.clone(),
@@ -1309,5 +1317,22 @@ pub(crate) mod tests {
         let m = parse(&raw);
         assert_eq!((m.reply_to_message_id, m.reply_to_poll_option_id), (Some(12), Some(vec![1])));
         assert_eq!((m.reply_to_story_id, m.reply_to_story_user_id), (None, None));
+    }
+
+    #[test]
+    fn maps_restriction_reasons_and_fact_checks() {
+        let mut raw = Message::bare(1, get_peer(get_channel_id(9)), 0);
+        raw.restriction_reason = Some(Vec::new());
+        let m = parse(&raw);
+        assert!(m.restriction_reason.is_empty() && m.fact_check.is_none());
+
+        let reason = types::RestrictionReason { platform: "ios".into(), reason: "porn".into(), text: "hidden".into() };
+        raw.restriction_reason = Some(vec![base::RestrictionReason::RestrictionReason(Box::new(reason))]);
+        let check = types::FactCheck { need_check: true, country: None, text: None, hash: 3 };
+        raw.factcheck = Some(base::FactCheck::FactCheck(Box::new(check)));
+        let m = parse(&raw);
+        let reasons: Vec<_> = m.restriction_reason.iter().map(|r| (r.platform.as_str(), r.reason.as_str())).collect();
+        assert_eq!(reasons, [("ios", "porn")]);
+        assert_eq!(m.fact_check.map(|f| (f.need_check, f.hash)), Some((true, 3)));
     }
 }
