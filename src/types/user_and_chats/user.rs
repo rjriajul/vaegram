@@ -2,7 +2,7 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::UserStatus;
 use crate::raw::base;
-use crate::types::{EmojiStatus, RestrictionReason};
+use crate::types::{ChatColor, ChatPhoto, EmojiStatus, RestrictionReason, Username};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct User {
@@ -67,6 +67,13 @@ pub struct User {
     pub paid_message_star_count: Option<i64>,
     pub emoji_status: Option<EmojiStatus>,
     pub restrictions: Vec<RestrictionReason>,
+    /// Every username, including collectible ones; `username` is the editable one when set.
+    pub usernames: Vec<Username>,
+    /// The data center that stores the profile photo.
+    pub dc_id: Option<i32>,
+    pub photo: Option<ChatPhoto>,
+    pub reply_color: Option<ChatColor>,
+    pub profile_color: Option<ChatColor>,
 }
 
 impl User {
@@ -80,51 +87,68 @@ impl User {
 
     pub(crate) fn parse(id: i64, entities: &Entities) -> User {
         match entities.users.get(&id) {
-            Some(base::User::User(u)) => User {
-                id,
-                is_bot: u.bot,
-                first_name: u.first_name.clone().unwrap_or_default(),
-                last_name: u.last_name.clone(),
-                username: u.username.clone(),
-                language_code: u.lang_code.clone(),
-                is_premium: u.premium,
-                is_deleted: u.deleted,
-                is_verified: u.verified,
-                is_scam: u.scam,
-                is_fake: u.fake,
-                // Inferred from the name: api.tl does not describe bot_guard.
-                supports_join_request_queries: u.bot_guard,
-                supports_guest_queries: u.bot_guestchat,
-                can_join_groups: u.bot && !u.bot_nochats,
-                can_read_all_group_messages: u.bot_chat_history,
-                supports_inline_queries: u.bot_inline_placeholder.is_some(),
-                can_connect_to_business: u.bot_business,
-                has_main_web_app: u.bot_has_main_app,
-                can_manage_bots: u.bot_can_manage_bots,
-                has_topics_enabled: u.bot_forum_view,
-                allows_users_to_create_topics: u.bot_forum_can_manage_topics,
-                is_self: u.is_self,
-                is_contact: u.contact,
-                is_mutual_contact: u.mutual_contact,
-                is_restricted: u.restricted,
-                is_support: u.support,
-                is_contact_require_premium: u.contact_require_premium,
-                is_close_friend: u.close_friend,
-                is_stories_hidden: u.stories_hidden,
-                is_stories_unavailable: u.stories_unavailable,
-                bot_verification_icon_custom_emoji_id: u.bot_verification_icon,
-                phone_number: u.phone.clone(),
-                added_to_attachment_menu: u.attach_menu_enabled,
-                active_users_count: u.bot_active_users,
-                inline_need_location: u.bot_inline_geo,
-                inline_query_placeholder: u.bot_inline_placeholder.clone(),
-                can_be_edited: u.bot_can_edit,
-                can_be_added_to_attachment_menu: u.bot_attach_menu,
-                paid_message_star_count: u.send_paid_messages_stars,
-                emoji_status: u.emoji_status.as_ref().and_then(EmojiStatus::parse),
-                restrictions: u.restriction_reason.iter().flatten().map(RestrictionReason::parse).collect(),
-                ..User::default().parse_status(u.status.as_ref())
-            },
+            Some(base::User::User(u)) => {
+                let usernames: Vec<Username> = u.usernames.iter().flatten().map(Username::parse).collect();
+                let profile_photo = match &u.photo {
+                    Some(base::UserProfilePhoto::UserProfilePhoto(p)) => Some(p),
+                    _ => None,
+                };
+                User {
+                    id,
+                    is_bot: u.bot,
+                    first_name: u.first_name.clone().unwrap_or_default(),
+                    last_name: u.last_name.clone(),
+                    username: u
+                        .username
+                        .clone()
+                        .or_else(|| usernames.iter().find(|n| n.active).map(|n| n.username.clone())),
+                    language_code: u.lang_code.clone(),
+                    is_premium: u.premium,
+                    is_deleted: u.deleted,
+                    is_verified: u.verified,
+                    is_scam: u.scam,
+                    is_fake: u.fake,
+                    // Inferred from the name: api.tl does not describe bot_guard.
+                    supports_join_request_queries: u.bot_guard,
+                    supports_guest_queries: u.bot_guestchat,
+                    can_join_groups: u.bot && !u.bot_nochats,
+                    can_read_all_group_messages: u.bot_chat_history,
+                    supports_inline_queries: u.bot_inline_placeholder.is_some(),
+                    can_connect_to_business: u.bot_business,
+                    has_main_web_app: u.bot_has_main_app,
+                    can_manage_bots: u.bot_can_manage_bots,
+                    has_topics_enabled: u.bot_forum_view,
+                    allows_users_to_create_topics: u.bot_forum_can_manage_topics,
+                    is_self: u.is_self,
+                    is_contact: u.contact,
+                    is_mutual_contact: u.mutual_contact,
+                    is_restricted: u.restricted,
+                    is_support: u.support,
+                    is_contact_require_premium: u.contact_require_premium,
+                    is_close_friend: u.close_friend,
+                    is_stories_hidden: u.stories_hidden,
+                    is_stories_unavailable: u.stories_unavailable,
+                    bot_verification_icon_custom_emoji_id: u.bot_verification_icon,
+                    phone_number: u.phone.clone(),
+                    added_to_attachment_menu: u.attach_menu_enabled,
+                    active_users_count: u.bot_active_users,
+                    inline_need_location: u.bot_inline_geo,
+                    inline_query_placeholder: u.bot_inline_placeholder.clone(),
+                    can_be_edited: u.bot_can_edit,
+                    can_be_added_to_attachment_menu: u.bot_attach_menu,
+                    paid_message_star_count: u.send_paid_messages_stars,
+                    emoji_status: u.emoji_status.as_ref().and_then(EmojiStatus::parse),
+                    restrictions: u.restriction_reason.iter().flatten().map(RestrictionReason::parse).collect(),
+                    usernames,
+                    dc_id: profile_photo.map(|p| p.dc_id),
+                    photo: profile_photo
+                        .zip(u.access_hash)
+                        .map(|(p, hash)| ChatPhoto::new(id, hash, p.photo_id, p.dc_id, p.has_video, p.personal)),
+                    reply_color: u.color.as_ref().and_then(ChatColor::parse),
+                    profile_color: u.profile_color.as_ref().and_then(ChatColor::parse),
+                    ..User::default().parse_status(u.status.as_ref())
+                }
+            }
             _ => User { id, ..User::default() },
         }
     }
@@ -161,6 +185,7 @@ mod tests {
     use super::User;
     use crate::dispatcher::Entities;
     use crate::raw::{Serializable, base, types};
+    use crate::types::{ChatColor, ChatPhoto};
 
     #[test]
     fn reads_account_flags_and_language() {
@@ -306,5 +331,62 @@ mod tests {
         let mut empty_status = raw(7);
         empty_status.emoji_status = Some(base::EmojiStatus::EmojiStatusEmpty);
         assert_eq!(parse(empty_status).emoji_status, None);
+    }
+
+    fn username(name: &str, editable: bool, active: bool) -> base::Username {
+        let u = types::Username { editable, active, deletable: false, expired: false, username: name.into() };
+        base::Username::Username(u.into())
+    }
+
+    #[test]
+    fn username_falls_back_to_the_first_active_collectible_username() {
+        let mut user = raw(7);
+        user.usernames = Some(vec![username("first", false, false), username("second", false, true)]);
+        let parsed = parse(user.clone());
+        assert_eq!(parsed.username.as_deref(), Some("second"));
+        assert_eq!(parsed.usernames.len(), 2);
+        assert!(!parsed.usernames[0].editable);
+        user.username = Some("own".into());
+        assert_eq!(parse(user).username.as_deref(), Some("own"));
+    }
+
+    fn photo(has_video: bool, personal: bool) -> base::UserProfilePhoto {
+        let p = types::UserProfilePhoto { has_video, personal, photo_id: 123, stripped_thumb: None, dc_id: 4 };
+        base::UserProfilePhoto::UserProfilePhoto(p.into())
+    }
+
+    #[test]
+    fn a_photo_needs_an_access_hash() {
+        let mut user = raw(7);
+        user.min = true;
+        user.photo = Some(photo(true, false));
+        let parsed = parse(user.clone());
+        assert_eq!(parsed.photo, None);
+        assert_eq!(parsed.dc_id, Some(4));
+        user.access_hash = Some(99);
+        let parsed = parse(user);
+        assert_eq!(parsed.photo, Some(ChatPhoto::new(7, 99, 123, 4, true, false)));
+        assert_eq!(parsed.dc_id, Some(4));
+    }
+
+    #[test]
+    fn an_empty_profile_photo_is_none() {
+        let mut user = raw(7);
+        user.access_hash = Some(99);
+        user.photo = Some(base::UserProfilePhoto::UserProfilePhotoEmpty);
+        let parsed = parse(user);
+        assert_eq!((parsed.photo, parsed.dc_id), (None, None));
+    }
+
+    #[test]
+    fn reads_reply_and_profile_colors() {
+        let mut user = raw(7);
+        user.color =
+            Some(base::PeerColor::PeerColor(types::PeerColor { color: Some(3), background_emoji_id: None }.into()));
+        user.profile_color =
+            Some(base::PeerColor::InputPeerColorCollectible(types::InputPeerColorCollectible { collectible_id: 1 }));
+        let parsed = parse(user);
+        assert_eq!(parsed.reply_color, Some(ChatColor { color: Some(3), background_emoji_id: None }));
+        assert_eq!(parsed.profile_color, None);
     }
 }
