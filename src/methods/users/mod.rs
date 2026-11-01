@@ -1,7 +1,9 @@
 mod check_username;
 mod clear_recent_emoji_statuses;
 mod delete_profile_photos;
+mod get_chat_audios_count;
 mod get_chat_photos;
+mod get_chat_photos_count;
 mod get_collectible_emoji_statuses;
 mod get_common_chats;
 mod get_default_channel_emoji_statuses;
