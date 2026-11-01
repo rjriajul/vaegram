@@ -48,6 +48,41 @@ pub struct Message {
     pub business_connection_id: Option<String>,
     pub direct_messages_topic: Option<DirectMessagesTopic>,
     pub reactions: Vec<ReactionCount>,
+    /// The account was mentioned in it, or it replies to the account's message.
+    pub mentioned: bool,
+    /// Its voice or video note, or self-destructing media, hasn't been played yet.
+    pub unread_media: bool,
+    /// Sent without a notification sound.
+    pub silent: bool,
+    pub channel_post: bool,
+    /// Sent by the server at a time the sender had scheduled.
+    pub from_scheduled: bool,
+    /// The edit is hidden from the chat, so the message shows no "edited" mark.
+    pub edit_hidden: bool,
+    pub pinned: bool,
+    pub show_caption_above_media: bool,
+    /// Sent by a business bot or an away message while the account was offline.
+    pub from_offline: bool,
+    /// A video still being processed; others can't see the message yet.
+    pub video_processing_pending: bool,
+    /// The business bot that sent it on behalf of the account.
+    pub sender_business_bot: Option<User>,
+    /// The sender's custom tag (rank) in the group.
+    pub sender_tag: Option<String>,
+    /// The user whose guest bot request produced this message.
+    pub guest_bot_caller_user: Option<User>,
+    /// The chat whose guest bot request produced this message.
+    pub guest_bot_caller_chat: Option<Chat>,
+    pub views: Option<i32>,
+    pub forwards: Option<i32>,
+    /// The message effect shown when it arrives.
+    pub effect_id: Option<i64>,
+    /// Stars the sender paid to send it.
+    pub send_paid_messages_stars: Option<i64>,
+    /// For a scheduled message, how often in seconds it repeats.
+    pub repeat_period: Option<i32>,
+    /// The language a summary of the message was made from.
+    pub summary_language_code: Option<String>,
     /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`] and leaves its text in
     /// `message`.
     pub(crate) raw: Box<types::Message>,
@@ -101,6 +136,11 @@ impl Message {
         };
         let rich_message = raw.rich_message.take().map(RichMessage::parse);
         let is_automatic_forward = is_automatic_forward(&chat, raw.fwd_from.as_ref());
+        let (guest_bot_caller_user, guest_bot_caller_chat) = match &raw.guestchat_via_from {
+            Some(base::Peer::PeerUser(p)) => (Some(User::parse(p.user_id, entities)), None),
+            Some(peer) => (None, Some(Chat::parse(peer, entities, false))),
+            None => (None, None),
+        };
         Message {
             id: raw.id,
             chat,
@@ -135,6 +175,26 @@ impl Message {
             reactions: raw.reactions.as_ref().map_or(Vec::new(), |base::MessageReactions::MessageReactions(r)| {
                 r.results.iter().filter_map(ReactionCount::parse).collect()
             }),
+            mentioned: raw.mentioned,
+            unread_media: raw.media_unread,
+            silent: raw.silent,
+            channel_post: raw.post,
+            from_scheduled: raw.from_scheduled,
+            edit_hidden: raw.edit_hide,
+            pinned: raw.pinned,
+            show_caption_above_media: raw.invert_media,
+            from_offline: raw.offline,
+            video_processing_pending: raw.video_processing_pending,
+            sender_business_bot: raw.via_business_bot_id.map(|id| User::parse(id, entities)),
+            sender_tag: raw.from_rank.clone(),
+            guest_bot_caller_user,
+            guest_bot_caller_chat,
+            views: raw.views,
+            forwards: raw.forwards,
+            effect_id: raw.effect,
+            send_paid_messages_stars: raw.paid_message_stars,
+            repeat_period: raw.schedule_repeat_period,
+            summary_language_code: raw.summary_from_language.clone(),
             raw,
             replied: None,
             client: client.clone(),
@@ -219,6 +279,7 @@ impl Message {
         let service = ServiceAction::parse(raw, entities)?;
         let mut bare = Message::bare(raw.id, raw.peer_id.clone(), raw.date);
         (bare.out, bare.mentioned, bare.post, bare.from_id) = (raw.out, raw.mentioned, raw.post, raw.from_id.clone());
+        (bare.silent, bare.media_unread) = (raw.silent, raw.media_unread);
         bare.saved_peer_id = raw.saved_peer_id.clone();
         // A pin's header points at the pinned message, which the service message doesn't reply to. In a forum it
         // still names the topic, so that part stays as the header of a message posted in the topic.
@@ -1102,5 +1163,69 @@ pub(crate) mod tests {
         assert_eq!((media.caption.as_deref(), media.html_text().as_str()), (Some("hi <3"), "<b>hi</b> &lt;3"));
         // A message without text or caption has nothing to format.
         assert_eq!(parse(&Message::bare(2, get_peer(7), 0)).html_text(), "");
+    }
+
+    #[test]
+    fn maps_message_flags_and_counters() {
+        let bare = parse(&Message::bare(1, get_peer(get_channel_id(9)), 0));
+        let flags = [bare.mentioned, bare.unread_media, bare.silent, bare.channel_post, bare.from_scheduled];
+        let more = [bare.edit_hidden, bare.pinned, bare.show_caption_above_media, bare.from_offline];
+        assert!(flags.iter().chain(&more).all(|f| !f) && !bare.video_processing_pending);
+        assert!(
+            bare.sender_business_bot.is_none() && bare.sender_tag.is_none() && bare.guest_bot_caller_user.is_none()
+        );
+        assert_eq!(
+            (bare.views, bare.forwards, bare.effect_id, bare.send_paid_messages_stars),
+            (None, None, None, None)
+        );
+        assert_eq!((bare.repeat_period, bare.summary_language_code, bare.guest_bot_caller_chat), (None, None, None));
+
+        let raw = types::Message {
+            mentioned: true,
+            media_unread: true,
+            silent: true,
+            post: true,
+            from_scheduled: true,
+            edit_hide: true,
+            pinned: true,
+            invert_media: true,
+            offline: true,
+            video_processing_pending: true,
+            via_business_bot_id: Some(42),
+            from_rank: Some("boss".into()),
+            guestchat_via_from: Some(get_peer(43)),
+            views: Some(100),
+            forwards: Some(3),
+            effect: Some(5_000),
+            paid_message_stars: Some(25),
+            schedule_repeat_period: Some(86_400),
+            summary_from_language: Some("de".into()),
+            ..Message::bare(1, get_peer(get_channel_id(9)), 0)
+        };
+        let m = parse(&raw);
+        let flags = [m.mentioned, m.unread_media, m.silent, m.channel_post, m.from_scheduled, m.edit_hidden, m.pinned];
+        assert!(flags.iter().all(|f| *f));
+        assert!(m.show_caption_above_media && m.from_offline && m.video_processing_pending);
+        assert_eq!(m.sender_business_bot.map(|u| u.id), Some(42));
+        assert_eq!((m.sender_tag.as_deref(), m.guest_bot_caller_user.map(|u| u.id)), (Some("boss"), Some(43)));
+        assert_eq!(
+            (m.views, m.forwards, m.effect_id, m.send_paid_messages_stars),
+            (Some(100), Some(3), Some(5_000), Some(25))
+        );
+        assert_eq!((m.repeat_period, m.summary_language_code.as_deref()), (Some(86_400), Some("de")));
+
+        let raw = types::Message { guestchat_via_from: Some(get_peer(-77)), ..raw };
+        let m = parse(&raw);
+        assert_eq!((m.guest_bot_caller_user, m.guest_bot_caller_chat.map(|c| c.id)), (None, Some(-77)));
+    }
+
+    #[test]
+    fn service_messages_keep_their_silent_and_unread_flags() {
+        let mut raw = service(base::MessageAction::MessageActionChatDeletePhoto);
+        (raw.silent, raw.media_unread) = (true, true);
+        let m =
+            Message::from_raw(&Client::offline(), base::Message::MessageService(Box::new(raw)), &Entities::default());
+        let m = m.expect("service message dropped");
+        assert_eq!((m.silent, m.unread_media), (true, true));
     }
 }
