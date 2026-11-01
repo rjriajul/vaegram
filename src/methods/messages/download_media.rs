@@ -51,6 +51,8 @@ pub struct DownloadMedia<'a> {
     location: Result<FileLocation>,
     source: Option<DownloadSource>,
     progress: Option<Report<'a>>,
+    offset: u64,
+    limit: Option<u64>,
 }
 
 #[must_use = "a stream does nothing until `next()` is awaited"]
@@ -68,12 +70,26 @@ impl Client {
 
 impl<'a> DownloadMedia<'a> {
     pub(crate) fn new(client: &'a Client, location: Result<FileLocation>, source: Option<DownloadSource>) -> Self {
-        DownloadMedia { client, location, source, progress: None }
+        DownloadMedia { client, location, source, progress: None, offset: 0, limit: None }
     }
 
     /// Calls `progress(done, total)` with byte counts after each chunk. `total` is 0 when Telegram gave no size.
     pub fn progress(mut self, progress: impl FnMut(u64, u64) + Send + 'a) -> Self {
         self.progress = Some(Box::new(progress));
+        self
+    }
+
+    /// Starts at this byte of the file, for a byte range together with [`limit`](Self::limit). An offset at or past
+    /// the end gives no bytes.
+    pub fn offset(mut self, offset: u64) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    /// Gives at most this many bytes. A range that runs past the end of the file is cut there; 0 gives no bytes and
+    /// sends no request.
+    pub fn limit(mut self, limit: u64) -> Self {
+        self.limit = Some(limit);
         self
     }
 
@@ -110,20 +126,25 @@ impl<'a> DownloadMedia<'a> {
         let client = self.client;
         let location = self.location?;
         let size = location.file_size;
-        let count = chunk_count(size);
-        let progress = Progress::new(self.progress, size.and_then(|s| u64::try_from(s).ok()).unwrap_or(0));
+        let Some(window) = Window::new(self.offset, self.limit, size.and_then(|s| u64::try_from(s).ok())) else {
+            return Ok(());
+        };
+        let progress = Progress::new(self.progress, window.len());
         let budget = if client.is_premium().await.unwrap_or(false) { IN_FLIGHT_PREMIUM } else { IN_FLIGHT };
         // Without a size the end is only known from a short chunk, so chunks go one at a time.
-        let workers = count.map_or(1, |c| workers(c, CHUNK as u64, budget));
+        let parts = window.bound.saturating_sub(window.first);
+        let workers = chunk_count(size).map_or(1, |_| workers(parts, CHUNK as u64, budget));
         let mut request = functions::upload::GetFile {
             precise: false,
             // A CDN connection can't carry the takeout wrapper.
             cdn_supported: client.1.is_none(),
             location: location.location,
-            offset: 0,
+            offset: window.first_offset(),
             limit: CHUNK,
         };
-
+        if let Sink::Stream { sent, .. } = sink {
+            sent.send_replace(window.first_offset() as u64);
+        }
         let mut dc_id = location.dc_id.unwrap_or_else(|| client.session().dc_id());
         let (mut migrations, mut refreshed) = (0, false);
         let (lease, file) = loop {
@@ -153,9 +174,12 @@ impl<'a> DownloadMedia<'a> {
         let master = &master;
         match file {
             base::upload::File::File(f) => {
-                write_all(f.bytes, size, workers, sink, &progress, move |i, offset| master.part(i, offset)).await
+                let part = move |i, offset| master.part(i, offset);
+                write_all(f.bytes, &window, size, workers, sink, &progress, part).await
             }
-            base::upload::File::FileCdnRedirect(r) => from_cdn(master, *r, size, workers, sink, &progress).await,
+            base::upload::File::FileCdnRedirect(r) => {
+                from_cdn(master, *r, &window, size, workers, sink, &progress).await
+            }
         }
     }
 }
@@ -231,6 +255,7 @@ impl MediaStream<'_> {
 async fn from_cdn(
     master: &Master<'_>,
     redirect: types::upload::FileCdnRedirect,
+    window: &Window,
     size: Option<i64>,
     workers: usize,
     sink: &Sink,
@@ -261,48 +286,53 @@ async fn from_cdn(
         }
         master.part(i, offset).await
     };
-    write_all(part(0, 0).await?, size, workers, sink, progress, part).await
+    write_all(part(0, window.first_offset()).await?, window, size, workers, sink, progress, part).await
 }
 
 async fn write_all<F: Future<Output = Result<Vec<u8>>>>(
     first: Vec<u8>,
+    window: &Window,
     size: Option<i64>,
     workers: usize,
     sink: &Sink,
     progress: &Progress<'_>,
     part: impl Fn(usize, i64) -> F,
 ) -> Result<()> {
-    fits(0, &first, size)?;
+    let offset = window.first_offset();
+    fits(offset, &first, size)?;
     let len = first.len();
-    sink.write_at(0, first).await?;
-    progress.add(len);
+    progress.add(sink.write_at(window, offset as u64, first).await?);
     let mut total = len as u64;
     if len == CHUNK as usize {
-        let (next, part) = (AtomicI32::new(1), &part);
-        let workers = (0..workers).map(|i| chunks(&next, size, sink, progress, move |offset| part(i, offset)));
+        let (next, part) = (AtomicI32::new(window.first.saturating_add(1)), &part);
+        let workers = (0..workers).map(|i| chunks(&next, window, size, sink, progress, move |offset| part(i, offset)));
         total += try_join_all(workers).await?.into_iter().sum::<u64>();
     }
-    if size.is_some_and(|s| u64::try_from(s).ok() != Some(total)) {
-        return Err(Error::Unexpected("upload.getFile returned fewer bytes than the file size"));
+    if let Some(size) = size {
+        let fetched =
+            u64::try_from(size).ok().map(|s| (chunk(window.bound).0 as u64).min(s).saturating_sub(offset as u64));
+        if fetched != Some(total) {
+            return Err(Error::Unexpected("upload.getFile returned fewer bytes than the file size"));
+        }
     }
     Ok(())
 }
 
 async fn chunks<F: Future<Output = Result<Vec<u8>>>>(
     next: &AtomicI32,
+    window: &Window,
     size: Option<i64>,
     sink: &Sink,
     progress: &Progress<'_>,
     part: impl Fn(i64) -> F,
 ) -> Result<u64> {
     let mut total = 0;
-    while let Some(n) = take(next, chunk_count(size).unwrap_or(i32::MAX)) {
+    while let Some(n) = take(next, window.bound) {
         let (offset, _) = chunk(n);
         let bytes = part(offset).await?;
         fits(offset, &bytes, size)?;
         let len = bytes.len();
-        sink.write_at(offset as u64, bytes).await?;
-        progress.add(len);
+        progress.add(sink.write_at(window, offset as u64, bytes).await?);
         total += len as u64;
         if len < CHUNK as usize {
             break;
@@ -313,6 +343,39 @@ async fn chunks<F: Future<Output = Result<Vec<u8>>>>(
 
 fn chunk_count(size: Option<i64>) -> Option<i32> {
     size.and_then(|s| u64::try_from(s).ok()).and_then(|s| i32::try_from(s.div_ceil(CHUNK as u64)).ok())
+}
+
+// Telegram serves aligned chunks only, so a byte range is fetched as the chunks covering it and cut when written.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Window {
+    start: u64,
+    /// END when neither a limit nor the size bounds it.
+    end: u64,
+    first: i32,
+    bound: i32,
+}
+
+impl Window {
+    #[cfg(test)]
+    const ALL: Window = Window { start: 0, end: END, first: 0, bound: i32::MAX };
+
+    /// None when the range holds no byte, or starts past any file Telegram stores.
+    fn new(offset: u64, limit: Option<u64>, size: Option<u64>) -> Option<Window> {
+        let end = limit.map_or(END, |l| offset.saturating_add(l));
+        let end = size.map_or(end, |s| end.min(s));
+        let first = i32::try_from(offset / CHUNK as u64).ok().filter(|_| offset < end)?;
+        let bound = i32::try_from(end.div_ceil(CHUNK as u64)).unwrap_or(i32::MAX);
+        Some(Window { start: offset, end, first, bound })
+    }
+
+    /// 0 when unbounded.
+    fn len(&self) -> u64 {
+        if self.end == END { 0 } else { self.end - self.start }
+    }
+
+    fn first_offset(&self) -> i64 {
+        chunk(self.first).0
+    }
 }
 
 // With a known size every chunk but the last is full and the last ends at the size, so a short chunk is lost
@@ -335,8 +398,9 @@ impl<'a> IntoFuture for DownloadMedia<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let capacity = self.location.as_ref().ok().and_then(|l| usize::try_from(l.file_size?).ok());
-            let capacity = capacity.unwrap_or(0).min(MAX_PREALLOC);
+            let size = self.location.as_ref().ok().and_then(|l| u64::try_from(l.file_size?).ok());
+            let capacity = Window::new(self.offset, self.limit, size).map_or(0, |w| w.len());
+            let capacity = usize::try_from(capacity).unwrap_or(usize::MAX).min(MAX_PREALLOC);
             let mut out = Vec::new();
             out.try_reserve_exact(capacity).map_err(|_| out_of_memory())?;
             let sink = Sink::Memory(Mutex::new(out));
@@ -401,11 +465,21 @@ enum Sink {
 }
 
 impl Sink {
-    async fn write_at(&self, offset: u64, bytes: Vec<u8>) -> Result<()> {
+    /// Writes the part of a chunk at `offset` that falls in `window`, placed relative to its start; returns the bytes
+    /// written.
+    async fn write_at(&self, window: &Window, offset: u64, mut bytes: Vec<u8>) -> Result<usize> {
+        let raw = bytes.len() as u64;
+        if window.end != END {
+            bytes.truncate(window.end.saturating_sub(offset).min(raw) as usize);
+        }
+        let head = window.start.saturating_sub(offset).min(bytes.len() as u64) as usize;
+        bytes.drain(..head);
+        let at = offset.saturating_add(head as u64).saturating_sub(window.start);
+        let written = bytes.len();
         match self {
             Sink::Memory(out) => {
                 let mut out = out.lock().unwrap();
-                let start = usize::try_from(offset).map_err(|_| TOO_BIG)?;
+                let start = usize::try_from(at).map_err(|_| TOO_BIG)?;
                 let end = start.checked_add(bytes.len()).ok_or(TOO_BIG)?;
                 if out.len() < end {
                     let more = end - out.len();
@@ -416,23 +490,23 @@ impl Sink {
             }
             Sink::File(file) => {
                 let mut file = file.lock().await;
-                file.seek(SeekFrom::Start(offset)).await?;
+                file.seek(SeekFrom::Start(at)).await?;
                 file.write_all(&bytes).await?;
             }
             Sink::Stream { sent, chunks } => {
                 let mut turn = sent.subscribe();
-                let at = *turn.wait_for(|&s| s == offset || s == END).await.unwrap();
-                if at == END {
-                    return Ok(());
+                let seen = *turn.wait_for(|&s| s == offset || s == END).await.unwrap();
+                if seen == END {
+                    return Ok(0);
                 }
-                let len = bytes.len() as u64;
-                if len > 0 {
+                if written > 0 {
                     let _ = chunks.send(bytes).await;
                 }
-                sent.send_replace(if len < CHUNK as u64 { END } else { offset + len });
+                let next = offset.saturating_add(raw);
+                sent.send_replace(if raw < CHUNK as u64 || next >= window.end { END } else { next });
             }
         }
-        Ok(())
+        Ok(written)
     }
 }
 
@@ -443,7 +517,7 @@ mod tests {
 
     use tokio::sync::{mpsc, watch};
 
-    use super::{CHUNK, DownloadMedia, DownloadSource, Master, MediaStream, Sink, chunk, chunk_count, fits};
+    use super::{CHUNK, DownloadMedia, DownloadSource, Master, MediaStream, Sink, Window, chunk, chunk_count, fits};
     use crate::Client;
     use crate::crypto::{aes, sha256};
     use crate::dispatcher::Entities;
@@ -493,7 +567,7 @@ mod tests {
     async fn writes_chunks_at_their_offsets() {
         let sink = Sink::Memory(Mutex::new(Vec::new()));
         for (offset, chunk) in [(6, &b"gh"[..]), (0, b"abc"), (3, b"def")] {
-            sink.write_at(offset, chunk.to_vec()).await.unwrap();
+            sink.write_at(&Window::ALL, offset, chunk.to_vec()).await.unwrap();
         }
         let Sink::Memory(out) = sink else { unreachable!() };
         assert_eq!(out.into_inner().unwrap(), b"abcdefgh");
@@ -503,10 +577,10 @@ mod tests {
     async fn memory_that_cant_be_had_is_an_error_not_an_abort() {
         let sink = Sink::Memory(Mutex::new(b"ab".to_vec()));
         // Past isize::MAX no allocator can serve it, so the reservation fails before allocating anything.
-        let out_of_memory = sink.write_at(isize::MAX as u64, b"x".to_vec()).await;
+        let out_of_memory = sink.write_at(&Window::ALL, isize::MAX as u64, b"x".to_vec()).await;
         let oom = |e: &std::io::Error| e.kind() == std::io::ErrorKind::OutOfMemory;
         assert!(matches!(&out_of_memory, Err(Error::Io(e)) if oom(e)), "{out_of_memory:?}");
-        let unaddressable = sink.write_at(u64::MAX, b"x".to_vec()).await;
+        let unaddressable = sink.write_at(&Window::ALL, u64::MAX, b"x".to_vec()).await;
         assert!(matches!(unaddressable, Err(Error::Unexpected(_))), "{unaddressable:?}");
         let Sink::Memory(out) = sink else { unreachable!() };
         assert_eq!(out.into_inner().unwrap(), b"ab");
@@ -532,7 +606,7 @@ mod tests {
                     for _ in 0..delay {
                         tokio::task::yield_now().await;
                     }
-                    sink.write_at((n * c) as u64, vec![n as u8; len]).await
+                    sink.write_at(&Window::ALL, (n * c) as u64, vec![n as u8; len]).await
                 }
             };
             // Chunk 3 is short, so it ends the file and chunk 4 is dropped.
@@ -806,5 +880,177 @@ mod tests {
         assert_eq!(result, Ok([vec![1; c], b"hi".to_vec()].concat()));
         let wrapped = |offset| functions::InvokeWithTakeout { takeout_id: 7, query: get_file(b"old", offset, false) };
         assert_eq!(drain(&mut rx), [wrapped(0).to_bytes(), wrapped(i64::from(CHUNK)).to_bytes()]);
+    }
+
+    /// `n` chunks whose bytes differ from one offset to the next.
+    fn numbered(n: usize) -> Vec<u8> {
+        (0..n * CHUNK as usize).map(|i| (i % 251) as u8).collect()
+    }
+
+    fn location(size: Option<i64>) -> FileLocation {
+        FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: size }
+    }
+
+    fn located(client: &Client, size: Option<i64>) -> FileLocation {
+        client.0.me.lock().unwrap().premium = Some(false);
+        client.0.transfers.insert(client.dc(2).unwrap(), &client.session());
+        location(size)
+    }
+
+    /// The bytes or the error, and each `(done, total)` reported.
+    type Ranged = (Result<Vec<u8>, String>, Vec<(u64, u64)>);
+
+    /// Bytes `offset..offset + limit` of document 1, to the end without a limit.
+    async fn ranged(
+        client: &Client,
+        size: Option<i64>,
+        offset: u64,
+        limit: Option<u64>,
+        source: Option<DownloadSource>,
+    ) -> Ranged {
+        let mut download = DownloadMedia::new(client, Ok(located(client, size)), source).offset(offset);
+        if let Some(limit) = limit {
+            download = download.limit(limit);
+        }
+        let done = Arc::new(Mutex::new(Vec::new()));
+        let log = done.clone();
+        let result = download.progress(move |d, t| log.lock().unwrap().push((d, t))).await.map_err(|e| e.to_string());
+        let done = done.lock().unwrap().clone();
+        (result, done)
+    }
+
+    /// Bytes CHUNK + 10 .. 2 * CHUNK + 10 of a three-chunk file.
+    async fn middle_of_three() -> (Ranged, Vec<Vec<u8>>, Vec<u8>) {
+        let (c, whole) = (CHUNK as usize, numbered(3));
+        let (client, mut rx) = Client::scripted(vec![file(whole[c..2 * c].to_vec()), file(whole[2 * c..].to_vec())]);
+        let got = ranged(&client, Some(3 * c as i64), c as u64 + 10, Some(c as u64), None).await;
+        (got, drain(&mut rx), whole)
+    }
+
+    #[tokio::test]
+    async fn a_range_asks_only_for_the_chunks_it_covers() {
+        let c = CHUNK as usize;
+        let ((result, _), sent, whole) = middle_of_three().await;
+        assert_eq!(result, Ok(whole[c + 10..2 * c + 10].to_vec()));
+        let at = i64::from(CHUNK);
+        assert_eq!(sent, [get_file(b"old", at, true).to_bytes(), get_file(b"old", 2 * at, false).to_bytes()]);
+    }
+
+    #[tokio::test]
+    async fn progress_counts_only_the_range() {
+        let c = CHUNK as u64;
+        let ((_, done), _, _) = middle_of_three().await;
+        assert_eq!(done, [(c - 10, c), (c, c)]);
+    }
+
+    #[tokio::test]
+    async fn a_range_stream_yields_only_the_range_in_order() {
+        let (c, whole) = (CHUNK as usize, numbered(3));
+        let (client, _rx) = Client::scripted(vec![file(whole[c..2 * c].to_vec()), file(whole[2 * c..].to_vec())]);
+        let mut stream = client.download_media(located(&client, Some(3 * c as i64))).offset(c as u64 + 10).stream();
+        let mut got = Vec::new();
+        while let Some(piece) = stream.next().await {
+            got.push(piece.unwrap());
+        }
+        assert_eq!(got, [whole[c + 10..2 * c].to_vec(), whole[2 * c..].to_vec()]);
+    }
+
+    #[tokio::test]
+    async fn a_range_to_a_file_starts_at_the_files_start() {
+        let whole = numbered(1);
+        let (client, _rx) = Client::scripted(vec![file(whole.clone())]);
+        let location = located(&client, Some(2 * i64::from(CHUNK)));
+        let path = std::env::temp_dir().join(format!("vaegram-range-{}.bin", std::process::id()));
+        client.download_media(location).offset(5).limit(10).file_name(&path).await.unwrap();
+        let written = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(written, whole[5..15]);
+    }
+
+    #[tokio::test]
+    async fn an_offset_past_the_known_end_sends_nothing() {
+        let (client, mut rx) = Client::recording();
+        assert_eq!(client.download_media(location(Some(5))).offset(5).await.unwrap(), b"");
+        assert!(client.download_media(location(Some(5))).offset(9).stream().next().await.is_none());
+        // No file Telegram stores reaches this chunk, whatever size it gives.
+        assert_eq!(client.download_media(location(None)).offset(u64::MAX).await.unwrap(), b"");
+        assert!(drain(&mut rx).is_empty());
+    }
+
+    #[tokio::test]
+    async fn limit_zero_sends_nothing() {
+        let (client, mut rx) = Client::recording();
+        assert_eq!(client.download_media(location(None)).limit(0).await.unwrap(), b"");
+        assert_eq!(client.download_media(location(Some(5))).offset(2).limit(0).await.unwrap(), b"");
+        assert!(drain(&mut rx).is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_open_range_without_a_size_ends_at_the_short_chunk() {
+        let (c, at) = (CHUNK as usize, i64::from(CHUNK));
+        let (client, mut rx) = Client::scripted(vec![file(vec![1; c]), file(b"hi".into())]);
+        let (result, _) = ranged(&client, None, c as u64 + 3, None, None).await;
+        assert_eq!(result, Ok([vec![1; c - 3], b"hi".to_vec()].concat()));
+        assert_eq!(drain(&mut rx), [get_file(b"old", at, true).to_bytes(), get_file(b"old", 2 * at, false).to_bytes()]);
+    }
+
+    #[tokio::test]
+    async fn a_ranged_takeout_download_wraps_every_chunk_and_skips_the_cdn() {
+        let c = CHUNK as usize;
+        let (client, mut rx) = Client::scripted(vec![file(vec![1; c]), file(b"hi".into())]);
+        let takeout = Client(client.0.clone(), Some(7));
+        let (result, _) = ranged(&takeout, None, c as u64 + 1, None, None).await;
+        assert_eq!(result, Ok([vec![1; c - 1], b"hi".to_vec()].concat()));
+        let wrapped = |offset| functions::InvokeWithTakeout { takeout_id: 7, query: get_file(b"old", offset, false) };
+        let at = i64::from(CHUNK);
+        assert_eq!(drain(&mut rx), [wrapped(at).to_bytes(), wrapped(2 * at).to_bytes()]);
+    }
+
+    #[tokio::test]
+    async fn a_ranged_download_renews_an_expired_reference() {
+        let at = i64::from(CHUNK);
+        let replies = vec![error("FILE_REFERENCE_EXPIRED"), messages(), file(b"hello".into())];
+        let (client, mut rx) = Client::scripted(replies);
+        let (result, _) = ranged(&client, None, at as u64 + 1, None, Some(DownloadSource::Message(-5, 5))).await;
+        assert_eq!(result, Ok(b"ello".to_vec()));
+        let sent = drain(&mut rx);
+        let (old, fresh) = (get_file(b"old", at, true).to_bytes(), get_file(&[3], at, true).to_bytes());
+        assert_eq!((sent.len(), &sent[0], &sent[2]), (3, &old, &fresh));
+    }
+
+    #[tokio::test]
+    async fn a_cdn_range_fetches_the_missing_hashes() {
+        let at = i64::from(CHUNK);
+        let (key, iv) = ([1u8; 32], [2u8; 16]);
+        let plain: Vec<u8> = (0..100).map(|i| (i * 7) as u8).collect();
+        let (mut cipher, mut counter) = (plain.clone(), iv);
+        counter[12..].copy_from_slice(&((at / 16) as u32).to_be_bytes());
+        aes::ctr256(&mut cipher, &key, &mut counter, &mut 0);
+        let hash = |offset, bytes: &[u8]| {
+            let hash = types::FileHash { offset, limit: bytes.len() as i32, hash: sha256(&[bytes]).to_vec() };
+            base::FileHash::FileHash(Box::new(hash))
+        };
+        // The redirect only covers the start of the file.
+        let redirect = types::upload::FileCdnRedirect {
+            dc_id: 203,
+            file_token: b"token".to_vec(),
+            encryption_key: key.to_vec(),
+            encryption_iv: iv.to_vec(),
+            file_hashes: vec![hash(0, &[0; 16])],
+        };
+        let redirect = Ok(base::upload::File::FileCdnRedirect(Box::new(redirect)).to_bytes());
+        let part = base::upload::CdnFile::CdnFile(Box::new(types::upload::CdnFile { bytes: cipher }));
+        let (cdn, mut cdn_rx) = Session::scripted(vec![Ok(part.to_bytes())]);
+        let none: Vec<base::FileHash> = Vec::new();
+        let replies = vec![redirect, Ok(vec![hash(at, &plain)].to_bytes()), Ok(none.to_bytes())];
+        let (client, mut rx) = Client::scripted(replies);
+        client.serve_cdn(203, &cdn);
+        client.0.transfers.insert(client.dc(203).unwrap(), &cdn);
+
+        let (result, _) = ranged(&client, Some(at + 100), at as u64 + 3, None, None).await;
+        assert_eq!(result, Ok(plain[3..].to_vec()));
+        let hashes = |offset| functions::upload::GetCdnFileHashes { file_token: b"token".to_vec(), offset }.to_bytes();
+        assert_eq!(drain(&mut rx), [get_file(b"old", at, true).to_bytes(), hashes(at), hashes(at + 100)]);
+        assert_eq!(drain(&mut cdn_rx).len(), 1);
     }
 }
