@@ -46,6 +46,7 @@ mod location;
 mod mask_position;
 pub(crate) mod media;
 pub(crate) mod message;
+mod message_actions;
 mod message_entity;
 mod message_generation_stopped;
 mod message_origin;

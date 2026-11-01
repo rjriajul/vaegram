@@ -59,6 +59,12 @@ impl EditMessageChecklist<'_> {
 
 into_future!(EditMessageChecklist, Message);
 
+impl crate::methods::OnBehalf for EditMessageChecklist<'_> {
+    fn business_connection(&mut self) -> &mut Option<String> {
+        &mut self.business_connection_id
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::edit_message_text::edit_request;
