@@ -287,6 +287,7 @@ mod tests {
 
     use super::Text;
     use crate::enums::{MessageEntityType as T, ParseMode};
+    use crate::parser::Kind;
     use crate::raw::base::MessageEntity as E;
 
     fn show(t: &Text) -> (&str, Vec<String>) {
@@ -310,6 +311,16 @@ mod tests {
 
     fn texts(parts: &[Text]) -> Vec<&str> {
         parts.iter().map(Text::as_str).collect()
+    }
+
+    #[test]
+    fn pyrogram_spellings_of_emoji_and_spoiler_tags() {
+        let t = Text::from_html("Hi <emoji id=\"5111807768608638111\">👋</emoji> <spoiler>s</spoiler>");
+        assert_eq!(t.text, "Hi 👋 s");
+        let kinds: Vec<_> = t.spans.iter().map(|s| (s.kind.clone(), s.start, s.end)).collect();
+        assert_eq!(kinds, [(Kind::CustomEmoji(5111807768608638111), 3, 5), (Kind::Spoiler, 6, 7)]);
+        // Written back in the Bot API's spelling.
+        assert!(t.to_html().contains("<tg-emoji emoji-id=\"5111807768608638111\">👋</tg-emoji>"));
     }
 
     #[test]

@@ -22,6 +22,8 @@ fn is_known(name: &str) -> bool {
             | "a"
             | "blockquote"
             | "tg-emoji"
+            | "emoji"
+            | "spoiler"
             | "tg-time"
     )
 }
@@ -96,7 +98,8 @@ fn kind_of(tag: &Tag, open: &mut [(String, i32, Option<Kind>)]) -> Option<Kind> 
         "i" | "em" => Kind::Italic,
         "u" | "ins" => Kind::Underline,
         "s" | "strike" | "del" => Kind::Strike,
-        "tg-spoiler" => Kind::Spoiler,
+        // `spoiler` and `emoji id=` are Pyrogram's spellings of the Bot API's tags.
+        "tg-spoiler" | "spoiler" => Kind::Spoiler,
         "span" if tag.attr("class") == Some("tg-spoiler") => Kind::Spoiler,
         "code" => {
             if let Some((_, _, Some(Kind::Pre(language)))) = open.last_mut() {
@@ -111,6 +114,7 @@ fn kind_of(tag: &Tag, open: &mut [(String, i32, Option<Kind>)]) -> Option<Kind> 
         "a" => Kind::link(tag.attr("href")?.to_owned()),
         "blockquote" => Kind::Blockquote(tag.attr("expandable").is_some()),
         "tg-emoji" => Kind::CustomEmoji(tag.attr("emoji-id")?.parse().ok()?),
+        "emoji" => Kind::CustomEmoji(tag.attr("id")?.parse().ok()?),
         "tg-time" => Kind::date_time(tag.attr("unix")?.parse().ok()?, tag.attr("format").unwrap_or_default()),
         _ => return None,
     })
