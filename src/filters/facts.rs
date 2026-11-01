@@ -28,14 +28,22 @@ pub(crate) const LINKED_CHANNEL: u32 = 1 << 19;
 pub(crate) const LIVE_LOCATION: u32 = 1 << 20;
 pub(crate) const SELF_DESTRUCTION: u32 = 1 << 21;
 pub(crate) const PAID_MESSAGE: u32 = 1 << 22;
+pub(crate) const BUSINESS: u32 = 1 << 23;
+pub(crate) const FORUM: u32 = 1 << 24;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PeerKinds {
     pub(crate) chat: Option<ChatType>,
     pub(crate) sender_bot: bool,
+    pub(crate) forum: bool,
 }
 
 impl PeerKinds {
+    /// What a parsed update knows about its chat; `chat_traits` reads the same from raw entities.
+    pub(crate) fn of(chat: Option<&Chat>, sender_bot: bool) -> PeerKinds {
+        PeerKinds { chat: chat.map(|c| c.kind), sender_bot, forum: chat.is_some_and(|c| c.is_forum) }
+    }
+
     pub(crate) fn message(raw: &base::Message, entities: &Entities) -> PeerKinds {
         let (peer, from, post) = match raw {
             base::Message::Message(m) => (&m.peer_id, m.from_id.as_ref(), m.post),
@@ -46,13 +54,31 @@ impl PeerKinds {
             base::Peer::PeerUser(p) => matches!(entities.users.get(&p.user_id), Some(base::User::User(u)) if u.bot),
             _ => false,
         };
-        PeerKinds { chat: Some(Chat::kind_of(peer, entities, post)), sender_bot }
+        PeerKinds { chat: Some(Chat::kind_of(peer, entities, post)), sender_bot, ..chat_traits(peer, entities) }
     }
 
     pub(crate) fn callback(raw: &types::UpdateBotCallbackQuery, entities: &Entities) -> PeerKinds {
         let sender_bot = matches!(entities.users.get(&raw.user_id), Some(base::User::User(u)) if u.bot);
-        PeerKinds { chat: Some(Chat::kind_of(&raw.peer, entities, false)), sender_bot }
+        PeerKinds {
+            chat: Some(Chat::kind_of(&raw.peer, entities, false)),
+            sender_bot,
+            ..chat_traits(&raw.peer, entities)
+        }
     }
+
+    fn flags(self) -> u32 {
+        flag(self.sender_bot, SENDER_BOT) | flag(self.forum, FORUM)
+    }
+}
+
+fn chat_traits(peer: &base::Peer, entities: &Entities) -> PeerKinds {
+    let forum = match peer {
+        base::Peer::PeerChannel(_) => {
+            matches!(entities.chats.get(&get_peer_id(peer)), Some(base::Chat::Channel(c)) if c.forum)
+        }
+        _ => false,
+    };
+    PeerKinds { forum, ..PeerKinds::default() }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -117,10 +143,12 @@ impl<'a> Facts<'a> {
         facts
     }
 
-    /// A service message's `raw` is a bare message, so its kind and topic come from the parsed fields.
+    /// A service message's `raw` is a bare message, so its kind and topic come from the parsed fields. A business
+    /// message's connection isn't in `raw` either; the raw path adds it through `via_business`.
     pub(crate) fn parsed(m: &'a Message, me: &'a Me) -> Facts<'a> {
         let sender_bot = m.from_user.as_ref().is_some_and(|u| u.is_bot);
-        let mut facts = Facts::plain(&m.raw, PeerKinds { chat: Some(m.chat.kind), sender_bot }, me);
+        let mut facts = Facts::plain(&m.raw, PeerKinds::of(Some(&m.chat), sender_bot), me)
+            .via_business(m.business_connection_id.is_some());
         if let Some(service) = &m.service {
             facts.flags |= SERVICE;
             facts.service = Some(service.kind());
@@ -138,9 +166,13 @@ impl<'a> Facts<'a> {
     }
 
     pub(crate) fn query(chat_id: i64, sender_id: i64, data: &'a [u8], kinds: PeerKinds, me: &'a Me) -> Facts<'a> {
-        let flags =
-            flag(kinds.sender_bot, SENDER_BOT) | flag(sender_id == me.id, SENDER_ME) | flag(sender_id < 0, SENDER_CHAT);
+        let flags = kinds.flags() | flag(sender_id == me.id, SENDER_ME) | flag(sender_id < 0, SENDER_CHAT);
         Facts { flags, chat: kinds.chat, chat_id, sender_id, data, me: me.username.as_deref(), ..Facts::default() }
+    }
+
+    pub(crate) fn via_business(mut self, on: bool) -> Facts<'a> {
+        self.flags |= flag(on, BUSINESS);
+        self
     }
 
     pub(crate) fn inline(user_id: i64, query: &'a str, me: &'a Me) -> Facts<'a> {
@@ -181,7 +213,7 @@ impl<'a> Facts<'a> {
             (None, _) => 0,
         };
         let flags = flag(out, OUTGOING)
-            | flag(kinds.sender_bot, SENDER_BOT)
+            | kinds.flags()
             | flag(out || (sender_id != 0 && sender_id == me.id), SENDER_ME)
             | flag(sender_id < 0, SENDER_CHAT);
         Facts { flags, chat: kinds.chat, chat_id, sender_id, me: me.username.as_deref(), ..Facts::default() }
@@ -254,21 +286,54 @@ mod tests {
         base::User::User(Box::new(types::User::deserialize_bare(&mut &buf[..]).unwrap()))
     }
 
-    fn megagroup(id: i64) -> base::Chat {
+    // flags.5 is broadcast, flags.8 megagroup and flags.30 forum.
+    fn channel(id: i64, flags: u32) -> types::Channel {
         let mut buf = Vec::new();
-        for word in [1u32 << 8, 0] {
+        for word in [flags, 0] {
             word.serialize(&mut buf);
         }
         id.serialize(&mut buf);
         "g".to_owned().serialize(&mut buf);
         base::ChatPhoto::ChatPhotoEmpty.serialize(&mut buf);
         0i32.serialize(&mut buf);
-        base::Chat::Channel(Box::new(types::Channel::deserialize_bare(&mut &buf[..]).unwrap()))
+        types::Channel::deserialize_bare(&mut &buf[..]).unwrap()
+    }
+
+    fn megagroup(id: i64) -> base::Chat {
+        base::Chat::Channel(Box::new(channel(id, 1 << 8)))
     }
 
     fn entities() -> Entities {
         let users = [(7, user(7, true)), (8, user(8, false))].into();
         Entities { users, chats: [(get_channel_id(55), megagroup(55))].into() }
+    }
+
+    #[test]
+    fn forum_comes_from_the_chat_on_both_paths() {
+        let (client, me) = (Client::offline(), Me::default());
+        for (flags, forum) in [((1 << 8) | (1 << 30), true), (1 << 8, false)] {
+            let chat = base::Chat::Channel(Box::new(channel(56, flags)));
+            let entities = Entities { chats: [(get_channel_id(56), chat)].into(), ..entities() };
+            let mut m = Message::bare(3, get_peer(get_channel_id(56)), 0);
+            m.from_id = Some(get_peer(8));
+            let raw = base::Message::Message(Box::new(m.clone()));
+            let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
+            assert_eq!(facts, Message::parse(&client, Box::new(m), &entities).facts(&me));
+            assert_eq!(facts.flags & FORUM != 0, forum);
+
+            let raw = types::UpdateBotCallbackQuery {
+                query_id: 1,
+                user_id: 8,
+                peer: get_peer(get_channel_id(56)),
+                msg_id: 2,
+                chat_instance: 3,
+                data: None,
+                game_short_name: None,
+            };
+            let facts = Facts::callback(&raw, PeerKinds::callback(&raw, &entities), &me);
+            assert_eq!(facts, CallbackQuery::parse(&client, &raw, &entities).facts(&me));
+            assert_eq!(facts.flags & FORUM != 0, forum);
+        }
     }
 
     #[test]

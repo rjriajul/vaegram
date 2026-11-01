@@ -231,6 +231,10 @@ flag_filters! {
     self_destruction: HasMedia => SELF_DESTRUCTION,
     /// A message the sender paid Stars to send.
     paid_message: HasMedia => PAID_MESSAGE,
+    /// Sent through a business connection. Only business message routes and their parsed messages see these.
+    business: HasMedia => BUSINESS,
+    /// In a forum supergroup.
+    forum: HasChat => FORUM,
 }
 
 pub fn incoming<T: HasChat>() -> Filter<T> {
@@ -247,6 +251,11 @@ pub fn service_kind<T: HasMedia>(kinds: impl IntoIterator<Item = ServiceKind>) -
 
 pub fn private<T: HasChat>() -> Filter<T> {
     chat_kinds(&[ChatType::Private, ChatType::Bot])
+}
+
+/// Private chats with people. Unlike `private`, it leaves out bots, and it isn't a channel's direct messages chat.
+pub fn direct<T: HasChat>() -> Filter<T> {
+    chat_kinds(&[ChatType::Private])
 }
 
 pub fn group<T: HasChat>() -> Filter<T> {
@@ -338,8 +347,11 @@ mod tests {
             (live_location(), on(LIVE_LOCATION), f),
             (self_destruction(), on(SELF_DESTRUCTION), f),
             (paid_message(), on(PAID_MESSAGE), f),
+            (business(), on(BUSINESS), f),
+            (forum(), on(FORUM), inside(ChatType::Supergroup)),
             (service_kind([ServiceKind::PinnedMessage]), Facts { service: Some(ServiceKind::PinnedMessage), ..f }, f),
             (private(), inside(ChatType::Bot), inside(ChatType::Group)),
+            (direct(), inside(ChatType::Private), inside(ChatType::Bot)),
             (group(), inside(ChatType::Supergroup), inside(ChatType::Channel)),
             (supergroup(), inside(ChatType::Supergroup), inside(ChatType::Group)),
             (channel(), inside(ChatType::Channel), inside(ChatType::Private)),

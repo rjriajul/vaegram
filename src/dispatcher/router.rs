@@ -139,7 +139,8 @@ impl Handlers<Message> {
         if let base::Message::Message(m) = &mut raw {
             Message::fill_rich_text(m);
         }
-        let scan = self.scan(&Facts::message(&raw, PeerKinds::message(&raw, entities), &me));
+        let facts = Facts::message(&raw, PeerKinds::message(&raw, entities), &me).via_business(business.is_some());
+        let scan = self.scan(&facts);
         if scan.is_none() && !listening {
             return;
         }
@@ -1293,5 +1294,29 @@ mod tests {
         }
         settle().await;
         assert_eq!(*log.lock().unwrap(), ["channel"]);
+    }
+
+    #[tokio::test]
+    async fn business_messages_carry_the_business_bit() {
+        let log = Log::default();
+        let mut router = Router::default();
+        router.business_message.push(1, filters::business(), record(&log, "business"));
+        let parsed = filters::create(|_: &Message| true) & filters::business();
+        router.business_message.push(2, parsed, record(&log, "parsed"));
+        router.business_message.configure(2, Some(1), false);
+        router.message.push(3, filters::business(), record(&log, "plain"));
+        let message = base::Message::Message(Box::new(Message::bare(1, get_peer(1), 0)));
+        let update = types::UpdateBotNewBusinessMessage {
+            connection_id: "conn".into(),
+            message,
+            reply_to_message: None,
+            qts: 0,
+        };
+        dispatch(&router, base::Update::UpdateBotNewBusinessMessage(Box::new(update)));
+        dispatch(&router, new_message(2, false));
+        settle().await;
+        let mut seen = log.lock().unwrap().clone();
+        seen.sort_unstable();
+        assert_eq!(seen, ["business", "parsed"]);
     }
 }
