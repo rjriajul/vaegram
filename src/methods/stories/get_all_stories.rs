@@ -13,7 +13,9 @@ impl Client {
             let base::stories::AllStories::AllStories(page) = self.invoke(&request).await? else { break };
             let entities = Entities::new(self, page.users, page.chats);
             for base::PeerStories::PeerStories(peer) in page.peer_stories {
-                stories.extend(peer.stories.into_iter().filter_map(|item| Story::parse(&peer.peer, item, &entities)));
+                stories.extend(
+                    peer.stories.into_iter().filter_map(|item| Story::parse(self, &peer.peer, item, &entities)),
+                );
             }
             if !page.has_more {
                 break;

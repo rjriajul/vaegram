@@ -94,7 +94,7 @@ impl Message {
             is_topic_message,
             quote,
             external_reply,
-        ) = reply_fields(&raw, service.as_ref(), entities);
+        ) = reply_fields(client, &raw, service.as_ref(), entities);
         let direct_messages_topic = match &raw.saved_peer_id {
             Some(peer) if chat.is_direct_messages => Some(DirectMessagesTopic::parse(peer, entities)),
             _ => None,
@@ -113,7 +113,7 @@ impl Message {
             entities: text_entities,
             caption,
             caption_entities,
-            media: raw.media.as_ref().and_then(|m| Media::parse(m, entities)),
+            media: raw.media.as_ref().and_then(|m| Media::parse(client, m, entities)),
             rich_message,
             link_preview_options: LinkPreviewOptions::parse(raw.media.as_ref(), raw.invert_media),
             reply_to_message_id,
@@ -504,7 +504,12 @@ fn is_automatic_forward(chat: &Chat, header: Option<&base::MessageFwdHeader>) ->
 
 type ReplyFields = (Option<i32>, Option<i32>, Option<i32>, bool, Option<TextQuote>, Option<Box<ExternalReplyInfo>>);
 
-fn reply_fields(raw: &types::Message, service: Option<&ServiceAction>, entities: &Entities) -> ReplyFields {
+fn reply_fields(
+    client: &Client,
+    raw: &types::Message,
+    service: Option<&ServiceAction>,
+    entities: &Entities,
+) -> ReplyFields {
     // The message that creates a topic is its root, so the topic id is the message's own id.
     if matches!(service, Some(ServiceAction::ForumTopicCreated(_))) {
         return (None, None, Some(raw.id), true, None, None);
@@ -522,7 +527,7 @@ fn reply_fields(raw: &types::Message, service: Option<&ServiceAction>, entities:
         position: reply.quote_offset.unwrap_or(0),
         is_manual: reply.quote,
     });
-    let external_reply = ExternalReplyInfo::parse(reply, entities).map(Box::new);
+    let external_reply = ExternalReplyInfo::parse(client, reply, entities).map(Box::new);
     (reply_to_message_id, reply.todo_item_id, message_thread_id, reply.forum_topic, quote, external_reply)
 }
 

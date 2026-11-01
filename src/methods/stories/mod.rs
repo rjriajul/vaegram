@@ -202,8 +202,13 @@ mod tests {
             albums: None,
             music: None,
         };
-        let story =
-            Story::parse(&get_peer(42), base::StoryItem::StoryItem(Box::new(item)), &Entities::default()).unwrap();
+        let story = Story::parse(
+            &Client::offline(),
+            &get_peer(42),
+            base::StoryItem::StoryItem(Box::new(item)),
+            &Entities::default(),
+        )
+        .unwrap();
         let entities = story.caption_entities.unwrap();
         assert_eq!((entities.len(), entities[0].kind, entities[0].length), (1, MessageEntityType::Bold, 2));
         assert!(story.media.as_ref().and_then(Media::file_location).is_some());

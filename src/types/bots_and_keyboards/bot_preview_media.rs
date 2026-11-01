@@ -1,3 +1,4 @@
+use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::raw::base;
@@ -11,9 +12,9 @@ pub struct BotPreviewMedia {
 }
 
 impl BotPreviewMedia {
-    pub(crate) fn parse(raw: base::BotPreviewMedia) -> BotPreviewMedia {
+    pub(crate) fn parse(client: &Client, raw: base::BotPreviewMedia) -> BotPreviewMedia {
         let base::BotPreviewMedia::BotPreviewMedia(r) = raw;
-        BotPreviewMedia { date: r.date, media: Media::parse(&r.media, &Entities::default()) }
+        BotPreviewMedia { date: r.date, media: Media::parse(client, &r.media, &Entities::default()) }
     }
 
     /// The stored reference Telegram wants to identify this preview in edits, deletes and reorders.
@@ -35,12 +36,13 @@ impl BotPreviewMedia {
 #[cfg(test)]
 mod tests {
     use super::BotPreviewMedia;
+    use crate::Client;
     use crate::errors::Error;
     use crate::raw::{base, types};
 
     fn preview(media: base::MessageMedia) -> BotPreviewMedia {
         let raw = types::BotPreviewMedia { date: 5, media };
-        BotPreviewMedia::parse(base::BotPreviewMedia::BotPreviewMedia(Box::new(raw)))
+        BotPreviewMedia::parse(&Client::offline(), base::BotPreviewMedia::BotPreviewMedia(Box::new(raw)))
     }
 
     #[test]
