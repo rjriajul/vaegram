@@ -33,7 +33,7 @@ impl Text {
         parser::unparse(self, ParseMode::Html)
     }
 
-    /// Formatting Markdown can't express (custom emoji, dates, quotes not covering whole lines) is left out.
+    /// Formatting Markdown can't express (quotes not covering whole lines, link text holding `]`) is left out.
     pub fn to_markdown(&self) -> String {
         parser::unparse(self, ParseMode::Markdown)
     }

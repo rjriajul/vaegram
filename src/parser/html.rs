@@ -110,7 +110,7 @@ fn kind_of(tag: &Tag, open: &mut [(String, i32, Option<Kind>)]) -> Option<Kind> 
             }
             Kind::Code
         }
-        "pre" => Kind::Pre(String::new()),
+        "pre" => Kind::Pre(tag.attr("language").unwrap_or_default().to_owned()),
         "a" => Kind::link(tag.attr("href")?.to_owned()),
         "blockquote" => Kind::Blockquote(tag.attr("expandable").is_some()),
         "tg-emoji" => Kind::CustomEmoji(tag.attr("emoji-id")?.parse().ok()?),
@@ -261,13 +261,7 @@ impl Markup for Html {
             &Kind::DateTime(unix_time, flags) => {
                 let _ = write!(self.0, "<tg-time unix=\"{unix_time}\"");
                 if flags != 0 {
-                    let format: String = "rtTdDw"
-                        .chars()
-                        .enumerate()
-                        .filter(|(bit, _)| flags & (1 << bit) != 0)
-                        .map(|(_, c)| c)
-                        .collect();
-                    let _ = write!(self.0, " format=\"{format}\"");
+                    let _ = write!(self.0, " format=\"{}\"", super::date_time_format(flags));
                 }
                 ">"
             }
