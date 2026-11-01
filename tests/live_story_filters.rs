@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use vaegram::enums::StoriesPrivacyRules;
 use vaegram::filters;
 use vaegram::raw::base;
-use vaegram::types::InputStoryContent;
+use vaegram::types::{InlineKeyboardButton, InlineKeyboardMarkup, InputStoryContent};
 
 const WAIT: Duration = Duration::from_secs(30);
 
@@ -41,4 +41,29 @@ async fn on_story_sees_a_posted_story() {
     .await;
     user.delete_stories(me.id, &[story.id]).await.unwrap();
     assert_eq!(arrived, Ok(true), "no updateStory arrived for the posted story");
+}
+
+#[tokio::test]
+#[ignore = "uses a bot token and a logged-in user session"]
+async fn a_bot_keyboard_matches_inline_keyboard() {
+    let Some(kit) = Kit::from_env().await else { return };
+    kit.bot.on_message(filters::private() & filters::command("keyboard"), |m| async move {
+        let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Tap", "tap")]]);
+        m.reply("Keyboard").reply_markup(keyboard).await?;
+        Ok(())
+    });
+    let base::User::User(bot) = kit.bot.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let (tx, mut matched) = mpsc::unbounded_channel();
+    kit.user
+        .client
+        .on_message(filters::inline_keyboard() & filters::user(bot.id), move |m| {
+            let _ = tx.send(m.id);
+            async { Ok(()) }
+        })
+        .group(1);
+
+    let reply = kit.user.send_and_wait_reply(&kit.bot, "/keyboard").await.unwrap();
+    let matched = tokio::time::timeout(WAIT, matched.recv()).await;
+    kit.user.client.delete_messages(reply.chat.id, &[reply.id]).await.unwrap();
+    assert_eq!(matched, Ok(Some(reply.id)));
 }

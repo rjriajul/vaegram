@@ -19,6 +19,15 @@ pub(crate) const MEDIA_GROUP: u32 = 1 << 10;
 pub(crate) const SERVICE: u32 = 1 << 11;
 pub(crate) const SENDER_BOT: u32 = 1 << 12;
 pub(crate) const SENDER_ME: u32 = 1 << 13;
+pub(crate) const SENDER_CHAT: u32 = 1 << 14;
+pub(crate) const QUOTE: u32 = 1 << 15;
+pub(crate) const INLINE_KEYBOARD: u32 = 1 << 16;
+pub(crate) const REPLY_KEYBOARD: u32 = 1 << 17;
+pub(crate) const MEDIA_SPOILER: u32 = 1 << 18;
+pub(crate) const LINKED_CHANNEL: u32 = 1 << 19;
+pub(crate) const LIVE_LOCATION: u32 = 1 << 20;
+pub(crate) const SELF_DESTRUCTION: u32 = 1 << 21;
+pub(crate) const PAID_MESSAGE: u32 = 1 << 22;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PeerKinds {
@@ -98,7 +107,11 @@ impl<'a> Facts<'a> {
             | flag(m.mentioned, MENTIONED)
             | flag(m.from_scheduled, SCHEDULED)
             | flag(m.noforwards, PROTECTED)
-            | flag(m.grouped_id.is_some(), MEDIA_GROUP);
+            | flag(m.grouped_id.is_some(), MEDIA_GROUP)
+            | flag(m.paid_message_stars.is_some_and(|stars| stars > 0), PAID_MESSAGE)
+            | flag(linked_channel(m.fwd_from.as_ref(), facts.sender_id), LINKED_CHANNEL)
+            | media_traits(m.media.as_ref())
+            | keyboard(m.reply_markup.as_ref());
         (facts.media, facts.text) = (media, &m.message);
         facts.reply(m.reply_to.as_ref());
         facts
@@ -125,7 +138,8 @@ impl<'a> Facts<'a> {
     }
 
     pub(crate) fn query(chat_id: i64, sender_id: i64, data: &'a [u8], kinds: PeerKinds, me: &'a Me) -> Facts<'a> {
-        let flags = flag(kinds.sender_bot, SENDER_BOT) | flag(sender_id == me.id, SENDER_ME);
+        let flags =
+            flag(kinds.sender_bot, SENDER_BOT) | flag(sender_id == me.id, SENDER_ME) | flag(sender_id < 0, SENDER_CHAT);
         Facts { flags, chat: kinds.chat, chat_id, sender_id, data, me: me.username.as_deref(), ..Facts::default() }
     }
 
@@ -168,7 +182,8 @@ impl<'a> Facts<'a> {
         };
         let flags = flag(out, OUTGOING)
             | flag(kinds.sender_bot, SENDER_BOT)
-            | flag(out || (sender_id != 0 && sender_id == me.id), SENDER_ME);
+            | flag(out || (sender_id != 0 && sender_id == me.id), SENDER_ME)
+            | flag(sender_id < 0, SENDER_CHAT);
         Facts { flags, chat: kinds.chat, chat_id, sender_id, me: me.username.as_deref(), ..Facts::default() }
     }
 
@@ -180,12 +195,40 @@ impl<'a> Facts<'a> {
         }
         // In a topic, a message that only points at the topic's root isn't a reply.
         let reply = h.reply_to_msg_id.is_some() && !(h.forum_topic && h.reply_to_top_id.is_none());
-        self.flags |= flag(reply, REPLY);
+        self.flags |= flag(reply, REPLY) | flag(h.quote_text.is_some(), QUOTE);
     }
 }
 
 fn flag(on: bool, bit: u32) -> u32 {
     if on { bit } else { 0 }
+}
+
+// The same rules as `Message::has_media_spoiler`, `Message::ttl_seconds` and a live `Location`, read off the raw media.
+fn media_traits(media: Option<&base::MessageMedia>) -> u32 {
+    let timed = |ttl: Option<i32>| flag(ttl.is_some_and(|ttl| ttl > 0), SELF_DESTRUCTION);
+    match media {
+        Some(base::MessageMedia::MessageMediaPhoto(m)) => flag(m.spoiler, MEDIA_SPOILER) | timed(m.ttl_seconds),
+        Some(base::MessageMedia::MessageMediaDocument(m)) => flag(m.spoiler, MEDIA_SPOILER) | timed(m.ttl_seconds),
+        Some(base::MessageMedia::MessageMediaGeoLive(m)) => flag(m.period > 0, LIVE_LOCATION),
+        _ => 0,
+    }
+}
+
+fn keyboard(markup: Option<&base::ReplyMarkup>) -> u32 {
+    match markup {
+        Some(base::ReplyMarkup::ReplyInlineMarkup(_)) => INLINE_KEYBOARD,
+        Some(base::ReplyMarkup::ReplyKeyboardMarkup(_)) => REPLY_KEYBOARD,
+        _ => 0,
+    }
+}
+
+/// An automatic forward from a linked channel: a channel post whose origin is the chat that sent it.
+fn linked_channel(header: Option<&base::MessageFwdHeader>, sender_id: i64) -> bool {
+    let Some(base::MessageFwdHeader::MessageFwdHeader(h)) = header else { return false };
+    match &h.from_id {
+        Some(base::Peer::PeerUser(_)) | None => false,
+        Some(origin) => h.channel_post.is_some() && get_peer_id(origin) == sender_id,
+    }
 }
 
 #[cfg(test)]
@@ -195,7 +238,7 @@ mod tests {
     use crate::filters::Inspect;
     use crate::raw::Serializable;
     use crate::types::messages_and_media::message::tests::{header, service};
-    use crate::types::{CallbackQuery, Message};
+    use crate::types::{CallbackQuery, Message, MessageReactionUpdated};
     use crate::utils::{get_channel_id, get_peer};
 
     fn user(id: i64, bot: bool) -> base::User {
@@ -319,5 +362,159 @@ mod tests {
             let expected = (SERVICE | SENDER_BOT | flags, Some(kind), thread_id);
             assert_eq!((facts.flags, facts.service, facts.thread_id), expected);
         }
+    }
+
+    const NEW: u32 = SENDER_CHAT
+        | QUOTE
+        | INLINE_KEYBOARD
+        | REPLY_KEYBOARD
+        | MEDIA_SPOILER
+        | LINKED_CHANNEL
+        | LIVE_LOCATION
+        | SELF_DESTRUCTION
+        | PAID_MESSAGE;
+
+    fn edited(edit: impl FnOnce(&mut types::Message)) -> types::Message {
+        let mut m = Message::bare(3, get_peer(8), 0);
+        edit(&mut m);
+        m
+    }
+
+    fn forward(from: i64) -> base::MessageFwdHeader {
+        base::MessageFwdHeader::MessageFwdHeader(Box::new(types::MessageFwdHeader {
+            imported: false,
+            saved_out: false,
+            from_id: Some(get_peer(from)),
+            from_name: None,
+            date: 1,
+            channel_post: Some(5),
+            post_author: None,
+            saved_from_peer: None,
+            saved_from_msg_id: None,
+            saved_from_id: None,
+            saved_from_name: None,
+            saved_date: None,
+            psa_type: None,
+        }))
+    }
+
+    #[test]
+    fn new_message_bits_match_raw_and_parsed() {
+        let (client, entities, me) = (Client::offline(), entities(), Me::default());
+        let inline = base::ReplyMarkup::ReplyInlineMarkup(Box::new(types::ReplyInlineMarkup {
+            force_reply: false,
+            rows: vec![],
+        }));
+        let keyboard = base::ReplyMarkup::ReplyKeyboardMarkup(Box::new(types::ReplyKeyboardMarkup {
+            resize: false,
+            single_use: false,
+            selective: false,
+            persistent: false,
+            force_reply: false,
+            rows: vec![],
+            placeholder: None,
+        }));
+        let force_reply = base::ReplyMarkup::ReplyKeyboardForceReply(Box::new(types::ReplyKeyboardForceReply {
+            single_use: false,
+            selective: false,
+            placeholder: None,
+        }));
+        let hide = base::ReplyMarkup::ReplyKeyboardHide(types::ReplyKeyboardHide { selective: false });
+        let photo = |spoiler, ttl_seconds| {
+            let photo = types::MessageMediaPhoto { spoiler, live_photo: false, photo: None, ttl_seconds, video: None };
+            Some(base::MessageMedia::MessageMediaPhoto(Box::new(photo)))
+        };
+        let document = types::MessageMediaDocument {
+            nopremium: false,
+            spoiler: false,
+            video: false,
+            round: false,
+            voice: false,
+            document: None,
+            alt_documents: None,
+            video_cover: None,
+            video_timestamp: None,
+            ttl_seconds: Some(10),
+        };
+        let live = |period| {
+            let live = types::MessageMediaGeoLive {
+                geo: base::GeoPoint::GeoPointEmpty,
+                heading: None,
+                period,
+                proximity_notification_radius: None,
+            };
+            Some(base::MessageMedia::MessageMediaGeoLive(Box::new(live)))
+        };
+        let quoted = types::MessageReplyHeader {
+            reply_to_msg_id: Some(2),
+            quote: true,
+            quote_text: Some("q".into()),
+            ..header()
+        };
+        let manual_flag_only = types::MessageReplyHeader { reply_to_msg_id: Some(2), quote: true, ..header() };
+        let group = get_peer(get_channel_id(55));
+        let auto_forward = |origin| {
+            edited(|m| {
+                (m.peer_id, m.from_id) = (group.clone(), Some(get_peer(get_channel_id(77))));
+                m.fwd_from = Some(forward(get_channel_id(origin)));
+            })
+        };
+        let cases = [
+            (edited(|m| m.reply_markup = Some(inline)), INLINE_KEYBOARD),
+            (edited(|m| m.reply_markup = Some(keyboard)), REPLY_KEYBOARD),
+            (edited(|m| m.reply_markup = Some(force_reply)), 0),
+            (edited(|m| m.reply_markup = Some(hide)), 0),
+            (edited(|m| m.media = photo(true, None)), MEDIA_SPOILER),
+            (edited(|m| m.media = photo(false, Some(0))), 0),
+            (
+                edited(|m| m.media = Some(base::MessageMedia::MessageMediaDocument(Box::new(document)))),
+                SELF_DESTRUCTION,
+            ),
+            (edited(|m| m.media = live(0)), 0),
+            (edited(|m| m.media = live(900)), LIVE_LOCATION),
+            (edited(|m| m.paid_message_stars = Some(0)), 0),
+            (edited(|m| m.paid_message_stars = Some(5)), PAID_MESSAGE),
+            (edited(|m| m.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(quoted)))), QUOTE),
+            (
+                edited(|m| m.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(manual_flag_only)))),
+                0,
+            ),
+            (auto_forward(77), LINKED_CHANNEL | SENDER_CHAT),
+            (auto_forward(78), SENDER_CHAT),
+        ];
+        for (i, (m, bits)) in cases.into_iter().enumerate() {
+            let raw = base::Message::Message(Box::new(m.clone()));
+            let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
+            assert_eq!(facts, Message::parse(&client, Box::new(m), &entities).facts(&me), "case {i}");
+            assert_eq!(facts.flags & NEW, bits, "case {i}");
+        }
+    }
+
+    #[test]
+    fn chats_acting_as_senders_set_sender_chat() {
+        let (client, entities, me) = (Client::offline(), entities(), Me::default());
+        let group = get_peer(get_channel_id(55));
+        let post = edited(|m| (m.peer_id, m.post) = (get_peer(get_channel_id(56)), true));
+        let anonymous = edited(|m| (m.peer_id, m.from_id) = (group.clone(), Some(group.clone())));
+        let user = edited(|m| (m.peer_id, m.from_id) = (group.clone(), Some(get_peer(8))));
+        for (m, sender_chat) in [(post, true), (anonymous, true), (user, false)] {
+            let raw = base::Message::Message(Box::new(m.clone()));
+            let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
+            assert_eq!(facts, Message::parse(&client, Box::new(m), &entities).facts(&me));
+            assert_eq!(facts.flags & SENDER_CHAT != 0, sender_chat);
+        }
+        let reaction = |actor| types::UpdateBotMessageReaction {
+            peer: group.clone(),
+            msg_id: 10,
+            date: 1,
+            actor,
+            old_reactions: vec![],
+            new_reactions: vec![],
+            qts: 1,
+        };
+        let by_chat = MessageReactionUpdated::parse(&client, &reaction(group.clone()), &entities);
+        let by_user = MessageReactionUpdated::parse(&client, &reaction(get_peer(8)), &entities);
+        assert_ne!(by_chat.facts(&me).flags & SENDER_CHAT, 0);
+        assert_eq!(by_user.facts(&me).flags & SENDER_CHAT, 0);
     }
 }

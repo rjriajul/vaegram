@@ -213,6 +213,24 @@ flag_filters! {
     outgoing: HasChat => OUTGOING,
     me: HasSender => SENDER_ME,
     bot: HasSender => SENDER_BOT,
+    /// Sent by a chat rather than a user: a channel post, an anonymous admin, or a chat reacting or voting.
+    sender_chat: HasSender => SENDER_CHAT,
+    /// Replies quoting part of the replied-to message.
+    quote: HasMedia => QUOTE,
+    /// Carries an inline keyboard.
+    inline_keyboard: HasMedia => INLINE_KEYBOARD,
+    /// Carries a reply keyboard; a keyboard removal or a forced reply doesn't count.
+    reply_keyboard: HasMedia => REPLY_KEYBOARD,
+    /// A photo or document hidden under a spoiler.
+    media_spoiler: HasMedia => MEDIA_SPOILER,
+    /// A channel post forwarded automatically into its linked discussion group.
+    linked_channel: HasMedia => LINKED_CHANNEL,
+    /// A live location; a static location doesn't count.
+    live_location: HasMedia => LIVE_LOCATION,
+    /// A photo or document that disappears after it's opened.
+    self_destruction: HasMedia => SELF_DESTRUCTION,
+    /// A message the sender paid Stars to send.
+    paid_message: HasMedia => PAID_MESSAGE,
 }
 
 pub fn incoming<T: HasChat>() -> Filter<T> {
@@ -311,6 +329,15 @@ mod tests {
             (incoming(), f, on(OUTGOING)),
             (me(), on(SENDER_ME), f),
             (bot(), on(SENDER_BOT), f),
+            (sender_chat(), on(SENDER_CHAT), on(SENDER_BOT)),
+            (quote(), on(QUOTE | REPLY), on(REPLY)),
+            (inline_keyboard(), on(INLINE_KEYBOARD), on(REPLY_KEYBOARD)),
+            (reply_keyboard(), on(REPLY_KEYBOARD), on(INLINE_KEYBOARD)),
+            (media_spoiler(), on(MEDIA_SPOILER), f),
+            (linked_channel(), on(LINKED_CHANNEL | FORWARDED), on(FORWARDED)),
+            (live_location(), on(LIVE_LOCATION), f),
+            (self_destruction(), on(SELF_DESTRUCTION), f),
+            (paid_message(), on(PAID_MESSAGE), f),
             (service_kind([ServiceKind::PinnedMessage]), Facts { service: Some(ServiceKind::PinnedMessage), ..f }, f),
             (private(), inside(ChatType::Bot), inside(ChatType::Group)),
             (group(), inside(ChatType::Supergroup), inside(ChatType::Channel)),
