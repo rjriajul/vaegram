@@ -20,7 +20,7 @@ impl Client {
     /// isn't covered, and with no criteria every listener of `T` stops. Waiting listeners fail with
     /// `Error::ListenerStopped`; next-step handlers are removed.
     pub fn stop_listening<T: Listenable>(&self) -> StopListening<'_, T> {
-        StopListening { client: self, spec: Spec::default() }
+        StopListening { client: self, spec: Spec::new(self) }
     }
 }
 

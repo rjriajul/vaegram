@@ -11,6 +11,7 @@ use tokio::sync::Semaphore;
 use crate::connection::{Options, Proxy, Transport};
 use crate::crypto::rsa::PublicKey;
 use crate::dispatcher::Routes;
+use crate::dispatcher::listeners::UNEXPECTED_CLICK;
 use crate::dispatcher::router::run_hook;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
@@ -25,6 +26,7 @@ use crate::storage::state::UpdateState;
 use crate::storage::{FileStore, MemoryStore, SessionData, SessionStore, Store, session_string};
 
 const DEFAULT_DC: i32 = 2;
+const LISTENER_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[must_use = "call .start() or .connect() to get a client"]
 pub struct ClientBuilder {
@@ -44,6 +46,8 @@ pub struct ClientBuilder {
     record: Option<PathBuf>,
     store: Option<Arc<Store>>,
     client_platform: String,
+    listener_timeout: Option<Duration>,
+    unallowed_click_alert: Option<Arc<str>>,
 }
 
 #[derive(Default)]
@@ -239,6 +243,33 @@ impl ClientBuilder {
         self
     }
 
+    /// How long `listen`, `ask` and next-step handlers wait unless they set their own timeout; 5 minutes by
+    /// default.
+    pub fn listener_timeout(mut self, timeout: Duration) -> Self {
+        self.listener_timeout = Some(timeout);
+        self
+    }
+
+    /// Listeners wait for as long as it takes unless they set their own timeout.
+    pub fn no_listener_timeout(mut self) -> Self {
+        self.listener_timeout = None;
+        self
+    }
+
+    /// The alert other users get when they press a button a callback listener is pinned to, unless the listener
+    /// sets its own; "You are not expected to click this button." by default.
+    pub fn unallowed_click_alert(mut self, text: impl Into<String>) -> Self {
+        let text: String = text.into();
+        self.unallowed_click_alert = Some(text.into());
+        self
+    }
+
+    /// Leaves other users' presses on a pinned button to the handlers, unless the listener sets an alert.
+    pub fn no_unallowed_click_alert(mut self) -> Self {
+        self.unallowed_click_alert = None;
+        self
+    }
+
     pub async fn start(self) -> Result<Client> {
         let (client, login) = self.open().await?;
         if client.0.me.lock().unwrap().id == 0 {
@@ -301,6 +332,8 @@ impl ClientBuilder {
         inner.catch_up = self.catch_up;
         inner.handler_permits = self.max_concurrent_handlers.map(|n| Arc::new(Semaphore::new(n.max(1))));
         inner.client_platform = self.client_platform;
+        inner.listener_timeout = self.listener_timeout;
+        inner.unallowed_click_alert = self.unallowed_click_alert;
         let client = Client(Arc::new(inner), None);
         client.save()?;
         Ok((client, self.login))
@@ -344,6 +377,9 @@ pub(crate) struct Inner {
     pub(crate) handler_permits: Option<Arc<Semaphore>>,
     // The default platform of web view requests.
     pub(crate) client_platform: String,
+    // What listener builders start from.
+    pub(crate) listener_timeout: Option<Duration>,
+    pub(crate) unallowed_click_alert: Option<Arc<str>>,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
@@ -392,6 +428,8 @@ impl Inner {
             catch_up: true,
             handler_permits: None,
             client_platform: "unknown".into(),
+            listener_timeout: Some(LISTENER_TIMEOUT),
+            unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
         }
@@ -443,6 +481,8 @@ impl Client {
             record: None,
             store: None,
             client_platform: "unknown".into(),
+            listener_timeout: Some(LISTENER_TIMEOUT),
+            unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
         }
     }
 
@@ -704,6 +744,8 @@ mod tests {
         assert_eq!(options.flood_sleep_threshold, Duration::from_secs(60));
         assert!(builder.catch_up);
         assert_eq!(builder.client_platform, "unknown");
+        assert_eq!(builder.listener_timeout, Some(Duration::from_secs(300)));
+        assert_eq!(builder.unallowed_click_alert.as_deref(), Some("You are not expected to click this button."));
         let device = &options.device;
         assert_eq!((device.lang_pack.as_str(), device.system_lang_code.as_deref(), device.tz_offset), ("", None, None));
         let set = Client::builder("set", 1, "hash").lang_pack("android").system_lang_code("fr").tz_offset(60);
@@ -818,6 +860,20 @@ mod tests {
         let files = std::fs::read_dir(&dir).unwrap().count();
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(files, 0);
+    }
+
+    #[tokio::test]
+    async fn builder_listener_settings_reach_the_client() {
+        let dc = TestDc::start([5; 256], false).await;
+        let builder = Client::builder("listener-settings", 1, "hash").session_string(dc.session_string([5; 256]));
+        let builder = builder.listener_timeout(Duration::from_secs(7)).unallowed_click_alert("not yours");
+        let client = builder.client_platform("android").connect().await.unwrap();
+        assert_eq!(client.0.listener_timeout, Some(Duration::from_secs(7)));
+        assert_eq!(client.0.unallowed_click_alert.as_deref(), Some("not yours"));
+        assert_eq!(client.0.client_platform, "android");
+        let builder = Client::builder("no-listener-settings", 1, "hash").session_string(dc.session_string([5; 256]));
+        let client = builder.no_listener_timeout().no_unallowed_click_alert().connect().await.unwrap();
+        assert_eq!((client.0.listener_timeout, client.0.unallowed_click_alert.clone()), (None, None));
     }
 
     #[tokio::test]

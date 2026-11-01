@@ -43,7 +43,7 @@ impl<'a> Ask<'a> {
         self
     }
 
-    /// How long to wait for the answer; 5 minutes unless set.
+    /// How long to wait for the answer; the client's `listener_timeout`, 5 minutes unless set.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.listen = self.listen.timeout(timeout);
         self
