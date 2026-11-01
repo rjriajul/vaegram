@@ -44,13 +44,8 @@ impl Poll {
             .answers
             .iter()
             .map(|answer| {
-                let (text, data) = match answer {
-                    base::PollAnswer::PollAnswer(a) => (&a.text, a.option.clone()),
-                    base::PollAnswer::InputPollAnswer(a) => (&a.text, Vec::new()),
-                };
-                let (text, text_entities) = text_with_entities(text, entities);
-                let voter_count = voters_of(&data).and_then(|v| v.voters).unwrap_or(0);
-                PollOption { text, text_entities, voter_count, data }
+                let option = PollOption::from_answer(answer, entities);
+                PollOption { voter_count: voters_of(&option.data).and_then(|v| v.voters).unwrap_or(0), ..option }
             })
             .collect();
         let correct_option_id = options.iter().position(|o| voters_of(&o.data).is_some_and(|v| v.correct));
@@ -73,6 +68,18 @@ impl Poll {
             open_period: poll.close_period,
             close_date: poll.close_date,
         }
+    }
+}
+
+impl PollOption {
+    /// An option without its votes, which come with the poll's results.
+    pub(crate) fn from_answer(answer: &base::PollAnswer, entities: &Entities) -> PollOption {
+        let (text, data) = match answer {
+            base::PollAnswer::PollAnswer(a) => (&a.text, a.option.clone()),
+            base::PollAnswer::InputPollAnswer(a) => (&a.text, Vec::new()),
+        };
+        let (text, text_entities) = text_with_entities(text, entities);
+        PollOption { text, text_entities, voter_count: 0, data }
     }
 }
 
