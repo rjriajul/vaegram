@@ -22,6 +22,8 @@ pub struct Chat {
     pub is_direct_messages: bool,
     pub parent_chat: Option<Box<Chat>>,
     pub is_forum: bool,
+    /// Whether you are an admin of this group or channel.
+    pub is_admin: bool,
 }
 
 impl Chat {
@@ -42,6 +44,7 @@ impl Chat {
             is_direct_messages: false,
             parent_chat: None,
             is_forum: false,
+            is_admin: false,
         };
         match peer {
             base::Peer::PeerUser(_) => {
@@ -51,13 +54,14 @@ impl Chat {
                     chat.last_name = u.last_name.clone();
                 }
             }
-            base::Peer::PeerChat(_) => {
-                chat.title = match entities.chats.get(&id) {
-                    Some(base::Chat::Chat(c)) => Some(c.title.clone()),
-                    Some(base::Chat::ChatForbidden(c)) => Some(c.title.clone()),
-                    _ => None,
-                };
-            }
+            base::Peer::PeerChat(_) => match entities.chats.get(&id) {
+                Some(base::Chat::Chat(c)) => {
+                    chat.title = Some(c.title.clone());
+                    chat.is_admin = c.admin_rights.is_some();
+                }
+                Some(base::Chat::ChatForbidden(c)) => chat.title = Some(c.title.clone()),
+                _ => {}
+            },
             base::Peer::PeerChannel(_) => match entities.chats.get(&id) {
                 Some(base::Chat::Channel(c)) => {
                     chat.title = Some(c.title.clone());
@@ -70,6 +74,7 @@ impl Chat {
                             .map(|parent| Box::new(Chat::parse(&get_peer(get_channel_id(parent)), entities, true)));
                     }
                     chat.is_forum = c.forum;
+                    chat.is_admin = c.admin_rights.is_some();
                 }
                 Some(base::Chat::ChannelForbidden(c)) => {
                     chat.title = Some(c.title.clone());
@@ -106,7 +111,7 @@ mod tests {
     use super::Chat;
     use crate::dispatcher::Entities;
     use crate::enums::ChatType;
-    use crate::raw::{base, types};
+    use crate::raw::{Serializable, base, types};
     use crate::utils::{get_channel_id, get_peer};
 
     #[test]
@@ -128,5 +133,50 @@ mod tests {
         };
         assert_eq!(kind(true, false), (ChatType::Channel, Some("t".into())));
         assert_eq!(kind(false, true), (ChatType::Supergroup, Some("t".into())));
+    }
+
+    #[test]
+    fn admin_comes_from_admin_rights_on_groups_and_channels() {
+        // flags.4 is ban_users.
+        let rights = || {
+            Some(base::ChatAdminRights::ChatAdminRights(
+                types::ChatAdminRights::deserialize_bare(&mut &16i32.to_le_bytes()[..]).unwrap().into(),
+            ))
+        };
+        let group = |admin_rights| types::Chat {
+            creator: false,
+            left: false,
+            deactivated: false,
+            call_active: false,
+            call_not_empty: false,
+            noforwards: false,
+            id: 3,
+            title: "g".into(),
+            photo: base::ChatPhoto::ChatPhotoEmpty,
+            participants_count: 2,
+            date: 0,
+            version: 1,
+            migrated_to: None,
+            admin_rights,
+            default_banned_rights: None,
+        };
+        let channel = |admin_rights| {
+            let mut buf = Vec::new();
+            0u32.serialize(&mut buf);
+            0u32.serialize(&mut buf);
+            5i64.serialize(&mut buf);
+            "c".to_owned().serialize(&mut buf);
+            base::ChatPhoto::ChatPhotoEmpty.serialize(&mut buf);
+            0i32.serialize(&mut buf);
+            types::Channel { admin_rights, ..types::Channel::deserialize_bare(&mut &buf[..]).unwrap() }
+        };
+        let parse = |peer: i64, chat: base::Chat| {
+            let entities = Entities { users: Default::default(), chats: [(peer, chat)].into() };
+            Chat::parse(&get_peer(peer), &entities, false).is_admin
+        };
+        assert!(parse(-3, base::Chat::Chat(Box::new(group(rights())))));
+        assert!(!parse(-3, base::Chat::Chat(Box::new(group(None)))));
+        assert!(parse(get_channel_id(5), base::Chat::Channel(Box::new(channel(rights())))));
+        assert!(!parse(get_channel_id(5), base::Chat::Channel(Box::new(channel(None)))));
     }
 }
