@@ -94,6 +94,25 @@ impl ClientBuilder {
         self
     }
 
+    /// An official language pack name (`android`, `ios`, `tdesktop`, `macos`, …); Telegram refuses others with
+    /// `LANG_PACK_INVALID`. Empty by default.
+    pub fn lang_pack(mut self, pack: impl Into<String>) -> Self {
+        self.options.device.lang_pack = pack.into();
+        self
+    }
+
+    /// The device's own language, `lang_code` unless set.
+    pub fn system_lang_code(mut self, code: impl Into<String>) -> Self {
+        self.options.device.system_lang_code = Some(code.into());
+        self
+    }
+
+    /// The client's offset from UTC in seconds, which Telegram uses to show times in the user's zone.
+    pub fn tz_offset(mut self, seconds: i32) -> Self {
+        self.options.device.tz_offset = Some(seconds);
+        self
+    }
+
     pub fn session_string(mut self, s: impl Into<String>) -> Self {
         self.session_string = Some(s.into());
         self
@@ -665,6 +684,12 @@ mod tests {
         assert_eq!((options.max_flood_sleeps, options.updates_capacity), (5, 1024));
         assert_eq!(options.flood_sleep_threshold, Duration::from_secs(60));
         assert!(builder.catch_up);
+        let device = &options.device;
+        assert_eq!((device.lang_pack.as_str(), device.system_lang_code.as_deref(), device.tz_offset), ("", None, None));
+        let set = Client::builder("set", 1, "hash").lang_pack("android").system_lang_code("fr").tz_offset(60);
+        let device = &set.options.device;
+        assert_eq!((device.lang_pack.as_str(), device.system_lang_code.as_deref()), ("android", Some("fr")));
+        assert_eq!(device.tz_offset, Some(60));
     }
 
     #[test]
