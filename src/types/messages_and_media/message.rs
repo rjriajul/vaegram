@@ -10,7 +10,7 @@ use crate::raw::{base, types};
 use crate::types::{
     Chat, Command, DirectMessagesTopic, ExternalReplyInfo, FactCheck, InlineKeyboardMarkup, InputMedia,
     LinkPreviewOptions, Media, MessageEntity, MessageOrigin, MessageReactions, MessageText, PeerRef, ReactionType,
-    ReplyMarkup, RestrictionReason, RichMessage, ServiceAction, SuggestedPostInfo, Text, TextQuote, User,
+    ReplyMarkup, RestrictionReason, RichMessage, ServiceAction, SuggestedPostInfo, Text, TextQuote, User, WebPage,
 };
 use crate::utils::{get_peer, get_peer_id};
 
@@ -29,6 +29,8 @@ pub struct Message {
     pub caption: Option<String>,
     pub caption_entities: Option<Vec<MessageEntity>>,
     pub media: Option<Media>,
+    /// The link preview of a text message; `media` stays `None` and the text stays in `text`.
+    pub web_page: Option<WebPage>,
     pub rich_message: Option<RichMessage>,
     pub link_preview_options: Option<LinkPreviewOptions>,
     pub reply_to_message_id: Option<i32>,
@@ -169,6 +171,7 @@ impl Message {
             caption,
             caption_entities,
             media: raw.media.as_ref().and_then(|m| Media::parse(client, m, entities)),
+            web_page: raw.media.as_ref().and_then(WebPage::parse),
             rich_message,
             link_preview_options: LinkPreviewOptions::parse(raw.media.as_ref(), raw.invert_media),
             reply_to_message_id,
@@ -1356,5 +1359,22 @@ pub(crate) mod tests {
         let message = base::Message::MessageService(Box::new(service));
         let m = Message::from_raw(&Client::offline(), message, &Entities::default()).expect("service message dropped");
         assert!(m.reactions.is_some());
+    }
+
+    #[test]
+    fn a_link_preview_keeps_the_text_and_leaves_media_empty() {
+        use super::super::web_page::tests::{page, web_page_media};
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        raw.message = "see https://example.com/v".into();
+        raw.media = Some(web_page_media(base::WebPage::WebPage(Box::new(page("https://example.com/v")))));
+        let m = parse(&raw);
+        assert_eq!((m.text.as_str(), m.caption.as_deref()), ("see https://example.com/v", None));
+        assert!(m.media.is_none());
+        assert_eq!(m.web_page.map(|p| p.url), Some("https://example.com/v".into()));
+
+        let pending = types::WebPagePending { id: 1, url: None, date: 0 };
+        raw.media = Some(web_page_media(base::WebPage::WebPagePending(Box::new(pending))));
+        let m = parse(&raw);
+        assert!(m.web_page.is_none() && m.media.is_none() && !m.text.is_empty());
     }
 }

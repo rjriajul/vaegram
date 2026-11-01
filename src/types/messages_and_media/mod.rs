@@ -85,6 +85,7 @@ mod venue;
 mod video;
 mod video_note;
 mod voice;
+mod web_page;
 mod write_access_allowed;
 
 pub use animation::Animation;
@@ -179,6 +180,7 @@ pub use venue::Venue;
 pub use video::Video;
 pub use video_note::VideoNote;
 pub use voice::Voice;
+pub use web_page::WebPage;
 pub use write_access_allowed::WriteAccessAllowed;
 
 pub(crate) use file_location::{input_document, input_document_of, input_photo, input_photo_of};
