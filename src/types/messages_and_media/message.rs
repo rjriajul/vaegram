@@ -12,7 +12,7 @@ use crate::types::{
     MessageEntity, MessageOrigin, MessageText, PeerRef, ReactionCount, ReactionType, ReplyMarkup, RichMessage,
     ServiceAction, SuggestedPostInfo, Text, TextQuote, User,
 };
-use crate::utils::get_peer;
+use crate::utils::{get_peer, get_peer_id};
 
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -33,6 +33,12 @@ pub struct Message {
     pub link_preview_options: Option<LinkPreviewOptions>,
     pub reply_to_message_id: Option<i32>,
     pub reply_to_checklist_task_id: Option<i32>,
+    /// The story this message replies to.
+    pub reply_to_story_id: Option<i32>,
+    /// The chat that posted the replied story: a user, or a `-100…` channel id.
+    pub reply_to_story_user_id: Option<i64>,
+    /// The poll option this message replies to, the same bytes as [`PollOption::data`](crate::types::PollOption).
+    pub reply_to_poll_option_id: Option<Vec<u8>>,
     pub message_thread_id: Option<i32>,
     pub is_topic_message: bool,
     pub quote: Option<TextQuote>,
@@ -124,14 +130,17 @@ impl Message {
         } else {
             (raw.message.clone(), parsed_entities, None, None)
         };
-        let (
+        let ReplyFields {
             reply_to_message_id,
             reply_to_checklist_task_id,
+            reply_to_story_id,
+            reply_to_story_user_id,
+            reply_to_poll_option_id,
             message_thread_id,
             is_topic_message,
             quote,
             external_reply,
-        ) = reply_fields(client, &raw, service.as_ref(), entities);
+        } = reply_fields(client, &raw, service.as_ref(), entities);
         let direct_messages_topic = match &raw.saved_peer_id {
             Some(peer) if chat.is_direct_messages => Some(DirectMessagesTopic::parse(peer, entities)),
             _ => None,
@@ -160,6 +169,9 @@ impl Message {
             link_preview_options: LinkPreviewOptions::parse(raw.media.as_ref(), raw.invert_media),
             reply_to_message_id,
             reply_to_checklist_task_id,
+            reply_to_story_id,
+            reply_to_story_user_id,
+            reply_to_poll_option_id,
             message_thread_id,
             is_topic_message,
             quote,
@@ -568,7 +580,18 @@ fn is_automatic_forward(chat: &Chat, header: Option<&base::MessageFwdHeader>) ->
         && h.saved_from_msg_id == h.channel_post
 }
 
-type ReplyFields = (Option<i32>, Option<i32>, Option<i32>, bool, Option<TextQuote>, Option<Box<ExternalReplyInfo>>);
+#[derive(Default)]
+struct ReplyFields {
+    reply_to_message_id: Option<i32>,
+    reply_to_checklist_task_id: Option<i32>,
+    reply_to_story_id: Option<i32>,
+    reply_to_story_user_id: Option<i64>,
+    reply_to_poll_option_id: Option<Vec<u8>>,
+    message_thread_id: Option<i32>,
+    is_topic_message: bool,
+    quote: Option<TextQuote>,
+    external_reply: Option<Box<ExternalReplyInfo>>,
+}
 
 fn reply_fields(
     client: &Client,
@@ -578,9 +601,19 @@ fn reply_fields(
 ) -> ReplyFields {
     // The message that creates a topic is its root, so the topic id is the message's own id.
     if matches!(service, Some(ServiceAction::ForumTopicCreated(_))) {
-        return (None, None, Some(raw.id), true, None, None);
+        return ReplyFields { message_thread_id: Some(raw.id), is_topic_message: true, ..Default::default() };
     }
-    let Some(base::MessageReplyHeader::MessageReplyHeader(reply)) = &raw.reply_to else { return Default::default() };
+    let reply = match &raw.reply_to {
+        Some(base::MessageReplyHeader::MessageReplyHeader(reply)) => reply,
+        Some(base::MessageReplyHeader::MessageReplyStoryHeader(story)) => {
+            return ReplyFields {
+                reply_to_story_id: Some(story.story_id),
+                reply_to_story_user_id: Some(get_peer_id(&story.peer)),
+                ..Default::default()
+            };
+        }
+        None => return ReplyFields::default(),
+    };
     // In a forum, a header without reply_to_top_id points at the topic itself, not at a replied message.
     let (reply_to_message_id, message_thread_id) = if reply.forum_topic && reply.reply_to_top_id.is_none() {
         (None, reply.reply_to_msg_id)
@@ -593,8 +626,17 @@ fn reply_fields(
         position: reply.quote_offset.unwrap_or(0),
         is_manual: reply.quote,
     });
-    let external_reply = ExternalReplyInfo::parse(client, reply, entities).map(Box::new);
-    (reply_to_message_id, reply.todo_item_id, message_thread_id, reply.forum_topic, quote, external_reply)
+    ReplyFields {
+        reply_to_message_id,
+        reply_to_checklist_task_id: reply.todo_item_id,
+        reply_to_story_id: None,
+        reply_to_story_user_id: None,
+        reply_to_poll_option_id: reply.poll_option.clone(),
+        message_thread_id,
+        is_topic_message: reply.forum_topic,
+        quote,
+        external_reply: ExternalReplyInfo::parse(client, reply, entities).map(Box::new),
+    }
 }
 
 // The text of a media message is its caption; a link preview keeps it a text.
@@ -1251,5 +1293,21 @@ pub(crate) mod tests {
             .map(|m| m.scheduled)
             .collect();
         assert_eq!(found, [true, false]);
+    }
+
+    #[test]
+    fn maps_story_replies_and_poll_option_replies() {
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        let story = types::MessageReplyStoryHeader { peer: get_peer(get_channel_id(9)), story_id: 4 };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyStoryHeader(Box::new(story)));
+        let m = parse(&raw);
+        assert_eq!((m.reply_to_story_id, m.reply_to_story_user_id), (Some(4), Some(get_channel_id(9))));
+        assert_eq!((m.reply_to_message_id, m.message_thread_id, m.reply_to_poll_option_id), (None, None, None));
+
+        let option = types::MessageReplyHeader { reply_to_msg_id: Some(12), poll_option: Some(vec![1]), ..header() };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(option)));
+        let m = parse(&raw);
+        assert_eq!((m.reply_to_message_id, m.reply_to_poll_option_id), (Some(12), Some(vec![1])));
+        assert_eq!((m.reply_to_story_id, m.reply_to_story_user_id), (None, None));
     }
 }
