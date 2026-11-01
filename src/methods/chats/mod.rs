@@ -79,6 +79,7 @@ mod set_chat_wallpaper;
 mod set_main_profile_tab;
 mod set_send_as_chat;
 mod set_slow_mode;
+mod set_upgraded_gift_colors;
 mod toggle_anti_spam;
 mod toggle_auto_translation;
 mod toggle_forum_topics;
@@ -115,6 +116,7 @@ pub use restrict_chat_member::RestrictChatMember;
 pub use set_chat_accent_color::SetChatAccentColor;
 pub use set_chat_photo::SetChatPhoto;
 pub use set_chat_wallpaper::SetChatWallpaper;
+pub use set_upgraded_gift_colors::SetUpgradedGiftColors;
 pub use update_chat_notifications::UpdateChatNotifications;
 
 #[cfg(test)]
