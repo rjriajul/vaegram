@@ -165,7 +165,15 @@ impl Text {
     /// Leading and trailing whitespace dropped, with spans clamped to what's left: Telegram trims a message
     /// itself and refuses entities past its end (`ENTITY_BOUNDS_INVALID`), e.g. `<pre>out\n</pre>`.
     pub(crate) fn trimmed(mut self) -> Text {
-        let lead: i32 = self.text.chars().take_while(|c| c.is_whitespace()).map(|c| c.len_utf16() as i32).sum();
+        let first = self.spans.iter().map(|s| s.start).min().unwrap_or(self.len);
+        let (mut lead, mut lead_bytes) = (0, 0);
+        for c in self.text.chars() {
+            if lead >= first || !c.is_whitespace() {
+                break;
+            }
+            lead += c.len_utf16() as i32;
+            lead_bytes += c.len_utf8();
+        }
         let trail: i32 = self.text.chars().rev().take_while(|c| c.is_whitespace()).map(|c| c.len_utf16() as i32).sum();
         if lead == 0 && trail == 0 {
             return self;
@@ -176,7 +184,7 @@ impl Text {
             span.end = span.end.clamp(lead, end) - lead;
         }
         self.spans.retain(|s| s.end > s.start);
-        self.text = self.text.trim().to_string();
+        self.text = self.text[lead_bytes..].trim_end().to_string();
         self.len = self.text.encode_utf16().count() as i32;
         self
     }
@@ -330,9 +338,12 @@ mod tests {
         assert_eq!((pre.spans[0].start, pre.spans[0].end), (0, 1));
 
         let t = Text::from_html("\n  <b> hi</b> <i>x</i>  \n").trimmed();
-        assert_eq!(t.text, "hi x");
+        assert_eq!(t.text, " hi x");
         let spans: Vec<_> = t.spans.iter().map(|s| (s.start, s.end)).collect();
-        assert_eq!(spans, [(0, 2), (3, 4)]);
+        assert_eq!(spans, [(0, 3), (4, 5)]);
+        let code = Text::from_html(" <pre>    def f():\n        pass\n</pre>").trimmed();
+        assert_eq!(code.text, "    def f():\n        pass");
+        assert_eq!((code.spans[0].start, code.spans[0].end), (0, 25));
 
         // Whitespace-only formatting disappears instead of becoming an empty entity.
         let gone = Text::from_html("ok<b>  </b>").trimmed();
