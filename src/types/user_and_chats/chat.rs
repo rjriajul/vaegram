@@ -2,7 +2,8 @@ use crate::dispatcher::Entities;
 use crate::enums::ChatType;
 use crate::raw::base;
 use crate::types::{
-    ChatColor, ChatPermissions, ChatPhoto, ChatPrivileges, Community, EmojiStatus, RestrictionReason, User, Username,
+    ChatColor, ChatFullInfo, ChatPermissions, ChatPhoto, ChatPrivileges, Community, EmojiStatus, RestrictionReason,
+    User, Username,
 };
 use crate::utils::{get_channel_id, get_peer, get_peer_id};
 
@@ -71,6 +72,8 @@ pub struct Chat {
     pub has_direct_messages_group: bool,
     /// The direct messages chat of this channel.
     pub direct_messages_chat_id: Option<i64>,
+    /// Only `get_chat` fills it.
+    pub full_info: Option<Box<ChatFullInfo>>,
 }
 
 impl Chat {
@@ -128,6 +131,7 @@ impl Chat {
             has_forum_tabs: false,
             has_direct_messages_group: false,
             direct_messages_chat_id: None,
+            full_info: None,
         };
         match peer {
             base::Peer::PeerUser(_) => {

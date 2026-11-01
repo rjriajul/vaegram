@@ -2,7 +2,7 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
-use crate::types::{Chat, Community, PeerRef, User};
+use crate::types::{Chat, ChatFullInfo, Community, PeerRef, User};
 use crate::utils::get_peer;
 
 impl Client {
@@ -24,22 +24,25 @@ impl Client {
             Some(base::ExportedChatInvite::ChatInviteExported(i)) => Some(i.link.clone()),
             _ => None,
         };
-        let about = match full_chat {
+        let (about, info) = match full_chat {
             base::ChatFull::ChatFull(c) => {
                 chat.invite_link = invite(&c.exported_invite);
                 if let base::ChatParticipants::ChatParticipants(p) = &c.participants {
                     chat.members_count = Some(p.participants.len() as i32);
                 }
-                c.about
+                let mut c = *c;
+                (std::mem::take(&mut c.about), ChatFullInfo::parse_chat(c))
             }
             base::ChatFull::ChannelFull(c) => {
                 chat.invite_link = invite(&c.exported_invite);
-                chat.members_count = c.participants_count;
+                chat.members_count = c.participants_count.or(chat.members_count);
                 chat.guard_bot = c.guard_bot_id.map(|id| User::parse(id, &entities));
-                c.about
+                let mut c = *c;
+                (std::mem::take(&mut c.about), ChatFullInfo::parse_channel(c, &entities))
             }
-            base::ChatFull::CommunityFull(c) => c.about,
+            base::ChatFull::CommunityFull(mut c) => (std::mem::take(&mut c.about), ChatFullInfo::parse_community(&c)),
         };
+        chat.full_info = Some(Box::new(info));
         chat.description = (!about.is_empty()).then_some(about);
         chat.community = Community::linked(chat_id, &entities);
         Ok(chat)
@@ -50,13 +53,204 @@ impl Client {
 mod tests {
     use crate::client::sent;
     use crate::raw::functions::{channels, contacts, messages, users};
-    use crate::raw::{Identifiable, base, types};
-    use crate::types::{ChatPermissions, ChatPrivileges};
-    use crate::utils::get_channel_id;
+    use crate::raw::{Identifiable, Serializable, base, types};
+    use crate::types::{ChatPermissions, ChatPrivileges, ChatReactions};
+    use crate::utils::{get_channel_id, get_peer};
     use crate::{Client, Error};
 
     const USER: i64 = 7;
     const GROUP: i64 = -5;
+
+    fn notify_settings() -> base::PeerNotifySettings {
+        let settings = types::PeerNotifySettings::deserialize_bare(&mut &0u32.to_le_bytes()[..]).unwrap();
+        base::PeerNotifySettings::PeerNotifySettings(settings.into())
+    }
+
+    fn raw_channel(id: i64, title: &str) -> base::Chat {
+        let mut buf = Vec::new();
+        0u32.serialize(&mut buf);
+        0u32.serialize(&mut buf);
+        id.serialize(&mut buf);
+        title.to_owned().serialize(&mut buf);
+        base::ChatPhoto::ChatPhotoEmpty.serialize(&mut buf);
+        0i32.serialize(&mut buf);
+        let channel =
+            types::Channel { access_hash: Some(1), ..types::Channel::deserialize_bare(&mut &buf[..]).unwrap() };
+        base::Chat::Channel(channel.into())
+    }
+
+    fn channel_full(id: i64) -> types::ChannelFull {
+        let mut buf = Vec::new();
+        for word in [0u32, 0] {
+            word.serialize(&mut buf);
+        }
+        id.serialize(&mut buf);
+        "about".to_owned().serialize(&mut buf);
+        for n in [0i32, 0, 0] {
+            n.serialize(&mut buf);
+        }
+        base::Photo::PhotoEmpty(types::PhotoEmpty { id: 0 }).serialize(&mut buf);
+        notify_settings().serialize(&mut buf);
+        Vec::<i64>::new().serialize(&mut buf);
+        0i32.serialize(&mut buf);
+        types::ChannelFull::deserialize_bare(&mut &buf[..]).unwrap()
+    }
+
+    fn invite(link: &str) -> base::ExportedChatInvite {
+        let invite = types::ChatInviteExported {
+            revoked: false,
+            permanent: true,
+            request_needed: false,
+            link: link.into(),
+            admin_id: 1,
+            date: 0,
+            start_date: None,
+            expire_date: None,
+            usage_limit: None,
+            usage: None,
+            requested: None,
+            subscription_expired: None,
+            title: None,
+            subscription_pricing: None,
+        };
+        base::ExportedChatInvite::ChatInviteExported(invite.into())
+    }
+
+    fn sticker_set(short_name: &str) -> base::StickerSet {
+        let set = types::StickerSet {
+            archived: false,
+            official: false,
+            masks: false,
+            emojis: false,
+            text_color: false,
+            channel_emoji_status: false,
+            creator: false,
+            installed_date: None,
+            id: 1,
+            access_hash: 1,
+            title: "set".into(),
+            short_name: short_name.into(),
+            thumbs: None,
+            thumb_dc_id: None,
+            thumb_version: None,
+            thumb_document_id: None,
+            count: 0,
+            hash: 0,
+        };
+        base::StickerSet::StickerSet(set.into())
+    }
+
+    fn chat_full_reply(full_chat: base::ChatFull, chats: Vec<base::Chat>) -> Vec<u8> {
+        let reply = types::messages::ChatFull { full_chat, chats, users: Vec::new() };
+        base::messages::ChatFull::ChatFull(reply.into()).to_bytes()
+    }
+
+    fn known_channel(client: &Client, id: i64) -> i64 {
+        let peer = types::InputPeerChannel { channel_id: id, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(get_channel_id(id), base::InputPeer::InputPeerChannel(Box::new(peer)));
+        get_channel_id(id)
+    }
+
+    #[tokio::test]
+    async fn channel_full_info_is_filled_from_the_one_reply() {
+        let full = types::ChannelFull {
+            participants_count: Some(31),
+            linked_chat_id: Some(11),
+            default_send_as: Some(get_peer(get_channel_id(11))),
+            stickerset: Some(sticker_set("cats")),
+            emojiset: Some(sticker_set("cat_emoji")),
+            slowmode_seconds: Some(30),
+            exported_invite: Some(invite("https://t.me/+abc")),
+            pinned_msg_id: Some(77),
+            migrated_from_chat_id: Some(5),
+            migrated_from_max_id: Some(100),
+            hidden_prehistory: true,
+            can_set_stickers: true,
+            antispam: true,
+            theme_emoticon: Some("🐱".into()),
+            ..channel_full(9)
+        };
+        let reply = chat_full_reply(
+            base::ChatFull::ChannelFull(full.into()),
+            vec![raw_channel(9, "main"), raw_channel(11, "linked")],
+        );
+        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let chat = client.get_chat(known_channel(&client, 9)).await.unwrap();
+        rx.try_recv().expect("the full chat request");
+        assert!(rx.try_recv().is_err(), "get_chat sent a second request");
+
+        let info = chat.full_info.unwrap();
+        assert_eq!((chat.description.as_deref(), chat.members_count), (Some("about"), Some(31)));
+        assert_eq!(info.migrated_from_chat_id, Some(-5));
+        assert_eq!(info.migrated_from_max_message_id, Some(100));
+        let linked = info.linked_chat.as_ref().unwrap();
+        assert_eq!((linked.id, linked.title.as_deref()), (get_channel_id(11), Some("linked")));
+        assert_eq!(info.send_as_chat.as_ref().map(|c| c.id), Some(get_channel_id(11)));
+        assert_eq!(info.sticker_set_name.as_deref(), Some("cats"));
+        assert_eq!(info.custom_emoji_sticker_set_name.as_deref(), Some("cat_emoji"));
+        assert_eq!((info.slow_mode_delay, info.pinned_message_id), (Some(30), Some(77)));
+        assert_eq!(info.invite_link.as_deref(), Some("https://t.me/+abc"));
+        assert_eq!(info.theme.as_deref(), Some("🐱"));
+        let flags = (info.has_visible_history, info.can_set_sticker_set, info.has_aggressive_anti_spam_enabled);
+        assert_eq!(flags, (false, true, true));
+        assert_eq!((info.available_reactions, info.can_view_participants), (None, false));
+    }
+
+    #[tokio::test]
+    async fn group_full_info_reads_invite_and_reactions() {
+        let participants = types::ChatParticipantsForbidden { chat_id: 5, self_participant: None };
+        let full = types::ChatFull {
+            can_set_username: true,
+            has_scheduled: true,
+            translations_disabled: false,
+            has_welcome_messages: false,
+            id: 5,
+            about: String::new(),
+            participants: base::ChatParticipants::ChatParticipantsForbidden(participants.into()),
+            chat_photo: None,
+            notify_settings: notify_settings(),
+            exported_invite: Some(invite("https://t.me/+group")),
+            bot_info: None,
+            pinned_msg_id: Some(3),
+            folder_id: Some(1),
+            call: None,
+            ttl_period: Some(86400),
+            groupcall_default_join_as: None,
+            theme_emoticon: None,
+            requests_pending: Some(2),
+            recent_requesters: Some(vec![8, 9]),
+            available_reactions: Some(base::ChatReactions::ChatReactionsNone),
+            reactions_limit: Some(11),
+        };
+        let reply = chat_full_reply(base::ChatFull::ChatFull(full.into()), Vec::new());
+        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let chat = client.get_chat(GROUP).await.unwrap();
+        rx.try_recv().expect("the full chat request");
+        assert!(rx.try_recv().is_err());
+
+        let info = chat.full_info.unwrap();
+        assert_eq!(chat.description, None);
+        assert_eq!(info.invite_link.as_deref(), Some("https://t.me/+group"));
+        // No reactions allowed is a value, not a missing field.
+        assert_eq!(info.available_reactions, Some(ChatReactions::default()));
+        assert_eq!((info.reactions_limit, info.join_requests_count), (Some(11), Some(2)));
+        assert_eq!(
+            (info.pinned_message_id, info.folder_id, info.message_auto_delete_time),
+            (Some(3), Some(1), Some(86400))
+        );
+        assert_eq!((info.can_set_username, info.can_schedule_messages, info.linked_chat), (true, true, None));
+    }
+
+    #[tokio::test]
+    async fn a_full_reply_without_a_count_keeps_the_constructor_count() {
+        let base::Chat::Channel(mut channel) = raw_channel(9, "main") else { unreachable!() };
+        channel.participants_count = Some(40);
+        let full = base::ChatFull::ChannelFull(channel_full(9).into());
+        let reply = chat_full_reply(full, vec![base::Chat::Channel(channel)]);
+        let (client, _rx) = Client::scripted(vec![Ok(reply)]);
+        let chat = client.get_chat(known_channel(&client, 9)).await.unwrap();
+        assert_eq!(chat.members_count, Some(40));
+    }
 
     #[tokio::test]
     async fn dispatches_on_chat_id_kind() {
