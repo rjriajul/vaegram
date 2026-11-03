@@ -39,14 +39,7 @@ impl Client {
         mode: Option<ParseMode>,
     ) -> Result<(String, Vec<base::MessageEntity>)> {
         let text = text.parsed(mode.unwrap_or(self.0.parse_mode)).trimmed();
-        let mut entities = text.write_entities();
-        for entity in &mut entities {
-            if let base::MessageEntity::InputMessageEntityMentionName(m) = entity {
-                if let base::InputUser::InputUser(u) = &m.user_id {
-                    m.user_id = self.resolve_user(&u.user_id.into()).await?;
-                }
-            }
-        }
+        let entities = self.resolve_mentions(text.write_entities()).await?;
         Ok((text.text, entities))
     }
 }
@@ -67,3 +60,62 @@ impl SendMessage<'_> {
 
 caption_setters!(SendMessage);
 send_builder!(SendMessage);
+
+#[cfg(test)]
+mod tests {
+    use crate::Client;
+    use crate::enums::ParseMode;
+    use crate::errors::{Error, RpcError};
+    use crate::raw::{Serializable, base, types};
+
+    const HTML: &str = "<b>hi</b> <a href=\"tg://user?id=42\">you</a>";
+
+    fn kinds(entities: &[base::MessageEntity]) -> Vec<&'static str> {
+        entities
+            .iter()
+            .map(|e| match e {
+                base::MessageEntity::MessageEntityBold(_) => "bold",
+                base::MessageEntity::InputMessageEntityMentionName(_) => "mention",
+                _ => "other",
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_known_user_is_mentioned() {
+        let (client, _sent) = Client::scripted(Vec::new());
+        let user = types::InputPeerUser { user_id: 42, access_hash: 7 };
+        client.0.peers.lock().unwrap().insert(42, base::InputPeer::InputPeerUser(Box::new(user)));
+        let (text, entities) = client.write_text(HTML.into(), Some(ParseMode::Html)).await.unwrap();
+        assert_eq!((text.as_str(), kinds(&entities)), ("hi you", vec!["bold", "mention"]));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_user_keeps_the_text_but_not_the_mention() {
+        let no_users: Vec<base::User> = Vec::new();
+        let (client, _sent) = Client::scripted(vec![Ok(no_users.to_bytes())]);
+        let (text, entities) = client.write_text(HTML.into(), Some(ParseMode::Html)).await.unwrap();
+        assert_eq!((text.as_str(), kinds(&entities)), ("hi you", vec!["bold"]));
+
+        let refused = Err(Error::Rpc(RpcError::new(400, "USER_ID_INVALID")));
+        let (client, _sent) = Client::scripted(vec![refused]);
+        let (_, entities) = client.write_text(HTML.into(), Some(ParseMode::Html)).await.unwrap();
+        assert_eq!(kinds(&entities), vec!["bold"]);
+    }
+
+    #[tokio::test]
+    async fn a_repeated_unknown_user_is_looked_up_once() {
+        let html = "<a href=\"tg://user?id=42\">a</a> <a href=\"tg://user?id=42\">b</a>";
+        let no_users: Vec<base::User> = Vec::new();
+        let (client, mut sent) = Client::scripted(vec![Ok(no_users.to_bytes())]);
+        let (_, entities) = client.write_text(html.into(), Some(ParseMode::Html)).await.unwrap();
+        assert!(entities.is_empty());
+        assert!(sent.try_recv().is_ok() && sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn other_errors_still_fail() {
+        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_3")))]);
+        assert!(client.write_text(HTML.into(), Some(ParseMode::Html)).await.is_err());
+    }
+}

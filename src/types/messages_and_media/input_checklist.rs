@@ -104,17 +104,10 @@ async fn text_with_entities(
     (text, entities): (String, Option<Vec<base::MessageEntity>>),
     mode: Option<ParseMode>,
 ) -> Result<base::TextWithEntities> {
-    let (text, mut entities) = match entities {
-        Some(entities) => (text, entities),
+    let (text, entities) = match entities {
+        Some(entities) => (text, client.resolve_mentions(entities).await?),
         None => client.parse_text(&text, mode).await?,
     };
-    for entity in &mut entities {
-        if let base::MessageEntity::MessageEntityMentionName(m) = entity {
-            let user_id = client.resolve_user(&m.user_id.into()).await?;
-            let mention = types::InputMessageEntityMentionName { offset: m.offset, length: m.length, user_id };
-            *entity = base::MessageEntity::InputMessageEntityMentionName(Box::new(mention));
-        }
-    }
     Ok(base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities })))
 }
 

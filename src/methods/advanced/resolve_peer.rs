@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
@@ -114,6 +116,53 @@ impl Client {
     pub(crate) async fn resolve_user(&self, user: &PeerRef) -> Result<base::InputUser> {
         let (id, peer) = self.resolve(user).await?;
         input_user(peer).ok_or(Error::PeerNotFound(id))
+    }
+
+    /// Gives each mention the input user Telegram wants in place of its bare user id. As Pyrogram
+    /// does, a mention of a user this account has never met is dropped and its text kept, rather
+    /// than the whole message failing (a helper bot captioning a file with the requester's
+    /// `tg://user` link). Each user is looked up once per call.
+    pub(crate) async fn resolve_mentions(
+        &self,
+        entities: Vec<base::MessageEntity>,
+    ) -> Result<Vec<base::MessageEntity>> {
+        use base::MessageEntity as E;
+        let mut known: HashMap<i64, Option<base::InputUser>> = HashMap::new();
+        let mut resolved = Vec::with_capacity(entities.len());
+        for entity in entities {
+            let (offset, length, id) = match &entity {
+                E::MessageEntityMentionName(m) => (m.offset, m.length, m.user_id),
+                E::InputMessageEntityMentionName(m) => match &m.user_id {
+                    base::InputUser::InputUser(u) => (m.offset, m.length, u.user_id),
+                    _ => {
+                        resolved.push(entity);
+                        continue;
+                    }
+                },
+                _ => {
+                    resolved.push(entity);
+                    continue;
+                }
+            };
+            let user_id = match known.get(&id) {
+                Some(user) => user.clone(),
+                None => {
+                    let user = match self.resolve_user(&id.into()).await {
+                        Ok(user) => Some(user),
+                        Err(Error::PeerNotFound(_)) => None,
+                        Err(e) if e.is("USER_ID_INVALID") || e.is("PEER_ID_INVALID") => None,
+                        Err(e) => return Err(e),
+                    };
+                    known.insert(id, user.clone());
+                    user
+                }
+            };
+            if let Some(user_id) = user_id {
+                let mention = types::InputMessageEntityMentionName { offset, length, user_id };
+                resolved.push(E::InputMessageEntityMentionName(Box::new(mention)));
+            }
+        }
+        Ok(resolved)
     }
 
     pub(crate) async fn resolve_chat(&self, chat: &PeerRef) -> Result<ChatPeer> {

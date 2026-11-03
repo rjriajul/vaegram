@@ -20,14 +20,20 @@ impl Client {
         }
         let (full_chat, entities) = self.full_chat(self.resolve_chat(&chat_id.into()).await?).await?;
         let mut chat = Chat::parse(&get_peer(chat_id), &entities, false);
+        let invite = |link: &Option<base::ExportedChatInvite>| match link {
+            Some(base::ExportedChatInvite::ChatInviteExported(i)) => Some(i.link.clone()),
+            _ => None,
+        };
         let about = match full_chat {
             base::ChatFull::ChatFull(c) => {
+                chat.invite_link = invite(&c.exported_invite);
                 if let base::ChatParticipants::ChatParticipants(p) = &c.participants {
                     chat.members_count = Some(p.participants.len() as i32);
                 }
                 c.about
             }
             base::ChatFull::ChannelFull(c) => {
+                chat.invite_link = invite(&c.exported_invite);
                 chat.members_count = c.participants_count;
                 chat.guard_bot = c.guard_bot_id.map(|id| User::parse(id, &entities));
                 c.about

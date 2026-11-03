@@ -149,16 +149,12 @@ fn story_media(media: base::MessageMedia) -> Result<base::InputMedia> {
 /// Received mentions carry a bare user id; sending them needs the user's access hash.
 async fn input_entities(
     client: &Client,
-    mut entities: Option<Vec<base::MessageEntity>>,
+    entities: Option<Vec<base::MessageEntity>>,
 ) -> Result<Option<Vec<base::MessageEntity>>> {
-    for entity in entities.iter_mut().flatten() {
-        if let base::MessageEntity::MessageEntityMentionName(m) = entity {
-            let user_id = client.resolve_user(&m.user_id.into()).await?;
-            let mention = types::InputMessageEntityMentionName { offset: m.offset, length: m.length, user_id };
-            *entity = base::MessageEntity::InputMessageEntityMentionName(Box::new(mention));
-        }
+    match entities {
+        Some(entities) => Ok(Some(client.resolve_mentions(entities).await?)),
+        None => Ok(None),
     }
-    Ok(entities)
 }
 
 #[cfg(test)]
