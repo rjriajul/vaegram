@@ -688,7 +688,7 @@ mod tests {
             Client::scripted(vec![error("FILE_REFERENCE_EXPIRED"), stories(), file(b"hello".into())]);
         client.0.me.lock().unwrap().premium = Some(false);
         let item = base::StoryItem::StoryItem(Box::new(story_item()));
-        let story = Story::parse(&get_peer(-5), item, &Entities::default()).unwrap();
+        let story = Story::parse(&client, &get_peer(-5), item, &Entities::default()).unwrap();
         assert_eq!(story.download(&client).await.unwrap(), b"hello");
         let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
         assert_eq!(drain(&mut rx)[1], functions::stories::GetStoriesByID { peer, id: vec![7] }.to_bytes());

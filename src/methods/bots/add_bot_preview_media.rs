@@ -14,7 +14,7 @@ impl Client {
         let bot = self.resolve_user(&bot_id.into()).await?;
         let media = self.upload_preview(media).await?;
         let request = functions::bots::AddPreviewMedia { bot, lang_code: lang_code.into(), media };
-        Ok(BotPreviewMedia::parse(self.invoke(&request).await?))
+        Ok(BotPreviewMedia::parse(self, self.invoke(&request).await?))
     }
 
     /// Previews are photos or videos, uploaded through `messages.uploadMedia` against the account's own chat.

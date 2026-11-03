@@ -15,6 +15,6 @@ impl Client {
         let bot = self.resolve_user(&bot_id.into()).await?;
         let new_media = self.upload_preview(new).await?;
         let request = functions::bots::EditPreviewMedia { bot, lang_code: lang_code.into(), media, new_media };
-        Ok(BotPreviewMedia::parse(self.invoke(&request).await?))
+        Ok(BotPreviewMedia::parse(self, self.invoke(&request).await?))
     }
 }

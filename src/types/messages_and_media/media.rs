@@ -1,3 +1,4 @@
+use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::MediaKind;
 use crate::file_id::FileType;
@@ -31,7 +32,7 @@ pub enum Media {
 }
 
 impl Media {
-    pub(crate) fn parse(media: &base::MessageMedia, entities: &Entities) -> Option<Media> {
+    pub(crate) fn parse(client: &Client, media: &base::MessageMedia, entities: &Entities) -> Option<Media> {
         use base::MessageMedia as M;
         let kind = MediaKind::of(media)?;
         Some(match media {
@@ -52,7 +53,7 @@ impl Media {
             M::MessageMediaInvoice(m) => Media::Invoice(Invoice::parse(m)),
             M::MessageMediaToDo(m) => Media::Checklist(Checklist::parse(m, entities)),
             M::MessageMediaGame(m) => Media::Game(Game::parse(&m.game)),
-            M::MessageMediaPaidMedia(m) => Media::PaidMedia(PaidMediaInfo::parse(m, entities)),
+            M::MessageMediaPaidMedia(m) => Media::PaidMedia(PaidMediaInfo::parse(client, m, entities)),
             _ => return None,
         })
     }
@@ -214,6 +215,7 @@ impl Message {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::Media;
+    use crate::Client;
     use crate::dispatcher::Entities;
     use crate::enums::MediaKind;
     use crate::raw::{base, types};
@@ -270,7 +272,7 @@ pub(crate) mod tests {
     }
 
     fn parse(media: base::MessageMedia) -> Media {
-        Media::parse(&media, &Entities::default()).unwrap()
+        Media::parse(&Client::offline(), &media, &Entities::default()).unwrap()
     }
 
     #[test]
@@ -375,7 +377,9 @@ pub(crate) mod tests {
         assert_eq!(live.file_id, "BAACAgIAAwEDAAIBAAcCAAceBA");
 
         for media in unreadable_live_photos() {
-            let Some(Media::Photo(still)) = Media::parse(&media, &Entities::default()) else { panic!() };
+            let Some(Media::Photo(still)) = Media::parse(&Client::offline(), &media, &Entities::default()) else {
+                panic!()
+            };
             assert_eq!(still.id, 9);
         }
     }
