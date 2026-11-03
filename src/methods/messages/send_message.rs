@@ -1,7 +1,7 @@
 use super::send_options::{SendOptions, caption_setters, send_builder};
 use crate::Client;
 use crate::enums::ParseMode;
-use crate::errors::{Error, Result};
+use crate::errors::Result;
 use crate::raw::base;
 use crate::types::{Message, PeerRef, Text};
 
@@ -39,24 +39,7 @@ impl Client {
         mode: Option<ParseMode>,
     ) -> Result<(String, Vec<base::MessageEntity>)> {
         let text = text.parsed(mode.unwrap_or(self.0.parse_mode)).trimmed();
-        let mut entities = Vec::new();
-        for mut entity in text.write_entities() {
-            if let base::MessageEntity::InputMessageEntityMentionName(m) = &mut entity {
-                if let base::InputUser::InputUser(u) = &m.user_id {
-                    // As Pyrogram does: a user this account has never met can't be
-                    // mentioned, so the mention is dropped and its text kept, rather
-                    // than the whole message failing (a helper bot captioning a file
-                    // with the requester's `tg://user` link).
-                    match self.resolve_user(&u.user_id.into()).await {
-                        Ok(user) => m.user_id = user,
-                        Err(Error::PeerNotFound(_)) => continue,
-                        Err(e) if e.is("USER_ID_INVALID") || e.is("PEER_ID_INVALID") => continue,
-                        Err(e) => return Err(e),
-                    }
-                }
-            }
-            entities.push(entity);
-        }
+        let entities = self.resolve_mentions(text.write_entities()).await?;
         Ok((text.text, entities))
     }
 }
@@ -118,6 +101,16 @@ mod tests {
         let (client, _sent) = Client::scripted(vec![refused]);
         let (_, entities) = client.write_text(HTML.into(), Some(ParseMode::Html)).await.unwrap();
         assert_eq!(kinds(&entities), vec!["bold"]);
+    }
+
+    #[tokio::test]
+    async fn a_repeated_unknown_user_is_looked_up_once() {
+        let html = "<a href=\"tg://user?id=42\">a</a> <a href=\"tg://user?id=42\">b</a>";
+        let no_users: Vec<base::User> = Vec::new();
+        let (client, mut sent) = Client::scripted(vec![Ok(no_users.to_bytes())]);
+        let (_, entities) = client.write_text(html.into(), Some(ParseMode::Html)).await.unwrap();
+        assert!(entities.is_empty());
+        assert!(sent.try_recv().is_ok() && sent.try_recv().is_err());
     }
 
     #[tokio::test]
