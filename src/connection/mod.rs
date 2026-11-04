@@ -4,7 +4,7 @@ mod proxy;
 mod transport;
 
 pub use proxy::{Proxy, Secret};
-pub use transport::{RecvBuf, Transport};
+pub use transport::{Framing, RecvBuf, Transport};
 
 use std::io;
 use std::pin::Pin;
@@ -15,7 +15,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::session::Observer;
 use crate::session::internals::data_center::Dc;
 use crate::storage::recording::Recorder;
@@ -112,6 +112,15 @@ impl Connection {
 
     async fn open(dc: &Dc, options: &Options) -> Result<Self> {
         let addr = dc.addr;
+        let secret = match &options.proxy {
+            Some(Proxy::MtProxy { secret, .. }) => Some(secret),
+            _ => None,
+        };
+        // The full transport sends no header to hide, so obfuscation has nothing to wrap, and an MTProxy only
+        // understands the obfuscated ones.
+        if options.transport == Transport::Full && (options.obfuscated || secret.is_some()) {
+            return Err(Error::InvalidArgument("the full transport can't be obfuscated or go through an MTProxy"));
+        }
         let stream = match &options.proxy {
             None => TcpStream::connect(addr).await?,
             Some(proxy) => {
@@ -120,36 +129,37 @@ impl Connection {
                 stream
             }
         };
-        let secret = match &options.proxy {
-            Some(Proxy::MtProxy { secret, .. }) => Some(secret),
-            _ => None,
-        };
         let transport =
             if secret.is_some_and(|s| s.padded) { Transport::PaddedIntermediate } else { options.transport };
         stream.set_nodelay(true)?;
         let tls = secret.is_some_and(|s| s.domain.is_some());
         let (read, mut write) = stream.into_split();
-        let tag = transport.tag();
-        let (encrypt, decrypt, records) = if options.obfuscated || secret.is_some() {
-            let (header, encrypt, decrypt) = obfuscated::init(tag, dc.wire_id() as i16, secret.map(|s| &s.key));
-            // Behind fake TLS the header rides in the first record together with the first packet.
-            let records = tls.then(|| RecordWriter::new(header));
-            if !tls {
-                write.write_all(&header).await?;
+        let (encrypt, decrypt, records) = match transport.tag() {
+            Some(tag) if options.obfuscated || secret.is_some() => {
+                let (header, encrypt, decrypt) = obfuscated::init(tag, dc.wire_id() as i16, secret.map(|s| &s.key));
+                // Behind fake TLS the header rides in the first record together with the first packet.
+                let records = tls.then(|| RecordWriter::new(header));
+                if !tls {
+                    write.write_all(&header).await?;
+                }
+                (Some(encrypt), Some(decrypt), records)
             }
-            (Some(encrypt), Some(decrypt), records)
-        } else {
-            write.write_all(if transport == Transport::Abridged { &tag[..1] } else { &tag[..] }).await?;
-            (None, None, None)
+            Some(tag) => {
+                write.write_all(if transport == Transport::Abridged { &tag[..1] } else { &tag[..] }).await?;
+                (None, None, None)
+            }
+            // The full transport starts with its first packet.
+            None => (None, None, None),
         };
+        let framing = Framing::new(transport);
         Ok(Self {
             reader: Reader {
                 wire: Wire { half: read, records: tls.then(RecordReader::default) },
-                transport,
+                framing,
                 decrypt,
                 buf: RecvBuf::default(),
             },
-            writer: Writer { half: write, transport, encrypt, records, buf: Vec::new() },
+            writer: Writer { half: write, framing, encrypt, records, buf: Vec::new() },
         })
     }
 
@@ -168,7 +178,7 @@ impl Connection {
 
 pub(crate) struct Reader {
     wire: Wire,
-    transport: Transport,
+    framing: Framing,
     decrypt: Option<Ctr>,
     buf: RecvBuf,
 }
@@ -177,7 +187,7 @@ impl Reader {
     /// Cancel-safe: bytes wait in the buffer until a whole packet is there.
     pub(crate) async fn recv(&mut self) -> Result<Vec<u8>> {
         loop {
-            if let Some(packet) = self.transport.decode(&mut self.buf)? {
+            if let Some(packet) = self.framing.decode(&mut self.buf)? {
                 return Ok(packet);
             }
             let buf = self.buf.make_room();
@@ -210,7 +220,7 @@ impl AsyncRead for Wire {
 
 pub(crate) struct Writer {
     half: OwnedWriteHalf,
-    transport: Transport,
+    framing: Framing,
     encrypt: Option<Ctr>,
     records: Option<RecordWriter>,
     pub(crate) buf: Vec<u8>,
@@ -219,11 +229,11 @@ pub(crate) struct Writer {
 impl Writer {
     pub(crate) fn begin(&mut self) {
         self.buf.clear();
-        self.buf.resize(Transport::ROOM, 0);
+        self.buf.resize(Framing::ROOM, 0);
     }
 
     pub(crate) async fn finish(&mut self) -> Result<()> {
-        let start = self.transport.frame(&mut self.buf);
+        let start = self.framing.frame(&mut self.buf);
         if let Some(encrypt) = &mut self.encrypt {
             encrypt.apply(&mut self.buf[start..]);
         }
@@ -239,5 +249,61 @@ impl Writer {
         self.begin();
         self.buf.extend_from_slice(payload);
         self.finish().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::net::TcpListener;
+
+    use super::*;
+
+    fn full() -> Options {
+        Options { transport: Transport::Full, ..Options::default() }
+    }
+
+    #[tokio::test]
+    async fn full_with_obfuscation_is_refused() {
+        // Nothing listens here: the refusal has to come before any connection is tried.
+        let dc = Dc { id: 2, addr: "127.0.0.1:9".parse().unwrap(), test: false };
+        let secret = "00".repeat(16).parse().unwrap();
+        let mtproxy = Proxy::MtProxy { host: "127.0.0.1".into(), port: 9, secret };
+        for options in [Options { obfuscated: true, ..full() }, Options { proxy: Some(mtproxy), ..full() }] {
+            let refused = Connection::connect(&dc, &options).await;
+            assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{options:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn full_sends_no_preamble_and_numbers_its_packets() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let dc = Dc { id: 2, addr: listener.local_addr().unwrap(), test: false };
+        // A server that reads whole full packets from the very first byte and sends each one back.
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let (mut incoming, mut outgoing) = (Framing::new(Transport::Full), Framing::new(Transport::Full));
+            let mut buf = RecvBuf::default();
+            let mut got = Vec::new();
+            while got.len() < 2 {
+                if let Some(packet) = incoming.decode(&mut buf).unwrap() {
+                    got.push(packet);
+                } else {
+                    assert!(stream.read_buf(buf.make_room()).await.unwrap() > 0);
+                }
+            }
+            for packet in &got {
+                let mut frame = vec![0; Framing::ROOM];
+                frame.extend_from_slice(packet);
+                let start = outgoing.frame(&mut frame);
+                stream.write_all(&frame[start..]).await.unwrap();
+            }
+            got
+        });
+        let mut connection = Connection::connect(&dc, &full()).await.unwrap();
+        connection.send(b"abcd1234").await.unwrap();
+        connection.send(b"efgh5678").await.unwrap();
+        assert_eq!(connection.recv().await.unwrap(), b"abcd1234");
+        assert_eq!(connection.recv().await.unwrap(), b"efgh5678");
+        assert_eq!(server.await.unwrap(), [b"abcd1234".to_vec(), b"efgh5678".to_vec()]);
     }
 }

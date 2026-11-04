@@ -40,7 +40,7 @@ async fn replays_what_it_recorded() {
 #[tokio::test]
 async fn replaying_twice_gives_the_same_handler_output() {
     let recording = bot_session();
-    for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
+    for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate, Transport::Full] {
         let first = play_over(&recording, None, transport).await;
         assert_eq!(play_over(&recording, None, transport).await, first, "{transport:?}");
         assert_eq!(first, ["2000 /start -> echo: /start", "2000 ping -> echo: ping"], "{transport:?}");
