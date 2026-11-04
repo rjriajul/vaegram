@@ -164,6 +164,14 @@ impl ClientBuilder {
         self
     }
 
+    /// Opens every connection's byte stream, transfers and CDNs included, instead of a TCP connect, for example to
+    /// bind a local address with `tokio::net::TcpSocket`. See
+    /// [`ConnectionFactory`](crate::connection::ConnectionFactory).
+    pub fn connection_factory(mut self, factory: impl crate::connection::ConnectionFactory + 'static) -> Self {
+        self.options.connection_factory = Some(Arc::new(factory));
+        self
+    }
+
     /// Use Telegram's test servers. A stored session keeps the mode it was created with.
     pub fn test_mode(mut self) -> Self {
         self.test_mode = true;
