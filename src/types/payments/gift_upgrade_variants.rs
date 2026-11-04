@@ -34,6 +34,7 @@ mod tests {
     use super::GiftUpgradeVariants;
     use crate::raw::{base, types};
     use crate::types::messages_and_media::media::tests::document_media;
+    use crate::types::payments::UpgradedGiftAttributeRarity;
 
     fn document(mime_type: &str, attributes: Vec<base::DocumentAttribute>) -> base::Document {
         let base::MessageMedia::MessageMediaDocument(media) = document_media(mime_type, attributes) else {
@@ -99,13 +100,13 @@ mod tests {
         let variants = GiftUpgradeVariants::parse(&attributes());
         let names = |a: &[crate::types::UniqueGiftAttribute]| a.iter().map(|a| a.name.clone()).collect::<Vec<_>>();
         assert_eq!(names(&variants.models), ["Pepe"], "the original details and a non-sticker are dropped");
-        assert_eq!(variants.models[0].rarity_per_mille, Some(15));
+        assert_eq!(variants.models[0].rarity, UpgradedGiftAttributeRarity::PerMille(15));
         assert_eq!(names(&variants.symbols), ["Star"]);
         assert_eq!(variants.backdrops.len(), 1);
         let night = &variants.backdrops[0];
         assert_eq!(
-            (night.name.as_str(), night.center_color, night.symbol_color, night.rarity_per_mille),
-            ("Night", 1, 3, None)
+            (night.name.as_str(), night.center_color, night.symbol_color, night.rarity),
+            ("Night", 1, 3, UpgradedGiftAttributeRarity::Rare)
         );
     }
 }
