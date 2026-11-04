@@ -1,4 +1,5 @@
 mod animation;
+mod animation_actions;
 mod audio;
 mod available_effect;
 mod available_reaction;
