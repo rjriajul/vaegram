@@ -56,13 +56,20 @@ const ADDRESS_FIRST_V4_LEN: usize = 263;
 const ADDRESS_FIRST_V6_LEN: usize = 275;
 
 const OLD_VAEGRAM: &str = "this session string is from an older vaegram; log in again";
-const NEWER_VAEGRAM: &str = "this session string needs a newer vaegram";
+pub(crate) const NEWER_VAEGRAM: &str = "this session string needs a newer vaegram";
 const DAMAGED: &str = "session string is damaged (CRC mismatch); export it again";
 const MALFORMED: &str = "session string has a malformed field";
 const NOT_BASE64: &str = "session string has characters outside base64url";
 const UNKNOWN: &str = "not a session string this version can read";
 
 pub fn export(s: &SessionData) -> String {
+    let mut b = encode_fields(s);
+    b.extend_from_slice(&crc32fast::hash(&b).to_le_bytes());
+    format!("{PREFIX}{}", base64url_encode(&b))
+}
+
+/// The generation byte and the fields, without the CRC: session records in a file keep exactly this.
+pub(crate) fn encode_fields(s: &SessionData) -> Vec<u8> {
     let mut b = Vec::with_capacity(1 + 3 * 6 + 2 + 256 + 8 + 1 + 4 + 18 + 4);
     b.push(GENERATION);
     field(&mut b, DC_ID, &(s.dc_id as u16).to_le_bytes());
@@ -80,8 +87,7 @@ pub fn export(s: &SessionData) -> String {
         }
         field(&mut b, ADDRESS, &value);
     }
-    b.extend_from_slice(&crc32fast::hash(&b).to_le_bytes());
-    format!("{PREFIX}{}", base64url_encode(&b))
+    b
 }
 
 fn field(b: &mut Vec<u8>, tag: u8, value: &[u8]) {
@@ -122,7 +128,10 @@ fn parse_generation(raw: &[u8]) -> Result<SessionData, &'static str> {
     if raw.len() > MAX_DECODED {
         return Err(UNKNOWN);
     }
-    let body = split_crc(raw).ok_or(DAMAGED)?;
+    decode_fields(split_crc(raw).ok_or(DAMAGED)?)
+}
+
+pub(crate) fn decode_fields(body: &[u8]) -> Result<SessionData, &'static str> {
     match body.first() {
         Some(&GENERATION) => {}
         Some(2..=4) => return Err(OLD_VAEGRAM),
