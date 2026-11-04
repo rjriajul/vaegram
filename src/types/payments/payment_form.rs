@@ -1,7 +1,8 @@
 use crate::Client;
 use crate::dispatcher::Entities;
+use crate::enums::PaymentFormType;
 use crate::raw::base;
-use crate::types::{LabeledPrice, User};
+use crate::types::{LabeledPrice, OrderInfo, PaymentOption, SavedCredentials, User};
 
 /// A price Telegram quoted for an invoice. Only [`Client::get_payment_form`] makes one, and paying it takes it by
 /// value, so each form is paid at most once on purpose:
@@ -22,34 +23,140 @@ use crate::types::{LabeledPrice, User};
 #[derive(Debug, Clone, PartialEq)]
 pub struct PaymentForm {
     pub id: i64,
+    pub kind: PaymentFormType,
     pub bot: Option<User>,
     pub title: Option<String>,
     pub description: Option<String>,
+    pub photo_url: Option<String>,
     pub currency: String,
     pub prices: Vec<LabeledPrice>,
     pub total_amount: i64,
     /// Seconds between charges: paying this form starts a subscription.
     pub subscription_period: Option<i32>,
     pub is_test: bool,
+    /// The payment provider's account; only card forms have one.
+    pub payment_provider: Option<User>,
+    /// The provider's payment page; card forms only.
+    pub url: Option<String>,
+    pub native_provider: Option<String>,
+    /// The provider's JSON parameters for paying in-app.
+    pub native_params: Option<String>,
+    pub additional_payment_options: Vec<PaymentOption>,
+    pub saved_credentials: Vec<SavedCredentials>,
+    pub saved_order_info: Option<OrderInfo>,
+    pub can_save_credentials: bool,
+    /// Paying with saved credentials needs a 2FA password, and this account has none.
+    pub need_password: bool,
+    pub is_name_requested: bool,
+    pub is_phone_requested: bool,
+    pub is_email_requested: bool,
+    pub is_shipping_address_requested: bool,
+    pub is_flexible: bool,
+    pub is_phone_to_provider: bool,
+    pub is_email_to_provider: bool,
+    pub is_recurring: bool,
+    pub max_tip_amount: Option<i64>,
+    pub suggested_tip_amounts: Vec<i64>,
+    pub terms_url: Option<String>,
     pub(crate) invoice: base::InputInvoice,
+}
+
+fn web_document_url(raw: Option<&base::WebDocument>) -> Option<String> {
+    match raw? {
+        base::WebDocument::WebDocument(d) => Some(d.url.clone()),
+        base::WebDocument::WebDocumentNoProxy(d) => Some(d.url.clone()),
+    }
+}
+
+/// The parts of the three raw forms that differ.
+struct Card {
+    provider: Option<User>,
+    url: Option<String>,
+    native_provider: Option<String>,
+    native_params: Option<String>,
+    additional_payment_options: Vec<PaymentOption>,
+    saved_credentials: Vec<SavedCredentials>,
+    saved_order_info: Option<OrderInfo>,
+    can_save_credentials: bool,
+    need_password: bool,
 }
 
 impl PaymentForm {
     pub(crate) fn parse(client: &Client, raw: base::payments::PaymentForm, invoice: base::InputInvoice) -> PaymentForm {
-        let (id, bot, title, description, terms) = match raw {
+        let mut card = Card {
+            provider: None,
+            url: None,
+            native_provider: None,
+            native_params: None,
+            additional_payment_options: Vec::new(),
+            saved_credentials: Vec::new(),
+            saved_order_info: None,
+            can_save_credentials: false,
+            need_password: false,
+        };
+        let (id, bot, title, description, photo_url, terms) = match raw {
             base::payments::PaymentForm::PaymentForm(f) => {
                 let f = *f;
                 let entities = Entities::new(client, f.users, Vec::new());
-                (f.form_id, Some(User::parse(f.bot_id, &entities)), Some(f.title), Some(f.description), f.invoice)
+                card = Card {
+                    provider: Some(User::parse(f.provider_id, &entities)),
+                    url: Some(f.url),
+                    native_provider: f.native_provider,
+                    native_params: f.native_params.map(|base::DataJSON::DataJSON(d)| d.data),
+                    additional_payment_options: f
+                        .additional_methods
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|base::PaymentFormMethod::PaymentFormMethod(m)| PaymentOption {
+                            title: m.title,
+                            url: m.url,
+                        })
+                        .collect(),
+                    saved_credentials: f
+                        .saved_credentials
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|base::PaymentSavedCredentials::PaymentSavedCredentialsCard(c)| SavedCredentials {
+                            id: c.id,
+                            title: c.title,
+                        })
+                        .collect(),
+                    saved_order_info: f.saved_info.as_ref().map(OrderInfo::parse),
+                    can_save_credentials: f.can_save_credentials,
+                    need_password: f.password_missing,
+                };
+                (
+                    f.form_id,
+                    Some(User::parse(f.bot_id, &entities)),
+                    Some(f.title),
+                    Some(f.description),
+                    web_document_url(f.photo.as_ref()),
+                    f.invoice,
+                )
             }
             base::payments::PaymentForm::PaymentFormStars(f) => {
                 let f = *f;
                 let entities = Entities::new(client, f.users, Vec::new());
-                (f.form_id, Some(User::parse(f.bot_id, &entities)), Some(f.title), Some(f.description), f.invoice)
+                (
+                    f.form_id,
+                    Some(User::parse(f.bot_id, &entities)),
+                    Some(f.title),
+                    Some(f.description),
+                    web_document_url(f.photo.as_ref()),
+                    f.invoice,
+                )
             }
-            base::payments::PaymentForm::PaymentFormStarGift(f) => (f.form_id, None, None, None, f.invoice),
+            base::payments::PaymentForm::PaymentFormStarGift(f) => (f.form_id, None, None, None, None, f.invoice),
         };
+        let is_card = card.provider.is_some();
+        let is_gift = bot.is_none();
         let base::Invoice::Invoice(terms) = terms;
+        let kind = match (is_card, is_gift, terms.subscription_period) {
+            (true, _, _) => PaymentFormType::Regular,
+            (_, true, _) => PaymentFormType::StarGift,
+            (_, _, Some(_)) => PaymentFormType::StarSubscription,
+            _ => PaymentFormType::Stars,
+        };
         let prices: Vec<LabeledPrice> = terms
             .prices
             .into_iter()
@@ -57,15 +164,37 @@ impl PaymentForm {
             .collect();
         PaymentForm {
             id,
+            kind,
             bot,
             title,
             description,
+            photo_url,
             currency: terms.currency,
             // A hostile price list must not overflow into a small total.
             total_amount: prices.iter().map(|p| p.amount).fold(0, i64::saturating_add),
             prices,
             subscription_period: terms.subscription_period,
             is_test: terms.test,
+            payment_provider: card.provider,
+            url: card.url,
+            native_provider: card.native_provider,
+            native_params: card.native_params,
+            additional_payment_options: card.additional_payment_options,
+            saved_credentials: card.saved_credentials,
+            saved_order_info: card.saved_order_info,
+            can_save_credentials: card.can_save_credentials,
+            need_password: card.need_password,
+            is_name_requested: terms.name_requested,
+            is_phone_requested: terms.phone_requested,
+            is_email_requested: terms.email_requested,
+            is_shipping_address_requested: terms.shipping_address_requested,
+            is_flexible: terms.flexible,
+            is_phone_to_provider: terms.phone_to_provider,
+            is_email_to_provider: terms.email_to_provider,
+            is_recurring: terms.recurring,
+            max_tip_amount: terms.max_tip_amount,
+            suggested_tip_amounts: terms.suggested_tip_amounts.unwrap_or_default(),
+            terms_url: terms.terms_url,
             invoice,
         }
     }

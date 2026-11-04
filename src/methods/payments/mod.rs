@@ -58,5 +58,6 @@ pub use place_gift_auction_bid::PlaceGiftAuctionBid;
 pub use search_gifts_for_resale::SearchGiftsForResale;
 pub use send_gift::SendGift;
 pub use send_gift_purchase_offer::SendGiftPurchaseOffer;
+pub use send_payment_form::SendPaymentForm;
 pub use transfer_gift::TransferGift;
 pub use upgrade_gift::UpgradeGift;
