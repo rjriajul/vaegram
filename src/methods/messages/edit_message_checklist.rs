@@ -49,7 +49,7 @@ impl EditMessageChecklist<'_> {
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let request = functions::messages::EditMessage {
             media: Some(self.checklist.write(client).await?),
-            reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
+            reply_markup: ReplyMarkup::write_option(self.reply_markup.as_ref(), self.client).await?,
             ..edit_request(peer, self.message_id)
         };
         let (updates, _) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;

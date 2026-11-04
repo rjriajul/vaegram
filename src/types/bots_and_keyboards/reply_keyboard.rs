@@ -1,5 +1,7 @@
 use crate::raw::{base, types};
-use crate::types::ButtonStyle;
+use crate::types::{
+    ButtonStyle, KeyboardButtonPollType, KeyboardButtonRequestChat, KeyboardButtonRequestUsers, WebAppInfo,
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReplyKeyboardMarkup {
@@ -53,13 +55,23 @@ impl ReplyKeyboardMarkup {
     }
 }
 
+/// A reply keyboard button. When several request fields are set, the first in this order is the one sent:
+/// `request_contact`, `request_location`, `request_managed_bot`, `request_users`, `request_chat`, `request_poll`,
+/// `web_app`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyboardButton {
     pub text: String,
     pub request_contact: bool,
     pub request_location: bool,
     pub request_managed_bot: Option<KeyboardButtonRequestManagedBot>,
+    pub request_users: Option<KeyboardButtonRequestUsers>,
+    pub request_chat: Option<KeyboardButtonRequestChat>,
+    pub request_poll: Option<KeyboardButtonPollType>,
+    /// Opens a mini app.
+    pub web_app: Option<WebAppInfo>,
     pub style: ButtonStyle,
+    /// A custom emoji shown before the text.
+    pub icon_custom_emoji_id: Option<i64>,
 }
 
 impl KeyboardButton {
@@ -69,7 +81,12 @@ impl KeyboardButton {
             request_contact: false,
             request_location: false,
             request_managed_bot: None,
+            request_users: None,
+            request_chat: None,
+            request_poll: None,
+            web_app: None,
             style: ButtonStyle::Default,
+            icon_custom_emoji_id: None,
         }
     }
 
@@ -88,19 +105,59 @@ impl KeyboardButton {
         self
     }
 
+    pub fn request_users(mut self, request: KeyboardButtonRequestUsers) -> Self {
+        self.request_users = Some(request);
+        self
+    }
+
+    pub fn request_chat(mut self, request: KeyboardButtonRequestChat) -> Self {
+        self.request_chat = Some(request);
+        self
+    }
+
+    pub fn request_poll(mut self, request: KeyboardButtonPollType) -> Self {
+        self.request_poll = Some(request);
+        self
+    }
+
+    pub fn web_app(mut self, web_app: WebAppInfo) -> Self {
+        self.web_app = Some(web_app);
+        self
+    }
+
     pub fn style(mut self, style: ButtonStyle) -> Self {
         self.style = style;
         self
     }
 
+    /// Shows the custom emoji `id` before the text.
+    pub fn icon_custom_emoji_id(mut self, id: i64) -> Self {
+        self.icon_custom_emoji_id = Some(id);
+        self
+    }
+
     pub(crate) fn write(&self) -> base::KeyboardButton {
-        let kind = match (self.request_contact, self.request_location, &self.request_managed_bot) {
-            (true, ..) => base::ButtonType::ButtonTypeRequestPhone,
-            (_, true, _) => base::ButtonType::ButtonTypeRequestGeoLocation,
-            (.., Some(request)) => request.write(),
-            _ => base::ButtonType::ButtonTypeDefault,
+        let kind = if self.request_contact {
+            base::ButtonType::ButtonTypeRequestPhone
+        } else if self.request_location {
+            base::ButtonType::ButtonTypeRequestGeoLocation
+        } else if let Some(request) = &self.request_managed_bot {
+            request.write()
+        } else if let Some(request) = &self.request_users {
+            request.write()
+        } else if let Some(request) = &self.request_chat {
+            request.write()
+        } else if let Some(request) = &self.request_poll {
+            request.write()
+        } else if let Some(web_app) = &self.web_app {
+            base::ButtonType::ButtonTypeSimpleWebView(Box::new(types::ButtonTypeSimpleWebView {
+                url: web_app.url.clone(),
+            }))
+        } else {
+            base::ButtonType::ButtonTypeDefault
         };
-        let button = types::KeyboardButton { style: self.style.write(), text: self.text.clone(), r#type: kind };
+        let style = self.style.write_with_icon(self.icon_custom_emoji_id);
+        let button = types::KeyboardButton { style, text: self.text.clone(), r#type: kind };
         base::KeyboardButton::KeyboardButton(Box::new(button))
     }
 }

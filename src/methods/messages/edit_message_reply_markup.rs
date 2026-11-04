@@ -40,7 +40,7 @@ impl EditMessageReplyMarkup<'_> {
         let client = self.client;
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let request = functions::messages::EditMessage {
-            reply_markup: self.reply_markup.as_ref().map(InlineKeyboardMarkup::write),
+            reply_markup: InlineKeyboardMarkup::write_option(self.reply_markup.as_ref(), self.client).await?,
             ..edit_request(peer, self.message_id)
         };
         let (updates, _) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;

@@ -213,7 +213,7 @@ impl Client {
         let reply_to = options.input_reply_to(self, chat_id, options.thread()).await?;
         // Telegram drops a second message with the same random_id, so retries can't double-send.
         let random_id = i64::from_le_bytes(random());
-        let reply_markup = options.reply_markup.as_ref().map(ReplyMarkup::write);
+        let reply_markup = ReplyMarkup::write_option(options.reply_markup.as_ref(), self).await?;
         let suggested_post = options.suggested_post_parameters.map(SuggestedPostParameters::write);
         let connection_id = options.business_connection_id;
         let (updates, sent, rich_message) = match media {

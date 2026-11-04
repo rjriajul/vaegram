@@ -111,7 +111,7 @@ pub(super) async fn edit_live_location(
     let (chat_id, peer) = client.resolve(chat_id).await?;
     let request = functions::messages::EditMessage {
         media: Some(base::InputMedia::InputMediaGeoLive(Box::new(media))),
-        reply_markup: reply_markup.as_ref().map(ReplyMarkup::write),
+        reply_markup: ReplyMarkup::write_option(reply_markup.as_ref(), client).await?,
         ..edit_request(peer, message_id)
     };
     let (updates, _) = client.invoke_business(business_connection_id, request).await?;

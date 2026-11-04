@@ -109,7 +109,7 @@ impl<'a> SendEphemeralMessage<'a> {
             message,
             entities,
             media,
-            reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
+            reply_markup: ReplyMarkup::write_option(self.reply_markup.as_ref(), self.client).await?,
             rich_message: None,
             random_id: i64::from_le_bytes(random()),
             reply_to,

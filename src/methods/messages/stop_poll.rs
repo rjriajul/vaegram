@@ -68,7 +68,7 @@ impl StopPoll<'_> {
         };
         let request = functions::messages::EditMessage {
             media: Some(base::InputMedia::InputMediaPoll(Box::new(media))),
-            reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
+            reply_markup: ReplyMarkup::write_option(self.reply_markup.as_ref(), self.client).await?,
             ..edit_request(peer, self.message_id)
         };
         let (updates, _) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;

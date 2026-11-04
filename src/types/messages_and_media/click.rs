@@ -156,7 +156,7 @@ mod tests {
             vec![InlineKeyboardButton::url("Site", "https://x.y"), InlineKeyboardButton::callback("Go", "data")],
             vec![InlineKeyboardButton::copy_text("Copy", "secret")],
         ]);
-        let message = message(&client, markup.write());
+        let message = message(&client, markup.write(&client).await.unwrap());
 
         assert!(matches!(message.click(0).await, Ok(ClickResult::Url(u)) if u == "https://x.y"));
         assert!(matches!(message.click("Copy").await, Ok(ClickResult::Copy(c)) if c == "secret"));

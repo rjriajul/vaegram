@@ -110,7 +110,7 @@ impl EditInlineText<'_> {
             id: self.inline_message_id.0,
             message,
             media: if no_webpage { None } else { preview.media },
-            reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
+            reply_markup: ReplyMarkup::write_option(self.reply_markup.as_ref(), self.client).await?,
             entities,
             rich_message,
         };
