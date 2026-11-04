@@ -54,7 +54,17 @@ mod tests {
             types::InputPhotoFileLocation { id: 5, access_hash: 6, file_reference: vec![7], thumb_size: "x".into() };
         let location = FileLocation::from(base::InputFileLocation::InputPhotoFileLocation(Box::new(location)));
         let (file_id, file_unique_id) = (String::new(), String::new());
-        let photo = Photo { file_id, file_unique_id, id: 5, width: 1, height: 1, file_size: 1, date: 0, location };
+        let photo = Photo {
+            file_id,
+            file_unique_id,
+            id: 5,
+            width: 1,
+            height: 1,
+            file_size: 1,
+            date: 0,
+            thumbs: Vec::new(),
+            location,
+        };
         let media = InputRichMessageMedia::photo("pic", &photo);
         let body = sent_body(InputRichMessage::markdown("**hi**").no_autolink().media(media)).await;
         let photo = types::InputPhoto { id: 5, access_hash: 6, file_reference: vec![7] };

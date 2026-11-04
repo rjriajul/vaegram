@@ -1,5 +1,5 @@
 use crate::raw::types;
-use crate::types::{Document, FileLocation};
+use crate::types::{Document, FileLocation, Thumbnail};
 
 #[derive(Debug, Clone)]
 pub struct VideoNote {
@@ -11,14 +11,16 @@ pub struct VideoNote {
     pub date: i32,
     pub length: i32,
     pub duration: i32,
+    /// Smaller copies of the file's preview.
+    pub thumbs: Vec<Thumbnail>,
     pub(crate) location: FileLocation,
 }
 
 impl VideoNote {
     pub(crate) fn parse(document: Document, video: Option<&types::DocumentAttributeVideo>) -> VideoNote {
-        let Document { file_id, file_unique_id, id, mime_type, file_size, date, location, .. } = document;
+        let Document { file_id, file_unique_id, id, mime_type, file_size, date, thumbs, location, .. } = document;
         let (length, duration) = video.map_or((0, 0), |v| (v.w, v.duration as i32));
-        VideoNote { file_id, file_unique_id, id, mime_type, file_size, date, length, duration, location }
+        VideoNote { file_id, file_unique_id, id, mime_type, file_size, date, length, duration, thumbs, location }
     }
 }
 

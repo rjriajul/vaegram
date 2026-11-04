@@ -279,6 +279,16 @@ pub(crate) fn unique_id(media_id: i64) -> String {
     pack(&buf)
 }
 
+/// The `file_unique_id` of one size of a photo or of a document's preview: the media id and the size letter. Another
+/// layout than [`unique_id`], so a size never matches its file.
+pub(crate) fn thumbnail_unique_id(media_id: i64, size: char) -> String {
+    let mut buf = Vec::with_capacity(16);
+    3i32.serialize(&mut buf);
+    media_id.serialize(&mut buf);
+    (u32::from(size) as i32).serialize(&mut buf);
+    pack(&buf)
+}
+
 fn read<T: Deserializable>(r: &mut &[u8]) -> Result<T, &'static str> {
     T::deserialize(r).map_err(|_| "file id is too short")
 }
@@ -325,7 +335,18 @@ fn unpack(s: &str) -> Result<Vec<u8>, &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FILE_TYPES, FileId, FileType, ThumbnailSource, unique_id};
+    use super::{FILE_TYPES, FileId, FileType, ThumbnailSource, thumbnail_unique_id, unique_id};
+
+    #[test]
+    fn every_size_has_its_own_unique_id() {
+        let ids = [thumbnail_unique_id(7, 's'), thumbnail_unique_id(7, 'm'), thumbnail_unique_id(8, 's'), unique_id(7)];
+        for (i, a) in ids.iter().enumerate() {
+            for b in &ids[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+        assert_eq!(thumbnail_unique_id(7, 's'), thumbnail_unique_id(7, 's'));
+    }
 
     #[test]
     fn reads_and_rewrites_a_bot_api_photo_id() {

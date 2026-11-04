@@ -1,7 +1,7 @@
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::raw::{base, types};
-use crate::types::{LivePhoto, Media, Photo, Video};
+use crate::types::{LivePhoto, Media, Photo, StrippedThumbnail, Video};
 
 #[derive(Debug, Clone)]
 pub struct PaidMediaInfo {
@@ -16,6 +16,7 @@ pub enum PaidMedia {
         width: Option<i32>,
         height: Option<i32>,
         duration: Option<i32>,
+        thumbnail: Option<StrippedThumbnail>,
     },
     Photo(Photo),
     Video(Video),
@@ -29,7 +30,8 @@ impl PaidMediaInfo {
             .iter()
             .filter_map(|media| match media {
                 base::MessageExtendedMedia::MessageExtendedMediaPreview(p) => {
-                    Some(PaidMedia::Preview { width: p.w, height: p.h, duration: p.video_duration })
+                    let thumbnail = stripped(p.thumb.as_ref());
+                    Some(PaidMedia::Preview { width: p.w, height: p.h, duration: p.video_duration, thumbnail })
                 }
                 base::MessageExtendedMedia::MessageExtendedMedia(m) => {
                     match Media::parse(client, &m.media, entities)? {
@@ -42,6 +44,14 @@ impl PaidMediaInfo {
             })
             .collect();
         PaidMediaInfo { star_count: raw.stars_amount, paid_media }
+    }
+}
+
+/// The data of a stripped size; a preview may also carry another kind of size, which this doesn't read.
+fn stripped(size: Option<&base::PhotoSize>) -> Option<StrippedThumbnail> {
+    match size? {
+        base::PhotoSize::PhotoStrippedSize(s) => Some(StrippedThumbnail { data: s.bytes.clone() }),
+        _ => None,
     }
 }
 
@@ -62,8 +72,30 @@ mod tests {
         };
         let info = PaidMediaInfo::parse(&Client::offline(), &raw, &Entities::default());
         assert_eq!(info.star_count, 5);
-        let [PaidMedia::Preview { width, height, duration }] = info.paid_media[..] else { panic!("{info:?}") };
-        assert_eq!((width, height, duration), (Some(640), Some(480), Some(9)));
+        let [PaidMedia::Preview { width, height, duration, thumbnail }] = &info.paid_media[..] else {
+            panic!("{info:?}")
+        };
+        assert_eq!((width, height, duration), (&Some(640), &Some(480), &Some(9)));
+        assert!(thumbnail.is_none());
+    }
+
+    #[test]
+    fn preview_keeps_its_stripped_thumbnail() {
+        let stripped = types::PhotoStrippedSize { r#type: "i".into(), bytes: vec![1, 0x0e, 0x28, 0xa3] };
+        let preview = types::MessageExtendedMediaPreview {
+            w: None,
+            h: None,
+            thumb: Some(base::PhotoSize::PhotoStrippedSize(Box::new(stripped))),
+            video_duration: None,
+        };
+        let raw = types::MessageMediaPaidMedia {
+            stars_amount: 1,
+            extended_media: vec![base::MessageExtendedMedia::MessageExtendedMediaPreview(Box::new(preview))],
+        };
+        let info = PaidMediaInfo::parse(&Client::offline(), &raw, &Entities::default());
+        let [PaidMedia::Preview { thumbnail: Some(thumbnail), .. }] = &info.paid_media[..] else { panic!("{info:?}") };
+        assert_eq!(thumbnail.data, [1, 0x0e, 0x28, 0xa3]);
+        assert_eq!(&thumbnail.to_jpeg()[..2], &[0xff, 0xd8]);
     }
 
     #[test]

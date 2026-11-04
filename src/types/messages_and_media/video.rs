@@ -1,5 +1,5 @@
 use crate::raw::types;
-use crate::types::{Document, FileLocation};
+use crate::types::{Document, FileLocation, Thumbnail};
 
 #[derive(Debug, Clone)]
 pub struct Video {
@@ -14,12 +14,15 @@ pub struct Video {
     pub height: i32,
     pub duration: i32,
     pub supports_streaming: bool,
+    /// Smaller copies of the file's preview.
+    pub thumbs: Vec<Thumbnail>,
     pub(crate) location: FileLocation,
 }
 
 impl Video {
     pub(crate) fn parse(document: Document, video: Option<&types::DocumentAttributeVideo>) -> Video {
-        let Document { file_id, file_unique_id, id, file_name, mime_type, file_size, date, location } = document;
+        let Document { file_id, file_unique_id, id, file_name, mime_type, file_size, date, thumbs, location } =
+            document;
         Video {
             file_id,
             file_unique_id,
@@ -32,6 +35,7 @@ impl Video {
             height: video.map_or(0, |v| v.h),
             duration: video.map_or(0, |v| v.duration as i32),
             supports_streaming: video.is_some_and(|v| v.supports_streaming),
+            thumbs,
             location,
         }
     }

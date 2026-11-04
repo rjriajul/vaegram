@@ -1,7 +1,7 @@
-use crate::enums::StickerType;
+use crate::enums::{StickerFormat, StickerType};
 use crate::file_id::FileType;
 use crate::raw::{base, types};
-use crate::types::{Document, FileLocation, MaskPosition};
+use crate::types::{Document, FileLocation, MaskPosition, Thumbnail};
 
 use super::input_document;
 
@@ -23,6 +23,8 @@ pub struct Sticker {
     pub custom_emoji_id: Option<i64>,
     pub needs_repainting: bool,
     pub is_premium: bool,
+    /// Smaller copies of the file's preview.
+    pub thumbs: Vec<Thumbnail>,
     pub(crate) location: FileLocation,
 }
 
@@ -30,6 +32,16 @@ impl Sticker {
     pub(crate) fn parse(document: &base::Document) -> Option<Sticker> {
         let base::Document::Document(raw) = document else { return None };
         Sticker::from_document(Document::parse_as(document, FileType::Sticker)?, raw)
+    }
+
+    pub fn format(&self) -> StickerFormat {
+        if self.is_animated {
+            StickerFormat::Animated
+        } else if self.is_video {
+            StickerFormat::Video
+        } else {
+            StickerFormat::Static
+        }
     }
 
     /// `None` when the attributes mark neither a sticker nor a custom emoji.
@@ -57,7 +69,7 @@ impl Sticker {
             }
         }
         let (kind, emoji, mask_position, needs_repainting, is_premium) = sticker?;
-        let Document { file_id, file_unique_id, id, mime_type, file_size, date, location, .. } = document;
+        let Document { file_id, file_unique_id, id, mime_type, file_size, date, thumbs, location, .. } = document;
         let (width, height) = image.or(video).unwrap_or_default();
         Some(Sticker {
             file_id,
@@ -76,6 +88,7 @@ impl Sticker {
             custom_emoji_id: (kind == StickerType::CustomEmoji).then_some(id),
             needs_repainting,
             is_premium,
+            thumbs,
             location,
         })
     }
@@ -123,6 +136,29 @@ pub(crate) mod tests {
 
     fn size(w: i32, h: i32) -> base::DocumentAttribute {
         base::DocumentAttribute::DocumentAttributeImageSize(types::DocumentAttributeImageSize { w, h })
+    }
+
+    #[test]
+    fn format_follows_the_flags() {
+        use crate::enums::StickerFormat as F;
+        let format =
+            |mime: &str| Sticker::parse(&document(1, mime, vec![sticker_attribute("x", None)])).unwrap().format();
+        assert_eq!(
+            [format("image/webp"), format("application/x-tgsticker"), format("video/webm")],
+            [F::Static, F::Animated, F::Video]
+        );
+    }
+
+    #[test]
+    fn parses_thumbs() {
+        let thumb = types::PhotoSize { r#type: "m".into(), w: 128, h: 128, size: 900 };
+        let base::Document::Document(mut raw) = document(1, "image/webp", vec![sticker_attribute("x", None)]) else {
+            panic!()
+        };
+        raw.thumbs = Some(vec![base::PhotoSize::PhotoSize(Box::new(thumb))]);
+        let sticker = Sticker::parse(&base::Document::Document(raw)).unwrap();
+        assert_eq!(sticker.thumbs.len(), 1);
+        assert_eq!((sticker.thumbs[0].width, sticker.thumbs[0].file_size), (128, 900));
     }
 
     #[test]
