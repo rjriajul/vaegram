@@ -360,8 +360,32 @@ pub(crate) mod tests {
         let voice = document_media("audio/ogg", vec![audio(true)]);
         let mut inputs = vec![round, document_media("video/mp4", animated), voice];
         inputs.extend(unreadable_live_photos());
+        let photo = |photo| {
+            let photo =
+                types::MessageMediaPhoto { spoiler: false, live_photo: false, photo, ttl_seconds: None, video: None };
+            base::MessageMedia::MessageMediaPhoto(Box::new(photo))
+        };
+        let document = |document| {
+            let media = types::MessageMediaDocument {
+                nopremium: false,
+                spoiler: false,
+                video: false,
+                round: false,
+                voice: false,
+                alt_documents: None,
+                video_cover: None,
+                video_timestamp: None,
+                document,
+                ttl_seconds: None,
+            };
+            base::MessageMedia::MessageMediaDocument(Box::new(media))
+        };
+        let empty_photo = base::Photo::PhotoEmpty(types::PhotoEmpty { id: 1 });
+        let empty_document = base::Document::DocumentEmpty(types::DocumentEmpty { id: 1 });
+        inputs.extend([photo(None), photo(Some(empty_photo)), document(None), document(Some(empty_document))]);
         for media in inputs {
-            assert_eq!(Some(parse(media.clone()).kind()), MediaKind::of(&media));
+            let parsed = Media::parse(&Client::offline(), &media, &Entities::default());
+            assert_eq!(parsed.map(|m| m.kind()), MediaKind::of(&media));
         }
     }
 
