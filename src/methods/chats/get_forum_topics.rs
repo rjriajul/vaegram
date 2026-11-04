@@ -43,8 +43,8 @@ impl GetForumTopics<'_> {
             let base::messages::ForumTopics::ForumTopics(page) = self.client.invoke(&request).await?;
             let page = *page;
             let (last_page, next) = (page.topics.len() < limit as usize, cursor(&page));
-            Entities::new(self.client, page.users, page.chats);
-            let topics = page.topics.into_iter().filter_map(ForumTopic::parse).collect();
+            let entities = Entities::new(self.client, page.users, page.chats);
+            let topics = page.topics.into_iter().filter_map(|t| ForumTopic::parse(t, &entities)).collect();
             let moved = self.pages.advance(topics, last_page, next.map(|(date, id, _)| (date, id)))?;
             if let (true, Some((_, _, topic))) = (moved, next) {
                 self.offset_topic = topic;

@@ -14,6 +14,11 @@ pub struct Dialog {
     pub unread_mark: bool,
     pub is_pinned: bool,
     pub chat_list: Option<i32>,
+    pub last_read_inbox_message_id: i32,
+    pub last_read_outbox_message_id: i32,
+    pub unread_poll_vote_count: i32,
+    /// Seconds after which new messages here are deleted automatically.
+    pub ttl_period: Option<i32>,
 }
 
 impl Dialog {
@@ -48,6 +53,10 @@ impl Dialog {
                     unread_mark: d.unread_mark,
                     is_pinned: d.pinned,
                     chat_list: d.folder_id,
+                    last_read_inbox_message_id: d.read_inbox_max_id,
+                    last_read_outbox_message_id: d.read_outbox_max_id,
+                    unread_poll_vote_count: d.unread_poll_votes_count,
+                    ttl_period: d.ttl_period,
                 }
             })
             .collect();
@@ -132,6 +141,39 @@ mod tests {
         assert_eq!((d.chat.id, d.chat.kind, d.chat.title.as_deref()), (-7, ChatType::Group, Some("Old group")));
         assert_eq!((d.unread_messages_count, d.unread_mentions_count), (4, 1));
         assert_eq!((d.is_pinned, d.unread_mark, d.top_message.is_none(), d.chat_list), (true, true, true, Some(1)));
+    }
+
+    #[test]
+    fn reads_read_positions_poll_votes_and_ttl() {
+        let dialog = types::Dialog {
+            pinned: false,
+            unread_mark: false,
+            view_forum_as_messages: false,
+            peer: base::Peer::PeerChat(types::PeerChat { chat_id: 7 }),
+            top_message: 9,
+            read_inbox_max_id: 8,
+            read_outbox_max_id: 6,
+            unread_count: 1,
+            unread_mentions_count: 0,
+            unread_reactions_count: 0,
+            unread_poll_votes_count: 2,
+            notify_settings: notify_settings(),
+            pts: None,
+            draft: None,
+            folder_id: None,
+            ttl_period: Some(86400),
+        };
+        let page = base::messages::Dialogs::Dialogs(Box::new(types::messages::Dialogs {
+            dialogs: vec![base::Dialog::Dialog(Box::new(dialog))],
+            messages: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        }));
+        let (dialogs, _) = Dialog::unpack(&Client::offline(), page);
+        let d = &dialogs[0];
+        let read =
+            (d.last_read_inbox_message_id, d.last_read_outbox_message_id, d.unread_poll_vote_count, d.ttl_period);
+        assert_eq!(read, (8, 6, 2, Some(86400)));
     }
 
     #[test]

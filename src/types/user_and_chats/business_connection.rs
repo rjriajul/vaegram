@@ -10,6 +10,8 @@ pub struct BusinessConnection {
     pub date: i32,
     pub rights: BusinessBotRights,
     pub is_enabled: bool,
+    /// The data center of the connected account.
+    pub dc_id: i32,
     client: Client,
 }
 
@@ -21,6 +23,7 @@ impl BusinessConnection {
             date: raw.date,
             rights: raw.rights.as_ref().map(BusinessBotRights::parse).unwrap_or_default(),
             is_enabled: !raw.disabled,
+            dc_id: raw.dc_id,
             id: raw.connection_id,
             client: client.clone(),
         }
@@ -78,5 +81,19 @@ mod tests {
             ),
             (true, false, false, true, true, true)
         );
+    }
+
+    #[test]
+    fn keeps_the_dc() {
+        let raw = base::BotBusinessConnection::BotBusinessConnection(Box::new(types::BotBusinessConnection {
+            disabled: false,
+            connection_id: "c".into(),
+            user_id: 7,
+            dc_id: 4,
+            date: 1,
+            rights: None,
+        }));
+        let c = BusinessConnection::parse(&Client::offline(), raw, &Entities::default());
+        assert_eq!((c.dc_id, c.is_enabled), (4, true));
     }
 }

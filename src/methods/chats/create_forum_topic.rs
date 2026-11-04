@@ -1,8 +1,9 @@
 use crate::Client;
 use crate::crypto::random;
+use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
-use crate::types::{ForumTopic, PeerRef};
+use crate::types::{Chat, ForumTopic, PeerRef};
 
 pub struct CreateForumTopic<'a> {
     client: &'a Client,
@@ -48,15 +49,15 @@ impl CreateForumTopic<'_> {
             random_id: i64::from_le_bytes(random()),
             send_as: None,
         };
-        let updates = match client.invoke(&request).await? {
-            base::Updates::Updates(u) => u.updates,
-            base::Updates::UpdatesCombined(u) => u.updates,
-            base::Updates::UpdateShort(u) => vec![u.update],
-            _ => Vec::new(),
+        let (updates, entities) = match client.invoke(&request).await? {
+            base::Updates::Updates(u) => (u.updates, Entities::new(client, u.users, u.chats)),
+            base::Updates::UpdatesCombined(u) => (u.updates, Entities::new(client, u.users, u.chats)),
+            base::Updates::UpdateShort(u) => (vec![u.update], Entities::default()),
+            _ => (Vec::new(), Entities::default()),
         };
         updates
             .into_iter()
-            .find_map(created_topic)
+            .find_map(|update| created_topic(update, &entities))
             .ok_or(Error::Unexpected("messages.createForumTopic returned no topic"))
     }
 }
@@ -64,14 +65,14 @@ impl CreateForumTopic<'_> {
 into_future!(CreateForumTopic, ForumTopic);
 
 // A topic is identified by the id of the service message that created it.
-fn created_topic(update: base::Update) -> Option<ForumTopic> {
+fn created_topic(update: base::Update, entities: &Entities) -> Option<ForumTopic> {
     let message = match update {
         base::Update::UpdateNewMessage(u) => u.message,
         base::Update::UpdateNewChannelMessage(u) => u.message,
         _ => return None,
     };
     let base::Message::MessageService(m) = message else { return None };
-    let (id, date, action) = (m.id, m.date, m.action);
+    let (id, date, action, from_id) = (m.id, m.date, m.action, m.from_id);
     let base::MessageAction::MessageActionTopicCreate(a) = action else { return None };
     Some(ForumTopic {
         id,
@@ -87,5 +88,60 @@ fn created_topic(update: base::Update) -> Option<ForumTopic> {
         is_closed: false,
         is_pinned: false,
         is_hidden: false,
+        creator: from_id.map(|peer| Chat::parse(&peer, entities, false)),
+        is_my: true,
+        is_short: false,
+        unread_poll_vote_count: 0,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::created_topic;
+    use crate::dispatcher::Entities;
+    use crate::raw::{base, types};
+    use crate::types::Chat;
+    use crate::utils::{get_channel_id, get_peer};
+
+    #[test]
+    fn created_topic_is_mine_and_names_its_creator() {
+        let action = types::MessageActionTopicCreate {
+            title_missing: true,
+            title: "Ideas".into(),
+            icon_color: 0x6FB9F0,
+            icon_emoji_id: None,
+        };
+        let message = types::MessageService {
+            out: true,
+            mentioned: false,
+            media_unread: false,
+            reactions_are_possible: false,
+            silent: false,
+            post: false,
+            legacy: false,
+            id: 77,
+            from_id: Some(get_peer(7)),
+            peer_id: get_peer(get_channel_id(9)),
+            saved_peer_id: None,
+            reply_to: None,
+            date: 1,
+            action: base::MessageAction::MessageActionTopicCreate(Box::new(action)),
+            reactions: None,
+            ttl_period: None,
+        };
+        let message = base::Message::MessageService(Box::new(message));
+        let update = types::UpdateNewChannelMessage { message, pts: 1, pts_count: 1 };
+        let entities = Entities::default();
+        let topic = created_topic(base::Update::UpdateNewChannelMessage(Box::new(update)), &entities).unwrap();
+        assert_eq!((topic.id, topic.top_message_id, topic.is_name_implicit), (77, 77, true));
+        assert_eq!((topic.is_my, topic.is_short, topic.unread_poll_vote_count), (true, false, 0));
+        assert_eq!(topic.creator, Some(Chat::parse(&get_peer(7), &entities, false)));
+
+        let other = base::Update::UpdateNewChannelMessage(Box::new(types::UpdateNewChannelMessage {
+            message: base::Message::MessageEmpty(Box::new(types::MessageEmpty { id: 1, peer_id: None })),
+            pts: 1,
+            pts_count: 1,
+        }));
+        assert_eq!(created_topic(other, &entities), None);
+    }
 }
