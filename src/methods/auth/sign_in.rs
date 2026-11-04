@@ -5,14 +5,24 @@ use crate::types::User;
 
 impl Client {
     pub async fn sign_in(&self, phone_number: &str, phone_code_hash: &str, phone_code: &str) -> Result<base::User> {
+        let auth = self.sign_in_raw(phone_number, phone_code_hash, phone_code).await?;
+        self.authorized(auth).await
+    }
+
+    /// Telegram's answer as it came, so a sign-up still has the terms of service it was shown.
+    pub(crate) async fn sign_in_raw(
+        &self,
+        phone_number: &str,
+        phone_code_hash: &str,
+        phone_code: &str,
+    ) -> Result<base::auth::Authorization> {
         let request = functions::auth::SignIn {
             phone_number: phone_number.into(),
             phone_code_hash: phone_code_hash.into(),
             phone_code: Some(phone_code.into()),
             email_verification: None,
         };
-        let auth = self.invoke(&request).await?;
-        self.authorized(auth).await
+        self.invoke(&request).await
     }
 
     pub(crate) async fn authorized(&self, auth: base::auth::Authorization) -> Result<base::User> {
