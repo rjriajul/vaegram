@@ -13,7 +13,8 @@ pub fn parse(text: &str, mode: ParseMode) -> Text {
     match mode {
         ParseMode::Disabled => Text::new().plain(text),
         ParseMode::Html => html::parse(text),
-        ParseMode::Markdown => markdown::parse(text),
+        ParseMode::Markdown => markdown::parse(text, false),
+        ParseMode::Default => markdown::parse(text, true),
     }
 }
 
@@ -21,7 +22,8 @@ pub(crate) fn unparse(text: &Text, mode: ParseMode) -> String {
     match mode {
         ParseMode::Disabled => text.text.clone(),
         ParseMode::Html => html::unparse(text),
-        ParseMode::Markdown => markdown::unparse(text),
+        ParseMode::Markdown => markdown::unparse(text, false),
+        ParseMode::Default => markdown::unparse(text, true),
     }
 }
 
@@ -340,6 +342,51 @@ mod tests {
         assert_eq!(md("`unclosed"), ("`unclosed".into(), vec![]));
     }
 
+    fn mixed(text: &str) -> (String, Vec<String>) {
+        run(text, ParseMode::Default)
+    }
+
+    #[test]
+    fn default_mixes_markdown_and_html() {
+        assert_eq!(
+            mixed("**a** <i>b</i> &amp; [c](u)"),
+            ("a b & c".into(), vec!["bold 0 1".into(), "italic 2 1".into(), "url:u 6 1".into()])
+        );
+        assert_eq!(
+            mixed("<b>x</b> __y__ <u>z</u>"),
+            ("x y z".into(), vec!["bold 0 1".into(), "italic 2 1".into(), "underline 4 1".into()])
+        );
+        // What each mode reads alone still reads the same.
+        assert_eq!(mixed("**b** __i__ ||p||"), md("**b** __i__ ||p||"));
+        assert_eq!(mixed("<b>a<i>b</i></b> &lt;"), html("<b>a<i>b</i></b> &lt;"));
+        // A lone `<` or `&` is text, and a backslash keeps a tag from being one.
+        assert_eq!(mixed(r"1 < 2 & 3 \<b>x"), ("1 < 2 & 3 <b>x".into(), vec![]));
+    }
+
+    #[test]
+    fn html_inside_code_stays_text() {
+        assert_eq!(
+            mixed("`<b>x</b>` ```<i>y</i>```"),
+            ("<b>x</b> <i>y</i>".into(), vec!["code 0 8".into(), "pre: 9 8".into()])
+        );
+        // And Markdown inside HTML code stays text too, while the closing tag still closes it.
+        assert_eq!(
+            mixed("<code>**x** [a](b)</code> **y**"),
+            ("**x** [a](b) y".into(), vec!["code 0 12".into(), "bold 13 1".into()])
+        );
+        assert_eq!(
+            mixed("<pre><code class=\"language-rust\">a &amp; `b`</code></pre>"),
+            ("a & `b`".into(), vec!["pre:rust 0 7".into()])
+        );
+    }
+
+    #[test]
+    fn crossing_markdown_and_html_nest() {
+        let nested: Vec<String> = vec!["bold 0 3".into(), "italic 2 1".into(), "italic 3 2".into()];
+        assert_eq!(mixed("**a <i>b** c</i>"), ("a b c".into(), nested.clone()));
+        assert_eq!(mixed("<b>a __b</b> c__"), ("a b c".into(), nested));
+    }
+
     #[test]
     fn markdown_quotes() {
         assert_eq!(md("> one\n> two\nafter"), ("one\ntwo\nafter".into(), vec!["quote:false 0 7".into()]));
@@ -453,7 +500,7 @@ mod tests {
             "<a href=\"u\"><b>😀</b></a>&#65;",
         ];
         for input in inputs {
-            for mode in [ParseMode::Html, ParseMode::Markdown] {
+            for mode in [ParseMode::Html, ParseMode::Markdown, ParseMode::Default] {
                 let parsed = parse(input, mode);
                 let (text, entities) = (parsed.text.clone(), parsed.write_entities());
                 let len = text.encode_utf16().count() as i32;
@@ -528,6 +575,27 @@ mod tests {
                 "\\![x](tg://emoji?id=1) ![**b**](tg://emoji?id=2)",
             ],
         );
+    }
+
+    #[test]
+    fn default_output_round_trips() {
+        round_trip(
+            ParseMode::Default,
+            &[
+                "**b** <i>i</i> --u-- <s>s</s>",
+                "1 &lt; 2 &amp; **x**",
+                r"\<b\> **not a tag** \& done",
+                "<b>a __b</b> c__ [d](https://x.y/?a=1&b=2)",
+                "`<b>` ```<i>x</i>``` **y**",
+                "<pre><code class=\"language-rust\">fn x() -> u8 { 1 & 2 }</code></pre> **z**",
+                "<code>**x**</code> <a href=\"tg://user?id=7\">me</a>",
+                "<blockquote>q\nr</blockquote>\n**after**",
+                "<tg-emoji emoji-id=\"5368\">👍</tg-emoji> ![t](tg://time?unix=5&format=wDT) <b>😀</b>",
+            ],
+        );
+        let text = Text::new().plain("a<b&c ").bold("d");
+        assert_eq!(unparse(&text, ParseMode::Default), "a\\<b\\&c **d**");
+        assert_eq!(unparse(&text, ParseMode::Markdown), "a<b&c **d**");
     }
 
     #[test]

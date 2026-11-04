@@ -1,3 +1,4 @@
+use super::html::{Name, Stack, read_markup};
 use super::{Kind, Markup, Span};
 use crate::types::Text;
 
@@ -20,9 +21,10 @@ struct Link {
     start: i32,
 }
 
-pub(super) fn parse(src: &str) -> Text {
+/// `html` also reads HTML tags and entities, outside code, with Markdown delimiters and tags sharing one stack.
+pub(super) fn parse(src: &str, html: bool) -> Text {
     let mut out = Text::default();
-    let mut open: Vec<(&str, i32)> = Vec::new();
+    let mut stack = Stack::default();
     let mut link: Option<Link> = None;
     // Start, end so far, and whether it's expandable.
     let mut quote: Option<(i32, i32, bool)> = None;
@@ -35,96 +37,102 @@ pub(super) fn parse(src: &str) -> Text {
             i = l.resume;
             continue;
         }
-        if i == 0 || src.as_bytes()[i - 1] == b'\n' {
-            if let Some(after) = rest.strip_prefix("**>") {
+        // Inside an HTML `code` or `pre` Markdown is plain text, as it is inside a Markdown code span.
+        let literal = html && stack.in_code();
+        if !literal {
+            if i == 0 || src.as_bytes()[i - 1] == b'\n' {
+                if let Some(after) = rest.strip_prefix("**>") {
+                    if let Some((start, end, expandable)) = quote.take() {
+                        out.spans.push(Span { kind: Kind::Blockquote(expandable), start, end });
+                    }
+                    quote = Some((out.len, out.len, true));
+                    i += 3 + after.starts_with(' ') as usize;
+                    continue;
+                }
+                if let Some(after) = rest.strip_prefix('>') {
+                    quote.get_or_insert((out.len, out.len, false));
+                    i += 1 + after.starts_with(' ') as usize;
+                    continue;
+                }
                 if let Some((start, end, expandable)) = quote.take() {
                     out.spans.push(Span { kind: Kind::Blockquote(expandable), start, end });
                 }
-                quote = Some((out.len, out.len, true));
-                i += 3 + after.starts_with(' ') as usize;
-                continue;
             }
-            if let Some(after) = rest.strip_prefix('>') {
-                quote.get_or_insert((out.len, out.len, false));
-                i += 1 + after.starts_with(' ') as usize;
-                continue;
-            }
-            if let Some((start, end, expandable)) = quote.take() {
-                out.spans.push(Span { kind: Kind::Blockquote(expandable), start, end });
-            }
-        }
 
-        if let Some(escaped) = rest.strip_prefix('\\').and_then(|r| r.chars().next()) {
-            if escaped.is_ascii_punctuation() {
-                out.push(escaped);
-                i += 2;
-                continue;
-            }
-        }
-        if let Some(body) = rest.strip_prefix("```") {
-            if let Some(end) = body.find("```") {
-                let code = &body[..end];
-                let (language, code) = match code.split_once('\n') {
-                    Some((lang, code)) if !lang.contains(char::is_whitespace) => (lang, code),
-                    _ => ("", code),
-                };
-                let start = out.len;
-                out.push_str(code.strip_suffix('\n').unwrap_or(code));
-                out.span(Kind::Pre(language.to_owned()), start);
-                i += 6 + end;
-                continue;
-            }
-        }
-        if let Some(body) = rest.strip_prefix('`') {
-            if let Some(end) = body.find('`') {
-                let start = out.len;
-                out.push_str(&body[..end]);
-                out.span(Kind::Code, start);
-                i += 2 + end;
-                continue;
-            }
-        }
-        if link.is_none() && rest.starts_with("![") {
-            if let Some((close, resume, url)) = find_link(&rest[1..], i + 1) {
-                if let Some(kind) = inline_kind(url) {
-                    link = Some(Link { close, resume, kind, start: out.len });
+            if let Some(escaped) = rest.strip_prefix('\\').and_then(|r| r.chars().next()) {
+                if escaped.is_ascii_punctuation() {
+                    out.push(escaped);
                     i += 2;
                     continue;
                 }
             }
-        }
-        if link.is_none() && rest.starts_with('[') {
-            if let Some((close, resume, url)) = find_link(rest, i) {
-                link = Some(Link { close, resume, kind: Kind::link(url.to_owned()), start: out.len });
-                i += 1;
-                continue;
-            }
-        }
-        // `||` ending a line ends an expandable quote, unless it closes a spoiler.
-        if let (Some((start, _, true)), Some(after)) = (quote, rest.strip_prefix("||")) {
-            if (after.is_empty() || after.starts_with('\n')) && !open.iter().any(|(d, _)| *d == "||") {
-                out.spans.push(Span { kind: Kind::Blockquote(true), start, end: out.len });
-                quote = None;
-                i += 2;
-                continue;
-            }
-        }
-        if let Some(&delimiter) = DELIMITERS.iter().find(|d| rest.starts_with(**d)) {
-            if let Some(k) = open.iter().rposition(|(d, _)| *d == delimiter) {
-                let (_, start) = open.remove(k);
-                // Telegram entities only nest, so ones opened inside close here and reopen after.
-                for (d, s) in &mut open[k..] {
-                    out.span(kind_of(d), *s);
-                    *s = out.len;
+            if let Some(body) = rest.strip_prefix("```") {
+                if let Some(end) = body.find("```") {
+                    let code = &body[..end];
+                    let (language, code) = match code.split_once('\n') {
+                        Some((lang, code)) if !lang.contains(char::is_whitespace) => (lang, code),
+                        _ => ("", code),
+                    };
+                    let start = out.len;
+                    out.push_str(code.strip_suffix('\n').unwrap_or(code));
+                    out.span(Kind::Pre(language.to_owned()), start);
+                    i += 6 + end;
+                    continue;
                 }
-                out.span(kind_of(delimiter), start);
-                i += 2;
+            }
+            if let Some(body) = rest.strip_prefix('`') {
+                if let Some(end) = body.find('`') {
+                    let start = out.len;
+                    out.push_str(&body[..end]);
+                    out.span(Kind::Code, start);
+                    i += 2 + end;
+                    continue;
+                }
+            }
+            if link.is_none() && rest.starts_with("![") {
+                if let Some((close, resume, url)) = find_link(&rest[1..], i + 1) {
+                    if let Some(kind) = inline_kind(url) {
+                        link = Some(Link { close, resume, kind, start: out.len });
+                        i += 2;
+                        continue;
+                    }
+                }
+            }
+            if link.is_none() && rest.starts_with('[') {
+                if let Some((close, resume, url)) = find_link(rest, i) {
+                    link = Some(Link { close, resume, kind: Kind::link(url.to_owned()), start: out.len });
+                    i += 1;
+                    continue;
+                }
+            }
+        }
+        if html {
+            if let Some(len) = read_markup(rest, &mut stack, &mut out) {
+                i += len;
                 continue;
             }
-            if rest[2..].contains(delimiter) {
-                open.push((delimiter, out.len));
-                i += 2;
-                continue;
+        }
+        if !literal {
+            // `||` ending a line ends an expandable quote, unless it closes a spoiler.
+            if let (Some((start, _, true)), Some(after)) = (quote, rest.strip_prefix("||")) {
+                if (after.is_empty() || after.starts_with('\n')) && !stack.has(&Name::Delimiter("||")) {
+                    out.spans.push(Span { kind: Kind::Blockquote(true), start, end: out.len });
+                    quote = None;
+                    i += 2;
+                    continue;
+                }
+            }
+            if let Some(&delimiter) = DELIMITERS.iter().find(|d| rest.starts_with(**d)) {
+                // Telegram entities only nest, so ones opened inside close here and reopen after.
+                if stack.close(&Name::Delimiter(delimiter), &mut out) {
+                    i += 2;
+                    continue;
+                }
+                if rest[2..].contains(delimiter) {
+                    stack.delimiter(delimiter, kind_of(delimiter), &out);
+                    i += 2;
+                    continue;
+                }
             }
         }
 
@@ -168,8 +176,9 @@ fn inline_kind(url: &str) -> Option<Kind> {
 }
 
 /// Spans the dialect can't express are dropped and their text kept: quotes that don't cover whole lines, code
-/// holding its own fence, link, emoji and date text holding `]`, and a span inside one of the same kind.
-pub(super) fn unparse(text: &Text) -> String {
+/// holding its own fence, link, emoji and date text holding `]`, and a span inside one of the same kind. `html`
+/// escapes what the mode that also reads HTML would take for a tag or an entity.
+pub(super) fn unparse(text: &Text, html: bool) -> String {
     // Each char's UTF-16 offset and byte index, with the end as the last entry.
     let mut units: Vec<(i32, usize)> = Vec::with_capacity(text.text.len() + 1);
     let mut at = 0;
@@ -241,7 +250,8 @@ pub(super) fn unparse(text: &Text) -> String {
         }
     }
 
-    let mut out = Markdown { out: String::with_capacity(text.text.len()), quotes: lines, line: 0, prev: None, raw: 0 };
+    let mut out =
+        Markdown { out: String::with_capacity(text.text.len()), quotes: lines, line: 0, prev: None, raw: 0, html };
     super::walk(&text.text, kept, &mut out);
     if out.quotes.iter().any(|&(_, end, expandable)| expandable && end == text.len) {
         out.out.push_str("||");
@@ -255,6 +265,8 @@ struct Markdown {
     line: usize,
     prev: Option<char>,
     raw: usize,
+    // Whether `<` and `&` need escaping, because the text is read back with HTML tags and entities.
+    html: bool,
 }
 
 impl Markup for Markdown {
@@ -336,7 +348,9 @@ impl Markup for Markdown {
             self.out.push(c);
             return;
         }
-        if matches!(c, '\\' | '*' | '_' | '-' | '~' | '|' | '`' | '[' | ']') || (c == '>' && line_start) {
+        let html_syntax = self.html && matches!(c, '<' | '&');
+        if matches!(c, '\\' | '*' | '_' | '-' | '~' | '|' | '`' | '[' | ']') || html_syntax || (c == '>' && line_start)
+        {
             self.out.push('\\');
         }
         self.out.push(c);

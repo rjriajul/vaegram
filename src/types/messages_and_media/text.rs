@@ -191,7 +191,9 @@ impl Text {
 
     pub(crate) fn parsed(self, mode: ParseMode) -> Text {
         match mode {
-            ParseMode::Html | ParseMode::Markdown if self.unparsed => parser::parse(&self.text, mode),
+            ParseMode::Html | ParseMode::Markdown | ParseMode::Default if self.unparsed => {
+                parser::parse(&self.text, mode)
+            }
             _ => self,
         }
     }
