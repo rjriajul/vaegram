@@ -14,6 +14,7 @@ mod business_opening_hours;
 mod business_recipients;
 mod channel_statistics;
 mod chat;
+mod chat_actions;
 mod chat_admin_with_invite_links;
 mod chat_boost;
 mod chat_color;
