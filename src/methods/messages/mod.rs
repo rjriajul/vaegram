@@ -125,6 +125,7 @@ mod send_voice;
 mod send_web_page;
 mod send_web_view_data;
 mod set_default_reaction;
+mod set_direct_messages_chat_topic_is_marked_as_unread;
 mod stop_message_live_location;
 mod stop_poll;
 mod stream_media;
