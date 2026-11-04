@@ -16,6 +16,7 @@ mod resale_gift;
 mod saved_credentials;
 mod star_payment_option;
 mod upgraded_gift_value_info;
+mod validated_order_info;
 
 pub use craft_gift_result::CraftGiftResult;
 pub use gift::{Gift, UniqueGift, UniqueGiftAttribute, UniqueGiftBackdrop};
@@ -37,3 +38,4 @@ pub use resale_gift::ResaleGift;
 pub use saved_credentials::SavedCredentials;
 pub use star_payment_option::StarPaymentOption;
 pub use upgraded_gift_value_info::UpgradedGiftValueInfo;
+pub use validated_order_info::ValidatedOrderInfo;

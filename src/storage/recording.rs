@@ -11,7 +11,9 @@
 //! returning one of those, every update holding one along with its whole batch, and answers to those requests.
 //! An `rpc_error` answer stays whole, since errors hold no secrets. Wrappers, gzip_packed, containers and update
 //! batches are looked into first, and anything that can't be is cut too. Server salts are zeroed and the config's
-//! `autologin_token` is dropped. Chats, messages and media are kept.
+//! `autologin_token` is dropped. Chats, messages and media are kept. Order info (names, phone numbers, emails and
+//! addresses) is cut only where a top-level request, answer or update carries it; order info nested inside another
+//! object, such as a payment service message inside an update container, stays.
 
 use std::borrow::Cow;
 use std::collections::HashSet;

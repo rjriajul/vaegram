@@ -20,7 +20,7 @@ use crate::types::{LabeledPrice, OrderInfo, PaymentOption, SavedCredentials, Use
 ///     is_test: false,
 /// };
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct PaymentForm {
     pub id: i64,
     pub kind: PaymentFormType,
@@ -59,6 +59,47 @@ pub struct PaymentForm {
     pub suggested_tip_amounts: Vec<i64>,
     pub terms_url: Option<String>,
     pub(crate) invoice: base::InputInvoice,
+}
+
+// The saved order info and card titles are personal data, so a log of a form must not show them.
+impl std::fmt::Debug for PaymentForm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let redacted = |present: bool| if present { "<redacted>" } else { "None" };
+        f.debug_struct("PaymentForm")
+            .field("id", &self.id)
+            .field("kind", &self.kind)
+            .field("bot", &self.bot)
+            .field("title", &self.title)
+            .field("description", &self.description)
+            .field("photo_url", &self.photo_url)
+            .field("currency", &self.currency)
+            .field("prices", &self.prices)
+            .field("total_amount", &self.total_amount)
+            .field("subscription_period", &self.subscription_period)
+            .field("is_test", &self.is_test)
+            .field("payment_provider", &self.payment_provider)
+            .field("url", &self.url)
+            .field("native_provider", &self.native_provider)
+            .field("native_params", &self.native_params)
+            .field("additional_payment_options", &self.additional_payment_options)
+            .field("saved_credentials", &format_args!("<{} redacted>", self.saved_credentials.len()))
+            .field("saved_order_info", &format_args!("{}", redacted(self.saved_order_info.is_some())))
+            .field("can_save_credentials", &self.can_save_credentials)
+            .field("need_password", &self.need_password)
+            .field("is_name_requested", &self.is_name_requested)
+            .field("is_phone_requested", &self.is_phone_requested)
+            .field("is_email_requested", &self.is_email_requested)
+            .field("is_shipping_address_requested", &self.is_shipping_address_requested)
+            .field("is_flexible", &self.is_flexible)
+            .field("is_phone_to_provider", &self.is_phone_to_provider)
+            .field("is_email_to_provider", &self.is_email_to_provider)
+            .field("is_recurring", &self.is_recurring)
+            .field("max_tip_amount", &self.max_tip_amount)
+            .field("suggested_tip_amounts", &self.suggested_tip_amounts)
+            .field("terms_url", &self.terms_url)
+            .field("invoice", &self.invoice)
+            .finish()
+    }
 }
 
 fn web_document_url(raw: Option<&base::WebDocument>) -> Option<String> {

@@ -127,6 +127,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn debug_hides_saved_order_info_and_card_titles() {
+        let (client, _sent) = client(vec![card_form("USD", 900)]);
+        let form = client.get_payment_form(InvoiceRef::Link("abc".into())).await.unwrap();
+        let shown = format!("{form:?}");
+        assert!(shown.contains("saved_order_info: <redacted>"), "{shown}");
+        for private in ["Ann", "Visa *1111", "card-1"] {
+            assert!(!shown.contains(private), "{private} leaked: {shown}");
+        }
+    }
+
+    #[tokio::test]
     async fn invoice_flags_and_tips_are_flat_on_the_form() {
         let flagged = types::Invoice {
             test: false,

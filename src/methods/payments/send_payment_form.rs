@@ -1,10 +1,9 @@
 use crate::Client;
 use crate::errors::{Error, Result};
-use crate::methods::into_future;
 use crate::raw::{base, functions};
 use crate::types::{InputCredentials, PaymentForm, PaymentResult, StarAmount};
 
-/// Pays a form: a Stars (or Toncoin) form as it is, a card form with [`credentials`](SendPaymentForm::credentials).
+/// Pays a form: a Stars (or Toncoin) form as it is (it takes no credentials, order info, shipping or tip), a card form with [`credentials`](SendPaymentForm::credentials).
 /// A timed-out payment may have gone through: check the balance before retrying.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPaymentForm<'a> {
@@ -81,6 +80,11 @@ impl SendPaymentForm<'_> {
         if form.currency == "XTR" || form.currency == "TON" {
             if self.credentials.is_some() {
                 return Err(Error::InvalidArgument("a form priced in Stars or Toncoin takes no credentials"));
+            }
+            if self.order_info_id.is_some() || self.shipping_option_id.is_some() || self.tip_amount.is_some() {
+                return Err(Error::InvalidArgument(
+                    "a form priced in Stars or Toncoin takes no order info, shipping or tip",
+                ));
             }
             let request = functions::payments::SendStarsForm { form_id: form.id, invoice: form.invoice };
             return finish(client, client.invoke(&request).await?);
@@ -431,24 +435,41 @@ pub(super) mod tests {
     }
 
     #[tokio::test]
+    async fn stars_form_with_order_info_shipping_or_tip_is_refused_without_a_request() {
+        for which in 0..3 {
+            let (client, mut sent) = client(vec![stars_form("XTR", &[900])]);
+            let form = client.get_payment_form(InvoiceRef::Link("abc".into())).await.unwrap();
+            let pay = client.send_payment_form(form);
+            let pay = match which {
+                0 => pay.order_info_id("o"),
+                1 => pay.shipping_option_id("s"),
+                _ => pay.tip_amount(5),
+            };
+            assert!(matches!(pay.await, Err(Error::InvalidArgument(_))), "{which}");
+            sent.try_recv().unwrap();
+            assert!(sent.try_recv().is_err(), "{which}: nothing may be paid");
+        }
+    }
+
+    #[tokio::test]
     async fn ton_cap_pays_a_ton_form() {
         let ton = StarAmount { amount: 5, nanostar_amount: 0, ton: true };
-        let (client, mut sent) = client(vec![gift_form("TON", 5), paid()]);
-        client.pay_form_up_to(slug(), ton).await.unwrap();
+        let (first, mut sent) = client(vec![gift_form("TON", 5), paid()]);
+        first.pay_form_up_to(slug(), ton).await.unwrap();
         let [get, pay] = payment(slug());
         assert_eq!(sent.try_recv().unwrap(), get);
         assert_eq!(sent.try_recv().unwrap(), pay);
         assert!(sent.try_recv().is_err());
 
         // A Toncoin cap never pays a Stars form, and a Stars cap never pays a Toncoin one.
-        let (client, mut sent) = client(vec![gift_form("XTR", 5), gift_form("TON", 5)]);
-        assert!(matches!(client.pay_form_up_to(slug(), ton).await, Err(Error::Unexpected(_))));
-        assert!(matches!(client.pay_in_stars_up_to(slug(), 5).await, Err(Error::Unexpected(_))));
+        let (second, mut sent) = client(vec![gift_form("XTR", 5), gift_form("TON", 5)]);
+        assert!(matches!(second.pay_form_up_to(slug(), ton).await, Err(Error::Unexpected(_))));
+        assert!(matches!(second.pay_in_stars_up_to(slug(), 5).await, Err(Error::Unexpected(_))));
         sent.try_recv().unwrap();
         sent.try_recv().unwrap();
         assert!(sent.try_recv().is_err());
-        let (client, mut sent) = client(vec![gift_form("TON", 6)]);
-        assert!(matches!(client.pay_form_up_to(slug(), ton).await, Err(Error::InvalidArgument(_))));
+        let (third, mut sent) = client(vec![gift_form("TON", 6)]);
+        assert!(matches!(third.pay_form_up_to(slug(), ton).await, Err(Error::InvalidArgument(_))));
         sent.try_recv().unwrap();
         assert!(sent.try_recv().is_err());
     }
