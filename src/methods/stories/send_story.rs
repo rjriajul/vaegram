@@ -4,7 +4,7 @@ use crate::enums::{ParseMode, StoriesPrivacyRules};
 use crate::errors::Result;
 use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions};
-use crate::types::{InputStoryContent, PeerRef, Story};
+use crate::types::{InputStoryContent, PeerRef, Story, StoryArea};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendStory<'a> {
@@ -17,6 +17,7 @@ pub struct SendStory<'a> {
     period: Option<i32>,
     pinned: bool,
     protect_content: bool,
+    areas: Vec<StoryArea>,
 }
 
 impl Client {
@@ -31,6 +32,7 @@ impl Client {
             period: None,
             pinned: false,
             protect_content: false,
+            areas: Vec::new(),
         }
     }
 }
@@ -57,6 +59,11 @@ impl SendStory<'_> {
         self
     }
 
+    pub fn media_areas(mut self, areas: impl IntoIterator<Item = StoryArea>) -> Self {
+        self.areas = areas.into_iter().collect();
+        self
+    }
+
     pub fn protect_content(mut self) -> Self {
         self.protect_content = true;
         self
@@ -65,13 +72,14 @@ impl SendStory<'_> {
     async fn request(&self, media: base::InputMedia) -> Result<functions::stories::SendStory> {
         let peer = self.client.resolve_peer(self.chat_id.clone()).await?;
         let (caption, entities) = self.client.parse_text(&self.caption, self.parse_mode).await?;
+        let areas = StoryArea::write_all(&self.areas, self.client).await?;
         Ok(functions::stories::SendStory {
             pinned: self.pinned,
             noforwards: self.protect_content,
             fwd_modified: false,
             peer,
             media,
-            media_areas: None,
+            media_areas: (!self.areas.is_empty()).then_some(areas),
             caption: (!caption.is_empty()).then_some(caption),
             entities: (!entities.is_empty()).then_some(entities),
             privacy_rules: self.client.input_privacy_rules(&self.privacy.rules()).await?,
@@ -100,6 +108,7 @@ mod tests {
     use crate::enums::StoriesPrivacyRules;
     use crate::raw::base;
     use crate::types::InputStoryContent;
+    use crate::types::{StoryArea, StoryAreaPosition, StoryAreaType};
 
     #[tokio::test]
     async fn request_carries_caption_privacy_and_flags() {
@@ -125,5 +134,22 @@ mod tests {
         assert_eq!((request.caption, request.entities, request.period), (None, None, None));
         assert_eq!(request.privacy_rules, [base::InputPrivacyRule::InputPrivacyValueAllowAll]);
         assert!(!request.pinned && !request.noforwards);
+    }
+
+    #[tokio::test]
+    async fn sends_media_areas() {
+        let client = Client::offline();
+        let link = StoryArea {
+            position: StoryAreaPosition { x_percentage: 50.0, y_percentage: 50.0, ..Default::default() },
+            kind: StoryAreaType::Link { url: "https://example.com".into() },
+        };
+        let story = client.send_story("me", InputStoryContent::photo("story.jpg")).media_areas([link.clone()]);
+        let request = story.request(base::InputMedia::InputMediaEmpty).await.unwrap();
+        let written = link.write(&client).await.unwrap();
+        assert_eq!(request.media_areas, Some(vec![written]));
+
+        let plain = client.send_story("me", InputStoryContent::photo("story.jpg"));
+        let request = plain.request(base::InputMedia::InputMediaEmpty).await.unwrap();
+        assert_eq!(request.media_areas, None);
     }
 }
