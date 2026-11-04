@@ -433,18 +433,25 @@ pub(crate) fn init_connection<X>(
     options: &Options,
     query: X,
 ) -> functions::InvokeWithLayer<functions::InitConnection<X>> {
+    let device = &options.device;
+    let params = device.tz_offset.map(|offset| {
+        let value = base::JSONValue::JsonNumber(types::JsonNumber { value: f64::from(offset) });
+        let entry = types::JsonObjectValue { key: "tz_offset".into(), value };
+        let entries = vec![base::JSONObjectValue::JsonObjectValue(Box::new(entry))];
+        base::JSONValue::JsonObject(Box::new(types::JsonObject { value: entries }))
+    });
     functions::InvokeWithLayer {
         layer: LAYER,
         query: functions::InitConnection {
             api_id,
-            device_model: options.device.model.clone(),
-            system_version: options.device.system_version.clone(),
-            app_version: options.device.app_version.clone(),
-            system_lang_code: options.device.lang_code.clone(),
-            lang_pack: String::new(),
-            lang_code: options.device.lang_code.clone(),
+            device_model: device.model.clone(),
+            system_version: device.system_version.clone(),
+            app_version: device.app_version.clone(),
+            system_lang_code: device.system_lang_code.as_ref().unwrap_or(&device.lang_code).clone(),
+            lang_pack: device.lang_pack.clone(),
+            lang_code: device.lang_code.clone(),
             proxy: options.proxy.as_ref().and_then(Proxy::input_client_proxy),
-            params: None,
+            params,
             query,
         },
     }
@@ -1018,4 +1025,31 @@ fn skips_backoff(renewing: bool, restarting: bool, attempt: u32) -> bool {
 fn jitter(delay: Duration) -> Duration {
     let half = delay / 2;
     half + half.mul_f64(f64::from(u32::from_le_bytes(random())) / f64::from(u32::MAX))
+}
+
+#[cfg(test)]
+mod device_tests {
+    use super::init_connection;
+    use crate::connection::Options;
+    use crate::raw::{base, functions, types};
+
+    #[test]
+    fn init_connection_sends_the_device_options() {
+        let mut options = Options::default();
+        options.device.lang_code = "de".into();
+        let sent = init_connection(1, &options, functions::help::GetConfig {}).query;
+        assert_eq!((sent.lang_pack.as_str(), sent.system_lang_code.as_str()), ("", "de"));
+        assert_eq!(sent.params, None);
+
+        options.device.lang_pack = "android".into();
+        options.device.system_lang_code = Some("fr".into());
+        options.device.tz_offset = Some(-3600);
+        let sent = init_connection(1, &options, functions::help::GetConfig {}).query;
+        assert_eq!((sent.lang_pack.as_str(), sent.system_lang_code.as_str()), ("android", "fr"));
+        assert_eq!(sent.lang_code, "de");
+        let value = base::JSONValue::JsonNumber(types::JsonNumber { value: -3600.0 });
+        let entry = types::JsonObjectValue { key: "tz_offset".into(), value };
+        let entries = vec![base::JSONObjectValue::JsonObjectValue(Box::new(entry))];
+        assert_eq!(sent.params, Some(base::JSONValue::JsonObject(Box::new(types::JsonObject { value: entries }))));
+    }
 }

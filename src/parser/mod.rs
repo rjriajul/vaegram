@@ -102,6 +102,11 @@ impl Kind {
     }
 }
 
+/// The `format` letters of `Kind::DateTime` flags, the inverse of `Kind::date_time`.
+pub(crate) fn date_time_format(flags: u8) -> String {
+    "rtTdDw".chars().enumerate().filter(|(bit, _)| flags & (1 << bit) != 0).map(|(_, c)| c).collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Span {
     pub(crate) kind: Kind,
@@ -342,6 +347,37 @@ mod tests {
     }
 
     #[test]
+    fn markdown_expandable_quotes() {
+        assert_eq!(md("**>a\n>b||\nc"), ("a\nb\nc".into(), vec!["quote:true 0 3".into()]));
+        assert_eq!(md("x\n**> y||"), ("x\ny".into(), vec!["quote:true 2 1".into()]));
+        assert_eq!(md("**>||s||||"), ("s".into(), vec!["spoiler 0 1".into(), "quote:true 0 1".into()]));
+        assert_eq!(md("**>||s||\nt"), ("s\nt".into(), vec!["spoiler 0 1".into(), "quote:true 0 1".into()]));
+        let (text, entities) = md("> a\n**> b||\n> c");
+        assert_eq!(text, "a\nb\nc");
+        assert_eq!(entities, ["quote:false 0 1", "quote:true 2 1", "quote:false 4 1"]);
+    }
+
+    #[test]
+    fn markdown_custom_emoji_and_dates() {
+        assert_eq!(md("![👍](tg://emoji?id=5368)"), ("👍".into(), vec!["emoji:5368 0 2".into()]));
+        assert_eq!(md("![t](tg://time?unix=5&format=wDT)"), ("t".into(), vec!["date:5:TDw 0 1".into()]));
+        assert_eq!(md("a ![t](tg://time?format=r&unix=1)"), ("a t".into(), vec!["date:1:r 2 1".into()]));
+        assert_eq!(md("![x](tg://emoji?id=nope)"), ("!x".into(), vec!["url:tg://emoji?id=nope 1 1".into()]));
+        assert_eq!(md("![x](https://a.b)"), ("!x".into(), vec!["url:https://a.b 1 1".into()]));
+        assert_eq!(md("![x](tg://time?unix=1&id=2)"), ("!x".into(), vec!["url:tg://time?unix=1&id=2 1 1".into()]));
+        assert_eq!(md("![x](tg://time?format=r)"), ("!x".into(), vec!["url:tg://time?format=r 1 1".into()]));
+    }
+
+    #[test]
+    fn html_pre_language_attribute() {
+        assert_eq!(html("<pre language=\"rust\">x</pre>"), ("x".into(), vec!["pre:rust 0 1".into()]));
+        assert_eq!(
+            html("<pre language=\"rust\"><code class=\"language-go\">x</code></pre>"),
+            ("x".into(), vec!["pre:go 0 1".into()])
+        );
+    }
+
+    #[test]
     fn out_of_order_html_closes_stay_linear() {
         // Each </i> closes an <i> under every <b>, which closes and reopens them all.
         let n = 200;
@@ -484,6 +520,12 @@ mod tests {
                 "**a**\n> \\> b\n\n**c**",
                 "> a\n> `b`",
                 "> `a`\nb",
+                "**> one\n> two||\nafter",
+                "x\n**> last||",
+                "**> ||s||||",
+                "> a\n**> b||\n> c\n**> d||",
+                "![👍](tg://emoji?id=5368) ![t](tg://time?unix=5&format=wDT) ![u](tg://time?unix=6)",
+                "\\![x](tg://emoji?id=1) ![**b**](tg://emoji?id=2)",
             ],
         );
     }
@@ -513,14 +555,14 @@ mod tests {
     #[test]
     fn markdown_drops_what_it_cannot_express() {
         let cases = [
-            (Text::new().custom_emoji("👍", 5), "👍"),
-            (Text::new().date_time("t", 1, "r"), "t"),
+            (Text::new().custom_emoji("a]b", 5), "a\\]b"),
+            (Text::new().date_time("a]b", 1, "r"), "a\\]b"),
             (Text::new().code("a`b"), "a\\`b"),
             (Text::new().pre("a```b", ""), "a\\`\\`\\`b"),
             (Text::new().link("a]b", "u"), "a\\]b"),
             (Text::new().plain("x ").blockquote("q", false), "x q"),
             (Text::new().blockquote("q\n", false), "q\n"),
-            (Text::new().blockquote("q", true), "> q"),
+            (Text::new().blockquote("q\n", true), "q\n"),
             (Text::new().bold(Text::new().plain("a").bold("b")), "**ab**"),
             (Text::new().code(Text::new().plain("a").bold("x")), "`ax`"),
             (Text::new().pre("a\n", "").blockquote("q", false), "```\na\n\n```q"),
@@ -530,6 +572,18 @@ mod tests {
             assert_eq!(text.to_markdown(), markdown, "{text:?}");
             assert_eq!(Text::from_markdown(markdown).as_str(), text.as_str(), "{markdown:?} lost text");
         }
+    }
+
+    #[test]
+    fn markdown_output_writes_emoji_dates_and_expandable_quotes() {
+        assert_eq!(Text::new().custom_emoji("👍", 5).to_markdown(), "![👍](tg://emoji?id=5)");
+        assert_eq!(Text::new().date_time("t", 1, "rD").to_markdown(), "![t](tg://time?unix=1&format=rD)");
+        assert_eq!(Text::new().date_time("t", 1, "").to_markdown(), "![t](tg://time?unix=1)");
+        assert_eq!(Text::new().blockquote("q", true).to_markdown(), "**> q||");
+        assert_eq!(Text::new().blockquote("q\nr", true).plain("\ns").to_markdown(), "**> q\n> r||\ns");
+        assert_eq!(Text::new().plain("!").link("x", "tg://emoji?id=1").to_markdown(), "\\![x](tg://emoji?id=1)");
+        let crossing = Text::new().blockquote(Text::new().spoiler("a"), true).spoiler("\nb");
+        assert_eq!(Text::from_markdown(&crossing.to_markdown()).as_str(), "a\nb");
     }
 
     #[test]

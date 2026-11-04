@@ -18,7 +18,7 @@ macro_rules! listener_setters {
                 self
             }
 
-            /// How long to wait; 5 minutes unless set.
+            /// How long to wait; the client's `listener_timeout`, 5 minutes unless set.
             pub fn timeout(mut self, timeout: ::std::time::Duration) -> Self {
                 self.spec.timeout = Some(timeout);
                 self
@@ -91,8 +91,6 @@ pub use listen::Listen;
 pub use register_next_step_handler::RegisterNextStepHandler;
 pub use stop_listening::StopListening;
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
-
 /// What a listener builder collects before its peers are resolved.
 pub(crate) struct Spec<T> {
     chats: Vec<PeerRef>,
@@ -101,9 +99,11 @@ pub(crate) struct Spec<T> {
     timeout: Option<Duration>,
 }
 
-impl<T> Default for Spec<T> {
-    fn default() -> Self {
-        Spec { chats: Vec::new(), users: Vec::new(), criteria: Criteria::default(), timeout: Some(DEFAULT_TIMEOUT) }
+impl<T> Spec<T> {
+    /// Starts from the client's settings, so the builder's setters override them.
+    fn new(client: &Client) -> Self {
+        let criteria = Criteria { alert: client.0.unallowed_click_alert.clone(), ..Criteria::default() };
+        Spec { chats: Vec::new(), users: Vec::new(), criteria, timeout: client.0.listener_timeout }
     }
 }
 

@@ -19,15 +19,15 @@ impl Client {
     ///
     /// Awaiting registers it and returns at once. The update it takes skips every handler group, as with
     /// `listen`, and `f` runs through the handler pipeline: `on_error`, `ordered` and `max_concurrent_handlers` apply.
-    /// It expires silently after its timeout (5 minutes unless set); `remove_handler` removes it sooner. Fails
-    /// with `Error::ListenerStopped` between runs.
+    /// It expires silently after its timeout (the client's `listener_timeout`, 5 minutes unless set);
+    /// `remove_handler` removes it sooner. Fails with `Error::ListenerStopped` between runs.
     pub fn register_next_step_handler<T, F, Fut, R>(&self, f: F) -> RegisterNextStepHandler<'_, T>
     where
         T: Listenable,
         F: Fn(T) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<R>> + Send + 'static,
     {
-        RegisterNextStepHandler { client: self, spec: Spec::default(), callback: callback(f) }
+        RegisterNextStepHandler { client: self, spec: Spec::new(self), callback: callback(f) }
     }
 }
 
@@ -120,6 +120,18 @@ mod tests {
     async fn an_expired_next_step_never_runs() {
         let (client, log) = (Client::offline(), Log::default());
         client.register_next_step_handler(record(&log)).timeout(Duration::from_secs(1)).await.unwrap();
+        tokio::time::advance(Duration::from_secs(2)).await;
+        dispatch(&client, new_message(1, 7));
+        settle().await;
+        assert!(log.lock().unwrap().is_empty());
+        assert!(!client.0.handlers.listeners.messages.waiting(), "the expired entry was kept");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn next_steps_use_the_client_timeout() {
+        let (mut client, log) = (Client::offline(), Log::default());
+        Arc::get_mut(&mut client.0).unwrap().listener_timeout = Some(Duration::from_secs(1));
+        client.register_next_step_handler(record(&log)).await.unwrap();
         tokio::time::advance(Duration::from_secs(2)).await;
         dispatch(&client, new_message(1, 7));
         settle().await;

@@ -11,6 +11,7 @@ use tokio::sync::Semaphore;
 use crate::connection::{Options, Proxy, Transport};
 use crate::crypto::rsa::PublicKey;
 use crate::dispatcher::Routes;
+use crate::dispatcher::listeners::UNEXPECTED_CLICK;
 use crate::dispatcher::router::run_hook;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
@@ -25,6 +26,7 @@ use crate::storage::state::UpdateState;
 use crate::storage::{FileStore, MemoryStore, SessionData, SessionStore, Store, session_string};
 
 const DEFAULT_DC: i32 = 2;
+const LISTENER_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[must_use = "call .start() or .connect() to get a client"]
 pub struct ClientBuilder {
@@ -43,6 +45,9 @@ pub struct ClientBuilder {
     max_concurrent_handlers: Option<usize>,
     record: Option<PathBuf>,
     store: Option<Arc<Store>>,
+    client_platform: String,
+    listener_timeout: Option<Duration>,
+    unallowed_click_alert: Option<Arc<str>>,
 }
 
 #[derive(Default)]
@@ -91,6 +96,25 @@ impl ClientBuilder {
 
     pub fn lang_code(mut self, code: impl Into<String>) -> Self {
         self.options.device.lang_code = code.into();
+        self
+    }
+
+    /// An official language pack name (`android`, `ios`, `tdesktop`, `macos`, …); Telegram refuses others with
+    /// `LANG_PACK_INVALID`. Empty by default.
+    pub fn lang_pack(mut self, pack: impl Into<String>) -> Self {
+        self.options.device.lang_pack = pack.into();
+        self
+    }
+
+    /// The device's own language, `lang_code` unless set.
+    pub fn system_lang_code(mut self, code: impl Into<String>) -> Self {
+        self.options.device.system_lang_code = Some(code.into());
+        self
+    }
+
+    /// The client's offset from UTC in seconds, which Telegram uses to show times in the user's zone.
+    pub fn tz_offset(mut self, seconds: i32) -> Self {
+        self.options.device.tz_offset = Some(seconds);
         self
     }
 
@@ -206,6 +230,46 @@ impl ClientBuilder {
         self
     }
 
+    /// Keeps the login and the update state in memory only: nothing is written, and the next run logs in again
+    /// unless the login is exported with `export_session_string`.
+    pub fn in_memory(self) -> Self {
+        self.store(MemoryStore::default())
+    }
+
+    /// The platform web apps are told the client runs on (`android`, `ios`, `tdesktop`, …), `"unknown"` by
+    /// default; each request's `.platform()` still overrides it.
+    pub fn client_platform(mut self, platform: impl Into<String>) -> Self {
+        self.client_platform = platform.into();
+        self
+    }
+
+    /// How long `listen`, `ask` and next-step handlers wait unless they set their own timeout; 5 minutes by
+    /// default.
+    pub fn listener_timeout(mut self, timeout: Duration) -> Self {
+        self.listener_timeout = Some(timeout);
+        self
+    }
+
+    /// Listeners wait for as long as it takes unless they set their own timeout.
+    pub fn no_listener_timeout(mut self) -> Self {
+        self.listener_timeout = None;
+        self
+    }
+
+    /// The alert other users get when they press a button a callback listener is pinned to, unless the listener
+    /// sets its own; "You are not expected to click this button." by default.
+    pub fn unallowed_click_alert(mut self, text: impl Into<String>) -> Self {
+        let text: String = text.into();
+        self.unallowed_click_alert = Some(text.into());
+        self
+    }
+
+    /// Leaves other users' presses on a pinned button to the handlers, unless the listener sets an alert.
+    pub fn no_unallowed_click_alert(mut self) -> Self {
+        self.unallowed_click_alert = None;
+        self
+    }
+
     pub async fn start(self) -> Result<Client> {
         let (client, login) = self.open().await?;
         if client.0.me.lock().unwrap().id == 0 {
@@ -267,6 +331,9 @@ impl ClientBuilder {
         inner.ordered = self.ordered;
         inner.catch_up = self.catch_up;
         inner.handler_permits = self.max_concurrent_handlers.map(|n| Arc::new(Semaphore::new(n.max(1))));
+        inner.client_platform = self.client_platform;
+        inner.listener_timeout = self.listener_timeout;
+        inner.unallowed_click_alert = self.unallowed_click_alert;
         let client = Client(Arc::new(inner), None);
         client.save()?;
         Ok((client, self.login))
@@ -308,6 +375,11 @@ pub(crate) struct Inner {
     // Whether `run` resumes from the saved update state or starts from now.
     pub(crate) catch_up: bool,
     pub(crate) handler_permits: Option<Arc<Semaphore>>,
+    // The default platform of web view requests.
+    pub(crate) client_platform: String,
+    // What listener builders start from.
+    pub(crate) listener_timeout: Option<Duration>,
+    pub(crate) unallowed_click_alert: Option<Arc<str>>,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
@@ -355,6 +427,9 @@ impl Inner {
             ordered: false,
             catch_up: true,
             handler_permits: None,
+            client_platform: "unknown".into(),
+            listener_timeout: Some(LISTENER_TIMEOUT),
+            unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
         }
@@ -405,6 +480,9 @@ impl Client {
             max_concurrent_handlers: None,
             record: None,
             store: None,
+            client_platform: "unknown".into(),
+            listener_timeout: Some(LISTENER_TIMEOUT),
+            unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
         }
     }
 
@@ -665,6 +743,15 @@ mod tests {
         assert_eq!((options.max_flood_sleeps, options.updates_capacity), (5, 1024));
         assert_eq!(options.flood_sleep_threshold, Duration::from_secs(60));
         assert!(builder.catch_up);
+        assert_eq!(builder.client_platform, "unknown");
+        assert_eq!(builder.listener_timeout, Some(Duration::from_secs(300)));
+        assert_eq!(builder.unallowed_click_alert.as_deref(), Some("You are not expected to click this button."));
+        let device = &options.device;
+        assert_eq!((device.lang_pack.as_str(), device.system_lang_code.as_deref(), device.tz_offset), ("", None, None));
+        let set = Client::builder("set", 1, "hash").lang_pack("android").system_lang_code("fr").tz_offset(60);
+        let device = &set.options.device;
+        assert_eq!((device.lang_pack.as_str(), device.system_lang_code.as_deref()), ("android", Some("fr")));
+        assert_eq!(device.tz_offset, Some(60));
     }
 
     #[test]
@@ -758,6 +845,35 @@ mod tests {
         drop(builder.connect().await.unwrap());
         assert_eq!(store.calls()[..2], ["load state", "save session"]);
         assert_eq!(store.value("session"), Some(login.into_bytes()));
+    }
+
+    #[tokio::test]
+    async fn an_in_memory_client_writes_no_files() {
+        assert!(Client::builder("memory", 1, "hash").in_memory().store.is_some());
+        let dc = TestDc::start([5; 256], false).await;
+        let dir = temp_dir("memory");
+        let builder = Client::builder(dir.join("bot").to_str().unwrap(), 1, "hash").in_memory();
+        let client = builder.session_string(dc.session_string([5; 256])).connect().await.unwrap();
+        client.0.save_state(&UpdateState { pts: 1, date: 1, ..Default::default() }).await;
+        client.save().unwrap();
+        drop(client);
+        let files = std::fs::read_dir(&dir).unwrap().count();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(files, 0);
+    }
+
+    #[tokio::test]
+    async fn builder_listener_settings_reach_the_client() {
+        let dc = TestDc::start([5; 256], false).await;
+        let builder = Client::builder("listener-settings", 1, "hash").session_string(dc.session_string([5; 256]));
+        let builder = builder.listener_timeout(Duration::from_secs(7)).unallowed_click_alert("not yours");
+        let client = builder.client_platform("android").connect().await.unwrap();
+        assert_eq!(client.0.listener_timeout, Some(Duration::from_secs(7)));
+        assert_eq!(client.0.unallowed_click_alert.as_deref(), Some("not yours"));
+        assert_eq!(client.0.client_platform, "android");
+        let builder = Client::builder("no-listener-settings", 1, "hash").session_string(dc.session_string([5; 256]));
+        let client = builder.no_listener_timeout().no_unallowed_click_alert().connect().await.unwrap();
+        assert_eq!((client.0.listener_timeout, client.0.unallowed_click_alert.clone()), (None, None));
     }
 
     #[tokio::test]

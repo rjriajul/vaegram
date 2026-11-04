@@ -11,7 +11,8 @@ use crate::filters::{Filter, Inspect, Subject};
 use crate::handlers::Callback;
 use crate::types::{CallbackQuery, InlineMessageId, Message};
 
-static UNEXPECTED_CLICK: LazyLock<Arc<str>> = LazyLock::new(|| "You are not expected to click this button.".into());
+pub(crate) static UNEXPECTED_CLICK: LazyLock<Arc<str>> =
+    LazyLock::new(|| "You are not expected to click this button.".into());
 
 /// An update kind `Client::listen` can wait for: [`Message`] or [`CallbackQuery`].
 pub trait Listenable: Listened {}

@@ -68,6 +68,12 @@ pub struct Device {
     pub system_version: String,
     pub app_version: String,
     pub lang_code: String,
+    /// The official language pack the client uses (`android`, `ios`, `tdesktop`, …); empty by default.
+    pub lang_pack: String,
+    /// The device's own language; `None` sends `lang_code`.
+    pub system_lang_code: Option<String>,
+    /// The client's UTC offset in seconds, sent in `initConnection.params`; `None` sends no params.
+    pub tz_offset: Option<i32>,
 }
 
 impl Default for Device {
@@ -77,6 +83,9 @@ impl Default for Device {
             system_version: std::env::consts::OS.into(),
             app_version: env!("CARGO_PKG_VERSION").into(),
             lang_code: "en".into(),
+            lang_pack: String::new(),
+            system_lang_code: None,
+            tz_offset: None,
         }
     }
 }

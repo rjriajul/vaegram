@@ -1,3 +1,4 @@
+use crate::Client;
 use crate::raw::base;
 
 pub(crate) struct WebViewOptions {
@@ -8,12 +9,12 @@ pub(crate) struct WebViewOptions {
     pub(crate) fullscreen: bool,
 }
 
-impl Default for WebViewOptions {
-    fn default() -> Self {
+impl WebViewOptions {
+    pub(crate) fn new(client: &Client) -> Self {
         WebViewOptions {
             start_param: None,
             theme_params: None,
-            platform: "unknown".into(),
+            platform: client.0.client_platform.clone(),
             compact: false,
             fullscreen: false,
         }

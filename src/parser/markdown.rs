@@ -16,7 +16,7 @@ fn kind_of(delimiter: &str) -> Kind {
 struct Link {
     close: usize,
     resume: usize,
-    url: String,
+    kind: Kind,
     start: i32,
 }
 
@@ -24,24 +24,33 @@ pub(super) fn parse(src: &str) -> Text {
     let mut out = Text::default();
     let mut open: Vec<(&str, i32)> = Vec::new();
     let mut link: Option<Link> = None;
-    let mut quote: Option<(i32, i32)> = None;
+    // Start, end so far, and whether it's expandable.
+    let mut quote: Option<(i32, i32, bool)> = None;
     let mut i = 0;
     while i < src.len() {
         let rest = &src[i..];
         if link.as_ref().is_some_and(|l| l.close == i) {
             let l = link.take().unwrap();
-            out.span(Kind::link(l.url), l.start);
+            out.span(l.kind, l.start);
             i = l.resume;
             continue;
         }
         if i == 0 || src.as_bytes()[i - 1] == b'\n' {
+            if let Some(after) = rest.strip_prefix("**>") {
+                if let Some((start, end, expandable)) = quote.take() {
+                    out.spans.push(Span { kind: Kind::Blockquote(expandable), start, end });
+                }
+                quote = Some((out.len, out.len, true));
+                i += 3 + after.starts_with(' ') as usize;
+                continue;
+            }
             if let Some(after) = rest.strip_prefix('>') {
-                quote.get_or_insert((out.len, out.len));
+                quote.get_or_insert((out.len, out.len, false));
                 i += 1 + after.starts_with(' ') as usize;
                 continue;
             }
-            if let Some((start, end)) = quote.take() {
-                out.spans.push(Span { kind: Kind::Blockquote(false), start, end });
+            if let Some((start, end, expandable)) = quote.take() {
+                out.spans.push(Span { kind: Kind::Blockquote(expandable), start, end });
             }
         }
 
@@ -75,10 +84,28 @@ pub(super) fn parse(src: &str) -> Text {
                 continue;
             }
         }
+        if link.is_none() && rest.starts_with("![") {
+            if let Some((close, resume, url)) = find_link(&rest[1..], i + 1) {
+                if let Some(kind) = inline_kind(url) {
+                    link = Some(Link { close, resume, kind, start: out.len });
+                    i += 2;
+                    continue;
+                }
+            }
+        }
         if link.is_none() && rest.starts_with('[') {
-            if let Some(l) = find_link(rest, i, out.len) {
-                link = Some(l);
+            if let Some((close, resume, url)) = find_link(rest, i) {
+                link = Some(Link { close, resume, kind: Kind::link(url.to_owned()), start: out.len });
                 i += 1;
+                continue;
+            }
+        }
+        // `||` ending a line ends an expandable quote, unless it closes a spoiler.
+        if let (Some((start, _, true)), Some(after)) = (quote, rest.strip_prefix("||")) {
+            if (after.is_empty() || after.starts_with('\n')) && !open.iter().any(|(d, _)| *d == "||") {
+                out.spans.push(Span { kind: Kind::Blockquote(true), start, end: out.len });
+                quote = None;
+                i += 2;
                 continue;
             }
         }
@@ -102,28 +129,46 @@ pub(super) fn parse(src: &str) -> Text {
         }
 
         let c = rest.chars().next().unwrap();
-        if let (Some((_, end)), '\n') = (&mut quote, c) {
+        if let (Some((_, end, _)), '\n') = (&mut quote, c) {
             *end = out.len;
         }
         out.push(c);
         i += c.len_utf8();
     }
-    if let Some((start, end)) = quote {
+    if let Some((start, end, expandable)) = quote {
         let end = if out.text.ends_with('\n') { end } else { out.len };
-        out.spans.push(Span { kind: Kind::Blockquote(false), start, end });
+        out.spans.push(Span { kind: Kind::Blockquote(expandable), start, end });
     }
     out
 }
 
-fn find_link(rest: &str, at: usize, start: i32) -> Option<Link> {
+/// The closing `]` and where parsing resumes, as byte indexes offset by `at`, and the URL.
+fn find_link(rest: &str, at: usize) -> Option<(usize, usize, &str)> {
     let close = rest.find(']')?;
     let url_part = rest[close + 1..].strip_prefix('(')?;
     let url_end = url_part.find(')')?;
-    Some(Link { close: at + close, resume: at + close + 2 + url_end + 1, url: url_part[..url_end].to_owned(), start })
+    Some((at + close, at + close + 2 + url_end + 1, &url_part[..url_end]))
 }
 
-/// Spans the dialect can't express are dropped and their text kept: custom emoji, dates, quotes that don't cover
-/// whole lines, code holding its own fence, link text holding `]`, and a span inside one of the same kind.
+/// What `![text](url)` stands for: a custom emoji or a date, or `None` for any other URL.
+fn inline_kind(url: &str) -> Option<Kind> {
+    let number = |s: &str| if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) { s.parse().ok() } else { None };
+    if let Some(id) = url.strip_prefix("tg://emoji?id=") {
+        return Some(Kind::CustomEmoji(number(id)?));
+    }
+    let (mut unix, mut format) = (None, "");
+    for pair in url.strip_prefix("tg://time?")?.split('&') {
+        match pair.split_once('=')? {
+            ("unix", value) => unix = Some(i32::try_from(number(value)?).ok()?),
+            ("format", value) => format = value,
+            _ => return None,
+        }
+    }
+    Some(Kind::date_time(unix?, format))
+}
+
+/// Spans the dialect can't express are dropped and their text kept: quotes that don't cover whole lines, code
+/// holding its own fence, link, emoji and date text holding `]`, and a span inside one of the same kind.
 pub(super) fn unparse(text: &Text) -> String {
     // Each char's UTF-16 offset and byte index, with the end as the last entry.
     let mut units: Vec<(i32, usize)> = Vec::with_capacity(text.text.len() + 1);
@@ -151,16 +196,19 @@ pub(super) fn unparse(text: &Text) -> String {
         }
         let content = inside(&s);
         match &mut s.kind {
-            Kind::CustomEmoji(_) | Kind::DateTime(..) => continue,
             Kind::Code if content.contains('`') => continue,
             Kind::Pre(_) if content.contains("```") => continue,
             Kind::Pre(language) if language.contains(|c: char| c.is_whitespace() || c == '`') => language.clear(),
-            Kind::Link(_) | Kind::Mention(_) if content.contains(']') => continue,
+            Kind::Link(_) | Kind::Mention(_) | Kind::CustomEmoji(_) | Kind::DateTime(..) if content.contains(']') => {
+                continue;
+            }
             _ => {}
         }
         let raw = |k: &Kind| matches!(k, Kind::Code | Kind::Pre(_));
         let class = |k: &Kind| match k {
-            Kind::Mention(_) => std::mem::discriminant(&Kind::Link(String::new())),
+            Kind::Mention(_) | Kind::CustomEmoji(_) | Kind::DateTime(..) => {
+                std::mem::discriminant(&Kind::Link(String::new()))
+            }
             Kind::Pre(_) => std::mem::discriminant(&Kind::Code),
             k => std::mem::discriminant(k),
         };
@@ -173,7 +221,7 @@ pub(super) fn unparse(text: &Text) -> String {
         }
     }
 
-    let mut lines: Vec<(i32, i32)> = Vec::new();
+    let mut lines: Vec<(i32, i32, bool)> = Vec::new();
     for q in quotes {
         let whole_lines = (q.start == 0 || char_at(q.start - 1) == Some('\n'))
             && (q.end == text.len || char_at(q.end) == Some('\n'))
@@ -183,20 +231,27 @@ pub(super) fn unparse(text: &Text) -> String {
                 && q.start <= k.end
                 && (matches!(k.kind, Kind::Pre(_)) || (k.kind == Kind::Code && inside(k).contains('\n')))
         });
-        let joins = lines.last().is_some_and(|&(_, end)| q.start <= end + 1);
+        // The closing `||` would close a spoiler that runs on past the quote instead.
+        let expandable = q.kind == Kind::Blockquote(true)
+            && !kept.iter().any(|k| k.kind == Kind::Spoiler && k.start <= q.end && q.end < k.end);
+        // Only `**>` starts a new quote right after another one; `>` lines would merge into it.
+        let joins = !expandable && lines.last().is_some_and(|&(_, end, before)| !before && q.start <= end + 1);
         if whole_lines && !breaks_code && !joins {
-            lines.push((q.start, q.end));
+            lines.push((q.start, q.end, expandable));
         }
     }
 
     let mut out = Markdown { out: String::with_capacity(text.text.len()), quotes: lines, line: 0, prev: None, raw: 0 };
     super::walk(&text.text, kept, &mut out);
+    if out.quotes.iter().any(|&(_, end, expandable)| expandable && end == text.len) {
+        out.out.push_str("||");
+    }
     out.out
 }
 
 struct Markdown {
     out: String,
-    quotes: Vec<(i32, i32)>,
+    quotes: Vec<(i32, i32, bool)>,
     line: usize,
     prev: Option<char>,
     raw: usize,
@@ -215,7 +270,14 @@ impl Markup for Markdown {
                 self.out.push_str(language);
                 self.out.push('\n');
             }
-            Kind::Link(_) | Kind::Mention(_) => self.out.push('['),
+            Kind::Link(_) | Kind::Mention(_) => {
+                // `![` would read as an emoji or a date.
+                if self.out.ends_with('!') {
+                    self.out.insert(self.out.len() - 1, '\\');
+                }
+                self.out.push('[');
+            }
+            Kind::CustomEmoji(_) | Kind::DateTime(..) => self.out.push_str("!["),
             kind => self.out.push_str(delimiter(kind)),
         }
     }
@@ -240,6 +302,20 @@ impl Markup for Markdown {
                 self.out.push_str(&user_id.to_string());
                 self.out.push(')');
             }
+            Kind::CustomEmoji(document_id) => {
+                self.out.push_str("](tg://emoji?id=");
+                self.out.push_str(&document_id.to_string());
+                self.out.push(')');
+            }
+            &Kind::DateTime(unix_time, flags) => {
+                self.out.push_str("](tg://time?unix=");
+                self.out.push_str(&unix_time.to_string());
+                if flags != 0 {
+                    self.out.push_str("&format=");
+                    self.out.push_str(&super::date_time_format(flags));
+                }
+                self.out.push(')');
+            }
             kind => self.out.push_str(delimiter(kind)),
         }
     }
@@ -247,8 +323,14 @@ impl Markup for Markdown {
     fn char(&mut self, at: i32, c: char) {
         let line_start = matches!(self.prev, None | Some('\n'));
         self.prev = Some(c);
-        if line_start && self.quotes.iter().any(|&(start, end)| start <= at && at < end) {
-            self.out.insert_str(self.line, "> ");
+        if line_start {
+            if let Some(&(start, _, expandable)) = self.quotes.iter().find(|&&(start, end, _)| start <= at && at < end)
+            {
+                self.out.insert_str(self.line, if expandable && start == at { "**> " } else { "> " });
+            }
+        }
+        if c == '\n' && self.quotes.iter().any(|&(_, end, expandable)| expandable && end == at) {
+            self.out.push_str("||");
         }
         if self.raw > 0 {
             self.out.push(c);

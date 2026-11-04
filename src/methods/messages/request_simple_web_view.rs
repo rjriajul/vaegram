@@ -22,7 +22,7 @@ impl Client {
             url: None,
             from_switch_webview: false,
             from_side_menu: false,
-            options: WebViewOptions::default(),
+            options: WebViewOptions::new(self),
         }
     }
 }

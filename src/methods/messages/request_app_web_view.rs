@@ -27,7 +27,7 @@ impl Client {
             bot_id: bot_id.into(),
             short_name: short_name.into(),
             write_allowed: false,
-            options: WebViewOptions::default(),
+            options: WebViewOptions::new(self),
         }
     }
 }

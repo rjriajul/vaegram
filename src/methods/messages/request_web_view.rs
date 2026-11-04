@@ -29,7 +29,7 @@ impl Client {
             disable_notification: false,
             reply_to: None,
             send_as: None,
-            options: WebViewOptions::default(),
+            options: WebViewOptions::new(self),
         }
     }
 }
@@ -108,6 +108,7 @@ into_future!(RequestWebView, WebViewSession);
 #[cfg(test)]
 mod tests {
     use std::future::IntoFuture;
+    use std::sync::Arc;
 
     use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -188,6 +189,27 @@ mod tests {
             theme_params: None,
             platform: "unknown".into(),
         };
+        assert_eq!(sent(&mut rx, call).await, expected.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn the_client_platform_is_the_default() {
+        let (mut client, mut rx) = bot_client(Vec::new());
+        Arc::get_mut(&mut client.0).unwrap().client_platform = "android".into();
+        let app = types::InputBotAppShortName { bot_id: input_bot(), short_name: "game".into() };
+        let mut expected = messages::RequestAppWebView {
+            write_allowed: false,
+            compact: false,
+            fullscreen: false,
+            peer: base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: BOT, access_hash: 99 })),
+            app: base::InputBotApp::InputBotAppShortName(Box::new(app)),
+            start_param: None,
+            theme_params: None,
+            platform: "android".into(),
+        };
+        assert_eq!(sent(&mut rx, client.request_app_web_view(BOT, BOT, "game")).await, expected.to_bytes());
+        expected.platform = "ios".into();
+        let call = client.request_app_web_view(BOT, BOT, "game").platform("ios");
         assert_eq!(sent(&mut rx, call).await, expected.to_bytes());
     }
 
