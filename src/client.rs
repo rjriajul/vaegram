@@ -226,8 +226,14 @@ impl ClientBuilder {
     }
 
     /// Asks Telegram not to send this client updates: every request goes out inside `invokeWithoutUpdates`, and so
-    /// does the one that opens each connection. For a client that only calls methods. `run` and the listeners need
-    /// updates, so they fail with `Error::InvalidArgument`.
+    /// does the one that opens each connection, the ones that export a login to another DC and the ones that
+    /// import it there. For a client that only calls methods. `run` and the listeners need updates, so they fail
+    /// with `Error::InvalidArgument`.
+    ///
+    /// Telegram describes the wrapper as "Invoke a request without subscribing the used connection for updates
+    /// (this is enabled by default for file queries)" (<https://core.telegram.org/method/invokeWithoutUpdates>).
+    /// It doesn't document what an unwrapped request does to a connection's subscription, so a client with this
+    /// on wraps every request that isn't a file part.
     pub fn no_updates(mut self) -> Self {
         self.options.no_updates = true;
         self
@@ -833,11 +839,16 @@ impl Client {
     }
 
     /// `invoke_in_dc` away from home, on a file connection with the login imported.
-    pub(crate) async fn invoke_on_file_connection<R: RemoteCall>(&self, dc: Dc, request: &R) -> Result<R::Return> {
+    pub(crate) async fn invoke_on_file_connection<R: RemoteCall>(
+        &self,
+        dc: Dc,
+        name: &'static str,
+        request: &R,
+    ) -> Result<R::Return> {
         let lease = self.transfer_sessions(dc, 1).await?;
         // A reopened file connection hasn't sent its layer, and the answer can carry users.
         let request = init_connection(self.0.api_id, &self.0.options, Borrowed(request));
-        invoke_sleeping_floods(&lease.sessions[0], R::NAME, &request, self.0.options.request_timeout).await
+        invoke_sleeping_floods(&lease.sessions[0], name, &request, self.0.options.request_timeout).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {

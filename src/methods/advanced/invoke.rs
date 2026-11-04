@@ -25,18 +25,33 @@ impl Client {
     }
 
     /// `invoke_with_timeout` for a request that goes out inside a wrapper: `name` is the request the rate limiter
-    /// counts it as.
+    /// counts it as, and the one that decides whether updates are off for it.
     pub(crate) async fn invoke_as<R: RemoteCall>(
         &self,
         name: &'static str,
         request: &R,
         timeout: Duration,
     ) -> Result<R::Return> {
+        self.invoke_wrapped(name, request, timeout, self.quiet_for(name)).await
+    }
+
+    /// Whether updates are off for the request called `name`: always with `no_updates`, and for the ones that only
+    /// read with `auto_no_updates`.
+    fn quiet_for(&self, name: &str) -> bool {
+        self.0.options.no_updates || (self.0.auto_no_updates && !needs_updates(name))
+    }
+
+    /// Sends `request` as `name`, inside `invokeWithoutUpdates` if `off`. Takeout goes outside, updates off inside.
+    async fn invoke_wrapped<R: RemoteCall>(
+        &self,
+        name: &'static str,
+        request: &R,
+        timeout: Duration,
+        off: bool,
+    ) -> Result<R::Return> {
         self.limit(name).await;
         let session = self.session();
         let call = Borrowed(request);
-        // Takeout outside, updates off inside. `name` is the request itself, whatever it goes out in.
-        let off = self.0.options.no_updates || (self.0.auto_no_updates && !needs_updates(name));
         match (self.1, off) {
             (Some(takeout_id), true) => {
                 let request = functions::InvokeWithTakeout { takeout_id, query: quiet(call) };
@@ -68,12 +83,18 @@ impl Client {
         }
         self.limit(R::NAME).await;
         let dc = self.dc(dc_id)?;
-        match self.1 {
-            Some(takeout_id) => {
-                let request = functions::InvokeWithTakeout { takeout_id, query: Borrowed(request) };
-                self.invoke_on_file_connection(dc, &request).await
+        let (name, call) = (R::NAME, Borrowed(request));
+        match (self.1, self.quiet_for(name)) {
+            (Some(takeout_id), true) => {
+                let request = functions::InvokeWithTakeout { takeout_id, query: quiet(call) };
+                self.invoke_on_file_connection(dc, name, &request).await
             }
-            None => self.invoke_on_file_connection(dc, request).await,
+            (Some(takeout_id), false) => {
+                let request = functions::InvokeWithTakeout { takeout_id, query: call };
+                self.invoke_on_file_connection(dc, name, &request).await
+            }
+            (None, true) => self.invoke_on_file_connection(dc, name, &quiet(call)).await,
+            (None, false) => self.invoke_on_file_connection(dc, name, request).await,
         }
     }
 
@@ -97,10 +118,22 @@ impl Client {
         let timeout = self.session().options().request_timeout;
         match connection_id {
             Some(connection_id) => {
-                let call =
-                    functions::InvokeWithBusinessConnection { connection_id: connection_id.into(), query: request };
-                // Counted as the request inside, not as the wrapper.
-                Ok((self.invoke_as(R::NAME, &call, timeout).await?, call.query))
+                // Counted as the request inside, not as the wrapper, and updates go off inside it.
+                let off = self.quiet_for(R::NAME);
+                let result = if off {
+                    let call = functions::InvokeWithBusinessConnection {
+                        connection_id: connection_id.into(),
+                        query: quiet(Borrowed(&request)),
+                    };
+                    self.invoke_wrapped(R::NAME, &call, timeout, false).await?
+                } else {
+                    let call = functions::InvokeWithBusinessConnection {
+                        connection_id: connection_id.into(),
+                        query: Borrowed(&request),
+                    };
+                    self.invoke_wrapped(R::NAME, &call, timeout, false).await?
+                };
+                Ok((result, request))
             }
             None => Ok((self.invoke(&request).await?, request)),
         }
@@ -243,6 +276,31 @@ mod tests {
         let import = vec![LAYER, INIT_CONNECTION, IMPORT_AUTHORIZATION];
         let ping = vec![LAYER, INIT_CONNECTION, PING];
         assert_eq!(calls(2), [import, ping.clone(), ping]);
+    }
+
+    #[tokio::test]
+    async fn a_no_updates_client_wraps_what_it_sends_to_another_dc() {
+        use crate::session::test_dc::INVOKE_WITH_LAYER as LAYER;
+        use crate::session::test_dc::{
+            EXPORT_AUTHORIZATION, IMPORT_AUTHORIZATION, INIT_CONNECTION, INVOKE_WITHOUT_UPDATES as QUIET, PING, TestDc,
+        };
+        let dc = TestDc::start([5; 256], false).await;
+        let builder = Client::builder("quiet-dc", 1, "hash").session_string(dc.session_string([5; 256]));
+        let client = builder.no_updates().connect().await.unwrap();
+        client.invoke_in_dc(FOREIGN_DC, &functions::Ping { ping_id: 1 }).await.unwrap();
+
+        // Telegram describes invokeWithoutUpdates as "Invoke a request without subscribing the used connection for
+        // updates (this is enabled by default for file queries)" and doesn't say what an unwrapped request does to
+        // a connection's subscription, so the export and the import of the login are wrapped like the rest. Behind
+        // the layer and initConnection of a fresh connection, every request is.
+        let seen: Vec<Vec<u32>> = dc.seen().into_iter().map(|s| s.ids).collect();
+        assert!(seen.contains(&vec![QUIET, EXPORT_AUTHORIZATION]), "{seen:?}");
+        assert!(seen.contains(&vec![LAYER, INIT_CONNECTION, QUIET, IMPORT_AUTHORIZATION]), "{seen:?}");
+        assert!(seen.contains(&vec![LAYER, INIT_CONNECTION, QUIET, PING]), "{seen:?}");
+        for ids in &seen {
+            let inner: Vec<u32> = ids.iter().copied().filter(|id| ![LAYER, INIT_CONNECTION].contains(id)).collect();
+            assert_eq!(inner[0], QUIET, "{ids:?}");
+        }
     }
 
     #[tokio::test]
@@ -498,8 +556,11 @@ mod tests {
     async fn business_and_takeout_use_the_inner_name() {
         let (client, mut sent) = auto_client(2, false);
         client.invoke_business(Some("c"), set_typing()).await.unwrap();
-        let business = || functions::InvokeWithBusinessConnection { connection_id: "c".into(), query: set_typing() };
-        assert_eq!(sent.try_recv().unwrap(), functions::InvokeWithoutUpdates { query: business() }.to_bytes());
+        let business = functions::InvokeWithBusinessConnection {
+            connection_id: "c".into(),
+            query: functions::InvokeWithoutUpdates { query: set_typing() },
+        };
+        assert_eq!(sent.try_recv().unwrap(), business.to_bytes());
 
         // A takeout holds the quiet request, and the request inside a takeout is still judged by its own name.
         let takeout = Client(client.0.clone(), Some(7));

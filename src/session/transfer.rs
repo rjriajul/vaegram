@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use super::internals::data_center::Dc;
 use super::{Events, Known, Salt, Session, WeakSession, init_connection};
+use crate::client::quiet;
 use crate::connection::Options;
 use crate::crypto::rsa::PublicKey;
 use crate::errors::{Error, Result};
@@ -148,10 +149,17 @@ impl TransferPool {
                 let session =
                     Session::connect_transfer(dc, None, cdn_key, options, events.clone(), rebind(), number()).await?;
                 if let Auth::Home(home, api_id) = auth {
-                    let base::auth::ExportedAuthorization::ExportedAuthorization(e) =
-                        home.invoke(&functions::auth::ExportAuthorization { dc_id: dc.id }).await?;
+                    let export = functions::auth::ExportAuthorization { dc_id: dc.id };
+                    // Same as everything else this client sends, when it wants no updates.
+                    let base::auth::ExportedAuthorization::ExportedAuthorization(e) = match options.no_updates {
+                        true => home.invoke(&quiet(export)).await?,
+                        false => home.invoke(&export).await?,
+                    };
                     let import = functions::auth::ImportAuthorization { id: e.id, bytes: e.bytes };
-                    session.invoke(&init_connection(api_id, options, import)).await?;
+                    match options.no_updates {
+                        true => session.invoke(&init_connection(api_id, options, quiet(import))).await?,
+                        false => session.invoke(&init_connection(api_id, options, import)).await?,
+                    };
                 }
                 let key = session.known_key();
                 let mut state = slot.state.lock().unwrap();
