@@ -35,4 +35,5 @@ mod on_shipping_query;
 mod on_start;
 mod on_stop;
 mod on_story;
+mod on_ton_wallet_state;
 mod on_user_status;
