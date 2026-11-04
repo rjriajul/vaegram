@@ -1,7 +1,13 @@
 mod fake_tls;
+#[cfg(feature = "websocket")]
+mod http1;
 mod obfuscated;
 mod proxy;
+#[cfg(feature = "websocket")]
+mod tls;
 mod transport;
+#[cfg(feature = "websocket")]
+mod websocket;
 
 pub use proxy::{Proxy, Secret};
 pub use transport::{Framing, RecvBuf, Transport};
@@ -83,6 +89,10 @@ pub struct Options {
     pub observer: Option<Observer>,
     pub record: Option<Recorder>,
     pub device: Device,
+    /// Carries MTProto over WebSocket on TLS (`wss://…web.telegram.org/apiws`), always obfuscated, instead of a
+    /// direct TCP connection: for networks that only let HTTPS through. Set by `ClientBuilder::websocket`.
+    #[cfg(feature = "websocket")]
+    pub websocket: bool,
 }
 
 impl Default for Options {
@@ -99,7 +109,21 @@ impl Default for Options {
             observer: None,
             record: None,
             device: Device::default(),
+            #[cfg(feature = "websocket")]
+            websocket: false,
         }
+    }
+}
+
+impl Options {
+    #[cfg(feature = "websocket")]
+    pub(crate) fn uses_websocket(&self) -> bool {
+        self.websocket
+    }
+
+    #[cfg(not(feature = "websocket"))]
+    pub(crate) fn uses_websocket(&self) -> bool {
+        false
     }
 }
 
@@ -161,7 +185,14 @@ impl Connection {
         if options.transport == Transport::Full && (options.obfuscated || secret.is_some()) {
             return Err(Error::InvalidArgument("the full transport can't be obfuscated or go through an MTProxy"));
         }
-        let (read, mut write) = match &options.connection_factory {
+        #[cfg(feature = "websocket")]
+        if options.websocket {
+            if secret.is_some() || options.transport == Transport::Full {
+                return Err(Error::InvalidArgument("WebSocket can't go through an MTProxy or use the full transport"));
+            }
+            return Self::open_websocket(dc, options, &websocket::Endpoint::of(dc)?).await;
+        }
+        let (read, write) = match &options.connection_factory {
             None => {
                 let stream = match &options.proxy {
                     None => TcpStream::connect(addr).await?,
@@ -189,11 +220,29 @@ impl Connection {
                 (ReadHalf::Boxed(read), WriteHalf::Boxed(write))
             }
         };
+        Self::start(dc, options, read, write, options.obfuscated || secret.is_some()).await
+    }
+
+    #[cfg(feature = "websocket")]
+    async fn open_websocket(dc: &Dc, options: &Options, endpoint: &websocket::Endpoint) -> Result<Self> {
+        // The data center's address family is the one asked for, so a proxy is given that family first too.
+        let (read, write) = websocket::open(endpoint, options, dc.addr.is_ipv6()).await?;
+        // Telegram's WebSocket endpoints only take obfuscated streams.
+        let read = ReadHalf::WebSocket(Box::new(read));
+        Self::start(dc, options, read, WriteHalf::WebSocket(write), true).await
+    }
+
+    /// Sends what the transport starts with, the obfuscation header or the transport's tag, on a stream just opened.
+    async fn start(dc: &Dc, options: &Options, read: ReadHalf, mut write: WriteHalf, obfuscate: bool) -> Result<Self> {
+        let secret = match &options.proxy {
+            Some(Proxy::MtProxy { secret, .. }) => Some(secret),
+            _ => None,
+        };
         let transport =
             if secret.is_some_and(|s| s.padded) { Transport::PaddedIntermediate } else { options.transport };
         let tls = secret.is_some_and(|s| s.domain.is_some());
         let (encrypt, decrypt, records) = match transport.tag() {
-            Some(tag) if options.obfuscated || secret.is_some() => {
+            Some(tag) if obfuscate => {
                 let (header, encrypt, decrypt) = obfuscated::init(tag, dc.wire_id() as i16, secret.map(|s| &s.key));
                 // Behind fake TLS the header rides in the first record together with the first packet.
                 let records = tls.then(|| RecordWriter::new(header));
@@ -217,7 +266,7 @@ impl Connection {
                 decrypt,
                 buf: RecvBuf::default(),
             },
-            writer: Writer { half: write, framing, encrypt, records, buf: Vec::new() },
+            writer: Writer { room: write.room(), half: write, framing, encrypt, records, buf: Vec::new() },
         })
     }
 
@@ -292,6 +341,8 @@ impl AsyncRead for Wire {
 enum ReadHalf {
     Tcp(OwnedReadHalf),
     Boxed(tokio::io::ReadHalf<Box<dyn Stream>>),
+    #[cfg(feature = "websocket")]
+    WebSocket(Box<websocket::Read>),
 }
 
 impl AsyncRead for ReadHalf {
@@ -299,6 +350,8 @@ impl AsyncRead for ReadHalf {
         match self.get_mut() {
             ReadHalf::Tcp(half) => Pin::new(half).poll_read(cx, buf),
             ReadHalf::Boxed(half) => Pin::new(half).poll_read(cx, buf),
+            #[cfg(feature = "websocket")]
+            ReadHalf::WebSocket(half) => Pin::new(half).poll_read(cx, buf),
         }
     }
 }
@@ -306,6 +359,19 @@ impl AsyncRead for ReadHalf {
 enum WriteHalf {
     Tcp(OwnedWriteHalf),
     Boxed(tokio::io::WriteHalf<Box<dyn Stream>>),
+    #[cfg(feature = "websocket")]
+    WebSocket(websocket::Write),
+}
+
+impl WriteHalf {
+    /// Free bytes the layer below needs in front of a framed packet.
+    fn room(&self) -> usize {
+        match self {
+            #[cfg(feature = "websocket")]
+            WriteHalf::WebSocket(_) => websocket::ROOM,
+            _ => 0,
+        }
+    }
 }
 
 impl AsyncWrite for WriteHalf {
@@ -313,6 +379,8 @@ impl AsyncWrite for WriteHalf {
         match self.get_mut() {
             WriteHalf::Tcp(half) => Pin::new(half).poll_write(cx, buf),
             WriteHalf::Boxed(half) => Pin::new(half).poll_write(cx, buf),
+            #[cfg(feature = "websocket")]
+            WriteHalf::WebSocket(half) => Pin::new(half).poll_write(cx, buf),
         }
     }
 
@@ -320,6 +388,8 @@ impl AsyncWrite for WriteHalf {
         match self.get_mut() {
             WriteHalf::Tcp(half) => Pin::new(half).poll_flush(cx),
             WriteHalf::Boxed(half) => Pin::new(half).poll_flush(cx),
+            #[cfg(feature = "websocket")]
+            WriteHalf::WebSocket(half) => Pin::new(half).poll_flush(cx),
         }
     }
 
@@ -327,12 +397,16 @@ impl AsyncWrite for WriteHalf {
         match self.get_mut() {
             WriteHalf::Tcp(half) => Pin::new(half).poll_shutdown(cx),
             WriteHalf::Boxed(half) => Pin::new(half).poll_shutdown(cx),
+            #[cfg(feature = "websocket")]
+            WriteHalf::WebSocket(half) => Pin::new(half).poll_shutdown(cx),
         }
     }
 }
 
 pub(crate) struct Writer {
     half: WriteHalf,
+    // Bytes kept free in front of the framing room, for the WebSocket frame header.
+    room: usize,
     framing: Framing,
     encrypt: Option<Ctr>,
     records: Option<RecordWriter>,
@@ -342,13 +416,18 @@ pub(crate) struct Writer {
 impl Writer {
     pub(crate) fn begin(&mut self) {
         self.buf.clear();
-        self.buf.resize(Framing::ROOM, 0);
+        self.buf.resize(self.room + Framing::ROOM, 0);
     }
 
     pub(crate) async fn finish(&mut self) -> Result<()> {
-        let start = self.framing.frame(&mut self.buf);
+        let start = self.framing.frame_after(&mut self.buf, self.room);
         if let Some(encrypt) = &mut self.encrypt {
             encrypt.apply(&mut self.buf[start..]);
+        }
+        #[cfg(feature = "websocket")]
+        if let WriteHalf::WebSocket(half) = &mut self.half {
+            half.send_in_place(&mut self.buf, start).await?;
+            return Ok(());
         }
         let wire = match &mut self.records {
             Some(records) => records.wrap(&self.buf[start..]),
@@ -375,6 +454,25 @@ mod tests {
 
     fn full() -> Options {
         Options { transport: Transport::Full, ..Options::default() }
+    }
+
+    #[cfg(feature = "websocket")]
+    #[tokio::test]
+    async fn websocket_refuses_mtproxy_and_full() {
+        // A data center with no WebSocket name: getting past the refusal would fail differently.
+        let dc = Dc { id: 9, addr: "127.0.0.1:9".parse().unwrap(), test: false };
+        let secret = "00".repeat(16).parse().unwrap();
+        let mtproxy = Proxy::MtProxy { host: "127.0.0.1".into(), port: 9, secret };
+        let websocket = Options { websocket: true, ..Options::default() };
+        let refused = [
+            Options { proxy: Some(mtproxy), ..websocket.clone() },
+            Options { transport: Transport::Full, ..websocket.clone() },
+        ];
+        for options in refused {
+            let result = Connection::connect(&dc, &options).await;
+            assert!(matches!(result, Err(Error::InvalidArgument(_))), "{options:?}");
+        }
+        assert!(matches!(Connection::connect(&dc, &websocket).await, Err(Error::InvalidDc(9))));
     }
 
     #[tokio::test]
