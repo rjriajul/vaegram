@@ -125,13 +125,17 @@ impl<'a> DownloadMedia<'a> {
     }
 
     /// Streams the file to `path` instead, creating missing parent directories. An existing file at `path` is
-    /// replaced only when the download succeeds; a failed or cancelled download leaves it as it was. Don't pass a
-    /// name taken from the message as is: the sender chose it, and it can contain `..` or an absolute path.
+    /// replaced only when the download succeeds, by a new file: a symlink or the permissions of the old one are not
+    /// kept. A failed or cancelled download leaves it as it was, and a `path` that is a directory is refused. Don't
+    /// pass a name taken from the message as is: the sender chose it, and it can contain `..` or an absolute path.
     pub async fn file_name(self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
         // A bad file id fails before anything touches the disk.
         if self.location.is_err() {
             return self.location.map(drop);
+        }
+        if path.is_dir() {
+            return Err(Error::InvalidArgument("the destination is a directory"));
         }
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir)?;
@@ -786,19 +790,32 @@ mod tests {
     async fn a_cancelled_download_leaves_no_file() {
         let dir = scratch("cancelled");
         let path = dir.join("out.bin");
+        let (session, mut requests) = Session::silent();
         let (client, _rx) = Client::scripted(Vec::new());
-        client.0.transfers.insert(client.dc(2).unwrap(), &client.session());
+        client.0.transfers.insert(client.dc(2).unwrap(), &session);
         let location =
             FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
-        {
-            let download = to_file(&client, Ok(location)).file_name(&path);
-            // One poll creates the temporary file; then the future is dropped before any reply.
-            tokio::select! {
-                biased;
-                _ = download => {}
-                _ = tokio::task::yield_now() => {}
-            }
+        let download = to_file(&client, Ok(location)).file_name(&path);
+        tokio::pin!(download);
+        // The request is out and unanswered: the download is mid-flight, with its temporary file on disk.
+        tokio::select! {
+            _ = &mut download => panic!("nothing answered"),
+            _ = requests.recv() => {}
         }
+        let names = leftovers(&dir);
+        assert!(matches!(&names[..], [name] if name.starts_with("out.bin.") && name.ends_with(".part")), "{names:?}");
+        drop(download);
+        assert_eq!(leftovers(&dir), Vec::<String>::new());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_directory_is_not_a_destination() {
+        let dir = scratch("directory");
+        let (client, _rx) = Client::scripted(Vec::new());
+        let location =
+            FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
+        assert!(matches!(to_file(&client, Ok(location)).file_name(&dir).await, Err(Error::InvalidArgument(_))));
         assert_eq!(leftovers(&dir), Vec::<String>::new());
         std::fs::remove_dir_all(&dir).unwrap();
     }
