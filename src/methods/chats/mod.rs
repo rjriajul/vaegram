@@ -112,6 +112,7 @@ pub use get_chat_members::GetChatMembers;
 pub use get_dialogs::GetDialogs;
 pub use get_forum_topics::GetForumTopics;
 pub use get_message_public_forwards::GetMessagePublicForwards;
+pub use mute_chat::MuteChat;
 pub use restrict_chat_member::RestrictChatMember;
 pub use set_chat_accent_color::SetChatAccentColor;
 pub use set_chat_photo::SetChatPhoto;

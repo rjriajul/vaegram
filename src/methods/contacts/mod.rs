@@ -10,7 +10,10 @@ mod set_contact_note;
 mod unblock_user;
 
 pub use add_contact::AddContact;
+pub use block_user::BlockUser;
+pub use get_blocked_message_senders::GetBlockedMessageSenders;
 pub use set_contact_note::SetContactNote;
+pub use unblock_user::UnblockUser;
 
 #[cfg(test)]
 mod tests {
@@ -36,6 +39,25 @@ mod tests {
         assert_eq!(sent(), contacts::DeleteContacts::CONSTRUCTOR_ID);
         let _ = client.get_common_chats(9_i64).await;
         assert_eq!(sent(), crate::raw::functions::messages::GetCommonChats::CONSTRUCTOR_ID);
+    }
+
+    #[tokio::test]
+    async fn block_list_sets_my_stories_from() {
+        use crate::enums::BlockList;
+        use crate::raw::Serializable;
+        let (client, mut rx) = Client::recording();
+        let user = types::InputPeerUser { user_id: 9, access_hash: 1 };
+        let id = base::InputPeer::InputPeerUser(Box::new(user.clone()));
+        client.0.peers.lock().unwrap().insert(9, id.clone());
+        for (list, flag) in [(BlockList::Main, false), (BlockList::Stories, true)] {
+            let _ = client.block_user(9_i64).block_list(list).await;
+            assert_eq!(rx.try_recv().unwrap(), contacts::Block { my_stories_from: flag, id: id.clone() }.to_bytes());
+            let _ = client.unblock_user(9_i64).block_list(list).await;
+            assert_eq!(rx.try_recv().unwrap(), contacts::Unblock { my_stories_from: flag, id: id.clone() }.to_bytes());
+            let _ = client.get_blocked_message_senders(5, 10).block_list(list).await;
+            let request = contacts::GetBlocked { my_stories_from: flag, offset: 5, limit: 10 };
+            assert_eq!(rx.try_recv().unwrap(), request.to_bytes());
+        }
     }
 
     #[tokio::test]
