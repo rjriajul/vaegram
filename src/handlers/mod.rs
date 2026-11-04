@@ -10,7 +10,7 @@ use crate::types::{
     ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages,
     EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
     MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
-    RawUpdate, ShippingQuery, UserStatusUpdated,
+    RawUpdate, ShippingQuery, Story, UserStatusUpdated,
 };
 
 pub use crate::dispatcher::listeners::Listenable;
@@ -273,5 +273,11 @@ impl Routed for UserStatusUpdated {
 
     fn order_key(&self) -> Option<i64> {
         Some(self.user.id)
+    }
+}
+
+impl Routed for Story {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
     }
 }
