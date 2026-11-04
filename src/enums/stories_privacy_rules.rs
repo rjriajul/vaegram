@@ -34,23 +34,28 @@ impl StoriesPrivacyRules {
                 return rules;
             }
         };
-        let mut rules = vec![allow];
+        // Exclusions come first: the official client sends them before the allow rule.
+        let mut rules = Vec::new();
         if !except.is_empty() {
             rules.push(PrivacyRule::DisallowUsers(except.clone()));
         }
+        rules.push(allow);
         rules
     }
 
     /// The audience a story's privacy rules describe, or `None` when they are not one `rules` produces.
     pub(crate) fn from_rules(rules: &[PrivacyRule]) -> Option<StoriesPrivacyRules> {
-        let except = |rest: &[PrivacyRule]| match rest {
-            [] => Some(Vec::new()),
-            [PrivacyRule::DisallowUsers(users)] => Some(users.clone()),
-            _ => None,
+        // Either order is read: the exclusions may come before or after the allow rule.
+        let (allow, except) = match rules {
+            [PrivacyRule::DisallowUsers(users), allow] => (std::slice::from_ref(allow), users.clone()),
+            [allow, PrivacyRule::DisallowUsers(users)] => (std::slice::from_ref(allow), users.clone()),
+            _ => (rules, Vec::new()),
         };
-        match rules {
-            [PrivacyRule::AllowAll, rest @ ..] => Some(StoriesPrivacyRules::Public { except: except(rest)? }),
-            [PrivacyRule::AllowContacts, rest @ ..] => Some(StoriesPrivacyRules::Contacts { except: except(rest)? }),
+        match allow {
+            [PrivacyRule::AllowAll] => Some(StoriesPrivacyRules::Public { except }),
+            [PrivacyRule::AllowContacts] => Some(StoriesPrivacyRules::Contacts { except }),
+            // Exclusions only go with the two open audiences.
+            _ if !except.is_empty() => None,
             [PrivacyRule::AllowCloseFriends] => Some(StoriesPrivacyRules::CloseFriends),
             [PrivacyRule::AllowUsers(users)] => Some(StoriesPrivacyRules::SelectedUsers(users.clone())),
             // Telegram may leave out the empty user rule when only groups are allowed.
@@ -73,7 +78,7 @@ mod tests {
         assert_eq!(StoriesPrivacyRules::default().rules(), [PrivacyRule::AllowAll]);
         assert_eq!(
             StoriesPrivacyRules::Contacts { except: vec![5] }.rules(),
-            [PrivacyRule::AllowContacts, PrivacyRule::DisallowUsers(vec![5])]
+            [PrivacyRule::DisallowUsers(vec![5]), PrivacyRule::AllowContacts]
         );
         assert_eq!(StoriesPrivacyRules::CloseFriends.rules(), [PrivacyRule::AllowCloseFriends]);
         assert_eq!(
@@ -95,6 +100,15 @@ mod tests {
         ] {
             assert_eq!(StoriesPrivacyRules::from_rules(&audience.rules()), Some(audience));
         }
+    }
+
+    #[test]
+    fn reads_exclusions_in_either_order() {
+        let before = [PrivacyRule::DisallowUsers(vec![5]), PrivacyRule::AllowContacts];
+        let after = [PrivacyRule::AllowContacts, PrivacyRule::DisallowUsers(vec![5])];
+        let expected = Some(StoriesPrivacyRules::Contacts { except: vec![5] });
+        assert_eq!(StoriesPrivacyRules::from_rules(&before), expected);
+        assert_eq!(StoriesPrivacyRules::from_rules(&after), expected);
     }
 
     #[test]
