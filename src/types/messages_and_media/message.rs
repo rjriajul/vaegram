@@ -911,7 +911,13 @@ pub(crate) mod tests {
             let action = types::MessageActionChangeCommunity { community_id };
             base::MessageAction::MessageActionChangeCommunity(Box::new(action))
         };
-        let hub = Community { id: get_channel_id(7), name: "Hub".into() };
+        let hub = Community {
+            id: get_channel_id(7),
+            name: "Hub".into(),
+            date: Some(0),
+            status: Some(crate::enums::CommunityMemberStatus::Member),
+            ..Community::default()
+        };
 
         let added = service(change(Some(7))).unwrap();
         assert_eq!(added.service, Some(ServiceAction::CommunityChatAdded(hub.clone())));
