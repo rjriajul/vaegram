@@ -1,0 +1,59 @@
+use crate::raw::types;
+
+/// A request to connect a TON wallet to a mini app, as the service message shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TonConnectRequest {
+    pub session_id: i64,
+    /// Unix time after which the request lapses.
+    pub expiration_date: i32,
+    pub is_accepted: bool,
+    pub is_declined: bool,
+    pub dapp_name: Option<String>,
+    pub topic: Option<String>,
+    pub trace_id: Option<String>,
+}
+
+impl TonConnectRequest {
+    pub(crate) fn parse(raw: &types::MessageActionWalletTonConnectRequest) -> TonConnectRequest {
+        TonConnectRequest {
+            session_id: raw.session_id,
+            expiration_date: raw.expires,
+            is_accepted: raw.accepted,
+            is_declined: raw.declined,
+            dapp_name: raw.dapp_name.clone(),
+            topic: raw.topic.clone(),
+            trace_id: raw.trace_id.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TonConnectRequest;
+    use crate::raw::types;
+
+    fn raw(accepted: bool, declined: bool) -> types::MessageActionWalletTonConnectRequest {
+        types::MessageActionWalletTonConnectRequest {
+            accepted,
+            declined,
+            session_id: 9,
+            expires: 100,
+            topic: Some("t".into()),
+            trace_id: None,
+            dapp_name: Some("App".into()),
+        }
+    }
+
+    #[test]
+    fn ton_connect_request_states() {
+        let pending = TonConnectRequest::parse(&raw(false, false));
+        assert_eq!((pending.is_accepted, pending.is_declined, pending.expiration_date), (false, false, 100));
+        assert_eq!(
+            (pending.session_id, pending.dapp_name.as_deref(), pending.topic.as_deref()),
+            (9, Some("App"), Some("t"))
+        );
+        assert_eq!(pending.trace_id, None);
+        assert!(TonConnectRequest::parse(&raw(true, false)).is_accepted);
+        assert!(TonConnectRequest::parse(&raw(false, true)).is_declined);
+    }
+}
