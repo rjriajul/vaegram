@@ -24,6 +24,7 @@ mod view_stories;
 
 pub use copy_story::CopyStory;
 pub use edit_story_caption::EditStoryCaption;
+pub use edit_story_media::EditStoryMedia;
 pub use enable_stealth_mode::EnableStealthMode;
 pub use forward_story::ForwardStory;
 pub use get_stories_archive::StoryPages;
