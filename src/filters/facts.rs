@@ -439,6 +439,19 @@ mod tests {
     }
 
     #[test]
+    fn our_message_to_a_bot_is_not_from_a_bot_when_we_are_not_one() {
+        let (client, mut entities) = (Client::offline(), entities());
+        entities.users.insert(9, user(9, false));
+        let me = Me { id: 9, is_bot: false, ..Me::default() };
+        let mut m = Message::bare(3, get_peer(7), 0);
+        m.out = true;
+        let raw = base::Message::Message(Box::new(m.clone()));
+        let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
+        assert_eq!(facts.flags & SENDER_BOT, 0);
+        assert_eq!(facts, Message::parse(&client, Box::new(m), &entities).facts(&me));
+    }
+
+    #[test]
     fn raw_and_parsed_callback_queries_have_the_same_facts() {
         let (client, entities) = (Client::offline(), entities());
         let me = Me { id: 8, ..Me::default() };
