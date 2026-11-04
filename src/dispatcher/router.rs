@@ -15,7 +15,7 @@ use crate::types::{
     ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
     DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
     MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
-    RawUpdate, ShippingQuery, Story, UserStatusUpdated,
+    RawUpdate, ShippingQuery, Story, TonWalletState, UserStatusUpdated,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -364,6 +364,9 @@ update_kinds! {
     user_status: UserStatus => UserStatusUpdated {
         UpdateUserStatus(u) => UserStatusUpdated::parse(client, &u, entities),
     }
+    ton_wallet_state: TonWalletState => TonWalletState {
+        UpdateWalletState(u) => TonWalletState::parse(client, &u.state),
+    }
     // A deleted story parses to `None`, so it never reaches a handler.
     story: Story => Story {
         UpdateStory(u) => {
@@ -706,6 +709,21 @@ mod tests {
         dispatch(&router, base::Update::UpdateBotStopped(Box::new(stopped)));
         settle().await;
         assert_eq!(*log.lock().unwrap(), ["member", "mine", "mine"]);
+    }
+
+    #[tokio::test]
+    async fn wallet_state_update_reaches_on_ton_wallet_state() {
+        let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
+        let sink = seen.clone();
+        client.on_ton_wallet_state(filters::all(), move |state| {
+            sink.lock().unwrap().push((state.is_being_created, state.wallet_address));
+            async { Ok(()) }
+        });
+        let state = base::WalletState::WalletStateEmpty(types::WalletStateEmpty { creating: true });
+        let update = base::Update::UpdateWalletState(Box::new(types::UpdateWalletState { state }));
+        dispatch(&router_of(&client), update);
+        settle().await;
+        assert_eq!(*seen.lock().unwrap(), [(true, None)]);
     }
 
     #[tokio::test]
