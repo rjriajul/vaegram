@@ -4,6 +4,8 @@ mod engine;
 mod file_format;
 mod file_storage;
 mod memory_storage;
+#[cfg(feature = "mongodb")]
+mod mongo_storage;
 mod peer_cache;
 pub mod recording;
 #[cfg(feature = "redb")]
@@ -18,6 +20,8 @@ mod store;
 pub use engine::{PeerRecord, Storage, StorageFuture, StoredState};
 pub use file_storage::FileStorage;
 pub use memory_storage::MemoryStorage;
+#[cfg(feature = "mongodb")]
+pub use mongo_storage::MongoStorage;
 pub(crate) use peer_cache::{PeerCache, input_peer};
 #[cfg(feature = "redb")]
 pub use redb_storage::RedbStorage;
