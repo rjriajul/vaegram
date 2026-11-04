@@ -83,15 +83,9 @@ impl MockDc {
     }
 
     pub fn session_string(&self) -> String {
-        session_string::export(&SessionData {
-            dc_id: 2,
-            test_mode: false,
-            addr: Some(self.addr),
-            api_id: 1,
-            auth_key: AUTH_KEY,
-            user_id: SELF_ID,
-            is_bot: true,
-        })
+        let mut session = SessionData::new(2, AUTH_KEY);
+        (session.addr, session.api_id, session.user_id, session.is_bot) = (Some(self.addr), 1, SELF_ID, true);
+        session_string::export(&session)
     }
 
     pub fn push(&self, n: u32) {

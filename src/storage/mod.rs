@@ -15,6 +15,8 @@ use std::path::Path;
 
 use crate::crypto::random;
 
+/// A login as a session string carries it. Build one with [`SessionData::new`] and set the other fields.
+#[non_exhaustive]
 pub struct SessionData {
     pub dc_id: i32,
     pub test_mode: bool,
@@ -23,6 +25,13 @@ pub struct SessionData {
     pub auth_key: [u8; 256],
     pub user_id: i64,
     pub is_bot: bool,
+}
+
+impl SessionData {
+    /// A production-DC login with no address, api id or user yet.
+    pub fn new(dc_id: i32, auth_key: [u8; 256]) -> SessionData {
+        SessionData { dc_id, test_mode: false, addr: None, api_id: 0, auth_key, user_id: 0, is_bot: false }
+    }
 }
 
 pub fn load(path: &Path) -> io::Result<Option<SessionData>> {

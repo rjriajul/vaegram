@@ -296,7 +296,7 @@ mod tests {
         b.extend_from_slice(&0u16.to_be_bytes());
         b.extend_from_slice(&[0; 48]);
         b.extend_from_slice(&crc32fast::hash(&b).to_le_bytes());
-        format!("{}{}", session_string::PREFIX, base64url_encode(&b))
+        format!("WZ_{}", base64url_encode(&b))
     }
 
     fn peers() -> Peers {
