@@ -100,6 +100,8 @@ pub enum Error {
     /// until the next `run`.
     /// A listener started before the first `run` isn't stopped: it waits until `ListenerTimeout`.
     ListenerStopped,
+    /// `max_listeners` listeners are already waiting, so this one wasn't started.
+    ListenerLimitReached(usize),
 }
 
 impl Error {
@@ -144,6 +146,7 @@ impl fmt::Display for Error {
             }
             Error::ListenerTimeout => f.write_str("no matching update arrived before the timeout"),
             Error::ListenerStopped => f.write_str("the listener was stopped"),
+            Error::ListenerLimitReached(max) => write!(f, "{max} listeners are already waiting"),
         }
     }
 }

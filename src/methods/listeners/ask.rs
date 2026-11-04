@@ -57,9 +57,11 @@ impl<'a> Ask<'a> {
 
     async fn send(self) -> Result<Message> {
         let Ask { prompt, mut listen } = self;
+        // Before the question goes out, so a full budget doesn't leave one unanswered.
+        listen.spec.criteria.permit = listen.client.0.handlers.listeners.permit()?;
         let sent = prompt.await?;
         listen.spec.criteria.chats.push(sent.chat.id);
-        listen.spec.criteria.after = Some(sent.id);
+        listen.spec.criteria.after = Some((sent.chat.id, sent.id));
         listen.await
     }
 }

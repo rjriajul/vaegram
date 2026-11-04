@@ -48,6 +48,7 @@ pub struct ClientBuilder {
     client_platform: String,
     listener_timeout: Option<Duration>,
     unallowed_click_alert: Option<Arc<str>>,
+    max_listeners: Option<usize>,
 }
 
 #[derive(Default)]
@@ -172,6 +173,14 @@ impl ClientBuilder {
 
     pub fn max_concurrent_handlers(mut self, n: usize) -> Self {
         self.max_concurrent_handlers = Some(n);
+        self
+    }
+
+    /// Caps how many `listen`, `ask` and next-step listeners wait at once, the way `max_concurrent_handlers` caps
+    /// handlers. One over the cap fails at once with `Error::ListenerLimitReached`; a listener gives its slot back
+    /// when it gets its update, times out, is stopped or removed. At least 1; no cap by default.
+    pub fn max_listeners(mut self, n: usize) -> Self {
+        self.max_listeners = Some(n.max(1));
         self
     }
 
@@ -334,6 +343,9 @@ impl ClientBuilder {
         inner.client_platform = self.client_platform;
         inner.listener_timeout = self.listener_timeout;
         inner.unallowed_click_alert = self.unallowed_click_alert;
+        if let Some(n) = self.max_listeners {
+            inner.handlers.listeners.limit(n);
+        }
         let client = Client(Arc::new(inner), None);
         client.save()?;
         Ok((client, self.login))
@@ -483,6 +495,7 @@ impl Client {
             client_platform: "unknown".into(),
             listener_timeout: Some(LISTENER_TIMEOUT),
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
+            max_listeners: None,
         }
     }
 

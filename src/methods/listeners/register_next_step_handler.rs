@@ -146,4 +146,24 @@ mod tests {
         let got = client.register_next_step_handler(record(&log)).await;
         assert!(matches!(got, Err(Error::ListenerStopped)), "{got:?}");
     }
+
+    #[tokio::test]
+    async fn next_step_handlers_count_too() {
+        let (client, log) = (Client::offline(), Log::default());
+        client.0.handlers.listeners.limit(1);
+        let first = client.register_next_step_handler(record(&log)).await.unwrap();
+        let over = client.register_next_step_handler(record(&log)).await;
+        assert!(matches!(over, Err(Error::ListenerLimitReached(1))), "{over:?}");
+        assert!(client.remove_handler(first));
+        assert!(client.register_next_step_handler(record(&log)).await.is_ok());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_expired_next_step_frees_its_slot() {
+        let (client, log) = (Client::offline(), Log::default());
+        client.0.handlers.listeners.limit(1);
+        client.register_next_step_handler(record(&log)).timeout(Duration::from_secs(1)).await.unwrap();
+        tokio::time::advance(Duration::from_secs(2)).await;
+        assert!(client.register_next_step_handler(record(&log)).await.is_ok());
+    }
 }
