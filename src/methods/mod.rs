@@ -61,3 +61,4 @@ pub use stickers::*;
 pub use stories::*;
 pub use users::*;
 pub use utilities::*;
+pub use wallet::*;
