@@ -11,7 +11,6 @@ pub struct RestrictionReason {
 }
 
 impl RestrictionReason {
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn parse(raw: &base::RestrictionReason) -> RestrictionReason {
         let base::RestrictionReason::RestrictionReason(r) = raw;
         RestrictionReason { platform: r.platform.clone(), reason: r.reason.clone(), text: r.text.clone() }

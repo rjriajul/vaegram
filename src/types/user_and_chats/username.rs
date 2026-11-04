@@ -11,7 +11,6 @@ pub struct Username {
 }
 
 impl Username {
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn parse(raw: &base::Username) -> Username {
         let base::Username::Username(u) = raw;
         Username { username: u.username.clone(), editable: u.editable, active: u.active }

@@ -15,7 +15,6 @@ pub struct ChatPhoto {
 
 impl ChatPhoto {
     /// `peer_id` is the Bot API id; `access_hash` is the peer's, 0 for basic groups.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn new(
         peer_id: i64,
         access_hash: i64,
