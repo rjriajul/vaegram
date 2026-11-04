@@ -1,3 +1,4 @@
+use super::edit_story_media::story_music;
 use crate::Client;
 use crate::crypto::random;
 use crate::enums::{ParseMode, StoriesPrivacyRules};
@@ -18,6 +19,10 @@ pub struct SendStory<'a> {
     pinned: bool,
     protect_content: bool,
     areas: Vec<StoryArea>,
+    music: Option<String>,
+    albums: Option<Vec<i32>>,
+    repost: Option<(PeerRef, i32)>,
+    repost_modified: bool,
 }
 
 impl Client {
@@ -33,6 +38,10 @@ impl Client {
             pinned: false,
             protect_content: false,
             areas: Vec::new(),
+            music: None,
+            albums: None,
+            repost: None,
+            repost_modified: false,
         }
     }
 }
@@ -69,14 +78,43 @@ impl SendStory<'_> {
         self
     }
 
+    /// The file id of an audio file to play with the story.
+    pub fn music(mut self, file_id: impl Into<String>) -> Self {
+        self.music = Some(file_id.into());
+        self
+    }
+
+    /// Adds the story to the albums with these ids.
+    pub fn albums(mut self, album_ids: impl IntoIterator<Item = i32>) -> Self {
+        self.albums = Some(album_ids.into_iter().collect());
+        self
+    }
+
+    /// Posts the story as a repost of another chat's story.
+    pub fn fwd_from(mut self, chat_id: impl Into<PeerRef>, story_id: i32) -> Self {
+        self.repost = Some((chat_id.into(), story_id));
+        self
+    }
+
+    /// Marks a repost as changed from the original.
+    pub fn fwd_modified(mut self) -> Self {
+        self.repost_modified = true;
+        self
+    }
+
     async fn request(&self, media: base::InputMedia) -> Result<functions::stories::SendStory> {
+        let music = self.music.as_deref().map(story_music).transpose()?;
         let peer = self.client.resolve_peer(self.chat_id.clone()).await?;
         let (caption, entities) = self.client.parse_text(&self.caption, self.parse_mode).await?;
         let areas = StoryArea::write_all(&self.areas, self.client).await?;
+        let (fwd_from_id, fwd_from_story) = match &self.repost {
+            Some((chat_id, story_id)) => (Some(self.client.resolve_peer(chat_id.clone()).await?), Some(*story_id)),
+            None => (None, None),
+        };
         Ok(functions::stories::SendStory {
             pinned: self.pinned,
             noforwards: self.protect_content,
-            fwd_modified: false,
+            fwd_modified: self.repost_modified,
             peer,
             media,
             media_areas: (!self.areas.is_empty()).then_some(areas),
@@ -85,14 +123,16 @@ impl SendStory<'_> {
             privacy_rules: self.client.input_privacy_rules(&self.privacy.rules()).await?,
             random_id: i64::from_le_bytes(random()),
             period: self.period,
-            fwd_from_id: None,
-            fwd_from_story: None,
-            albums: None,
-            music: None,
+            fwd_from_id,
+            fwd_from_story,
+            albums: self.albums.clone(),
+            music,
         })
     }
 
     async fn send(self) -> Result<Story> {
+        // A bad music id is refused before the media is uploaded.
+        self.music.as_deref().map(story_music).transpose()?;
         let media = self.media.upload(self.client).await?;
         let request = self.request(media).await?;
         Story::from_updates(self.client, self.client.invoke(&request).await?)
@@ -106,7 +146,9 @@ into_future!(SendStory, Story);
 mod tests {
     use crate::Client;
     use crate::enums::StoriesPrivacyRules;
-    use crate::raw::base;
+    use crate::errors::Error;
+    use crate::file_id::{FileId, FileType};
+    use crate::raw::{base, types};
     use crate::types::InputStoryContent;
     use crate::types::{StoryArea, StoryAreaPosition, StoryAreaType};
 
@@ -151,5 +193,34 @@ mod tests {
         let plain = client.send_story("me", InputStoryContent::photo("story.jpg"));
         let request = plain.request(base::InputMedia::InputMediaEmpty).await.unwrap();
         assert_eq!(request.media_areas, None);
+    }
+
+    #[tokio::test]
+    async fn send_story_sends_music_albums_and_fwd() {
+        let client = Client::offline();
+        let music = FileId::new(FileType::Audio, 2, 7, 8, &[9]).encode();
+        let story = client
+            .send_story("me", InputStoryContent::photo("story.jpg"))
+            .music(music)
+            .albums([3, 4])
+            .fwd_from("me", 9)
+            .fwd_modified();
+        let request = story.request(base::InputMedia::InputMediaEmpty).await.unwrap();
+        let document = types::InputDocument { id: 7, access_hash: 8, file_reference: vec![9] };
+        assert_eq!(request.music, Some(base::InputDocument::InputDocument(Box::new(document))));
+        assert_eq!(request.albums, Some(vec![3, 4]));
+        assert_eq!((request.fwd_from_id, request.fwd_from_story), (Some(base::InputPeer::InputPeerSelf), Some(9)));
+        assert!(request.fwd_modified);
+
+        let plain = client.send_story("me", InputStoryContent::photo("story.jpg"));
+        let request = plain.request(base::InputMedia::InputMediaEmpty).await.unwrap();
+        assert_eq!(
+            (request.music, request.albums, request.fwd_from_id, request.fwd_from_story),
+            (None, None, None, None)
+        );
+        assert!(!request.fwd_modified);
+
+        let bad = client.send_story("me", InputStoryContent::photo("story.jpg")).music("not a file id");
+        assert!(matches!(bad.request(base::InputMedia::InputMediaEmpty).await, Err(Error::InvalidArgument(_))));
     }
 }
