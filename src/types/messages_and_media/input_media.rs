@@ -1,6 +1,6 @@
 use crate::enums::{MediaKind, ParseMode};
 use crate::types::messages_and_media::Source;
-use crate::types::{FileSource, Text, Upload};
+use crate::types::{FileSource, MaskPosition, Text, Upload};
 
 #[derive(Debug, Clone)]
 pub struct InputMedia<'a> {
@@ -23,6 +23,7 @@ pub struct InputMedia<'a> {
     pub(crate) emoji: String,
     pub(crate) force_file: bool,
     pub(crate) file_name: Option<String>,
+    pub(crate) mask_position: Option<MaskPosition>,
 }
 
 impl<'a> InputMedia<'a> {
@@ -52,6 +53,7 @@ impl<'a> InputMedia<'a> {
             emoji: String::new(),
             force_file: false,
             file_name: None,
+            mask_position: None,
         }
     }
 
@@ -238,6 +240,16 @@ macro_rules! media_setters {
             }
         }
     };
+    (@mask_position $builder:ident $(. $m:ident)?) => {
+        impl $builder<'_> {
+            /// Where a sticker sits on a face, which makes it a mask. Ignored unless the media is a sticker being
+            /// uploaded: a file id, a URL or any other kind of media sends no mask.
+            pub fn mask_position(mut self, position: $crate::types::MaskPosition) -> Self {
+                self$(.$m)?.mask_position = Some(position);
+                self
+            }
+        }
+    };
     (@progress $builder:ident $(. $m:ident)?) => {
         impl<'a> $builder<'a> {
             pub fn progress(mut self, progress: impl FnMut(u64, u64) + Send + 'a) -> Self {
@@ -250,7 +262,7 @@ macro_rules! media_setters {
 pub(crate) use media_setters;
 
 media_setters!(InputMedia: caption thumb cover has_spoiler show_caption_above_media supports_streaming duration
-    start_timestamp width height length performer title emoji disable_content_type_detection file_name);
+    start_timestamp width height length performer title emoji disable_content_type_detection file_name mask_position);
 
 #[cfg(test)]
 mod tests {

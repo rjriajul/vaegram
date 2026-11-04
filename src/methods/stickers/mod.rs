@@ -37,5 +37,6 @@ pub use create_new_sticker_set::CreateNewStickerSet;
 pub use get_archived_sticker_sets::GetArchivedStickerSets;
 pub use get_featured_sticker_sets::GetFeaturedStickerSets;
 pub use get_owned_sticker_sets::GetOwnedStickerSets;
+pub use get_recent_stickers::GetRecentStickers;
 pub use search_sticker_sets::SearchStickerSets;
 pub use search_stickers::SearchStickers;

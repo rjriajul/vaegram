@@ -59,6 +59,8 @@ mod pin_forum_topic;
 mod promote_chat_member;
 mod reopen_forum_topic;
 mod reopen_general_forum_topic;
+mod report_chat;
+mod report_spam;
 mod restrict_chat_member;
 mod restrict_sponsored_messages;
 mod set_chat_accent_color;
