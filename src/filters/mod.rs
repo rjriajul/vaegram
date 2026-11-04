@@ -253,6 +253,58 @@ pub fn service_kind<T: HasMedia>(kinds: impl IntoIterator<Item = ServiceKind>) -
     Filter(Pred::Service(kinds.into_iter().fold(0u128, |mask, k| mask | 1 << k as u8)))
 }
 
+macro_rules! service_filters {
+    ($($(#[$doc:meta])* $name:ident => [$($kind:ident),+]),* $(,)?) => {$(
+        $(#[$doc])*
+        pub fn $name<T: HasMedia>() -> Filter<T> {
+            service_kind([$(ServiceKind::$kind),+])
+        }
+    )*};
+}
+
+service_filters! {
+    /// Members were added to the chat, or joined it.
+    new_chat_members => [NewChatMembers],
+    /// A member left or was removed.
+    left_chat_member => [LeftChatMember],
+    /// The chat's title changed.
+    new_chat_title => [NewChatTitle],
+    /// The chat's photo changed.
+    new_chat_photo => [NewChatPhoto],
+    /// The chat's photo was removed.
+    delete_chat_photo => [DeleteChatPhoto],
+    /// A basic group was created.
+    group_chat_created => [GroupChatCreated],
+    /// A supergroup was created.
+    supergroup_chat_created => [SupergroupChatCreated],
+    /// A channel was created.
+    channel_chat_created => [ChannelChatCreated],
+    /// The group was upgraded to a supergroup; the message is in the old group.
+    migrate_to_chat_id => [MigrateToChatId],
+    /// The supergroup was upgraded from a group; the message is in the new supergroup.
+    migrate_from_chat_id => [MigrateFromChatId],
+    /// A message was pinned.
+    pinned_message => [PinnedMessage],
+    /// Someone scored in a game.
+    game_high_score => [GameHighScore],
+    /// A video chat started.
+    video_chat_started => [VideoChatStarted],
+    /// A video chat ended.
+    video_chat_ended => [VideoChatEnded],
+    /// Members were invited to a video chat.
+    video_chat_members_invited => [VideoChatParticipantsInvited],
+    /// A payment went through.
+    successful_payment => [SuccessfulPayment],
+    /// The user shared users with the bot through a request button.
+    users_shared => [UsersShared],
+    /// The user shared a chat with the bot through a request button.
+    chat_shared => [ChatShared],
+    /// A Premium gift code was received.
+    gift_code => [PremiumGiftCode],
+    /// A gift was received, regular or upgraded.
+    gift => [Gift, UniqueGift],
+}
+
 pub fn private<T: HasChat>() -> Filter<T> {
     chat_kinds(&[ChatType::Private, ChatType::Bot])
 }
@@ -388,6 +440,42 @@ mod tests {
         let top: Filter = service_kind([ServiceKind::PassportDataReceived]);
         assert!(hit(&top, is(ServiceKind::PassportDataReceived)));
         assert!(!hit(&top, is(ServiceKind::AutoDeleteTimerChanged)));
+    }
+
+    #[test]
+    fn every_named_filter_matches_its_kind_only() {
+        use ServiceKind as K;
+        let cases: Vec<(Filter, &[ServiceKind])> = vec![
+            (new_chat_members(), &[K::NewChatMembers]),
+            (left_chat_member(), &[K::LeftChatMember]),
+            (new_chat_title(), &[K::NewChatTitle]),
+            (new_chat_photo(), &[K::NewChatPhoto]),
+            (delete_chat_photo(), &[K::DeleteChatPhoto]),
+            (group_chat_created(), &[K::GroupChatCreated]),
+            (supergroup_chat_created(), &[K::SupergroupChatCreated]),
+            (channel_chat_created(), &[K::ChannelChatCreated]),
+            (migrate_to_chat_id(), &[K::MigrateToChatId]),
+            (migrate_from_chat_id(), &[K::MigrateFromChatId]),
+            (pinned_message(), &[K::PinnedMessage]),
+            (game_high_score(), &[K::GameHighScore]),
+            (video_chat_started(), &[K::VideoChatStarted]),
+            (video_chat_ended(), &[K::VideoChatEnded]),
+            (video_chat_members_invited(), &[K::VideoChatParticipantsInvited]),
+            (successful_payment(), &[K::SuccessfulPayment]),
+            (users_shared(), &[K::UsersShared]),
+            (chat_shared(), &[K::ChatShared]),
+            (gift_code(), &[K::PremiumGiftCode]),
+            (gift(), &[K::Gift, K::UniqueGift]),
+        ];
+        let every: Vec<ServiceKind> = cases.iter().flat_map(|(_, kinds)| kinds.iter().copied()).collect();
+        let f = Facts::default();
+        for (i, (filter, kinds)) in cases.iter().enumerate() {
+            for kind in &every {
+                let facts = Facts { service: Some(*kind), ..f };
+                assert_eq!(hit(filter, facts), kinds.contains(kind), "case {i} against {kind:?}");
+            }
+            assert!(!hit(filter, f), "case {i} matched a message that isn't a service message");
+        }
     }
 
     #[test]
