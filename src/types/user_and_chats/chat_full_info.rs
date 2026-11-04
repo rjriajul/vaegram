@@ -4,7 +4,7 @@ use crate::raw::{base, types};
 use crate::types::{
     AcceptedGiftTypes, Birthday, BotVerification, BusinessAwayMessage, BusinessGreetingMessage, BusinessIntro,
     BusinessLocation, BusinessOpeningHours, Chat, ChatBackground, ChatLocation, ChatPhoto, ChatPrivileges,
-    ChatReactions, FormattedText, UserRating,
+    ChatReactions, FormattedText, ShareTheme, UserRating,
 };
 use crate::utils::{get_channel_id, get_peer};
 
@@ -21,6 +21,8 @@ pub struct ChatFullInfo {
     pub message_auto_delete_time: Option<i32>,
     /// The emoji of the chat theme.
     pub theme: Option<String>,
+    /// The theme of this chat's share card; `None` on the default one.
+    pub share_theme: Option<ShareTheme>,
     pub can_schedule_messages: bool,
     pub is_translations_disabled: bool,
 
@@ -152,6 +154,7 @@ impl ChatFullInfo {
                 base::ChatTheme::ChatTheme(t) => Some(t.emoticon),
                 base::ChatTheme::ChatThemeUniqueGift(_) => None,
             }),
+            share_theme: u.share_theme.as_ref().and_then(|t| ShareTheme::parse(t, entities)),
             can_schedule_messages: u.has_scheduled,
             is_translations_disabled: u.translations_disabled,
             is_blocked: u.blocked,
@@ -222,6 +225,7 @@ impl ChatFullInfo {
             chat_background: c.wallpaper.map(ChatBackground::parse),
             message_auto_delete_time: c.ttl_period,
             theme: c.theme_emoticon,
+            share_theme: c.share_theme.as_ref().and_then(|t| ShareTheme::parse(t, entities)),
             can_schedule_messages: c.has_scheduled,
             is_translations_disabled: c.translations_disabled,
             is_blocked: c.blocked,
@@ -306,7 +310,7 @@ fn short_name(set: base::StickerSet) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ChatFullInfo, linked_chat};
+    use super::{ChatFullInfo, ShareTheme, linked_chat};
     use crate::dispatcher::Entities;
     use crate::enums::ChatType;
     use crate::raw::{Serializable, base, types};
@@ -363,6 +367,7 @@ mod tests {
             wallpaper: Some(base::WallPaper::WallPaperNoFile(wallpaper.into())),
             available_min_id: Some(12),
             stats_dc: Some(4),
+            share_theme: Some(backdrop_theme()),
             ..types::ChannelFull::deserialize_bare(&mut &buf[..]).unwrap()
         };
         let info = ChatFullInfo::parse_channel(full, &Entities::default());
@@ -371,6 +376,7 @@ mod tests {
         assert!(info.can_set_location && !info.is_wallpaper_overridden);
         assert_eq!(info.chat_background.map(|b| (b.id, b.is_dark)), Some((3, true)));
         assert_eq!((info.available_min_id, info.stats_dc_id), (Some(12), Some(4)));
+        assert_eq!(info.share_theme.map(|t| t.backdrop_id), Some(Some(3)));
     }
 
     #[test]
@@ -390,14 +396,35 @@ mod tests {
         let full = types::UserFull {
             wallpaper: Some(base::WallPaper::WallPaperNoFile(wallpaper.into())),
             wallpaper_overridden: true,
+            share_theme: Some(backdrop_theme()),
             ..types::UserFull::deserialize_bare(&mut &buf[..]).unwrap()
         };
         let info = ChatFullInfo::parse_user(full, &Entities::default());
         assert!(info.is_wallpaper_overridden);
+        assert_eq!(info.share_theme.map(|t| t.backdrop_id), Some(Some(3)));
         assert_eq!(info.chat_background.map(|b| (b.id, b.is_dark)), Some((9, true)));
 
         let plain = types::UserFull::deserialize_bare(&mut &buf[..]).unwrap();
         let info = ChatFullInfo::parse_user(plain, &Entities::default());
-        assert!(!info.is_wallpaper_overridden && info.chat_background.is_none());
+        assert!(!info.is_wallpaper_overridden && info.chat_background.is_none() && info.share_theme.is_none());
+    }
+
+    fn backdrop_theme() -> base::ShareTheme {
+        base::ShareTheme::ShareThemeEmojiBackdrop(Box::new(types::ShareThemeEmojiBackdrop {
+            backdrop_id: Some(3),
+            emojis: Some(vec![base::Reaction::ReactionEmoji(Box::new(types::ReactionEmoji {
+                emoticon: "🐱".into()
+            }))]),
+        }))
+    }
+
+    #[test]
+    fn full_info_reads_share_theme() {
+        let entities = Entities::default();
+        let read = ShareTheme::parse(&backdrop_theme(), &entities).expect("a backdrop theme");
+        assert_eq!(read.backdrop_id, Some(3));
+        assert_eq!(read.emojis, [crate::types::ReactionType::Emoji("🐱".into())]);
+        assert!(read.gift.is_none());
+        assert_eq!(ShareTheme::parse(&base::ShareTheme::ShareThemeDefault, &entities), None);
     }
 }
