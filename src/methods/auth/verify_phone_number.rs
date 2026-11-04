@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 
 impl Client {
-    /// Checks the code `send_verify_phone_code` sent, with the hash it returned.
+    /// Checks the code `send_phone_number_code` with `PhoneNumberCodeType::Verify` sent, with the hash it returned.
     pub async fn verify_phone_number(&self, phone_number: &str, phone_code_hash: &str, phone_code: &str) -> Result<()> {
         let request = functions::account::VerifyPhone {
             phone_number: phone_number.into(),

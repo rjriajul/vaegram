@@ -64,7 +64,7 @@ async fn test_account_logs_in_with_a_resent_code() {
 
     let me = client.get_me().await.unwrap();
     let new_phone = test_number();
-    match client.send_change_phone_code(&new_phone).await {
+    match client.send_phone_number_code(&new_phone).kind(vaegram::enums::PhoneNumberCodeType::Change).await {
         Ok(code) => {
             let user = client.change_phone_number(&new_phone, &code.phone_code_hash, "22222").await.unwrap();
             let base::User::User(me) = me else { panic!("no account") };

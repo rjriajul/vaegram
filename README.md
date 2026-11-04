@@ -188,7 +188,7 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   live)
 - [x] Buttons, edited messages, callback queries, inline queries, `edit_text`, `delete`
 - [x] User login (phone code, 2FA password)
-- [ ] Login and account extras: `resend_code`, `get_password_hint`, `is_authorized`, `send_change_phone_code`,
+- [ ] Login and account extras: `resend_code`, `get_password_hint`, `is_authorized`, `send_phone_number_code`,
   `change_phone_number`, `check_username`, `set_contact_note`, `suggest_birthday`, profile music with
   `add_profile_audio`, `remove_profile_audio`, `set_profile_audio_position` (not yet tested live)
 - [x] Auto-reconnect, short `FLOOD_WAIT`s slept off
