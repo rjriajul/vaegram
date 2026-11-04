@@ -187,8 +187,8 @@ mod tests {
 
     #[tokio::test]
     async fn reply_button_text_skips_the_parse_mode() {
-        let (mut client, mut rx) = Client::recording();
-        std::sync::Arc::get_mut(&mut client.0).unwrap().parse_mode = ParseMode::Html;
+        let (client, mut rx) = Client::recording();
+        client.set_parse_mode(ParseMode::Html);
         let label = r#"<a href="https://x.example">Yes</a>"#;
         let message = message(&client, ReplyKeyboardMarkup::new([vec![KeyboardButton::new(label)]]).write());
         let _ = message.click(0).await;

@@ -337,8 +337,8 @@ mod tests {
 
     #[tokio::test]
     async fn unset_parse_modes_use_the_client_default() {
-        let mut client = Client::offline();
-        std::sync::Arc::get_mut(&mut client.0).unwrap().parse_mode = ParseMode::Html;
+        let client = Client::offline();
+        client.set_parse_mode(ParseMode::Html);
         let (text, entities) = client.parse_text("<b>hi</b>", None).await.unwrap();
         assert_eq!((text.as_str(), entities.len()), ("hi", 1));
         let (text, entities) = client.parse_text("<b>hi</b>", Some(ParseMode::Disabled)).await.unwrap();

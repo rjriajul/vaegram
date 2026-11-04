@@ -324,7 +324,7 @@ impl ClientBuilder {
         inner.pinned = pinned;
         inner.ipv6 = self.ipv6;
         inner.options = self.options;
-        inner.parse_mode = self.parse_mode;
+        inner.parse_mode = Mutex::new(self.parse_mode);
         inner.state = Mutex::new(state);
         inner.me = Mutex::new(Me { id: user_id, is_bot, premium: None, username: None });
         inner.peers = Mutex::new(peers);
@@ -363,7 +363,7 @@ pub(crate) struct Inner {
     pinned: Option<SocketAddr>,
     pub(crate) store: Arc<Store>,
     pub(crate) options: Options,
-    pub(crate) parse_mode: ParseMode,
+    pub(crate) parse_mode: Mutex<ParseMode>,
     pub(crate) state: Mutex<Option<UpdateState>>,
     // Bumped by log_out under the `state` lock, so a dispatcher started for the old account can't hand its
     // state back.
@@ -417,7 +417,7 @@ impl Inner {
             pinned: None,
             store,
             options: Options::default(),
-            parse_mode: ParseMode::Disabled,
+            parse_mode: Mutex::new(ParseMode::Disabled),
             transfers: TransferPool::default(),
             state: Mutex::new(None),
             account: AtomicU64::new(0),
