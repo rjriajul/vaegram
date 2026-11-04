@@ -75,7 +75,7 @@ async fn user_reads_stars_and_gift_counts() {
     assert!(!user.get_gift_upgrade_variants(gift.id).await.unwrap().models.is_empty());
 
     if let Some(resale) = user.search_gifts_for_resale(gift.id).limit(1).next().await.unwrap() {
-        let name = resale.gift.name;
+        let name = resale.name;
         assert_eq!(user.get_upgraded_gift(&name).await.unwrap().name, name);
         assert!(!user.get_upgraded_gift_value_info(&name).await.unwrap().currency.is_empty());
     }
