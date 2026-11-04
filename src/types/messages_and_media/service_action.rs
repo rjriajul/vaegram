@@ -6,8 +6,8 @@ use crate::types::{
     Community, ForumTopicCreated, ForumTopicEdited, GiftInfo, GiftedGrams, GiftedPremium, GiftedStars,
     GiveawayPrizeStars, PhoneCallEnded, Photo, PollOption, PremiumGiftCode, ProximityAlertTriggered, RefundedPayment,
     SharedUser, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
-    SuggestedPostPaid, SuggestedPostPrice, SuggestedPostRefunded, UniqueGiftInfo, UpgradedGiftPurchaseOffer,
-    UpgradedGiftPurchaseOfferRejected, User, UsersShared, WebAppData, WriteAccessAllowed,
+    SuggestedPostPaid, SuggestedPostPrice, SuggestedPostRefunded, TonConnectRequest, TonWalletTransfer, UniqueGiftInfo,
+    UpgradedGiftPurchaseOffer, UpgradedGiftPurchaseOfferRejected, User, UsersShared, WebAppData, WriteAccessAllowed,
 };
 use crate::utils::{get_channel_id, get_peer_id};
 
@@ -142,6 +142,10 @@ pub enum ServiceAction {
     PassportDataSent,
     /// The data stays encrypted.
     PassportDataReceived,
+    TonWalletTransfer(Box<TonWalletTransfer>),
+    TonConnectRequest(Box<TonConnectRequest>),
+    /// Someone used a no-paid-messages token to write without paying.
+    NoPaidMessagesTokenUsed,
 }
 
 impl ServiceAction {
@@ -413,6 +417,13 @@ impl ServiceAction {
             }
             (K::PassportDataSent, _) => ServiceAction::PassportDataSent,
             (K::PassportDataReceived, _) => ServiceAction::PassportDataReceived,
+            (K::TonWalletTransfer, A::MessageActionGramTransfer(a)) => ServiceAction::TonWalletTransfer(Box::new(
+                TonWalletTransfer::parse(a, raw.from_id.as_ref(), &raw.peer_id, entities),
+            )),
+            (K::TonConnectRequest, A::MessageActionWalletTonConnectRequest(a)) => {
+                ServiceAction::TonConnectRequest(Box::new(TonConnectRequest::parse(a)))
+            }
+            (K::NoPaidMessagesTokenUsed, _) => ServiceAction::NoPaidMessagesTokenUsed,
             _ => return None,
         })
     }
@@ -497,6 +508,9 @@ impl ServiceAction {
             S::PollOptionDeleted(_) => K::PollOptionDeleted,
             S::PassportDataSent => K::PassportDataSent,
             S::PassportDataReceived => K::PassportDataReceived,
+            S::TonWalletTransfer(_) => K::TonWalletTransfer,
+            S::TonConnectRequest(_) => K::TonConnectRequest,
+            S::NoPaidMessagesTokenUsed => K::NoPaidMessagesTokenUsed,
         }
     }
 }
@@ -1051,6 +1065,23 @@ mod tests {
             service(A::MessageActionSecureValuesSent(Box::new(types::MessageActionSecureValuesSent {
                 types: vec![base::SecureValueType::SecureValueTypePassport],
             }))),
+            service(A::MessageActionGramTransfer(Box::new(types::MessageActionGramTransfer {
+                comment_encrypted: false,
+                amount: 5,
+                peer_address: "EQa".into(),
+                transaction_id: "tx".into(),
+                comment: None,
+            }))),
+            service(A::MessageActionWalletTonConnectRequest(Box::new(types::MessageActionWalletTonConnectRequest {
+                accepted: false,
+                declined: true,
+                session_id: 1,
+                expires: 2,
+                topic: None,
+                trace_id: None,
+                dapp_name: None,
+            }))),
+            service(A::MessageActionNoPaidMessagesTokenUsed),
             service(A::MessageActionSecureValuesSentMe(Box::new(types::MessageActionSecureValuesSentMe {
                 values: Vec::new(),
                 credentials: base::SecureCredentialsEncrypted::SecureCredentialsEncrypted(Box::new(
@@ -1094,7 +1125,7 @@ mod tests {
             (service(A::MessageActionPinMessage), ServiceKind::PinnedMessage),
             (service(A::MessageActionChatEditPhoto(Box::new(empty))), ServiceKind::NewChatPhoto),
             (joined, ServiceKind::NewChatMembers),
-            (service(A::MessageActionNoPaidMessagesTokenUsed), ServiceKind::Unknown),
+            (service(A::MessageActionEmpty), ServiceKind::Unknown),
             (service(offer(star_gift().gift, false, false)), ServiceKind::UpgradedGiftPurchaseOffer),
             (
                 service(A::MessageActionSuggestProfilePhoto(Box::new(types::MessageActionSuggestProfilePhoto {

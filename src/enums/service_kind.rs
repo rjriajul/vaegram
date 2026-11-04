@@ -81,6 +81,9 @@ pub enum ServiceKind {
     PollOptionDeleted,
     PassportDataSent,
     PassportDataReceived,
+    TonWalletTransfer,
+    TonConnectRequest,
+    NoPaidMessagesTokenUsed,
     Unknown,
 }
 
@@ -181,6 +184,9 @@ impl ServiceKind {
             A::MessageActionPollDeleteAnswer(_) => K::PollOptionDeleted,
             A::MessageActionSecureValuesSent(_) => K::PassportDataSent,
             A::MessageActionSecureValuesSentMe(_) => K::PassportDataReceived,
+            A::MessageActionGramTransfer(_) => K::TonWalletTransfer,
+            A::MessageActionWalletTonConnectRequest(_) => K::TonConnectRequest,
+            A::MessageActionNoPaidMessagesTokenUsed => K::NoPaidMessagesTokenUsed,
             _ => K::Unknown,
         }
     }

@@ -108,7 +108,7 @@ mod tests {
             id,
             peer_id: peer(chat_id),
             date,
-            ..service(base::MessageAction::MessageActionNoPaidMessagesTokenUsed)
+            ..service(base::MessageAction::MessageActionEmpty)
         };
         base::Message::MessageService(Box::new(m))
     }
