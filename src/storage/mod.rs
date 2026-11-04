@@ -12,6 +12,8 @@ pub mod recording;
 mod redb_storage;
 #[cfg(feature = "redis")]
 mod redis_storage;
+#[cfg(feature = "s3")]
+mod s3_storage;
 pub mod session_string;
 #[cfg(feature = "sqlite")]
 mod sqlite_storage;
@@ -27,6 +29,8 @@ pub(crate) use peer_cache::{PeerCache, input_peer};
 pub use redb_storage::RedbStorage;
 #[cfg(feature = "redis")]
 pub use redis_storage::RedisStorage;
+#[cfg(feature = "s3")]
+pub use s3_storage::S3Storage;
 #[cfg(feature = "sqlite")]
 pub use sqlite_storage::SqliteStorage;
 #[cfg(test)]
