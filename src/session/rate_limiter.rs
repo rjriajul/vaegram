@@ -4,6 +4,7 @@ use std::time::Duration;
 use tokio::sync::Mutex as Queue;
 use tokio::time::{Instant, sleep};
 
+use super::no_updates::has;
 use crate::errors::{Error, Result};
 
 /// What a request counts against. Each category has a bucket of its own, and every request also takes a token from
@@ -42,18 +43,15 @@ impl RateCategory {
         if namespace == "account" {
             return RateCategory::Account;
         }
-        let mut method = method.chars();
-        let first = method.next().map(|c| c.to_uppercase().collect::<String>()).unwrap_or_default();
-        let method = format!("{first}{}", method.as_str());
-        let has = |words: &[&str]| words.iter().any(|word| method.contains(word));
-        if has(&["Send", "Upload", "Edit", "Forward", "Save"]) {
+        let any = |words: &[&str]| words.iter().any(|word| has(method, word));
+        if any(&["Send", "Upload", "Edit", "Forward", "Save"]) {
             let media = ["Media", "Photo", "Video", "Audio", "Document", "Animation", "Voice", "Sticker", "Round"];
-            return if has(&media) { RateCategory::Media } else { RateCategory::Message };
+            return if any(&media) { RateCategory::Media } else { RateCategory::Message };
         }
-        if has(&["GetDifference", "GetState", "Ping", "HttpWait"]) {
+        if any(&["GetDifference", "GetState", "Ping", "HttpWait"]) {
             return RateCategory::Bulk;
         }
-        if has(&["Delete", "Ban", "Kick", "Unban", "Promote", "Toggle", "Set", "Pin", "Report", "Block"]) {
+        if any(&["Delete", "Ban", "Kick", "Unban", "Promote", "Toggle", "Set", "Pin", "Report", "Block"]) {
             return RateCategory::Admin;
         }
         RateCategory::Query

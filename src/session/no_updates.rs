@@ -45,7 +45,7 @@ fn starts(method: &str, word: &str) -> bool {
     }
 }
 
-fn has(method: &str, word: &str) -> bool {
+pub(super) fn has(method: &str, word: &str) -> bool {
     starts(method, word) || method.chars().next().is_some_and(|first| method[first.len_utf8()..].contains(word))
 }
 
