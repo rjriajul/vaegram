@@ -21,7 +21,7 @@ use crate::enums::{ClientEvent, SkipReason};
 use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::session::{Incoming, UpdatesRx};
-use crate::storage::state::UpdateState;
+use crate::storage::UpdateState;
 use crate::utils::get_channel_id;
 
 const SAVE_EVERY: Duration = Duration::from_secs(10);
@@ -30,7 +30,7 @@ pub(crate) struct Dispatcher {
     client: Client,
     tracker: Tracker,
     saved_at: Instant,
-    saved: (UpdateState, usize),
+    saved: UpdateState,
     router: Arc<Router>,
     generation: u64,
     account: u64,
@@ -73,13 +73,13 @@ impl Dispatcher {
             for (update, entities) in std::mem::take(&mut self.tracker.ready) {
                 self.dispatch(update, &entities);
             }
-            // Saved every SAVE_EVERY when something moved, and on drop, so a crash replays at most that much.
+            // Saved every SAVE_EVERY when it moved, and on drop, so a crash replays at most that much. Peers are
+            // written by the store on its own timer.
             if self.saved_at.elapsed() >= SAVE_EVERY {
                 self.saved_at = Instant::now();
-                let now = (self.tracker.state.clone(), self.client.0.peers.lock().unwrap().len());
-                if now != self.saved && self.same_account() {
-                    self.client.0.save_state_in_background(&now.0);
-                    self.saved = now;
+                if self.tracker.state != self.saved && self.same_account() {
+                    self.client.0.save_state_in_background(&self.tracker.state);
+                    self.saved = self.tracker.state.clone();
                 }
             }
             let deadline = self.tracker.deadline();
@@ -196,7 +196,7 @@ mod tests {
     use crate::errors::{Error, RpcError};
     use crate::raw::{Identifiable, Serializable};
     use crate::session::UpdatesRx;
-    use crate::storage::state::UpdateState;
+    use crate::storage::UpdateState;
     use crate::types::{Message, RawUpdate};
     use crate::utils::{get_channel_id, get_peer};
 

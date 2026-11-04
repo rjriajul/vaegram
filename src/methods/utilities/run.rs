@@ -68,8 +68,7 @@ pub(super) mod tests {
     use crate::raw::functions::{updates, users};
     use crate::raw::{Identifiable, Serializable, base, types};
     use crate::session::{Incoming, UpdatesRx};
-    use crate::storage::state::{self, UpdateState};
-    use crate::storage::{FileStore, Store};
+    use crate::storage::{MemoryStorage, Storage, UpdateState};
 
     type Log = Arc<Mutex<Vec<&'static str>>>;
 
@@ -98,10 +97,8 @@ pub(super) mod tests {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
         let (mut client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
-        let dir = std::env::temp_dir().join(format!("vaegram-stop-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("bot.state");
-        Arc::get_mut(&mut client.0).unwrap().store = Arc::new(Store::new(FileStore::new(dir.join("bot"))));
+        let engine = Arc::new(MemoryStorage::new());
+        Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         // Updates never arrive and the channel stays open, so only the stop can end run.
         let (_updates, rx) = UpdatesRx::channel();
@@ -110,10 +107,9 @@ pub(super) mod tests {
         client.stop();
         let result = client.run().await;
         let owner = client.0.me.lock().unwrap().id;
-        let saved = state::load(&path, owner).map(|(_, state, _)| state.map(|s| s.pts));
-        let _ = std::fs::remove_dir_all(&dir);
+        let saved = engine.load_state().await.unwrap().map(|s| (s.owner, s.update.map(|u| u.pts)));
         assert!(result.is_ok(), "{result:?}");
-        assert_eq!(saved.ok(), Some(Some(10)));
+        assert_eq!(saved, Some((owner, Some(10))));
     }
 
     #[tokio::test]

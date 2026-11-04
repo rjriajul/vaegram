@@ -1,455 +1,626 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt;
-use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::pin::Pin;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, mpsc as std_mpsc};
+use std::time::Duration;
 
-use super::state::{self, Peers, UpdateState};
-use super::{SessionData, session_string};
+use tokio::sync::{Notify, mpsc, oneshot};
+
+use super::{PeerRecord, SessionData, Storage, StoredState, UpdateState};
 use crate::session::Salt;
 
-const SESSION: &str = "session";
-const STATE: &str = "state";
+const FLUSH_EVERY: Duration = Duration::from_secs(5);
+const FLUSH_AT: usize = 512;
+const DROP_WAIT: Duration = Duration::from_secs(10);
+/// The newest peers loaded into memory at startup; older ones come from the engine when asked for.
+pub(crate) const WARM_PEERS: usize = 4096;
 
-/// Where a client keeps what it saves between runs, as byte values under names.
-///
-/// vaegram uses two names. `"session"` holds the login as a session string, the same text
-/// [`export_session_string`](crate::Client::export_session_string) returns. `"state"` holds known chats, the update
-/// state and the server salt in vaegram's own versioned format. Later versions may add names, so a store should keep
-/// whatever it is given.
-///
-/// The `"session"` value is the account's auth key: anyone who can read it is logged in as that account. A custom
-/// store has to protect it itself, by access control, encryption at rest or both.
-///
-/// Calls block. State saves run on tokio's blocking threads, but loads, session saves (on connect, data center
-/// switch and sign-in) and the last state save, made when the client is dropped, run on the calling thread.
-pub trait SessionStore: Send + Sync + 'static {
-    /// The value last saved under `key`, or `None` when there is none.
-    fn load(&self, key: &str) -> io::Result<Option<Vec<u8>>>;
+type Job = Box<dyn FnOnce(Arc<dyn Storage>) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>;
 
-    /// Replaces the value under `key`, whole or not at all: a value cut short reads back as damaged.
-    fn save(&self, key: &str, bytes: &[u8]) -> io::Result<()>;
-
-    /// Removes `key`; a key that isn't there is not an error.
-    fn delete(&self, key: &str) -> io::Result<()>;
+enum Message {
+    Run(Job),
+    Flush(oneshot::Sender<()>),
+    Finish(std_mpsc::Sender<()>),
 }
 
-/// Lets the caller keep a handle to the store it gives the client.
-impl<T: SessionStore + ?Sized> SessionStore for Arc<T> {
-    fn load(&self, key: &str) -> io::Result<Option<Vec<u8>>> {
-        (**self).load(key)
-    }
-
-    fn save(&self, key: &str, bytes: &[u8]) -> io::Result<()> {
-        (**self).save(key, bytes)
-    }
-
-    fn delete(&self, key: &str) -> io::Result<()> {
-        (**self).delete(key)
-    }
-}
-
-/// The default store: `<name>.session` and `<name>.state`, each replaced atomically and, on Unix, readable by its
-/// owner only.
-#[derive(Clone, Debug)]
-pub struct FileStore {
-    session: PathBuf,
-}
-
-impl FileStore {
-    /// `name` is what [`Client::builder`](crate::Client::builder) takes, so it can hold a directory:
-    /// `"bots/echo"` keeps `bots/echo.session` and `bots/echo.state`.
-    pub fn new(name: impl AsRef<Path>) -> FileStore {
-        let mut session = name.as_ref().as_os_str().to_owned();
-        session.push(".session");
-        FileStore { session: PathBuf::from(session) }
-    }
-
-    fn path(&self, key: &str) -> Cow<'_, Path> {
-        match key {
-            SESSION => Cow::Borrowed(&self.session),
-            _ => Cow::Owned(self.session.with_extension(key)),
-        }
-    }
-}
-
-fn naming(path: &Path) -> impl FnOnce(io::Error) -> io::Error + '_ {
-    move |e| io::Error::new(e.kind(), format!("{}: {e}", path.display()))
-}
-
-impl SessionStore for FileStore {
-    fn load(&self, key: &str) -> io::Result<Option<Vec<u8>>> {
-        let path = self.path(key);
-        match fs::read(&path) {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(naming(&path)(e)),
-        }
-    }
-
-    fn save(&self, key: &str, bytes: &[u8]) -> io::Result<()> {
-        let path = self.path(key);
-        super::write_private(&path, bytes).map_err(naming(&path))
-    }
-
-    fn delete(&self, key: &str) -> io::Result<()> {
-        let path = self.path(key);
-        super::delete(&path).map_err(naming(&path))
-    }
-}
-
-/// Keeps everything in memory, so nothing outlives the process. A client started from a session string without a
-/// store uses one.
+/// Writes waiting for the next flush: peers coalesced by id, the newest state, and a salt to save under the
+/// state already saved when there is no state to queue.
 #[derive(Default)]
-pub struct MemoryStore(Mutex<HashMap<String, Vec<u8>>>);
+struct Queued {
+    peers: HashMap<i64, PeerRecord>,
+    state: Option<StoredState>,
+    salt: Option<(i64, Salt)>,
+    // Set by log_out: nothing queued or still to come may write the old account back.
+    dead: bool,
+}
 
-// The values hold the auth key, so they stay out of logs.
-impl fmt::Debug for MemoryStore {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MemoryStore").finish_non_exhaustive()
+#[derive(Default)]
+struct Pending {
+    queued: Mutex<Queued>,
+    full: Notify,
+}
+
+impl Pending {
+    fn lock(&self) -> MutexGuard<'_, Queued> {
+        self.queued.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
-impl SessionStore for MemoryStore {
-    fn load(&self, key: &str) -> io::Result<Option<Vec<u8>>> {
-        Ok(self.0.lock().unwrap_or_else(PoisonError::into_inner).get(key).cloned())
+/// A client's storage engine, run on a thread of its own with its own runtime, so engines may block or await as
+/// they like, the caller's runtime is never blocked on, and dropping the client can still save on any runtime.
+pub(crate) struct Store {
+    engine: Arc<dyn Storage>,
+    pending: Arc<Pending>,
+    worker: OnceLock<io::Result<mpsc::UnboundedSender<Message>>>,
+}
+
+impl Store {
+    pub(crate) fn new(engine: Arc<dyn Storage>) -> Store {
+        Store { engine, pending: Arc::default(), worker: OnceLock::new() }
     }
 
-    fn save(&self, key: &str, bytes: &[u8]) -> io::Result<()> {
-        let mut values = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        match values.get_mut(key) {
-            Some(value) => {
-                value.clear();
-                value.extend_from_slice(bytes);
+    fn worker(&self) -> io::Result<&mpsc::UnboundedSender<Message>> {
+        let worker = self.worker.get_or_init(|| {
+            let (tx, rx) = mpsc::unbounded_channel();
+            let (engine, pending) = (self.engine.clone(), self.pending.clone());
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+            std::thread::Builder::new()
+                .name("vaegram-store".into())
+                .spawn(move || runtime.block_on(work(engine, pending, rx)))?;
+            Ok(tx)
+        });
+        worker.as_ref().map_err(|e| io::Error::new(e.kind(), format!("couldn't start the store thread: {e}")))
+    }
+
+    fn started(&self) -> bool {
+        self.worker.get().is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_is_empty(&self) -> bool {
+        let queued = self.pending.lock();
+        queued.peers.is_empty() && queued.state.is_none() && queued.salt.is_none()
+    }
+
+    /// Runs `f` on the store thread and returns what it gives.
+    pub(crate) async fn call<T, F>(&self, f: impl FnOnce(Arc<dyn Storage>) -> F + Send + 'static) -> io::Result<T>
+    where
+        T: Send + 'static,
+        F: Future<Output = io::Result<T>> + Send + 'static,
+    {
+        let (tx, rx) = oneshot::channel();
+        let job: Job = Box::new(move |engine: Arc<dyn Storage>| -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            Box::pin(async move {
+                let _ = tx.send(f(engine).await);
+            })
+        });
+        self.worker()?.send(Message::Run(job)).map_err(|_| stopped())?;
+        rx.await.map_err(|_| io::Error::other("the storage engine call didn't finish"))?
+    }
+
+    pub(crate) async fn open(&self) -> io::Result<()> {
+        self.call(|e| async move { e.open().await }).await
+    }
+
+    pub(crate) async fn load_session(&self) -> io::Result<Option<SessionData>> {
+        self.call(|e| async move { e.load_session().await }).await
+    }
+
+    /// The update state and salt saved for `user_id`. Another account's state, and every peer it saved, is
+    /// dropped.
+    pub(crate) async fn load_state(&self, user_id: i64) -> io::Result<(Option<UpdateState>, Salt)> {
+        self.call(move |e| async move {
+            match e.load_state().await? {
+                Some(s) if s.owner == user_id => Ok((s.update, s.salt)),
+                Some(_) => {
+                    e.clear_peers().await?;
+                    Ok(Default::default())
+                }
+                None => Ok(Default::default()),
             }
-            None => {
-                values.insert(key.to_owned(), bytes.to_vec());
+        })
+        .await
+    }
+
+    pub(crate) async fn warm(&self) -> io::Result<Vec<PeerRecord>> {
+        self.call(|e| async move { e.export_peers(Some(WARM_PEERS)).await }).await
+    }
+
+    pub(crate) async fn get_peer(&self, id: i64) -> io::Result<Option<PeerRecord>> {
+        self.call(move |e| async move { e.get_peer_by_id(id).await }).await
+    }
+
+    pub(crate) async fn save_session(&self, session: SessionData) -> io::Result<()> {
+        let pending = self.pending.clone();
+        self.call(move |e| async move {
+            // Checked on the store thread, after every job queued before log_out ran.
+            if pending.lock().dead {
+                return Ok(());
+            }
+            e.save_session(&session).await
+        })
+        .await
+    }
+
+    /// Queues peers for the next flush; a peer queued twice is written once, as last queued.
+    pub(crate) fn queue_peers(&self, peers: impl IntoIterator<Item = PeerRecord>) {
+        let full = {
+            let mut queued = self.pending.lock();
+            if queued.dead {
+                return;
+            }
+            queued.peers.extend(peers.into_iter().map(|p| (p.id, p)));
+            queued.peers.len() >= FLUSH_AT
+        };
+        self.start_flushing();
+        if full {
+            self.pending.full.notify_one();
+        }
+    }
+
+    pub(crate) fn queue_state(&self, state: StoredState) {
+        {
+            let mut queued = self.pending.lock();
+            if queued.dead {
+                return;
+            }
+            queued.salt = None;
+            queued.state = Some(state);
+        }
+        self.start_flushing();
+    }
+
+    /// Queues `owner`'s salt alone, keeping the update state saved for them.
+    pub(crate) fn queue_salt(&self, owner: i64, salt: Salt) {
+        {
+            let mut queued = self.pending.lock();
+            if queued.dead {
+                return;
+            }
+            match &mut queued.state {
+                Some(state) if state.owner == owner => state.salt = salt,
+                _ => queued.salt = Some((owner, salt)),
             }
         }
-        Ok(())
+        self.start_flushing();
     }
 
-    fn delete(&self, key: &str) -> io::Result<()> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).remove(key);
-        Ok(())
-    }
-}
-
-/// A client's store, with the ordering vaegram needs on top: saves come from several threads and a slow backend
-/// must not let an older snapshot land last.
-pub(crate) struct Store<S: ?Sized = dyn SessionStore> {
-    encoded: AtomicU64,
-    // The newest state ticket saved. u64::MAX after log_out, which also stops session saves; both kinds take this
-    // lock, so a save already waiting can't write the dead login back.
-    written: Mutex<u64>,
-    backend: S,
-}
-
-impl<S: SessionStore> Store<S> {
-    pub(crate) fn new(backend: S) -> Self {
-        Store { encoded: AtomicU64::new(0), written: Mutex::new(0), backend }
-    }
-}
-
-impl<S: SessionStore + ?Sized> Store<S> {
-    pub(crate) fn load_session(&self) -> io::Result<Option<SessionData>> {
-        let Some(bytes) = self.backend.load(SESSION)? else { return Ok(None) };
-        session_string::parse(&String::from_utf8_lossy(&bytes))
-            .map(Some)
-            .map_err(|why| io::Error::new(io::ErrorKind::InvalidData, format!("stored session: {why}")))
-    }
-
-    pub(crate) fn save_session(&self, data: &SessionData) -> io::Result<()> {
-        let written = self.written.lock().unwrap_or_else(PoisonError::into_inner);
-        if *written == u64::MAX {
-            return Ok(());
+    fn start_flushing(&self) {
+        if let Err(e) = self.worker() {
+            eprintln!("vaegram: {e}; saves wait until it starts");
         }
-        self.backend.save(SESSION, session_string::export(data).as_bytes())
     }
 
-    pub(crate) fn load_state(&self, user_id: i64) -> io::Result<(Peers, Option<UpdateState>, Salt)> {
-        let Some(bytes) = self.backend.load(STATE)? else { return Ok(Default::default()) };
-        Ok(state::decode(&bytes, user_id).unwrap_or_else(|| {
-            eprintln!("vaegram: ignoring the stored state: damaged or from a newer vaegram; it will be overwritten");
-            Default::default()
-        }))
-    }
-
-    /// Taken while the snapshot is encoded, so tickets follow the order of the snapshots.
-    pub(crate) fn ticket(&self) -> u64 {
-        self.encoded.fetch_add(1, Ordering::Relaxed) + 1
-    }
-
-    pub(crate) fn save_state(&self, ticket: u64, bytes: &[u8]) {
-        let mut written = self.written.lock().unwrap_or_else(PoisonError::into_inner);
-        if ticket < *written {
+    /// Returns once everything queued so far is written, or has failed and been queued again.
+    pub(crate) async fn flush(&self) {
+        if !self.started() {
             return;
         }
-        match self.backend.save(STATE, bytes) {
-            Ok(()) => *written = ticket,
-            Err(e) => eprintln!("vaegram: failed to save the update state: {e}"),
+        let (tx, rx) = oneshot::channel();
+        if self.worker().and_then(|w| w.send(Message::Flush(tx)).map_err(|_| stopped())).is_ok() {
+            let _ = rx.await;
         }
     }
 
-    /// Removes the session and the state for good: no later save, even one already queued, writes them back.
-    /// Both are tried; the first error is returned.
-    pub(crate) fn delete(&self) -> io::Result<()> {
-        *self.written.lock().unwrap_or_else(PoisonError::into_inner) = u64::MAX;
-        let session = self.backend.delete(SESSION);
-        let state = self.backend.delete(STATE);
-        session.and(state)
+    /// Forgets the session, the state and every peer, and stops any write queued or still to come.
+    pub(crate) async fn delete(&self) -> io::Result<()> {
+        {
+            let mut queued = self.pending.lock();
+            queued.dead = true;
+            queued.peers.clear();
+            queued.state = None;
+            queued.salt = None;
+        }
+        self.call(|e| async move { e.delete().await }).await
+    }
+
+    /// Queues `state`, writes what is queued and closes the engine, waiting at most `DROP_WAIT`. Called when the
+    /// client is dropped, from whatever thread drops it.
+    pub(crate) fn finish(&self, state: Option<StoredState>) {
+        if let Some(state) = state {
+            self.queue_state(state);
+        }
+        let Some(Ok(worker)) = self.worker.get() else { return };
+        let (tx, rx) = std_mpsc::channel();
+        if worker.send(Message::Finish(tx)).is_ok() && rx.recv_timeout(DROP_WAIT).is_err() {
+            eprintln!("vaegram: the storage engine didn't finish saving within {DROP_WAIT:?}; giving up on it");
+        }
     }
 }
 
-/// Records every call and can be told to fail them all.
+fn stopped() -> io::Error {
+    io::Error::other("the store thread stopped")
+}
+
+async fn work(engine: Arc<dyn Storage>, pending: Arc<Pending>, mut rx: mpsc::UnboundedReceiver<Message>) {
+    let mut tick = tokio::time::interval(FLUSH_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    tick.tick().await;
+    let save = || isolated(flush(engine.clone(), pending.clone()), "while saving");
+    loop {
+        tokio::select! {
+            message = rx.recv() => match message {
+                Some(Message::Run(job)) => isolated(job(engine.clone()), "in a call").await,
+                Some(Message::Flush(done)) => {
+                    save().await;
+                    let _ = done.send(());
+                }
+                Some(Message::Finish(done)) => {
+                    save().await;
+                    isolated(close(engine.clone()), "while closing").await;
+                    let _ = done.send(());
+                    return;
+                }
+                None => {
+                    save().await;
+                    return isolated(close(engine.clone()), "while closing").await;
+                }
+            },
+            _ = tick.tick() => save().await,
+            _ = pending.full.notified() => save().await,
+        }
+    }
+}
+
+/// Runs `task` as a task of its own, so an engine that panics fails that one job, not the store thread.
+async fn isolated(task: impl Future<Output = ()> + Send + 'static, what: &str) {
+    if let Err(e) = tokio::spawn(task).await {
+        eprintln!("vaegram: the storage engine panicked {what}: {e}; the store keeps going");
+    }
+}
+
+async fn close(engine: Arc<dyn Storage>) {
+    if let Err(e) = engine.close().await {
+        eprintln!("vaegram: failed to close the storage engine: {e}");
+    }
+}
+
+async fn flush(engine: Arc<dyn Storage>, pending: Arc<Pending>) {
+    let peers: Vec<PeerRecord> = std::mem::take(&mut pending.lock().peers).into_values().collect();
+    if !peers.is_empty() && !pending.lock().dead {
+        if let Err(e) = engine.update_peers(&peers).await {
+            eprintln!("vaegram: failed to save {} known chats: {e}", peers.len());
+            // Back in the queue, unless a newer record of the same peer arrived meanwhile.
+            let mut queued = pending.lock();
+            for p in peers {
+                queued.peers.entry(p.id).or_insert(p);
+            }
+        }
+    }
+    let state = pending.lock().state.take();
+    if let Some(state) = state.filter(|_| !pending.lock().dead) {
+        if let Err(e) = engine.save_state(&state).await {
+            eprintln!("vaegram: failed to save the update state: {e}");
+            pending.lock().state.get_or_insert(state);
+        }
+    }
+    let salt = pending.lock().salt.take();
+    if let Some((owner, salt)) = salt.filter(|_| !pending.lock().dead) {
+        if let Err(e) = save_salt(&*engine, owner, salt).await {
+            eprintln!("vaegram: failed to save the server salt: {e}");
+            let mut queued = pending.lock();
+            if queued.state.is_none() {
+                queued.salt.get_or_insert((owner, salt));
+            }
+        }
+    }
+}
+
+async fn save_salt(engine: &dyn Storage, owner: i64, salt: Salt) -> io::Result<()> {
+    let update = engine.load_state().await?.filter(|s| s.owner == owner).and_then(|s| s.update);
+    engine.save_state(&StoredState::new(owner, salt, update)).await
+}
+
+/// An engine over memory that records every call and can be told to fail them all.
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct Recording {
-    calls: Mutex<Vec<String>>,
-    values: MemoryStore,
+    calls: Mutex<Vec<&'static str>>,
+    inner: super::MemoryStorage,
     fail: bool,
 }
 
 #[cfg(test)]
 impl Recording {
-    pub(crate) fn failing() -> Self {
+    pub(crate) fn failing() -> Recording {
         Recording { fail: true, ..Recording::default() }
     }
 
-    pub(crate) fn calls(&self) -> Vec<String> {
+    pub(crate) fn calls(&self) -> Vec<&'static str> {
         self.calls.lock().unwrap().clone()
     }
 
-    pub(crate) fn value(&self, key: &str) -> Option<Vec<u8>> {
-        self.values.load(key).unwrap()
-    }
-
-    fn call(&self, call: &str, key: &str) -> io::Result<()> {
-        self.calls.lock().unwrap().push(format!("{call} {key}"));
+    fn call(&self, name: &'static str) -> io::Result<()> {
+        self.calls.lock().unwrap().push(name);
         if self.fail { Err(io::Error::other("store is down")) } else { Ok(()) }
     }
 }
 
 #[cfg(test)]
-impl SessionStore for Recording {
-    fn load(&self, key: &str) -> io::Result<Option<Vec<u8>>> {
-        self.call("load", key)?;
-        self.values.load(key)
+impl Storage for Recording {
+    fn open(&self) -> super::StorageFuture<'_, ()> {
+        Box::pin(async move { self.call("open") })
     }
 
-    fn save(&self, key: &str, bytes: &[u8]) -> io::Result<()> {
-        self.call("save", key)?;
-        self.values.save(key, bytes)
+    fn close(&self) -> super::StorageFuture<'_, ()> {
+        Box::pin(async move { self.call("close") })
     }
 
-    fn delete(&self, key: &str) -> io::Result<()> {
-        self.call("delete", key)?;
-        self.values.delete(key)
+    fn delete(&self) -> super::StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.call("delete")?;
+            self.inner.delete().await
+        })
+    }
+
+    fn load_session(&self) -> super::StorageFuture<'_, Option<SessionData>> {
+        Box::pin(async move {
+            self.call("load_session")?;
+            self.inner.load_session().await
+        })
+    }
+
+    fn save_session<'a>(&'a self, session: &'a SessionData) -> super::StorageFuture<'a, ()> {
+        Box::pin(async move {
+            self.call("save_session")?;
+            self.inner.save_session(session).await
+        })
+    }
+
+    fn load_state(&self) -> super::StorageFuture<'_, Option<StoredState>> {
+        Box::pin(async move {
+            self.call("load_state")?;
+            self.inner.load_state().await
+        })
+    }
+
+    fn save_state<'a>(&'a self, state: &'a StoredState) -> super::StorageFuture<'a, ()> {
+        Box::pin(async move {
+            self.call("save_state")?;
+            self.inner.save_state(state).await
+        })
+    }
+
+    fn update_peers<'a>(&'a self, peers: &'a [PeerRecord]) -> super::StorageFuture<'a, ()> {
+        Box::pin(async move {
+            self.call("update_peers")?;
+            self.inner.update_peers(peers).await
+        })
+    }
+
+    fn get_peer_by_id(&self, id: i64) -> super::StorageFuture<'_, Option<PeerRecord>> {
+        Box::pin(async move {
+            self.call("get_peer_by_id")?;
+            self.inner.get_peer_by_id(id).await
+        })
+    }
+
+    fn export_peers(&self, limit: Option<usize>) -> super::StorageFuture<'_, Vec<PeerRecord>> {
+        Box::pin(async move {
+            self.call("export_peers")?;
+            self.inner.export_peers(limit).await
+        })
+    }
+
+    fn clear_peers(&self) -> super::StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.call("clear_peers")?;
+            self.inner.clear_peers().await
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
 
-    use super::{FileStore, MemoryStore, Recording, SessionStore, Store};
-    use crate::raw::{base, types};
+    use super::{Recording, Store};
     use crate::session::Salt;
-    use crate::storage::state::{self, Peers, UpdateState};
-    use crate::storage::{SessionData, session_string};
-    use crate::utils::base64url_encode;
+    use crate::storage::{MemoryStorage, PeerRecord, Storage, StorageFuture, StoredState, UpdateState};
 
-    fn data() -> SessionData {
-        SessionData {
-            dc_id: 4,
-            test_mode: false,
-            addr: None,
-            api_id: 12345,
-            auth_key: [7; 256],
-            user_id: 777000,
-            is_bot: true,
-        }
+    fn state(pts: i32) -> StoredState {
+        StoredState::new(7, Salt::default(), Some(UpdateState { pts, date: 1, ..UpdateState::default() }))
     }
 
-    fn same(a: &SessionData, b: &SessionData) -> bool {
-        let fields = |s: &SessionData| (s.dc_id, s.test_mode, s.addr, s.api_id, s.auth_key, s.user_id, s.is_bot);
-        fields(a) == fields(b)
+    #[tokio::test]
+    async fn jobs_run_on_the_store_thread() {
+        let store = Store::new(Arc::new(MemoryStorage::new()));
+        let name = store.call(|_| async { Ok(std::thread::current().name().map(str::to_owned)) }).await.unwrap();
+        assert_eq!(name.as_deref(), Some("vaegram-store"));
+        assert_ne!(std::thread::current().name(), Some("vaegram-store"));
     }
 
-    // The fields every layout shares, as `parse` reads them: dc, api_id, test mode, key, user id, is_bot.
-    fn shared_fields() -> Vec<u8> {
-        let mut b = vec![4];
-        b.extend_from_slice(&12345u32.to_be_bytes());
-        b.push(0);
-        b.extend_from_slice(&[7; 256]);
-        b.extend_from_slice(&777000u64.to_be_bytes());
-        b.push(1);
-        b
+    #[tokio::test]
+    async fn peers_are_coalesced_by_id() {
+        let engine = Arc::new(Recording::default());
+        let store = Store::new(engine.clone());
+        let mut newer = PeerRecord::new(1, 2);
+        newer.updated = 5;
+        store.queue_peers([PeerRecord::new(1, 1), PeerRecord::new(2, 1)]);
+        store.queue_peers([newer.clone()]);
+        store.flush().await;
+        assert_eq!(engine.calls(), ["update_peers"], "one write for the batch");
+        let saved = engine.export_peers(None).await.unwrap();
+        assert_eq!(saved, [newer, PeerRecord::new(2, 1)]);
     }
 
-    fn v3_string() -> String {
-        let mut b = vec![3];
-        b.extend_from_slice(&shared_fields());
-        b.extend_from_slice(&0u16.to_be_bytes());
-        b.extend_from_slice(&[0; 48]);
-        b.extend_from_slice(&crc32fast::hash(&b).to_le_bytes());
-        format!("WZ_{}", base64url_encode(&b))
-    }
-
-    fn peers() -> Peers {
-        let user = types::InputPeerUser { user_id: 777000, access_hash: -5 };
-        Peers::from([(777000, base::InputPeer::InputPeerUser(Box::new(user)))])
-    }
-
-    fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("vaegram-store-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn the_file_store_keeps_each_key_in_its_own_file() {
-        let dir = temp_dir("files");
-        let store = FileStore::new(dir.join("bot"));
-        let before = (store.load("session").unwrap(), store.delete("state"));
-        store.save("session", b"login").unwrap();
-        store.save("state", b"chats").unwrap();
-        let files = (std::fs::read(dir.join("bot.session")).ok(), std::fs::read(dir.join("bot.state")).ok());
-        let loaded = (store.load("session").unwrap(), store.load("state").unwrap());
-        store.delete("session").unwrap();
-        store.delete("state").unwrap();
-        let left = std::fs::read_dir(&dir).unwrap().count();
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(matches!(before, (None, Ok(()))));
-        assert_eq!(files, (Some(b"login".to_vec()), Some(b"chats".to_vec())));
-        assert_eq!(loaded, files);
-        assert_eq!(left, 0);
-    }
-
-    #[test]
-    fn the_memory_store_replaces_and_forgets_values() {
-        let store = MemoryStore::default();
-        store.save("session", b"longer value").unwrap();
-        store.save("session", b"short").unwrap();
-        let saved = store.load("session").unwrap();
-        store.delete("session").unwrap();
-        assert_eq!(saved.as_deref(), Some(&b"short"[..]));
-        assert_eq!(store.load("session").unwrap(), None);
-        assert!(store.delete("session").is_ok());
-    }
-
-    #[test]
-    fn session_and_state_files_written_before_still_load() {
-        let dir = temp_dir("old-files");
-        let legacy = base64url_encode(&shared_fields());
-        let mut v1 =
-            state::encode(777000, Salt::default(), &peers(), Some(&UpdateState { date: 1, ..Default::default() }));
-        v1.drain(9..25);
-        v1[0] = 1;
-        std::fs::write(dir.join("bot.state"), &v1).unwrap();
-        let store = Store::new(FileStore::new(dir.join("bot")));
-        let mut loaded = Vec::new();
-        for text in [v3_string(), legacy, session_string::export(&data())] {
-            std::fs::write(dir.join("bot.session"), text).unwrap();
-            loaded.push(store.load_session());
-        }
-        let state = store.load_state(777000);
-        let _ = std::fs::remove_dir_all(&dir);
-        for session in loaded {
-            assert!(same(&session.unwrap().unwrap(), &data()));
-        }
-        let (peers_back, update_state, _) = state.unwrap();
-        assert_eq!((peers_back, update_state.map(|s| s.date)), (peers(), Some(1)));
-    }
-
-    #[test]
-    fn missing_keys_mean_a_fresh_start() {
-        let store = Store::new(MemoryStore::default());
-        assert!(store.load_session().unwrap().is_none());
-        assert_eq!(store.load_state(1).unwrap(), Default::default());
-    }
-
-    #[test]
-    fn damaged_values_are_errors_or_ignored_never_panics() {
-        let store = Store::new(MemoryStore::default());
-        store.backend.save("session", &[0xff, 0xfe, b'V']).unwrap();
-        store.backend.save("state", &[2, 1]).unwrap();
-        let session = store.load_session().map(|s| s.is_some());
-        assert_eq!(session.map_err(|e| e.kind()), Err(std::io::ErrorKind::InvalidData));
-        assert_eq!(store.load_state(1).unwrap(), Default::default());
-    }
-
-    #[test]
-    fn store_failures_reach_the_caller() {
-        let store = Store::new(Recording::failing());
-        assert!(store.load_session().is_err());
-        assert!(store.load_state(1).is_err());
-        assert!(store.save_session(&data()).is_err());
-        store.save_state(store.ticket(), b"state");
-        assert!(store.delete().is_err());
-        let calls = ["load session", "load state", "save session", "save state", "delete session", "delete state"];
-        assert_eq!(store.backend.calls(), calls);
-    }
-
-    #[test]
-    fn an_older_state_never_replaces_a_newer_one() {
-        let store = Store::new(MemoryStore::default());
-        let (old, new) = (store.ticket(), store.ticket());
-        store.save_state(new, b"new");
-        store.save_state(old, b"old");
-        assert_eq!(store.backend.load("state").unwrap().as_deref(), Some(&b"new"[..]));
-    }
-
-    #[test]
-    fn a_failed_state_save_lets_an_older_snapshot_through() {
+    #[tokio::test]
+    async fn a_failed_flush_keeps_the_writes_queued() {
         let store = Store::new(Arc::new(Recording::failing()));
-        let (old, new) = (store.ticket(), store.ticket());
-        store.save_state(new, b"new");
-        assert_eq!(*store.written.lock().unwrap(), 0, "a failed save records nothing");
-        store.save_state(old, b"old");
-        assert_eq!(store.backend.calls(), ["save state", "save state"]);
+        store.queue_peers([PeerRecord::new(1, 1)]);
+        store.queue_state(state(3));
+        store.flush().await;
+        let queued = store.pending.lock();
+        assert_eq!(
+            (queued.peers.len(), queued.state.as_ref().and_then(|s| s.update.as_ref()).map(|u| u.pts)),
+            (1, Some(3))
+        );
     }
 
-    #[test]
-    fn nothing_is_saved_after_delete() {
-        let store = Store::new(Recording::default());
-        let queued = store.ticket();
-        store.delete().unwrap();
-        store.save_session(&data()).unwrap();
-        store.save_state(queued, b"old account");
-        store.save_state(store.ticket(), b"later");
-        assert_eq!(store.backend.calls(), ["delete session", "delete state"]);
-        assert_eq!((store.backend.value("session"), store.backend.value("state")), (None, None));
+    #[tokio::test]
+    async fn drop_flushes_the_last_state() {
+        let engine = Arc::new(MemoryStorage::new());
+        let store = Store::new(engine.clone());
+        store.queue_peers([PeerRecord::new(1, 1)]);
+        let saved = tokio::task::spawn_blocking(move || store.finish(Some(state(9)))).await;
+        saved.unwrap();
+        assert_eq!(engine.load_state().await.unwrap(), Some(state(9)));
+        assert_eq!(engine.export_peers(None).await.unwrap().len(), 1);
     }
 
-    #[test]
-    fn file_errors_name_the_file() {
-        let dir = temp_dir("named");
-        let session = dir.join("bot.session");
-        // A directory where the session file should be can't be read, replaced or removed.
-        std::fs::create_dir_all(session.join("inside")).unwrap();
-        let store = Store::new(FileStore::new(dir.join("bot")));
-        let errors = [store.load_session().map(|_| ()), store.save_session(&data()), store.backend.delete("session")];
-        let _ = std::fs::remove_dir_all(&dir);
-        for error in errors {
-            let message = error.unwrap_err().to_string();
-            assert!(message.starts_with(&format!("{}: ", session.display())), "{message}");
+    #[tokio::test]
+    async fn a_store_that_never_worked_starts_no_thread_on_drop() {
+        let store = Store::new(Arc::new(MemoryStorage::new()));
+        store.finish(None);
+        assert!(!store.started());
+    }
+
+    /// Never finishes a state save.
+    struct Stuck(MemoryStorage);
+
+    impl Storage for Stuck {
+        fn delete(&self) -> StorageFuture<'_, ()> {
+            self.0.delete()
+        }
+        fn load_session(&self) -> StorageFuture<'_, Option<crate::storage::SessionData>> {
+            self.0.load_session()
+        }
+        fn save_session<'a>(&'a self, s: &'a crate::storage::SessionData) -> StorageFuture<'a, ()> {
+            self.0.save_session(s)
+        }
+        fn load_state(&self) -> StorageFuture<'_, Option<StoredState>> {
+            self.0.load_state()
+        }
+        fn save_state<'a>(&'a self, _: &'a StoredState) -> StorageFuture<'a, ()> {
+            Box::pin(std::future::pending())
+        }
+        fn update_peers<'a>(&'a self, p: &'a [PeerRecord]) -> StorageFuture<'a, ()> {
+            self.0.update_peers(p)
+        }
+        fn get_peer_by_id(&self, id: i64) -> StorageFuture<'_, Option<PeerRecord>> {
+            self.0.get_peer_by_id(id)
+        }
+        fn clear_peers(&self) -> StorageFuture<'_, ()> {
+            self.0.clear_peers()
         }
     }
 
-    #[test]
-    fn delete_tries_both_keys_and_returns_the_first_error() {
-        let dir = temp_dir("delete");
-        // A directory where the session file should be makes its delete fail.
-        std::fs::create_dir_all(dir.join("bot.session").join("inside")).unwrap();
-        std::fs::write(dir.join("bot.state"), b"old").unwrap();
-        let deleted = Store::new(FileStore::new(dir.join("bot"))).delete();
-        let state_left = dir.join("bot.state").exists();
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(deleted.is_err());
-        assert!(!state_left);
+    #[tokio::test]
+    async fn drop_gives_up_after_the_timeout() {
+        let store = Store::new(Arc::new(Stuck(MemoryStorage::new())));
+        store.queue_peers([PeerRecord::new(1, 1)]);
+        let started = std::time::Instant::now();
+        tokio::task::spawn_blocking(move || store.finish(Some(state(1)))).await.unwrap();
+        let waited = started.elapsed();
+        assert!(waited >= super::DROP_WAIT && waited < super::DROP_WAIT + Duration::from_secs(5), "{waited:?}");
+    }
+
+    #[tokio::test]
+    async fn log_out_stops_queued_writes() {
+        let engine = Arc::new(Recording::default());
+        let store = Store::new(engine.clone());
+        store.queue_peers([PeerRecord::new(1, 1)]);
+        store.queue_state(state(2));
+        store.delete().await.unwrap();
+        store.queue_peers([PeerRecord::new(2, 1)]);
+        store.queue_state(state(3));
+        let mut session = crate::storage::SessionData::new(2, [1; 256]);
+        session.user_id = 7;
+        store.save_session(session).await.unwrap();
+        store.flush().await;
+        assert_eq!(engine.calls(), ["delete"]);
+    }
+
+    #[tokio::test]
+    async fn state_of_another_account_clears_peers() {
+        let engine = Arc::new(MemoryStorage::new());
+        engine.save_state(&state(4)).await.unwrap();
+        engine.update_peers(&[PeerRecord::new(1, 1)]).await.unwrap();
+        let store = Store::new(engine.clone());
+        let mine = store.load_state(7).await.unwrap();
+        let other = store.load_state(8).await.unwrap();
+        assert_eq!(mine.0.map(|u| u.pts), Some(4));
+        assert_eq!(other, (None, Salt::default()));
+        assert!(engine.export_peers(None).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_salt_alone_keeps_the_saved_update() {
+        let engine = Arc::new(MemoryStorage::new());
+        engine.save_state(&state(4)).await.unwrap();
+        let store = Store::new(engine.clone());
+        let salt = Salt { value: 9, time_offset: 2 };
+        store.queue_salt(7, salt);
+        store.flush().await;
+        assert_eq!(engine.load_state().await.unwrap(), Some(StoredState { salt, ..state(4) }));
+
+        store.queue_salt(8, salt);
+        store.flush().await;
+        assert_eq!(engine.load_state().await.unwrap(), Some(StoredState::new(8, salt, None)));
+        assert!(store.pending_is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_queued_state_takes_a_later_salt() {
+        let engine = Arc::new(MemoryStorage::new());
+        let store = Store::new(engine.clone());
+        let salt = Salt { value: 9, time_offset: 2 };
+        store.queue_state(state(5));
+        store.queue_salt(7, salt);
+        store.flush().await;
+        assert_eq!(engine.load_state().await.unwrap(), Some(StoredState { salt, ..state(5) }));
+    }
+
+    /// Panics on the first peer lookup and on the first peer write.
+    #[derive(Default)]
+    struct Panicky {
+        inner: MemoryStorage,
+        looked_up: AtomicBool,
+        wrote: AtomicBool,
+    }
+
+    impl Storage for Panicky {
+        fn delete(&self) -> StorageFuture<'_, ()> {
+            self.inner.delete()
+        }
+        fn load_session(&self) -> StorageFuture<'_, Option<crate::storage::SessionData>> {
+            self.inner.load_session()
+        }
+        fn save_session<'a>(&'a self, s: &'a crate::storage::SessionData) -> StorageFuture<'a, ()> {
+            self.inner.save_session(s)
+        }
+        fn load_state(&self) -> StorageFuture<'_, Option<StoredState>> {
+            self.inner.load_state()
+        }
+        fn save_state<'a>(&'a self, s: &'a StoredState) -> StorageFuture<'a, ()> {
+            self.inner.save_state(s)
+        }
+        fn update_peers<'a>(&'a self, p: &'a [PeerRecord]) -> StorageFuture<'a, ()> {
+            assert!(self.wrote.swap(true, Ordering::SeqCst), "engine bug");
+            self.inner.update_peers(p)
+        }
+        fn get_peer_by_id(&self, id: i64) -> StorageFuture<'_, Option<PeerRecord>> {
+            assert!(self.looked_up.swap(true, Ordering::SeqCst), "engine bug");
+            self.inner.get_peer_by_id(id)
+        }
+        fn clear_peers(&self) -> StorageFuture<'_, ()> {
+            self.inner.clear_peers()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_panicking_engine_fails_one_job_and_the_store_keeps_going() {
+        let engine = Arc::new(Panicky::default());
+        let store = Store::new(engine.clone());
+        assert!(store.get_peer(1).await.is_err());
+        assert_eq!(store.get_peer(1).await.unwrap(), None);
+
+        store.queue_peers([PeerRecord::new(1, 1)]);
+        store.flush().await;
+        store.queue_peers([PeerRecord::new(2, 1)]);
+        store.flush().await;
+        assert_eq!(engine.inner.export_peers(None).await.unwrap(), [PeerRecord::new(2, 1)]);
     }
 }

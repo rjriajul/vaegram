@@ -4,6 +4,7 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
+use crate::storage::input_peer;
 use crate::types::PeerRef;
 use crate::utils::{CHANNEL_OFFSET, chats_of, input_user};
 
@@ -42,6 +43,20 @@ impl Client {
         }
         if chat_id == self.0.me.lock().unwrap().id {
             return Ok(base::InputPeer::InputPeerSelf);
+        }
+        // A peer saved in an earlier run: one hop to the store thread, no request. Basic groups need no hash. A
+        // failing engine only costs the request.
+        if chat_id > 0 || chat_id <= -CHANNEL_OFFSET {
+            match self.0.store.get_peer(chat_id).await {
+                Ok(Some(record)) => {
+                    if let Some(peer) = input_peer(record.id, record.access_hash) {
+                        self.0.peers.lock().unwrap().load([record]);
+                        return Ok(peer);
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("vaegram: couldn't look chat {chat_id} up in storage, asking Telegram: {e}"),
+            }
         }
 
         let peer = if chat_id > 0 {
@@ -197,7 +212,7 @@ impl Client {
 mod tests {
     use crate::Client;
     use crate::errors::Error;
-    use crate::raw::functions::{contacts, messages};
+    use crate::raw::functions::{contacts, messages, users};
     use crate::raw::{Identifiable, Serializable, base, types};
     use crate::types::PeerRef;
     use crate::utils::get_channel_id;
@@ -261,5 +276,17 @@ mod tests {
         let (client, _sent) = Client::scripted(vec![Ok(invite.to_bytes())]);
         let result = client.resolve_peer("t.me/+AbC").await;
         assert!(matches!(result, Err(Error::ChatNotJoined)), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn a_failing_store_falls_back_to_asking_telegram() {
+        let (mut client, mut sent) = Client::scripted(vec![Err(Error::Unexpected("offline"))]);
+        let engine = std::sync::Arc::new(crate::storage::Recording::failing());
+        std::sync::Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
+        let result = client.resolve_peer(777).await;
+        let body = sent.try_recv().expect("no request sent");
+        assert_eq!(u32::from_le_bytes(body[..4].try_into().unwrap()), users::GetUsers::CONSTRUCTOR_ID);
+        assert!(matches!(result, Err(Error::Unexpected("offline"))), "{result:?}");
+        assert_eq!(engine.calls(), ["get_peer_by_id"]);
     }
 }

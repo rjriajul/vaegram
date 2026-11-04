@@ -2,8 +2,7 @@ use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use super::SessionData;
-use super::state::UpdateState;
+use super::{SessionData, UpdateState};
 use crate::session::Salt;
 
 /// What every [`Storage`] method returns: boxed, so `Arc<dyn Storage>` can hold any engine.

@@ -17,7 +17,7 @@ mod tests {
     use crate::Client;
     use crate::raw::{Serializable, base, types};
     use crate::session::{Incoming, UpdatesRx};
-    use crate::storage::state::UpdateState;
+    use crate::storage::UpdateState;
     use crate::types::RawUpdate;
 
     #[tokio::test]

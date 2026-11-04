@@ -72,13 +72,17 @@ More in [examples](examples).
 
 ### Sessions
 
-The first run logs in and writes `my_bot.session`. Later runs reuse it, so you log in once.
-Next to it, `my_bot.state` keeps known chats, the update state and the server salt, so after a restart
-you can still message chats by id, `run()` delivers the updates you missed while offline, and the
-first request doesn't bounce off a stale salt.
+The first run logs in and writes `my_bot.session`. Later runs reuse it, so you log in once. The same file
+keeps known chats, the update state and the server salt, so after a restart you can still message chats by
+id, `run()` delivers the updates you missed while offline, and the first request doesn't bounce off a stale
+salt. `.workdir(dir)` puts it in another directory.
 
-You can also keep the whole session in one line, in an env var or a database (the line holds
-only the login, so known chats and missed updates aren't kept across restarts):
+`.in_memory()` writes nothing, and `.storage_engine(engine)` keeps everything in any type implementing
+`storage::Storage`, such as a database; optional engines come behind cargo features. Session files written
+by versions before the single `.session` file need one new login.
+
+You can also keep the login in one line, in an env var or a database (the line holds only the login, so
+known chats and missed updates are kept in memory only, not across restarts):
 
 ```rust
 let s = app.export_session_string(); // "VAE_..."
@@ -93,7 +97,7 @@ let app = Client::builder("my_bot", api_id, api_hash)
 existing login over without signing in again. Exports are always `VAE_…`.
 
 > A session file or string **is** the login: anyone who has it is logged in as that account.
-> Never commit or share it. `*.session` and `*.state` are already in `.gitignore`.
+> Never commit or share it. `*.session` files are already in `.gitignore`.
 
 `.test_mode()` logs in on Telegram's test servers and `.ipv6()` connects over IPv6. Session strings remember
 the test mode and the data center address. `.pfs()` turns on perfect forward secrecy: traffic runs under
@@ -177,8 +181,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [x] TL compiler, transport, auth key handshake, encrypted session
 - [x] Bot login, data center migration, `send_message`, `get_me`, raw `invoke`
 - [x] Session files and session strings
-- [ ] Pluggable session stores: `SessionStore` with `load`, `save` and `delete`, the default `FileStore`, `MemoryStore`
-  for session strings, `Client::builder(..).store(..)` (not yet tested live)
+- [ ] Storage engines: one `<name>.session` file by default, `.workdir(..)`, `.in_memory()`, `.storage_engine(..)`
+  for any `storage::Storage`, optional engines behind cargo features (not yet tested live)
 - [x] Update handlers and filters: `filters::command("start") & filters::private()`
 - [x] Friendly types: `msg.text`, `msg.reply()`, `msg.from_user`
 - [ ] Message media and metadata: `msg.caption`, `msg.entities`, `msg.photo()`, `msg.poll()`, replies and forwards (not yet tested live)

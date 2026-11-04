@@ -12,21 +12,21 @@ impl Client {
             email_verification: None,
         };
         let auth = self.invoke(&request).await?;
-        self.authorized(auth)
+        self.authorized(auth).await
     }
 
-    pub(crate) fn authorized(&self, auth: base::auth::Authorization) -> Result<base::User> {
+    pub(crate) async fn authorized(&self, auth: base::auth::Authorization) -> Result<base::User> {
         match auth {
             base::auth::Authorization::Authorization(a) => {
                 self.set_me(&a.user);
-                self.save()?;
+                self.save().await?;
                 Ok(a.user)
             }
             base::auth::Authorization::AuthorizationSignUpRequired(_) => Err(Error::SignUpRequired),
         }
     }
 
-    pub(crate) fn authorized_user(&self, auth: base::auth::Authorization) -> Result<User> {
-        Ok(User::from_raw(self, self.authorized(auth)?))
+    pub(crate) async fn authorized_user(&self, auth: base::auth::Authorization) -> Result<User> {
+        Ok(User::from_raw(self, self.authorized(auth).await?))
     }
 }

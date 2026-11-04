@@ -1,11 +1,8 @@
-use std::collections::HashMap;
 use std::io::Write;
 
 use vaegram::connection::{Framing, RecvBuf, Transport};
 use vaegram::raw::core::{gzip_packed, msg_container};
 use vaegram::raw::{Deserializable, Error, Serializable, base, types};
-use vaegram::session::Salt;
-use vaegram::storage::state::{self, Peers, UpdateState};
 use vaegram::storage::{SessionData, session_string};
 
 const MAX_UNPACKED: usize = 32 << 20;
@@ -306,26 +303,6 @@ fn session_strings_survive_garbage() {
         let _ = session_string::parse(&format!("{}{s}", session_string::PREFIX));
         let _ = session_string::parse(&format!("1{s}"));
     }
-}
-
-#[test]
-fn state_files_survive_garbage() {
-    let channel = types::InputPeerChannel { channel_id: 1234, access_hash: 9 };
-    let peers = Peers::from([(-1_000_000_001_234, base::InputPeer::InputPeerChannel(Box::new(channel)))]);
-    let update_state = UpdateState { pts: 10, qts: 2, date: 1, seq: 5, channels: HashMap::from([(1234, 99)]) };
-    let bytes = state::encode(1, Salt { value: 7, time_offset: -3 }, &peers, Some(&update_state));
-
-    let mut rng = Rng(11);
-    for _ in 0..10_000 {
-        let _ = state::decode(&rng.mutate(&bytes), 1);
-    }
-
-    let mut min_id = state::encode(1, Salt::default(), &Peers::new(), None);
-    let n = min_id.len();
-    min_id[n - 4..].copy_from_slice(&1u32.to_le_bytes());
-    min_id.extend(i64::MIN.to_le_bytes());
-    min_id.extend(0i64.to_le_bytes());
-    let _ = state::decode(&min_id, 1);
 }
 
 #[test]

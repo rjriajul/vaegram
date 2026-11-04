@@ -3,8 +3,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
-use super::state::UpdateState;
-use super::{PeerRecord, SessionData, Storage, StoredState};
+use super::{PeerRecord, SessionData, Storage, StoredState, UpdateState};
 use crate::session::Salt;
 
 type Fields = (i32, bool, Option<SocketAddr>, i32, [u8; 256], i64, bool);

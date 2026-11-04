@@ -8,7 +8,7 @@ use super::Entities;
 use crate::enums::SkipReason;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
-use crate::storage::state::UpdateState;
+use crate::storage::UpdateState;
 
 // https://core.telegram.org/api/updates#recovering-gaps
 const GAP_TIMEOUT: Duration = Duration::from_millis(500);

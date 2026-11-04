@@ -1,6 +1,5 @@
 mod support;
 
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -13,7 +12,7 @@ use vaegram::enums::{
 use vaegram::raw::{Serializable, base, functions, types};
 use vaegram::session::Session;
 use vaegram::session::internals::data_center;
-use vaegram::storage::state;
+use vaegram::storage::{FileStorage, Storage};
 use vaegram::types::{
     ButtonStyle, FileSource, Folder, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
     InputPollMedia, InputPollOption, InputRichMessage, InputSticker, InputStoryContent, Json, KeyboardButton, Media,
@@ -549,22 +548,19 @@ async fn user_keeps_peers_across_restarts() {
     let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
     let (api_id, api_hash): (i32, String) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
     let name = "target/vaegram-live-restart";
-    let state_path = format!("{name}.state");
     std::fs::copy(format!("{session}.session"), format!("{name}.session")).unwrap();
-    let _ = std::fs::remove_file(&state_path);
 
     let user = Client::builder(name, api_id, api_hash.clone()).connect().await.unwrap();
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
     let id = user.resolve_username("BotFather").await.unwrap();
+    let resolved = user.resolve_peer(id).await.unwrap();
     drop(user);
 
-    let (peers, _, _) = state::load(Path::new(&state_path), me.id).unwrap();
-    let saved = peers.get(&id).cloned().expect("BotFather was saved on drop");
+    let stored = FileStorage::new(name).get_peer_by_id(id).await.unwrap().expect("BotFather was saved on drop");
     let user = Client::builder(name, api_id, api_hash).connect().await.unwrap();
-    assert_eq!(user.resolve_peer(id).await.unwrap(), saved);
+    assert_eq!(user.resolve_peer(id).await.unwrap(), resolved);
+    assert_eq!(stored.id, id);
     drop(user);
     std::fs::remove_file(format!("{name}.session")).unwrap();
-    std::fs::remove_file(state_path).unwrap();
 }
 
 #[tokio::test]

@@ -1,9 +1,4 @@
-use std::collections::HashMap;
-
-use vaegram::raw::{base, types};
-use vaegram::session::Salt;
-use vaegram::storage::state::{self, Peers, UpdateState};
-use vaegram::storage::{SessionData, session_string, write_private};
+use vaegram::storage::{SessionData, session_string};
 
 const V3_STRING: &str = "VAE_AwQAADA5AAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5_gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp-goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2-v8DBwsPExcbHyMnKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OHi4-Tl5ufo6err7O3u7_Dx8vP09fb3-Pn6-_z9_v8AAAAAAAvbKAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYNzrA";
 const LEGACY_STRING: &str = "BAAAMDkAAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn-AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq-wsbKztLW2t7i5uru8vb6_wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t_g4eLj5OXm5-jp6uvs7e7v8PHy8_T19vf4-fr7_P3-_wAAAAAAC9soAQ";
@@ -97,59 +92,4 @@ fn reads_pyrogram_strings_without_api_id() {
         assert_eq!((s.dc_id, s.api_id, s.user_id, s.is_bot, s.test_mode, s.addr), (4, 0, user_id, true, false, None));
         assert!(s.auth_key.iter().enumerate().all(|(i, &b)| b == i as u8));
     }
-}
-
-fn peers() -> Peers {
-    let user = types::InputPeerUser { user_id: 777000, access_hash: -5 };
-    let channel = types::InputPeerChannel { channel_id: 1234, access_hash: i64::MAX };
-    Peers::from([
-        (777000, base::InputPeer::InputPeerUser(Box::new(user))),
-        (-1_000_000_001_234, base::InputPeer::InputPeerChannel(Box::new(channel))),
-    ])
-}
-
-fn update_state() -> UpdateState {
-    UpdateState { pts: 10, qts: 2, date: 1_700_000_000, seq: 5, channels: HashMap::from([(1234, 99)]) }
-}
-
-const SALT: Salt = Salt { value: -7, time_offset: 3 };
-
-#[test]
-fn state_file_round_trips() {
-    let mut with_group = peers();
-    with_group.insert(-42, base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 42 }));
-    let bytes = state::encode(1, SALT, &with_group, Some(&update_state()));
-    assert_eq!(state::decode(&bytes, 1), Some((peers(), Some(update_state()), SALT)));
-    let bytes = state::encode(1, SALT, &peers(), None);
-    assert_eq!(state::decode(&bytes, 1), Some((peers(), None, SALT)));
-}
-
-#[test]
-fn reads_version_1_state_without_salt() {
-    let mut v1 = state::encode(1, Salt::default(), &peers(), Some(&update_state()));
-    v1.drain(9..25);
-    v1[0] = 1;
-    assert_eq!(state::decode(&v1, 1), Some((peers(), Some(update_state()), Salt::default())));
-}
-
-#[test]
-fn state_file_is_per_account_and_checked() {
-    let bytes = state::encode(1, SALT, &peers(), Some(&update_state()));
-    assert_eq!(state::decode(&bytes, 2), Some((Peers::new(), None, Salt::default())));
-    assert_eq!(state::decode(&bytes[..bytes.len() - 1], 1), None);
-    assert_eq!(state::decode(&[2], 1), None);
-    assert_eq!(state::decode(&[3], 1), None);
-}
-
-#[test]
-fn state_file_saves_and_ignores_damage() {
-    let path = std::env::temp_dir().join(format!("vaegram-{}.state", std::process::id()));
-    assert_eq!(state::load(&path, 1).unwrap(), Default::default());
-    write_private(&path, &state::encode(1, SALT, &peers(), Some(&update_state()))).unwrap();
-    let loaded = state::load(&path, 1);
-    std::fs::write(&path, [1, 2, 3]).unwrap();
-    let damaged = state::load(&path, 1);
-    std::fs::remove_file(&path).unwrap();
-    assert_eq!(loaded.unwrap(), (peers(), Some(update_state()), SALT));
-    assert_eq!(damaged.unwrap(), Default::default());
 }
