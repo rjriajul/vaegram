@@ -791,9 +791,7 @@ mod tests {
         let dir = scratch("cancelled");
         let path = dir.join("out.bin");
         let (session, mut requests) = Session::silent();
-        let client = Client::offline();
-        client.0.transfers.insert(client.dc(2).unwrap(), &session);
-        *client.0.session.write().unwrap() = session;
+        let client = Client::with_session(session);
         let location =
             FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
         let download = to_file(&client, Ok(location)).file_name(&path);

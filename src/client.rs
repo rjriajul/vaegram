@@ -690,11 +690,17 @@ impl Client {
 
     #[cfg(test)]
     pub(crate) fn scripted(replies: Vec<Result<Vec<u8>>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let client = Client::offline();
         let (session, sent) = Session::scripted(replies);
+        (Client::with_session(session), sent)
+    }
+
+    /// An offline client whose main and transfer session is `session`.
+    #[cfg(test)]
+    pub(crate) fn with_session(session: Session) -> Client {
+        let client = Client::offline();
         client.0.transfers.insert(client.dc(2).unwrap(), &session);
         *client.0.session.write().unwrap() = session;
-        (client, sent)
+        client
     }
 
     #[cfg(test)]
