@@ -38,6 +38,7 @@ mod get_forum_topics;
 mod get_forum_topics_by_id;
 mod get_message_public_forwards;
 mod get_message_statistics;
+mod get_nearby_chats;
 mod get_peer_colors;
 mod get_peer_profile_colors;
 mod get_personal_channels;
