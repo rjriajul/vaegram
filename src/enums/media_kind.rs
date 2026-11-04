@@ -25,10 +25,14 @@ pub enum MediaKind {
     Checklist,
     Story,
     Giveaway,
+    GiveawayWinners,
     PaidMedia,
     WebPage,
     Unknown,
 }
+
+// A media filter keeps its kinds in a `u32` mask.
+const _: () = assert!((MediaKind::Unknown as u8) < 32);
 
 impl MediaKind {
     pub(crate) fn of(media: &base::MessageMedia) -> Option<MediaKind> {
@@ -49,7 +53,8 @@ impl MediaKind {
             M::MessageMediaInvoice(_) => MediaKind::Invoice,
             M::MessageMediaToDo(_) => MediaKind::Checklist,
             M::MessageMediaStory(_) => MediaKind::Story,
-            M::MessageMediaGiveaway(_) | M::MessageMediaGiveawayResults(_) => MediaKind::Giveaway,
+            M::MessageMediaGiveaway(_) => MediaKind::Giveaway,
+            M::MessageMediaGiveawayResults(_) => MediaKind::GiveawayWinners,
             M::MessageMediaPaidMedia(_) => MediaKind::PaidMedia,
             M::MessageMediaWebPage(_) => MediaKind::WebPage,
             _ => MediaKind::Unknown,

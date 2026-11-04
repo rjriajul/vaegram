@@ -97,7 +97,8 @@ impl From<Vec<i64>> for Ids {
     }
 }
 
-/// Command names for `command`: `"start"` or `["ban", "kick"]`. Matched without case.
+/// Command names for `command`: `"start"` or `["ban", "kick"]`. `command` and `command_with` match them without
+/// case, in any script; `command_case_sensitive` needs the exact case.
 pub trait CommandNames {
     fn names(self) -> Box<[Box<str>]>;
 }
@@ -165,8 +166,17 @@ pub fn command<T: HasText>(names: impl CommandNames) -> Filter<T> {
 }
 
 pub fn command_with<T: HasText>(prefixes: &str, names: impl CommandNames) -> Filter<T> {
+    command_filter(prefixes, names, false)
+}
+
+/// Like `command_with`, but the name must have the case it was given: `/Start` isn't `/start`.
+pub fn command_case_sensitive<T: HasText>(prefixes: &str, names: impl CommandNames) -> Filter<T> {
+    command_filter(prefixes, names, true)
+}
+
+fn command_filter<T: HasText>(prefixes: &str, names: impl CommandNames, case_sensitive: bool) -> Filter<T> {
     assert!(!prefixes.is_empty(), "command prefixes can't be empty; use \"/\" for bot commands");
-    Filter(Pred::Commands { prefixes: prefixes.into(), names: names.names() })
+    Filter(Pred::Commands { prefixes: prefixes.into(), names: names.names(), case_sensitive })
 }
 
 pub fn text_starts_with<T: HasText>(prefix: &str) -> Filter<T> {
@@ -178,7 +188,8 @@ pub fn media<T: HasMedia>() -> Filter<T> {
 }
 
 macro_rules! media_filters {
-    ($($name:ident => $kind:ident),* $(,)?) => {$(
+    ($($(#[$doc:meta])* $name:ident => $kind:ident),* $(,)?) => {$(
+        $(#[$doc])*
         pub fn $name<T: HasMedia>() -> Filter<T> {
             Filter(Pred::Media(1 << MediaKind::$kind as u8))
         }
@@ -189,7 +200,12 @@ media_filters! {
     photo => Photo, video => Video, animation => Animation, audio => Audio, voice => Voice, video_note => VideoNote,
     document => Document, sticker => Sticker, live_photo => LivePhoto, contact => Contact, location => Location,
     venue => Venue, dice => Dice, poll => Poll, game => Game, invoice => Invoice, checklist => Checklist,
-    story => Story, giveaway => Giveaway, paid_media => PaidMedia, web_page => WebPage,
+    story => Story,
+    /// A giveaway announcement only; its results are `giveaway_winners`.
+    giveaway => Giveaway,
+    /// The results of a giveaway only; the announcement is `giveaway`.
+    giveaway_winners => GiveawayWinners,
+    paid_media => PaidMedia, web_page => WebPage,
 }
 
 macro_rules! flag_filters {
@@ -206,6 +222,10 @@ flag_filters! {
     forwarded: HasMedia => FORWARDED,
     via_bot: HasMedia => VIA_BOT,
     mentioned: HasMedia => MENTIONED,
+    /// Sent by the server at a time the sender had scheduled.
+    from_scheduled: HasMedia => FROM_SCHEDULED,
+    /// Not sent yet: it waits for its date, as `get_scheduled_messages` returns it. Messages that reach handlers are
+    /// never in this state, so this only tells apart the parsed messages you fetched yourself.
     scheduled: HasMedia => SCHEDULED,
     protected: HasMedia => PROTECTED,
     media_group: HasMedia => MEDIA_GROUP,
@@ -251,6 +271,75 @@ const _: () = assert!(ServiceKind::Unknown as u32 <= 127);
 
 pub fn service_kind<T: HasMedia>(kinds: impl IntoIterator<Item = ServiceKind>) -> Filter<T> {
     Filter(Pred::Service(kinds.into_iter().fold(0u128, |mask, k| mask | 1 << k as u8)))
+}
+
+macro_rules! service_filters {
+    ($($(#[$doc:meta])* $name:ident => [$($kind:ident),+]),* $(,)?) => {$(
+        $(#[$doc])*
+        pub fn $name<T: HasMedia>() -> Filter<T> {
+            service_kind([$(ServiceKind::$kind),+])
+        }
+    )*};
+}
+
+service_filters! {
+    /// Members were added to the chat, or joined it.
+    new_chat_members => [NewChatMembers],
+    /// A member left or was removed.
+    left_chat_member => [LeftChatMember],
+    /// The chat's title changed.
+    new_chat_title => [NewChatTitle],
+    /// The chat's photo changed.
+    new_chat_photo => [NewChatPhoto],
+    /// The chat's photo was removed.
+    delete_chat_photo => [DeleteChatPhoto],
+    /// A basic group was created.
+    group_chat_created => [GroupChatCreated],
+    /// A supergroup was created.
+    supergroup_chat_created => [SupergroupChatCreated],
+    /// A channel was created.
+    channel_chat_created => [ChannelChatCreated],
+    /// The group was upgraded to a supergroup; the message is in the old group.
+    migrate_to_chat_id => [MigrateToChatId],
+    /// The supergroup was upgraded from a group; the message is in the new supergroup.
+    migrate_from_chat_id => [MigrateFromChatId],
+    /// A message was pinned.
+    pinned_message => [PinnedMessage],
+    /// Someone scored in a game.
+    game_high_score => [GameHighScore],
+    /// A video chat started.
+    video_chat_started => [VideoChatStarted],
+    /// A video chat ended.
+    video_chat_ended => [VideoChatEnded],
+    /// Members were invited to a video chat.
+    video_chat_members_invited => [VideoChatParticipantsInvited],
+    /// A payment went through.
+    successful_payment => [SuccessfulPayment],
+    /// The user shared users with the bot through a request button.
+    users_shared => [UsersShared],
+    /// The user shared a chat with the bot through a request button.
+    chat_shared => [ChatShared],
+    /// A Premium gift code was received.
+    gift_code => [PremiumGiftCode],
+    /// A gift was received, regular or upgraded.
+    gift => [Gift, UniqueGift],
+}
+
+/// An offer to buy an upgraded gift that nobody has answered yet.
+pub fn gift_offer<T: HasMedia>() -> Filter<T> {
+    service_kind([ServiceKind::UpgradedGiftPurchaseOffer])
+        & Filter(Pred::Flags { set: 0, clear: facts::OFFER_ACCEPTED | facts::OFFER_REJECTED })
+}
+
+/// An offer to buy an upgraded gift that was accepted.
+pub fn gift_offer_accepted<T: HasMedia>() -> Filter<T> {
+    service_kind([ServiceKind::UpgradedGiftPurchaseOffer]) & flags(facts::OFFER_ACCEPTED)
+}
+
+/// An offer to buy an upgraded gift that was turned down or left to run out.
+pub fn gift_offer_rejected<T: HasMedia>() -> Filter<T> {
+    (service_kind([ServiceKind::UpgradedGiftPurchaseOffer]) & flags(facts::OFFER_REJECTED))
+        | service_kind([ServiceKind::UpgradedGiftPurchaseOfferRejected])
 }
 
 pub fn private<T: HasChat>() -> Filter<T> {
@@ -329,12 +418,15 @@ mod tests {
             (media(), holds(MediaKind::Photo), holds(MediaKind::WebPage)),
             (photo(), holds(MediaKind::Photo), holds(MediaKind::Video)),
             (sticker(), holds(MediaKind::Sticker), holds(MediaKind::Document)),
+            (giveaway(), holds(MediaKind::Giveaway), holds(MediaKind::GiveawayWinners)),
+            (giveaway_winners(), holds(MediaKind::GiveawayWinners), holds(MediaKind::Giveaway)),
             (video_note(), holds(MediaKind::VideoNote), f),
             (reply(), on(REPLY), f),
             (forwarded(), on(FORWARDED), f),
             (via_bot(), on(VIA_BOT), f),
             (mentioned(), on(MENTIONED), f),
-            (scheduled(), on(SCHEDULED), f),
+            (from_scheduled(), on(FROM_SCHEDULED), on(SCHEDULED)),
+            (scheduled(), on(SCHEDULED), on(FROM_SCHEDULED)),
             (protected(), on(PROTECTED), f),
             (media_group(), on(MEDIA_GROUP), f),
             (service(), on(SERVICE), f),
@@ -388,6 +480,89 @@ mod tests {
         let top: Filter = service_kind([ServiceKind::PassportDataReceived]);
         assert!(hit(&top, is(ServiceKind::PassportDataReceived)));
         assert!(!hit(&top, is(ServiceKind::AutoDeleteTimerChanged)));
+    }
+
+    #[test]
+    fn every_named_filter_matches_its_kind_only() {
+        use ServiceKind as K;
+        let cases: Vec<(Filter, &[ServiceKind])> = vec![
+            (new_chat_members(), &[K::NewChatMembers]),
+            (left_chat_member(), &[K::LeftChatMember]),
+            (new_chat_title(), &[K::NewChatTitle]),
+            (new_chat_photo(), &[K::NewChatPhoto]),
+            (delete_chat_photo(), &[K::DeleteChatPhoto]),
+            (group_chat_created(), &[K::GroupChatCreated]),
+            (supergroup_chat_created(), &[K::SupergroupChatCreated]),
+            (channel_chat_created(), &[K::ChannelChatCreated]),
+            (migrate_to_chat_id(), &[K::MigrateToChatId]),
+            (migrate_from_chat_id(), &[K::MigrateFromChatId]),
+            (pinned_message(), &[K::PinnedMessage]),
+            (game_high_score(), &[K::GameHighScore]),
+            (video_chat_started(), &[K::VideoChatStarted]),
+            (video_chat_ended(), &[K::VideoChatEnded]),
+            (video_chat_members_invited(), &[K::VideoChatParticipantsInvited]),
+            (successful_payment(), &[K::SuccessfulPayment]),
+            (users_shared(), &[K::UsersShared]),
+            (chat_shared(), &[K::ChatShared]),
+            (gift_code(), &[K::PremiumGiftCode]),
+            (gift(), &[K::Gift, K::UniqueGift]),
+        ];
+        let every: Vec<ServiceKind> = cases.iter().flat_map(|(_, kinds)| kinds.iter().copied()).collect();
+        let f = Facts::default();
+        for (i, (filter, kinds)) in cases.iter().enumerate() {
+            for kind in &every {
+                let facts = Facts { service: Some(*kind), ..f };
+                assert_eq!(hit(filter, facts), kinds.contains(kind), "case {i} against {kind:?}");
+            }
+            assert!(!hit(filter, f), "case {i} matched a message that isn't a service message");
+        }
+    }
+
+    #[test]
+    fn gift_offer_filters_follow_the_offer_state() {
+        let f = Facts::default();
+        let offer = |flags| Facts { flags, service: Some(ServiceKind::UpgradedGiftPurchaseOffer), ..f };
+        let gone = Facts { service: Some(ServiceKind::UpgradedGiftPurchaseOfferRejected), ..f };
+        let facts = [offer(0), offer(OFFER_ACCEPTED), offer(OFFER_REJECTED), gone, f];
+        let cases: Vec<(Filter, [bool; 5])> = vec![
+            (gift_offer(), [true, false, false, false, false]),
+            (gift_offer_accepted(), [false, true, false, false, false]),
+            (gift_offer_rejected(), [false, false, true, true, false]),
+        ];
+        for (i, (filter, expected)) in cases.iter().enumerate() {
+            let got: Vec<bool> = facts.iter().map(|facts| hit(filter, *facts)).collect();
+            assert_eq!(got, expected, "case {i}");
+        }
+    }
+
+    #[test]
+    fn giveaway_no_longer_matches_results() {
+        let f = Facts::default();
+        let results = Facts { media: Some(MediaKind::GiveawayWinners), ..f };
+        let (announcement, winners, any): (Filter, Filter, Filter) = (giveaway(), giveaway_winners(), media());
+        assert!(!hit(&announcement, results));
+        assert!(hit(&winners, results) && hit(&any, results));
+        assert!(!hit(&winners, Facts { media: Some(MediaKind::Giveaway), ..f }));
+    }
+
+    #[test]
+    fn case_sensitive_commands_need_the_exact_case() {
+        let says = |text| Facts { text, ..Facts::default() };
+        let exact: Filter = command_case_sensitive("/", ["Start", "stop"]);
+        assert!(hit(&exact, says("/Start now")) && hit(&exact, says("/stop")));
+        assert!(!hit(&exact, says("/start")) && !hit(&exact, says("/STOP")));
+        let loose: Filter = command_with("/", "Start");
+        assert!(hit(&loose, says("/start")) && hit(&loose, says("/START")));
+    }
+
+    #[test]
+    fn cyrillic_commands_match_without_case() {
+        let says = |text| Facts { text, ..Facts::default() };
+        let f: Filter = command_with("/", ["Привет", "ǅ"]);
+        assert!(hit(&f, says("/привет")) && hit(&f, says("/ПРИВЕТ мир")) && hit(&f, says("/ǆ")));
+        assert!(!hit(&f, says("/приветик")));
+        let exact: Filter = command_case_sensitive("/", "Привет");
+        assert!(hit(&exact, says("/Привет")) && !hit(&exact, says("/привет")));
     }
 
     #[test]

@@ -1,8 +1,8 @@
 use crate::client::Me;
 use crate::dispatcher::Entities;
-use crate::enums::{ChatType, MediaKind, ServiceKind};
+use crate::enums::{ChatType, GiftPurchaseOfferState, MediaKind, ServiceKind};
 use crate::raw::{base, types};
-use crate::types::{Chat, Message};
+use crate::types::{Chat, Message, ServiceAction};
 use crate::utils::get_peer_id;
 
 pub(crate) const OUTGOING: u32 = 1 << 0;
@@ -12,7 +12,7 @@ pub(crate) const REPLY: u32 = 1 << 3;
 pub(crate) const FORWARDED: u32 = 1 << 4;
 pub(crate) const VIA_BOT: u32 = 1 << 5;
 pub(crate) const MENTIONED: u32 = 1 << 6;
-pub(crate) const SCHEDULED: u32 = 1 << 7;
+pub(crate) const FROM_SCHEDULED: u32 = 1 << 7;
 pub(crate) const PROTECTED: u32 = 1 << 8;
 pub(crate) const TOPIC: u32 = 1 << 9;
 pub(crate) const MEDIA_GROUP: u32 = 1 << 10;
@@ -31,6 +31,10 @@ pub(crate) const PAID_MESSAGE: u32 = 1 << 22;
 pub(crate) const BUSINESS: u32 = 1 << 23;
 pub(crate) const FORUM: u32 = 1 << 24;
 pub(crate) const ADMIN: u32 = 1 << 25;
+// A message that waits for its date. Only parsed messages carry it: the updates handlers get are never scheduled.
+pub(crate) const SCHEDULED: u32 = 1 << 26;
+pub(crate) const OFFER_ACCEPTED: u32 = 1 << 27;
+pub(crate) const OFFER_REJECTED: u32 = 1 << 28;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PeerKinds {
@@ -106,13 +110,18 @@ impl<'a> Facts<'a> {
         facts.flags |= SERVICE | flag(m.mentioned, MENTIONED);
         facts.service = Some(ServiceKind::of(&m.action, kinds.chat));
         facts.reply(m.reply_to.as_ref());
-        match m.action {
+        match &m.action {
             // A pin's header points at the pinned message, which the pin doesn't reply to.
             base::MessageAction::MessageActionPinMessage => facts.flags &= !REPLY,
             // The message that creates a topic is its root, so the topic id is the message's own id.
             base::MessageAction::MessageActionTopicCreate(_) => {
                 facts.flags |= TOPIC;
                 facts.thread_id = m.id;
+            }
+            base::MessageAction::MessageActionStarGiftPurchaseOffer(offer) => {
+                // `UpgradedGiftPurchaseOffer::parse` reads `accepted` first, so both flags together mean accepted.
+                facts.flags |=
+                    flag(offer.accepted, OFFER_ACCEPTED) | flag(offer.declined && !offer.accepted, OFFER_REJECTED);
             }
             _ => {}
         }
@@ -131,7 +140,7 @@ impl<'a> Facts<'a> {
             | flag(m.fwd_from.is_some(), FORWARDED)
             | flag(m.via_bot_id.is_some(), VIA_BOT)
             | flag(m.mentioned, MENTIONED)
-            | flag(m.from_scheduled, SCHEDULED)
+            | flag(m.from_scheduled, FROM_SCHEDULED)
             | flag(m.noforwards, PROTECTED)
             | flag(m.grouped_id.is_some(), MEDIA_GROUP)
             | flag(m.paid_message_stars.is_some_and(|stars| stars > 0), PAID_MESSAGE)
@@ -152,7 +161,12 @@ impl<'a> Facts<'a> {
         if let Some(service) = &m.service {
             facts.flags |= SERVICE;
             facts.service = Some(service.kind());
+            if let ServiceAction::UpgradedGiftPurchaseOffer(offer) = service {
+                facts.flags |= flag(offer.state == GiftPurchaseOfferState::Accepted, OFFER_ACCEPTED)
+                    | flag(offer.state == GiftPurchaseOfferState::Rejected, OFFER_REJECTED);
+            }
         }
+        facts.flags |= flag(m.scheduled, SCHEDULED);
         if m.is_topic_message {
             facts.flags |= TOPIC;
             facts.thread_id = m.message_thread_id.unwrap_or(0);
@@ -640,5 +654,88 @@ mod tests {
         let by_user = MessageReactionUpdated::parse(&client, &reaction(get_peer(8)), &entities);
         assert_ne!(by_chat.facts(&me).flags & SENDER_CHAT, 0);
         assert_eq!(by_user.facts(&me).flags & SENDER_CHAT, 0);
+    }
+
+    fn unique_star_gift() -> base::StarGift {
+        base::StarGift::StarGiftUnique(Box::new(types::StarGiftUnique {
+            require_premium: false,
+            resale_ton_only: false,
+            theme_available: false,
+            burned: false,
+            crafted: false,
+            id: 1,
+            gift_id: 2,
+            title: "Plush Pepe".into(),
+            slug: "PlushPepe-3".into(),
+            num: 3,
+            owner_id: None,
+            owner_name: None,
+            owner_address: None,
+            attributes: Vec::new(),
+            availability_issued: 10,
+            availability_total: 100,
+            gift_address: None,
+            resell_amount: None,
+            released_by: None,
+            value_amount: None,
+            value_currency: None,
+            value_usd_amount: None,
+            theme_peer: None,
+            peer_color: None,
+            host_id: None,
+            offer_min_stars: None,
+            craft_chance_permille: None,
+        }))
+    }
+
+    fn offer(accepted: bool, declined: bool) -> types::MessageService {
+        let price = base::StarsAmount::StarsAmount(Box::new(types::StarsAmount { amount: 5, nanos: 0 }));
+        let offer = types::MessageActionStarGiftPurchaseOffer {
+            accepted,
+            declined,
+            gift: unique_star_gift(),
+            price,
+            expires_at: 9,
+        };
+        service(base::MessageAction::MessageActionStarGiftPurchaseOffer(Box::new(offer)))
+    }
+
+    #[test]
+    fn new_bits_match_raw_and_parsed() {
+        let (client, entities) = (Client::offline(), entities());
+        let me = Me { id: 0, is_bot: true, username: Some("Bot".into()), ..Me::default() };
+        let cases = [
+            (false, false, 0),
+            (true, false, OFFER_ACCEPTED),
+            (false, true, OFFER_REJECTED),
+            (true, true, OFFER_ACCEPTED),
+        ];
+        for (i, (accepted, declined, bit)) in cases.into_iter().enumerate() {
+            let raw = base::Message::MessageService(Box::new(offer(accepted, declined)));
+            let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
+            let parsed = Message::from_raw(&client, raw.clone(), &entities).unwrap();
+            assert_eq!(facts, parsed.facts(&me), "case {i}");
+            let seen = (facts.service, facts.flags & (OFFER_ACCEPTED | OFFER_REJECTED));
+            assert_eq!(seen, (Some(ServiceKind::UpgradedGiftPurchaseOffer), bit), "case {i}");
+        }
+    }
+
+    #[test]
+    fn scheduled_is_only_unsent_messages() {
+        let (client, entities) = (Client::offline(), entities());
+        let me = Me::default();
+        let both = FROM_SCHEDULED | SCHEDULED;
+        let mut sent = Message::bare(3, get_peer(8), 0);
+        sent.from_scheduled = true;
+        let raw = base::Message::Message(Box::new(sent.clone()));
+        let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
+        let parsed = Message::parse(&client, Box::new(sent), &entities);
+        assert_eq!(facts, parsed.facts(&me));
+        assert_eq!(facts.flags & both, FROM_SCHEDULED, "sent on schedule isn't unsent");
+
+        let mut waiting = Message::parse(&client, Box::new(Message::bare(3, get_peer(8), 0)), &entities);
+        assert_eq!(waiting.facts(&me).flags & both, 0);
+        waiting.scheduled = true;
+        assert_eq!(waiting.facts(&me).flags & both, SCHEDULED);
     }
 }

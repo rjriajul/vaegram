@@ -127,7 +127,8 @@ impl Media {
             Media::Game(_) => MediaKind::Game,
             Media::PaidMedia(_) => MediaKind::PaidMedia,
             Media::Story(_) => MediaKind::Story,
-            Media::Giveaway(_) | Media::GiveawayWinners(_) => MediaKind::Giveaway,
+            Media::Giveaway(_) => MediaKind::Giveaway,
+            Media::GiveawayWinners(_) => MediaKind::GiveawayWinners,
         }
     }
 
@@ -463,6 +464,7 @@ pub(crate) mod tests {
             assert!(parsed.file_location().is_none());
         }
         assert!(matches!(parse(giveaway), Media::Giveaway(g) if g.prize_star_count == Some(500)));
+        assert_eq!(MediaKind::of(&results), Some(MediaKind::GiveawayWinners));
         assert!(matches!(parse(results), Media::GiveawayWinners(w) if w.was_refunded));
     }
 
