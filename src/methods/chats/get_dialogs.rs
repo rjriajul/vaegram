@@ -103,12 +103,12 @@ mod tests {
         }))
     }
 
-    fn cleared(chat_id: i64, id: i32, date: i32) -> base::Message {
+    fn unparsed(chat_id: i64, id: i32, date: i32) -> base::Message {
         let m = types::MessageService {
             id,
             peer_id: peer(chat_id),
             date,
-            ..service(base::MessageAction::MessageActionHistoryClear)
+            ..service(base::MessageAction::MessageActionNoPaidMessagesTokenUsed)
         };
         base::Message::MessageService(Box::new(m))
     }
@@ -134,7 +134,7 @@ mod tests {
         let page = types::messages::DialogsSlice {
             count: 500,
             dialogs: vec![base::Dialog::DialogFolder(Box::new(folder)); dialogs],
-            messages: vec![cleared(1, 1, 50)],
+            messages: vec![unparsed(1, 1, 50)],
             chats: Vec::new(),
             users: Vec::new(),
         };
@@ -186,7 +186,7 @@ mod tests {
         };
         let base::messages::Dialogs::DialogsSlice(mut first) = slice(1) else { unreachable!() };
         first.dialogs.push(base::Dialog::Dialog(Box::new(dialog)));
-        first.messages.push(cleared(2, 7, 90));
+        first.messages.push(unparsed(2, 7, 90));
         let replies = [base::messages::Dialogs::DialogsSlice(first), whole()];
         let (client, mut rx) = Client::scripted(replies.iter().map(|r| Ok(r.to_bytes())).collect());
 
