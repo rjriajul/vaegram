@@ -4,7 +4,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::session::transfer::Report;
 use crate::types::messages_and_media::{Source, input_document_of, input_photo_of};
-use crate::types::{FileSource, InputMedia, Upload};
+use crate::types::{FileSource, InputMedia, MaskPosition, Upload};
 
 impl Client {
     pub(crate) async fn input_media(
@@ -260,10 +260,10 @@ fn uploaded_document(
         }
         MediaKind::Sticker => {
             vec![base::DocumentAttribute::DocumentAttributeSticker(Box::new(types::DocumentAttributeSticker {
-                mask: false,
+                mask: media.mask_position.is_some(),
                 alt: media.emoji.clone(),
                 stickerset: base::InputStickerSet::InputStickerSetEmpty,
-                mask_coords: None,
+                mask_coords: media.mask_position.as_ref().map(MaskPosition::write),
             }))]
         }
         _ => Vec::new(),
@@ -321,7 +321,7 @@ fn stored_media(stored: base::MessageMedia) -> Option<base::InputMedia> {
 mod tests {
     use super::{stored_media, uploaded_document};
     use crate::Client;
-    use crate::enums::MediaKind;
+    use crate::enums::{MaskPointType, MediaKind};
     use crate::errors::{Error, RpcError};
     use crate::raw::Identifiable;
     use crate::raw::functions::messages::UploadMedia;
@@ -329,7 +329,7 @@ mod tests {
     use crate::raw::{Serializable, base, types};
     use crate::types::messages_and_media::Source;
     use crate::types::messages_and_media::media::tests::document_media;
-    use crate::types::{InputMedia, Upload, UploadedFile};
+    use crate::types::{InputMedia, MaskPosition, Upload, UploadedFile};
 
     #[tokio::test]
     async fn a_live_photo_uploads_its_photo_and_video_side_by_side() {
@@ -518,6 +518,20 @@ mod tests {
         assert_eq!((file.mime_type.as_str(), file.attributes), ("application/pdf", vec![name("report.PDF")]));
         let unknown = ["data.xyz", "README"].map(|n| document(InputMedia::document(n)).mime_type);
         assert_eq!(unknown, ["application/octet-stream"; 2]);
+    }
+
+    #[test]
+    fn a_mask_sticker_carries_its_coordinates() {
+        let chin = MaskPosition { point: MaskPointType::Chin, x_shift: -1.0, y_shift: 0.5, scale: 2.0 };
+        let sticker = document(InputMedia::sticker("mask.webp").emoji("🎭").mask_position(chin));
+        let attribute = types::DocumentAttributeSticker {
+            mask: true,
+            alt: "🎭".into(),
+            stickerset: base::InputStickerSet::InputStickerSetEmpty,
+            mask_coords: Some(chin.write()),
+        };
+        let attribute = base::DocumentAttribute::DocumentAttributeSticker(Box::new(attribute));
+        assert_eq!(sticker.attributes, [attribute, name("mask.webp")]);
     }
 
     #[test]

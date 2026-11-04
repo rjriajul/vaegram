@@ -24,5 +24,5 @@ impl Client {
     }
 }
 
-media_setters!(SendSticker.media: emoji progress);
+media_setters!(SendSticker.media: emoji mask_position progress);
 send_media!(SendSticker);
