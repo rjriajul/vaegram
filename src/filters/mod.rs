@@ -247,8 +247,10 @@ pub fn topic<T: HasMedia>(id: i32) -> Filter<T> {
     flags(facts::TOPIC) & Filter(Pred::Thread(id))
 }
 
+const _: () = assert!(ServiceKind::Unknown as u32 <= 127);
+
 pub fn service_kind<T: HasMedia>(kinds: impl IntoIterator<Item = ServiceKind>) -> Filter<T> {
-    Filter(Pred::Service(kinds.into_iter().fold(0, |mask, k| mask | 1 << k as u8)))
+    Filter(Pred::Service(kinds.into_iter().fold(0u128, |mask, k| mask | 1 << k as u8)))
 }
 
 pub fn private<T: HasChat>() -> Filter<T> {
@@ -371,6 +373,21 @@ mod tests {
         let (exact, prefix): (Filter<CallbackQuery>, Filter<CallbackQuery>) = (data("buy"), data_prefix(b"buy:"));
         assert_eq!((hit(&exact, carries(b"buy")), hit(&exact, carries(b"buy:1"))), (true, false));
         assert_eq!((hit(&prefix, carries(b"buy:1")), hit(&prefix, carries(b"sell:1"))), (true, false));
+    }
+
+    #[test]
+    fn service_kind_masks_cover_high_kinds() {
+        let f = Facts::default();
+        let is = |k| Facts { service: Some(k), ..f };
+        let high: Filter = service_kind([ServiceKind::ChatSetTheme]);
+        assert!(hit(&high, is(ServiceKind::ChatSetTheme)));
+        assert!(!hit(&high, is(ServiceKind::LeftChatMember)));
+        let both: Filter = service_kind([ServiceKind::LeftChatMember, ServiceKind::ChatSetTheme]);
+        assert!(hit(&both, is(ServiceKind::LeftChatMember)) && hit(&both, is(ServiceKind::ChatSetTheme)));
+        assert!(!hit(&both, is(ServiceKind::PinnedMessage)));
+        let top: Filter = service_kind([ServiceKind::PassportDataReceived]);
+        assert!(hit(&top, is(ServiceKind::PassportDataReceived)));
+        assert!(!hit(&top, is(ServiceKind::AutoDeleteTimerChanged)));
     }
 
     #[test]

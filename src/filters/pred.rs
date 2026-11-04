@@ -7,7 +7,7 @@ pub(crate) enum Pred<T> {
     All,
     Flags { set: u32, clear: u32 },
     Media(u32),
-    Service(u64),
+    Service(u128),
     ChatKinds(u8),
     Chats(Box<[i64]>),
     Users(Box<[i64]>),
