@@ -19,10 +19,13 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    use super::super::send_payment_form::tests::{client, gift_form, invoice, stars_form};
+    use super::super::send_payment_form::tests::{
+        card_form, client, gift_form, invoice, stars_form, stars_form_without_period,
+    };
+    use crate::enums::PaymentFormType;
     use crate::errors::Error;
     use crate::raw::{Serializable, base, functions, types};
-    use crate::types::{InvoiceRef, LabeledPrice};
+    use crate::types::{InvoiceRef, LabeledPrice, OrderInfo};
 
     fn slug(slug: &str) -> base::InputInvoice {
         base::InputInvoice::InputInvoiceSlug(Box::new(types::InputInvoiceSlug { slug: slug.into() }))
@@ -99,6 +102,94 @@ mod tests {
         let form = client.get_payment_form(InvoiceRef::Link("abc".into())).await.unwrap();
         assert_eq!((form.id, form.currency.as_str(), form.total_amount), (3, "USD", 100));
         assert_eq!(form.bot.map(|b| b.id), Some(8));
+    }
+
+    #[tokio::test]
+    async fn card_form_reads_provider_url_options_and_saved_data() {
+        let (client, _sent) = client(vec![card_form("USD", 900)]);
+        let form = client.get_payment_form(InvoiceRef::Link("abc".into())).await.unwrap();
+        assert_eq!(form.kind, PaymentFormType::Regular);
+        assert_eq!(form.payment_provider.as_ref().map(|p| (p.id, p.first_name.as_str())), Some((9, "Provider")));
+        assert_eq!(form.url.as_deref(), Some("https://pay.example.com/form"));
+        assert_eq!(
+            (form.native_provider.as_deref(), form.native_params.as_deref()),
+            (Some("stripe"), Some("{\"k\":1}"))
+        );
+        assert_eq!(form.photo_url.as_deref(), Some("https://example.com/p.jpg"));
+        let options: Vec<_> =
+            form.additional_payment_options.iter().map(|o| (o.title.as_str(), o.url.as_str())).collect();
+        assert_eq!(options, [("Wallet", "https://wallet.example.com")]);
+        let cards: Vec<_> = form.saved_credentials.iter().map(|c| (c.id.as_str(), c.title.as_str())).collect();
+        assert_eq!(cards, [("card-1", "Visa *1111")]);
+        let info = OrderInfo { name: Some("Ann".into()), phone_number: None, email: None, shipping_address: None };
+        assert_eq!(form.saved_order_info, Some(info));
+        assert!(form.can_save_credentials && form.need_password);
+    }
+
+    #[tokio::test]
+    async fn debug_hides_saved_order_info_and_card_titles() {
+        let (client, _sent) = client(vec![card_form("USD", 900)]);
+        let form = client.get_payment_form(InvoiceRef::Link("abc".into())).await.unwrap();
+        let shown = format!("{form:?}");
+        assert!(shown.contains("saved_order_info: <redacted>"), "{shown}");
+        for private in ["Ann", "Visa *1111", "card-1"] {
+            assert!(!shown.contains(private), "{private} leaked: {shown}");
+        }
+    }
+
+    #[tokio::test]
+    async fn invoice_flags_and_tips_are_flat_on_the_form() {
+        let flagged = types::Invoice {
+            test: false,
+            name_requested: true,
+            phone_requested: true,
+            email_requested: true,
+            shipping_address_requested: true,
+            flexible: true,
+            phone_to_provider: true,
+            email_to_provider: true,
+            recurring: true,
+            currency: "USD".into(),
+            prices: Vec::new(),
+            max_tip_amount: Some(500),
+            suggested_tip_amounts: Some(vec![100, 200]),
+            terms_url: Some("https://example.com/terms".into()),
+            subscription_period: None,
+        };
+        let form =
+            types::payments::PaymentFormStarGift { form_id: 7, invoice: base::Invoice::Invoice(Box::new(flagged)) };
+        let form = base::payments::PaymentForm::PaymentFormStarGift(Box::new(form)).to_bytes();
+        let (client, _sent) = client(vec![form]);
+        let form = client.get_payment_form(InvoiceRef::Link("abc".into())).await.unwrap();
+        assert!(form.is_name_requested && form.is_phone_requested && form.is_email_requested);
+        assert!(form.is_shipping_address_requested && form.is_flexible && form.is_recurring);
+        assert!(form.is_phone_to_provider && form.is_email_to_provider);
+        assert_eq!((form.max_tip_amount, form.suggested_tip_amounts.as_slice()), (Some(500), &[100, 200][..]));
+        assert_eq!(form.terms_url.as_deref(), Some("https://example.com/terms"));
+        assert!(form.url.is_none() && form.payment_provider.is_none() && form.saved_credentials.is_empty());
+    }
+
+    #[tokio::test]
+    async fn form_kinds_map_regular_stars_subscription_and_gift() {
+        let (client, _sent) = client(vec![
+            card_form("USD", 1),
+            stars_form("XTR", &[1]),
+            gift_form("XTR", 1),
+            stars_form_without_period(),
+        ]);
+        let mut kinds = Vec::new();
+        for _ in 0..4 {
+            kinds.push(client.get_payment_form(InvoiceRef::Link("abc".into())).await.unwrap().kind);
+        }
+        assert_eq!(
+            kinds,
+            [
+                PaymentFormType::Regular,
+                PaymentFormType::StarSubscription,
+                PaymentFormType::StarGift,
+                PaymentFormType::Stars
+            ]
+        );
     }
 
     #[tokio::test]
