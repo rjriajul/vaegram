@@ -3,6 +3,7 @@ pub(crate) mod conformance;
 mod engine;
 mod file_format;
 mod file_storage;
+mod hybrid_storage;
 mod memory_storage;
 #[cfg(feature = "mongodb")]
 mod mongo_storage;
@@ -23,6 +24,7 @@ mod vault_storage;
 
 pub use engine::{PeerRecord, Storage, StorageFuture, StoredState};
 pub use file_storage::FileStorage;
+pub use hybrid_storage::HybridStorage;
 pub use memory_storage::MemoryStorage;
 #[cfg(feature = "mongodb")]
 pub use mongo_storage::MongoStorage;
