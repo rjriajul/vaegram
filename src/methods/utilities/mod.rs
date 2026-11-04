@@ -6,3 +6,5 @@ mod restart;
 mod run;
 mod set_parse_mode;
 mod stop_transmission;
+
+pub use compose::Compose;
