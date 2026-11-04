@@ -187,7 +187,10 @@ pub struct StoryViewer {
     pub user: User,
     pub date: i32,
     pub reaction: Option<ReactionType>,
+    /// The viewer is on the account's block list.
     pub is_blocked: bool,
+    /// The viewer is hidden from the account's stories only.
+    pub is_blocked_my_stories_from: bool,
 }
 
 impl StoryViewer {
@@ -197,7 +200,8 @@ impl StoryViewer {
             user: User::parse(v.user_id, entities),
             date: v.date,
             reaction: v.reaction.as_ref().and_then(ReactionType::parse),
-            is_blocked: v.blocked || v.blocked_my_stories_from,
+            is_blocked: v.blocked,
+            is_blocked_my_stories_from: v.blocked_my_stories_from,
         })
     }
 }
