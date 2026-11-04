@@ -22,8 +22,10 @@ mod set_profile_audio_position;
 mod takeout;
 mod terminate_all_other_sessions;
 mod terminate_session;
+mod toggle_no_paid_messages_exception;
 mod unsave_wallpaper;
 
 pub use create_theme::CreateTheme;
 pub use install_theme::InstallTheme;
 pub use takeout::{Takeout, TakeoutSession};
+pub use toggle_no_paid_messages_exception::ToggleNoPaidMessagesException;
