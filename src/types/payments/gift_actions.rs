@@ -29,6 +29,7 @@ mod tests {
             is_premium: false,
             is_burned: false,
             publisher_chat: None,
+            ..Default::default()
         };
         let (client, mut sent) = Client::recording();
         assert!(gift.wear(&client).await.is_err());

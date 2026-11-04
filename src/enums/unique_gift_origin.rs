@@ -7,4 +7,6 @@ pub enum UniqueGiftOrigin {
     Resale,
     Offer,
     Craft,
+    /// The gift was assigned from the blockchain.
+    Blockchain,
 }
