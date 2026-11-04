@@ -7,12 +7,16 @@ mod memory_storage;
 mod peer_cache;
 pub mod recording;
 pub mod session_string;
+#[cfg(feature = "sqlite")]
+mod sqlite_storage;
 mod store;
 
 pub use engine::{PeerRecord, Storage, StorageFuture, StoredState};
 pub use file_storage::FileStorage;
 pub use memory_storage::MemoryStorage;
 pub(crate) use peer_cache::{PeerCache, input_peer};
+#[cfg(feature = "sqlite")]
+pub use sqlite_storage::SqliteStorage;
 #[cfg(test)]
 pub(crate) use store::Recording;
 pub(crate) use store::Store;
