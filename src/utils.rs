@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use crate::crypto::password::Srp;
 use crate::crypto::random;
 use crate::errors::{Error, Result};
@@ -133,6 +135,68 @@ pub(crate) fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+// The JPEG every stripped thumbnail shares, minus its scan data: only the size bytes at 164 and 166 change.
+const STRIPPED_JPEG_HEADER: &[u8; 623] = b"\
+    \xff\xd8\xff\xe0\x00\x10\x4a\x46\x49\x46\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xdb\x00\x43\x00\x28\x1c\
+    \x1e\x23\x1e\x19\x28\x23\x21\x23\x2d\x2b\x28\x30\x3c\x64\x41\x3c\x37\x37\x3c\x7b\x58\x5d\x49\x64\x91\x80\x99\
+    \x96\x8f\x80\x8c\x8a\xa0\xb4\xe6\xc3\xa0\xaa\xda\xad\x8a\x8c\xc8\xff\xcb\xda\xee\xf5\xff\xff\xff\x9b\xc1\xff\
+    \xff\xff\xfa\xff\xe6\xfd\xff\xf8\xff\xdb\x00\x43\x01\x2b\x2d\x2d\x3c\x35\x3c\x76\x41\x41\x76\xf8\xa5\x8c\xa5\
+    \xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\
+    \xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xf8\xff\xc0\x00\x11\
+    \x08\x00\x00\x00\x00\x03\x01\x22\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x1f\x00\x00\x01\x05\x01\x01\x01\x01\
+    \x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\xff\xc4\x00\xb5\x10\x00\
+    \x02\x01\x03\x03\x02\x04\x03\x05\x05\x04\x04\x00\x00\x01\x7d\x01\x02\x03\x00\x04\x11\x05\x12\x21\x31\x41\x06\
+    \x13\x51\x61\x07\x22\x71\x14\x32\x81\x91\xa1\x08\x23\x42\xb1\xc1\x15\x52\xd1\xf0\x24\x33\x62\x72\x82\x09\x0a\
+    \x16\x17\x18\x19\x1a\x25\x26\x27\x28\x29\x2a\x34\x35\x36\x37\x38\x39\x3a\x43\x44\x45\x46\x47\x48\x49\x4a\x53\
+    \x54\x55\x56\x57\x58\x59\x5a\x63\x64\x65\x66\x67\x68\x69\x6a\x73\x74\x75\x76\x77\x78\x79\x7a\x83\x84\x85\x86\
+    \x87\x88\x89\x8a\x92\x93\x94\x95\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xb2\xb3\xb4\xb5\xb6\
+    \xb7\xb8\xb9\xba\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xe1\xe2\xe3\xe4\xe5\
+    \xe6\xe7\xe8\xe9\xea\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xff\xc4\x00\x1f\x01\x00\x03\x01\x01\x01\x01\x01\
+    \x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\xff\xc4\x00\xb5\x11\x00\
+    \x02\x01\x02\x04\x04\x03\x04\x07\x05\x04\x04\x00\x01\x02\x77\x00\x01\x02\x03\x11\x04\x05\x21\x31\x06\x12\x41\
+    \x51\x07\x61\x71\x13\x22\x32\x81\x08\x14\x42\x91\xa1\xb1\xc1\x09\x23\x33\x52\xf0\x15\x62\x72\xd1\x0a\x16\x24\
+    \x34\xe1\x25\xf1\x17\x18\x19\x1a\x26\x27\x28\x29\x2a\x35\x36\x37\x38\x39\x3a\x43\x44\x45\x46\x47\x48\x49\x4a\
+    \x53\x54\x55\x56\x57\x58\x59\x5a\x63\x64\x65\x66\x67\x68\x69\x6a\x73\x74\x75\x76\x77\x78\x79\x7a\x82\x83\x84\
+    \x85\x86\x87\x88\x89\x8a\x92\x93\x94\x95\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xb2\xb3\xb4\
+    \xb5\xb6\xb7\xb8\xb9\xba\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xe2\xe3\xe4\
+    \xe5\xe6\xe7\xe8\xe9\xea\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xff\xda\x00\x0c\x03\x01\x00\x02\x11\x03\x11\x00\
+    \x3f\x00";
+
+/// Turns a stripped thumbnail (the `bytes` of a `photoStrippedSize`, as chat photos and media carry) back into a
+/// JPEG. `None` when the payload is too short or isn't a stripped thumbnail.
+pub fn expand_inline_bytes(stripped: &[u8]) -> Option<Vec<u8>> {
+    let [1, height, width, scan @ ..] = stripped else { return None };
+    let mut jpeg = Vec::with_capacity(STRIPPED_JPEG_HEADER.len() + scan.len() + 2);
+    jpeg.extend_from_slice(STRIPPED_JPEG_HEADER);
+    jpeg[164] = *height;
+    jpeg[166] = *width;
+    jpeg.extend_from_slice(scan);
+    jpeg.extend_from_slice(b"\xff\xd9");
+    Some(jpeg)
+}
+
+/// Decodes a vector thumbnail (the `bytes` of a `photoPathSize`) into SVG path data, ready for the `d` attribute of
+/// a `<path>` in a `viewBox="0 0 512 512"`.
+pub fn decode_svg_path(encoded: &[u8]) -> String {
+    const COMMANDS: &[u8; 64] = b"AACAAAAHAAALMAAAQASTAVAAAZaacaaaahaaalmaaaqastava.az0123456789-,";
+    let mut path = String::with_capacity(encoded.len() * 3 + 2);
+    path.push('M');
+    for &byte in encoded {
+        if byte >= 192 {
+            path.push(char::from(COMMANDS[usize::from(byte - 192)]));
+            continue;
+        }
+        if byte >= 128 {
+            path.push(',');
+        } else if byte >= 64 {
+            path.push('-');
+        }
+        let _ = write!(path, "{}", byte & 63);
+    }
+    path.push('z');
+    path
+}
+
 pub(crate) fn known_algo(
     algo: &base::PasswordKdfAlgo,
 ) -> Result<&types::PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow> {
@@ -158,7 +222,9 @@ pub(crate) fn compute_password_check(
 
 #[cfg(test)]
 mod tests {
-    use super::{base64_decode, base64_encode, base64url_decode, base64url_encode};
+    use super::{
+        base64_decode, base64_encode, base64url_decode, base64url_encode, decode_svg_path, expand_inline_bytes,
+    };
 
     #[test]
     fn base64url_is_strict_and_proxy_secrets_are_not() {
@@ -167,5 +233,65 @@ mod tests {
         assert_eq!((base64url_decode("+_8"), base64url_decode("-_8=")), (None, None));
         assert_eq!(base64_encode(b"user:pw"), "dXNlcjpwdw==");
         assert_eq!(base64_decode("+/8=").as_deref(), Some(&[0xfb, 0xff][..]));
+    }
+
+    const STRIPPED: [u8; 28] = [
+        0x01, 0x0e, 0x28, 0xa3, 0x9e, 0x05, 0x26, 0x78, 0xa5, 0x03, 0x8e, 0xb4, 0xd2, 0x31, 0x40, 0x06, 0x7d, 0x85,
+        0x19, 0xa4, 0xe2, 0x8e, 0x28, 0x00, 0xa2, 0x8a, 0x28, 0x03,
+    ];
+
+    #[test]
+    fn expands_a_stripped_thumbnail() {
+        let jpeg = expand_inline_bytes(&STRIPPED).unwrap();
+        assert_eq!(jpeg.len(), 623 + STRIPPED.len() - 3 + 2);
+        assert_eq!((&jpeg[..4], jpeg[164], jpeg[166]), (&[0xff, 0xd8, 0xff, 0xe0][..], 0x0e, 0x28));
+        assert_eq!((&jpeg[623..648], &jpeg[648..]), (&STRIPPED[3..], &[0xff, 0xd9][..]));
+        // The digest of the reference decoder's output pins every header byte.
+        let digest = [
+            0xa3, 0xc4, 0xff, 0x73, 0xba, 0x1d, 0xdd, 0x11, 0x59, 0x9c, 0x82, 0x3b, 0x44, 0x81, 0x46, 0xd5, 0xe3, 0x2e,
+            0x94, 0x29, 0xd0, 0x41, 0x08, 0xec, 0x7e, 0xfa, 0xfe, 0xcc, 0xea, 0x10, 0x02, 0x27,
+        ];
+        assert_eq!(crate::crypto::sha256(&[&jpeg]), digest);
+    }
+
+    #[test]
+    fn refuses_short_or_unknown_payloads() {
+        for payload in [&[][..], &[1], &[1, 2], &[2, 0x0e, 0x28, 0xa3], &[0, 1, 2]] {
+            assert_eq!(expand_inline_bytes(payload), None, "{payload:?}");
+        }
+        let empty_scan = expand_inline_bytes(&[1, 2, 3]).unwrap();
+        assert_eq!((empty_scan.len(), empty_scan[164], empty_scan[166]), (625, 2, 3));
+    }
+
+    #[test]
+    fn decodes_a_vector_thumbnail_path() {
+        let encoded = [
+            0x1a, 0x00, 0xb2, 0x04, 0xdc, 0x47, 0x03, 0x81, 0x73, 0x55, 0x48, 0x01, 0x46, 0x05, 0x44, 0x45, 0x4f, 0x8b,
+            0x52, 0x8d, 0x4e, 0x8a, 0x5d, 0x8b, 0x6e, 0x8b, 0x71, 0x81, 0x4c, 0x4d, 0x07, 0x47, 0x50, 0x02, 0x81, 0x46,
+            0x84, 0x4b, 0x83, 0x50, 0x80, 0x44, 0x67, 0x47, 0x01, 0x6b, 0x47, 0x08, 0x43, 0x44, 0x4f, 0x53, 0x43, 0x56,
+            0x8e, 0x44, 0x97, 0x94, 0x9d, 0x9c, 0x82, 0x84, 0x89, 0x45, 0x8b, 0x42, 0x88, 0x8a, 0xa6, 0xb3, 0xa8, 0xbc,
+            0x81, 0x8a, 0x81, 0xad, 0x82, 0xae, 0x87, 0x88, 0xa5, 0x67, 0xab, 0x6a, 0x92, 0x49, 0xaa, 0x42, 0xb6, 0x4e,
+            0x8d, 0x4e, 0x5e, 0x80, 0x69, 0x43, 0x45, 0x41, 0x4a, 0x46, 0x4d, 0x49, 0x52, 0x51, 0x8a, 0x46, 0x89, 0x47,
+            0x4b, 0x4f, 0x5f, 0x5b, 0x6d, 0x67, 0x64, 0x5f, 0x46, 0x06, 0x48, 0x08, 0x63, 0x4d, 0x03, 0xa1, 0x70, 0x89,
+            0x06, 0x81, 0x8b, 0x01, 0x48, 0x87, 0x44, 0x8a, 0x4c, 0x91, 0x51, 0x98, 0x51, 0x87, 0x03, 0x81, 0x89, 0x04,
+            0x8f, 0x88, 0x86, 0x90, 0x8e, 0x95, 0x97, 0x81, 0x81, 0x82, 0x8b, 0x84, 0x8c, 0x98, 0x8d, 0xb2, 0x93, 0x87,
+            0x00, 0xa9, 0xab, 0xad, 0x8e, 0x8a, 0x07, 0x69, 0x8c, 0x05, 0x5a, 0x89, 0x75, 0x84, 0x48, 0x00, 0x87, 0x46,
+            0x80, 0x8c, 0x86, 0x92, 0x86, 0x90, 0x81, 0xa4, 0x4b, 0xb2, 0x81, 0x95, 0x91, 0x9b, 0xab, 0xab, 0xbf, 0x95,
+            0x99, 0x87, 0x03, 0xb9, 0x87, 0x00, 0x89, 0x04, 0x42, 0xac, 0x4e, 0x04, 0xb5, 0x51, 0x04, 0xb3, 0x4a, 0x81,
+            0x46, 0x86, 0x4a, 0x8b, 0x41, 0x81, 0x43, 0x44, 0x45, 0x43, 0x51, 0x85, 0x5c, 0x8c, 0x6f, 0x8c,
+        ];
+        let expected = "M260,504c-73,1-51-21-81-65-4-5-15,11-18,13-14,10-29,11-46,11-49,1-12-137-7-162,1-6,4-11,3-16,0-4-39-\
+            71-43-78-3-4-15-19-3-22,14-4,23,20,29,28,2,4,9-5,11-2,8,10,38,51,40,60,1,10,1,45,2,46,7,8,37-39,43-4\
+            2,18-9,42-2,54-14,13-14-30,0-41-3-5-1-10-6-13-9-18-17,10-6,9-7-11-15-31-27-45-39-36-31-66-88-35-133,\
+            33-48,96,1,111-8,7-4,10-12,17-17,24-17,73,1,94,15,8,6,16,14,21,23,1,1,2,11,4,12,24,13,50,19,70,41,43\
+            ,45,14,107-41,125-26,9-53,4-80,7-6,0,12,6,18,6,16,1,36-11,50,1,21,17,27,43,43,63,21,25,73,57,70,94-2\
+            ,44-144,53-174,51-10,1-6,6-10,11-1,1-3-4-5-3-17,5-28,12-47,12z";
+        assert_eq!(decode_svg_path(&encoded), expected);
+        assert_eq!(decode_svg_path(&[]), "Mz");
+        assert_eq!(decode_svg_path(&[0x3f, 0x40, 0x80, 0xbf, 0xc0, 0xff]), "M63-0,0,63A,z");
+        for byte in 0..=u8::MAX {
+            let path = decode_svg_path(&[byte]);
+            assert!(path.starts_with('M') && path.ends_with('z') && path.len() > 2, "{byte}");
+        }
     }
 }
