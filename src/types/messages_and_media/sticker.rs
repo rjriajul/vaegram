@@ -1,4 +1,4 @@
-use crate::enums::StickerType;
+use crate::enums::{StickerFormat, StickerType};
 use crate::file_id::FileType;
 use crate::raw::{base, types};
 use crate::types::{Document, FileLocation, MaskPosition, Thumbnail};
@@ -32,6 +32,16 @@ impl Sticker {
     pub(crate) fn parse(document: &base::Document) -> Option<Sticker> {
         let base::Document::Document(raw) = document else { return None };
         Sticker::from_document(Document::parse_as(document, FileType::Sticker)?, raw)
+    }
+
+    pub fn format(&self) -> StickerFormat {
+        if self.is_animated {
+            StickerFormat::Animated
+        } else if self.is_video {
+            StickerFormat::Video
+        } else {
+            StickerFormat::Static
+        }
     }
 
     /// `None` when the attributes mark neither a sticker nor a custom emoji.
@@ -126,6 +136,17 @@ pub(crate) mod tests {
 
     fn size(w: i32, h: i32) -> base::DocumentAttribute {
         base::DocumentAttribute::DocumentAttributeImageSize(types::DocumentAttributeImageSize { w, h })
+    }
+
+    #[test]
+    fn format_follows_the_flags() {
+        use crate::enums::StickerFormat as F;
+        let format =
+            |mime: &str| Sticker::parse(&document(1, mime, vec![sticker_attribute("x", None)])).unwrap().format();
+        assert_eq!(
+            [format("image/webp"), format("application/x-tgsticker"), format("video/webm")],
+            [F::Static, F::Animated, F::Video]
+        );
     }
 
     #[test]
