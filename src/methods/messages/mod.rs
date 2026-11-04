@@ -56,6 +56,7 @@ mod get_messages_views;
 mod get_pinned_message;
 mod get_poll_results;
 mod get_poll_votes;
+mod get_recent_locations;
 mod get_recent_reactions;
 mod get_rich_message;
 mod get_saved_dialogs;
