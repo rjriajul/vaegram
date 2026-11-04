@@ -20,7 +20,10 @@ use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, Serializable, base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Auth, Lease, TransferPool};
-use crate::session::{Call, Events, Observer, RateLimiter, RateLimits, Salt, Session, UpdatesRx, init_connection};
+use crate::session::{
+    AutoSleep, Call, Events, Observer, RateLimiter, RateLimits, Retry, RetryPolicy, Salt, Session, UpdatesRx,
+    init_connection,
+};
 use crate::storage::recording::Recorder;
 use crate::storage::{
     FileStorage, MemoryStorage, PeerCache, SessionData, Storage, Store, StoredState, UpdateState, session_string,
@@ -55,6 +58,8 @@ pub struct ClientBuilder {
     max_listeners: Option<usize>,
     max_concurrent_transmissions: Option<usize>,
     rate_limits: Option<RateLimits>,
+    auto_sleep: AutoSleep,
+    retry_policy: Option<Retry>,
 }
 
 #[derive(Default)]
@@ -239,15 +244,23 @@ impl ClientBuilder {
 
     /// FLOOD_WAITs up to this long are slept off and retried, at most `max_flood_sleeps` times per call; longer
     /// ones go to the caller as `Error::Rpc`. 60 seconds by default; `Duration::ZERO` hands every one to the caller.
+    /// [`retry_policy`](Self::retry_policy) replaces this and `max_flood_sleeps`.
     pub fn flood_sleep_threshold(mut self, threshold: Duration) -> Self {
-        self.options.flood_sleep_threshold = threshold;
+        self.auto_sleep.threshold = threshold;
         self
     }
 
     /// How many FLOOD_WAITs one call sleeps off, 5 by default; 0 hands every one to the caller. Lost connections
     /// need no retry setting: they are reconnected and the waiting requests sent again on their own.
     pub fn max_flood_sleeps(mut self, n: usize) -> Self {
-        self.options.max_flood_sleeps = n;
+        self.auto_sleep.tries = n;
+        self
+    }
+
+    /// Decides what happens to a failed request, in place of the default [`AutoSleep`] that `flood_sleep_threshold`
+    /// and `max_flood_sleeps` set up; [`NoRetries`](crate::session::NoRetries) hands every failure to the caller.
+    pub fn retry_policy(mut self, policy: impl RetryPolicy) -> Self {
+        self.retry_policy = Some(Retry::new(policy));
         self
     }
 
@@ -355,6 +368,7 @@ impl ClientBuilder {
         if let Some(limits) = &self.rate_limits {
             limits.validate()?;
         }
+        self.options.retry = self.retry_policy.take().unwrap_or_else(|| Retry::new(self.auto_sleep));
         if let Some(path) = &self.record {
             self.options.record = Some(Recorder::create(path)?);
         }
@@ -627,6 +641,8 @@ impl Client {
             max_listeners: None,
             max_concurrent_transmissions: None,
             rate_limits: None,
+            auto_sleep: AutoSleep::default(),
+            retry_policy: None,
         }
     }
 
@@ -798,7 +814,7 @@ impl Client {
         let lease = self.transfer_sessions(dc, 1).await?;
         // A reopened file connection hasn't sent its layer, and the answer can carry users.
         let request = init_connection(self.0.api_id, &self.0.options, Borrowed(request));
-        invoke_sleeping_floods(&lease.sessions[0], &request, self.0.options.request_timeout).await
+        invoke_sleeping_floods(&lease.sessions[0], R::NAME, &request, self.0.options.request_timeout).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {
@@ -866,7 +882,7 @@ mod tests {
     use crate::errors::Error;
     use crate::raw::{base, types};
     use crate::session::test_dc::TestDc;
-    use crate::session::{RateCategory, RateLimits};
+    use crate::session::{AutoSleep, RateCategory, RateLimits};
     use crate::storage::{FileStorage, MemoryStorage, PeerRecord, Recording, SessionData, Storage, UpdateState};
     use crate::types::{Json, PeerRef};
 
@@ -881,8 +897,8 @@ mod tests {
     fn builder_defaults_match_todays_behaviour() {
         let builder = Client::builder("defaults", 1, "hash");
         let options = &builder.options;
-        assert_eq!((options.max_flood_sleeps, options.updates_capacity), (5, 1024));
-        assert_eq!(options.flood_sleep_threshold, Duration::from_secs(60));
+        assert_eq!(options.updates_capacity, 1024);
+        assert_eq!(builder.auto_sleep, AutoSleep { threshold: Duration::from_secs(60), tries: 5 });
         assert!(builder.catch_up);
         assert_eq!(builder.client_platform, "unknown");
         assert_eq!(builder.listener_timeout, Some(Duration::from_secs(300)));

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::future::{Future, poll_fn};
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
@@ -203,17 +204,18 @@ async fn invoke_part_on<R: RemoteCall>(session: &Session, request: &R, cdn: bool
     // Parts go straight to their session, so the user's request_timeout still has to count.
     let timeout = PART_TIMEOUT.max(session.options().request_timeout);
     let cap = cdn.then_some(MAX_CDN_FLOOD_WAIT);
-    let (mut timeouts, mut floods) = (0, 0);
+    let (mut timeouts, mut retries, mut slept) = (0, 0u32, Duration::ZERO);
     loop {
         let result = session.invoke_with_timeout(request, timeout).await;
-        let floods_left = floods < session.options().max_flood_sleeps;
-        let wait = result.as_ref().err().and_then(|e| session.flood_sleep(e, cap)).filter(|_| floods_left);
-        match (&result, wait) {
-            (_, Some(wait)) => {
-                floods += 1;
+        let retry = result.as_ref().err().map(|e| session.should_retry(R::NAME, e, retries + 1, slept, cap));
+        match (&result, retry) {
+            (_, Some(ControlFlow::Continue(wait))) => {
+                retries += 1;
+                slept += wait;
                 tokio::time::sleep(wait).await;
             }
-            (Err(Error::Timeout), None) if timeouts + 1 < MAX_TIMEOUTS => timeouts += 1,
+            // Timeouts get their own retries whatever the policy thinks of them.
+            (Err(Error::Timeout), _) if timeouts + 1 < MAX_TIMEOUTS => timeouts += 1,
             _ => return result,
         }
     }
@@ -271,17 +273,23 @@ pub(crate) async fn try_join_all<T, F: Future<Output = Result<T>>>(futures: impl
 
 #[cfg(test)]
 mod tests {
+    use std::ops::ControlFlow;
     use std::sync::Arc;
+    use std::sync::Mutex;
     use std::sync::atomic::AtomicI32;
     use std::time::Duration;
 
-    use super::{Auth, PART_TIMEOUT, Progress, Session, TransferPool, invoke_part, take, try_join_all, workers};
+    use super::{
+        Auth, MAX_CDN_FLOOD_WAIT, PART_TIMEOUT, Progress, Session, TransferPool, invoke_cdn_part, invoke_part, take,
+        try_join_all, workers,
+    };
     use crate::Client;
     use crate::connection::{Options, Transport};
     use crate::errors::{Error, Result, RpcError};
     use crate::raw::{Serializable, base, functions, types};
     use crate::session::internals::data_center::Dc;
     use crate::session::test_dc::TestDc;
+    use crate::session::{AutoSleep, Retry, RetryContext, RetryPolicy};
 
     #[tokio::test]
     async fn a_dcs_media_address_reuses_the_key_of_its_main_address() {
@@ -324,7 +332,8 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_flood_wait_over_the_threshold_comes_back_without_sleeping() {
         let (mut session, mut sent) = Session::scripted(vec![Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_120")))]);
-        session.set_options(Options { flood_sleep_threshold: Duration::from_secs(60), ..Options::default() });
+        let retry = Retry::new(AutoSleep { threshold: Duration::from_secs(60), ..AutoSleep::default() });
+        session.set_options(Options { retry, ..Options::default() });
         let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };
 
         let start = tokio::time::Instant::now();
@@ -338,11 +347,36 @@ mod tests {
     async fn parts_follow_the_flood_sleep_setting() {
         let flood = || Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_1")));
         let (mut session, mut sent) = Session::scripted(vec![flood(), flood()]);
-        session.set_options(Options { max_flood_sleeps: 1, ..Options::default() });
+        let retry = Retry::new(AutoSleep { tries: 1, ..AutoSleep::default() });
+        session.set_options(Options { retry, ..Options::default() });
         let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };
         let e = invoke_part(&session, &part).await.unwrap_err();
         assert!(matches!(e, Error::Rpc(e) if e.is("FLOOD_WAIT")));
         assert_eq!(std::iter::from_fn(|| sent.try_recv().ok()).count(), 2);
+    }
+
+    type Asked = (&'static str, u32, Option<Duration>);
+    struct Record(Arc<Mutex<Vec<Asked>>>);
+
+    impl RetryPolicy for Record {
+        fn should_retry(&self, ctx: &RetryContext<'_>) -> ControlFlow<(), Duration> {
+            self.0.lock().unwrap().push((ctx.request, ctx.fail_count, ctx.flood_wait));
+            ControlFlow::Break(())
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cdn_floods_reach_the_policy_capped() {
+        let seen = Arc::default();
+        let flood = || Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_300")));
+        let (mut session, _sent) = Session::scripted(vec![flood(), flood()]);
+        session.set_options(Options { retry: Retry::new(Record(Arc::clone(&seen))), ..Options::default() });
+        let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };
+        let _ = invoke_part(&session, &part).await;
+        let _ = invoke_cdn_part(&session, &part).await;
+        let name = "upload.saveFilePart";
+        let expected = [(name, 1, Some(Duration::from_secs(300))), (name, 1, Some(MAX_CDN_FLOOD_WAIT))];
+        assert_eq!(*seen.lock().unwrap(), expected);
     }
 
     #[tokio::test]

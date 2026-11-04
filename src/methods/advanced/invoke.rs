@@ -1,3 +1,4 @@
+use std::ops::ControlFlow;
 use std::time::Duration;
 
 use crate::Client;
@@ -15,9 +16,9 @@ impl Client {
     }
 
     /// A request that times out is forgotten: the server is asked not to send its answer, and the connection
-    /// carries on. FLOOD_WAITs up to `flood_sleep_threshold` are slept off and retried, each try with the full
-    /// `timeout`, at most `max_flood_sleeps` times; the next one goes to the caller. `tokio::time::timeout` around
-    /// the call bounds the whole wait.
+    /// carries on. After a failure the client's retry policy decides whether the request goes out again, each try
+    /// with the full `timeout`: by default FLOOD_WAITs up to a minute are slept off, five times, and the next
+    /// one goes to the caller. `tokio::time::timeout` around the call bounds the whole wait.
     pub async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
         self.invoke_as(R::NAME, request, timeout).await
     }
@@ -35,9 +36,9 @@ impl Client {
         match self.1 {
             Some(takeout_id) => {
                 let request = functions::InvokeWithTakeout { takeout_id, query: Borrowed(request) };
-                invoke_sleeping_floods(&session, &request, timeout).await
+                invoke_sleeping_floods(&session, name, &request, timeout).await
             }
-            None => invoke_sleeping_floods(&session, request, timeout).await,
+            None => invoke_sleeping_floods(&session, name, request, timeout).await,
         }
     }
 
@@ -111,20 +112,25 @@ impl Client {
     }
 }
 
+/// Sends `request`, asking the session's retry policy after every failure whether to send it again. `name` is
+/// what the policy is told the request is.
 pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(
     session: &Session,
+    name: &'static str,
     request: &R,
     timeout: Duration,
 ) -> Result<R::Return> {
-    let mut slept = 0;
+    let (mut retries, mut slept) = (0u32, Duration::ZERO);
     loop {
         let result = session.invoke_with_timeout(request, timeout).await;
-        match result.as_ref().err().and_then(|e| session.flood_sleep(e, None)) {
-            Some(wait) if slept < session.options().max_flood_sleeps => {
-                slept += 1;
+        let Err(error) = &result else { return result };
+        match session.should_retry(name, error, retries + 1, slept, None) {
+            ControlFlow::Continue(wait) => {
+                retries += 1;
+                slept += wait;
                 tokio::time::sleep(wait).await;
             }
-            _ => return result,
+            ControlFlow::Break(()) => return result,
         }
     }
 }
@@ -142,7 +148,7 @@ mod tests {
     use crate::errors::RpcError;
     use crate::raw::{Serializable, base, types};
     use crate::session::RateCategory::{Account, Admin, Bulk, Global, Media, Message, Query};
-    use crate::session::{RateLimiter, RateLimits};
+    use crate::session::{AutoSleep, NoRetries, RateLimiter, RateLimits, Retry, RetryContext, RetryPolicy};
 
     const FOREIGN_DC: i32 = 4;
 
@@ -154,7 +160,8 @@ mod tests {
     fn flooded(flood_sleep_threshold: Duration) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
         let (mut client, sent) =
             Client::scripted(vec![Err(flood(1)), Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes())]);
-        client.set_options(Options { flood_sleep_threshold, ..Options::default() });
+        let retry = Retry::new(AutoSleep { threshold: flood_sleep_threshold, ..AutoSleep::default() });
+        client.set_options(Options { retry, ..Options::default() });
         (client, sent)
     }
 
@@ -288,7 +295,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_setting_of_two_sleeps_two_flood_waits() {
-        let two = || Options { max_flood_sleeps: 2, ..Options::default() };
+        let two =
+            || Options { retry: Retry::new(AutoSleep { tries: 2, ..AutoSleep::default() }), ..Options::default() };
         let (result, sends) = ping_with(two(), (0..3).map(|_| rpc_420("FLOOD_WAIT_1")).collect()).await;
         assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
         assert_eq!(sends, 3);
@@ -299,10 +307,56 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn zero_flood_sleeps_hand_every_wait_to_the_caller() {
-        let none = Options { max_flood_sleeps: 0, ..Options::default() };
+        let none = Options { retry: Retry::new(AutoSleep { tries: 0, ..AutoSleep::default() }), ..Options::default() };
         let (result, sends) = ping_with(none, vec![rpc_420("FLOOD_WAIT_1")]).await;
         assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
         assert_eq!(sends, 1);
+    }
+
+    fn with_policy(policy: impl RetryPolicy) -> Options {
+        Options { retry: Retry::new(policy), ..Options::default() }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn no_retries_hands_back_the_first_flood() {
+        let (result, sends) = ping_with(with_policy(NoRetries), vec![rpc_420("FLOOD_WAIT_1")]).await;
+        assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
+        assert_eq!(sends, 1);
+    }
+
+    // Retries twice after a second, and writes down what it was told each time.
+    type Asked = (&'static str, u32, Duration, Option<Duration>);
+    struct Watching(Arc<std::sync::Mutex<Vec<Asked>>>);
+
+    impl RetryPolicy for Watching {
+        fn should_retry(&self, ctx: &RetryContext<'_>) -> ControlFlow<(), Duration> {
+            self.0.lock().unwrap().push((ctx.request, ctx.fail_count, ctx.slept_so_far, ctx.flood_wait));
+            if ctx.fail_count <= 2 { ControlFlow::Continue(Duration::from_secs(1)) } else { ControlFlow::Break(()) }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_custom_policy_sees_the_request_name_and_counts() {
+        let seen = Arc::default();
+        let floods = (0..3).map(|_| rpc_420("FLOOD_WAIT_9")).collect();
+        let start = Instant::now();
+        let (result, sends) = ping_with(with_policy(Watching(Arc::clone(&seen))), floods).await;
+        assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
+        // The policy's own wait was slept, not Telegram's.
+        assert_eq!((sends, start.elapsed()), (3, Duration::from_secs(2)));
+        let nine = Some(Duration::from_secs(9));
+        let second = Duration::from_secs(1);
+        let expected = [("ping", 1, Duration::ZERO, nine), ("ping", 2, second, nine), ("ping", 3, second * 2, nine)];
+        assert_eq!(*seen.lock().unwrap(), expected);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_wrapped_request_is_named_by_the_request_inside() {
+        let seen = Arc::default();
+        let (mut client, _sent) = Client::scripted(vec![rpc_420("FLOOD_WAIT_9"), Ok(true.to_bytes())]);
+        client.set_options(with_policy(Watching(Arc::clone(&seen))));
+        client.invoke_business(Some("c"), functions::account::UpdateStatus { offline: true }).await.unwrap();
+        assert_eq!(seen.lock().unwrap()[0].0, "account.updateStatus");
     }
 
     #[tokio::test(start_paused = true)]

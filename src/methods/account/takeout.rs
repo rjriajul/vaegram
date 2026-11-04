@@ -12,8 +12,8 @@ impl Client {
     /// Starts a data export session; pick what it covers with the setters, then await it. User accounts only.
     ///
     /// Telegram may answer `TAKEOUT_INIT_DELAY_<seconds>` until the user confirms the export in another app or
-    /// the delay passes; [`Error::flood_wait`](crate::Error::flood_wait) gives the wait, and waits up to
-    /// `flood_sleep_threshold` are slept off.
+    /// the delay passes; [`Error::flood_wait`](crate::Error::flood_wait) gives the wait, and the client's retry
+    /// policy sleeps off the ones it accepts, by default up to a minute.
     pub fn takeout(&self) -> Takeout<'_> {
         let request = functions::account::InitTakeoutSession {
             contacts: false,
