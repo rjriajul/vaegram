@@ -6,6 +6,8 @@ mod file_storage;
 mod memory_storage;
 mod peer_cache;
 pub mod recording;
+#[cfg(feature = "redb")]
+mod redb_storage;
 pub mod session_string;
 #[cfg(feature = "sqlite")]
 mod sqlite_storage;
@@ -15,6 +17,8 @@ pub use engine::{PeerRecord, Storage, StorageFuture, StoredState};
 pub use file_storage::FileStorage;
 pub use memory_storage::MemoryStorage;
 pub(crate) use peer_cache::{PeerCache, input_peer};
+#[cfg(feature = "redb")]
+pub use redb_storage::RedbStorage;
 #[cfg(feature = "sqlite")]
 pub use sqlite_storage::SqliteStorage;
 #[cfg(test)]
