@@ -1,28 +1,29 @@
 use crate::Client;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
-use crate::types::PeerRef;
+use crate::types::{PeerRef, StarAmount};
 
 impl Client {
-    /// `gift` is the gift's name or its `t.me/nft/<name>` link; nothing is paid above `star_count`.
+    /// `gift` is the gift's name or its `t.me/nft/<name>` link; nothing is paid above `price`, in Stars or, when
+    /// `price.ton` is set, in nanotons of Toncoin.
     pub async fn send_resold_gift(
         &self,
         gift: &str,
         new_owner_chat_id: impl Into<PeerRef>,
-        star_count: i64,
+        price: StarAmount,
     ) -> Result<()> {
         let slug = gift_slug(gift)?;
-        if star_count <= 0 {
-            return Err(Error::InvalidArgument("star_count must be positive"));
+        if price.amount <= 0 {
+            return Err(Error::InvalidArgument("the price must be positive"));
         }
         let invoice = base::InputInvoice::InputInvoiceStarGiftResale(Box::new(types::InputInvoiceStarGiftResale {
-            ton: false,
+            ton: price.ton,
             show_name: false,
             slug: slug.into(),
             to_id: self.resolve_peer(new_owner_chat_id).await?,
             message: None,
         }));
-        self.pay_in_stars_up_to(invoice, star_count).await
+        self.pay_form_up_to(invoice, price).await
     }
 }
 
@@ -40,6 +41,11 @@ mod tests {
     use crate::Client;
     use crate::errors::Error;
     use crate::raw::{Identifiable, Serializable, base, functions, types};
+    use crate::types::StarAmount;
+
+    fn stars(amount: i64) -> StarAmount {
+        StarAmount { amount, ..StarAmount::default() }
+    }
 
     fn star_gift_form(price: i64) -> Vec<u8> {
         star_gift_form_in("XTR", price)
@@ -87,7 +93,7 @@ mod tests {
             updates: base::Updates::UpdatesTooLong,
         }));
         let (client, mut sent) = client(vec![star_gift_form(900), paid.to_bytes()]);
-        client.send_resold_gift("https://t.me/nft/NekoHelmet-9215", 5, 900).await.unwrap();
+        client.send_resold_gift("https://t.me/nft/NekoHelmet-9215", 5, stars(900)).await.unwrap();
         assert_eq!(constructor(&sent.try_recv().unwrap()), functions::payments::GetPaymentForm::CONSTRUCTOR_ID);
         assert_eq!(constructor(&sent.try_recv().unwrap()), functions::payments::SendStarsForm::CONSTRUCTOR_ID);
         assert!(matches!(client.0.events.take_nested(), Some(base::Updates::UpdatesTooLong)));
@@ -97,7 +103,10 @@ mod tests {
     async fn a_link_without_a_name_is_refused_without_a_request() {
         let (client, mut sent) = client(Vec::new());
         for gift in ["", "  ", "https://t.me/nft/", "t.me/nft"] {
-            assert!(matches!(client.send_resold_gift(gift, 5, 900).await, Err(Error::InvalidArgument(_))), "{gift}");
+            assert!(
+                matches!(client.send_resold_gift(gift, 5, stars(900)).await, Err(Error::InvalidArgument(_))),
+                "{gift}"
+            );
         }
         assert!(sent.try_recv().is_err());
     }
@@ -106,7 +115,7 @@ mod tests {
     async fn a_price_of_nothing_is_refused_without_a_request() {
         let (client, mut sent) = client(Vec::new());
         for stars in [0, -5] {
-            let refused = client.send_resold_gift("NekoHelmet-9215", 5, stars).await;
+            let refused = client.send_resold_gift("NekoHelmet-9215", 5, self::stars(stars)).await;
             assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{stars}");
         }
         assert!(sent.try_recv().is_err());
@@ -115,15 +124,42 @@ mod tests {
     #[tokio::test]
     async fn a_price_that_is_not_in_stars_is_not_paid() {
         let (client, mut sent) = client(vec![star_gift_form_in("TON", 1)]);
-        assert!(matches!(client.send_resold_gift("NekoHelmet-9215", 5, 900).await, Err(Error::Unexpected(_))));
+        assert!(matches!(client.send_resold_gift("NekoHelmet-9215", 5, stars(900)).await, Err(Error::Unexpected(_))));
         assert_eq!(constructor(&sent.try_recv().unwrap()), functions::payments::GetPaymentForm::CONSTRUCTOR_ID);
         assert!(sent.try_recv().is_err(), "a price that isn't in Stars must not be paid");
     }
 
     #[tokio::test]
+    async fn ton_price_sets_the_ton_invoice() {
+        let paid = base::payments::PaymentResult::PaymentResult(Box::new(types::payments::PaymentResult {
+            updates: base::Updates::UpdatesTooLong,
+        }));
+        let (paying, mut sent) = client(vec![star_gift_form_in("TON", 5), paid.to_bytes()]);
+        let price = StarAmount { amount: 5, nanostar_amount: 0, ton: true };
+        paying.send_resold_gift("NekoHelmet-9215", 5, price).await.unwrap();
+        let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 5, access_hash: 6 }));
+        let invoice = base::InputInvoice::InputInvoiceStarGiftResale(Box::new(types::InputInvoiceStarGiftResale {
+            ton: true,
+            show_name: false,
+            slug: "NekoHelmet-9215".into(),
+            to_id: peer,
+            message: None,
+        }));
+        let form = functions::payments::GetPaymentForm { invoice: invoice.clone(), theme_params: None };
+        assert_eq!(sent.try_recv().unwrap(), form.to_bytes());
+        assert_eq!(sent.try_recv().unwrap(), functions::payments::SendStarsForm { form_id: 7, invoice }.to_bytes());
+
+        // A TON price above the cap is not paid.
+        let (capped, mut sent) = client(vec![star_gift_form_in("TON", 6)]);
+        assert!(capped.send_resold_gift("NekoHelmet-9215", 5, price).await.is_err());
+        sent.try_recv().unwrap();
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
     async fn refuses_a_raised_price() {
         let (client, mut sent) = client(vec![star_gift_form(1000)]);
-        assert!(client.send_resold_gift("NekoHelmet-9215", 5, 900).await.is_err());
+        assert!(client.send_resold_gift("NekoHelmet-9215", 5, stars(900)).await.is_err());
         assert_eq!(constructor(&sent.try_recv().unwrap()), functions::payments::GetPaymentForm::CONSTRUCTOR_ID);
         assert!(sent.try_recv().is_err(), "nothing may be paid above star_count");
     }
