@@ -1,6 +1,6 @@
 use std::future::poll_fn;
 use std::io::SeekFrom;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -10,6 +10,7 @@ use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
 
 use crate::Client;
+use crate::crypto::random;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::session::Session;
@@ -33,6 +34,36 @@ const END: u64 = u64::MAX;
 
 fn out_of_memory() -> Error {
     Error::Io(std::io::ErrorKind::OutOfMemory.into())
+}
+
+/// A file written beside its destination; dropped without `rename_to`, it deletes itself, so an error and a
+/// cancelled future both leave nothing behind.
+struct TempFile(Option<PathBuf>);
+
+impl TempFile {
+    fn create(destination: &Path) -> std::io::Result<(TempFile, std::fs::File)> {
+        let mut name = destination.as_os_str().to_owned();
+        name.push(format!(".{:016x}.part", u64::from_le_bytes(random())));
+        let path = PathBuf::from(name);
+        let file = std::fs::OpenOptions::new().write(true).create_new(true).open(&path)?;
+        Ok((TempFile(Some(path)), file))
+    }
+
+    async fn rename_to(mut self, destination: &Path) -> Result<()> {
+        if let Some(path) = &self.0 {
+            tokio::fs::rename(path, destination).await?;
+            self.0 = None;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        if let Some(path) = &self.0 {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 /// Where a file came from, re-read for a fresh file_reference once it expires.
@@ -93,23 +124,28 @@ impl<'a> DownloadMedia<'a> {
         self
     }
 
-    /// Streams the file to `path` instead, creating missing parent directories. Don't pass a name taken from the
-    /// message as is: the sender chose it, and it can contain `..` or an absolute path.
+    /// Streams the file to `path` instead, creating missing parent directories. An existing file at `path` is
+    /// replaced only when the download succeeds; a failed or cancelled download leaves it as it was. Don't pass a
+    /// name taken from the message as is: the sender chose it, and it can contain `..` or an absolute path.
     pub async fn file_name(self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
+        // A bad file id fails before anything touches the disk.
+        if self.location.is_err() {
+            return self.location.map(drop);
+        }
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-            tokio::fs::create_dir_all(dir).await?;
+            std::fs::create_dir_all(dir)?;
         }
-        let sink = Sink::File(tokio::sync::Mutex::new(tokio::fs::File::create(path).await?));
-        let mut written = self.download(&sink).await;
-        if let (Ok(()), Sink::File(file)) = (&written, &sink) {
-            written = file.lock().await.flush().await.map_err(Error::from);
+        // The file is written next to its destination, so the final rename stays on one filesystem.
+        let (temp, file) = TempFile::create(path)?;
+        let sink = Sink::File(tokio::sync::Mutex::new(tokio::fs::File::from_std(file)));
+        self.download(&sink).await?;
+        if let Sink::File(file) = &sink {
+            file.lock().await.flush().await?;
         }
+        // A file that is still open can't be renamed over on Windows.
         drop(sink);
-        if written.is_err() {
-            let _ = tokio::fs::remove_file(path).await;
-        }
-        written
+        temp.rename_to(path).await
     }
 
     /// Yields the file in order while later chunks download; it only downloads while `next()` is awaited.
@@ -682,6 +718,89 @@ mod tests {
         });
         let done = done.lock().unwrap().clone();
         (result, done)
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("vaegram-download-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn leftovers(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<_> =
+            std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        names
+    }
+
+    fn to_file<'a>(client: &'a Client, location: Result<FileLocation>) -> DownloadMedia<'a> {
+        client.0.me.lock().unwrap().premium = Some(false);
+        DownloadMedia::new(client, location, None)
+    }
+
+    #[tokio::test]
+    async fn a_bad_file_id_leaves_an_existing_file_alone() {
+        let dir = scratch("bad-id");
+        let path = dir.join("keep.jpg");
+        std::fs::write(&path, b"old").unwrap();
+        let (client, _rx) = Client::scripted(Vec::new());
+        let result = client.download_media("not a file id").file_name(&path).await;
+        assert!(result.is_err());
+        assert_eq!((std::fs::read(&path).unwrap(), leftovers(&dir)), (b"old".to_vec(), vec!["keep.jpg".to_string()]));
+        let fresh = dir.join("sub").join("new.jpg");
+        assert!(client.download_media("not a file id").file_name(&fresh).await.is_err());
+        assert!(!dir.join("sub").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_failed_download_keeps_the_old_file() {
+        let dir = scratch("failed");
+        let path = dir.join("keep.bin");
+        std::fs::write(&path, b"old").unwrap();
+        let (client, _rx) = Client::scripted(vec![error("FILE_REFERENCE_EXPIRED")]);
+        client.0.transfers.insert(client.dc(2).unwrap(), &client.session());
+        let location =
+            FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
+        assert!(to_file(&client, Ok(location)).file_name(&path).await.is_err());
+        assert_eq!((std::fs::read(&path).unwrap(), leftovers(&dir)), (b"old".to_vec(), vec!["keep.bin".to_string()]));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_successful_download_replaces_the_file() {
+        let dir = scratch("replaced");
+        let path = dir.join("out.bin");
+        std::fs::write(&path, b"old").unwrap();
+        let (client, _rx) = Client::scripted(vec![file(b"hi".into())]);
+        client.0.transfers.insert(client.dc(2).unwrap(), &client.session());
+        let location =
+            FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
+        to_file(&client, Ok(location)).file_name(&path).await.unwrap();
+        assert_eq!((std::fs::read(&path).unwrap(), leftovers(&dir)), (b"hi".to_vec(), vec!["out.bin".to_string()]));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_download_leaves_no_file() {
+        let dir = scratch("cancelled");
+        let path = dir.join("out.bin");
+        let (client, _rx) = Client::scripted(Vec::new());
+        client.0.transfers.insert(client.dc(2).unwrap(), &client.session());
+        let location =
+            FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
+        {
+            let download = to_file(&client, Ok(location)).file_name(&path);
+            // One poll creates the temporary file; then the future is dropped before any reply.
+            tokio::select! {
+                biased;
+                _ = download => {}
+                _ = tokio::task::yield_now() => {}
+            }
+        }
+        assert_eq!(leftovers(&dir), Vec::<String>::new());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     fn drain(rx: &mut mpsc::UnboundedReceiver<Vec<u8>>) -> Vec<Vec<u8>> {
