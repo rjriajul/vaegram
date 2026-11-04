@@ -178,7 +178,8 @@ pub fn media<T: HasMedia>() -> Filter<T> {
 }
 
 macro_rules! media_filters {
-    ($($name:ident => $kind:ident),* $(,)?) => {$(
+    ($($(#[$doc:meta])* $name:ident => $kind:ident),* $(,)?) => {$(
+        $(#[$doc])*
         pub fn $name<T: HasMedia>() -> Filter<T> {
             Filter(Pred::Media(1 << MediaKind::$kind as u8))
         }
@@ -189,7 +190,12 @@ media_filters! {
     photo => Photo, video => Video, animation => Animation, audio => Audio, voice => Voice, video_note => VideoNote,
     document => Document, sticker => Sticker, live_photo => LivePhoto, contact => Contact, location => Location,
     venue => Venue, dice => Dice, poll => Poll, game => Game, invoice => Invoice, checklist => Checklist,
-    story => Story, giveaway => Giveaway, paid_media => PaidMedia, web_page => WebPage,
+    story => Story,
+    /// A giveaway announcement only; its results are `giveaway_winners`.
+    giveaway => Giveaway,
+    /// The results of a giveaway only; the announcement is `giveaway`.
+    giveaway_winners => GiveawayWinners,
+    paid_media => PaidMedia, web_page => WebPage,
 }
 
 macro_rules! flag_filters {
@@ -206,6 +212,10 @@ flag_filters! {
     forwarded: HasMedia => FORWARDED,
     via_bot: HasMedia => VIA_BOT,
     mentioned: HasMedia => MENTIONED,
+    /// Sent by the server at a time the sender had scheduled.
+    from_scheduled: HasMedia => FROM_SCHEDULED,
+    /// Not sent yet: it waits for its date, as `get_scheduled_messages` returns it. Messages that reach handlers are
+    /// never in this state, so this only tells apart the parsed messages you fetched yourself.
     scheduled: HasMedia => SCHEDULED,
     protected: HasMedia => PROTECTED,
     media_group: HasMedia => MEDIA_GROUP,
@@ -305,6 +315,23 @@ service_filters! {
     gift => [Gift, UniqueGift],
 }
 
+/// An offer to buy an upgraded gift that nobody has answered yet.
+pub fn gift_offer<T: HasMedia>() -> Filter<T> {
+    service_kind([ServiceKind::UpgradedGiftPurchaseOffer])
+        & Filter(Pred::Flags { set: 0, clear: facts::OFFER_ACCEPTED | facts::OFFER_REJECTED })
+}
+
+/// An offer to buy an upgraded gift that was accepted.
+pub fn gift_offer_accepted<T: HasMedia>() -> Filter<T> {
+    service_kind([ServiceKind::UpgradedGiftPurchaseOffer]) & flags(facts::OFFER_ACCEPTED)
+}
+
+/// An offer to buy an upgraded gift that was turned down or left to run out.
+pub fn gift_offer_rejected<T: HasMedia>() -> Filter<T> {
+    (service_kind([ServiceKind::UpgradedGiftPurchaseOffer]) & flags(facts::OFFER_REJECTED))
+        | service_kind([ServiceKind::UpgradedGiftPurchaseOfferRejected])
+}
+
 pub fn private<T: HasChat>() -> Filter<T> {
     chat_kinds(&[ChatType::Private, ChatType::Bot])
 }
@@ -381,12 +408,15 @@ mod tests {
             (media(), holds(MediaKind::Photo), holds(MediaKind::WebPage)),
             (photo(), holds(MediaKind::Photo), holds(MediaKind::Video)),
             (sticker(), holds(MediaKind::Sticker), holds(MediaKind::Document)),
+            (giveaway(), holds(MediaKind::Giveaway), holds(MediaKind::GiveawayWinners)),
+            (giveaway_winners(), holds(MediaKind::GiveawayWinners), holds(MediaKind::Giveaway)),
             (video_note(), holds(MediaKind::VideoNote), f),
             (reply(), on(REPLY), f),
             (forwarded(), on(FORWARDED), f),
             (via_bot(), on(VIA_BOT), f),
             (mentioned(), on(MENTIONED), f),
-            (scheduled(), on(SCHEDULED), f),
+            (from_scheduled(), on(FROM_SCHEDULED), on(SCHEDULED)),
+            (scheduled(), on(SCHEDULED), on(FROM_SCHEDULED)),
             (protected(), on(PROTECTED), f),
             (media_group(), on(MEDIA_GROUP), f),
             (service(), on(SERVICE), f),
@@ -476,6 +506,33 @@ mod tests {
             }
             assert!(!hit(filter, f), "case {i} matched a message that isn't a service message");
         }
+    }
+
+    #[test]
+    fn gift_offer_filters_follow_the_offer_state() {
+        let f = Facts::default();
+        let offer = |flags| Facts { flags, service: Some(ServiceKind::UpgradedGiftPurchaseOffer), ..f };
+        let gone = Facts { service: Some(ServiceKind::UpgradedGiftPurchaseOfferRejected), ..f };
+        let facts = [offer(0), offer(OFFER_ACCEPTED), offer(OFFER_REJECTED), gone, f];
+        let cases: Vec<(Filter, [bool; 5])> = vec![
+            (gift_offer(), [true, false, false, false, false]),
+            (gift_offer_accepted(), [false, true, false, false, false]),
+            (gift_offer_rejected(), [false, false, true, true, false]),
+        ];
+        for (i, (filter, expected)) in cases.iter().enumerate() {
+            let got: Vec<bool> = facts.iter().map(|facts| hit(filter, *facts)).collect();
+            assert_eq!(got, expected, "case {i}");
+        }
+    }
+
+    #[test]
+    fn giveaway_no_longer_matches_results() {
+        let f = Facts::default();
+        let results = Facts { media: Some(MediaKind::GiveawayWinners), ..f };
+        let (announcement, winners, any): (Filter, Filter, Filter) = (giveaway(), giveaway_winners(), media());
+        assert!(!hit(&announcement, results));
+        assert!(hit(&winners, results) && hit(&any, results));
+        assert!(!hit(&winners, Facts { media: Some(MediaKind::Giveaway), ..f }));
     }
 
     #[test]
