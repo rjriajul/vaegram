@@ -11,7 +11,7 @@ impl Client {
     pub async fn authorize_qr(&self, mut show: impl FnMut(&str)) -> Result<User> {
         loop {
             let expires = match self.sign_in_qrcode().await? {
-                LoginToken::Authorized(user) => return Ok(user),
+                LoginToken::Authorized(user) => return Ok(*user),
                 LoginToken::Url { url, expires } => {
                     show(&url);
                     expires

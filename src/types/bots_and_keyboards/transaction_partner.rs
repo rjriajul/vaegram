@@ -6,7 +6,7 @@ use crate::types::{Chat, StarAmount, User};
 #[non_exhaustive]
 pub enum TransactionPartner {
     User {
-        user: User,
+        user: Box<User>,
         affiliate: Option<AffiliateInfo>,
         invoice_payload: Option<String>,
         subscription_period: Option<i32>,
@@ -78,7 +78,7 @@ impl TransactionPartner {
             _ => None,
         };
         TransactionPartner::User {
-            user,
+            user: Box::new(user),
             affiliate,
             invoice_payload: raw.bot_payload.as_deref().map(|p| String::from_utf8_lossy(p).into_owned()),
             subscription_period: raw.subscription_period,
@@ -144,7 +144,7 @@ mod tests {
             panic!("not a User partner");
         };
         let affiliate_chat = Chat::parse(&get_peer(-1000000000020), &entities, false);
-        assert_eq!((buyer, invoice_payload.as_deref()), (user.clone(), Some("order-1")));
+        assert_eq!((*buyer, invoice_payload.as_deref()), (user.clone(), Some("order-1")));
         let expected = AffiliateInfo {
             affiliate: affiliate_chat,
             commission_per_mille: 100,
