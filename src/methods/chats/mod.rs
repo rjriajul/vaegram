@@ -27,6 +27,7 @@ mod get_chat_members;
 mod get_chat_members_count;
 mod get_chat_notifications;
 mod get_chat_online_count;
+mod get_chat_preview;
 mod get_chat_settings;
 mod get_dialogs;
 mod get_dialogs_count;
