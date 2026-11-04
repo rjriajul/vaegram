@@ -27,6 +27,7 @@ mod get_chat_members;
 mod get_chat_members_count;
 mod get_chat_notifications;
 mod get_chat_online_count;
+mod get_chat_preview;
 mod get_chat_settings;
 mod get_dialogs;
 mod get_dialogs_count;
@@ -122,7 +123,7 @@ pub use update_chat_notifications::UpdateChatNotifications;
 
 #[cfg(test)]
 mod creation_tests {
-    use super::add_chat_members::missing_ids;
+    use super::add_chat_members::failed_members;
     use super::create_channel::created_chat;
     use crate::Client;
     use crate::client::sent;
@@ -218,17 +219,24 @@ mod creation_tests {
     }
 
     #[test]
-    fn users_kept_out_by_privacy_are_reported() {
-        let missing = |user_id| {
-            let m =
-                types::MissingInvitee { premium_would_allow_invite: false, premium_required_for_pm: false, user_id };
+    fn failed_members_keep_premium_reasons() {
+        let missing = |user_id, would_allow, for_pm| {
+            let m = types::MissingInvitee {
+                premium_would_allow_invite: would_allow,
+                premium_required_for_pm: for_pm,
+                user_id,
+            };
             base::MissingInvitee::MissingInvitee(Box::new(m))
         };
         let invited = types::messages::InvitedUsers {
             updates: base::Updates::UpdatesTooLong,
-            missing_invitees: vec![missing(7), missing(8)],
+            missing_invitees: vec![missing(7, false, false), missing(8, true, false), missing(9, false, true)],
         };
-        assert_eq!(missing_ids(&invited), [7, 8]);
+        let failed: Vec<_> = failed_members(&invited)
+            .iter()
+            .map(|m| (m.user_id, m.premium_would_allow_invite, m.premium_required_to_send_messages))
+            .collect();
+        assert_eq!(failed, [(7, false, false), (8, true, false), (9, false, true)]);
     }
 }
 

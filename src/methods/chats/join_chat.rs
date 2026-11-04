@@ -2,7 +2,7 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
-use crate::types::{Chat, PeerRef};
+use crate::types::{Chat, PeerRef, User};
 use crate::utils::{get_channel_id, get_peer};
 
 impl Client {
@@ -17,24 +17,53 @@ impl Client {
                 (Some(chat_id), self.invoke(&functions::channels::JoinChannel { channel }).await?)
             }
         };
-        let base::messages::ChatInviteJoinResult::ChatInviteJoinResultOk(ok) = result else {
-            return Err(Error::Unexpected("this chat asks to join through a bot web app"));
-        };
-        let (users, chats) = match ok.updates {
-            base::Updates::Updates(u) => (u.users, u.chats),
-            base::Updates::UpdatesCombined(u) => (u.users, u.chats),
-            _ => return Err(Error::Unexpected("Telegram sent no chat back")),
-        };
-        let id = known_id
-            .or_else(|| {
-                chats.iter().find_map(|c| match c {
-                    base::Chat::Chat(c) if !c.left => Some(-c.id),
-                    base::Chat::Channel(c) if !c.left && !c.min => Some(get_channel_id(c.id)),
-                    _ => None,
-                })
+        joined_chat(self, known_id, result)
+    }
+}
+
+fn joined_chat(client: &Client, known_id: Option<i64>, result: base::messages::ChatInviteJoinResult) -> Result<Chat> {
+    let ok = match result {
+        base::messages::ChatInviteJoinResult::ChatInviteJoinResultOk(ok) => ok,
+        base::messages::ChatInviteJoinResult::ChatInviteJoinResultWebView(web) => {
+            let entities = Entities::new(client, web.users, Vec::new());
+            return Err(Error::GuardBotApprovalRequired {
+                bot: Box::new(User::parse(web.bot_id, &entities)),
+                query_id: web.query_id,
+            });
+        }
+    };
+    let (users, chats) = match ok.updates {
+        base::Updates::Updates(u) => (u.users, u.chats),
+        base::Updates::UpdatesCombined(u) => (u.users, u.chats),
+        _ => return Err(Error::Unexpected("Telegram sent no chat back")),
+    };
+    let id = known_id
+        .or_else(|| {
+            chats.iter().find_map(|c| match c {
+                base::Chat::Chat(c) if !c.left => Some(-c.id),
+                base::Chat::Channel(c) if !c.left && !c.min => Some(get_channel_id(c.id)),
+                _ => None,
             })
-            .ok_or(Error::Unexpected("Telegram sent no chat back"))?;
-        let entities = Entities::new(self, users, chats);
-        Ok(Chat::parse(&get_peer(id), &entities, false))
+        })
+        .ok_or(Error::Unexpected("Telegram sent no chat back"))?;
+    let entities = Entities::new(client, users, chats);
+    Ok(Chat::parse(&get_peer(id), &entities, false))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::joined_chat;
+    use crate::Client;
+    use crate::errors::Error;
+    use crate::raw::{base, types};
+
+    #[test]
+    fn web_view_join_names_the_guard_bot() {
+        let web = types::messages::ChatInviteJoinResultWebView { bot_id: 77, query_id: 5, users: Vec::new() };
+        let result = base::messages::ChatInviteJoinResult::ChatInviteJoinResultWebView(Box::new(web));
+        match joined_chat(&Client::offline(), None, result) {
+            Err(Error::GuardBotApprovalRequired { bot, query_id }) => assert_eq!((bot.id, query_id), (77, 5)),
+            other => panic!("{other:?}"),
+        }
     }
 }
