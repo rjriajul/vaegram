@@ -16,6 +16,7 @@ pub struct SendChatAction<'a> {
     chat_id: PeerRef,
     action: ChatAction,
     business_connection_id: Option<String>,
+    top_msg_id: Option<i32>,
 }
 
 /// Awaiting it sends the action once, then keeps sending it in the background until the [`ChatActionHandle`] is
@@ -36,13 +37,19 @@ pub struct ChatActionHandle {
 
 impl Client {
     pub fn send_chat_action(&self, chat_id: impl Into<PeerRef>, action: ChatAction) -> SendChatAction<'_> {
-        SendChatAction { client: self, chat_id: chat_id.into(), action, business_connection_id: None }
+        SendChatAction { client: self, chat_id: chat_id.into(), action, business_connection_id: None, top_msg_id: None }
     }
 }
 
 impl<'a> SendChatAction<'a> {
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.business_connection_id = Some(id.into());
+        self
+    }
+
+    /// Shows the action in this topic of a forum, or thread of a chat; a repeating action keeps it.
+    pub fn message_thread_id(mut self, id: i32) -> Self {
+        self.top_msg_id = Some(id);
         self
     }
 
@@ -59,7 +66,7 @@ impl<'a> SendChatAction<'a> {
     /// Sends the action once; returns the request and the business connection it went through.
     async fn request(self) -> Result<(functions::messages::SetTyping, Option<String>)> {
         let peer = self.client.resolve_peer(self.chat_id).await?;
-        let request = functions::messages::SetTyping { peer, top_msg_id: None, action: self.action.write() };
+        let request = functions::messages::SetTyping { peer, top_msg_id: self.top_msg_id, action: self.action.write() };
         let (_, request) = self.client.invoke_business(self.business_connection_id.as_deref(), request).await?;
         Ok((request, self.business_connection_id))
     }
@@ -132,7 +139,7 @@ mod tests {
     use crate::Client;
     use crate::enums::ChatAction;
     use crate::errors::{Error, Result, RpcError};
-    use crate::raw::{Serializable, base, types};
+    use crate::raw::{Serializable, base, functions, types};
 
     fn chat(replies: Vec<Result<Vec<u8>>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
         let (client, rx) = Client::scripted(replies);
@@ -234,5 +241,26 @@ mod tests {
         assert_eq!(sent(&mut rx).len(), 2, "one send after the close, which fails, then none");
         let stopped = handle.stop().await;
         assert!(matches!(stopped, Err(Error::Disconnected)), "{stopped:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_thread_reaches_set_typing() {
+        let (client, mut rx) = chat(vec![ok(), ok(), ok()]);
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        let request = functions::messages::SetTyping {
+            peer: base::InputPeer::InputPeerUser(Box::new(user)),
+            top_msg_id: Some(42),
+            action: ChatAction::Typing.write(),
+        };
+        let expected = request.to_bytes();
+        let carries = |body: &Vec<u8>| body.windows(expected.len()).any(|w| w == expected);
+        client.send_chat_action(7, ChatAction::Typing).message_thread_id(42).await.unwrap();
+        assert!(sent(&mut rx).iter().all(carries), "the topic is missing");
+
+        let handle = client.send_chat_action(7, ChatAction::Typing).message_thread_id(42).repeat().await.unwrap();
+        sleep(Duration::from_secs(5)).await;
+        handle.stop().await.unwrap();
+        let bodies = sent(&mut rx);
+        assert!(bodies.len() == 2 && bodies.iter().all(carries), "the repeat lost the topic");
     }
 }
