@@ -8,9 +8,16 @@ use crate::raw::{base, functions};
 impl Client {
     /// Returns `Ok(())` after `stop`, or `Error::Disconnected` when the connection ends.
     pub async fn run(&self) -> Result<()> {
+        let dispatcher = self.prepare().await?;
+        self.drive(dispatcher).await
+    }
+
+    /// Everything `run` does before it takes updates: who the account is, where the update state starts, and the
+    /// start hook.
+    pub(super) async fn prepare(&self) -> Result<Dispatcher> {
         self.set_me(&self.get_me().await?);
         let saved = self.0.state.lock().unwrap().take().filter(|_| self.0.catch_up);
-        let mut dispatcher = match saved {
+        let dispatcher = match saved {
             Some(state) => Dispatcher::resume(self.clone(), state),
             None => {
                 let base::updates::State::State(state) = self.invoke(&functions::updates::GetState {}).await?;
@@ -18,6 +25,10 @@ impl Client {
             }
         };
         self.lifecycle_hook(UpdateKind::Start).await;
+        Ok(dispatcher)
+    }
+
+    pub(super) async fn drive(&self, mut dispatcher: Dispatcher) -> Result<()> {
         let stopped = dispatcher.run(&mut *self.0.updates.lock().await).await;
         // Dropped first, so the update state is back in the client when the stop hook runs.
         drop(dispatcher);

@@ -120,6 +120,9 @@ impl<T> Spec<T> {
         }
         // `Duration::MAX` overflows the clock: that means no deadline.
         criteria.deadline = self.timeout.and_then(|timeout| Instant::now().checked_add(timeout));
+        if criteria.permit.is_none() {
+            criteria.permit = client.0.handlers.listeners.permit()?;
+        }
         Ok(criteria)
     }
 }

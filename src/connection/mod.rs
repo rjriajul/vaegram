@@ -19,6 +19,7 @@ use crate::errors::Result;
 use crate::session::Observer;
 use crate::session::internals::data_center::Dc;
 use crate::storage::recording::Recorder;
+use crate::types::Json;
 use fake_tls::{RecordReader, RecordWriter};
 use obfuscated::Ctr;
 
@@ -62,6 +63,7 @@ impl Default for Options {
     }
 }
 
+#[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct Device {
     pub model: String,
@@ -72,8 +74,11 @@ pub struct Device {
     pub lang_pack: String,
     /// The device's own language; `None` sends `lang_code`.
     pub system_lang_code: Option<String>,
-    /// The client's UTC offset in seconds, sent in `initConnection.params`; `None` sends no params.
+    /// The client's UTC offset in seconds, sent as `tz_offset` in `initConnection.params`; `None` sends none.
     pub tz_offset: Option<i32>,
+    /// The JSON `initConnection.params` carries; `None` sends none. With a `tz_offset` set too, it must be an
+    /// object: its `tz_offset` key is replaced, or added if it has none.
+    pub params: Option<Json>,
 }
 
 impl Default for Device {
@@ -86,6 +91,7 @@ impl Default for Device {
             lang_pack: String::new(),
             system_lang_code: None,
             tz_offset: None,
+            params: None,
         }
     }
 }

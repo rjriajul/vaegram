@@ -376,8 +376,8 @@ mod tests {
 
     #[tokio::test]
     async fn plain_article_text_ignores_the_client_parse_mode() {
-        let mut client = crate::Client::offline();
-        std::sync::Arc::get_mut(&mut client.0).unwrap().parse_mode = crate::enums::ParseMode::Html;
+        let client = crate::Client::offline();
+        client.set_parse_mode(crate::enums::ParseMode::Html);
         let (_, parts) = InlineQueryResult::from(InlineQueryResultArticle::new("t", "<b>&")).parts();
         let content = parts.content.expect("articles carry their content");
         let base::InputBotInlineMessage::InputBotInlineMessageText(m) = content.write(&client, None).await.unwrap()

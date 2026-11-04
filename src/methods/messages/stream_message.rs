@@ -60,7 +60,7 @@ impl StreamMessage<'_> {
     pub fn start(self) -> MessageStream {
         let state = State {
             draft_id: new_draft_id(),
-            plain: self.options.parse_mode.unwrap_or(self.client.0.parse_mode) == ParseMode::Disabled,
+            plain: self.options.parse_mode.unwrap_or_else(|| self.client.parse_mode()) == ParseMode::Disabled,
             ..State::default()
         };
         let shared = Arc::new(StreamShared { state: Mutex::new(state), ..StreamShared::default() });

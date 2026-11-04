@@ -31,6 +31,13 @@ impl<'a> Ask<'a> {
         self
     }
 
+    /// Also accepts an answer in this chat, besides the one the question went to; call again for more chats. Only
+    /// messages newer than the question count in the question's own chat; any message counts in these.
+    pub fn chat(mut self, chat_id: impl Into<PeerRef>) -> Self {
+        self.listen = self.listen.chat(chat_id);
+        self
+    }
+
     /// Only answers from this user; call again to accept another user too.
     pub fn user(mut self, user_id: impl Into<PeerRef>) -> Self {
         self.listen = self.listen.user(user_id);
@@ -57,9 +64,11 @@ impl<'a> Ask<'a> {
 
     async fn send(self) -> Result<Message> {
         let Ask { prompt, mut listen } = self;
+        // Before the question goes out, so a full budget doesn't leave one unanswered.
+        listen.spec.criteria.permit = listen.client.0.handlers.listeners.permit()?;
         let sent = prompt.await?;
         listen.spec.criteria.chats.push(sent.chat.id);
-        listen.spec.criteria.after = Some(sent.id);
+        listen.spec.criteria.after = Some((sent.chat.id, sent.id));
         listen.await
     }
 }
@@ -144,5 +153,33 @@ mod tests {
         let body = requests.try_recv().expect("the question was not sent");
         assert!(body.windows(expected.len()).any(|w| w == expected), "the reply markup is missing");
         waiter.abort();
+    }
+
+    #[tokio::test]
+    async fn an_answer_in_an_extra_chat_counts() {
+        let (client, _sent) = Client::scripted(vec![Ok(sent(9))]);
+        client.0.me.lock().unwrap().id = 5;
+        let waiter = tokio::spawn({
+            let client = client.clone();
+            async move { client.ask("me", "Your name?").chat(7).await }
+        });
+        until_waiting(&client.0.handlers.listeners.messages).await;
+        assert!(!offer(&client, 10, 8, false), "a chat nobody asked about");
+        assert!(offer(&client, 10, 7, false));
+        assert_eq!(waiter.await.unwrap().unwrap().chat.id, 7);
+    }
+
+    #[tokio::test]
+    async fn after_only_applies_to_the_question_chat() {
+        let (client, _sent) = Client::scripted(vec![Ok(sent(9))]);
+        client.0.me.lock().unwrap().id = 5;
+        let waiter = tokio::spawn({
+            let client = client.clone();
+            async move { client.ask("me", "Your name?").chat(7).await }
+        });
+        until_waiting(&client.0.handlers.listeners.messages).await;
+        assert!(!offer(&client, 3, 5, true), "older than the question, in its chat");
+        assert!(offer(&client, 3, 7, false), "ids in another chat aren't compared with the question's");
+        assert_eq!(waiter.await.unwrap().unwrap().chat.id, 7);
     }
 }

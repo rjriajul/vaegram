@@ -1,8 +1,8 @@
 use std::mem;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock};
 
-use tokio::sync::oneshot;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::time::Instant;
 
 use crate::client::Me;
@@ -69,11 +69,38 @@ pub struct Listeners {
     pub(crate) messages: Book<Message>,
     pub(crate) callbacks: Book<CallbackQuery>,
     next_id: AtomicU64,
+    // The cap on listeners alive at once, set when the client opens; absent means no cap.
+    budget: OnceLock<(usize, Arc<Semaphore>)>,
 }
 
 impl Listeners {
     pub(crate) fn next_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    pub(crate) fn limit(&self, max: usize) {
+        let _ = self.budget.set((max, Arc::new(Semaphore::new(max))));
+    }
+
+    /// A slot for one listener, which comes back when the listener's entry is dropped for any reason: claimed,
+    /// timed out, stopped, pruned or closed. Expired next-step handlers sit on their shelf until something prunes
+    /// it, so a full budget sweeps them out before it refuses.
+    pub(crate) fn permit(&self) -> Result<Option<OwnedSemaphorePermit>> {
+        let Some((max, slots)) = self.budget.get() else { return Ok(None) };
+        if let Ok(permit) = slots.clone().try_acquire_owned() {
+            return Ok(Some(permit));
+        }
+        self.messages.sweep();
+        self.callbacks.sweep();
+        match slots.clone().try_acquire_owned() {
+            Ok(permit) => Ok(Some(permit)),
+            Err(_) => Err(Error::ListenerLimitReached(*max)),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn free_slots(&self) -> Option<usize> {
+        self.budget.get().map(|(_, slots)| slots.available_permits())
     }
 
     pub(crate) fn open(&self) {
@@ -98,11 +125,13 @@ pub(crate) struct Criteria<T> {
     pub(crate) users: Vec<i64>,
     pub(crate) messages: Vec<i32>,
     pub(crate) inline: Vec<InlineMessageId>,
-    pub(crate) after: Option<i32>,
+    pub(crate) after: Option<(i64, i32)>,
     // Shared, so `offer` can copy it out of the lock without cloning the filter tree.
     pub(crate) filter: Option<Arc<Filter<T>>>,
     pub(crate) deadline: Option<Instant>,
     pub(crate) alert: Option<Arc<str>>,
+    // Held while the listener is on a shelf, so its slot frees whenever the entry goes.
+    pub(crate) permit: Option<OwnedSemaphorePermit>,
 }
 
 impl<T> Default for Criteria<T> {
@@ -116,6 +145,7 @@ impl<T> Default for Criteria<T> {
             filter: None,
             deadline: None,
             alert: Some(UNEXPECTED_CLICK.clone()),
+            permit: None,
         }
     }
 }
@@ -130,7 +160,7 @@ impl<T> Criteria<T> {
         fits(&self.chats, id.chat.as_ref())
             && fits(&self.messages, id.message.as_ref())
             && fits(&self.inline, id.inline)
-            && self.after.is_none_or(|after| id.message.is_some_and(|m| m > after))
+            && self.after.is_none_or(|(chat, after)| id.chat != Some(chat) || id.message.is_some_and(|m| m > after))
     }
 
     fn matches(&self, id: &Identity<'_>) -> bool {
@@ -239,6 +269,16 @@ impl<T> Book<T> {
 
     pub(crate) fn remove(&self, id: u64) -> bool {
         self.take(id).is_some()
+    }
+
+    fn sweep(&self) {
+        let expired = {
+            let mut shelf = self.shelf();
+            let expired = prune(&mut shelf, Instant::now());
+            self.count(&shelf);
+            expired
+        };
+        drop(expired);
     }
 
     fn open(&self) {
@@ -480,8 +520,9 @@ pub(crate) mod tests {
             (Criteria { users: vec![1, 7], ..none() }, &by_7, true),
             (Criteria { users: vec![1], ..none() }, &by_7, false),
             (Criteria { users: vec![channel], ..none() }, &by_channel, true),
-            (Criteria { after: Some(9), ..none() }, &by_7, true),
-            (Criteria { after: Some(10), ..none() }, &by_7, false),
+            (Criteria { after: Some((-3, 9)), ..none() }, &by_7, true),
+            (Criteria { after: Some((-3, 10)), ..none() }, &by_7, false),
+            (Criteria { after: Some((-4, 10)), ..none() }, &by_7, true),
         ];
         for (i, (criteria, item, expected)) in cases.into_iter().enumerate() {
             assert_eq!(criteria.matches(&item.identity(&me()).unwrap()), expected, "message case {i}");
@@ -578,5 +619,62 @@ pub(crate) mod tests {
         let _silent = book.wait(3, silent).unwrap();
         assert!(matches!(book.offer(query(&client, 9, 7, 5), &me()), Offer::Unclaimed(_)));
         assert!(claimed(book.offer(query(&client, 8, 7, 4), &me())));
+    }
+
+    fn limited(max: usize) -> Client {
+        let client = Client::offline();
+        client.0.handlers.listeners.limit(max);
+        client
+    }
+
+    #[tokio::test]
+    async fn the_listener_over_the_limit_is_refused() {
+        let client = limited(1);
+        let listeners = &client.0.handlers.listeners;
+        let first = tokio::spawn({
+            let client = client.clone();
+            async move { client.listen::<Message>().no_timeout().await }
+        });
+        until_waiting(&listeners.messages).await;
+        let refused = client.listen::<CallbackQuery>().no_timeout().await;
+        assert!(matches!(refused, Err(Error::ListenerLimitReached(1))), "{refused:?}");
+        assert_eq!(listeners.free_slots(), Some(0));
+        first.abort();
+        let _ = first.await;
+        assert_eq!(listeners.free_slots(), Some(1), "a dropped listener kept its slot");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_claimed_or_timed_out_listener_frees_its_slot() {
+        let client = limited(1);
+        let listeners = &client.0.handlers.listeners;
+        let waiter = tokio::spawn({
+            let client = client.clone();
+            async move { client.listen::<Message>().timeout(Duration::from_secs(5)).await }
+        });
+        until_waiting(&listeners.messages).await;
+        assert_eq!(listeners.free_slots(), Some(0));
+        assert!(claimed(listeners.messages.offer(message(&client, 1, 7, None, false), &me())));
+        assert_eq!(waiter.await.unwrap().unwrap().id, 1);
+        assert_eq!(listeners.free_slots(), Some(1));
+        let timed_out = client.listen::<Message>().timeout(Duration::from_secs(5)).await;
+        assert!(matches!(timed_out, Err(Error::ListenerTimeout)), "{timed_out:?}");
+        assert_eq!(listeners.free_slots(), Some(1));
+    }
+
+    #[test]
+    fn close_frees_every_slot() {
+        let listeners = Listeners::default();
+        listeners.limit(2);
+        let waiting: Vec<_> = (1..=2)
+            .map(|id| {
+                let criteria = Criteria { permit: listeners.permit().unwrap(), ..Criteria::default() };
+                listeners.messages.wait(id, criteria).unwrap()
+            })
+            .collect();
+        assert!(matches!(listeners.permit(), Err(Error::ListenerLimitReached(2))));
+        listeners.close();
+        assert_eq!(listeners.free_slots(), Some(2));
+        drop(waiting);
     }
 }

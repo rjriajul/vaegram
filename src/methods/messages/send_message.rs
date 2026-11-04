@@ -38,7 +38,7 @@ impl Client {
         text: Text,
         mode: Option<ParseMode>,
     ) -> Result<(String, Vec<base::MessageEntity>)> {
-        let text = text.parsed(mode.unwrap_or(self.0.parse_mode)).trimmed();
+        let text = text.parsed(mode.unwrap_or_else(|| self.parse_mode())).trimmed();
         let entities = self.resolve_mentions(text.write_entities()).await?;
         Ok((text.text, entities))
     }
