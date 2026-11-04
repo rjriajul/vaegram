@@ -1,5 +1,6 @@
 mod attach_menu_peer_type;
 mod base_theme;
+mod block_list;
 mod business_away_message_schedule;
 mod chat_action;
 mod chat_join_request_result;
@@ -33,6 +34,7 @@ mod user_status;
 
 pub use attach_menu_peer_type::*;
 pub use base_theme::*;
+pub use block_list::*;
 pub use business_away_message_schedule::*;
 pub use chat_action::*;
 pub use chat_join_request_result::*;
