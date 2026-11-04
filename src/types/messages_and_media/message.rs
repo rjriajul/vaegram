@@ -1,16 +1,18 @@
 use crate::Client;
 use crate::dispatcher::Entities;
-use crate::enums::ChatType;
+use crate::enums::{ChatJoinType, ChatType};
 use crate::errors::{Error, Result};
 use crate::methods::{
     CopyMessage, DownloadMedia, DownloadSource, EditMessageReplyMarkup, EditMessageText, ForwardMessages, OnBehalf,
     PinChatMessage, SendMediaGroup, SendMessage, SendReaction, UnpinChatMessage,
 };
 use crate::raw::{base, types};
+use crate::types::push_plain;
 use crate::types::{
     Chat, Command, DirectMessagesTopic, ExternalReplyInfo, FactCheck, InlineKeyboardMarkup, InputMedia,
     LinkPreviewOptions, Media, MessageEntity, MessageOrigin, MessageReactions, MessageText, PeerRef, ReactionType,
-    ReplyMarkup, RestrictionReason, RichMessage, ServiceAction, SuggestedPostInfo, Text, TextQuote, User, WebPage,
+    ReplyMarkup, RestrictionReason, RichMessage, RichText, ServiceAction, SuggestedPostInfo, Text, TextQuote, User,
+    WebPage,
 };
 use crate::utils::{get_peer, get_peer_id};
 
@@ -94,6 +96,8 @@ pub struct Message {
     pub summary_language_code: Option<String>,
     /// Waiting to be sent at a scheduled date: it came from a scheduling answer or `get_scheduled_messages`.
     pub scheduled: bool,
+    /// For a service message about someone joining: how they came in.
+    pub chat_join_type: Option<ChatJoinType>,
     /// Why the message is hidden on some platforms; empty when it isn't.
     pub restriction_reason: Vec<RestrictionReason>,
     pub fact_check: Option<FactCheck>,
@@ -215,6 +219,7 @@ impl Message {
             repeat_period: raw.schedule_repeat_period,
             summary_language_code: raw.summary_from_language.clone(),
             scheduled: false,
+            chat_join_type: None,
             restriction_reason: raw
                 .restriction_reason
                 .as_deref()
@@ -319,7 +324,15 @@ impl Message {
             _ if pin => None,
             reply_to => reply_to.clone(),
         };
-        Some(Message::build(client, Box::new(bare), Some(service), entities))
+        let chat_join_type = match raw.action {
+            base::MessageAction::MessageActionChatAddUser(_) => Some(ChatJoinType::ByAdd),
+            base::MessageAction::MessageActionChatJoinedByLink(_) => Some(ChatJoinType::ByLink),
+            base::MessageAction::MessageActionChatJoinedByRequest => Some(ChatJoinType::ByRequest),
+            _ => None,
+        };
+        let mut message = Message::build(client, Box::new(bare), Some(service), entities);
+        message.chat_join_type = chat_join_type;
+        Some(message)
     }
 
     pub(crate) fn unpack(client: &Client, messages: base::messages::Messages) -> (Vec<base::Message>, Entities) {
@@ -616,9 +629,14 @@ fn reply_fields(
     } else {
         (reply.reply_to_msg_id.filter(|_| reply.reply_to_peer_id.is_none()), reply.reply_to_top_id)
     };
-    let quote = reply.quote_text.as_ref().map(|text| TextQuote {
-        text: text.clone(),
+    let rich_text = reply
+        .quote_rich
+        .as_ref()
+        .map(|texts| RichText(base::RichText::TextConcat(Box::new(types::TextConcat { texts: texts.clone() }))));
+    let quote = reply.quote_text.clone().or_else(|| rich_text.as_ref().map(rich_plain)).map(|text| TextQuote {
+        text,
         entities: reply.quote_entities.as_deref().and_then(|e| MessageEntity::parse_all(e, entities)),
+        rich_text,
         position: reply.quote_offset.unwrap_or(0),
         is_manual: reply.quote,
     });
@@ -633,6 +651,12 @@ fn reply_fields(
         quote,
         external_reply: ExternalReplyInfo::parse(client, reply, entities).map(Box::new),
     }
+}
+
+fn rich_plain(text: &RichText) -> String {
+    let mut plain = String::new();
+    push_plain(&text.0, &mut plain);
+    plain
 }
 
 // The text of a media message is its caption; a link preview keeps it a text.
@@ -1376,5 +1400,62 @@ pub(crate) mod tests {
         let story = types::MessageMediaStory { via_mention: true, peer: get_peer(7), id: 4, story: None };
         raw.media = Some(base::MessageMedia::MessageMediaStory(Box::new(story)));
         assert_eq!(parse(&raw).story().map(|s| (s.chat.id, s.id)), Some((7, 4)));
+    }
+
+    #[test]
+    fn imported_forward_is_import() {
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        let base::MessageFwdHeader::MessageFwdHeader(mut header) = forward(Some(get_peer(5)), Some("Ann"), None);
+        header.imported = true;
+        raw.fwd_from = Some(base::MessageFwdHeader::MessageFwdHeader(header.clone()));
+        let import = MessageOrigin::Import { date: 100, sender_user_name: "Ann".into() };
+        assert_eq!(parse(&raw).forward_origin, Some(import));
+
+        // The export may carry the name as the post author instead.
+        (header.from_name, header.from_id, header.post_author) = (None, None, Some("Bob".into()));
+        raw.fwd_from = Some(base::MessageFwdHeader::MessageFwdHeader(header));
+        let import = MessageOrigin::Import { date: 100, sender_user_name: "Bob".into() };
+        assert_eq!(parse(&raw).forward_origin, Some(import));
+
+        raw.fwd_from = Some(forward(Some(get_peer(5)), None, None));
+        assert!(matches!(parse(&raw).forward_origin, Some(MessageOrigin::User { .. })));
+    }
+
+    #[test]
+    fn join_service_messages_keep_their_join_type() {
+        use crate::enums::ChatJoinType;
+        let join = |action| {
+            let raw = base::Message::MessageService(Box::new(service(action)));
+            Message::from_raw(&Client::offline(), raw, &Entities::default()).unwrap().chat_join_type
+        };
+        let add = types::MessageActionChatAddUser { users: vec![3] };
+        let link = types::MessageActionChatJoinedByLink { inviter_id: 3 };
+        let added = join(base::MessageAction::MessageActionChatAddUser(Box::new(add)));
+        assert_eq!(added, Some(ChatJoinType::ByAdd));
+        let linked = join(base::MessageAction::MessageActionChatJoinedByLink(link));
+        assert_eq!(linked, Some(ChatJoinType::ByLink));
+        assert_eq!(join(base::MessageAction::MessageActionChatJoinedByRequest), Some(ChatJoinType::ByRequest));
+        assert_eq!(join(base::MessageAction::MessageActionChatDeletePhoto), None);
+        assert_eq!(parse(&Message::bare(1, get_peer(7), 0)).chat_join_type, None);
+    }
+
+    #[test]
+    fn a_rich_quote_keeps_its_text() {
+        let plain = |text: &str| base::RichText::TextPlain(Box::new(types::TextPlain { text: text.into() }));
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        let rich = types::MessageReplyHeader {
+            reply_to_msg_id: Some(2),
+            quote_rich: Some(vec![plain("hello "), plain("world")]),
+            quote_offset: Some(1),
+            ..header()
+        };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(rich.clone())));
+        let quote = parse(&raw).quote.unwrap();
+        assert_eq!((quote.text.as_str(), quote.position), ("hello world", 1));
+        assert!(quote.rich_text.is_some());
+
+        let both = types::MessageReplyHeader { quote_text: Some("hello".into()), ..rich };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(both)));
+        assert_eq!(parse(&raw).quote.unwrap().text, "hello");
     }
 }

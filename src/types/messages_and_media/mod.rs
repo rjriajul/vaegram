@@ -48,6 +48,7 @@ pub(crate) mod media;
 pub(crate) mod message;
 mod message_actions;
 mod message_entity;
+mod message_fetches;
 mod message_generation_stopped;
 mod message_origin;
 mod message_reaction_count_updated;
