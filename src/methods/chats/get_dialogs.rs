@@ -8,12 +8,14 @@ use crate::utils::get_peer_id;
 pub struct GetDialogs<'a> {
     client: &'a Client,
     folder_id: Option<i32>,
+    // The count of the last page, or what a one-dialog request said before any.
+    total: Option<i32>,
     pages: DialogPages<Dialog>,
 }
 
 impl Client {
     pub fn get_dialogs(&self) -> GetDialogs<'_> {
-        GetDialogs { client: self, folder_id: None, pages: DialogPages::new() }
+        GetDialogs { client: self, folder_id: None, total: None, pages: DialogPages::new() }
     }
 }
 
@@ -28,25 +30,54 @@ impl GetDialogs<'_> {
         self
     }
 
+    /// How many dialogs there are in the list, whatever `limit` says: the count Telegram gave with the last page,
+    /// or, before any page, from one request for a single dialog. Either way it's asked for once.
+    pub async fn total(&mut self) -> Result<i32> {
+        if let Some(total) = self.total {
+            return Ok(total);
+        }
+        let request = self.request(1, false);
+        let (dialogs, count) = Dialog::unpack(self.client, self.client.invoke(&request).await?);
+        let total = count.unwrap_or(dialogs.len() as i32);
+        self.total = Some(total);
+        Ok(total)
+    }
+
     pub async fn next(&mut self) -> Result<Option<Dialog>> {
         loop {
             if let Some(dialog) = self.pages.pop() {
                 return Ok(Some(dialog));
             }
             let Some(limit) = self.pages.limit() else { return Ok(None) };
-            let request = functions::messages::GetDialogs {
-                exclude_pinned: false,
-                folder_id: self.folder_id,
-                offset_date: self.pages.offset_date,
-                offset_id: self.pages.offset_id,
-                offset_peer: self.pages.offset_peer.clone(),
-                limit,
-                hash: 0,
-            };
+            let request = self.request(limit, true);
             let page = self.client.invoke(&request).await?;
             let (last_page, next) = page_end(&page, limit);
-            let (dialogs, _) = Dialog::unpack(self.client, page);
+            let (dialogs, count) = Dialog::unpack(self.client, page);
+            // Only a slice says how many there are; a whole list that follows one is just the last few.
+            if let Some(count) = count {
+                self.total = Some(count);
+            } else if self.total.is_none() {
+                self.total = Some(dialogs.len() as i32);
+            }
             self.pages.refill(self.client, dialogs, last_page, next).await?;
+        }
+    }
+
+    /// `paged` continues from the last page; without it the request starts at the top of the list.
+    fn request(&self, limit: i32, paged: bool) -> functions::messages::GetDialogs {
+        let (offset_date, offset_id, offset_peer) = if paged {
+            (self.pages.offset_date, self.pages.offset_id, self.pages.offset_peer.clone())
+        } else {
+            (0, 0, base::InputPeer::InputPeerEmpty)
+        };
+        functions::messages::GetDialogs {
+            exclude_pinned: false,
+            folder_id: self.folder_id,
+            offset_date,
+            offset_id,
+            offset_peer,
+            limit,
+            hash: 0,
         }
     }
 }
@@ -203,5 +234,34 @@ mod tests {
             hash: 0,
         };
         assert_eq!(rx.try_recv().ok(), Some(next.to_bytes()));
+    }
+
+    #[tokio::test]
+    async fn total_reuses_the_fetched_page() {
+        let (client, mut rx) = Client::scripted(vec![Ok(slice(1).to_bytes())]);
+        let mut dialogs = client.get_dialogs().limit(2);
+        assert!(dialogs.next().await.unwrap().is_none());
+        assert_eq!(dialogs.total().await.unwrap(), 500);
+        assert_eq!(dialogs.total().await.unwrap(), 500);
+        assert!(rx.try_recv().is_ok() && rx.try_recv().is_err(), "total asked again");
+    }
+
+    #[tokio::test]
+    async fn total_before_next_makes_one_request() {
+        let (client, mut rx) = Client::scripted(vec![Ok(slice(1).to_bytes())]);
+        let mut dialogs = client.get_dialogs().chat_list(1);
+        assert_eq!(dialogs.total().await.unwrap(), 500);
+        assert_eq!(dialogs.total().await.unwrap(), 500);
+        let asked = messages::GetDialogs {
+            exclude_pinned: false,
+            folder_id: Some(1),
+            offset_date: 0,
+            offset_id: 0,
+            offset_peer: base::InputPeer::InputPeerEmpty,
+            limit: 1,
+            hash: 0,
+        };
+        assert_eq!(rx.try_recv().ok(), Some(asked.to_bytes()));
+        assert!(rx.try_recv().is_err(), "total asked twice");
     }
 }
