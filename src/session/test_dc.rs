@@ -33,6 +33,7 @@ const PING_DELAY_DISCONNECT: u32 = <functions::PingDelayDisconnect as Identifiab
 const REQ_PQ_MULTI: u32 = <functions::ReqPqMulti as Identifiable>::CONSTRUCTOR_ID;
 const REQ_DH_PARAMS: u32 = <functions::ReqDHParams as Identifiable>::CONSTRUCTOR_ID;
 const SET_CLIENT_DH_PARAMS: u32 = <functions::SetClientDHParams as Identifiable>::CONSTRUCTOR_ID;
+pub(crate) const GET_USERS: u32 = <functions::users::GetUsers as Identifiable>::CONSTRUCTOR_ID;
 const RPC_RESULT: u32 = 0xf35c6d01;
 const BOOL_TRUE: u32 = 0x997275b5;
 const AUTHORIZATION_SIGN_UP_REQUIRED: u32 = 0x44747e9a;
@@ -85,6 +86,8 @@ struct Shared {
     last_msg_id: i64,
     // Answer each connection's first bind with ENCRYPTED_MESSAGE_INVALID, as a server the key hasn't reached yet.
     refuse_first_bind: bool,
+    // Who `users.getUsers` says the account is; none answers 401, as for a key that never signed in.
+    user: Option<i64>,
 }
 
 pub(crate) struct TestDc {
@@ -131,6 +134,11 @@ impl TestDc {
     pub(crate) async fn client(&self, auth_key: [u8; 256]) -> crate::Client {
         let builder = crate::Client::builder("test-dc", 1, "test-dc").session_string(self.session_string(auth_key));
         builder.connect().await.unwrap()
+    }
+
+    /// Makes the account `user_id`, as if the key had signed in.
+    pub(crate) fn sign_in(&self, user_id: i64) {
+        self.shared.lock().unwrap().user = Some(user_id);
     }
 
     pub(crate) fn seen(&self) -> Vec<Seen> {
@@ -256,6 +264,10 @@ fn call(
             base::auth::ExportedAuthorization::ExportedAuthorization(Box::new(exported)).to_bytes()
         }
         IMPORT_AUTHORIZATION => [AUTHORIZATION_SIGN_UP_REQUIRED, 0].iter().flat_map(|w| w.to_le_bytes()).collect(),
+        GET_USERS => match s.user {
+            Some(id) => vec![user(id)].to_bytes(),
+            None => error(401, "AUTH_KEY_UNREGISTERED"),
+        },
         _ => error(400, "NOT_IN_THE_TEST_DC"),
     };
     Some(rpc_result(req_msg_id, &result))
@@ -264,6 +276,15 @@ fn call(
 fn pong(msg_id: i64, ping: &[u8]) -> Vec<u8> {
     let ping_id = ping.get(..8).map_or(0, |b| i64::from_le_bytes(b.try_into().unwrap()));
     base::Pong::Pong(Box::new(types::Pong { msg_id, ping_id })).to_bytes()
+}
+
+fn user(id: i64) -> base::User {
+    let mut buf = Vec::new();
+    for word in [0u32, 0] {
+        word.serialize(&mut buf);
+    }
+    id.serialize(&mut buf);
+    base::User::User(Box::new(types::User::deserialize_bare(&mut &buf[..]).unwrap()))
 }
 
 fn error(code: i32, message: &str) -> Vec<u8> {

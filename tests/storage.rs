@@ -24,42 +24,42 @@ fn check(s: &SessionData) {
 }
 
 #[test]
-fn reads_v3_and_legacy_strings() {
-    for s in [V3_STRING, LEGACY_STRING] {
-        let s = session_string::parse(s).unwrap();
-        check(&s);
-        assert_eq!((s.test_mode, s.addr), (false, None));
+fn reads_legacy_strings() {
+    let s = session_string::parse(LEGACY_STRING).unwrap();
+    check(&s);
+    assert_eq!((s.test_mode, s.addr), (false, None));
+}
+
+#[test]
+fn old_vae_strings_say_log_in_again() {
+    for old in [V3_STRING, V4_STRING] {
+        let why = session_string::parse(old).err().unwrap();
+        assert!(why.contains("log in again"), "{why}");
     }
 }
 
 #[test]
-fn v4_keeps_test_mode_and_address() {
-    let s = session_string::parse(V4_STRING).unwrap();
-    check(&s);
-    assert_eq!((s.test_mode, s.addr), (true, Some("149.154.167.40:443".parse().unwrap())));
-    assert_eq!(session_string::export(&s), V4_STRING);
-}
-
-#[test]
-fn exports_v4_with_our_prefix() {
-    let mut s = session_string::parse(V3_STRING).unwrap();
-    for addr in [None, Some("[2001:67c:4e8:f002::a]:443".parse().unwrap())] {
-        s.addr = addr;
+fn exports_generation_1_with_our_prefix() {
+    let mut s = session_string::parse(WZ_V3).unwrap();
+    for (addr, test_mode) in [(None, false), (Some("[2001:67c:4e8:f002::a]:443".parse().unwrap()), true)] {
+        (s.addr, s.test_mode) = (addr, test_mode);
         let exported = session_string::export(&s);
-        assert!(exported.starts_with("VAE_BA"));
+        assert!(exported.starts_with("VAE_A"), "{exported}");
         let back = session_string::parse(&exported).unwrap();
         check(&back);
-        assert_eq!((back.test_mode, back.addr), (false, addr));
+        assert_eq!((back.test_mode, back.addr), (test_mode, addr));
+        assert_eq!(session_string::export(&back), exported);
     }
 }
 
 #[test]
 fn rejects_damaged_strings() {
-    for good in [V3_STRING, V4_STRING] {
-        let mut damaged = good.to_owned();
-        damaged.replace_range(40..41, if &good[40..41] == "A" { "B" } else { "A" });
-        assert!(session_string::parse(&damaged).err().unwrap().contains("CRC"));
-    }
+    let mut s = SessionData::new(4, std::array::from_fn(|i| i as u8));
+    (s.api_id, s.user_id, s.is_bot) = (12345, 777000, true);
+    let good = session_string::export(&s);
+    let mut damaged = good.clone();
+    damaged.replace_range(40..41, if &good[40..41] == "A" { "B" } else { "A" });
+    assert!(session_string::parse(&damaged).err().unwrap().contains("CRC"));
     assert!(session_string::parse("VAE_AAAA").is_err());
     assert!(session_string::parse("VAE_not*base64").is_err());
 }

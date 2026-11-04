@@ -202,8 +202,8 @@ fn main() {
         recv_loopback(size);
     }
 
-    let session =
-        SessionData { dc_id: 2, test_mode: false, addr: None, api_id: 12345, auth_key, user_id: 777000, is_bot: true };
+    let mut session = SessionData::new(2, auth_key);
+    (session.api_id, session.user_id, session.is_bot) = (12345, 777000, true);
     bench("session string export", || {
         black_box(session_string::export(black_box(&session)));
     });

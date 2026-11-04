@@ -286,18 +286,12 @@ fn transports_survive_garbage() {
 
 #[test]
 fn session_strings_survive_garbage() {
-    let mut s = SessionData {
-        dc_id: 2,
-        test_mode: false,
-        addr: Some("149.154.167.51:443".parse().unwrap()),
-        api_id: 12345,
-        auth_key: [7; 256],
-        user_id: 777000,
-        is_bot: false,
-    };
-    let v4 = session_string::export(&s);
+    let mut s = SessionData::new(2, [7; 256]);
+    (s.api_id, s.user_id) = (12345, 777000);
+    s.addr = Some("149.154.167.51:443".parse().unwrap());
+    let with_address = session_string::export(&s);
     s.addr = None;
-    let seeds = [v4, session_string::export(&s)];
+    let seeds = [with_address, session_string::export(&s)];
 
     let mut rng = Rng(3);
     for _ in 0..10_000 {
@@ -306,10 +300,11 @@ fn session_strings_survive_garbage() {
         let _ = session_string::parse(&String::from_utf8_lossy(&b));
     }
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    for len in (0..450).chain([362, 392, 435]) {
+    for len in (0..450).chain([351, 352, 362, 367, 368, 392, 435]) {
         let s: String = (0..len).map(|_| ALPHABET[rng.below(64)] as char).collect();
         let _ = session_string::parse(&s);
         let _ = session_string::parse(&format!("{}{s}", session_string::PREFIX));
+        let _ = session_string::parse(&format!("1{s}"));
     }
 }
 
