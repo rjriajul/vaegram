@@ -1,8 +1,11 @@
 #[allow(dead_code)]
 mod support;
 
+use std::time::Duration;
+
 use vaegram::filters;
-use vaegram::types::ReportResult;
+use vaegram::raw::base;
+use vaegram::types::{ReportResult, Text};
 
 #[tokio::test]
 #[ignore = "uses a logged-in user session and a bot token"]
@@ -38,4 +41,38 @@ async fn recent_locations_include_a_live_location() {
     user.stop_message_live_location(chat_id, sent.id).await.unwrap();
     user.delete_messages(chat_id, &[sent.id]).await.unwrap();
     assert!(recent.unwrap().iter().any(|m| m.id == sent.id));
+}
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session and a bot token; the bot mentions and reacts in VAEGRAM_CHAT_ID"]
+async fn unread_mentions_and_reactions_from_the_bot() {
+    let (Some(kit), Some(chat_id)) = (support::Kit::from_env().await, chat_id()) else { return };
+    let user = &kit.user.client;
+    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("no user") };
+    let mine = user.send_message(chat_id, "react to this").await.unwrap();
+    let mention = kit.bot.send_message(chat_id, Text::new().mention("you", me.id)).await.unwrap();
+    // Only supergroups share message ids between accounts, so only there can the bot react to the user's message.
+    let shared_ids = chat_id < -1_000_000_000_000;
+    if shared_ids {
+        kit.bot.send_reaction(chat_id, mine.id).reaction("👍").await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let mut mentions = Vec::new();
+    let mut unread = user.get_unread_mentions(chat_id).limit(20);
+    while let Some(m) = unread.next().await.unwrap() {
+        mentions.push(m.text);
+    }
+    let mut reacted = Vec::new();
+    let mut unread = user.get_unread_reactions(chat_id).limit(20);
+    while let Some(m) = unread.next().await.unwrap() {
+        reacted.push(m.id);
+    }
+    user.read_mentions(chat_id).await.unwrap();
+    user.read_reactions(chat_id).await.unwrap();
+    kit.bot.delete_messages(chat_id, &[mention.id]).await.unwrap();
+    user.delete_messages(chat_id, &[mine.id]).await.unwrap();
+
+    assert!(mentions.iter().any(|text| text == "you"), "{mentions:?}");
+    assert!(!shared_ids || reacted.contains(&mine.id), "{reacted:?}");
 }
