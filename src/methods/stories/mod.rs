@@ -24,6 +24,7 @@ mod view_stories;
 
 pub use copy_story::CopyStory;
 pub use edit_story_caption::EditStoryCaption;
+pub use edit_story_media::EditStoryMedia;
 pub use enable_stealth_mode::EnableStealthMode;
 pub use forward_story::ForwardStory;
 pub use get_stories_archive::StoryPages;
@@ -215,6 +216,20 @@ mod tests {
     }
 
     #[test]
+    fn viewer_keeps_both_block_flags() {
+        let entities = Entities::default();
+        let flags = |blocked, blocked_my_stories_from| {
+            let view = types::StoryView { blocked, blocked_my_stories_from, user_id: 9, date: 50, reaction: None };
+            let viewer = StoryViewer::parse(base::StoryView::StoryView(Box::new(view)), &entities).unwrap();
+            (viewer.is_blocked, viewer.is_blocked_my_stories_from)
+        };
+        assert_eq!(
+            [flags(false, false), flags(true, false), flags(false, true), flags(true, true)],
+            [(false, false), (true, false), (false, true), (true, true)]
+        );
+    }
+
+    #[test]
     fn viewers_skip_reposts_and_keep_emoji() {
         let entities = Entities::default();
         let fire = base::Reaction::ReactionEmoji(Box::new(types::ReactionEmoji { emoticon: "🔥".into() }));
@@ -227,8 +242,8 @@ mod tests {
         };
         let viewer = StoryViewer::parse(base::StoryView::StoryView(Box::new(view)), &entities).unwrap();
         assert_eq!(
-            (viewer.user.id, viewer.date, viewer.reaction, viewer.is_blocked),
-            (9, 50, Some(ReactionType::Emoji("🔥".into())), true)
+            (viewer.user.id, viewer.date, viewer.reaction, viewer.is_blocked, viewer.is_blocked_my_stories_from),
+            (9, 50, Some(ReactionType::Emoji("🔥".into())), false, true)
         );
 
         let repost = types::StoryViewPublicRepost {
