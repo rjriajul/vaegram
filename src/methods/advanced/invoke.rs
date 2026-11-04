@@ -4,8 +4,8 @@ use crate::Client;
 use crate::client::Borrowed;
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, functions};
-use crate::session::Session;
 use crate::session::transfer::invoke_part;
+use crate::session::{RateCategory, Session};
 
 const MAX_MIGRATIONS: usize = 3;
 
@@ -19,6 +19,18 @@ impl Client {
     /// `timeout`, at most `max_flood_sleeps` times; the next one goes to the caller. `tokio::time::timeout` around
     /// the call bounds the whole wait.
     pub async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
+        self.invoke_as(R::NAME, request, timeout).await
+    }
+
+    /// `invoke_with_timeout` for a request that goes out inside a wrapper: `name` is the request the rate limiter
+    /// counts it as.
+    pub(crate) async fn invoke_as<R: RemoteCall>(
+        &self,
+        name: &'static str,
+        request: &R,
+        timeout: Duration,
+    ) -> Result<R::Return> {
+        self.limit(name).await;
         let session = self.session();
         match self.1 {
             Some(takeout_id) => {
@@ -26,6 +38,13 @@ impl Client {
                 invoke_sleeping_floods(&session, &request, timeout).await
             }
             None => invoke_sleeping_floods(&session, request, timeout).await,
+        }
+    }
+
+    /// Waits for the rate limiter's go-ahead, if there is one. It comes before the request's own timeout starts.
+    async fn limit(&self, name: &str) {
+        if let Some(limiter) = &self.0.limiter {
+            limiter.acquire(RateCategory::of(name)).await;
         }
     }
 
@@ -37,6 +56,7 @@ impl Client {
         if dc_id == self.session().dc_id() {
             return self.invoke(request).await;
         }
+        self.limit(R::NAME).await;
         let dc = self.dc(dc_id)?;
         match self.1 {
             Some(takeout_id) => {
@@ -64,11 +84,13 @@ impl Client {
         connection_id: Option<&str>,
         request: R,
     ) -> Result<(R::Return, R)> {
+        let timeout = self.session().options().request_timeout;
         match connection_id {
             Some(connection_id) => {
                 let call =
                     functions::InvokeWithBusinessConnection { connection_id: connection_id.into(), query: request };
-                Ok((self.invoke(&call).await?, call.query))
+                // Counted as the request inside, not as the wrapper.
+                Ok((self.invoke_as(R::NAME, &call, timeout).await?, call.query))
             }
             None => Ok((self.invoke(&request).await?, request)),
         }
@@ -109,13 +131,18 @@ pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use tokio::sync::mpsc;
     use tokio::time::Instant;
 
     use super::*;
     use crate::connection::Options;
+    use crate::enums::ChatAction;
     use crate::errors::RpcError;
     use crate::raw::{Serializable, base, types};
+    use crate::session::RateCategory::{Account, Admin, Bulk, Global, Media, Message, Query};
+    use crate::session::{RateLimiter, RateLimits};
 
     const FOREIGN_DC: i32 = 4;
 
@@ -306,5 +333,54 @@ mod tests {
         assert!(tokio::time::timeout(Duration::from_secs(10), call).await.is_err());
         tokio::time::sleep(Duration::from_secs(60)).await;
         assert_eq!(count(&mut sent), 1);
+    }
+
+    const CATEGORIES: [RateCategory; 7] = [Message, Media, Query, Admin, Bulk, Account, Global];
+
+    // One request's worth of every bucket, refilling slowly: what's missing afterwards was taken.
+    fn limited(client: &mut Client) {
+        let limits = CATEGORIES.iter().fold(RateLimits::default(), |limits, &c| limits.limit(c, 0.001, 5.0));
+        Arc::get_mut(&mut client.0).unwrap().limiter = Some(RateLimiter::new(&limits));
+    }
+
+    fn taken(client: &Client) -> Vec<RateCategory> {
+        let limiter = client.rate_limiter().unwrap();
+        CATEGORIES.into_iter().filter(|&category| limiter.available(category) < 4.5).collect()
+    }
+
+    fn set_typing() -> functions::messages::SetTyping {
+        functions::messages::SetTyping {
+            peer: base::InputPeer::InputPeerSelf,
+            top_msg_id: None,
+            action: ChatAction::Typing.write(),
+        }
+    }
+
+    #[tokio::test]
+    async fn business_calls_use_the_inner_name() {
+        let (mut client, _sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        limited(&mut client);
+        client.invoke_business(Some("c"), set_typing()).await.unwrap();
+        // `messages.setTyping` is an admin call; the wrapper's own name would have counted as a query.
+        assert_eq!(taken(&client), [Admin, Global]);
+    }
+
+    #[tokio::test]
+    async fn file_parts_and_difference_are_not_limited() {
+        let replies = (0..4).map(|_| Ok(true.to_bytes())).collect();
+        let (mut client, _sent) = Client::scripted(replies);
+        limited(&mut client);
+        let session = client.session();
+        // File parts go to their connection, and the dispatcher's getDifference straight to the session.
+        client.invoke_file_part(&session, &set_typing()).await.unwrap();
+        session.invoke(&set_typing()).await.unwrap();
+        assert!(taken(&client).is_empty());
+
+        // A plain call does take tokens, once, whether or not it's addressed to the home DC.
+        client.invoke(&set_typing()).await.unwrap();
+        assert_eq!(taken(&client), [Admin, Global]);
+        client.invoke_in_dc(session.dc_id(), &set_typing()).await.unwrap();
+        let limiter = client.rate_limiter().unwrap();
+        assert_eq!((limiter.available(Admin).round(), limiter.available(Global).round()), (3.0, 3.0));
     }
 }

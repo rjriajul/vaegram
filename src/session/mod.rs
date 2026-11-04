@@ -4,6 +4,7 @@ mod events;
 pub mod internals;
 mod outbox;
 mod pfs;
+mod rate_limiter;
 mod replay;
 mod service;
 #[cfg(test)]
@@ -14,6 +15,7 @@ pub(crate) mod transfer;
 
 pub(crate) use events::Affected;
 pub use events::Events;
+pub use rate_limiter::{RateCategory, RateLimiter, RateLimits};
 pub use replay::Replay;
 
 use std::collections::{HashMap, VecDeque};

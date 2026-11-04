@@ -20,7 +20,7 @@ use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, Serializable, base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Auth, Lease, TransferPool};
-use crate::session::{Call, Events, Observer, Salt, Session, UpdatesRx, init_connection};
+use crate::session::{Call, Events, Observer, RateLimiter, RateLimits, Salt, Session, UpdatesRx, init_connection};
 use crate::storage::recording::Recorder;
 use crate::storage::{
     FileStorage, MemoryStorage, PeerCache, SessionData, Storage, Store, StoredState, UpdateState, session_string,
@@ -54,6 +54,7 @@ pub struct ClientBuilder {
     unallowed_click_alert: Option<Arc<str>>,
     max_listeners: Option<usize>,
     max_concurrent_transmissions: Option<usize>,
+    rate_limits: Option<RateLimits>,
 }
 
 #[derive(Default)]
@@ -209,6 +210,15 @@ impl ClientBuilder {
         self
     }
 
+    /// Spaces requests out on the client's side, so a busy bot slows down instead of earning FLOOD_WAITs: each
+    /// category of request has a rate and a burst, and every request also counts against a global one. Off by
+    /// default. A rate must be above 0 and finite and a burst at least 1, or `connect` and `start` fail with
+    /// `Error::InvalidArgument`; [`Client::rate_limiter`] reads and changes them later.
+    pub fn rate_limits(mut self, limits: RateLimits) -> Self {
+        self.rate_limits = Some(limits);
+        self
+    }
+
     pub fn parse_mode(mut self, mode: ParseMode) -> Self {
         self.parse_mode = mode;
         self
@@ -342,6 +352,9 @@ impl ClientBuilder {
         if device.tz_offset.is_some() && device.params.as_ref().is_some_and(|p| !matches!(p, Json::Object(_))) {
             return Err(Error::InvalidArgument("init_connection_params must be an object to carry tz_offset"));
         }
+        if let Some(limits) = &self.rate_limits {
+            limits.validate()?;
+        }
         if let Some(path) = &self.record {
             self.options.record = Some(Recorder::create(path)?);
         }
@@ -401,6 +414,7 @@ impl ClientBuilder {
             inner.handlers.listeners.limit(n);
         }
         inner.transmissions = self.max_concurrent_transmissions.map(Transmissions::new);
+        inner.limiter = self.rate_limits.as_ref().map(RateLimiter::new);
         let client = Client(Arc::new(inner), None);
         let imported = self.session_string.as_deref().is_some_and(session_string::is_import);
         if imported && user_id == 0 {
@@ -459,6 +473,7 @@ pub(crate) struct Inner {
     pub(crate) unallowed_click_alert: Option<Arc<str>>,
     // Slots for `max_concurrent_transmissions`, if set.
     pub(crate) transmissions: Option<Transmissions>,
+    pub(crate) limiter: Option<RateLimiter>,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
@@ -539,6 +554,7 @@ impl Inner {
             listener_timeout: Some(LISTENER_TIMEOUT),
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             transmissions: None,
+            limiter: None,
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
         }
@@ -610,6 +626,7 @@ impl Client {
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             max_listeners: None,
             max_concurrent_transmissions: None,
+            rate_limits: None,
         }
     }
 
@@ -849,6 +866,7 @@ mod tests {
     use crate::errors::Error;
     use crate::raw::{base, types};
     use crate::session::test_dc::TestDc;
+    use crate::session::{RateCategory, RateLimits};
     use crate::storage::{FileStorage, MemoryStorage, PeerRecord, Recording, SessionData, Storage, UpdateState};
     use crate::types::{Json, PeerRef};
 
@@ -896,6 +914,17 @@ mod tests {
     fn zero_listeners_and_transmissions_are_stored_as_one() {
         let builder = Client::builder("zero", 1, "hash").max_listeners(0).max_concurrent_transmissions(0);
         assert_eq!((builder.max_listeners, builder.max_concurrent_transmissions), (Some(1), Some(1)));
+    }
+
+    #[tokio::test]
+    async fn rate_limits_are_checked_when_connecting() {
+        let limit = |rate, burst| RateLimits::default().limit(RateCategory::Query, rate, burst);
+        for limits in
+            [limit(0.0, 5.0), limit(-1.0, 5.0), limit(f64::NAN, 5.0), limit(f64::INFINITY, 5.0), limit(1.0, 0.5)]
+        {
+            let refused = Client::builder("limits", 1, "hash").in_memory().rate_limits(limits).connect().await;
+            assert!(matches!(refused, Err(Error::InvalidArgument(_))));
+        }
     }
 
     #[test]
