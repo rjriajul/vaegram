@@ -1,4 +1,5 @@
 mod active_session;
+mod active_session_actions;
 mod login_token;
 mod phone_number_authentication_settings;
 mod sent_code;

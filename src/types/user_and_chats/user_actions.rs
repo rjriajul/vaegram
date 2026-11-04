@@ -1,0 +1,82 @@
+use crate::Client;
+use crate::errors::Result;
+use crate::methods::{BlockUser, UnblockUser};
+use crate::types::{Chat, Text, User};
+
+/// Shortcuts for the `Client` methods that take this user: each one forwards to its method with the user's id and
+/// gives back what the method gives back.
+impl User {
+    /// The first and last name, joined.
+    pub fn full_name(&self) -> String {
+        match &self.last_name {
+            Some(last) => format!("{} {last}", self.first_name),
+            None => self.first_name.clone(),
+        }
+    }
+
+    /// The full name as a mention of this user.
+    pub fn mention(&self) -> Text {
+        Text::new().mention(self.full_name(), self.id)
+    }
+
+    pub async fn archive(&self, client: &Client) -> Result<()> {
+        client.archive_chats([self.id]).await
+    }
+
+    pub async fn unarchive(&self, client: &Client) -> Result<()> {
+        client.unarchive_chats([self.id]).await
+    }
+
+    pub fn block<'a>(&self, client: &'a Client) -> BlockUser<'a> {
+        client.block_user(self.id)
+    }
+
+    pub fn unblock<'a>(&self, client: &'a Client) -> UnblockUser<'a> {
+        client.unblock_user(self.id)
+    }
+
+    pub async fn get_common_chats(&self, client: &Client) -> Result<Vec<Chat>> {
+        client.get_common_chats(self.id).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Client;
+    use crate::client::sent;
+    use crate::enums::BlockList;
+    use crate::raw::functions::{contacts, folders, messages};
+    use crate::raw::{Identifiable, Serializable, base, types};
+    use crate::types::User;
+
+    fn user() -> User {
+        User { id: 7, first_name: "Ada".into(), last_name: Some("Lovelace".into()), ..User::default() }
+    }
+
+    #[test]
+    fn full_name_and_mention_use_both_names() {
+        let mut user = user();
+        assert_eq!(user.full_name(), "Ada Lovelace");
+        assert_eq!(user.mention().as_str(), "Ada Lovelace");
+        assert_eq!(user.mention().entities().len(), 1);
+        user.last_name = None;
+        assert_eq!(user.full_name(), "Ada");
+    }
+
+    #[tokio::test]
+    async fn user_helpers_send_their_requests() {
+        let (client, mut rx) = Client::recording();
+        let input = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 2 }));
+        client.0.peers.lock().unwrap().insert(7, input.clone());
+        let (user, rx) = (user(), &mut rx);
+
+        assert_eq!(sent(rx, user.archive(&client)).await, folders::EditPeerFolders::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, user.unarchive(&client)).await, folders::EditPeerFolders::CONSTRUCTOR_ID);
+        assert_eq!(sent(rx, user.get_common_chats(&client)).await, messages::GetCommonChats::CONSTRUCTOR_ID);
+        let _ = user.block(&client).block_list(BlockList::Stories).await;
+        let block = contacts::Block { my_stories_from: true, id: input.clone() };
+        assert_eq!(rx.try_recv().unwrap(), block.to_bytes());
+        let _ = user.unblock(&client).await;
+        assert_eq!(rx.try_recv().unwrap(), contacts::Unblock { my_stories_from: false, id: input }.to_bytes());
+    }
+}
