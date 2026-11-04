@@ -1,4 +1,6 @@
 use crate::file_id::{FileId, FileType, ThumbnailSource, unique_id};
+use crate::raw::types;
+use crate::types::{AnimatedChatPhoto, ChatPhotoSticker};
 
 /// The current photo of a user or chat. Pass a file id to `download_media`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7,6 +9,10 @@ pub struct ChatPhoto {
     pub has_animation: bool,
     /// Set by you for this contact only; others see another photo.
     pub is_personal: bool,
+    /// The video of an animated photo; only full chat info and `get_chat` fill it.
+    pub animation: Option<Box<AnimatedChatPhoto>>,
+    /// The sticker or emoji the photo was made from; only full chat info and `get_chat` fill it.
+    pub sticker: Option<Box<ChatPhotoSticker>>,
     pub(crate) peer_id: i64,
     pub(crate) access_hash: i64,
     pub(crate) photo_id: i64,
@@ -23,7 +29,19 @@ impl ChatPhoto {
         has_animation: bool,
         is_personal: bool,
     ) -> ChatPhoto {
-        ChatPhoto { has_animation, is_personal, peer_id, access_hash, photo_id, dc_id }
+        ChatPhoto { has_animation, is_personal, animation: None, sticker: None, peer_id, access_hash, photo_id, dc_id }
+    }
+
+    /// Adds the video and sticker the full photo carries; a photo with another id is left as it is.
+    pub(crate) fn with_full(self, photo: &types::Photo) -> ChatPhoto {
+        if photo.id != self.photo_id {
+            return self;
+        }
+        ChatPhoto {
+            animation: AnimatedChatPhoto::parse(photo).map(Box::new),
+            sticker: ChatPhotoSticker::parse(photo).map(Box::new),
+            ..self
+        }
     }
 
     /// The 160x160 version.
@@ -56,6 +74,7 @@ impl ChatPhoto {
 #[cfg(test)]
 mod tests {
     use super::ChatPhoto;
+    use crate::enums::ChatPhotoStickerType;
     use crate::raw::{base, types};
     use crate::types::FileLocation;
     use crate::utils::get_channel_id;
@@ -83,5 +102,79 @@ mod tests {
         assert_eq!(location(get_channel_id(5), false), expect(false, channel));
         let photo = ChatPhoto::new(5, 77, 123, 2, false, false);
         assert_eq!(photo.small_photo_unique_id(), photo.big_photo_unique_id());
+    }
+
+    fn photo(id: i64, video_sizes: Option<Vec<base::VideoSize>>) -> types::Photo {
+        types::Photo {
+            has_stickers: false,
+            id,
+            access_hash: 9,
+            file_reference: vec![1],
+            date: 0,
+            sizes: Vec::new(),
+            video_sizes,
+            dc_id: 2,
+        }
+    }
+
+    fn video(kind: &str, side: i32, size: i32, start: Option<f64>) -> base::VideoSize {
+        let v = types::VideoSize { r#type: kind.into(), w: side, h: side, size, video_start_ts: start };
+        base::VideoSize::VideoSize(Box::new(v))
+    }
+
+    #[test]
+    fn animation_uses_the_largest_video_size() {
+        let sizes = vec![video("u", 400, 10, None), video("v", 800, 20, Some(1.5)), video("w", 100, 5, None)];
+        let full = ChatPhoto::new(5, 77, 123, 2, true, false).with_full(&photo(123, Some(sizes)));
+        let animation = full.animation.expect("an animation");
+        assert_eq!((animation.length, animation.file_size, animation.main_frame_timestamp), (800, 20, Some(1.5)));
+        assert!(full.sticker.is_none());
+    }
+
+    #[test]
+    fn no_video_sizes_no_animation() {
+        let plain = ChatPhoto::new(5, 77, 123, 2, false, false);
+        assert_eq!(plain.clone().with_full(&photo(123, None)), plain);
+    }
+
+    #[test]
+    fn with_full_keeps_file_ids() {
+        let base = ChatPhoto::new(5, 77, 123, 2, true, false);
+        let full = base.clone().with_full(&photo(123, Some(vec![video("u", 400, 10, None)])));
+        assert_eq!((full.small_file_id(), full.big_file_id()), (base.small_file_id(), base.big_file_id()));
+        let location = FileLocation::try_from(&full.animation.as_ref().unwrap().file_id).unwrap();
+        let expected =
+            types::InputPhotoFileLocation { id: 123, access_hash: 9, file_reference: vec![1], thumb_size: "u".into() };
+        assert_eq!(location.location, base::InputFileLocation::InputPhotoFileLocation(Box::new(expected)));
+        let unique = full.animation.as_ref().map(|a| a.file_unique_id.clone());
+        assert_ne!(unique, Some(full.small_photo_unique_id()));
+        let other_size = base.clone().with_full(&photo(123, Some(vec![video("v", 400, 10, None)])));
+        assert_ne!(unique, other_size.animation.map(|a| a.file_unique_id));
+        // Another photo's details never land on this one.
+        let other = base.clone().with_full(&photo(124, Some(vec![video("u", 400, 10, None)])));
+        assert_eq!(other, base);
+    }
+
+    #[test]
+    fn sticker_from_emoji_and_set_markup() {
+        let emoji = base::VideoSize::VideoSizeEmojiMarkup(Box::new(types::VideoSizeEmojiMarkup {
+            emoji_id: 42,
+            background_colors: vec![1],
+        }));
+        let set =
+            base::InputStickerSet::InputStickerSetID(Box::new(types::InputStickerSetID { id: 8, access_hash: 3 }));
+        let sticker = base::VideoSize::VideoSizeStickerMarkup(Box::new(types::VideoSizeStickerMarkup {
+            stickerset: set,
+            sticker_id: 11,
+            background_colors: Vec::new(),
+        }));
+        let photo_of = |size| ChatPhoto::new(5, 77, 123, 2, true, false).with_full(&photo(123, Some(vec![size])));
+        let from_emoji = photo_of(emoji).sticker.expect("a sticker");
+        assert_eq!((from_emoji.kind, from_emoji.custom_emoji_id), (ChatPhotoStickerType::CustomEmoji, Some(42)));
+        let from_set = photo_of(sticker).sticker.expect("a sticker");
+        assert_eq!(
+            (from_set.kind, from_set.sticker_set_id, from_set.sticker_id),
+            (ChatPhotoStickerType::RegularOrMask, Some(8), Some(11))
+        );
     }
 }
