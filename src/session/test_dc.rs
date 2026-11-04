@@ -13,7 +13,7 @@ use tokio::task::JoinHandle;
 use super::internals::data_center::Dc;
 use super::replay::{open, seal};
 use super::{auth, constructor_id, internals};
-use crate::connection::{RecvBuf, Transport};
+use crate::connection::{Framing, RecvBuf, Transport};
 use crate::crypto::rsa::PublicKey;
 use crate::crypto::{aes, mtproto, prime, random, sha1, sha256, to_be_padded};
 use crate::raw::core::msg_container;
@@ -170,6 +170,7 @@ async fn serve(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) -> Option<()> 
     let mut tag = [0; 4];
     stream.read_exact(&mut tag).await.ok()?;
     let mut buf = RecvBuf::default();
+    let mut framing = Framing::new(Transport::Intermediate);
     let (mut exchange, mut content, mut binds) = (Exchange::default(), 0, 0);
     let msg_id = || {
         let mut s = shared.lock().unwrap();
@@ -178,7 +179,7 @@ async fn serve(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) -> Option<()> 
     };
     loop {
         let mut packet = loop {
-            if let Some(p) = Transport::Intermediate.decode(&mut buf).ok()? {
+            if let Some(p) = framing.decode(&mut buf).ok()? {
                 break p;
             }
             if stream.read_buf(buf.make_room()).await.ok()? == 0 {
@@ -209,9 +210,9 @@ async fn serve(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) -> Option<()> 
             }
         }
         for packet in replies {
-            let mut framed = vec![0; Transport::ROOM];
+            let mut framed = vec![0; Framing::ROOM];
             framed.extend_from_slice(&packet);
-            let start = Transport::Intermediate.frame(&mut framed);
+            let start = framing.frame(&mut framed);
             stream.write_all(&framed[start..]).await.ok()?;
         }
     }

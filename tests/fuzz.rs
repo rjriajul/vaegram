@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 
-use vaegram::connection::{RecvBuf, Transport};
+use vaegram::connection::{Framing, RecvBuf, Transport};
 use vaegram::raw::core::{gzip_packed, msg_container};
 use vaegram::raw::{Deserializable, Error, Serializable, base, types};
 use vaegram::session::Salt;
@@ -250,12 +250,12 @@ fn transports_survive_garbage() {
     let encrypted: Vec<u8> = (0..24 + 32).map(|i| i as u8 | 1).collect();
     let plain = [vec![0; 16], 8u32.to_le_bytes().to_vec(), b"abcd1234".to_vec()].concat();
     let mut rng = Rng(7);
-    for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
+    for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate, Transport::Full] {
         let mut frames = Vec::new();
         for payload in [&encrypted[..], &plain, &(-404i32).to_le_bytes()] {
-            let mut frame = vec![0; Transport::ROOM];
+            let mut frame = vec![0; Framing::ROOM];
             frame.extend_from_slice(payload);
-            let start = transport.frame(&mut frame);
+            let start = Framing::new(transport).frame(&mut frame);
             frames.push(frame.split_off(start));
         }
         for i in 0..5000 {
@@ -271,14 +271,14 @@ fn transports_survive_garbage() {
             };
             let mut buf = RecvBuf::default();
             buf.extend_from_slice(&input);
-            if let Ok(Some(p)) = transport.decode(&mut buf) {
+            if let Ok(Some(p)) = Framing::new(transport).decode(&mut buf) {
                 assert!(p.len() <= input.len(), "{transport:?} {input:?}");
             }
         }
         for header in [[0xff; 4], [0x7f, 0xff, 0xff, 0xff], (16u32 << 20 | 4).to_le_bytes()] {
             let mut buf = RecvBuf::default();
             buf.extend_from_slice(&header);
-            let decoded = transport.decode(&mut buf);
+            let decoded = Framing::new(transport).decode(&mut buf);
             assert!(!matches!(decoded, Ok(Some(_))), "{transport:?} {header:?}");
         }
     }

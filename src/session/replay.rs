@@ -10,7 +10,7 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use super::internals::now;
 use super::{MSG_RESEND_REQ, MSGS_ACK, NEW_SESSION_CREATED, RPC_RESULT, constructor_id};
-use crate::connection::{RecvBuf, Transport};
+use crate::connection::{Framing, RecvBuf, Transport};
 use crate::crypto::{aes, mtproto, random, sha1, sha256};
 use crate::errors::Result;
 use crate::raw::core::{gzip_packed, msg_container};
@@ -177,6 +177,7 @@ impl Script {
 
 async fn serve(mut stream: TcpStream, script: &Mutex<Script>, auth_key: &[u8; 256]) -> Result<()> {
     let mut tag = [0; 4];
+    let mut buf = RecvBuf::default();
     stream.read_exact(&mut tag[..1]).await?;
     let transport = if tag[0] == 0xef {
         Transport::Abridged
@@ -185,14 +186,18 @@ async fn serve(mut stream: TcpStream, script: &Mutex<Script>, auth_key: &[u8; 25
         match tag {
             [0xee, 0xee, 0xee, 0xee] => Transport::Intermediate,
             [0xdd, 0xdd, 0xdd, 0xdd] => Transport::PaddedIntermediate,
-            _ => return Ok(()),
+            // The full transport has no tag: these four bytes are the length of its first packet.
+            _ => {
+                buf.extend_from_slice(&tag);
+                Transport::Full
+            }
         }
     };
+    let mut framing = Framing::new(transport);
     let auth_key_id: [u8; 8] = sha1(&[&auth_key[..]])[12..].try_into().unwrap();
     let (mut framed, mut content) = (Vec::new(), 0);
-    let mut buf = RecvBuf::default();
     loop {
-        let Some(mut packet) = transport.decode(&mut buf)? else {
+        let Some(mut packet) = framing.decode(&mut buf)? else {
             if stream.read_buf(buf.make_room()).await? == 0 {
                 return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
             }
@@ -208,9 +213,9 @@ async fn serve(mut stream: TcpStream, script: &Mutex<Script>, auth_key: &[u8; 25
             content += 1;
             let packet = seal(auth_key, &auth_key_id, &session_id, msg_id, content * 2 - 1, &body);
             framed.clear();
-            framed.resize(Transport::ROOM, 0);
+            framed.resize(Framing::ROOM, 0);
             framed.extend_from_slice(&packet);
-            let start = transport.frame(&mut framed);
+            let start = framing.frame(&mut framed);
             stream.write_all(&framed[start..]).await?;
         }
     }
