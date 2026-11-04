@@ -10,6 +10,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::connection::{Options, Proxy, Transport};
 use crate::crypto::rsa::PublicKey;
+use crate::dispatcher::cache::Caches;
 use crate::dispatcher::listeners::UNEXPECTED_CLICK;
 use crate::dispatcher::router::run_hook;
 use crate::dispatcher::{Recover, Routes};
@@ -57,6 +58,8 @@ pub struct ClientBuilder {
     unallowed_click_alert: Option<Arc<str>>,
     max_listeners: Option<usize>,
     max_concurrent_transmissions: Option<usize>,
+    max_message_cache_size: usize,
+    max_topic_cache_size: usize,
     rate_limits: Option<RateLimits>,
     auto_sleep: AutoSleep,
     retry_policy: Option<Retry>,
@@ -221,6 +224,22 @@ impl ClientBuilder {
     /// by default, so every transfer runs at once.
     pub fn max_concurrent_transmissions(mut self, n: usize) -> Self {
         self.max_concurrent_transmissions = Some(n.max(1));
+        self
+    }
+
+    /// Keeps up to `n` received, sent and edited messages, so `reply_to_message()` and
+    /// `CallbackQuery::message()` can answer without asking Telegram. Off (0) by default. Deleted messages
+    /// (yours included) leave it, and so do messages whose reactions, views or pins change; polls and business
+    /// messages never enter it. `n` counts messages, not bytes: each entry also keeps the users and chats of the
+    /// update it came in, which a big batch shares among all its messages.
+    pub fn max_message_cache_size(mut self, n: usize) -> Self {
+        self.max_message_cache_size = n;
+        self
+    }
+
+    /// Keeps up to `n` forum topics that `Message::topic()` fetched; editing a topic drops it. Off (0) by default.
+    pub fn max_topic_cache_size(mut self, n: usize) -> Self {
+        self.max_topic_cache_size = n;
         self
     }
 
@@ -461,6 +480,7 @@ impl ClientBuilder {
             inner.handlers.listeners.limit(n);
         }
         inner.transmissions = self.max_concurrent_transmissions.map(Transmissions::new);
+        inner.caches = Caches::new(self.max_message_cache_size, self.max_topic_cache_size);
         inner.limiter = self.rate_limits.as_ref().map(RateLimiter::new);
         inner.auto_no_updates = self.auto_no_updates;
         let client = Client(Arc::new(inner), None);
@@ -528,6 +548,7 @@ pub(crate) struct Inner {
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
     // Where `recover_gaps` sends its requests while `run` is taking updates.
     pub(crate) recover: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Recover>>>,
+    pub(crate) caches: Caches,
 }
 
 pub(crate) struct Transmissions {
@@ -610,6 +631,7 @@ impl Inner {
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
             recover: Mutex::new(None),
+            caches: Caches::default(),
         }
     }
 
@@ -679,6 +701,8 @@ impl Client {
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             max_listeners: None,
             max_concurrent_transmissions: None,
+            max_message_cache_size: 0,
+            max_topic_cache_size: 0,
             rate_limits: None,
             auto_sleep: AutoSleep::default(),
             retry_policy: None,

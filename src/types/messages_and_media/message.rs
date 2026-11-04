@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::{ChatJoinType, ChatType};
@@ -360,6 +362,10 @@ impl Message {
                 media: u.media,
                 ..Message::bare(u.id, get_peer(chat_id), u.date)
             };
+            // Own sends never come back as updates, so this is how a button on the bot's own message gets cached.
+            if client.0.caches.caches_messages() {
+                client.0.caches.store(&base::Message::Message(Box::new(raw.clone())), &Arc::default());
+            }
             return Ok(Message::parse(client, Box::new(raw), &Entities::default()));
         }
         Message::all_from_updates(client, updates).next().ok_or(Error::Unexpected("Telegram sent no message back"))
@@ -372,7 +378,7 @@ impl Message {
             base::Updates::UpdateShort(u) => (vec![u.update], Vec::new(), Vec::new()),
             _ => Default::default(),
         };
-        let entities = Entities::new(client, users, chats);
+        let entities = Arc::new(Entities::new(client, users, chats));
         updates.into_iter().filter_map(move |u| {
             let scheduled = matches!(u, base::Update::UpdateNewScheduledMessage(_));
             let (message, business) = match u {
@@ -390,6 +396,9 @@ impl Message {
                 base::Update::UpdateNewScheduledMessage(u) => (u.message, None),
                 _ => return None,
             };
+            if !scheduled && business.is_none() {
+                client.0.caches.store(&message, &entities);
+            }
             let mut message = Message::from_raw(client, message, &entities)?;
             message.scheduled = scheduled;
             if let Some((connection_id, reply_to)) = business {
@@ -539,8 +548,9 @@ impl Message {
             .then_some(command)
     }
 
-    /// Fetches the message this one replies to, on demand; `None` when it isn't a reply or that message is gone.
-    /// A business message has only the replied message its update carried.
+    /// Fetches the message this one replies to, on demand, or takes it from the message cache when that's on;
+    /// `None` when it isn't a reply or that message is gone. A business message has only the replied message its
+    /// update carried.
     pub async fn reply_to_message(&self) -> Result<Option<Message>> {
         if let Some(replied) = &self.replied {
             return Ok(Some((**replied).clone()));
@@ -548,6 +558,10 @@ impl Message {
         let Some(id) = self.reply_to_message_id.filter(|_| self.business_connection_id.is_none()) else {
             return Ok(None);
         };
+        let cached = self.client.0.caches.message(self.chat.id, id);
+        if let Some(message) = cached.and_then(|c| Message::from_raw(&self.client, c.raw, &c.entities)) {
+            return Ok(Some(message));
+        }
         Ok(self.client.get_messages(self.chat.id, &[id]).await?.pop().flatten())
     }
 

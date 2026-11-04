@@ -31,7 +31,7 @@ impl SendReaction<'_> {
     }
 
     async fn send(self) -> Result<()> {
-        let peer = self.client.resolve_peer(self.chat_id).await?;
+        let (chat_id, peer) = self.client.resolve(&self.chat_id).await?;
         let reaction = (!self.reactions.is_empty()).then(|| self.reactions.iter().map(ReactionType::write).collect());
         let request = functions::messages::SendReaction {
             big: self.big,
@@ -41,6 +41,8 @@ impl SendReaction<'_> {
             reaction,
         };
         self.client.invoke(&request).await?;
+        // The answer is a quiet update, so the cached copy would keep its old reactions.
+        self.client.0.caches.evict(chat_id, &[self.message_id]);
         Ok(())
     }
 }

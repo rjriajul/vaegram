@@ -20,6 +20,7 @@ impl Client {
         };
         let base::messages::AffectedMessages::AffectedMessages(a) = affected;
         self.0.events.affected(Affected { channel_id, pts: a.pts, pts_count: a.pts_count });
+        self.0.caches.evict(chat_id, message_ids);
         Ok(())
     }
 }

@@ -14,6 +14,8 @@ impl Client {
         };
         // Saved Messages live in your own chat, so the account's pts counts them whatever the sublist peer is.
         let me = self.peer_id(PeerRef::Me).await?;
-        self.affected_history(me, &request).await
+        self.affected_history(me, &request).await?;
+        self.0.caches.evict_chat(me);
+        Ok(())
     }
 }
