@@ -238,12 +238,16 @@ impl MongoStorage {
         Ok(Some(p))
     }
 
+    /// The peer the usernames collection names, if it still lists the name; a save cut short can leave a name with a
+    /// peer that dropped it, and then the newest peer listing it is the owner. After an interrupted batch a name can
+    /// also still give an older holder that does list it: stale but valid, until the next batch touching the name.
     async fn get_peer_by_username(&self, username: &str) -> io::Result<Option<PeerRecord>> {
         let names = self.collection("usernames").await?;
         let found = names.find_one(doc! { "_id": username }).await.map_err(io_error)?;
-        match found.as_ref().and_then(|d| int(d, "peer_id")) {
-            Some(id) => self.peer_where(doc! { "_id": id }).await,
-            None => Ok(None),
+        let Some(id) = found.as_ref().and_then(|d| int(d, "peer_id")) else { return Ok(None) };
+        match self.peer_where(doc! { "_id": id }).await? {
+            Some(peer) if peer.usernames.iter().any(|n| n == username) => Ok(Some(peer)),
+            _ => self.peer_where(doc! { "usernames": username }).await,
         }
     }
 
@@ -470,7 +474,7 @@ mod tests {
     use mongodb::bson::spec::BinarySubtype;
     use mongodb::bson::{Binary, Bson, Document, doc};
 
-    use super::{MongoStorage, all, peer, peer_document, session, session_document, state_rows, update_state};
+    use super::{MongoStorage, all, int, peer, peer_document, session, session_document, state_rows, update_state};
     use crate::session::Salt;
     use crate::storage::{PeerRecord, SessionData, Storage, StoredState, UpdateState, conformance};
 
@@ -595,12 +599,49 @@ mod tests {
             let interrupted = storage.update_peers(&[renamed, taker]).await;
             fail_after(usize::MAX);
             assert!(interrupted.is_err(), "{writes}");
+            // Every stored name points at a stored peer, and a lookup gives a peer that lists the name, or nobody
+            // once no written peer does.
             let names = all(db.collection::<Document>("usernames").find(doc! {}).await.unwrap()).await.unwrap();
-            for name in names.iter().filter_map(|d| d.get_str("_id").ok()) {
+            for d in &names {
+                let (name, id) = (d.get_str("_id").unwrap(), int(d, "peer_id").unwrap());
+                let peer = db.collection::<Document>("peers").find_one(doc! { "_id": id }).await.unwrap();
+                assert!(peer.is_some(), "{writes}: {name} points at no peer");
                 let found = storage.get_peer_by_username(name).await.unwrap();
-                assert!(found.is_some(), "{writes}: {name} points at no peer");
+                let listed = found.as_ref().is_none_or(|p| p.usernames.iter().any(|n| n == name));
+                assert!(listed, "{writes}: {name} went to {found:?}");
+            }
+            if writes >= 2 {
+                let found = storage.get_peer_by_username("alice").await.unwrap();
+                assert_eq!(found.map(|p| p.id), Some(200), "{writes}: both peers are written");
             }
         }
+        db.drop().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "needs VAEGRAM_MONGO_URL, a MongoDB server it may write to"]
+    async fn conformance_on_a_live_server_skips_a_name_its_peer_dropped() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let Some(uri) = live_uri() else { return };
+        let database = format!("vaegram_live_stale_{}", std::process::id());
+        let storage = MongoStorage::new(uri.clone(), "bot").database(database.clone());
+        let mut owner = PeerRecord::new(100, 1);
+        (owner.usernames, owner.updated) = (vec!["alice".into()], 10);
+        let mut older = PeerRecord::new(200, 2);
+        (older.usernames, older.updated) = (vec!["alice".into()], 5);
+        storage.update_peers(&[owner, older.clone()]).await.unwrap();
+
+        // 100 lets "alice" go, and the save stops after the peer write: the names still say 100.
+        let mut renamed = PeerRecord::new(100, 1);
+        (renamed.usernames, renamed.updated) = (vec!["alice2".into()], 20);
+        storage.writes_left.store(1, SeqCst);
+        assert!(storage.update_peers(&[renamed]).await.is_err());
+        storage.writes_left.store(usize::MAX, SeqCst);
+        let db = mongodb::Client::with_uri_str(&uri).await.unwrap().database(&database);
+        let stale = db.collection::<Document>("usernames").find_one(doc! { "_id": "alice" }).await.unwrap();
+        assert_eq!(stale.as_ref().and_then(|d| int(d, "peer_id")), Some(100));
+
+        assert_eq!(storage.get_peer_by_username("alice").await.unwrap(), Some(older));
         db.drop().await.unwrap();
     }
 }
