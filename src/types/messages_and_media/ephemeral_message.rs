@@ -3,7 +3,7 @@ use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::methods::{EditEphemeralMessage, SendEphemeralMessage};
 use crate::raw::{base, types};
-use crate::types::{Chat, MessageText, User};
+use crate::types::{Chat, Media, MessageEntity, MessageText, ReplyMarkup, User};
 use crate::utils::get_peer;
 
 #[derive(Debug, Clone)]
@@ -17,6 +17,17 @@ pub struct EphemeralMessage {
     pub date: i32,
     pub text: String,
     pub outgoing: bool,
+    /// The template a bot sends as the welcome message of its private chats.
+    pub is_welcome_template: bool,
+    /// The regular message this one is anchored to.
+    pub anchor_message_id: Option<i32>,
+    pub message_thread_id: Option<i32>,
+    pub entities: Option<Vec<MessageEntity>>,
+    pub media: Option<Media>,
+    /// The id of the ephemeral message this one replies to.
+    pub reply_to_message_id: Option<i32>,
+    pub has_protected_content: bool,
+    pub show_caption_above_media: bool,
     pub(crate) raw: Box<types::EphemeralMessage>,
     client: Client,
 }
@@ -43,9 +54,24 @@ impl EphemeralMessage {
             date: raw.date,
             text: raw.message.clone(),
             outgoing: raw.out,
+            is_welcome_template: raw.welcome_template,
+            anchor_message_id: raw.anchor_msg_id,
+            message_thread_id: raw.top_msg_id,
+            entities: raw.entities.as_deref().and_then(|e| MessageEntity::parse_all(e, entities)),
+            media: raw.media.as_ref().and_then(|m| Media::parse(client, m, entities)),
+            reply_to_message_id: match &raw.reply_to {
+                Some(base::MessageReplyHeader::MessageReplyHeader(h)) => h.reply_to_msg_id,
+                _ => None,
+            },
+            has_protected_content: raw.noforwards,
+            show_caption_above_media: raw.invert_media,
             raw,
             client: client.clone(),
         }
+    }
+
+    pub fn reply_markup(&self) -> Option<ReplyMarkup> {
+        ReplyMarkup::parse(self.raw.reply_markup.as_ref()?)
     }
 
     pub(crate) fn from_updates(client: &Client, updates: base::Updates) -> Result<EphemeralMessage> {
@@ -87,10 +113,12 @@ impl EphemeralMessage {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use super::super::message::tests::header;
     use super::EphemeralMessage;
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::raw::{base, types};
+    use crate::types::{Media, ReplyMarkup};
     use crate::utils::get_channel_id;
 
     pub(crate) fn ephemeral(out: bool, peer_id: Option<base::Peer>) -> base::EphemeralMessage {
@@ -128,5 +156,33 @@ pub(crate) mod tests {
 
         let m = EphemeralMessage::parse(&Client::offline(), ephemeral(true, None), &Entities::default());
         assert_eq!(m.chat.id, 1000);
+    }
+
+    #[test]
+    fn ephemeral_reads_template_anchor_and_media() {
+        let base::EphemeralMessage::EphemeralMessage(mut raw) = ephemeral(false, Some(channel()));
+        raw.welcome_template = true;
+        raw.noforwards = true;
+        raw.invert_media = true;
+        raw.anchor_msg_id = Some(11);
+        raw.top_msg_id = Some(3);
+        let bold = types::MessageEntityBold { offset: 0, length: 3 };
+        raw.entities = Some(vec![base::MessageEntity::MessageEntityBold(bold)]);
+        let dice = types::MessageMediaDice { value: 4, emoticon: "🎲".into(), game_outcome: None };
+        raw.media = Some(base::MessageMedia::MessageMediaDice(Box::new(dice)));
+        raw.reply_markup = Some(base::ReplyMarkup::ReplyKeyboardHide(types::ReplyKeyboardHide { selective: true }));
+        let reply = types::MessageReplyHeader { reply_to_msg_id: Some(6), ..header() };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(reply)));
+
+        let raw = base::EphemeralMessage::EphemeralMessage(raw);
+        let m = EphemeralMessage::parse(&Client::offline(), raw, &Entities::default());
+        assert!(m.is_welcome_template && m.has_protected_content && m.show_caption_above_media);
+        assert_eq!((m.anchor_message_id, m.message_thread_id, m.reply_to_message_id), (Some(11), Some(3), Some(6)));
+        assert_eq!(m.entities.as_ref().map(Vec::len), Some(1));
+        assert!(matches!(&m.media, Some(Media::Dice(d)) if d.value == 4));
+        assert!(matches!(m.reply_markup(), Some(ReplyMarkup::Remove(r)) if r.selective));
+
+        let plain = EphemeralMessage::parse(&Client::offline(), ephemeral(false, None), &Entities::default());
+        assert!(!plain.is_welcome_template && plain.media.is_none() && plain.reply_markup().is_none());
     }
 }
