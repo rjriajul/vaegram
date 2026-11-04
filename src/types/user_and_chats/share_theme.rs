@@ -1,0 +1,35 @@
+use crate::dispatcher::Entities;
+use crate::raw::base;
+use crate::types::{ReactionType, UniqueGift};
+
+/// The theme a chat's share card uses. A chat on the default theme has none; only `get_chat` fills it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShareTheme {
+    pub backdrop_id: Option<i32>,
+    pub emojis: Vec<ReactionType>,
+    /// The unique gift the theme comes from.
+    pub gift: Option<UniqueGift>,
+}
+
+impl ShareTheme {
+    pub(crate) fn parse(raw: &base::ShareTheme, entities: &Entities) -> Option<ShareTheme> {
+        match raw {
+            base::ShareTheme::ShareThemeDefault => None,
+            base::ShareTheme::ShareThemeEmojiBackdrop(t) => Some(ShareTheme {
+                backdrop_id: t.backdrop_id,
+                emojis: t.emojis.iter().flatten().filter_map(ReactionType::parse).collect(),
+                gift: None,
+            }),
+            base::ShareTheme::ShareThemeGift(t) => Some(ShareTheme {
+                backdrop_id: None,
+                emojis: Vec::new(),
+                gift: match &t.stargift {
+                    base::StarGift::StarGiftUnique(g) => Some(UniqueGift::parse(g, entities)),
+                    base::StarGift::StarGift(_) => None,
+                },
+            }),
+            // Only sent to Telegram, never received.
+            base::ShareTheme::InputShareThemeGift(_) => None,
+        }
+    }
+}
