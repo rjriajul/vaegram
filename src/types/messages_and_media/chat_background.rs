@@ -1,6 +1,6 @@
 use crate::raw::{base, types};
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatBackground {
     pub id: i64,
     pub slug: String,

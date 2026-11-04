@@ -3,7 +3,8 @@ use crate::enums::ProfileTab;
 use crate::raw::{base, types};
 use crate::types::{
     AcceptedGiftTypes, Birthday, BotVerification, BusinessAwayMessage, BusinessGreetingMessage, BusinessIntro,
-    BusinessLocation, BusinessOpeningHours, Chat, ChatPhoto, ChatPrivileges, ChatReactions, FormattedText, UserRating,
+    BusinessLocation, BusinessOpeningHours, Chat, ChatBackground, ChatLocation, ChatPhoto, ChatPrivileges,
+    ChatReactions, FormattedText, UserRating,
 };
 use crate::utils::{get_channel_id, get_peer};
 
@@ -13,6 +14,10 @@ pub struct ChatFullInfo {
     // Every chat.
     pub pinned_message_id: Option<i32>,
     pub folder_id: Option<i32>,
+    /// The background of this chat for you.
+    pub chat_background: Option<ChatBackground>,
+    /// Your background in this chat replaces the one the other side set.
+    pub is_wallpaper_overridden: bool,
     pub message_auto_delete_time: Option<i32>,
     /// The emoji of the chat theme.
     pub theme: Option<String>,
@@ -60,6 +65,13 @@ pub struct ChatFullInfo {
     /// New members see the messages sent before they joined.
     pub has_visible_history: bool,
     pub can_view_stats: bool,
+    /// Where the group is, for location-based groups.
+    pub location: Option<ChatLocation>,
+    pub can_set_location: bool,
+    /// Messages up to this id were left out of the history available to you.
+    pub available_min_id: Option<i32>,
+    /// The data center that holds the statistics of the chat.
+    pub stats_dc_id: Option<i32>,
     pub can_delete_channel: bool,
     pub has_aggressive_anti_spam_enabled: bool,
     pub is_members_hidden: bool,
@@ -133,6 +145,8 @@ impl ChatFullInfo {
         ChatFullInfo {
             pinned_message_id: u.pinned_msg_id,
             folder_id: u.folder_id,
+            chat_background: u.wallpaper.map(ChatBackground::parse),
+            is_wallpaper_overridden: u.wallpaper_overridden,
             message_auto_delete_time: u.ttl_period,
             theme: u.theme.and_then(|theme| match theme {
                 base::ChatTheme::ChatTheme(t) => Some(t.emoticon),
@@ -205,6 +219,7 @@ impl ChatFullInfo {
         ChatFullInfo {
             pinned_message_id: c.pinned_msg_id,
             folder_id: c.folder_id,
+            chat_background: c.wallpaper.map(ChatBackground::parse),
             message_auto_delete_time: c.ttl_period,
             theme: c.theme_emoticon,
             can_schedule_messages: c.has_scheduled,
@@ -239,6 +254,10 @@ impl ChatFullInfo {
             can_set_sticker_set: c.can_set_stickers,
             has_visible_history: !c.hidden_prehistory,
             can_view_stats: c.can_view_stats,
+            location: c.location.and_then(ChatLocation::parse),
+            can_set_location: c.can_set_location,
+            available_min_id: c.available_min_id,
+            stats_dc_id: c.stats_dc,
             can_delete_channel: c.can_delete_channel,
             has_aggressive_anti_spam_enabled: c.antispam,
             is_members_hidden: c.participants_hidden,
@@ -287,7 +306,7 @@ fn short_name(set: base::StickerSet) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::linked_chat;
+    use super::{ChatFullInfo, linked_chat};
     use crate::dispatcher::Entities;
     use crate::enums::ChatType;
     use crate::raw::{Serializable, base, types};
@@ -314,5 +333,71 @@ mod tests {
         assert_eq!(linked_chat(1, 10, &entities).kind, ChatType::Channel);
         assert_eq!(linked_chat(2, 20, &entities).kind, ChatType::Supergroup);
         assert_eq!(linked_chat(3, 30, &entities).kind, ChatType::Supergroup);
+    }
+
+    #[test]
+    fn channel_full_reads_location_background_and_stats_dc() {
+        let mut buf = Vec::new();
+        for word in [0u32, 0] {
+            word.serialize(&mut buf);
+        }
+        7i64.serialize(&mut buf);
+        "about".to_owned().serialize(&mut buf);
+        for n in [0i32, 0, 0] {
+            n.serialize(&mut buf);
+        }
+        base::Photo::PhotoEmpty(types::PhotoEmpty { id: 0 }).serialize(&mut buf);
+        let settings = types::PeerNotifySettings::deserialize_bare(&mut &0u32.to_le_bytes()[..]).unwrap();
+        base::PeerNotifySettings::PeerNotifySettings(settings.into()).serialize(&mut buf);
+        Vec::<i64>::new().serialize(&mut buf);
+        0i32.serialize(&mut buf);
+        let point = types::GeoPoint { long: 13.4, lat: 52.5, access_hash: 1, accuracy_radius: None };
+        let location = types::ChannelLocation {
+            geo_point: base::GeoPoint::GeoPoint(point.into()),
+            address: "1 Cat Street".into(),
+        };
+        let wallpaper = types::WallPaperNoFile { id: 3, default: false, dark: true, settings: None };
+        let full = types::ChannelFull {
+            can_set_location: true,
+            location: Some(base::ChannelLocation::ChannelLocation(location.into())),
+            wallpaper: Some(base::WallPaper::WallPaperNoFile(wallpaper.into())),
+            available_min_id: Some(12),
+            stats_dc: Some(4),
+            ..types::ChannelFull::deserialize_bare(&mut &buf[..]).unwrap()
+        };
+        let info = ChatFullInfo::parse_channel(full, &Entities::default());
+        let location = info.location.expect("the location");
+        assert_eq!((location.address.as_str(), location.location.latitude), ("1 Cat Street", 52.5));
+        assert!(info.can_set_location && !info.is_wallpaper_overridden);
+        assert_eq!(info.chat_background.map(|b| (b.id, b.is_dark)), Some((3, true)));
+        assert_eq!((info.available_min_id, info.stats_dc_id), (Some(12), Some(4)));
+    }
+
+    #[test]
+    fn user_full_reads_wallpaper_and_override() {
+        use crate::raw::Identifiable;
+        let mut buf = Vec::new();
+        for word in [0u32, 0] {
+            word.serialize(&mut buf);
+        }
+        7i64.serialize(&mut buf);
+        types::PeerSettings::CONSTRUCTOR_ID.serialize(&mut buf);
+        0u32.serialize(&mut buf);
+        let settings = types::PeerNotifySettings::deserialize_bare(&mut &0u32.to_le_bytes()[..]).unwrap();
+        base::PeerNotifySettings::PeerNotifySettings(settings.into()).serialize(&mut buf);
+        3i32.serialize(&mut buf);
+        let wallpaper = types::WallPaperNoFile { id: 9, default: false, dark: true, settings: None };
+        let full = types::UserFull {
+            wallpaper: Some(base::WallPaper::WallPaperNoFile(wallpaper.into())),
+            wallpaper_overridden: true,
+            ..types::UserFull::deserialize_bare(&mut &buf[..]).unwrap()
+        };
+        let info = ChatFullInfo::parse_user(full, &Entities::default());
+        assert!(info.is_wallpaper_overridden);
+        assert_eq!(info.chat_background.map(|b| (b.id, b.is_dark)), Some((9, true)));
+
+        let plain = types::UserFull::deserialize_bare(&mut &buf[..]).unwrap();
+        let info = ChatFullInfo::parse_user(plain, &Entities::default());
+        assert!(!info.is_wallpaper_overridden && info.chat_background.is_none());
     }
 }
