@@ -58,6 +58,7 @@ mod mark_chat_unread;
 mod mute_chat;
 mod pin_chat;
 mod pin_forum_topic;
+mod process_chat_has_protected_content_disable_request;
 mod promote_chat_member;
 mod reopen_forum_topic;
 mod reopen_general_forum_topic;
