@@ -70,6 +70,7 @@ impl<'a> SaveFile<'a> {
         if size == 0 {
             return Err(Error::FileSize { size: 0, limit: MAX_PARTS * PART_SIZE });
         }
+        let _slot = self.client.upload_slot().await;
         let (parts, workers, connections) = self.client.upload_limits(size).await?;
         let home = self.client.dc(self.client.session().dc_id())?;
         let lease = self.client.transfer_sessions(home, connections).await?;
@@ -185,10 +186,12 @@ impl Parts<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::atomic::AtomicI32;
 
     use super::{BIG_FILE_SIZE, MAX_PARTS, MAX_PARTS_PREMIUM, PART_SIZE, Parts, Source, part_count};
     use crate::Client;
+    use crate::client::Transmissions;
     use crate::errors::{Error, RpcError};
     use crate::raw::functions::users::GetUsers;
     use crate::raw::{Identifiable, Serializable, base, types};
@@ -300,6 +303,33 @@ mod tests {
             assert!(matches!(e, Err(Error::FileSize { size: 0, .. })), "{e:?}");
         }
         assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn an_upload_waits_for_a_free_slot_but_an_empty_one_does_not() {
+        let (mut client, mut sent) = Client::recording();
+        Arc::get_mut(&mut client.0).unwrap().transmissions = Some(Transmissions::new(1));
+        {
+            let mut me = client.0.me.lock().unwrap();
+            (me.is_bot, me.premium) = (false, None);
+        }
+        let held = client.upload_slot().await;
+        let waiting = tokio::spawn({
+            let client = client.clone();
+            async move { client.save_file(Upload::bytes("a.txt", b"x")).await.map(drop) }
+        });
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!waiting.is_finished() && sent.try_recv().is_err(), "the upload ran without a slot");
+        let empty = client.save_file(Upload::bytes("a.txt", b"")).await;
+        assert!(matches!(empty, Err(Error::FileSize { size: 0, .. })), "{empty:?}");
+        drop(held);
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert!(sent.try_recv().is_ok(), "the upload didn't start once the slot was free");
+        waiting.abort();
     }
 
     #[test]

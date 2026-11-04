@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::Duration;
 
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::connection::{Options, Proxy, Transport};
 use crate::crypto::rsa::PublicKey;
@@ -49,6 +49,7 @@ pub struct ClientBuilder {
     listener_timeout: Option<Duration>,
     unallowed_click_alert: Option<Arc<str>>,
     max_listeners: Option<usize>,
+    max_concurrent_transmissions: Option<usize>,
 }
 
 #[derive(Default)]
@@ -181,6 +182,14 @@ impl ClientBuilder {
     /// when it gets its update, times out, is stopped or removed. At least 1; no cap by default.
     pub fn max_listeners(mut self, n: usize) -> Self {
         self.max_listeners = Some(n.max(1));
+        self
+    }
+
+    /// Caps how many downloads and, separately, how many uploads run at once; the rest wait their turn. A
+    /// download holds its slot until it ends, and a `.stream()` until it's dropped or finishes. At least 1; no cap
+    /// by default, so every transfer runs at once.
+    pub fn max_concurrent_transmissions(mut self, n: usize) -> Self {
+        self.max_concurrent_transmissions = Some(n.max(1));
         self
     }
 
@@ -346,6 +355,7 @@ impl ClientBuilder {
         if let Some(n) = self.max_listeners {
             inner.handlers.listeners.limit(n);
         }
+        inner.transmissions = self.max_concurrent_transmissions.map(Transmissions::new);
         let client = Client(Arc::new(inner), None);
         client.save()?;
         Ok((client, self.login))
@@ -392,9 +402,39 @@ pub(crate) struct Inner {
     // What listener builders start from.
     pub(crate) listener_timeout: Option<Duration>,
     pub(crate) unallowed_click_alert: Option<Arc<str>>,
+    // Slots for `max_concurrent_transmissions`, if set.
+    pub(crate) transmissions: Option<Transmissions>,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
+}
+
+pub(crate) struct Transmissions {
+    pub(crate) downloads: Arc<Semaphore>,
+    pub(crate) uploads: Arc<Semaphore>,
+}
+
+impl Transmissions {
+    pub(crate) fn new(n: usize) -> Transmissions {
+        Transmissions { downloads: Arc::new(Semaphore::new(n)), uploads: Arc::new(Semaphore::new(n)) }
+    }
+}
+
+impl Client {
+    /// Waits for a download slot, if downloads are capped.
+    pub(crate) async fn download_slot(&self) -> Option<OwnedSemaphorePermit> {
+        self.slot(|t| &t.downloads).await
+    }
+
+    pub(crate) async fn upload_slot(&self) -> Option<OwnedSemaphorePermit> {
+        self.slot(|t| &t.uploads).await
+    }
+
+    async fn slot(&self, pick: fn(&Transmissions) -> &Arc<Semaphore>) -> Option<OwnedSemaphorePermit> {
+        let slots = pick(self.0.transmissions.as_ref()?).clone();
+        // The semaphores are never closed, so this can't fail.
+        slots.acquire_owned().await.ok()
+    }
 }
 
 pub(crate) use me::Me;
@@ -442,6 +482,7 @@ impl Inner {
             client_platform: "unknown".into(),
             listener_timeout: Some(LISTENER_TIMEOUT),
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
+            transmissions: None,
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
         }
@@ -496,6 +537,7 @@ impl Client {
             listener_timeout: Some(LISTENER_TIMEOUT),
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             max_listeners: None,
+            max_concurrent_transmissions: None,
         }
     }
 
@@ -770,6 +812,12 @@ mod tests {
     #[test]
     fn a_zero_update_queue_is_stored_as_one() {
         assert_eq!(Client::builder("zero", 1, "hash").updates_capacity(0).options.updates_capacity, 1);
+    }
+
+    #[test]
+    fn zero_listeners_and_transmissions_are_stored_as_one() {
+        let builder = Client::builder("zero", 1, "hash").max_listeners(0).max_concurrent_transmissions(0);
+        assert_eq!((builder.max_listeners, builder.max_concurrent_transmissions), (Some(1), Some(1)));
     }
 
     #[test]

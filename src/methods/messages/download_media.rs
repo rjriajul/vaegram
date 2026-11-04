@@ -129,6 +129,8 @@ impl<'a> DownloadMedia<'a> {
         let Some(window) = Window::new(self.offset, self.limit, size.and_then(|s| u64::try_from(s).ok())) else {
             return Ok(());
         };
+        // Held until the download ends; a stream keeps it until it's dropped or finishes.
+        let _slot = client.download_slot().await;
         let progress = Progress::new(self.progress, window.len());
         let budget = if client.is_premium().await.unwrap_or(false) { IN_FLIGHT_PREMIUM } else { IN_FLIGHT };
         // Without a size the end is only known from a short chunk, so chunks go one at a time.
@@ -519,6 +521,7 @@ mod tests {
 
     use super::{CHUNK, DownloadMedia, DownloadSource, Master, MediaStream, Sink, Window, chunk, chunk_count, fits};
     use crate::Client;
+    use crate::client::Transmissions;
     use crate::crypto::{aes, sha256};
     use crate::dispatcher::Entities;
     use crate::errors::{Error, Result, RpcError};
@@ -1052,5 +1055,52 @@ mod tests {
         let hashes = |offset| functions::upload::GetCdnFileHashes { file_token: b"token".to_vec(), offset }.to_bytes();
         assert_eq!(drain(&mut rx), [get_file(b"old", at, true).to_bytes(), hashes(at), hashes(at + 100)]);
         assert_eq!(drain(&mut cdn_rx).len(), 1);
+    }
+
+    fn one_download_at_a_time(client: &mut Client) {
+        Arc::get_mut(&mut client.0).unwrap().transmissions = Some(Transmissions::new(1));
+    }
+
+    #[tokio::test]
+    async fn a_second_download_waits_for_the_first() {
+        let (mut client, mut rx) = Client::scripted(vec![file(b"hi".to_vec())]);
+        one_download_at_a_time(&mut client);
+        let location = located(&client, Some(2));
+        let held = client.download_slot().await;
+        let second = tokio::spawn({
+            let client = client.clone();
+            async move { client.download_media(location).await }
+        });
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!second.is_finished(), "the download ran without a slot");
+        assert!(drain(&mut rx).is_empty());
+        drop(held);
+        assert_eq!(second.await.unwrap().unwrap(), b"hi");
+    }
+
+    #[tokio::test]
+    async fn an_empty_window_takes_no_permit() {
+        let (mut client, mut rx) = Client::recording();
+        one_download_at_a_time(&mut client);
+        let _held = client.download_slot().await;
+        let empty = client.download_media(location(Some(5))).offset(5).await;
+        assert_eq!(empty.unwrap(), b"");
+        assert!(drain(&mut rx).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_dropped_stream_frees_its_permit() {
+        let (c, whole) = (CHUNK as usize, numbered(3));
+        let replies = (0..3).map(|i| file(whole[i * c..(i + 1) * c].to_vec())).collect();
+        let (mut client, _rx) = Client::scripted(replies);
+        one_download_at_a_time(&mut client);
+        let slots = client.0.transmissions.as_ref().unwrap().downloads.clone();
+        let mut stream = client.download_media(located(&client, Some(3 * c as i64))).stream();
+        assert!(stream.next().await.unwrap().is_ok());
+        assert_eq!(slots.available_permits(), 0, "the stream isn't done, so it keeps its slot");
+        drop(stream);
+        assert_eq!(slots.available_permits(), 1);
     }
 }
