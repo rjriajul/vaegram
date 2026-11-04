@@ -39,3 +39,35 @@ jobs:
       - name: Package
         if: matrix.toolchain == 'stable' && matrix.os == 'ubuntu-latest'
         run: cargo publish --dry-run -p vaegram
+
+  # The storage engines' write paths against real servers. Their tests are #[ignore]d everywhere else.
+  storage-services:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      VAEGRAM_MONGO_URL: mongodb://localhost:27017
+      VAEGRAM_REDIS_URL: redis://localhost:6379
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      # Matches nothing until an engine with a live conformance test exists, which passes too.
+      - name: Storage conformance on live servers
+        run: cargo test -p vaegram --features mongodb,redis --lib -- --ignored conformance_on_a_live_server
