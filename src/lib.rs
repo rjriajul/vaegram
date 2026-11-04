@@ -8,6 +8,8 @@ pub(crate) mod file_id;
 pub mod filters;
 pub mod handlers;
 pub mod methods;
+#[cfg(any(feature = "metrics", feature = "opentelemetry"))]
+pub mod observe;
 pub mod parser;
 pub mod raw;
 pub mod session;
