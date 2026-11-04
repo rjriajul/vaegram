@@ -76,3 +76,14 @@ async fn unread_mentions_and_reactions_from_the_bot() {
     assert!(mentions.iter().any(|text| text == "you"), "{mentions:?}");
     assert!(!shared_ids || reacted.contains(&mine.id), "{reacted:?}");
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session and a bot token"]
+async fn attached_recent_stickers_and_old_featured_load() {
+    let Some(kit) = support::Kit::from_env().await else { return };
+    let user = &kit.user.client;
+    user.get_recent_stickers().attached().await.unwrap();
+    let current = user.get_featured_sticker_sets().await.unwrap();
+    let older = user.get_featured_sticker_sets().offset(current.len() as i32).limit(5).await.unwrap();
+    assert!(older.len() <= 5, "{}", older.len());
+}
