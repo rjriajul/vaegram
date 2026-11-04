@@ -371,6 +371,15 @@ impl ClientBuilder {
         }
         inner.transmissions = self.max_concurrent_transmissions.map(Transmissions::new);
         let client = Client(Arc::new(inner), None);
+        let imported = self.session_string.as_deref().is_some_and(session_string::is_import);
+        if imported && user_id == 0 {
+            match client.get_me().await {
+                Ok(me) => client.set_me(&me),
+                // The key isn't signed in: `start` logs in as for a fresh session.
+                Err(Error::Rpc(e)) if e.code == 401 => {}
+                Err(e) => return Err(e),
+            }
+        }
         client.save()?;
         Ok((client, self.login))
     }
@@ -979,5 +988,41 @@ mod tests {
     async fn a_failing_store_fails_connect_instead_of_panicking() {
         let result = Client::builder("failing-store", 1, "hash").store(Recording::failing()).connect().await;
         assert!(matches!(result, Err(Error::Io(_))), "{result:?}");
+    }
+
+    // A string from another library: dc, IPv4 address, port and key, with no user id.
+    fn imported_string(dc: &TestDc) -> String {
+        let std::net::SocketAddr::V4(addr) = dc.dc(2).addr else { unreachable!("TestDc listens on IPv4") };
+        let b = [&[2][..], &addr.ip().octets(), &addr.port().to_be_bytes(), &[5; 256]].concat();
+        format!("1{}", crate::utils::base64url_encode(&b))
+    }
+
+    fn user_lookups(dc: &TestDc) -> usize {
+        dc.seen().iter().filter(|s| s.ids.last() == Some(&crate::session::test_dc::GET_USERS)).count()
+    }
+
+    #[tokio::test]
+    async fn an_imported_string_learns_who_it_is() {
+        let dc = TestDc::start([5; 256], false).await;
+        dc.sign_in(4242);
+        let store = Arc::new(Recording::default());
+        let builder = Client::builder("imported-user", 1, "hash").session_string(imported_string(&dc));
+        let client = builder.store(store.clone()).connect().await.unwrap();
+        assert_eq!(client.0.me.lock().unwrap().id, 4242);
+        let saved = String::from_utf8(store.value("session").unwrap()).unwrap();
+        assert_eq!(storage::session_string::parse(&saved).unwrap().user_id, 4242, "the store gets the account");
+        assert_eq!(user_lookups(&dc), 1);
+
+        // Our own strings say who they are, even before sign-in: no lookup.
+        drop(dc.client([5; 256]).await);
+        assert_eq!(user_lookups(&dc), 1);
+    }
+
+    #[tokio::test]
+    async fn a_revoked_import_stays_logged_out() {
+        let dc = TestDc::start([5; 256], false).await;
+        let builder = Client::builder("revoked-import", 1, "hash").session_string(imported_string(&dc));
+        let client = builder.connect().await.unwrap();
+        assert_eq!((client.0.me.lock().unwrap().id, user_lookups(&dc)), (0, 1));
     }
 }
