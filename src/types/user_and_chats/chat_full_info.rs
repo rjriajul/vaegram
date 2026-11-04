@@ -138,7 +138,7 @@ impl ChatFullInfo {
         // Downloading either photo goes through the user, so it needs the user's access hash.
         let photo = |photo: Option<base::Photo>, personal| match (access_hash, photo) {
             (Some(hash), Some(base::Photo::Photo(p))) => {
-                Some(ChatPhoto::new(id, hash, p.id, p.dc_id, p.video_sizes.is_some(), personal))
+                Some(ChatPhoto::new(id, hash, p.id, p.dc_id, p.video_sizes.is_some(), personal).with_full(&p))
             }
             _ => None,
         };
