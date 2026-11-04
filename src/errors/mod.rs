@@ -2,6 +2,7 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::raw;
+use crate::types::User;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -86,6 +87,11 @@ pub enum Error {
     PeerNotFound(i64),
     /// An invite link to a private chat this account hasn't joined; join it first.
     ChatNotJoined,
+    /// Joining needs the approval of the chat's guard bot: open its web app with `query_id`, then retry.
+    GuardBotApprovalRequired {
+        bot: Box<User>,
+        query_id: i64,
+    },
     Unexpected(&'static str),
     InvalidArgument(&'static str),
     InvalidSession(&'static str),
@@ -134,6 +140,9 @@ impl fmt::Display for Error {
             Error::InvalidDc(dc) => write!(f, "unknown data center {dc}"),
             Error::PeerNotFound(id) => write!(f, "chat {id} not found for this account"),
             Error::ChatNotJoined => f.write_str("this account hasn't joined the invite link's chat"),
+            Error::GuardBotApprovalRequired { .. } => {
+                f.write_str("joining this chat needs the approval of its guard bot's web app")
+            }
             Error::Unexpected(what) => write!(f, "unexpected answer from Telegram: {what}"),
             Error::InvalidArgument(what) => write!(f, "invalid argument: {what}"),
             Error::InvalidSession(why) => write!(f, "invalid session string: {why}"),
