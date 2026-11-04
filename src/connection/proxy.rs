@@ -5,6 +5,7 @@ use std::{fmt, io};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use super::fake_tls;
+use crate::enums::ProxyScheme;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::utils::{base64_decode, base64_encode};
@@ -45,6 +46,15 @@ impl Proxy {
                 Some(base::InputClientProxy::InputClientProxy(Box::new(proxy)))
             }
             Proxy::Socks5 { .. } | Proxy::Socks4 { .. } | Proxy::Http { .. } => None,
+        }
+    }
+
+    pub fn scheme(&self) -> ProxyScheme {
+        match self {
+            Proxy::Socks5 { .. } => ProxyScheme::Socks5,
+            Proxy::Socks4 { .. } => ProxyScheme::Socks4,
+            Proxy::Http { .. } => ProxyScheme::Http,
+            Proxy::MtProxy { .. } => ProxyScheme::MtProxy,
         }
     }
 
@@ -121,6 +131,136 @@ impl FromStr for Secret {
             }
             _ => Err(invalid("MTProxy secret must be 16 bytes, optionally prefixed with dd, or ee with a domain")),
         }
+    }
+}
+
+const LINK_HOSTS: [&str; 3] = ["t.me", "telegram.me", "telegram.dog"];
+
+fn percent_decode(s: &str) -> Result<String> {
+    let bad = Error::InvalidArgument("proxy address has a bad percent escape");
+    let mut out = Vec::with_capacity(s.len());
+    let mut bytes = s.bytes();
+    while let Some(b) = bytes.next() {
+        if b != b'%' {
+            out.push(b);
+            continue;
+        }
+        let hex = |b: Option<u8>| b.and_then(|b| (b as char).to_digit(16));
+        let (Some(hi), Some(lo)) = (hex(bytes.next()), hex(bytes.next())) else { return Err(bad) };
+        out.push((hi * 16 + lo) as u8);
+    }
+    String::from_utf8(out).map_err(|_| Error::InvalidArgument("proxy address isn't UTF-8 once decoded"))
+}
+
+/// `host:port` with an optional bracketed IPv6 host; the port is required.
+fn host_and_port(s: &str) -> Result<(String, u16)> {
+    let missing = Error::InvalidArgument("proxy address needs a host and a port");
+    let (host, port) = match s.strip_prefix('[') {
+        Some(rest) => {
+            let (host, port) = rest.split_once("]:").ok_or(missing)?;
+            (host, port)
+        }
+        None => s.split_once(':').ok_or(missing)?,
+    };
+    let port: u16 = port.parse().map_err(|_| Error::InvalidArgument("proxy port isn't a port number"))?;
+    if port == 0 {
+        return Err(Error::InvalidArgument("proxy port isn't a port number"));
+    }
+    if host.is_empty() || host.contains(['/', '@', '?', '#']) {
+        return Err(Error::InvalidArgument("proxy address needs a host and a port"));
+    }
+    Ok((host.into(), port))
+}
+
+fn query_values(query: &str) -> Result<std::collections::HashMap<String, String>> {
+    let mut values = std::collections::HashMap::new();
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        values.entry(percent_decode(key)?).or_insert(percent_decode(value)?);
+    }
+    Ok(values)
+}
+
+/// The proxy a `tg://proxy`, `tg://socks` or `t.me/proxy`, `t.me/socks` link names.
+fn from_link(kind: &str, query: &str) -> Result<Proxy> {
+    let mut values = query_values(query)?;
+    let server = values.remove("server").filter(|s| !s.is_empty());
+    let port = values.remove("port").and_then(|p| p.parse::<u16>().ok()).filter(|&p| p != 0);
+    let (Some(host), Some(port)) = (server, port) else {
+        return Err(Error::InvalidArgument("proxy link needs a server and a port"));
+    };
+    match kind {
+        "proxy" => {
+            let secret = values.remove("secret").ok_or(Error::InvalidArgument("MTProxy link needs a secret"))?;
+            Ok(Proxy::MtProxy { host, port, secret: secret.parse()? })
+        }
+        _ => {
+            let auth = match (values.remove("user"), values.remove("pass")) {
+                (Some(user), pass) => Some((user, pass.unwrap_or_default())),
+                (None, None) => None,
+                (None, Some(_)) => return Err(Error::InvalidArgument("proxy link has a password but no user")),
+            };
+            Ok(Proxy::Socks5 { host, port, auth })
+        }
+    }
+}
+
+/// A proxy from `socks5://[user:pass@]host:port`, `socks4://host:port`, `http://[user:pass@]host:port`, or a
+/// MTProxy / SOCKS5 link (`tg://proxy?server=..&port=..&secret=..`, `https://t.me/proxy?..`, `tg://socks?..`).
+/// Credentials are percent-decoded. Web proxy links are refused. An error never repeats what was parsed, since it may
+/// hold a password or secret.
+impl FromStr for Proxy {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let s = s.trim();
+        let (scheme, rest) = match s.split_once("://") {
+            Some((scheme, rest)) => (scheme.to_ascii_lowercase(), rest),
+            None => ("https".into(), s),
+        };
+        let (rest, _fragment) = rest.split_once('#').unwrap_or((rest, ""));
+        let (before_query, query) = rest.split_once('?').unwrap_or((rest, ""));
+        let (authority, path) = match before_query.split_once('/') {
+            Some((a, p)) => (a, p.trim_end_matches('/')),
+            None => (before_query, ""),
+        };
+        let link = |kind: &str| match kind {
+            "proxy" | "socks" => from_link(kind, query),
+            "webproxy" => Err(Error::InvalidArgument("web proxy links aren't supported")),
+            _ => Err(Error::InvalidArgument("not a proxy address or proxy link")),
+        };
+        if scheme == "tg" {
+            return link(authority);
+        }
+        let host_only = authority.rsplit('@').next().unwrap_or(authority).to_ascii_lowercase();
+        if LINK_HOSTS.contains(&host_only.as_str()) && matches!(scheme.as_str(), "https" | "http") {
+            return link(path);
+        }
+        let make = |auth: Option<(String, String)>, host: String, port: u16| -> Result<Proxy> {
+            match scheme.as_str() {
+                "socks5" | "socks5h" => Ok(Proxy::Socks5 { host, port, auth }),
+                "socks4" | "socks4a" if auth.is_none() => Ok(Proxy::Socks4 { host, port }),
+                "socks4" | "socks4a" => Err(Error::InvalidArgument("SOCKS4 takes no credentials")),
+                "http" => Ok(Proxy::Http { host, port, auth }),
+                _ => Err(Error::InvalidArgument("unknown proxy scheme")),
+            }
+        };
+        if !path.is_empty() || !query.is_empty() {
+            return Err(Error::InvalidArgument("a proxy address is only scheme, credentials, host and port"));
+        }
+        let (userinfo, hostport) = match authority.rsplit_once('@') {
+            Some((u, h)) => (Some(u), h),
+            None => (None, authority),
+        };
+        let auth = match userinfo {
+            None => None,
+            Some(u) => {
+                let (user, pass) = u.split_once(':').unwrap_or((u, ""));
+                Some((percent_decode(user)?, percent_decode(pass)?))
+            }
+        };
+        let (host, port) = host_and_port(hostport)?;
+        make(auth, host, port)
     }
 }
 
@@ -390,5 +530,109 @@ mod tests {
         };
         let (result, ()) = tokio::join!(socks5(&mut client, target, None), proxy);
         assert!(result.is_err());
+    }
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::{Error, Proxy, Secret};
+    use crate::enums::ProxyScheme;
+
+    const SECRET: &str = "ee000102030405060708090a0b0c0d0e0f676f6f676c652e636f6d";
+
+    fn parse(s: &str) -> Result<Proxy, Error> {
+        s.parse()
+    }
+
+    #[test]
+    fn parses_socks_http_and_mtproxy_urls() {
+        assert!(
+            matches!(parse("socks5://10.0.0.1:1080"), Ok(Proxy::Socks5 { host, port: 1080, auth: None }) if host == "10.0.0.1")
+        );
+        assert!(matches!(parse("socks4://h:9"), Ok(Proxy::Socks4 { host, port: 9 }) if host == "h"));
+        assert!(
+            matches!(parse("HTTP://u:p@h:8080"), Ok(Proxy::Http { port: 8080, auth: Some((u, p)), .. }) if (u.as_str(), p.as_str()) == ("u", "p"))
+        );
+        assert!(matches!(parse("socks5://[::1]:1080"), Ok(Proxy::Socks5 { host, .. }) if host == "::1"));
+        for bad in [
+            "socks5://h",
+            "socks5://h:99999",
+            "socks5://:1",
+            "ftp://h:1",
+            "socks4://u:p@h:1",
+            "h:1",
+            "socks5://h:1/x",
+            "socks5://h:0",
+            "socks5://::1:1080",
+            "socks5://a:b:1",
+        ] {
+            assert!(matches!(parse(bad), Err(Error::InvalidArgument(_))), "{bad}");
+        }
+    }
+
+    #[test]
+    fn parses_tg_and_tme_links() {
+        let expected: Secret = SECRET.parse().unwrap();
+        for link in [
+            format!("tg://proxy?server=h.example&port=443&secret={SECRET}"),
+            format!("https://t.me/proxy?server=h.example&port=443&secret={SECRET}"),
+            format!("t.me/proxy?server=h.example&port=443&secret={SECRET}"),
+            format!("http://telegram.dog/proxy/?port=443&secret={SECRET}&server=h.example"),
+        ] {
+            let Ok(Proxy::MtProxy { host, port: 443, secret }) = parse(&link) else { panic!("{link}") };
+            assert_eq!((host.as_str(), secret), ("h.example", expected.clone()));
+        }
+        let socks = parse("https://telegram.me/socks?server=h&port=1080&user=a&pass=b").unwrap();
+        assert!(
+            matches!(socks, Proxy::Socks5 { port: 1080, auth: Some((u, p)), .. } if (u.as_str(), p.as_str()) == ("a", "b"))
+        );
+        assert!(matches!(parse("tg://socks?server=h&port=1"), Ok(Proxy::Socks5 { auth: None, .. })));
+        assert!(matches!(parse("tg://proxy?server=h&port=1"), Err(Error::InvalidArgument(_))));
+        assert!(matches!(parse("tg://socks?server=h&port=0"), Err(Error::InvalidArgument(_))));
+        assert!(matches!(parse("socks5://[::1]:1080"), Ok(Proxy::Socks5 { port: 1080, .. })));
+        assert!(matches!(parse("tg://proxy?port=1&secret=00"), Err(Error::InvalidArgument(_))));
+    }
+
+    #[test]
+    fn percent_decodes_credentials() {
+        let proxy = parse("socks5://us%40er:p%3Aw%2Fd@h:1").unwrap();
+        assert!(
+            matches!(proxy, Proxy::Socks5 { auth: Some((u, p)), .. } if (u.as_str(), p.as_str()) == ("us@er", "p:w/d"))
+        );
+        let link = parse("tg://socks?server=h&port=1&user=a%20b&pass=%C3%A9").unwrap();
+        assert!(matches!(link, Proxy::Socks5 { auth: Some((u, p)), .. } if (u.as_str(), p.as_str()) == ("a b", "é")));
+        assert!(matches!(parse("socks5://a%zz:b@h:1"), Err(Error::InvalidArgument(_))));
+        assert!(matches!(parse("socks5://a%ff:b@h:1"), Err(Error::InvalidArgument(_))));
+    }
+
+    #[test]
+    fn web_proxy_links_are_refused() {
+        for link in ["tg://webproxy?url=https%3A%2F%2Fx.org", "https://t.me/webproxy?url=x"] {
+            assert!(matches!(parse(link), Err(Error::InvalidArgument(m)) if m.contains("web proxy")), "{link}");
+        }
+    }
+
+    #[test]
+    fn errors_never_echo_secrets() {
+        for bad in [
+            "tg://proxy?server=h&port=443&secret=hunter2hunter2",
+            "socks5://admin:hunter2@h",
+            "socks4://admin:hunter2@h:1",
+            "socks5://admin:hunter2@h:1/hunter2",
+            "tg://socks?server=h&port=1&pass=hunter2",
+        ] {
+            let error = parse(bad).unwrap_err();
+            let shown = format!("{error} {error:?}");
+            assert!(!shown.contains("hunter2") && !shown.contains("admin"), "{bad}: {shown}");
+        }
+    }
+
+    #[test]
+    fn scheme_names_each_proxy() {
+        let schemes =
+            ["socks4://h:1", "socks5://h:1", "http://h:1", &format!("tg://proxy?server=h&port=1&secret={SECRET}")]
+                .map(|s| parse(s).unwrap().scheme());
+        assert_eq!(schemes, [ProxyScheme::Socks4, ProxyScheme::Socks5, ProxyScheme::Http, ProxyScheme::MtProxy]);
+        assert_eq!(ProxyScheme::MtProxy.as_str(), "mtproxy");
     }
 }
