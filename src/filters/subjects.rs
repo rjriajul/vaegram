@@ -120,7 +120,11 @@ subject!(DeletedBusinessMessages: HasChat; |s, me| chat_query(Some(&s.chat), me)
 
 subject!(ShippingQuery: HasSender; |s, me| user_query(&s.from_user, me));
 
-subject!(PreCheckoutQuery: HasSender; |s, me| user_query(&s.from_user, me));
+// The payload is what a regex filter reads; `HasData` doesn't apply, so the exact-match data filters can't.
+subject!(PreCheckoutQuery: HasSender; |s, me| {
+    let kinds = PeerKinds::of(None, s.from_user.is_bot);
+    Facts::query(s.from_user.id, s.from_user.id, s.invoice_payload.as_bytes(), kinds, me)
+});
 
 subject!(PurchasedPaidMedia: HasSender; |s, me| user_query(&s.from_user, me));
 

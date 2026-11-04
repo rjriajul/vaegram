@@ -5,17 +5,26 @@ use crate::types::Command;
 
 pub(crate) enum Pred<T> {
     All,
-    Flags { set: u32, clear: u32 },
+    Flags {
+        set: u32,
+        clear: u32,
+    },
     Media(u32),
     Service(u128),
     ChatKinds(u8),
     Chats(Box<[i64]>),
     Users(Box<[i64]>),
-    Commands { prefixes: Box<str>, names: Box<[Box<str>]>, case_sensitive: bool },
+    Commands {
+        prefixes: Box<str>,
+        names: Box<[Box<str>]>,
+        case_sensitive: bool,
+    },
     TextPrefix(Box<str>),
     Data(Box<[u8]>),
     DataPrefix(Box<[u8]>),
     Thread(i32),
+    #[cfg(feature = "regex")]
+    Regex(::regex::Regex),
     Custom(Arc<dyn Fn(&T) -> bool + Send + Sync>),
     And(Box<[Pred<T>]>),
     Or(Box<[Pred<T>]>),
@@ -39,6 +48,8 @@ impl<T> Clone for Pred<T> {
             Pred::Data(d) => Pred::Data(d.clone()),
             Pred::DataPrefix(d) => Pred::DataPrefix(d.clone()),
             &Pred::Thread(t) => Pred::Thread(t),
+            #[cfg(feature = "regex")]
+            Pred::Regex(re) => Pred::Regex(re.clone()),
             Pred::Custom(f) => Pred::Custom(f.clone()),
             Pred::And(p) => Pred::And(p.clone()),
             Pred::Or(p) => Pred::Or(p.clone()),
@@ -65,6 +76,8 @@ impl<T> Pred<T> {
             Pred::Data(d) => f.data == &**d,
             Pred::DataPrefix(d) => f.data.starts_with(d),
             &Pred::Thread(t) => f.thread_id == t,
+            #[cfg(feature = "regex")]
+            Pred::Regex(re) => super::regex::seen(f).is_some_and(|text| re.is_match(text)),
             Pred::Custom(c) => item.is_some_and(|i| c(i)),
             Pred::And(p) => p.iter().all(|p| p.eval(f, item)),
             Pred::Or(p) => p.iter().any(|p| p.eval(f, item)),
