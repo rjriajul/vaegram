@@ -28,7 +28,7 @@ impl PrivacyRule {
     }
 
     // Telegram sends bare chat ids here, so only the listed chats tell a basic group from a channel.
-    fn parse(rule: base::PrivacyRule, entities: &Entities) -> PrivacyRule {
+    pub(crate) fn parse(rule: base::PrivacyRule, entities: &Entities) -> PrivacyRule {
         use base::PrivacyRule as R;
         let chat_ids = |ids: Vec<i64>| {
             let signed = |id: i64| {

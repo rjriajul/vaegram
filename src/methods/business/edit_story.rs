@@ -55,7 +55,7 @@ impl EditStory<'_> {
             peer,
             id: self.story_id,
             media: Some(self.content.upload(client).await?),
-            media_areas: Some(self.areas.iter().map(StoryArea::write).collect()),
+            media_areas: Some(StoryArea::write_all(&self.areas, client).await?),
             caption: Some(caption),
             entities: Some(entities),
             privacy_rules: Some(vec![base::InputPrivacyRule::InputPrivacyValueAllowAll]),

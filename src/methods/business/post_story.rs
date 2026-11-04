@@ -78,7 +78,7 @@ impl PostStory<'_> {
             fwd_modified: false,
             peer,
             media: self.content.upload(client).await?,
-            media_areas: Some(self.areas.iter().map(StoryArea::write).collect()),
+            media_areas: Some(StoryArea::write_all(&self.areas, client).await?),
             caption: Some(caption),
             entities: Some(entities),
             privacy_rules: vec![base::InputPrivacyRule::InputPrivacyValueAllowAll],

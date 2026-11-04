@@ -1,4 +1,4 @@
-use crate::raw::types;
+use crate::raw::{base, types};
 use crate::types::Location;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,18 +26,31 @@ impl Venue {
     }
 
     pub(crate) fn parse(venue: &types::MessageMediaVenue) -> Option<Venue> {
-        let some = |s: &String| (!s.is_empty()).then(|| s.clone());
+        let (title, address) = (venue.title.clone(), venue.address.clone());
+        Venue::from_provider(&venue.geo, title, address, &venue.provider, &venue.venue_id, &venue.venue_type)
+    }
+
+    /// Telegram keeps one place id: the provider says whether it is a Foursquare or a Google Places one.
+    pub(crate) fn from_provider(
+        geo: &base::GeoPoint,
+        title: String,
+        address: String,
+        provider: &str,
+        venue_id: &str,
+        venue_type: &str,
+    ) -> Option<Venue> {
+        let some = |s: &str| (!s.is_empty()).then(|| s.to_owned());
         let mut parsed = Venue {
-            location: Location::parse(&venue.geo)?,
-            title: venue.title.clone(),
-            address: venue.address.clone(),
+            location: Location::parse(geo)?,
+            title,
+            address,
             foursquare_id: None,
             foursquare_type: None,
             google_place_id: None,
             google_place_type: None,
         };
-        let ids = (some(&venue.venue_id), some(&venue.venue_type));
-        match venue.provider.as_str() {
+        let ids = (some(venue_id), some(venue_type));
+        match provider {
             "foursquare" => (parsed.foursquare_id, parsed.foursquare_type) = ids,
             "gplaces" => (parsed.google_place_id, parsed.google_place_type) = ids,
             _ => {}
