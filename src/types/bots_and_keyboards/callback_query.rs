@@ -6,7 +6,9 @@ use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::methods::{AnswerCallbackQuery, EditEphemeralMessage, EditInlineText, EditMessageText, into_future};
 use crate::raw::{base, types};
-use crate::types::{Chat, EphemeralMessage, InlineKeyboardMarkup, InlineMessageId, MessageText, ReplyMarkup, User};
+use crate::types::{
+    Chat, EphemeralMessage, InlineKeyboardMarkup, InlineMessageId, Message, MessageText, ReplyMarkup, User,
+};
 use crate::utils::get_peer;
 
 #[derive(Clone)]
@@ -18,6 +20,8 @@ pub struct CallbackQuery {
     /// Set when a `callback_game` button was pressed; answer with the game's URL to open it.
     pub game_short_name: Option<String>,
     pub chat_instance: i64,
+    // A business update carries the pressed message, since the bot can't read the account's history.
+    carried: Option<Box<Message>>,
     client: Client,
 }
 
@@ -46,6 +50,7 @@ impl CallbackQuery {
             data: raw.data.as_deref().map(String::from_utf8_lossy).unwrap_or_default().into_owned(),
             game_short_name: raw.game_short_name.clone(),
             chat_instance: raw.chat_instance,
+            carried: None,
             client: client.clone(),
         }
     }
@@ -62,6 +67,7 @@ impl CallbackQuery {
             data: raw.data.as_deref().map(String::from_utf8_lossy).unwrap_or_default().into_owned(),
             game_short_name: raw.game_short_name,
             chat_instance: raw.chat_instance,
+            carried: None,
             client: client.clone(),
         }
     }
@@ -82,6 +88,7 @@ impl CallbackQuery {
             origin: CallbackOrigin::Ephemeral(Box::new(message)),
             data: String::from_utf8_lossy(&raw.data).into_owned(),
             game_short_name: None,
+            carried: None,
             client: client.clone(),
         }
     }
@@ -92,11 +99,15 @@ impl CallbackQuery {
         entities: &Entities,
     ) -> CallbackQuery {
         // Business chats are private, so a deleted message's chat is the user who pressed the button.
-        let (peer, message_id) = match raw.message {
-            base::Message::Message(m) => (m.peer_id, m.id),
-            base::Message::MessageService(m) => (m.peer_id, m.id),
-            base::Message::MessageEmpty(m) => (m.peer_id.unwrap_or_else(|| get_peer(raw.user_id)), m.id),
+        let (peer, message_id) = match &raw.message {
+            base::Message::Message(m) => (m.peer_id.clone(), m.id),
+            base::Message::MessageService(m) => (m.peer_id.clone(), m.id),
+            base::Message::MessageEmpty(m) => (m.peer_id.clone().unwrap_or_else(|| get_peer(raw.user_id)), m.id),
         };
+        let mut carried = Message::from_raw(client, raw.message, entities);
+        if let Some(message) = carried.as_mut() {
+            message.set_business(client, raw.connection_id.clone(), raw.reply_to_message, entities);
+        }
         CallbackQuery {
             id: raw.query_id,
             from_user: User::parse(raw.user_id, entities),
@@ -108,12 +119,27 @@ impl CallbackQuery {
             data: raw.data.as_deref().map(String::from_utf8_lossy).unwrap_or_default().into_owned(),
             game_short_name: None,
             chat_instance: raw.chat_instance,
+            carried: carried.map(Box::new),
             client: client.clone(),
         }
     }
 
     pub fn client(&self) -> &Client {
         &self.client
+    }
+
+    /// The message the button was pressed on. A business press already carries it; a regular one fetches it, so
+    /// `None` means it was deleted since. Inline and ephemeral presses have no regular message: `Ok(None)`.
+    pub async fn message(&self) -> Result<Option<Message>> {
+        match &self.origin {
+            CallbackOrigin::Message { chat, message_id, business_connection_id } => {
+                if business_connection_id.is_some() {
+                    return Ok(self.carried.as_deref().cloned());
+                }
+                Ok(self.client.get_messages(chat.id, &[*message_id]).await?.into_iter().next().flatten())
+            }
+            CallbackOrigin::Inline(_) | CallbackOrigin::Ephemeral(_) => Ok(None),
+        }
     }
 
     pub fn chat(&self) -> Option<&Chat> {
@@ -270,7 +296,7 @@ mod tests {
     use crate::dispatcher::Entities;
     use crate::errors::Error;
     use crate::raw::functions::messages;
-    use crate::raw::{Identifiable, base, types};
+    use crate::raw::{Identifiable, Serializable, base, types};
     use crate::types::Message;
     use crate::types::messages_and_media::ephemeral_message::tests::{channel, ephemeral};
     use crate::utils::{get_channel_id, get_peer};
@@ -380,5 +406,44 @@ mod tests {
         let _ = q.edit_message_reply_markup(None).await;
         let sent = u32::from_le_bytes(rx.try_recv().expect("no request sent")[..4].try_into().unwrap());
         assert_eq!(sent, messages::EditInlineBotMessage::CONSTRUCTOR_ID);
+    }
+
+    #[tokio::test]
+    async fn business_press_returns_the_carried_message() {
+        let (client, mut rx) = Client::recording();
+        let update = types::UpdateBusinessBotCallbackQuery {
+            query_id: 1,
+            user_id: 7,
+            connection_id: "conn".into(),
+            message: base::Message::Message(Box::new(Message::bare(5, get_peer(7), 0))),
+            reply_to_message: Some(base::Message::Message(Box::new(Message::bare(4, get_peer(7), 0)))),
+            chat_instance: 3,
+            data: None,
+        };
+        let q = CallbackQuery::parse_business(&client, update, &Entities::default());
+        let message = q.message().await.unwrap().expect("the update carries the message");
+        assert_eq!((message.id, message.business_connection_id.as_deref()), (5, Some("conn")));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn message_press_fetches_the_message() {
+        let found = types::messages::Messages {
+            messages: vec![base::Message::Message(Box::new(Message::bare(5, get_peer(7), 0)))],
+            topics: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        let reply = base::messages::Messages::Messages(Box::new(found)).to_bytes();
+        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let q = crate::dispatcher::listeners::tests::query(&client, 7, 7, 5);
+        let message = q.message().await.unwrap().expect("the message exists");
+        assert_eq!((message.id, message.chat.id), (5, 7));
+        let id = base::InputMessage::InputMessageID(types::InputMessageID { id: 5 });
+        assert_eq!(rx.try_recv().unwrap(), messages::GetMessages { id: vec![id] }.to_bytes());
+
+        let inline = crate::dispatcher::listeners::tests::inline_query(&client, 7, 1);
+        assert!(inline.message().await.unwrap().is_none());
+        assert!(rx.try_recv().is_err());
     }
 }
