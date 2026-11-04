@@ -24,14 +24,46 @@ sha2 = "0.10"
 tokio = { version = "1", features = ["fs", "net", "io-util", "rt", "sync", "time", "macros"] }
 warpcrypto = "2.1.0"
 
+# Optional, each behind the feature of the same purpose below.
+metrics = { version = "0.24", optional = true }
+mongodb = { version = "3.6", optional = true }
+object_store = { version = "0.14", optional = true, default-features = false, features = ["aws"] }
+opentelemetry = { version = "0.33", optional = true, default-features = false, features = ["trace"] }
+redb = { version = "2.6", optional = true }
+redis = { version = "1.2", optional = true, default-features = false, features = ["tokio-comp", "connection-manager"] }
+regex = { version = "1.12", optional = true }
+reqwest = { version = "0.13", optional = true, default-features = false, features = ["rustls-no-provider"] }
+rusqlite = { version = "0.40", optional = true, default-features = false, features = ["bundled"] }
+rustls = { version = "0.23.46", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
+serde_json = { version = "1", optional = true }
+tokio-rustls = { version = "0.26.6", optional = true, default-features = false, features = ["ring", "tls12"] }
+webpki-roots = { version = "1", optional = true }
+
 [features]
 # `ToJson` for every TL type and function; off by default to keep the generated code small.
 json = []
 # TL objects behind `RawUpdate` (`raw()`, `raw_users()`, `raw_chats()`) and `Incoming::into_updates()`.
 # Experimental: may change or go away in any release.
 unstable-raw = []
+# Storage engines.
+sqlite = ["dep:rusqlite"]
+redb = ["dep:redb"]
+redis = ["dep:redis"]
+mongodb = ["dep:mongodb"]
+s3 = ["dep:object_store"]
+vault = ["dep:reqwest", "dep:serde_json", "dep:rustls", "dep:webpki-roots"]
+# Observability.
+metrics = ["dep:metrics"]
+opentelemetry = ["dep:opentelemetry"]
+# `filters::regex`.
+regex = ["dep:regex"]
+# Transports over TLS.
+websocket = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
+dns-config = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 
 [dev-dependencies]
+metrics-util = "0.20"
+opentelemetry_sdk = { version = "0.33", features = ["testing"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
 
 [[bench]]
