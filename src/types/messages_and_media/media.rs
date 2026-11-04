@@ -382,7 +382,24 @@ pub(crate) mod tests {
         };
         let empty_photo = base::Photo::PhotoEmpty(types::PhotoEmpty { id: 1 });
         let empty_document = base::Document::DocumentEmpty(types::DocumentEmpty { id: 1 });
-        inputs.extend([photo(None), photo(Some(empty_photo)), document(None), document(Some(empty_document))]);
+        let cached = types::PhotoCachedSize { r#type: "i".into(), w: 8, h: 8, bytes: vec![1] };
+        let cached_only = base::Photo::Photo(Box::new(types::Photo {
+            has_stickers: false,
+            id: 9,
+            access_hash: 2,
+            file_reference: Vec::new(),
+            date: 3,
+            sizes: vec![base::PhotoSize::PhotoCachedSize(Box::new(cached))],
+            video_sizes: None,
+            dc_id: 2,
+        }));
+        inputs.extend([
+            photo(Some(cached_only)),
+            photo(None),
+            photo(Some(empty_photo)),
+            document(None),
+            document(Some(empty_document)),
+        ]);
         for media in inputs {
             let parsed = Media::parse(&Client::offline(), &media, &Entities::default());
             assert_eq!(parsed.map(|m| m.kind()), MediaKind::of(&media));

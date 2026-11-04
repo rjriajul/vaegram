@@ -1,5 +1,5 @@
 use crate::raw::base;
-use crate::types::LivePhoto;
+use crate::types::{LivePhoto, Photo};
 
 /// What a message's media is. An animation is not also a document, and a voice note is not also audio.
 #[non_exhaustive]
@@ -41,10 +41,8 @@ impl MediaKind {
             M::MessageMediaEmpty => return None,
             M::MessageMediaPhoto(p) if LivePhoto::is_live(p) => MediaKind::LivePhoto,
             // Expired media has no file left: it is no media at all, as `Media::parse` sees it.
-            M::MessageMediaPhoto(p) => match p.photo {
-                Some(base::Photo::Photo(_)) => MediaKind::Photo,
-                _ => return None,
-            },
+            M::MessageMediaPhoto(p) if p.photo.as_ref().is_some_and(Photo::is_downloadable) => MediaKind::Photo,
+            M::MessageMediaPhoto(_) => return None,
             M::MessageMediaDocument(d) if !matches!(d.document, Some(base::Document::Document(_))) => return None,
             M::MessageMediaDocument(d) if d.round => MediaKind::VideoNote,
             M::MessageMediaDocument(d) if d.voice => MediaKind::Voice,
