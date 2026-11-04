@@ -11,7 +11,7 @@ pub(crate) enum Pred<T> {
     ChatKinds(u8),
     Chats(Box<[i64]>),
     Users(Box<[i64]>),
-    Commands { prefixes: Box<str>, names: Box<[Box<str>]> },
+    Commands { prefixes: Box<str>, names: Box<[Box<str>]>, case_sensitive: bool },
     TextPrefix(Box<str>),
     Data(Box<[u8]>),
     DataPrefix(Box<[u8]>),
@@ -32,7 +32,9 @@ impl<T> Clone for Pred<T> {
             &Pred::ChatKinds(c) => Pred::ChatKinds(c),
             Pred::Chats(ids) => Pred::Chats(ids.clone()),
             Pred::Users(ids) => Pred::Users(ids.clone()),
-            Pred::Commands { prefixes, names } => Pred::Commands { prefixes: prefixes.clone(), names: names.clone() },
+            Pred::Commands { prefixes, names, case_sensitive } => {
+                Pred::Commands { prefixes: prefixes.clone(), names: names.clone(), case_sensitive: *case_sensitive }
+            }
             Pred::TextPrefix(p) => Pred::TextPrefix(p.clone()),
             Pred::Data(d) => Pred::Data(d.clone()),
             Pred::DataPrefix(d) => Pred::DataPrefix(d.clone()),
@@ -55,8 +57,10 @@ impl<T> Pred<T> {
             &Pred::ChatKinds(mask) => f.chat.is_some_and(|c| mask & (1 << c as u8) != 0),
             Pred::Chats(ids) => ids.binary_search(&f.chat_id).is_ok(),
             Pred::Users(ids) => ids.binary_search(&f.sender_id).is_ok(),
-            Pred::Commands { prefixes, names } => Command::parse(f.text, prefixes)
-                .is_some_and(|c| c.is_for(f.me) && names.iter().any(|n| n.eq_ignore_ascii_case(c.name))),
+            Pred::Commands { prefixes, names, case_sensitive } => Command::parse(f.text, prefixes).is_some_and(|c| {
+                c.is_for(f.me)
+                    && names.iter().any(|n| if *case_sensitive { **n == *c.name } else { same_text(n, c.name) })
+            }),
             Pred::TextPrefix(p) => f.text.starts_with(&**p),
             Pred::Data(d) => f.data == &**d,
             Pred::DataPrefix(d) => f.data.starts_with(d),
@@ -134,4 +138,9 @@ impl<T> Pred<T> {
             p => vec![p],
         }
     }
+}
+
+/// Whether the two are equal once lowercased, in any script. Works char by char, so it allocates nothing.
+fn same_text(a: &str, b: &str) -> bool {
+    a.chars().flat_map(char::to_lowercase).eq(b.chars().flat_map(char::to_lowercase))
 }

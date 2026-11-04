@@ -97,7 +97,8 @@ impl From<Vec<i64>> for Ids {
     }
 }
 
-/// Command names for `command`: `"start"` or `["ban", "kick"]`. Matched without case.
+/// Command names for `command`: `"start"` or `["ban", "kick"]`. `command` and `command_with` match them without
+/// case, in any script; `command_case_sensitive` needs the exact case.
 pub trait CommandNames {
     fn names(self) -> Box<[Box<str>]>;
 }
@@ -165,8 +166,17 @@ pub fn command<T: HasText>(names: impl CommandNames) -> Filter<T> {
 }
 
 pub fn command_with<T: HasText>(prefixes: &str, names: impl CommandNames) -> Filter<T> {
+    command_filter(prefixes, names, false)
+}
+
+/// Like `command_with`, but the name must have the case it was given: `/Start` isn't `/start`.
+pub fn command_case_sensitive<T: HasText>(prefixes: &str, names: impl CommandNames) -> Filter<T> {
+    command_filter(prefixes, names, true)
+}
+
+fn command_filter<T: HasText>(prefixes: &str, names: impl CommandNames, case_sensitive: bool) -> Filter<T> {
     assert!(!prefixes.is_empty(), "command prefixes can't be empty; use \"/\" for bot commands");
-    Filter(Pred::Commands { prefixes: prefixes.into(), names: names.names() })
+    Filter(Pred::Commands { prefixes: prefixes.into(), names: names.names(), case_sensitive })
 }
 
 pub fn text_starts_with<T: HasText>(prefix: &str) -> Filter<T> {
@@ -533,6 +543,26 @@ mod tests {
         assert!(!hit(&announcement, results));
         assert!(hit(&winners, results) && hit(&any, results));
         assert!(!hit(&winners, Facts { media: Some(MediaKind::Giveaway), ..f }));
+    }
+
+    #[test]
+    fn case_sensitive_commands_need_the_exact_case() {
+        let says = |text| Facts { text, ..Facts::default() };
+        let exact: Filter = command_case_sensitive("/", ["Start", "stop"]);
+        assert!(hit(&exact, says("/Start now")) && hit(&exact, says("/stop")));
+        assert!(!hit(&exact, says("/start")) && !hit(&exact, says("/STOP")));
+        let loose: Filter = command_with("/", "Start");
+        assert!(hit(&loose, says("/start")) && hit(&loose, says("/START")));
+    }
+
+    #[test]
+    fn cyrillic_commands_match_without_case() {
+        let says = |text| Facts { text, ..Facts::default() };
+        let f: Filter = command_with("/", ["Привет", "ǅ"]);
+        assert!(hit(&f, says("/привет")) && hit(&f, says("/ПРИВЕТ мир")) && hit(&f, says("/ǆ")));
+        assert!(!hit(&f, says("/приветик")));
+        let exact: Filter = command_case_sensitive("/", "Привет");
+        assert!(hit(&exact, says("/Привет")) && !hit(&exact, says("/привет")));
     }
 
     #[test]
