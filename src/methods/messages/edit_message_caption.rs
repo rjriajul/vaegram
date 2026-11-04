@@ -10,6 +10,6 @@ impl Client {
         message_id: i32,
         caption: impl Into<Text>,
     ) -> EditMessageText<'_> {
-        self.edit_message_text(chat_id, message_id, MessageText::Text(caption.into()))
+        self.edit_message_text(chat_id, message_id, MessageText::Text(caption.into())).without_client_default()
     }
 }

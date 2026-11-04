@@ -3,7 +3,7 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::{base, functions};
-use crate::types::{Message, MessageText, PeerRef, ReplyMarkup};
+use crate::types::{LinkPreviewOptions, Message, MessageText, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct EditMessageText<'a> {
@@ -17,6 +17,8 @@ pub struct EditMessageText<'a> {
     business_connection_id: Option<String>,
     schedule_date: Option<i32>,
     no_webpage: bool,
+    link_preview_options: Option<LinkPreviewOptions>,
+    apply_client_default: bool,
 }
 
 impl Client {
@@ -37,6 +39,8 @@ impl Client {
             business_connection_id: None,
             schedule_date: None,
             no_webpage: false,
+            link_preview_options: None,
+            apply_client_default: true,
         }
     }
 }
@@ -69,13 +73,34 @@ impl EditMessageText<'_> {
         self
     }
 
+    /// Which link to preview, how, and whether to show it above the text. Replaces the client default.
+    pub fn link_preview_options(mut self, options: LinkPreviewOptions) -> Self {
+        self.link_preview_options = Some(options);
+        self
+    }
+
+    /// For caption edits: the client's link preview default is meant for text, not for moving captions.
+    pub(super) fn without_client_default(mut self) -> Self {
+        self.apply_client_default = false;
+        self
+    }
+
     async fn send(self) -> Result<Message> {
         let client = self.client;
+        let preview = if self.apply_client_default {
+            client.link_preview(self.link_preview_options.as_ref())
+        } else {
+            self.link_preview_options.clone()
+        }
+        .map(|o| o.resolve())
+        .unwrap_or_default();
+        let no_webpage = self.no_webpage || preview.no_webpage;
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let (message, entities, rich_message) = self.text.write(client, self.parse_mode).await?;
         let request = functions::messages::EditMessage {
-            no_webpage: self.no_webpage,
-            invert_media: self.show_caption_above_media,
+            no_webpage,
+            invert_media: self.show_caption_above_media || preview.invert_media,
+            media: if no_webpage { None } else { preview.media },
             message,
             reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
             entities,
@@ -118,7 +143,34 @@ impl crate::methods::OnBehalf for EditMessageText<'_> {
 mod tests {
     use crate::Client;
     use crate::raw::{Serializable, base, types};
-    use crate::types::InputRichMessage;
+    use crate::types::{InputRichMessage, LinkPreviewOptions};
+
+    #[tokio::test]
+    async fn a_client_default_leaves_caption_edits_alone() {
+        let default = LinkPreviewOptions { show_above_text: true, ..Default::default() };
+        let (mut client, mut rx) = Client::recording();
+        std::sync::Arc::get_mut(&mut client.0).unwrap().link_preview_options = Some(default);
+        let _ = client.edit_message_caption("me", 5, "cap").await;
+        let _ = client.edit_message_text("me", 5, "text").await;
+        let flags = |body: Vec<u8>| u32::from_le_bytes(body[4..8].try_into().unwrap()) >> 16 & 1;
+        assert_eq!((flags(rx.try_recv().unwrap()), flags(rx.try_recv().unwrap())), (0, 1));
+    }
+
+    #[tokio::test]
+    async fn edit_text_with_url_sets_media() {
+        let (client, mut rx) = Client::recording();
+        let options =
+            LinkPreviewOptions { url: Some("https://a.b".into()), show_above_text: true, ..Default::default() };
+        let _ = client.edit_message_text("me", 5, "hi").link_preview_options(options).await;
+        let body = rx.try_recv().unwrap();
+        let flags = u32::from_le_bytes(body[4..8].try_into().unwrap());
+        // media is flag bit 14, invert_media bit 16, no_webpage bit 1.
+        assert_eq!((flags >> 14 & 1, flags >> 16 & 1, flags >> 1 & 1), (1, 1, 0));
+        let disabled = LinkPreviewOptions { url: Some("https://a.b".into()), is_disabled: true, ..Default::default() };
+        let _ = client.edit_message_text("me", 5, "hi").link_preview_options(disabled).await;
+        let flags = u32::from_le_bytes(rx.try_recv().unwrap()[4..8].try_into().unwrap());
+        assert_eq!((flags >> 14 & 1, flags >> 1 & 1), (0, 1));
+    }
 
     #[tokio::test]
     async fn rich_message_replaces_text() {
