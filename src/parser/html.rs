@@ -40,51 +40,106 @@ impl Tag {
     }
 }
 
-pub(super) fn parse(src: &str) -> Text {
-    let mut out = Text::default();
-    let mut open: Vec<(String, i32, Option<Kind>)> = Vec::new();
+/// What an open span was opened by: an HTML tag, or a Markdown delimiter in the mode that reads both.
+#[derive(PartialEq)]
+pub(super) enum Name {
+    Tag(String),
+    Delimiter(&'static str),
+}
+
+struct Open {
+    name: Name,
+    start: i32,
+    kind: Option<Kind>,
+}
+
+/// The spans being read and not yet closed, oldest first. Closing one closes and reopens every span opened after
+/// it, so the entities come out nested whatever order the markup was closed in.
+#[derive(Default)]
+pub(super) struct Stack {
+    open: Vec<Open>,
     // Tags opened past MAX_NESTING, by name. They are always the innermost ones (every tag opened while some are
     // left goes here too), so a closing tag pairs with them first and never ends an outer tag early.
-    let (mut deeper, mut deeper_left) = (HashMap::<String, usize>::new(), 0);
+    deeper: HashMap<String, usize>,
+    deeper_left: usize,
+}
+
+impl Stack {
+    pub(super) fn has(&self, name: &Name) -> bool {
+        self.open.iter().any(|o| o.name == *name)
+    }
+
+    /// Inside an HTML `code` or `pre`, where Markdown is plain text.
+    pub(super) fn in_code(&self) -> bool {
+        self.open.iter().any(|o| matches!(o.kind, Some(Kind::Code | Kind::Pre(_))))
+    }
+
+    pub(super) fn delimiter(&mut self, delimiter: &'static str, kind: Kind, out: &Text) {
+        self.open.push(Open { name: Name::Delimiter(delimiter), start: out.len, kind: Some(kind) });
+    }
+
+    /// Ends the innermost open `name`, if there is one.
+    pub(super) fn close(&mut self, name: &Name, out: &mut Text) -> bool {
+        let Some(i) = self.open.iter().rposition(|o| o.name == *name) else { return false };
+        let Open { start, kind, .. } = self.open.remove(i);
+        for inner in &mut self.open[i..] {
+            if let Some(kind) = &inner.kind {
+                out.span(kind.clone(), inner.start);
+            }
+            inner.start = out.len;
+        }
+        if let Some(kind) = kind {
+            out.span(kind, start);
+        }
+        true
+    }
+
+    fn tag(&mut self, tag: Tag, out: &mut Text) {
+        // Unknown tags format nothing; kept off the stack, unclosed ones can't use up MAX_NESTING.
+        if !is_known(&tag.name) {
+            return;
+        }
+        if tag.closing {
+            if let Some(n) = self.deeper.get_mut(&tag.name).filter(|n| **n > 0) {
+                (*n, self.deeper_left) = (*n - 1, self.deeper_left - 1);
+            } else {
+                self.close(&Name::Tag(tag.name), out);
+            }
+        } else if self.deeper_left == 0 && self.open.len() < MAX_NESTING {
+            let kind = kind_of(&tag, &mut self.open);
+            self.open.push(Open { name: Name::Tag(tag.name), start: out.len, kind });
+        } else {
+            *self.deeper.entry(tag.name).or_default() += 1;
+            self.deeper_left += 1;
+        }
+    }
+}
+
+/// Reads the tag or entity `rest` starts with, if it has one, and returns how many bytes it took.
+pub(super) fn read_markup(rest: &str, stack: &mut Stack, out: &mut Text) -> Option<usize> {
+    match rest.as_bytes().first()? {
+        b'<' => {
+            let (tag, len) = read_tag(rest)?;
+            stack.tag(tag, out);
+            Some(len)
+        }
+        b'&' => {
+            let (c, len) = read_entity(rest)?;
+            out.push(c);
+            Some(len)
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn parse(src: &str) -> Text {
+    let mut out = Text::default();
+    let mut stack = Stack::default();
     let mut rest = src;
     while let Some(c) = rest.chars().next() {
-        if c == '<' {
-            if let Some((tag, len)) = read_tag(rest) {
-                rest = &rest[len..];
-                // Unknown tags format nothing; kept off the stack, unclosed ones can't use up MAX_NESTING.
-                if !is_known(&tag.name) {
-                    continue;
-                }
-                if tag.closing {
-                    if let Some(n) = deeper.get_mut(&tag.name).filter(|n| **n > 0) {
-                        (*n, deeper_left) = (*n - 1, deeper_left - 1);
-                    } else if let Some(i) = open.iter().rposition(|(name, ..)| *name == tag.name) {
-                        let (_, start, kind) = open.remove(i);
-                        for (_, s, inner) in &mut open[i..] {
-                            if let Some(inner) = inner {
-                                out.span(inner.clone(), *s);
-                            }
-                            *s = out.len;
-                        }
-                        if let Some(kind) = kind {
-                            out.span(kind, start);
-                        }
-                    }
-                } else if deeper_left == 0 && open.len() < MAX_NESTING {
-                    let kind = kind_of(&tag, &mut open);
-                    open.push((tag.name, out.len, kind));
-                } else {
-                    *deeper.entry(tag.name).or_default() += 1;
-                    deeper_left += 1;
-                }
-                continue;
-            }
-        } else if c == '&' {
-            if let Some((c, len)) = read_entity(rest) {
-                out.push(c);
-                rest = &rest[len..];
-                continue;
-            }
+        if let Some(len) = read_markup(rest, &mut stack, &mut out) {
+            rest = &rest[len..];
+            continue;
         }
         out.push(c);
         rest = &rest[c.len_utf8()..];
@@ -92,17 +147,17 @@ pub(super) fn parse(src: &str) -> Text {
     out
 }
 
-fn kind_of(tag: &Tag, open: &mut [(String, i32, Option<Kind>)]) -> Option<Kind> {
+fn kind_of(tag: &Tag, open: &mut [Open]) -> Option<Kind> {
     Some(match tag.name.as_str() {
         "b" | "strong" => Kind::Bold,
         "i" | "em" => Kind::Italic,
         "u" | "ins" => Kind::Underline,
         "s" | "strike" | "del" => Kind::Strike,
-        // `spoiler` and `emoji id=` are Pyrogram's spellings of the Bot API's tags.
+        // `spoiler` and `emoji id=` are alternative spellings of the Bot API's tags.
         "tg-spoiler" | "spoiler" => Kind::Spoiler,
         "span" if tag.attr("class") == Some("tg-spoiler") => Kind::Spoiler,
         "code" => {
-            if let Some((_, _, Some(Kind::Pre(language)))) = open.last_mut() {
+            if let Some(Open { kind: Some(Kind::Pre(language)), .. }) = open.last_mut() {
                 if let Some(lang) = tag.attr("class").and_then(|c| c.strip_prefix("language-")) {
                     *language = lang.to_owned();
                 }
