@@ -794,8 +794,7 @@ mod tests {
         let client = Client::with_session(session);
         let location =
             FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
-        let download = to_file(&client, Ok(location)).file_name(&path);
-        tokio::pin!(download);
+        let mut download = Box::pin(to_file(&client, Ok(location)).file_name(&path));
         // The request is out and unanswered: the download is mid-flight, with its temporary file on disk.
         tokio::select! {
             _ = &mut download => panic!("nothing answered"),
