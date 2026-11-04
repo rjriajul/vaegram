@@ -37,7 +37,7 @@ impl EditInlineReplyMarkup<'_> {
             id: self.inline_message_id.0,
             message: None,
             media: None,
-            reply_markup: self.reply_markup.as_ref().map(InlineKeyboardMarkup::write),
+            reply_markup: InlineKeyboardMarkup::write_option(self.reply_markup.as_ref(), self.client).await?,
             entities: None,
             rich_message: None,
         };

@@ -102,7 +102,7 @@ impl EditMessageText<'_> {
             invert_media: self.show_caption_above_media || preview.invert_media,
             media: if no_webpage { None } else { preview.media },
             message,
-            reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
+            reply_markup: ReplyMarkup::write_option(self.reply_markup.as_ref(), self.client).await?,
             entities,
             schedule_date: self.schedule_date,
             rich_message,

@@ -65,7 +65,7 @@ impl<'a> EditEphemeralMessage<'a> {
         self
     }
 
-    fn request(
+    async fn request(
         self,
         peer: base::InputPeer,
         receiver_id: base::InputUser,
@@ -73,8 +73,8 @@ impl<'a> EditEphemeralMessage<'a> {
         entities: Option<Vec<base::MessageEntity>>,
         rich_message: Option<base::InputRichMessage>,
         media: Option<base::InputMedia>,
-    ) -> functions::ephemeral::EditMessage {
-        functions::ephemeral::EditMessage {
+    ) -> Result<functions::ephemeral::EditMessage> {
+        Ok(functions::ephemeral::EditMessage {
             invert_media: self.invert_media,
             welcome: false,
             peer: Some(peer),
@@ -83,9 +83,9 @@ impl<'a> EditEphemeralMessage<'a> {
             message,
             media,
             entities,
-            reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
+            reply_markup: ReplyMarkup::write_option(self.reply_markup.as_ref(), self.client).await?,
             rich_message,
-        }
+        })
     }
 
     async fn send(mut self) -> Result<EphemeralMessage> {
@@ -108,7 +108,7 @@ impl<'a> EditEphemeralMessage<'a> {
             Some(media) => Some(client.input_media(&peer, &media, None, None).await?),
             None => None,
         };
-        let request = self.request(peer, receiver_id, message, entities, rich_message, media);
+        let request = self.request(peer, receiver_id, message, entities, rich_message, media).await?;
         let updates = client.invoke(&request).await?;
         EphemeralMessage::from_updates(client, updates)
     }
@@ -126,17 +126,17 @@ mod tests {
     use crate::types::messages_and_media::Source;
     use crate::types::{FileSource, InputMedia, InputRichMessage};
 
-    fn request(edit: EditEphemeralMessage<'_>) -> functions::ephemeral::EditMessage {
+    async fn request(edit: EditEphemeralMessage<'_>) -> functions::ephemeral::EditMessage {
         let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 1 });
-        edit.request(peer, base::InputUser::InputUserSelf, None, None, None, None)
+        edit.request(peer, base::InputUser::InputUserSelf, None, None, None, None).await.unwrap()
     }
 
-    #[test]
-    fn edits_markup_without_touching_text() {
+    #[tokio::test]
+    async fn edits_markup_without_touching_text() {
         let client = Client::offline();
         let edit = client.edit_ephemeral_message_reply_markup(-1, 1000, 3);
         assert!(edit.text.is_none());
-        let request = request(edit);
+        let request = request(edit).await;
         assert_eq!((request.message, request.reply_markup, request.invert_media), (None, None, false));
     }
 

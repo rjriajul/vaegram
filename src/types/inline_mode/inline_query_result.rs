@@ -224,7 +224,7 @@ impl Stored {
 impl InlineQueryResult {
     pub(crate) async fn write(self, client: &Client) -> Result<base::InputBotInlineResult> {
         let (kind, p) = self.parts();
-        let reply_markup = p.reply_markup.as_ref().map(ReplyMarkup::write);
+        let reply_markup = ReplyMarkup::write_option(p.reply_markup.as_ref(), client).await?;
         let send_message = match p.content {
             Some(content) => content.write(client, reply_markup).await?,
             None if matches!(p.stored, Some(Stored::Game(_))) => {

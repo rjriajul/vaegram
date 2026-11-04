@@ -53,7 +53,7 @@ impl EditMessageMedia<'_> {
             invert_media: self.media.show_caption_above_media,
             message: Some(message),
             media: Some(media),
-            reply_markup: self.reply_markup.as_ref().map(ReplyMarkup::write),
+            reply_markup: ReplyMarkup::write_option(self.reply_markup.as_ref(), self.client).await?,
             entities: (!entities.is_empty()).then_some(entities),
             ..edit_request(peer, self.message_id)
         };

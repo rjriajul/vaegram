@@ -1,3 +1,4 @@
+use crate::errors::Result;
 use crate::methods::geo_point;
 use crate::raw::{base, types};
 use crate::types::messages_and_media::{input_document, input_photo};
@@ -436,9 +437,11 @@ impl RichTableCell {
 }
 
 impl RichButton {
-    pub fn new(button: &InlineKeyboardButton) -> Self {
-        let base::KeyboardInlineButton::KeyboardInlineButton(b) = button.write();
-        RichButton { text: b.text, kind: b.r#type, style: RichButtonStyle::Default }
+    /// Refuses a button that names a user (a profile button, or a login button naming a bot), which can't be
+    /// written without looking the user up.
+    pub fn new(button: &InlineKeyboardButton) -> Result<Self> {
+        let base::KeyboardInlineButton::KeyboardInlineButton(b) = button.write_offline()?;
+        Ok(RichButton { text: b.text, kind: b.r#type, style: RichButtonStyle::Default })
     }
 
     pub fn style(mut self, style: RichButtonStyle) -> Self {
@@ -605,7 +608,8 @@ mod tests {
             RichTableCell::new("x").header().align(Align::Right).valign(VAlign::Middle);
         assert_eq!((c.header, c.align_center, c.align_right, c.valign_middle), (true, false, true, true));
 
-        let button = RichButton::new(&InlineKeyboardButton::url("Docs", "https://t.me")).style(RichButtonStyle::Link);
+        let button =
+            RichButton::new(&InlineKeyboardButton::url("Docs", "https://t.me")).unwrap().style(RichButtonStyle::Link);
         let base::PageBlock::PageBlockButtonRow(row) = RichBlock::buttons([button]).align(Align::Center).block else {
             panic!("expected buttons")
         };
