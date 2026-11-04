@@ -8,11 +8,11 @@ use crate::methods::{
 };
 use crate::raw::{base, types};
 use crate::types::{
-    Chat, Command, DirectMessagesTopic, ExternalReplyInfo, InlineKeyboardMarkup, InputMedia, LinkPreviewOptions, Media,
-    MessageEntity, MessageOrigin, MessageText, PeerRef, ReactionCount, ReactionType, ReplyMarkup, RichMessage,
-    ServiceAction, SuggestedPostInfo, Text, TextQuote, User,
+    Chat, Command, DirectMessagesTopic, ExternalReplyInfo, FactCheck, InlineKeyboardMarkup, InputMedia,
+    LinkPreviewOptions, Media, MessageEntity, MessageOrigin, MessageReactions, MessageText, PeerRef, ReactionType,
+    ReplyMarkup, RestrictionReason, RichMessage, ServiceAction, SuggestedPostInfo, Text, TextQuote, User, WebPage,
 };
-use crate::utils::get_peer;
+use crate::utils::{get_peer, get_peer_id};
 
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -29,10 +29,18 @@ pub struct Message {
     pub caption: Option<String>,
     pub caption_entities: Option<Vec<MessageEntity>>,
     pub media: Option<Media>,
+    /// The link preview of a text message; `media` stays `None` and the text stays in `text`.
+    pub web_page: Option<WebPage>,
     pub rich_message: Option<RichMessage>,
     pub link_preview_options: Option<LinkPreviewOptions>,
     pub reply_to_message_id: Option<i32>,
     pub reply_to_checklist_task_id: Option<i32>,
+    /// The story this message replies to.
+    pub reply_to_story_id: Option<i32>,
+    /// The chat that posted the replied story: a user, or a `-100…` channel id.
+    pub reply_to_story_user_id: Option<i64>,
+    /// The poll option this message replies to, the same bytes as [`PollOption::data`](crate::types::PollOption).
+    pub reply_to_poll_option_id: Option<Vec<u8>>,
     pub message_thread_id: Option<i32>,
     pub is_topic_message: bool,
     pub quote: Option<TextQuote>,
@@ -47,7 +55,48 @@ pub struct Message {
     pub service: Option<ServiceAction>,
     pub business_connection_id: Option<String>,
     pub direct_messages_topic: Option<DirectMessagesTopic>,
-    pub reactions: Vec<ReactionCount>,
+    /// `None` when nobody has reacted, or the message comes from a request that leaves reactions out.
+    pub reactions: Option<MessageReactions>,
+    /// The account was mentioned in it, or it replies to the account's message.
+    pub mentioned: bool,
+    /// Its voice or video note, or self-destructing media, hasn't been played yet.
+    pub unread_media: bool,
+    /// Sent without a notification sound.
+    pub silent: bool,
+    pub channel_post: bool,
+    /// Sent by the server at a time the sender had scheduled.
+    pub from_scheduled: bool,
+    /// The edit is hidden from the chat, so the message shows no "edited" mark.
+    pub edit_hidden: bool,
+    pub pinned: bool,
+    pub show_caption_above_media: bool,
+    /// Sent by a business bot or an away message while the account was offline.
+    pub from_offline: bool,
+    /// A video still being processed; others can't see the message yet.
+    pub video_processing_pending: bool,
+    /// The business bot that sent it on behalf of the account.
+    pub sender_business_bot: Option<User>,
+    /// The sender's custom tag (rank) in the group.
+    pub sender_tag: Option<String>,
+    /// The user whose guest bot request produced this message.
+    pub guest_bot_caller_user: Option<User>,
+    /// The chat whose guest bot request produced this message.
+    pub guest_bot_caller_chat: Option<Chat>,
+    pub views: Option<i32>,
+    pub forwards: Option<i32>,
+    /// The message effect shown when it arrives.
+    pub effect_id: Option<i64>,
+    /// Stars the sender paid to send it.
+    pub send_paid_messages_stars: Option<i64>,
+    /// For a scheduled message, how often in seconds it repeats.
+    pub repeat_period: Option<i32>,
+    /// The language a summary of the message was made from.
+    pub summary_language_code: Option<String>,
+    /// Waiting to be sent at a scheduled date: it came from a scheduling answer or `get_scheduled_messages`.
+    pub scheduled: bool,
+    /// Why the message is hidden on some platforms; empty when it isn't.
+    pub restriction_reason: Vec<RestrictionReason>,
+    pub fact_check: Option<FactCheck>,
     /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`] and leaves its text in
     /// `message`.
     pub(crate) raw: Box<types::Message>,
@@ -87,20 +136,28 @@ impl Message {
         } else {
             (raw.message.clone(), parsed_entities, None, None)
         };
-        let (
+        let ReplyFields {
             reply_to_message_id,
             reply_to_checklist_task_id,
+            reply_to_story_id,
+            reply_to_story_user_id,
+            reply_to_poll_option_id,
             message_thread_id,
             is_topic_message,
             quote,
             external_reply,
-        ) = reply_fields(client, &raw, service.as_ref(), entities);
+        } = reply_fields(client, &raw, service.as_ref(), entities);
         let direct_messages_topic = match &raw.saved_peer_id {
             Some(peer) if chat.is_direct_messages => Some(DirectMessagesTopic::parse(peer, entities)),
             _ => None,
         };
         let rich_message = raw.rich_message.take().map(RichMessage::parse);
         let is_automatic_forward = is_automatic_forward(&chat, raw.fwd_from.as_ref());
+        let (guest_bot_caller_user, guest_bot_caller_chat) = match &raw.guestchat_via_from {
+            Some(base::Peer::PeerUser(p)) => (Some(User::parse(p.user_id, entities)), None),
+            Some(peer) => (None, Some(Chat::parse(peer, entities, false))),
+            None => (None, None),
+        };
         Message {
             id: raw.id,
             chat,
@@ -114,10 +171,14 @@ impl Message {
             caption,
             caption_entities,
             media: raw.media.as_ref().and_then(|m| Media::parse(client, m, entities)),
+            web_page: raw.media.as_ref().and_then(WebPage::parse),
             rich_message,
             link_preview_options: LinkPreviewOptions::parse(raw.media.as_ref(), raw.invert_media),
             reply_to_message_id,
             reply_to_checklist_task_id,
+            reply_to_story_id,
+            reply_to_story_user_id,
+            reply_to_poll_option_id,
             message_thread_id,
             is_topic_message,
             quote,
@@ -132,9 +193,33 @@ impl Message {
             service,
             business_connection_id: None,
             direct_messages_topic,
-            reactions: raw.reactions.as_ref().map_or(Vec::new(), |base::MessageReactions::MessageReactions(r)| {
-                r.results.iter().filter_map(ReactionCount::parse).collect()
-            }),
+            reactions: raw.reactions.as_ref().map(|r| MessageReactions::parse(r, entities)),
+            mentioned: raw.mentioned,
+            unread_media: raw.media_unread,
+            silent: raw.silent,
+            channel_post: raw.post,
+            from_scheduled: raw.from_scheduled,
+            edit_hidden: raw.edit_hide,
+            pinned: raw.pinned,
+            show_caption_above_media: raw.invert_media,
+            from_offline: raw.offline,
+            video_processing_pending: raw.video_processing_pending,
+            sender_business_bot: raw.via_business_bot_id.map(|id| User::parse(id, entities)),
+            sender_tag: raw.from_rank.clone(),
+            guest_bot_caller_user,
+            guest_bot_caller_chat,
+            views: raw.views,
+            forwards: raw.forwards,
+            effect_id: raw.effect,
+            send_paid_messages_stars: raw.paid_message_stars,
+            repeat_period: raw.schedule_repeat_period,
+            summary_language_code: raw.summary_from_language.clone(),
+            scheduled: false,
+            restriction_reason: raw
+                .restriction_reason
+                .as_deref()
+                .map_or(Vec::new(), |r| r.iter().map(RestrictionReason::parse).collect()),
+            fact_check: raw.factcheck.as_ref().map(|f| FactCheck::parse(f, entities)),
             raw,
             replied: None,
             client: client.clone(),
@@ -219,7 +304,8 @@ impl Message {
         let service = ServiceAction::parse(raw, entities)?;
         let mut bare = Message::bare(raw.id, raw.peer_id.clone(), raw.date);
         (bare.out, bare.mentioned, bare.post, bare.from_id) = (raw.out, raw.mentioned, raw.post, raw.from_id.clone());
-        bare.saved_peer_id = raw.saved_peer_id.clone();
+        (bare.silent, bare.media_unread) = (raw.silent, raw.media_unread);
+        (bare.saved_peer_id, bare.reactions) = (raw.saved_peer_id.clone(), raw.reactions.clone());
         // A pin's header points at the pinned message, which the service message doesn't reply to. In a forum it
         // still names the topic, so that part stays as the header of a message posted in the topic.
         let pin = matches!(raw.action, base::MessageAction::MessageActionPinMessage);
@@ -275,6 +361,7 @@ impl Message {
         };
         let entities = Entities::new(client, users, chats);
         updates.into_iter().filter_map(move |u| {
+            let scheduled = matches!(u, base::Update::UpdateNewScheduledMessage(_));
             let (message, business) = match u {
                 base::Update::UpdateNewMessage(u) => (u.message, None),
                 base::Update::UpdateNewChannelMessage(u) => (u.message, None),
@@ -291,6 +378,7 @@ impl Message {
                 _ => return None,
             };
             let mut message = Message::from_raw(client, message, &entities)?;
+            message.scheduled = scheduled;
             if let Some((connection_id, reply_to)) = business {
                 message.set_business(client, connection_id, reply_to, &entities);
             }
@@ -502,7 +590,18 @@ fn is_automatic_forward(chat: &Chat, header: Option<&base::MessageFwdHeader>) ->
         && h.saved_from_msg_id == h.channel_post
 }
 
-type ReplyFields = (Option<i32>, Option<i32>, Option<i32>, bool, Option<TextQuote>, Option<Box<ExternalReplyInfo>>);
+#[derive(Default)]
+struct ReplyFields {
+    reply_to_message_id: Option<i32>,
+    reply_to_checklist_task_id: Option<i32>,
+    reply_to_story_id: Option<i32>,
+    reply_to_story_user_id: Option<i64>,
+    reply_to_poll_option_id: Option<Vec<u8>>,
+    message_thread_id: Option<i32>,
+    is_topic_message: bool,
+    quote: Option<TextQuote>,
+    external_reply: Option<Box<ExternalReplyInfo>>,
+}
 
 fn reply_fields(
     client: &Client,
@@ -512,9 +611,19 @@ fn reply_fields(
 ) -> ReplyFields {
     // The message that creates a topic is its root, so the topic id is the message's own id.
     if matches!(service, Some(ServiceAction::ForumTopicCreated(_))) {
-        return (None, None, Some(raw.id), true, None, None);
+        return ReplyFields { message_thread_id: Some(raw.id), is_topic_message: true, ..Default::default() };
     }
-    let Some(base::MessageReplyHeader::MessageReplyHeader(reply)) = &raw.reply_to else { return Default::default() };
+    let reply = match &raw.reply_to {
+        Some(base::MessageReplyHeader::MessageReplyHeader(reply)) => reply,
+        Some(base::MessageReplyHeader::MessageReplyStoryHeader(story)) => {
+            return ReplyFields {
+                reply_to_story_id: Some(story.story_id),
+                reply_to_story_user_id: Some(get_peer_id(&story.peer)),
+                ..Default::default()
+            };
+        }
+        None => return ReplyFields::default(),
+    };
     // In a forum, a header without reply_to_top_id points at the topic itself, not at a replied message.
     let (reply_to_message_id, message_thread_id) = if reply.forum_topic && reply.reply_to_top_id.is_none() {
         (None, reply.reply_to_msg_id)
@@ -527,8 +636,17 @@ fn reply_fields(
         position: reply.quote_offset.unwrap_or(0),
         is_manual: reply.quote,
     });
-    let external_reply = ExternalReplyInfo::parse(client, reply, entities).map(Box::new);
-    (reply_to_message_id, reply.todo_item_id, message_thread_id, reply.forum_topic, quote, external_reply)
+    ReplyFields {
+        reply_to_message_id,
+        reply_to_checklist_task_id: reply.todo_item_id,
+        reply_to_story_id: None,
+        reply_to_story_user_id: None,
+        reply_to_poll_option_id: reply.poll_option.clone(),
+        message_thread_id,
+        is_topic_message: reply.forum_topic,
+        quote,
+        external_reply: ExternalReplyInfo::parse(client, reply, entities).map(Box::new),
+    }
 }
 
 // The text of a media message is its caption; a link preview keeps it a text.
@@ -1102,5 +1220,175 @@ pub(crate) mod tests {
         assert_eq!((media.caption.as_deref(), media.html_text().as_str()), (Some("hi <3"), "<b>hi</b> &lt;3"));
         // A message without text or caption has nothing to format.
         assert_eq!(parse(&Message::bare(2, get_peer(7), 0)).html_text(), "");
+    }
+
+    #[test]
+    fn maps_message_flags_and_counters() {
+        let bare = parse(&Message::bare(1, get_peer(get_channel_id(9)), 0));
+        let flags = [bare.mentioned, bare.unread_media, bare.silent, bare.channel_post, bare.from_scheduled];
+        let more = [bare.edit_hidden, bare.pinned, bare.show_caption_above_media, bare.from_offline];
+        assert!(flags.iter().chain(&more).all(|f| !f) && !bare.video_processing_pending);
+        assert!(
+            bare.sender_business_bot.is_none() && bare.sender_tag.is_none() && bare.guest_bot_caller_user.is_none()
+        );
+        assert_eq!(
+            (bare.views, bare.forwards, bare.effect_id, bare.send_paid_messages_stars),
+            (None, None, None, None)
+        );
+        assert_eq!((bare.repeat_period, bare.summary_language_code, bare.guest_bot_caller_chat), (None, None, None));
+
+        let raw = types::Message {
+            mentioned: true,
+            media_unread: true,
+            silent: true,
+            post: true,
+            from_scheduled: true,
+            edit_hide: true,
+            pinned: true,
+            invert_media: true,
+            offline: true,
+            video_processing_pending: true,
+            via_business_bot_id: Some(42),
+            from_rank: Some("boss".into()),
+            guestchat_via_from: Some(get_peer(43)),
+            views: Some(100),
+            forwards: Some(3),
+            effect: Some(5_000),
+            paid_message_stars: Some(25),
+            schedule_repeat_period: Some(86_400),
+            summary_from_language: Some("de".into()),
+            ..Message::bare(1, get_peer(get_channel_id(9)), 0)
+        };
+        let m = parse(&raw);
+        let flags = [m.mentioned, m.unread_media, m.silent, m.channel_post, m.from_scheduled, m.edit_hidden, m.pinned];
+        assert!(flags.iter().all(|f| *f));
+        assert!(m.show_caption_above_media && m.from_offline && m.video_processing_pending);
+        assert_eq!(m.sender_business_bot.map(|u| u.id), Some(42));
+        assert_eq!((m.sender_tag.as_deref(), m.guest_bot_caller_user.map(|u| u.id)), (Some("boss"), Some(43)));
+        assert_eq!(
+            (m.views, m.forwards, m.effect_id, m.send_paid_messages_stars),
+            (Some(100), Some(3), Some(5_000), Some(25))
+        );
+        assert_eq!((m.repeat_period, m.summary_language_code.as_deref()), (Some(86_400), Some("de")));
+
+        let raw = types::Message { guestchat_via_from: Some(get_peer(-77)), ..raw };
+        let m = parse(&raw);
+        assert_eq!((m.guest_bot_caller_user, m.guest_bot_caller_chat.map(|c| c.id)), (None, Some(-77)));
+    }
+
+    #[test]
+    fn service_messages_keep_their_silent_and_unread_flags() {
+        let mut raw = service(base::MessageAction::MessageActionChatDeletePhoto);
+        (raw.silent, raw.media_unread) = (true, true);
+        let m =
+            Message::from_raw(&Client::offline(), base::Message::MessageService(Box::new(raw)), &Entities::default());
+        let m = m.expect("service message dropped");
+        assert_eq!((m.silent, m.unread_media), (true, true));
+    }
+
+    #[test]
+    fn only_scheduling_updates_mark_a_message_scheduled() {
+        let message = || base::Message::Message(Box::new(Message::bare(3, get_peer(7), 1)));
+        let updates = vec![
+            base::Update::UpdateNewScheduledMessage(Box::new(types::UpdateNewScheduledMessage { message: message() })),
+            base::Update::UpdateNewMessage(Box::new(types::UpdateNewMessage {
+                message: message(),
+                pts: 1,
+                pts_count: 1,
+            })),
+        ];
+        let updates = types::Updates { updates, users: Vec::new(), chats: Vec::new(), date: 0, seq: 0 };
+        let client = Client::offline();
+        let found: Vec<bool> = Message::all_from_updates(&client, base::Updates::Updates(Box::new(updates)))
+            .map(|m| m.scheduled)
+            .collect();
+        assert_eq!(found, [true, false]);
+    }
+
+    #[test]
+    fn maps_story_replies_and_poll_option_replies() {
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        let story = types::MessageReplyStoryHeader { peer: get_peer(get_channel_id(9)), story_id: 4 };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyStoryHeader(Box::new(story)));
+        let m = parse(&raw);
+        assert_eq!((m.reply_to_story_id, m.reply_to_story_user_id), (Some(4), Some(get_channel_id(9))));
+        assert_eq!((m.reply_to_message_id, m.message_thread_id, m.reply_to_poll_option_id), (None, None, None));
+
+        let option = types::MessageReplyHeader { reply_to_msg_id: Some(12), poll_option: Some(vec![1]), ..header() };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(option)));
+        let m = parse(&raw);
+        assert_eq!((m.reply_to_message_id, m.reply_to_poll_option_id), (Some(12), Some(vec![1])));
+        assert_eq!((m.reply_to_story_id, m.reply_to_story_user_id), (None, None));
+    }
+
+    #[test]
+    fn maps_restriction_reasons_and_fact_checks() {
+        let mut raw = Message::bare(1, get_peer(get_channel_id(9)), 0);
+        raw.restriction_reason = Some(Vec::new());
+        let m = parse(&raw);
+        assert!(m.restriction_reason.is_empty() && m.fact_check.is_none());
+
+        let reason = types::RestrictionReason { platform: "ios".into(), reason: "porn".into(), text: "hidden".into() };
+        raw.restriction_reason = Some(vec![base::RestrictionReason::RestrictionReason(Box::new(reason))]);
+        let check = types::FactCheck { need_check: true, country: None, text: None, hash: 3 };
+        raw.factcheck = Some(base::FactCheck::FactCheck(Box::new(check)));
+        let m = parse(&raw);
+        let reasons: Vec<_> = m.restriction_reason.iter().map(|r| (r.platform.as_str(), r.reason.as_str())).collect();
+        assert_eq!(reasons, [("ios", "porn")]);
+        assert_eq!(m.fact_check.map(|f| (f.need_check, f.hash)), Some((true, 3)));
+    }
+
+    #[test]
+    fn reactions_are_none_without_a_block() {
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        assert!(parse(&raw).reactions.is_none());
+        let block = types::MessageReactions {
+            min: true,
+            can_see_list: false,
+            reactions_as_tags: false,
+            results: Vec::new(),
+            recent_reactions: None,
+            top_reactors: None,
+        };
+        raw.reactions = Some(base::MessageReactions::MessageReactions(Box::new(block)));
+        let reactions = parse(&raw).reactions.expect("the reaction block was dropped");
+        assert!(reactions.reactions.is_empty() && !reactions.can_get_added_reactions);
+
+        let mut service = service(base::MessageAction::MessageActionChatDeletePhoto);
+        service.reactions = raw.reactions.clone();
+        let message = base::Message::MessageService(Box::new(service));
+        let m = Message::from_raw(&Client::offline(), message, &Entities::default()).expect("service message dropped");
+        assert!(m.reactions.is_some());
+    }
+
+    #[test]
+    fn a_link_preview_keeps_the_text_and_leaves_media_empty() {
+        use super::super::web_page::tests::{page, web_page_media};
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        raw.message = "see https://example.com/v".into();
+        raw.media = Some(web_page_media(base::WebPage::WebPage(Box::new(page("https://example.com/v")))));
+        let m = parse(&raw);
+        assert_eq!((m.text.as_str(), m.caption.as_deref()), ("see https://example.com/v", None));
+        assert!(m.media.is_none());
+        assert_eq!(m.web_page.map(|p| p.url), Some("https://example.com/v".into()));
+
+        let pending = types::WebPagePending { id: 1, url: None, date: 0 };
+        raw.media = Some(web_page_media(base::WebPage::WebPagePending(Box::new(pending))));
+        let m = parse(&raw);
+        assert!(m.web_page.is_none() && m.media.is_none() && !m.text.is_empty());
+    }
+
+    #[test]
+    fn giveaway_and_story_media_have_their_accessors() {
+        let mut raw = Message::bare(1, get_peer(get_channel_id(9)), 0);
+        let giveaway = super::super::giveaway::tests::giveaway();
+        raw.media = Some(base::MessageMedia::MessageMediaGiveaway(Box::new(giveaway)));
+        let m = parse(&raw);
+        assert_eq!(m.giveaway().map(|g| g.winner_count), Some(3));
+        assert!(m.story().is_none() && m.giveaway_winners().is_none() && m.paid_media().is_none());
+
+        let story = types::MessageMediaStory { via_mention: true, peer: get_peer(7), id: 4, story: None };
+        raw.media = Some(base::MessageMedia::MessageMediaStory(Box::new(story)));
+        assert_eq!(parse(&raw).story().map(|s| (s.chat.id, s.id)), Some((7, 4)));
     }
 }

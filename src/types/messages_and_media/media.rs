@@ -4,8 +4,8 @@ use crate::enums::MediaKind;
 use crate::file_id::FileType;
 use crate::raw::base;
 use crate::types::{
-    Animation, Audio, Checklist, Contact, Dice, Document, FileLocation, Game, Invoice, LivePhoto, Location, Message,
-    PaidMediaInfo, Photo, Poll, Sticker, Venue, Video, VideoNote, Voice,
+    Animation, Audio, Checklist, Contact, Dice, Document, FileLocation, Game, Giveaway, GiveawayWinners, Invoice,
+    LivePhoto, Location, Message, PaidMediaInfo, Photo, Poll, Sticker, Story, Venue, Video, VideoNote, Voice,
 };
 
 #[derive(Debug, Clone)]
@@ -29,6 +29,11 @@ pub enum Media {
     Checklist(Checklist),
     Game(Game),
     PaidMedia(PaidMediaInfo),
+    /// A forwarded story. Boxed, since a story holds media itself.
+    Story(Box<Story>),
+    Giveaway(Giveaway),
+    /// Boxed, since it holds a whole `Chat`.
+    GiveawayWinners(Box<GiveawayWinners>),
 }
 
 impl Media {
@@ -54,6 +59,12 @@ impl Media {
             M::MessageMediaToDo(m) => Media::Checklist(Checklist::parse(m, entities)),
             M::MessageMediaGame(m) => Media::Game(Game::parse(&m.game)),
             M::MessageMediaPaidMedia(m) => Media::PaidMedia(PaidMediaInfo::parse(client, m, entities)),
+            M::MessageMediaStory(m) => {
+                let item = m.story.clone().and_then(|item| Story::parse(client, &m.peer, item, entities));
+                Media::Story(Box::new(item.unwrap_or_else(|| Story::from_media(client, &m.peer, m.id, entities))))
+            }
+            M::MessageMediaGiveaway(m) => Media::Giveaway(Giveaway::parse(m, entities)),
+            M::MessageMediaGiveawayResults(m) => Media::GiveawayWinners(Box::new(GiveawayWinners::parse(m, entities))),
             _ => return None,
         })
     }
@@ -115,6 +126,8 @@ impl Media {
             Media::Checklist(_) => MediaKind::Checklist,
             Media::Game(_) => MediaKind::Game,
             Media::PaidMedia(_) => MediaKind::PaidMedia,
+            Media::Story(_) => MediaKind::Story,
+            Media::Giveaway(_) | Media::GiveawayWinners(_) => MediaKind::Giveaway,
         }
     }
 
@@ -137,7 +150,10 @@ impl Media {
             | Media::Invoice(_)
             | Media::Checklist(_)
             | Media::Game(_)
-            | Media::PaidMedia(_) => None,
+            | Media::PaidMedia(_)
+            | Media::Story(_)
+            | Media::Giveaway(_)
+            | Media::GiveawayWinners(_) => None,
         }
     }
 }
@@ -209,6 +225,22 @@ impl Message {
 
     pub fn game(&self) -> Option<&Game> {
         if let Some(Media::Game(m)) = &self.media { Some(m) } else { None }
+    }
+
+    pub fn story(&self) -> Option<&Story> {
+        if let Some(Media::Story(m)) = &self.media { Some(&**m) } else { None }
+    }
+
+    pub fn giveaway(&self) -> Option<&Giveaway> {
+        if let Some(Media::Giveaway(m)) = &self.media { Some(m) } else { None }
+    }
+
+    pub fn giveaway_winners(&self) -> Option<&GiveawayWinners> {
+        if let Some(Media::GiveawayWinners(m)) = &self.media { Some(&**m) } else { None }
+    }
+
+    pub fn paid_media(&self) -> Option<&PaidMediaInfo> {
+        if let Some(Media::PaidMedia(m)) = &self.media { Some(m) } else { None }
     }
 }
 
@@ -408,5 +440,43 @@ pub(crate) mod tests {
         let Media::Venue(venue) = parse(venue) else { panic!() };
         assert_eq!((venue.google_place_id.as_deref(), venue.google_place_type), (Some("abc"), None));
         assert_eq!((venue.title.as_str(), venue.foursquare_id), ("Cafe", None));
+    }
+
+    fn story(story: Option<base::StoryItem>) -> base::MessageMedia {
+        let peer = crate::utils::get_peer(7);
+        base::MessageMedia::MessageMediaStory(Box::new(types::MessageMediaStory {
+            via_mention: false,
+            peer,
+            id: 4,
+            story,
+        }))
+    }
+
+    #[test]
+    fn stories_and_giveaways_match_the_raw_classifier() {
+        let giveaway = base::MessageMedia::MessageMediaGiveaway(Box::new(super::super::giveaway::tests::giveaway()));
+        let results = super::super::giveaway_winners::tests::results();
+        let results = base::MessageMedia::MessageMediaGiveawayResults(Box::new(results));
+        for media in [story(None), giveaway.clone(), results.clone()] {
+            let parsed = parse(media.clone());
+            assert_eq!(Some(parsed.kind()), MediaKind::of(&media));
+            assert!(parsed.file_location().is_none());
+        }
+        assert!(matches!(parse(giveaway), Media::Giveaway(g) if g.prize_star_count == Some(500)));
+        assert!(matches!(parse(results), Media::GiveawayWinners(w) if w.was_refunded));
+    }
+
+    #[test]
+    fn a_story_without_its_item_keeps_chat_and_id() {
+        let deleted = base::StoryItem::StoryItemDeleted(types::StoryItemDeleted { id: 4 });
+        for media in [story(None), story(Some(deleted))] {
+            let Media::Story(s) = parse(media) else { panic!() };
+            assert_eq!((s.chat.id, s.id, s.date, s.expire_date), (7, 4, 0, 0));
+            assert!(s.media.is_none() && s.caption.is_none() && !s.is_pinned);
+        }
+        let skipped = types::StoryItemSkipped { close_friends: true, live: false, id: 4, date: 10, expire_date: 20 };
+        let skipped = base::StoryItem::StoryItemSkipped(Box::new(skipped));
+        let Media::Story(s) = parse(story(Some(skipped))) else { panic!() };
+        assert_eq!((s.id, s.date, s.expire_date, s.is_close_friends), (4, 10, 20, true));
     }
 }
