@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::errors::Result;
 use crate::methods::geo_point;
 use crate::raw::{base, types};
@@ -36,25 +38,38 @@ pub struct RichBlock {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RichListItem {
-    checkbox: bool,
-    checked: bool,
-    blocks: Vec<RichBlock>,
+    pub(super) checkbox: bool,
+    pub(super) checked: bool,
+    pub(super) blocks: Vec<RichBlock>,
+    // Set when the item was read from a message: the label Telegram shows, and an ordered item's own number and
+    // numbering type.
+    pub(super) label: String,
+    pub(super) value: Option<i32>,
+    pub(super) numbering: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RichTableCell(base::PageTableCell);
+pub struct RichTableCell(pub(super) base::PageTableCell);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RichButton {
-    text: String,
-    kind: base::InlineButtonType,
-    style: RichButtonStyle,
+    pub(super) text: String,
+    pub(super) kind: base::InlineButtonType,
+    pub(super) style: RichButtonStyle,
+}
+
+/// The photos and documents of the message a block was read from, so a block can show its media.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Resolved {
+    pub(crate) photos: Vec<base::Photo>,
+    pub(crate) documents: Vec<base::Document>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Files {
     pub(crate) photos: Vec<base::InputPhoto>,
     pub(crate) documents: Vec<base::InputDocument>,
+    pub(crate) source: Option<Arc<Resolved>>,
 }
 
 impl Files {
@@ -383,7 +398,14 @@ impl RichListItem {
     }
 
     pub fn blocks(blocks: impl IntoIterator<Item = RichBlock>) -> Self {
-        RichListItem { checkbox: false, checked: false, blocks: blocks.into_iter().collect() }
+        RichListItem {
+            checkbox: false,
+            checked: false,
+            blocks: blocks.into_iter().collect(),
+            label: String::new(),
+            value: None,
+            numbering: None,
+        }
     }
 
     pub fn checkbox(text: impl Into<RichText>, checked: bool) -> Self {

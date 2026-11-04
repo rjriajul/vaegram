@@ -100,7 +100,7 @@ impl InputRichMessage {
                         base::InputRichFile::InputRichFileDocument(f) => files.add_document(f.document),
                     };
                 }
-                let Files { photos, documents } = files;
+                let Files { photos, documents, .. } = files;
                 base::InputRichMessage::InputRichMessage(Box::new(types::InputRichMessage {
                     rtl,
                     noautolink: no_autolink,
