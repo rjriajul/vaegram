@@ -415,7 +415,7 @@ impl Message {
     }
 
     /// Every request built from a business message has to go through the connection it arrived on.
-    fn on_behalf<B: OnBehalf>(&self, mut request: B) -> B {
+    pub(super) fn on_behalf<B: OnBehalf>(&self, mut request: B) -> B {
         request.business_connection().clone_from(&self.business_connection_id);
         request
     }

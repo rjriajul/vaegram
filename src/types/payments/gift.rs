@@ -21,6 +21,8 @@ pub struct Gift {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UniqueGift {
+    /// This unique gift's own id; `gift_id` is the regular gift it was upgraded from.
+    pub id: i64,
     pub gift_id: i64,
     pub base_name: String,
     pub name: String,
@@ -85,6 +87,7 @@ impl UniqueGift {
             }
         }
         UniqueGift {
+            id: raw.id,
             gift_id: raw.gift_id,
             base_name: raw.title.clone(),
             name: raw.slug.clone(),
@@ -129,5 +132,47 @@ fn permille(rarity: &base::StarGiftAttributeRarity) -> Option<i32> {
     match rarity {
         base::StarGiftAttributeRarity::StarGiftAttributeRarity(r) => Some(r.permille),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UniqueGift;
+    use crate::dispatcher::Entities;
+    use crate::raw::types;
+
+    #[test]
+    fn unique_gifts_keep_their_own_id() {
+        let raw = types::StarGiftUnique {
+            require_premium: false,
+            resale_ton_only: false,
+            theme_available: false,
+            burned: false,
+            crafted: false,
+            id: 1,
+            gift_id: 2,
+            title: "Plush Pepe".into(),
+            slug: "PlushPepe-3".into(),
+            num: 3,
+            owner_id: None,
+            owner_name: None,
+            owner_address: None,
+            attributes: Vec::new(),
+            availability_issued: 10,
+            availability_total: 100,
+            gift_address: None,
+            resell_amount: None,
+            released_by: None,
+            value_amount: None,
+            value_currency: None,
+            value_usd_amount: None,
+            theme_peer: None,
+            peer_color: None,
+            host_id: None,
+            offer_min_stars: None,
+            craft_chance_permille: None,
+        };
+        let gift = UniqueGift::parse(&raw, &Entities::default());
+        assert_eq!((gift.id, gift.gift_id, gift.number), (1, 2, 3));
     }
 }

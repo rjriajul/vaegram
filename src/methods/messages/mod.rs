@@ -128,6 +128,7 @@ mod unpin_chat_message;
 mod unpin_saved_dialog;
 mod update_saved_reaction_tag;
 mod upload_media;
+mod view_messages;
 mod vote_poll;
 mod web_view_options;
 
