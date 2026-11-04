@@ -60,6 +60,7 @@ pub struct ClientBuilder {
     rate_limits: Option<RateLimits>,
     auto_sleep: AutoSleep,
     retry_policy: Option<Retry>,
+    auto_no_updates: bool,
 }
 
 #[derive(Default)]
@@ -229,6 +230,16 @@ impl ClientBuilder {
     /// updates, so they fail with `Error::InvalidArgument`.
     pub fn no_updates(mut self) -> Self {
         self.options.no_updates = true;
+        self
+    }
+
+    /// Sends the requests that only read (`get…`, `check…`, `read…`, searches, typing indicators and the like)
+    /// inside `invokeWithoutUpdates`, so a client that mostly reads stays out of the update flow while its writes
+    /// and `updates.*` calls go as usual. Unlike [`no_updates`](Self::no_updates) it leaves `run` and the listeners
+    /// working, and it never touches the request that opens a connection, which is what subscribes it to updates.
+    /// Off by default; `no_updates` wins when both are on.
+    pub fn auto_no_updates(mut self, on: bool) -> Self {
+        self.auto_no_updates = on;
         self
     }
 
@@ -437,6 +448,7 @@ impl ClientBuilder {
         }
         inner.transmissions = self.max_concurrent_transmissions.map(Transmissions::new);
         inner.limiter = self.rate_limits.as_ref().map(RateLimiter::new);
+        inner.auto_no_updates = self.auto_no_updates;
         let client = Client(Arc::new(inner), None);
         let imported = self.session_string.as_deref().is_some_and(session_string::is_import);
         if imported && user_id == 0 {
@@ -496,6 +508,7 @@ pub(crate) struct Inner {
     // Slots for `max_concurrent_transmissions`, if set.
     pub(crate) transmissions: Option<Transmissions>,
     pub(crate) limiter: Option<RateLimiter>,
+    pub(crate) auto_no_updates: bool,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
@@ -577,6 +590,7 @@ impl Inner {
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             transmissions: None,
             limiter: None,
+            auto_no_updates: false,
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
         }
@@ -651,6 +665,7 @@ impl Client {
             rate_limits: None,
             auto_sleep: AutoSleep::default(),
             retry_policy: None,
+            auto_no_updates: false,
         }
     }
 

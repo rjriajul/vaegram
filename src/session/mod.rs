@@ -2,6 +2,7 @@ mod auth;
 pub(crate) mod cdn;
 mod events;
 pub mod internals;
+pub(crate) mod no_updates;
 mod outbox;
 mod pfs;
 mod rate_limiter;

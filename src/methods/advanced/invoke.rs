@@ -5,6 +5,7 @@ use crate::Client;
 use crate::client::{Borrowed, quiet};
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, functions};
+use crate::session::no_updates::needs_updates;
 use crate::session::transfer::invoke_part;
 use crate::session::{RateCategory, Session};
 
@@ -34,8 +35,9 @@ impl Client {
         self.limit(name).await;
         let session = self.session();
         let call = Borrowed(request);
-        // Takeout outside, updates off inside.
-        match (self.1, self.0.options.no_updates) {
+        // Takeout outside, updates off inside. `name` is the request itself, whatever it goes out in.
+        let off = self.0.options.no_updates || (self.0.auto_no_updates && !needs_updates(name));
+        match (self.1, off) {
             (Some(takeout_id), true) => {
                 let request = functions::InvokeWithTakeout { takeout_id, query: quiet(call) };
                 invoke_sleeping_floods(&session, name, &request, timeout).await
@@ -470,5 +472,58 @@ mod tests {
             query: functions::InvokeWithoutUpdates { query: functions::Ping { ping_id: 7 } },
         };
         assert_eq!(sent.try_recv().unwrap(), wrapped.to_bytes());
+    }
+
+    fn auto_client(replies: usize, no_updates: bool) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (mut client, sent) = Client::scripted((0..replies).map(|_| Ok(true.to_bytes())).collect());
+        client.set_options(Options { no_updates, ..Options::default() });
+        Arc::get_mut(&mut client.0).unwrap().auto_no_updates = true;
+        (client, sent)
+    }
+
+    fn status() -> functions::account::UpdateStatus {
+        functions::account::UpdateStatus { offline: true }
+    }
+
+    #[tokio::test]
+    async fn auto_wraps_reads_not_writes() {
+        let (client, mut sent) = auto_client(2, false);
+        client.invoke(&set_typing()).await.unwrap();
+        client.invoke(&status()).await.unwrap();
+        assert_eq!(sent.try_recv().unwrap(), functions::InvokeWithoutUpdates { query: set_typing() }.to_bytes());
+        assert_eq!(sent.try_recv().unwrap(), status().to_bytes());
+    }
+
+    #[tokio::test]
+    async fn business_and_takeout_use_the_inner_name() {
+        let (client, mut sent) = auto_client(2, false);
+        client.invoke_business(Some("c"), set_typing()).await.unwrap();
+        let business = || functions::InvokeWithBusinessConnection { connection_id: "c".into(), query: set_typing() };
+        assert_eq!(sent.try_recv().unwrap(), functions::InvokeWithoutUpdates { query: business() }.to_bytes());
+
+        // A takeout holds the quiet request, and the request inside a takeout is still judged by its own name.
+        let takeout = Client(client.0.clone(), Some(7));
+        takeout.invoke(&set_typing()).await.unwrap();
+        let wrapped = functions::InvokeWithTakeout {
+            takeout_id: 7,
+            query: functions::InvokeWithoutUpdates { query: set_typing() },
+        };
+        assert_eq!(sent.try_recv().unwrap(), wrapped.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn service_calls_are_never_auto_wrapped() {
+        let pong = types::Pong { msg_id: 0, ping_id: 7 }.to_bytes();
+        let (mut client, mut sent) = Client::scripted(vec![Ok(pong)]);
+        Arc::get_mut(&mut client.0).unwrap().auto_no_updates = true;
+        client.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
+        assert_eq!(sent.try_recv().unwrap(), functions::Ping { ping_id: 7 }.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn no_updates_wins_over_auto() {
+        let (client, mut sent) = auto_client(1, true);
+        client.invoke(&status()).await.unwrap();
+        assert_eq!(sent.try_recv().unwrap(), functions::InvokeWithoutUpdates { query: status() }.to_bytes());
     }
 }

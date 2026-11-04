@@ -55,3 +55,24 @@ async fn no_updates_client_gets_me_and_no_updates() {
     // Without updates there's nothing for `run` to do.
     assert!(matches!(client.run().await, Err(Error::InvalidArgument(_))));
 }
+
+#[tokio::test]
+#[ignore = "uses a logged-in user session"]
+async fn auto_no_updates_client_still_gets_updates() {
+    let Some(builder) = user_builder() else { return };
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = seen.clone();
+    let client = builder
+        .auto_no_updates(true)
+        .observer(move |call| log.lock().unwrap().push(call.name))
+        .connect()
+        .await
+        .unwrap();
+
+    client.get_me().await.unwrap();
+    let wrapped = seen.lock().unwrap().iter().filter(|name| **name == "invokeWithoutUpdates").count();
+    assert!(wrapped >= 1, "{:?}", seen.lock().unwrap());
+    // `run` isn't refused: it keeps going until the timeout ends it.
+    let ran = tokio::time::timeout(Duration::from_secs(2), client.run()).await;
+    assert!(ran.is_err(), "{ran:?}");
+}
