@@ -226,6 +226,9 @@ impl<'a> Facts<'a> {
             (None, _) if post => chat_id,
             (None, _) => 0,
         };
+        // `kinds` looked at the peer; an outgoing private message without from_id is sent by us.
+        let own = from.is_none() && out && matches!(peer, base::Peer::PeerUser(_));
+        let kinds = if own { PeerKinds { sender_bot: me.is_bot, ..kinds } } else { kinds };
         let flags = flag(out, OUTGOING)
             | kinds.flags()
             | flag(out || (sender_id != 0 && sender_id == me.id), SENDER_ME)
@@ -411,13 +414,16 @@ mod tests {
 
     #[test]
     fn raw_and_parsed_messages_have_the_same_facts() {
-        let (client, entities) = (Client::offline(), entities());
-        let me = Me { id: 0, is_bot: true, username: Some("Bot".into()), ..Me::default() };
+        let (client, mut entities) = (Client::offline(), entities());
+        // We are a bot too, so a message we sent is from a bot whatever the peer is.
+        entities.users.insert(9, user(9, true));
+        let me = Me { id: 9, is_bot: true, username: Some("Bot".into()), ..Me::default() };
         let group = get_peer(get_channel_id(55));
         let cases = [
             (group, Some(7), false, Some(ChatType::Supergroup), SENDER_BOT),
             (get_peer(7), None, false, Some(ChatType::Bot), SENDER_BOT),
-            (get_peer(8), None, true, Some(ChatType::Private), OUTGOING | SENDER_ME),
+            (get_peer(8), None, true, Some(ChatType::Private), OUTGOING | SENDER_ME | SENDER_BOT),
+            (get_peer(7), None, true, Some(ChatType::Bot), OUTGOING | SENDER_ME | SENDER_BOT),
         ];
         for (peer, from, out, chat, sender) in cases {
             let mut m = Message::bare(3, peer, 0);
