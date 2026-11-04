@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 use std::time::Duration;
 
 use crate::Client;
-use crate::client::Borrowed;
+use crate::client::{Borrowed, quiet};
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, functions};
 use crate::session::transfer::invoke_part;
@@ -33,12 +33,19 @@ impl Client {
     ) -> Result<R::Return> {
         self.limit(name).await;
         let session = self.session();
-        match self.1 {
-            Some(takeout_id) => {
-                let request = functions::InvokeWithTakeout { takeout_id, query: Borrowed(request) };
+        let call = Borrowed(request);
+        // Takeout outside, updates off inside.
+        match (self.1, self.0.options.no_updates) {
+            (Some(takeout_id), true) => {
+                let request = functions::InvokeWithTakeout { takeout_id, query: quiet(call) };
                 invoke_sleeping_floods(&session, name, &request, timeout).await
             }
-            None => invoke_sleeping_floods(&session, name, request, timeout).await,
+            (Some(takeout_id), false) => {
+                let request = functions::InvokeWithTakeout { takeout_id, query: call };
+                invoke_sleeping_floods(&session, name, &request, timeout).await
+            }
+            (None, true) => invoke_sleeping_floods(&session, name, &quiet(call), timeout).await,
+            (None, false) => invoke_sleeping_floods(&session, name, request, timeout).await,
         }
     }
 
@@ -436,5 +443,32 @@ mod tests {
         client.invoke_in_dc(session.dc_id(), &set_typing()).await.unwrap();
         let limiter = client.rate_limiter().unwrap();
         assert_eq!((limiter.available(Admin).round(), limiter.available(Global).round()), (3.0, 3.0));
+    }
+
+    fn quiet_client(replies: usize) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let pong = || Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes());
+        let (mut client, sent) = Client::scripted((0..replies).map(|_| pong()).collect());
+        client.set_options(Options { no_updates: true, ..Options::default() });
+        (client, sent)
+    }
+
+    #[tokio::test]
+    async fn no_updates_wraps_every_call() {
+        let (client, mut sent) = quiet_client(1);
+        let wrapped = functions::InvokeWithoutUpdates { query: functions::Ping { ping_id: 7 } };
+        client.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
+        assert_eq!(sent.try_recv().unwrap(), wrapped.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn takeout_wraps_outside() {
+        let (client, mut sent) = quiet_client(1);
+        let takeout = Client(client.0.clone(), Some(7));
+        takeout.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
+        let wrapped = functions::InvokeWithTakeout {
+            takeout_id: 7,
+            query: functions::InvokeWithoutUpdates { query: functions::Ping { ping_id: 7 } },
+        };
+        assert_eq!(sent.try_recv().unwrap(), wrapped.to_bytes());
     }
 }

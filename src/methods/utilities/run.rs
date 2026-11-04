@@ -12,9 +12,18 @@ impl Client {
         self.drive(dispatcher).await
     }
 
+    /// What anything that waits for updates checks first: a client built with `no_updates` never gets any.
+    pub(crate) fn require_updates(&self) -> Result<()> {
+        if self.0.options.no_updates {
+            return Err(Error::InvalidArgument("updates are off for this client"));
+        }
+        Ok(())
+    }
+
     /// Everything `run` does before it takes updates: who the account is, where the update state starts, and the
     /// start hook.
     pub(super) async fn prepare(&self) -> Result<Dispatcher> {
+        self.require_updates()?;
         self.set_me(&self.get_me().await?);
         let saved = self.0.state.lock().unwrap().take().filter(|_| self.0.catch_up);
         let dispatcher = match saved {
@@ -90,6 +99,19 @@ pub(super) mod tests {
         *client.0.updates.lock().await = rx;
         client.stop();
         (client, updates)
+    }
+
+    #[tokio::test]
+    async fn run_refuses_without_updates() {
+        let (mut client, mut sent) = Client::recording();
+        client.set_options(crate::connection::Options { no_updates: true, ..Default::default() });
+        let refused = client.run().await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
+        let listened = client.listen::<crate::types::Message>().await;
+        assert!(matches!(listened, Err(Error::InvalidArgument(_))), "{listened:?}");
+        let asked = client.ask("me", "hi").await;
+        assert!(matches!(asked, Err(Error::InvalidArgument(_))), "{asked:?}");
+        assert!(sent.try_recv().is_err(), "something went out");
     }
 
     #[tokio::test]

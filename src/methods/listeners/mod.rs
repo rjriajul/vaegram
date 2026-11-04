@@ -109,6 +109,7 @@ impl<T> Spec<T> {
 
 impl<T> Spec<T> {
     async fn resolve(self, client: &Client) -> Result<Criteria<T>> {
+        client.require_updates()?;
         let mut criteria = self.criteria;
         for (refs, ids) in [(self.chats, &mut criteria.chats), (self.users, &mut criteria.users)] {
             for peer in refs {

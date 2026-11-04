@@ -224,6 +224,14 @@ impl ClientBuilder {
         self
     }
 
+    /// Asks Telegram not to send this client updates: every request goes out inside `invokeWithoutUpdates`, and so
+    /// does the one that opens each connection. For a client that only calls methods. `run` and the listeners need
+    /// updates, so they fail with `Error::InvalidArgument`.
+    pub fn no_updates(mut self) -> Self {
+        self.options.no_updates = true;
+        self
+    }
+
     pub fn parse_mode(mut self, mode: ParseMode) -> Self {
         self.parse_mode = mode;
         self
@@ -844,11 +852,21 @@ async fn connect(
     events: Arc<Events>,
     pfs: bool,
 ) -> Result<(Session, UpdatesRx, Vec<base::DcOption>)> {
-    let rebind = pfs.then(|| init_connection(api_id, options, functions::help::GetNearestDc {}).to_bytes());
+    let rebind = pfs.then(|| match options.no_updates {
+        true => init_connection(api_id, options, quiet(functions::help::GetNearestDc {})).to_bytes(),
+        false => init_connection(api_id, options, functions::help::GetNearestDc {}).to_bytes(),
+    });
     let (session, updates) = Session::connect(dc, auth_key, options, events, rebind).await?;
-    let init = init_connection(api_id, options, functions::help::GetConfig {});
-    let base::Config::Config(config) = session.invoke(&init).await?;
+    // This is what makes the connection subscribe to updates, so a client that wants none says so here too.
+    let base::Config::Config(config) = match options.no_updates {
+        true => session.invoke(&init_connection(api_id, options, quiet(functions::help::GetConfig {}))).await?,
+        false => session.invoke(&init_connection(api_id, options, functions::help::GetConfig {})).await?,
+    };
     Ok((session, updates, config.dc_options))
+}
+
+pub(crate) fn quiet<X>(query: X) -> functions::InvokeWithoutUpdates<X> {
+    functions::InvokeWithoutUpdates { query }
 }
 
 // Wraps a request in initConnection without cloning it.
@@ -941,6 +959,27 @@ mod tests {
             let refused = Client::builder("limits", 1, "hash").in_memory().rate_limits(limits).connect().await;
             assert!(matches!(refused, Err(Error::InvalidArgument(_))));
         }
+    }
+
+    #[tokio::test]
+    async fn no_updates_wraps_user_calls_and_init() {
+        use crate::raw::functions::Ping;
+        use crate::session::test_dc::{INIT_CONNECTION, INVOKE_WITH_LAYER, INVOKE_WITHOUT_UPDATES, PING};
+        let dc = TestDc::start([5; 256], false).await;
+        let quiet = Client::builder("quiet", 1, "hash").session_string(dc.session_string([5; 256])).no_updates();
+        let client = quiet.connect().await.unwrap();
+        client.invoke(&Ping { ping_id: 3 }).await.unwrap();
+        let seen: Vec<Vec<u32>> = dc.seen().into_iter().map(|s| s.ids).collect();
+        // The request that opens the connection: layer, initConnection, the quiet wrapper, then the config call.
+        let opening = seen.iter().find(|ids| ids[0] == INVOKE_WITH_LAYER).expect("no initConnection");
+        assert_eq!((opening.len(), opening[1], opening[2]), (4, INIT_CONNECTION, INVOKE_WITHOUT_UPDATES));
+        assert!(seen.contains(&vec![INVOKE_WITHOUT_UPDATES, PING]), "{seen:?}");
+
+        let plain = Client::builder("plain", 1, "hash").session_string(dc.session_string([5; 256]));
+        let plain = plain.connect().await.unwrap();
+        plain.invoke(&Ping { ping_id: 4 }).await.unwrap();
+        let after: Vec<Vec<u32>> = dc.seen().into_iter().skip(seen.len()).map(|s| s.ids).collect();
+        assert!(after.iter().all(|ids| !ids.contains(&INVOKE_WITHOUT_UPDATES)), "{after:?}");
     }
 
     #[test]

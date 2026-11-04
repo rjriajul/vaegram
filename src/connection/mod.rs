@@ -36,6 +36,9 @@ pub struct Options {
     /// Asked after every failed request whether to send it again, and after how long. The default sleeps off
     /// FLOOD_WAITs of up to a minute, five times per request.
     pub retry: Retry,
+    /// Every request is sent inside `invokeWithoutUpdates`, so the connection never gets updates. Set by
+    /// `ClientBuilder::no_updates`.
+    pub no_updates: bool,
     /// Update batches held for the dispatcher. When it's full, a batch is dropped and a getDifference brings
     /// back what it held.
     pub updates_capacity: usize,
@@ -52,6 +55,7 @@ impl Default for Options {
             proxy: None,
             request_timeout: Duration::from_secs(30),
             retry: Retry::default(),
+            no_updates: false,
             updates_capacity: 1024,
             observer: None,
             record: None,
