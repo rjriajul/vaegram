@@ -24,7 +24,7 @@ use crate::session::{Call, Events, Observer, Salt, Session, UpdatesRx, init_conn
 use crate::storage::recording::Recorder;
 use crate::storage::state::UpdateState;
 use crate::storage::{FileStore, MemoryStore, SessionData, SessionStore, Store, session_string};
-use crate::types::Json;
+use crate::types::{Json, LinkPreviewOptions};
 
 const DEFAULT_DC: i32 = 2;
 const LISTENER_TIMEOUT: Duration = Duration::from_secs(300);
@@ -40,6 +40,7 @@ pub struct ClientBuilder {
     pfs: bool,
     login: Login,
     parse_mode: ParseMode,
+    link_preview_options: Option<LinkPreviewOptions>,
     options: Options,
     ordered: bool,
     catch_up: bool,
@@ -208,6 +209,13 @@ impl ClientBuilder {
         self
     }
 
+    /// The link preview options for every message sent or edited without its own `.link_preview_options(..)`.
+    /// Its `url` is ignored: one link for every message makes no sense.
+    pub fn link_preview_options(mut self, options: LinkPreviewOptions) -> Self {
+        self.link_preview_options = Some(options);
+        self
+    }
+
     /// 30 seconds by default; `invoke_with_timeout` overrides it per call.
     pub fn request_timeout(mut self, timeout: Duration) -> Self {
         self.options.request_timeout = timeout;
@@ -357,6 +365,7 @@ impl ClientBuilder {
         inner.ipv6 = self.ipv6;
         inner.options = self.options;
         inner.parse_mode = Mutex::new(self.parse_mode);
+        inner.link_preview_options = self.link_preview_options;
         inner.state = Mutex::new(state);
         inner.me = Mutex::new(Me { id: user_id, is_bot, premium: None, username: None });
         inner.peers = Mutex::new(peers);
@@ -409,6 +418,7 @@ pub(crate) struct Inner {
     pub(crate) store: Arc<Store>,
     pub(crate) options: Options,
     pub(crate) parse_mode: Mutex<ParseMode>,
+    pub(crate) link_preview_options: Option<LinkPreviewOptions>,
     pub(crate) state: Mutex<Option<UpdateState>>,
     // Bumped by log_out under the `state` lock, so a dispatcher started for the old account can't hand its
     // state back.
@@ -493,6 +503,7 @@ impl Inner {
             store,
             options: Options::default(),
             parse_mode: Mutex::new(ParseMode::Disabled),
+            link_preview_options: None,
             transfers: TransferPool::default(),
             state: Mutex::new(None),
             account: AtomicU64::new(0),
@@ -550,6 +561,7 @@ impl Client {
             pfs: false,
             login: Login::default(),
             parse_mode: ParseMode::Disabled,
+            link_preview_options: None,
             options: Options::default(),
             ordered: false,
             catch_up: true,

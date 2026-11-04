@@ -9,6 +9,7 @@ pub struct EditInlineMedia<'a> {
     inline_message_id: InlineMessageId,
     media: InputMedia<'a>,
     reply_markup: Option<ReplyMarkup>,
+    business_connection_id: Option<String>,
 }
 
 impl Client {
@@ -18,13 +19,19 @@ impl Client {
         inline_message_id: InlineMessageId,
         media: InputMedia<'a>,
     ) -> EditInlineMedia<'a> {
-        EditInlineMedia { client: self, inline_message_id, media, reply_markup: None }
+        EditInlineMedia { client: self, inline_message_id, media, reply_markup: None, business_connection_id: None }
     }
 }
 
 impl EditInlineMedia<'_> {
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
+        self
+    }
+
+    /// Edits a message sent through a business connection.
+    pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
+        self.business_connection_id = Some(id.into());
         self
     }
 
@@ -46,7 +53,7 @@ impl EditInlineMedia<'_> {
             entities: (!entities.is_empty()).then_some(entities),
             rich_message: None,
         };
-        client.invoke_inline(dc_id, request).await
+        client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await
     }
 }
 

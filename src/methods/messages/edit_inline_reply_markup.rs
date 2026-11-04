@@ -3,23 +3,46 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{InlineKeyboardMarkup, InlineMessageId};
 
+#[must_use = "a request does nothing until it is awaited"]
+pub struct EditInlineReplyMarkup<'a> {
+    client: &'a Client,
+    inline_message_id: InlineMessageId,
+    reply_markup: Option<InlineKeyboardMarkup>,
+    business_connection_id: Option<String>,
+}
+
 impl Client {
-    pub async fn edit_inline_reply_markup(
+    /// `None` removes the keyboard.
+    pub fn edit_inline_reply_markup(
         &self,
         inline_message_id: InlineMessageId,
         reply_markup: Option<InlineKeyboardMarkup>,
-    ) -> Result<bool> {
-        let dc_id = inline_message_id.dc_id();
+    ) -> EditInlineReplyMarkup<'_> {
+        EditInlineReplyMarkup { client: self, inline_message_id, reply_markup, business_connection_id: None }
+    }
+}
+
+impl EditInlineReplyMarkup<'_> {
+    /// Edits a message sent through a business connection.
+    pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
+        self.business_connection_id = Some(id.into());
+        self
+    }
+
+    async fn send(self) -> Result<bool> {
+        let dc_id = self.inline_message_id.dc_id();
         let request = functions::messages::EditInlineBotMessage {
             no_webpage: false,
             invert_media: false,
-            id: inline_message_id.0,
+            id: self.inline_message_id.0,
             message: None,
             media: None,
-            reply_markup: reply_markup.as_ref().map(InlineKeyboardMarkup::write),
+            reply_markup: self.reply_markup.as_ref().map(InlineKeyboardMarkup::write),
             entities: None,
             rich_message: None,
         };
-        self.invoke_inline(dc_id, request).await
+        self.client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await
     }
 }
+
+into_future!(EditInlineReplyMarkup, bool);

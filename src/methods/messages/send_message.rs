@@ -3,7 +3,7 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::base;
-use crate::types::{Message, PeerRef, Text};
+use crate::types::{LinkPreviewOptions, Message, PeerRef, Text};
 
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendMessage<'a> {
@@ -11,6 +11,7 @@ pub struct SendMessage<'a> {
     chat_id: PeerRef,
     text: Text,
     parse_mode: Option<ParseMode>,
+    link_preview_options: Option<LinkPreviewOptions>,
     options: SendOptions,
 }
 
@@ -21,6 +22,7 @@ impl Client {
             chat_id: chat_id.into(),
             text: text.into(),
             parse_mode: None,
+            link_preview_options: None,
             options: SendOptions::default(),
         }
     }
@@ -51,10 +53,26 @@ impl SendMessage<'_> {
         self
     }
 
-    async fn send(self) -> Result<Message> {
+    /// Which link to preview, how, and whether to show it above the text. Replaces the client default.
+    pub fn link_preview_options(mut self, options: LinkPreviewOptions) -> Self {
+        self.link_preview_options = Some(options);
+        self
+    }
+
+    async fn send(mut self) -> Result<Message> {
+        let preview = self.client.link_preview(self.link_preview_options.as_ref()).map(|o| o.resolve());
         let (message, entities) = self.client.write_text(self.text, self.parse_mode).await?;
         let text = (message, (!entities.is_empty()).then_some(entities));
-        self.client.send_parsed(self.chat_id, None, text, None, self.options).await
+        let mut media = None;
+        if let Some(preview) = preview {
+            self.options.no_webpage |= preview.no_webpage;
+            self.options.invert_media = preview.invert_media;
+            // A disabled preview or an explicit `disable_web_page_preview` sends no web page media.
+            if !self.options.no_webpage {
+                media = preview.media;
+            }
+        }
+        self.client.send_parsed(self.chat_id, media, text, None, self.options).await
     }
 }
 
