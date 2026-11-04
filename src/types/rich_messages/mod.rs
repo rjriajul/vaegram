@@ -7,3 +7,4 @@ pub use block::{Align, RichBlock, RichButton, RichButtonStyle, RichListItem, Ric
 pub use input_rich_message::{InputRichMessage, InputRichMessageMedia};
 pub use rich_message::RichMessage;
 pub use rich_text::RichText;
+pub(crate) use rich_text::push_plain;
