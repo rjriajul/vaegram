@@ -151,6 +151,7 @@ mod tests {
             height: 1,
             file_size: 1,
             date: 0,
+            thumbs: Vec::new(),
             location,
         }
     }

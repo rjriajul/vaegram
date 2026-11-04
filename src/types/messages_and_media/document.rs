@@ -1,6 +1,6 @@
 use crate::file_id::{FileId, FileType, unique_id};
 use crate::raw::base;
-use crate::types::FileLocation;
+use crate::types::{FileLocation, Thumbnail};
 
 /// A general file: anything that isn't a video, audio, voice, animation, video note or sticker.
 #[derive(Clone, Debug)]
@@ -12,6 +12,8 @@ pub struct Document {
     pub mime_type: String,
     pub file_size: i64,
     pub date: i32,
+    /// Smaller copies of the file's preview.
+    pub thumbs: Vec<Thumbnail>,
     pub(crate) location: FileLocation,
 }
 
@@ -35,7 +37,35 @@ impl Document {
             mime_type: d.mime_type.clone(),
             file_size: d.size,
             date: d.date,
+            thumbs: Thumbnail::from_document(d),
             location: FileLocation { file_size: Some(d.size), ..FileLocation::from(&file_id) },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Document;
+    use crate::raw::{base, types};
+
+    #[test]
+    fn parses_thumbs() {
+        let thumb = types::PhotoSize { r#type: "m".into(), w: 320, h: 180, size: 4_000 };
+        let raw = types::Document {
+            id: 5,
+            access_hash: 6,
+            file_reference: vec![3],
+            date: 0,
+            mime_type: "application/pdf".into(),
+            size: 100,
+            thumbs: Some(vec![base::PhotoSize::PhotoSize(Box::new(thumb))]),
+            video_thumbs: None,
+            dc_id: 2,
+            attributes: Vec::new(),
+        };
+        let document = Document::parse(&base::Document::Document(Box::new(raw))).unwrap();
+        assert_eq!(document.thumbs.len(), 1);
+        assert_eq!((document.thumbs[0].width, document.thumbs[0].file_size), (320, 4_000));
+        assert_ne!(document.thumbs[0].file_id, document.file_id);
     }
 }

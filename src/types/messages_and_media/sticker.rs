@@ -1,7 +1,7 @@
 use crate::enums::StickerType;
 use crate::file_id::FileType;
 use crate::raw::{base, types};
-use crate::types::{Document, FileLocation, MaskPosition};
+use crate::types::{Document, FileLocation, MaskPosition, Thumbnail};
 
 use super::input_document;
 
@@ -23,6 +23,8 @@ pub struct Sticker {
     pub custom_emoji_id: Option<i64>,
     pub needs_repainting: bool,
     pub is_premium: bool,
+    /// Smaller copies of the file's preview.
+    pub thumbs: Vec<Thumbnail>,
     pub(crate) location: FileLocation,
 }
 
@@ -57,7 +59,7 @@ impl Sticker {
             }
         }
         let (kind, emoji, mask_position, needs_repainting, is_premium) = sticker?;
-        let Document { file_id, file_unique_id, id, mime_type, file_size, date, location, .. } = document;
+        let Document { file_id, file_unique_id, id, mime_type, file_size, date, thumbs, location, .. } = document;
         let (width, height) = image.or(video).unwrap_or_default();
         Some(Sticker {
             file_id,
@@ -76,6 +78,7 @@ impl Sticker {
             custom_emoji_id: (kind == StickerType::CustomEmoji).then_some(id),
             needs_repainting,
             is_premium,
+            thumbs,
             location,
         })
     }
@@ -123,6 +126,18 @@ pub(crate) mod tests {
 
     fn size(w: i32, h: i32) -> base::DocumentAttribute {
         base::DocumentAttribute::DocumentAttributeImageSize(types::DocumentAttributeImageSize { w, h })
+    }
+
+    #[test]
+    fn parses_thumbs() {
+        let thumb = types::PhotoSize { r#type: "m".into(), w: 128, h: 128, size: 900 };
+        let base::Document::Document(mut raw) = document(1, "image/webp", vec![sticker_attribute("x", None)]) else {
+            panic!()
+        };
+        raw.thumbs = Some(vec![base::PhotoSize::PhotoSize(Box::new(thumb))]);
+        let sticker = Sticker::parse(&base::Document::Document(raw)).unwrap();
+        assert_eq!(sticker.thumbs.len(), 1);
+        assert_eq!((sticker.thumbs[0].width, sticker.thumbs[0].file_size), (128, 900));
     }
 
     #[test]

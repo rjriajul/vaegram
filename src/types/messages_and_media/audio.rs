@@ -1,5 +1,5 @@
 use crate::raw::types;
-use crate::types::{Document, FileLocation};
+use crate::types::{Document, FileLocation, Thumbnail};
 
 #[derive(Debug, Clone)]
 pub struct Audio {
@@ -13,12 +13,15 @@ pub struct Audio {
     pub duration: i32,
     pub performer: Option<String>,
     pub title: Option<String>,
+    /// Smaller copies of the file's preview.
+    pub thumbs: Vec<Thumbnail>,
     pub(crate) location: FileLocation,
 }
 
 impl Audio {
     pub(crate) fn parse(document: Document, audio: Option<&types::DocumentAttributeAudio>) -> Audio {
-        let Document { file_id, file_unique_id, id, file_name, mime_type, file_size, date, location } = document;
+        let Document { file_id, file_unique_id, id, file_name, mime_type, file_size, date, thumbs, location } =
+            document;
         Audio {
             file_id,
             file_unique_id,
@@ -30,6 +33,7 @@ impl Audio {
             duration: audio.map_or(0, |a| a.duration),
             performer: audio.and_then(|a| a.performer.clone()),
             title: audio.and_then(|a| a.title.clone()),
+            thumbs,
             location,
         }
     }

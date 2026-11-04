@@ -1,5 +1,5 @@
 use crate::raw::types;
-use crate::types::{Document, FileLocation};
+use crate::types::{Document, FileLocation, Thumbnail};
 
 #[derive(Debug, Clone)]
 pub struct Animation {
@@ -13,6 +13,8 @@ pub struct Animation {
     pub width: i32,
     pub height: i32,
     pub duration: i32,
+    /// Smaller copies of the file's preview.
+    pub thumbs: Vec<Thumbnail>,
     pub(crate) location: FileLocation,
 }
 
@@ -23,7 +25,8 @@ impl Animation {
         video: Option<&types::DocumentAttributeVideo>,
         size: Option<(i32, i32)>,
     ) -> Animation {
-        let Document { file_id, file_unique_id, id, file_name, mime_type, file_size, date, location } = document;
+        let Document { file_id, file_unique_id, id, file_name, mime_type, file_size, date, thumbs, location } =
+            document;
         let (width, height) = video.map(|v| (v.w, v.h)).or(size).unwrap_or_default();
         let duration = video.map_or(0, |v| v.duration as i32);
         Animation {
@@ -37,6 +40,7 @@ impl Animation {
             width,
             height,
             duration,
+            thumbs,
             location,
         }
     }
