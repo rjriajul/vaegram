@@ -1,8 +1,17 @@
+#[cfg(test)]
+pub(crate) mod conformance;
+mod engine;
+mod file_format;
+mod file_storage;
+mod memory_storage;
 pub mod recording;
 pub mod session_string;
 pub mod state;
 mod store;
 
+pub use engine::{PeerRecord, Storage, StorageFuture, StoredState};
+pub use file_storage::FileStorage;
+pub use memory_storage::MemoryStorage;
 #[cfg(test)]
 pub(crate) use store::Recording;
 pub(crate) use store::Store;
@@ -17,6 +26,7 @@ use crate::crypto::random;
 
 /// A login as a session string carries it. Build one with [`SessionData::new`] and set the other fields.
 #[non_exhaustive]
+#[derive(Clone)]
 pub struct SessionData {
     pub dc_id: i32,
     pub test_mode: bool,
