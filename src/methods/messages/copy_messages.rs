@@ -16,6 +16,8 @@ pub struct CopyMessages<'a> {
 }
 
 impl Client {
+    /// An `Err(Error::Unexpected(..))` means the reply held no update list, so the copies may already have been
+    /// made: check the destination chat before sending again.
     pub fn copy_messages<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,
