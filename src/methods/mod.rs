@@ -52,7 +52,7 @@ pub use folders::*;
 pub use invite_links::*;
 pub use listeners::*;
 pub use messages::*;
-pub(crate) use messages::{DownloadSource, StreamShared, caption_setters, geo_point, input_venue};
+pub(crate) use messages::{DownloadSource, Routable, StreamShared, caption_setters, geo_point, input_venue};
 pub use password::*;
 pub use payments::*;
 pub use phone::*;

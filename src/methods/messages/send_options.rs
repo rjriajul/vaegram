@@ -99,10 +99,21 @@ macro_rules! send_builder {
             }
         }
 
+        impl $crate::methods::Routable for $builder<'_> {
+            fn options(&mut self) -> &mut $crate::methods::messages::SendOptions {
+                &mut self.options
+            }
+        }
+
         into_future!($builder, $output);
     };
 }
 pub(crate) use send_builder;
+
+/// A send builder whose topic, direct-messages topic and business connection can be set from a message.
+pub(crate) trait Routable {
+    fn options(&mut self) -> &mut SendOptions;
+}
 
 macro_rules! caption_setters {
     ($builder:ident $(. $m:ident)?) => {
@@ -158,7 +169,7 @@ impl SendOptions {
             Some(user) => Some(client.resolve(user).await?.1),
             None => None,
         };
-        let mut reply = match (&self.reply_to, thread) {
+        let reply = match (&self.reply_to, thread) {
             (Some(reply), _) => reply.write(client, chat_id).await?,
             (None, Some(thread)) => ReplyParameters::new(thread).write(client, chat_id).await?,
             (None, None) => {
@@ -167,10 +178,12 @@ impl SendOptions {
                 return Ok(Some(base::InputReplyTo::InputReplyToMonoForum(Box::new(reply))));
             }
         };
+        // inputReplyToStory has no topic or direct-messages field, so a story reply goes out as written.
+        let base::InputReplyTo::InputReplyToMessage(mut reply) = reply else { return Ok(Some(reply)) };
         // top_msg_id is set only when replying to another message in the topic.
         reply.top_msg_id = thread.filter(|&id| id != reply.reply_to_msg_id);
         reply.monoforum_peer_id = monoforum_peer_id;
-        Ok(Some(base::InputReplyTo::InputReplyToMessage(Box::new(reply))))
+        Ok(Some(base::InputReplyTo::InputReplyToMessage(reply)))
     }
 }
 
@@ -355,5 +368,21 @@ mod tests {
         let options = SendOptions { reply_to, direct_messages_topic_id: Some(42.into()), ..Default::default() };
         let m = message(written(client, options).await);
         assert_eq!((m.reply_to_msg_id, m.monoforum_peer_id), (3, Some(user)));
+    }
+
+    #[tokio::test]
+    async fn a_story_reply_ignores_topic_and_direct_messages() {
+        let client = &Client::offline();
+        let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 42, access_hash: 1 }));
+        client.0.peers.lock().unwrap().insert(42, user.clone());
+
+        let options = SendOptions {
+            reply_to: Some(ReplyParameters::story(42, 8)),
+            message_thread_id: Some(7),
+            direct_messages_topic_id: Some(42.into()),
+            ..Default::default()
+        };
+        let story = types::InputReplyToStory { peer: user, story_id: 8 };
+        assert_eq!(written(client, options).await, Some(base::InputReplyTo::InputReplyToStory(Box::new(story))));
     }
 }

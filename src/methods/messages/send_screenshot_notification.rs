@@ -1,7 +1,7 @@
 use crate::Client;
 use crate::crypto::random;
 use crate::errors::Result;
-use crate::raw::{base, functions};
+use crate::raw::functions;
 use crate::types::{PeerRef, ReplyParameters};
 
 impl Client {
@@ -9,11 +9,8 @@ impl Client {
     pub async fn send_screenshot_notification(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
         let (chat_id, peer) = self.resolve(&chat_id.into()).await?;
         let reply_to = ReplyParameters::new(0).write(self, chat_id).await?;
-        let request = functions::messages::SendScreenshotNotification {
-            peer,
-            reply_to: base::InputReplyTo::InputReplyToMessage(Box::new(reply_to)),
-            random_id: i64::from_le_bytes(random()),
-        };
+        let request =
+            functions::messages::SendScreenshotNotification { peer, reply_to, random_id: i64::from_le_bytes(random()) };
         self.invoke(&request).await?;
         Ok(())
     }

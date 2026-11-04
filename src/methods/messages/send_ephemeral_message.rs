@@ -87,10 +87,7 @@ impl<'a> SendEphemeralMessage<'a> {
         entities: Option<Vec<base::MessageEntity>>,
     ) -> Result<functions::ephemeral::SendMessage> {
         let reply_to = match self.reply_to {
-            Some(ReplyTo::Message(reply)) => {
-                let reply = reply.write(self.client, chat_id).await?;
-                Some(base::InputReplyTo::InputReplyToMessage(Box::new(reply)))
-            }
+            Some(ReplyTo::Message(reply)) => Some(reply.write(self.client, chat_id).await?),
             Some(ReplyTo::Ephemeral(id)) => {
                 let reply = types::InputReplyToEphemeralMessage { id };
                 Some(base::InputReplyTo::InputReplyToEphemeralMessage(reply))
