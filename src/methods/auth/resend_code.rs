@@ -19,7 +19,7 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use crate::Client;
-    use crate::enums::SentCodeType;
+    use crate::enums::{NextCodeType, SentCodeType};
     use crate::errors::{Error, Result, RpcError};
     use crate::methods::auth::send_code::tests::{logged_in, payment_required, sent_code, sms_code};
     use crate::raw::{CREDENTIALS, Identifiable, Serializable, base, functions, types};
@@ -50,7 +50,7 @@ mod tests {
         let expected = SentCode {
             kind: SentCodeType::Call,
             phone_code_hash: "h2".into(),
-            next_kind: Some(SentCodeType::FlashCall),
+            next_kind: Some(NextCodeType::FlashCall),
             timeout: Some(120),
         };
         assert_eq!(resend(Ok(reply)).await.unwrap(), expected);

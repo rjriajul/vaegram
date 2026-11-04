@@ -1,33 +1,13 @@
 use crate::Client;
-use crate::enums::SentCodeType;
+use crate::enums::{NextCodeType, SentCodeType};
 use crate::errors::{Error, Result};
-use crate::raw::{base, functions, types};
+use crate::raw::base;
 use crate::types::SentCode;
 
 impl Client {
     pub async fn send_code(&self, phone_number: &str) -> Result<SentCode> {
-        let request = functions::auth::SendCode {
-            phone_number: phone_number.into(),
-            api_id: self.0.api_id,
-            api_hash: self.0.api_hash.clone(),
-            settings: code_settings(),
-        };
-        parse_sent_code(self.invoke_migrating(&request).await?)
+        self.send_phone_number_code(phone_number).await
     }
-}
-
-pub(super) fn code_settings() -> base::CodeSettings {
-    base::CodeSettings::CodeSettings(Box::new(types::CodeSettings {
-        allow_flashcall: false,
-        current_number: false,
-        allow_app_hash: false,
-        allow_missed_call: false,
-        allow_firebase: false,
-        unknown_number: false,
-        logout_tokens: None,
-        token: None,
-        app_sandbox: None,
-    }))
 }
 
 pub(super) fn parse_sent_code(raw: base::auth::SentCode) -> Result<SentCode> {
@@ -35,7 +15,7 @@ pub(super) fn parse_sent_code(raw: base::auth::SentCode) -> Result<SentCode> {
         base::auth::SentCode::SentCode(s) => Ok(SentCode {
             kind: SentCodeType::parse(&s.r#type),
             phone_code_hash: s.phone_code_hash,
-            next_kind: s.next_type.as_ref().map(SentCodeType::parse_next),
+            next_kind: s.next_type.as_ref().map(NextCodeType::parse),
             timeout: s.timeout,
         }),
         base::auth::SentCode::SentCodeSuccess(_) => Err(Error::Unexpected("logged in without a code")),
