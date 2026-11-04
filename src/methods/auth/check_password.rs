@@ -8,6 +8,6 @@ impl Client {
         let base::account::Password::Password(p) = self.invoke(&functions::account::GetPassword {}).await?;
         let request = functions::auth::CheckPassword { password: compute_password_check(&p, password)? };
         let auth = self.invoke(&request).await?;
-        self.authorized(auth)
+        self.authorized(auth).await
     }
 }

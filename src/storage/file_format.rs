@@ -19,8 +19,7 @@ use std::io;
 
 use super::engine::{PeerRecord, StoredState};
 use super::memory_storage::Tables;
-use super::session_string;
-use super::state::UpdateState;
+use super::{UpdateState, session_string};
 use crate::session::Salt;
 
 const MAGIC: &[u8; 16] = b"vaegram-session\0";

@@ -7,7 +7,7 @@ impl Client {
     pub async fn recover_password(&self, recovery_code: &str) -> Result<User> {
         let request = functions::auth::RecoverPassword { code: recovery_code.into(), new_settings: None };
         let auth = self.invoke(&request).await?;
-        self.authorized_user(auth)
+        self.authorized_user(auth).await
     }
 }
 

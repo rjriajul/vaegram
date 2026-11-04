@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::Duration;
@@ -22,8 +22,9 @@ use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Auth, Lease, TransferPool};
 use crate::session::{Call, Events, Observer, Salt, Session, UpdatesRx, init_connection};
 use crate::storage::recording::Recorder;
-use crate::storage::state::UpdateState;
-use crate::storage::{FileStore, MemoryStore, SessionData, SessionStore, Store, session_string};
+use crate::storage::{
+    FileStorage, MemoryStorage, PeerCache, SessionData, Storage, Store, StoredState, UpdateState, session_string,
+};
 use crate::types::{Json, LinkPreviewOptions};
 
 const DEFAULT_DC: i32 = 2;
@@ -46,7 +47,8 @@ pub struct ClientBuilder {
     catch_up: bool,
     max_concurrent_handlers: Option<usize>,
     record: Option<PathBuf>,
-    store: Option<Arc<Store>>,
+    engine: Option<Arc<dyn Storage>>,
+    workdir: Option<PathBuf>,
     client_platform: String,
     listener_timeout: Option<Duration>,
     unallowed_click_alert: Option<Arc<str>>,
@@ -131,8 +133,11 @@ impl ClientBuilder {
         self
     }
 
+    /// Logs in with `s`, kept in memory; the last of this, [`storage_engine`](Self::storage_engine) and
+    /// [`in_memory`](Self::in_memory) wins.
     pub fn session_string(mut self, s: impl Into<String>) -> Self {
         self.session_string = Some(s.into());
+        self.engine = None;
         self
     }
 
@@ -257,19 +262,33 @@ impl ClientBuilder {
         self
     }
 
-    /// Keeps the login and the update state in `store` instead of `<name>.session` and `<name>.state`; see
-    /// [`SessionStore`] for what a store has to protect. With [`session_string`](Self::session_string) too, the
-    /// client starts from the string and saves to `store`.
-    pub fn store(mut self, store: impl SessionStore) -> Self {
-        let store: Arc<Store> = Arc::new(Store::new(store));
-        self.store = Some(store);
+    /// Keeps the login, the update state and known peers in `engine` instead of `<name>.session`; the last of this,
+    /// [`session_string`](Self::session_string) and [`in_memory`](Self::in_memory) wins. The engine runs on a
+    /// thread of the client's own.
+    pub fn storage_engine(mut self, engine: impl Storage) -> Self {
+        self.engine = Some(Arc::new(engine));
+        self.session_string = None;
         self
     }
 
-    /// Keeps the login and the update state in memory only: nothing is written, and the next run logs in again
-    /// unless the login is exported with `export_session_string`.
+    /// Keeps everything in memory only: nothing is written, and the next run logs in again unless the login is
+    /// exported with `export_session_string`.
     pub fn in_memory(self) -> Self {
-        self.store(MemoryStore::default())
+        self.storage_engine(MemoryStorage::new())
+    }
+
+    /// The directory the default `<name>.session` file goes in; the working directory if unset. Ignored when
+    /// another storage is chosen.
+    pub fn workdir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.workdir = Some(dir.into());
+        self
+    }
+
+    fn default_engine(&self) -> FileStorage {
+        match &self.workdir {
+            Some(dir) => FileStorage::new(dir.join(&self.name)),
+            None => FileStorage::new(Path::new(&self.name)),
+        }
     }
 
     /// The platform web apps are told the client runs on (`android`, `ios`, `tdesktop`, …), `"unknown"` by
@@ -326,14 +345,16 @@ impl ClientBuilder {
         if let Some(path) = &self.record {
             self.options.record = Some(Recorder::create(path)?);
         }
-        let store: Arc<Store> = match self.store.take() {
-            Some(store) => store,
-            None if self.session_string.is_some() => Arc::new(Store::new(MemoryStore::default())),
-            None => Arc::new(Store::new(FileStore::new(&self.name))),
+        let engine: Arc<dyn Storage> = match (self.engine.take(), &self.session_string) {
+            (Some(engine), _) => engine,
+            (None, Some(_)) => Arc::new(MemoryStorage::new()),
+            (None, None) => Arc::new(self.default_engine()),
         };
+        let store = Arc::new(Store::new(engine));
+        store.open().await?;
         let stored = match &self.session_string {
             Some(s) => Some(session_string::parse(s).map_err(Error::InvalidSession)?),
-            None => store.load_session()?,
+            None => store.load_session().await?,
         };
         let (dc_id, auth_key, user_id, is_bot, test_mode, addr) = match &stored {
             Some(s) => (s.dc_id, Some(s.auth_key), s.user_id, s.is_bot, s.test_mode, s.addr),
@@ -346,7 +367,8 @@ impl ClientBuilder {
         let first = pinned.or_else(|| addr.filter(|a| a.is_ipv6() == self.ipv6)).or(built_in);
         let first = first.ok_or(Error::InvalidDc(dc_id))?;
         let dc = |addr| Dc { id: dc_id, addr, test: test_mode };
-        let (peers, state, salt) = store.load_state(user_id)?;
+        let (state, salt) = store.load_state(user_id).await?;
+        let warm = store.warm().await?;
         let events = Arc::new(Events::default());
         let saved = auth_key.map(|key| (key, salt));
         let try_addr = |addr| connect(dc(addr), saved, self.api_id, &self.options, events.clone(), self.pfs);
@@ -356,6 +378,7 @@ impl ClientBuilder {
             (result, _) => result?,
         };
         let mut inner = Inner::new(session, updates, store);
+        inner.peers.get_mut().unwrap_or_else(PoisonError::into_inner).load(warm);
         inner.api_id = self.api_id;
         inner.api_hash = self.api_hash;
         inner.dcs = RwLock::new(data_center::table(&dc_options, self.ipv6, false));
@@ -368,7 +391,6 @@ impl ClientBuilder {
         inner.link_preview_options = self.link_preview_options;
         inner.state = Mutex::new(state);
         inner.me = Mutex::new(Me { id: user_id, is_bot, premium: None, username: None });
-        inner.peers = Mutex::new(peers);
         inner.ordered = self.ordered;
         inner.catch_up = self.catch_up;
         inner.handler_permits = self.max_concurrent_handlers.map(|n| Arc::new(Semaphore::new(n.max(1))));
@@ -389,7 +411,7 @@ impl ClientBuilder {
                 Err(e) => return Err(e),
             }
         }
-        client.save()?;
+        client.save().await?;
         Ok((client, self.login))
     }
 }
@@ -424,7 +446,7 @@ pub(crate) struct Inner {
     // state back.
     pub(crate) account: AtomicU64,
     pub(crate) me: Mutex<Me>,
-    pub(crate) peers: Mutex<HashMap<i64, base::InputPeer>>,
+    pub(crate) peers: Mutex<PeerCache>,
     pub(crate) handlers: Routes,
     pub(crate) ordered: bool,
     // Whether `run` resumes from the saved update state or starts from now.
@@ -500,6 +522,7 @@ impl Inner {
             test_mode: false,
             ipv6: false,
             pinned: None,
+            peers: Mutex::new(PeerCache::new(store.clone())),
             store,
             options: Options::default(),
             parse_mode: Mutex::new(ParseMode::Disabled),
@@ -508,7 +531,6 @@ impl Inner {
             state: Mutex::new(None),
             account: AtomicU64::new(0),
             me: Mutex::new(Me::default()),
-            peers: Mutex::new(HashMap::new()),
             handlers: Routes::default(),
             ordered: false,
             catch_up: true,
@@ -522,30 +544,44 @@ impl Inner {
         }
     }
 
-    fn encode_state(&self, state: Option<&UpdateState>) -> (u64, Vec<u8>) {
-        let user_id = self.me.lock().unwrap_or_else(PoisonError::into_inner).id;
+    fn stored(&self, update: Option<UpdateState>) -> StoredState {
+        let owner = self.me.lock().unwrap_or_else(PoisonError::into_inner).id;
         let salt = self.session.read().unwrap_or_else(PoisonError::into_inner).salt();
-        let peers = self.peers.lock().unwrap_or_else(PoisonError::into_inner);
-        (self.store.ticket(), crate::storage::state::encode(user_id, salt, &peers, state))
+        StoredState::new(owner, salt, update)
     }
 
-    /// Returns once the store has the state, so a stopped client resumes exactly where it left off.
+    /// Returns once the engine has the state, so a stopped client resumes exactly where it left off.
     pub(crate) async fn save_state(&self, state: &UpdateState) {
-        let (store, (ticket, bytes)) = (self.store.clone(), self.encode_state(Some(state)));
-        let _ = tokio::task::spawn_blocking(move || store.save_state(ticket, &bytes)).await;
+        self.store.queue_state(self.stored(Some(state.clone())));
+        self.store.flush().await;
     }
 
+    /// Written with the next flush of the store thread.
     pub(crate) fn save_state_in_background(&self, state: &UpdateState) {
-        let (store, (ticket, bytes)) = (self.store.clone(), self.encode_state(Some(state)));
-        tokio::task::spawn_blocking(move || store.save_state(ticket, &bytes));
+        self.store.queue_state(self.stored(Some(state.clone())));
+    }
+
+    /// Points the client at `engine`, for tests that check what reaches it.
+    #[cfg(test)]
+    pub(crate) fn set_store(&mut self, engine: Arc<dyn Storage>) {
+        self.store = Arc::new(Store::new(engine));
+        self.peers.get_mut().unwrap().set_store(self.store.clone());
     }
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        let state = self.state.get_mut().ok().and_then(Option::take);
-        let (ticket, bytes) = self.encode_state(state.as_ref());
-        self.store.save_state(ticket, &bytes);
+        let update = self.state.get_mut().ok().and_then(Option::take);
+        let state = self.stored(update);
+        if state.update.is_some() {
+            self.store.finish(Some(state));
+        } else {
+            // No update state yet, but a logged-in session keeps its salt; the saved update stays as it is.
+            if state.owner != 0 {
+                self.store.queue_salt(state.owner, state.salt);
+            }
+            self.store.finish(None);
+        }
     }
 }
 
@@ -567,7 +603,8 @@ impl Client {
             catch_up: true,
             max_concurrent_handlers: None,
             record: None,
-            store: None,
+            engine: None,
+            workdir: None,
             client_platform: "unknown".into(),
             listener_timeout: Some(LISTENER_TIMEOUT),
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
@@ -578,7 +615,7 @@ impl Client {
 
     #[cfg(test)]
     pub(crate) fn offline() -> Client {
-        let store = Arc::new(Store::new(MemoryStore::default()));
+        let store = Arc::new(Store::new(Arc::new(MemoryStorage::new())));
         let mut inner = Inner::new(Session::offline(), UpdatesRx::offline(), store);
         inner.me.get_mut().unwrap().is_bot = true;
         Client(Arc::new(inner), None)
@@ -671,11 +708,12 @@ impl Client {
         *self.0.media_dcs.write().unwrap() = data_center::table(&dc_options, self.0.ipv6, true);
         *self.0.session.write().unwrap() = session;
         *self.0.updates.lock().await = updates;
-        let mut me = self.0.me.lock().unwrap();
-        (me.id, me.premium) = (0, None);
-        drop(me);
+        {
+            let mut me = self.0.me.lock().unwrap();
+            (me.id, me.premium) = (0, None);
+        }
         self.0.transfers.clear();
-        self.save()
+        self.save().await
     }
 
     pub(crate) fn forget_account(&self) {
@@ -760,8 +798,8 @@ impl Client {
         }
     }
 
-    pub(crate) fn save(&self) -> Result<()> {
-        Ok(self.0.store.save_session(&self.session_data())?)
+    pub(crate) async fn save(&self) -> Result<()> {
+        Ok(self.0.store.save_session(self.session_data()).await?)
     }
 }
 
@@ -810,21 +848,15 @@ mod tests {
     use super::{Client, Me};
     use crate::errors::Error;
     use crate::raw::{base, types};
-    use crate::session::Salt;
     use crate::session::test_dc::TestDc;
-    use crate::storage::state::{self, Peers, UpdateState};
-    use crate::storage::{self, FileStore, Recording, SessionStore, Store};
+    use crate::storage::{FileStorage, MemoryStorage, PeerRecord, Recording, SessionData, Storage, UpdateState};
     use crate::types::Json;
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("vaegram-client-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    fn peers() -> Peers {
-        let peer = types::InputPeerUser { user_id: 777, access_hash: 5 };
-        Peers::from([(777, base::InputPeer::InputPeerUser(Box::new(peer)))])
     }
 
     #[test]
@@ -877,92 +909,99 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_file_store_writes_the_bytes_the_file_code_wrote() {
+    async fn the_default_file_keeps_the_login_the_state_and_known_peers() {
         let dir = temp_dir("files");
         let (mut client, _) = Client::scripted(Vec::new());
-        Arc::get_mut(&mut client.0).unwrap().store = Arc::new(Store::new(FileStore::new(dir.join("bot"))));
+        Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
         *client.0.me.lock().unwrap() = Me { id: 1001, is_bot: true, ..Me::default() };
-        *client.0.peers.lock().unwrap() = peers();
+        let peer = types::InputPeerUser { user_id: 777, access_hash: 5 };
+        client.0.peers.lock().unwrap().insert(777, base::InputPeer::InputPeerUser(Box::new(peer)));
         let update_state = UpdateState { pts: 50, date: 1, ..Default::default() };
-        client.save().unwrap();
+        client.save().await.unwrap();
         client.0.save_state(&update_state).await;
-        // What the code before the store wrote: storage::save, and write_private of the encoded state.
-        storage::save(&dir.join("old.session"), &client.session_data()).unwrap();
-        let old_state = state::encode(1001, client.session().salt(), &peers(), Some(&update_state));
-        storage::write_private(&dir.join("old.state"), &old_state).unwrap();
+        drop(client);
 
-        let read = |name: &str| std::fs::read(dir.join(name)).unwrap();
-        let files = [read("bot.session"), read("old.session"), read("bot.state"), read("old.state")];
-        let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
-        names.sort();
-        #[cfg(unix)]
-        let modes = ["bot.session", "bot.state"].map(|name| {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::metadata(dir.join(name)).unwrap().permissions().mode() & 0o777
-        });
+        let file = FileStorage::new(dir.join("bot"));
+        let session = file.load_session().await.unwrap().map(|s| (s.user_id, s.is_bot));
+        let state = file.load_state().await.unwrap();
+        let peers = file.export_peers(None).await.unwrap();
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(files[0], files[1]);
-        assert_eq!(files[2], files[3]);
-        assert_eq!(names, ["bot.session", "bot.state", "old.session", "old.state"]);
-        #[cfg(unix)]
-        assert_eq!(modes, [0o600, 0o600]);
+        assert_eq!(session, Some((1001, true)));
+        assert_eq!(state.map(|s| (s.owner, s.update)), Some((1001, Some(update_state))));
+        assert_eq!(peers.iter().map(|p| (p.id, p.access_hash)).collect::<Vec<_>>(), [(777, 5)]);
+        assert_eq!(names, ["bot.session"], "one file, no .state");
     }
 
     #[tokio::test]
-    async fn files_from_before_the_store_still_open() {
-        let dc = TestDc::start([5; 256], false).await;
-        let (dir, login) = (temp_dir("old-files"), dc.session_string([5; 256]));
-        let update_state = UpdateState { pts: 50, date: 1, ..Default::default() };
-        std::fs::write(dir.join("bot.session"), &login).unwrap();
-        std::fs::write(dir.join("bot.state"), state::encode(0, Salt::default(), &peers(), Some(&update_state)))
-            .unwrap();
-
+    async fn a_session_file_from_an_older_vaegram_is_refused_untouched() {
+        let dir = temp_dir("old-files");
+        let old = "VAE_BAQAADA5AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAx";
+        std::fs::write(dir.join("bot.session"), old).unwrap();
         let client = Client::builder(dir.join("bot").to_str().unwrap(), 1, "hash").connect().await;
-        let opened = client.map(|c| {
-            let known = c.0.peers.lock().unwrap().clone();
-            (known, c.0.state.lock().unwrap().clone())
-        });
-        let saved = std::fs::read(dir.join("bot.session"));
+        let left = std::fs::read_to_string(dir.join("bot.session")).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(opened.unwrap(), (peers(), Some(update_state)));
-        assert_eq!(saved.unwrap(), login.into_bytes(), "the login is saved back unchanged");
+        let Err(Error::Io(e)) = client else { panic!("an old file opened") };
+        assert!(e.to_string().contains("log in again"), "{e}");
+        assert_eq!(left, old);
     }
 
     #[tokio::test]
-    async fn a_custom_store_is_read_on_connect_and_given_the_login() {
+    async fn a_storage_engine_is_read_on_connect_and_given_the_login() {
         let dc = TestDc::start([5; 256], false).await;
-        let login = dc.session_string([5; 256]);
-        let store = Arc::new(Recording::default());
-        store.save("session", login.as_bytes()).unwrap();
-
-        let client = Client::builder("custom-store", 1, "hash").store(store.clone()).connect().await;
+        let login = storage_session(&dc);
+        let engine = Arc::new(Recording::default());
+        engine.save_session(&login).await.unwrap();
+        let client = Client::builder("custom-store", 1, "hash").storage_engine(engine.clone()).connect().await;
         drop(client.unwrap());
-        assert_eq!(store.calls()[..4], ["save session", "load session", "load state", "save session"]);
-        assert_eq!(store.value("session"), Some(login.into_bytes()));
+        let calls = engine.calls();
+        assert_eq!(calls[..6], ["save_session", "open", "load_session", "load_state", "export_peers", "save_session"]);
+        assert_eq!(calls.last(), Some(&"close"));
         assert!(!Path::new("custom-store.session").exists());
     }
 
-    #[tokio::test]
-    async fn a_session_string_is_saved_into_a_given_store() {
-        let dc = TestDc::start([5; 256], false).await;
-        let login = dc.session_string([5; 256]);
-        let store = Arc::new(Recording::default());
+    fn storage_session(dc: &TestDc) -> SessionData {
+        crate::storage::session_string::parse(&dc.session_string([5; 256])).unwrap()
+    }
 
-        let builder = Client::builder("imported", 1, "hash").session_string(login.clone()).store(store.clone());
-        drop(builder.connect().await.unwrap());
-        assert_eq!(store.calls()[..2], ["load state", "save session"]);
-        assert_eq!(store.value("session"), Some(login.into_bytes()));
+    #[test]
+    fn the_last_of_storage_engine_session_string_and_in_memory_wins() {
+        let string = Client::builder("a", 1, "hash").in_memory().session_string("x");
+        assert!(string.engine.is_none() && string.session_string.is_some());
+        let engine = Client::builder("a", 1, "hash").session_string("x").storage_engine(MemoryStorage::new());
+        assert!(engine.engine.is_some() && engine.session_string.is_none());
+    }
+
+    #[test]
+    fn workdir_joins_the_name() {
+        let dir = std::env::temp_dir().join("bots");
+        let builder = Client::builder("echo", 1, "hash").workdir(&dir);
+        assert_eq!(builder.default_engine().path(), dir.join("echo.session"));
+        assert_eq!(Client::builder("a/echo", 1, "hash").default_engine().path(), Path::new("a/echo.session"));
+    }
+
+    #[tokio::test]
+    async fn a_cold_peer_comes_from_the_store_without_a_request() {
+        let engine = Arc::new(MemoryStorage::new());
+        engine.update_peers(&[PeerRecord::new(777, 5)]).await.unwrap();
+        let (mut client, mut sent) = Client::scripted(Vec::new());
+        Arc::get_mut(&mut client.0).unwrap().set_store(engine);
+        let peer = client.resolve_peer(777).await.unwrap();
+        let expected = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 777, access_hash: 5 }));
+        assert_eq!(peer, expected);
+        assert!(sent.try_recv().is_err(), "a request went out");
+        assert!(client.0.peers.lock().unwrap().contains_key(&777), "and it stays cached");
     }
 
     #[tokio::test]
     async fn an_in_memory_client_writes_no_files() {
-        assert!(Client::builder("memory", 1, "hash").in_memory().store.is_some());
+        assert!(Client::builder("memory", 1, "hash").in_memory().engine.is_some());
         let dc = TestDc::start([5; 256], false).await;
         let dir = temp_dir("memory");
         let builder = Client::builder(dir.join("bot").to_str().unwrap(), 1, "hash").in_memory();
         let client = builder.session_string(dc.session_string([5; 256])).connect().await.unwrap();
         client.0.save_state(&UpdateState { pts: 1, date: 1, ..Default::default() }).await;
-        client.save().unwrap();
+        client.save().await.unwrap();
         drop(client);
         let files = std::fs::read_dir(&dir).unwrap().count();
         let _ = std::fs::remove_dir_all(&dir);
@@ -998,7 +1037,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failing_store_fails_connect_instead_of_panicking() {
-        let result = Client::builder("failing-store", 1, "hash").store(Recording::failing()).connect().await;
+        let result = Client::builder("failing-store", 1, "hash").storage_engine(Recording::failing()).connect().await;
         assert!(matches!(result, Err(Error::Io(_))), "{result:?}");
     }
 
@@ -1017,12 +1056,11 @@ mod tests {
     async fn an_imported_string_learns_who_it_is() {
         let dc = TestDc::start([5; 256], false).await;
         dc.sign_in(4242);
-        let store = Arc::new(Recording::default());
         let builder = Client::builder("imported-user", 1, "hash").session_string(imported_string(&dc));
-        let client = builder.store(store.clone()).connect().await.unwrap();
+        let client = builder.connect().await.unwrap();
         assert_eq!(client.0.me.lock().unwrap().id, 4242);
-        let saved = String::from_utf8(store.value("session").unwrap()).unwrap();
-        assert_eq!(storage::session_string::parse(&saved).unwrap().user_id, 4242, "the store gets the account");
+        let saved = client.0.store.load_session().await.unwrap().map(|s| s.user_id);
+        assert_eq!(saved, Some(4242), "the store gets the account");
         assert_eq!(user_lookups(&dc), 1);
 
         // Our own strings say who they are, even before sign-in: no lookup.

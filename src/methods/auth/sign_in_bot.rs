@@ -11,6 +11,6 @@ impl Client {
             bot_auth_token: token.into(),
         };
         let auth = self.invoke_migrating(&request).await?;
-        self.authorized(auth)
+        self.authorized(auth).await
     }
 }

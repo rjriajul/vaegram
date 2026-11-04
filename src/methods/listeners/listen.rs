@@ -60,7 +60,7 @@ mod tests {
     use crate::filters;
     use crate::raw::{Serializable, base, types};
     use crate::session::UpdatesRx;
-    use crate::storage::state::UpdateState;
+    use crate::storage::UpdateState;
     use crate::types::{CallbackQuery, Message};
 
     #[tokio::test(start_paused = true)]

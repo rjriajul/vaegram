@@ -4,25 +4,36 @@ mod engine;
 mod file_format;
 mod file_storage;
 mod memory_storage;
+mod peer_cache;
 pub mod recording;
 pub mod session_string;
-pub mod state;
 mod store;
 
 pub use engine::{PeerRecord, Storage, StorageFuture, StoredState};
 pub use file_storage::FileStorage;
 pub use memory_storage::MemoryStorage;
+pub(crate) use peer_cache::{PeerCache, input_peer};
 #[cfg(test)]
 pub(crate) use store::Recording;
 pub(crate) use store::Store;
-pub use store::{FileStore, MemoryStore, SessionStore};
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::path::Path;
 
 use crate::crypto::random;
+
+/// Where updates resume after a restart: the account's pts, qts, date and seq, and each channel's pts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UpdateState {
+    pub pts: i32,
+    pub qts: i32,
+    pub date: i32,
+    pub seq: i32,
+    pub channels: HashMap<i64, i32>,
+}
 
 /// A login as a session string carries it. Build one with [`SessionData::new`] and set the other fields.
 #[non_exhaustive]
@@ -44,22 +55,7 @@ impl SessionData {
     }
 }
 
-pub fn load(path: &Path) -> io::Result<Option<SessionData>> {
-    let text = match fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    session_string::parse(&text)
-        .map(Some)
-        .map_err(|why| io::Error::new(io::ErrorKind::InvalidData, format!("{}: {why}", path.display())))
-}
-
-pub fn save(path: &Path, data: &SessionData) -> io::Result<()> {
-    write_private(path, session_string::export(data).as_bytes())
-}
-
-pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     // A fresh name opened with create_new never reuses a file or follows a link someone left at a guessable name,
     // and the 0600 mode is set when it is created, before the key is in it.
     let mut tmp = path.as_os_str().to_owned();
@@ -91,7 +87,7 @@ pub(crate) fn create_private(path: &Path) -> io::Result<fs::File> {
     Ok(file)
 }
 
-pub fn delete(path: &Path) -> io::Result<()> {
+pub(crate) fn delete(path: &Path) -> io::Result<()> {
     match fs::remove_file(path) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
         _ => Ok(()),
