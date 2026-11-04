@@ -14,6 +14,19 @@ pub struct BusinessRecipients {
 }
 
 impl BusinessRecipients {
+    pub(crate) fn parse(raw: base::BusinessRecipients) -> BusinessRecipients {
+        let base::BusinessRecipients::BusinessRecipients(r) = raw;
+        BusinessRecipients {
+            existing_chats: r.existing_chats,
+            new_chats: r.new_chats,
+            contacts: r.contacts,
+            non_contacts: r.non_contacts,
+            exclude_selected: r.exclude_selected,
+            users: r.users.unwrap_or_default(),
+            exclude_users: Vec::new(),
+        }
+    }
+
     pub(crate) fn parse_bot(raw: base::BusinessBotRecipients) -> BusinessRecipients {
         let base::BusinessBotRecipients::BusinessBotRecipients(r) = raw;
         BusinessRecipients {
