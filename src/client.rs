@@ -24,6 +24,7 @@ use crate::session::{Call, Events, Observer, Salt, Session, UpdatesRx, init_conn
 use crate::storage::recording::Recorder;
 use crate::storage::state::UpdateState;
 use crate::storage::{FileStore, MemoryStore, SessionData, SessionStore, Store, session_string};
+use crate::types::Json;
 
 const DEFAULT_DC: i32 = 2;
 const LISTENER_TIMEOUT: Duration = Duration::from_secs(300);
@@ -117,6 +118,15 @@ impl ClientBuilder {
     /// The client's offset from UTC in seconds, which Telegram uses to show times in the user's zone.
     pub fn tz_offset(mut self, seconds: i32) -> Self {
         self.options.device.tz_offset = Some(seconds);
+        self
+    }
+
+    /// The JSON `initConnection.params` carries, the only way to hand Telegram client details the other options
+    /// don't cover. Telegram documents just `tz_offset`, which [`tz_offset`](Self::tz_offset) sets. When both are
+    /// given, `params` must be an object: its `tz_offset` key is replaced, or added if it has none. Anything else
+    /// fails at `connect` and `start` with `Error::InvalidArgument`.
+    pub fn init_connection_params(mut self, params: Json) -> Self {
+        self.options.device.params = Some(params);
         self
     }
 
@@ -301,6 +311,10 @@ impl ClientBuilder {
     }
 
     async fn open(mut self) -> Result<(Client, Login)> {
+        let device = &self.options.device;
+        if device.tz_offset.is_some() && device.params.as_ref().is_some_and(|p| !matches!(p, Json::Object(_))) {
+            return Err(Error::InvalidArgument("init_connection_params must be an object to carry tz_offset"));
+        }
         if let Some(path) = &self.record {
             self.options.record = Some(Recorder::create(path)?);
         }
@@ -779,6 +793,7 @@ mod tests {
     use crate::session::test_dc::TestDc;
     use crate::storage::state::{self, Peers, UpdateState};
     use crate::storage::{self, FileStore, Recording, SessionStore, Store};
+    use crate::types::Json;
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("vaegram-client-{name}-{}", std::process::id()));
@@ -812,6 +827,16 @@ mod tests {
     #[test]
     fn a_zero_update_queue_is_stored_as_one() {
         assert_eq!(Client::builder("zero", 1, "hash").updates_capacity(0).options.updates_capacity, 1);
+    }
+
+    #[tokio::test]
+    async fn non_object_params_with_tz_offset_are_refused() {
+        let refused =
+            Client::builder("refused", 1, "hash").in_memory().tz_offset(60).init_connection_params(Json::Null);
+        assert!(matches!(refused.connect().await, Err(Error::InvalidArgument(_))));
+        let array = Client::builder("refused", 1, "hash").in_memory().init_connection_params(Json::Array(Vec::new()));
+        let array = array.tz_offset(1).connect().await;
+        assert!(matches!(array, Err(Error::InvalidArgument(_))));
     }
 
     #[test]

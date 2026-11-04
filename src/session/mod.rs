@@ -23,13 +23,14 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{Notify, mpsc, oneshot};
 
-use crate::connection::{Connection, Options, Proxy, Reader, Writer};
+use crate::connection::{Connection, Device, Options, Proxy, Reader, Writer};
 use crate::crypto::rsa::PublicKey;
 use crate::crypto::{mtproto, random};
 use crate::enums::ClientEvent;
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::core::{gzip_packed, msg_container};
 use crate::raw::{Deserializable, Identifiable, LAYER, RemoteCall, Serializable, base, functions, types};
+use crate::types::Json;
 use internals::data_center::Dc;
 use internals::{MsgId, SeqNo, ServerMsgIds};
 use outbox::{MAX_CONTAINER_MSGS, MAX_IDS};
@@ -434,12 +435,7 @@ pub(crate) fn init_connection<X>(
     query: X,
 ) -> functions::InvokeWithLayer<functions::InitConnection<X>> {
     let device = &options.device;
-    let params = device.tz_offset.map(|offset| {
-        let value = base::JSONValue::JsonNumber(types::JsonNumber { value: f64::from(offset) });
-        let entry = types::JsonObjectValue { key: "tz_offset".into(), value };
-        let entries = vec![base::JSONObjectValue::JsonObjectValue(Box::new(entry))];
-        base::JSONValue::JsonObject(Box::new(types::JsonObject { value: entries }))
-    });
+    let params = init_params(device);
     functions::InvokeWithLayer {
         layer: LAYER,
         query: functions::InitConnection {
@@ -454,6 +450,45 @@ pub(crate) fn init_connection<X>(
             params,
             query,
         },
+    }
+}
+
+/// What `initConnection.params` carries. A `tz_offset` replaces the same key of an object or is appended to it;
+/// anything that isn't an object goes out as given, which `ClientBuilder` refuses to combine with a `tz_offset`.
+fn init_params(device: &Device) -> Option<base::JSONValue> {
+    let tz_offset = device.tz_offset.map(|offset| Json::Number(f64::from(offset)));
+    match (device.params.as_ref(), tz_offset) {
+        (None, None) => None,
+        (None, Some(offset)) => Some(json_value(&Json::Object(vec![("tz_offset".into(), offset)]))),
+        (Some(Json::Object(fields)), Some(offset)) => {
+            let mut fields = fields.clone();
+            match fields.iter_mut().find(|(key, _)| key == "tz_offset") {
+                Some(field) => field.1 = offset,
+                None => fields.push(("tz_offset".into(), offset)),
+            }
+            Some(json_value(&Json::Object(fields)))
+        }
+        (Some(params), _) => Some(json_value(params)),
+    }
+}
+
+fn json_value(json: &Json) -> base::JSONValue {
+    use base::JSONValue as J;
+    match json {
+        Json::Null => J::JsonNull,
+        Json::Bool(value) => J::JsonBool(types::JsonBool { value: *value }),
+        Json::Number(value) => J::JsonNumber(types::JsonNumber { value: *value }),
+        Json::String(value) => J::JsonString(Box::new(types::JsonString { value: value.clone() })),
+        Json::Array(items) => {
+            J::JsonArray(Box::new(types::JsonArray { value: items.iter().map(json_value).collect() }))
+        }
+        Json::Object(fields) => {
+            let field = |(key, value): &(String, Json)| {
+                let entry = types::JsonObjectValue { key: key.clone(), value: json_value(value) };
+                base::JSONObjectValue::JsonObjectValue(Box::new(entry))
+            };
+            J::JsonObject(Box::new(types::JsonObject { value: fields.iter().map(field).collect() }))
+        }
     }
 }
 
@@ -1030,8 +1065,9 @@ fn jitter(delay: Duration) -> Duration {
 #[cfg(test)]
 mod device_tests {
     use super::init_connection;
-    use crate::connection::Options;
+    use crate::connection::{Device, Options};
     use crate::raw::{base, functions, types};
+    use crate::types::Json;
 
     #[test]
     fn init_connection_sends_the_device_options() {
@@ -1051,5 +1087,37 @@ mod device_tests {
         let entry = types::JsonObjectValue { key: "tz_offset".into(), value };
         let entries = vec![base::JSONObjectValue::JsonObjectValue(Box::new(entry))];
         assert_eq!(sent.params, Some(base::JSONValue::JsonObject(Box::new(types::JsonObject { value: entries }))));
+    }
+
+    fn sent_params(set: impl FnOnce(&mut Device)) -> Option<Json> {
+        let mut options = Options::default();
+        set(&mut options.device);
+        init_connection(1, &options, functions::help::GetConfig {}).query.params.map(Json::parse)
+    }
+
+    fn object(fields: &[(&str, Json)]) -> Json {
+        Json::Object(fields.iter().map(|(key, value)| (key.to_string(), value.clone())).collect())
+    }
+
+    #[test]
+    fn custom_params_reach_init_connection() {
+        let list = Json::Array(vec![Json::Bool(true), Json::Null, Json::String("x".into()), Json::Number(-1.5)]);
+        let params = object(&[("nested", object(&[("list", list)])), ("flag", Json::Bool(false))]);
+        assert_eq!(sent_params(|d| d.params = Some(params.clone())), Some(params));
+    }
+
+    #[test]
+    fn tz_offset_replaces_the_params_key() {
+        let one = ("a", Json::Number(1.0));
+        let old = object(&[one.clone(), ("tz_offset", Json::String("old".into()))]);
+        let replaced = sent_params(|d| (d.params, d.tz_offset) = (Some(old), Some(60)));
+        assert_eq!(replaced, Some(object(&[one.clone(), ("tz_offset", Json::Number(60.0))])));
+
+        let absent = object(std::slice::from_ref(&one));
+        let appended = sent_params(|d| (d.params, d.tz_offset) = (Some(absent), Some(-5)));
+        assert_eq!(appended, Some(object(&[one, ("tz_offset", Json::Number(-5.0))])));
+
+        let given = sent_params(|d| (d.params, d.tz_offset) = (Some(Json::Null), Some(1)));
+        assert_eq!(given, Some(Json::Null));
     }
 }
