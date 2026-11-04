@@ -26,6 +26,18 @@ impl RichText {
     pub fn anchor(self, name: impl Into<String>) -> Self {
         RichText(base::RichText::TextAnchor(Box::new(types::TextAnchor { text: self.0, name: name.into() })))
     }
+
+    /// The text without formatting.
+    pub fn text(&self) -> String {
+        let mut out = String::new();
+        push_plain(&self.0, &mut out);
+        out
+    }
+
+    /// `true` for text without any content.
+    pub fn is_empty(&self) -> bool {
+        matches!(self.0, base::RichText::TextEmpty)
+    }
 }
 
 impl From<String> for RichText {
