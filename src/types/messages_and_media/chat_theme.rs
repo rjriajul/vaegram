@@ -11,7 +11,6 @@ pub struct ChatTheme {
 }
 
 impl ChatTheme {
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn parse(raw: &base::ChatTheme, entities: &Entities) -> ChatTheme {
         match raw {
             base::ChatTheme::ChatTheme(t) => ChatTheme { name: Some(t.emoticon.clone()), gift: None },

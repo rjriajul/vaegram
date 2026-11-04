@@ -10,7 +10,6 @@ pub struct Birthday {
 }
 
 impl Birthday {
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn parse(raw: &base::Birthday) -> Birthday {
         let base::Birthday::Birthday(b) = raw;
         Birthday { day: b.day, month: b.month, year: b.year }

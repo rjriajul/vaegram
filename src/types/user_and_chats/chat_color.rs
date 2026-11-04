@@ -10,7 +10,6 @@ pub struct ChatColor {
 
 impl ChatColor {
     /// `None` for collectible colors, which come from a unique gift instead of the lists.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn parse(raw: &base::PeerColor) -> Option<ChatColor> {
         match raw {
             base::PeerColor::PeerColor(c) => {
