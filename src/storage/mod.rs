@@ -18,6 +18,8 @@ pub mod session_string;
 #[cfg(feature = "sqlite")]
 mod sqlite_storage;
 mod store;
+#[cfg(feature = "vault")]
+mod vault_storage;
 
 pub use engine::{PeerRecord, Storage, StorageFuture, StoredState};
 pub use file_storage::FileStorage;
@@ -36,6 +38,8 @@ pub use sqlite_storage::SqliteStorage;
 #[cfg(test)]
 pub(crate) use store::Recording;
 pub(crate) use store::Store;
+#[cfg(feature = "vault")]
+pub use vault_storage::VaultStorage;
 
 use std::collections::HashMap;
 use std::fs;

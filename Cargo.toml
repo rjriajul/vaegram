@@ -64,7 +64,9 @@ dns-config = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 [dev-dependencies]
 metrics-util = "0.20"
 opentelemetry_sdk = { version = "0.33", features = ["testing"] }
+rcgen = { version = "0.14.7", default-features = false, features = ["pem", "ring"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 
 [[bench]]
 name = "tl"
