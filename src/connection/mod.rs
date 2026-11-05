@@ -16,8 +16,8 @@ use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::errors::{Error, Result};
-use crate::session::Observer;
 use crate::session::internals::data_center::Dc;
+use crate::session::{Observer, Retry};
 use crate::storage::recording::Recorder;
 use crate::types::Json;
 use fake_tls::{RecordReader, RecordWriter};
@@ -33,11 +33,12 @@ pub struct Options {
     pub obfuscated: bool,
     pub proxy: Option<Proxy>,
     pub request_timeout: Duration,
-    /// The longest FLOOD_WAIT `Client::invoke` and file transfers sleep off and retry; zero hands every one to
-    /// the caller.
-    pub flood_sleep_threshold: Duration,
-    /// How many FLOOD_WAITs one call sleeps off; the next goes to the caller.
-    pub max_flood_sleeps: usize,
+    /// Asked after every failed request whether to send it again, and after how long. The default sleeps off
+    /// FLOOD_WAITs of up to a minute, five times per request.
+    pub retry: Retry,
+    /// Every request is sent inside `invokeWithoutUpdates`, so the connection never gets updates. Set by
+    /// `ClientBuilder::no_updates`.
+    pub no_updates: bool,
     /// Update batches held for the dispatcher. When it's full, a batch is dropped and a getDifference brings
     /// back what it held.
     pub updates_capacity: usize,
@@ -53,8 +54,8 @@ impl Default for Options {
             obfuscated: false,
             proxy: None,
             request_timeout: Duration::from_secs(30),
-            flood_sleep_threshold: Duration::from_secs(60),
-            max_flood_sleeps: 5,
+            retry: Retry::default(),
+            no_updates: false,
             updates_capacity: 1024,
             observer: None,
             record: None,

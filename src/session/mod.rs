@@ -2,9 +2,12 @@ mod auth;
 pub(crate) mod cdn;
 mod events;
 pub mod internals;
+pub(crate) mod no_updates;
 mod outbox;
 mod pfs;
+mod rate_limiter;
 mod replay;
+mod retry;
 mod service;
 #[cfg(test)]
 pub(crate) mod test_dc;
@@ -14,9 +17,12 @@ pub(crate) mod transfer;
 
 pub(crate) use events::Affected;
 pub use events::Events;
+pub use rate_limiter::{RateCategory, RateLimiter, RateLimits};
 pub use replay::Replay;
+pub use retry::{AutoSleep, NoRetries, Retry, RetryContext, RetryPolicy};
 
 use std::collections::{HashMap, VecDeque};
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::time::{Duration, Instant};
@@ -378,12 +384,20 @@ impl Session {
         WeakSession { requests, dc_id, auth_key, key_made, options, pfs, learned, control }
     }
 
-    /// How long to sleep off `error` before retrying: only FLOOD_WAITs within `flood_sleep_threshold`, each
-    /// shortened to `cap` first.
-    pub(crate) fn flood_sleep(&self, error: &Error, cap: Option<Duration>) -> Option<Duration> {
-        let wait = error.flood_wait()?.max(Duration::from_secs(1));
-        let wait = cap.map_or(wait, |cap| wait.min(cap));
-        (wait <= self.options.flood_sleep_threshold).then_some(wait)
+    /// What the retry policy says about a failed request: `Continue(wait)` to sleep `wait` and send it again. A
+    /// FLOOD_WAIT reaches the policy shortened to `cap` and at least a second.
+    pub(crate) fn should_retry(
+        &self,
+        request: &'static str,
+        error: &Error,
+        fail_count: u32,
+        slept_so_far: Duration,
+        cap: Option<Duration>,
+    ) -> ControlFlow<(), Duration> {
+        let flood_wait = error.flood_wait().map(|wait| wait.max(Duration::from_secs(1)));
+        let flood_wait = flood_wait.map(|wait| cap.map_or(wait, |cap| wait.min(cap)));
+        let ctx = RetryContext { request, error, fail_count, slept_so_far, flood_wait };
+        self.options.retry.0.should_retry(&ctx)
     }
 
     /// The salt and clock offset the connection last learned, to save for the next start.

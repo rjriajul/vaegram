@@ -1,11 +1,13 @@
+use std::ops::ControlFlow;
 use std::time::Duration;
 
 use crate::Client;
-use crate::client::Borrowed;
+use crate::client::{Borrowed, quiet};
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, functions};
-use crate::session::Session;
+use crate::session::no_updates::needs_updates;
 use crate::session::transfer::invoke_part;
+use crate::session::{RateCategory, Session};
 
 const MAX_MIGRATIONS: usize = 3;
 
@@ -15,17 +17,59 @@ impl Client {
     }
 
     /// A request that times out is forgotten: the server is asked not to send its answer, and the connection
-    /// carries on. FLOOD_WAITs up to `flood_sleep_threshold` are slept off and retried, each try with the full
-    /// `timeout`, at most `max_flood_sleeps` times; the next one goes to the caller. `tokio::time::timeout` around
-    /// the call bounds the whole wait.
+    /// carries on. After a failure the client's retry policy decides whether the request goes out again, each try
+    /// with the full `timeout`: by default FLOOD_WAITs up to a minute are slept off, five times, and the next
+    /// one goes to the caller. `tokio::time::timeout` around the call bounds the whole wait.
     pub async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
+        self.invoke_as(R::NAME, request, timeout).await
+    }
+
+    /// `invoke_with_timeout` for a request that goes out inside a wrapper: `name` is the request the rate limiter
+    /// counts it as, and the one that decides whether updates are off for it.
+    pub(crate) async fn invoke_as<R: RemoteCall>(
+        &self,
+        name: &'static str,
+        request: &R,
+        timeout: Duration,
+    ) -> Result<R::Return> {
+        self.invoke_wrapped(name, request, timeout, self.quiet_for(name)).await
+    }
+
+    /// Whether updates are off for the request called `name`: always with `no_updates`, and for the ones that only
+    /// read with `auto_no_updates`.
+    fn quiet_for(&self, name: &str) -> bool {
+        self.0.options.no_updates || (self.0.auto_no_updates && !needs_updates(name))
+    }
+
+    /// Sends `request` as `name`, inside `invokeWithoutUpdates` if `off`. Takeout goes outside, updates off inside.
+    async fn invoke_wrapped<R: RemoteCall>(
+        &self,
+        name: &'static str,
+        request: &R,
+        timeout: Duration,
+        off: bool,
+    ) -> Result<R::Return> {
+        self.limit(name).await;
         let session = self.session();
-        match self.1 {
-            Some(takeout_id) => {
-                let request = functions::InvokeWithTakeout { takeout_id, query: Borrowed(request) };
-                invoke_sleeping_floods(&session, &request, timeout).await
+        let call = Borrowed(request);
+        match (self.1, off) {
+            (Some(takeout_id), true) => {
+                let request = functions::InvokeWithTakeout { takeout_id, query: quiet(call) };
+                invoke_sleeping_floods(&session, name, &request, timeout).await
             }
-            None => invoke_sleeping_floods(&session, request, timeout).await,
+            (Some(takeout_id), false) => {
+                let request = functions::InvokeWithTakeout { takeout_id, query: call };
+                invoke_sleeping_floods(&session, name, &request, timeout).await
+            }
+            (None, true) => invoke_sleeping_floods(&session, name, &quiet(call), timeout).await,
+            (None, false) => invoke_sleeping_floods(&session, name, request, timeout).await,
+        }
+    }
+
+    /// Waits for the rate limiter's go-ahead, if there is one. It comes before the request's own timeout starts.
+    async fn limit(&self, name: &str) {
+        if let Some(limiter) = &self.0.limiter {
+            limiter.acquire(RateCategory::of(name)).await;
         }
     }
 
@@ -37,13 +81,20 @@ impl Client {
         if dc_id == self.session().dc_id() {
             return self.invoke(request).await;
         }
+        self.limit(R::NAME).await;
         let dc = self.dc(dc_id)?;
-        match self.1 {
-            Some(takeout_id) => {
-                let request = functions::InvokeWithTakeout { takeout_id, query: Borrowed(request) };
-                self.invoke_on_file_connection(dc, &request).await
+        let (name, call) = (R::NAME, Borrowed(request));
+        match (self.1, self.quiet_for(name)) {
+            (Some(takeout_id), true) => {
+                let request = functions::InvokeWithTakeout { takeout_id, query: quiet(call) };
+                self.invoke_on_file_connection(dc, name, &request).await
             }
-            None => self.invoke_on_file_connection(dc, request).await,
+            (Some(takeout_id), false) => {
+                let request = functions::InvokeWithTakeout { takeout_id, query: call };
+                self.invoke_on_file_connection(dc, name, &request).await
+            }
+            (None, true) => self.invoke_on_file_connection(dc, name, &quiet(call)).await,
+            (None, false) => self.invoke_on_file_connection(dc, name, request).await,
         }
     }
 
@@ -64,11 +115,25 @@ impl Client {
         connection_id: Option<&str>,
         request: R,
     ) -> Result<(R::Return, R)> {
+        let timeout = self.session().options().request_timeout;
         match connection_id {
             Some(connection_id) => {
-                let call =
-                    functions::InvokeWithBusinessConnection { connection_id: connection_id.into(), query: request };
-                Ok((self.invoke(&call).await?, call.query))
+                // Counted as the request inside, not as the wrapper, and updates go off inside it.
+                let off = self.quiet_for(R::NAME);
+                let result = if off {
+                    let call = functions::InvokeWithBusinessConnection {
+                        connection_id: connection_id.into(),
+                        query: quiet(Borrowed(&request)),
+                    };
+                    self.invoke_wrapped(R::NAME, &call, timeout, false).await?
+                } else {
+                    let call = functions::InvokeWithBusinessConnection {
+                        connection_id: connection_id.into(),
+                        query: Borrowed(&request),
+                    };
+                    self.invoke_wrapped(R::NAME, &call, timeout, false).await?
+                };
+                Ok((result, request))
             }
             None => Ok((self.invoke(&request).await?, request)),
         }
@@ -89,33 +154,43 @@ impl Client {
     }
 }
 
+/// Sends `request`, asking the session's retry policy after every failure whether to send it again. `name` is
+/// what the policy is told the request is.
 pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(
     session: &Session,
+    name: &'static str,
     request: &R,
     timeout: Duration,
 ) -> Result<R::Return> {
-    let mut slept = 0;
+    let (mut retries, mut slept) = (0u32, Duration::ZERO);
     loop {
         let result = session.invoke_with_timeout(request, timeout).await;
-        match result.as_ref().err().and_then(|e| session.flood_sleep(e, None)) {
-            Some(wait) if slept < session.options().max_flood_sleeps => {
-                slept += 1;
+        let Err(error) = &result else { return result };
+        match session.should_retry(name, error, retries + 1, slept, None) {
+            ControlFlow::Continue(wait) => {
+                retries += 1;
+                slept += wait;
                 tokio::time::sleep(wait).await;
             }
-            _ => return result,
+            ControlFlow::Break(()) => return result,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use tokio::sync::mpsc;
     use tokio::time::Instant;
 
     use super::*;
     use crate::connection::Options;
+    use crate::enums::ChatAction;
     use crate::errors::RpcError;
     use crate::raw::{Serializable, base, types};
+    use crate::session::RateCategory::{Account, Admin, Bulk, Global, Media, Message, Query};
+    use crate::session::{AutoSleep, NoRetries, RateLimiter, RateLimits, Retry, RetryContext, RetryPolicy};
 
     const FOREIGN_DC: i32 = 4;
 
@@ -127,7 +202,8 @@ mod tests {
     fn flooded(flood_sleep_threshold: Duration) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
         let (mut client, sent) =
             Client::scripted(vec![Err(flood(1)), Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes())]);
-        client.set_options(Options { flood_sleep_threshold, ..Options::default() });
+        let retry = Retry::new(AutoSleep { threshold: flood_sleep_threshold, ..AutoSleep::default() });
+        client.set_options(Options { retry, ..Options::default() });
         (client, sent)
     }
 
@@ -203,6 +279,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_no_updates_client_wraps_what_it_sends_to_another_dc() {
+        use crate::session::test_dc::INVOKE_WITH_LAYER as LAYER;
+        use crate::session::test_dc::{
+            EXPORT_AUTHORIZATION, IMPORT_AUTHORIZATION, INIT_CONNECTION, INVOKE_WITHOUT_UPDATES as QUIET, PING, TestDc,
+        };
+        let dc = TestDc::start([5; 256], false).await;
+        let builder = Client::builder("quiet-dc", 1, "hash").session_string(dc.session_string([5; 256]));
+        let client = builder.no_updates().connect().await.unwrap();
+        client.invoke_in_dc(FOREIGN_DC, &functions::Ping { ping_id: 1 }).await.unwrap();
+
+        // Telegram describes invokeWithoutUpdates as "Invoke a request without subscribing the used connection for
+        // updates (this is enabled by default for file queries)" and doesn't say what an unwrapped request does to
+        // a connection's subscription, so the export and the import of the login are wrapped like the rest. Behind
+        // the layer and initConnection of a fresh connection, every request is.
+        let seen: Vec<Vec<u32>> = dc.seen().into_iter().map(|s| s.ids).collect();
+        assert!(seen.contains(&vec![QUIET, EXPORT_AUTHORIZATION]), "{seen:?}");
+        assert!(seen.contains(&vec![LAYER, INIT_CONNECTION, QUIET, IMPORT_AUTHORIZATION]), "{seen:?}");
+        assert!(seen.contains(&vec![LAYER, INIT_CONNECTION, QUIET, PING]), "{seen:?}");
+        for ids in &seen {
+            let inner: Vec<u32> = ids.iter().copied().filter(|id| ![LAYER, INIT_CONNECTION].contains(id)).collect();
+            assert_eq!(inner[0], QUIET, "{ids:?}");
+        }
+    }
+
+    #[tokio::test]
     async fn invoke_in_dc_on_an_unknown_dc_fails_before_any_request() {
         let (client, mut sent) = Client::recording();
         let result = client.invoke_in_dc(99, &functions::Ping { ping_id: 7 }).await;
@@ -261,7 +362,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_setting_of_two_sleeps_two_flood_waits() {
-        let two = || Options { max_flood_sleeps: 2, ..Options::default() };
+        let two =
+            || Options { retry: Retry::new(AutoSleep { tries: 2, ..AutoSleep::default() }), ..Options::default() };
         let (result, sends) = ping_with(two(), (0..3).map(|_| rpc_420("FLOOD_WAIT_1")).collect()).await;
         assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
         assert_eq!(sends, 3);
@@ -272,10 +374,56 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn zero_flood_sleeps_hand_every_wait_to_the_caller() {
-        let none = Options { max_flood_sleeps: 0, ..Options::default() };
+        let none = Options { retry: Retry::new(AutoSleep { tries: 0, ..AutoSleep::default() }), ..Options::default() };
         let (result, sends) = ping_with(none, vec![rpc_420("FLOOD_WAIT_1")]).await;
         assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
         assert_eq!(sends, 1);
+    }
+
+    fn with_policy(policy: impl RetryPolicy) -> Options {
+        Options { retry: Retry::new(policy), ..Options::default() }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn no_retries_hands_back_the_first_flood() {
+        let (result, sends) = ping_with(with_policy(NoRetries), vec![rpc_420("FLOOD_WAIT_1")]).await;
+        assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
+        assert_eq!(sends, 1);
+    }
+
+    // Retries twice after a second, and writes down what it was told each time.
+    type Asked = (&'static str, u32, Duration, Option<Duration>);
+    struct Watching(Arc<std::sync::Mutex<Vec<Asked>>>);
+
+    impl RetryPolicy for Watching {
+        fn should_retry(&self, ctx: &RetryContext<'_>) -> ControlFlow<(), Duration> {
+            self.0.lock().unwrap().push((ctx.request, ctx.fail_count, ctx.slept_so_far, ctx.flood_wait));
+            if ctx.fail_count <= 2 { ControlFlow::Continue(Duration::from_secs(1)) } else { ControlFlow::Break(()) }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_custom_policy_sees_the_request_name_and_counts() {
+        let seen = Arc::default();
+        let floods = (0..3).map(|_| rpc_420("FLOOD_WAIT_9")).collect();
+        let start = Instant::now();
+        let (result, sends) = ping_with(with_policy(Watching(Arc::clone(&seen))), floods).await;
+        assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
+        // The policy's own wait was slept, not Telegram's.
+        assert_eq!((sends, start.elapsed()), (3, Duration::from_secs(2)));
+        let nine = Some(Duration::from_secs(9));
+        let second = Duration::from_secs(1);
+        let expected = [("ping", 1, Duration::ZERO, nine), ("ping", 2, second, nine), ("ping", 3, second * 2, nine)];
+        assert_eq!(*seen.lock().unwrap(), expected);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_wrapped_request_is_named_by_the_request_inside() {
+        let seen = Arc::default();
+        let (mut client, _sent) = Client::scripted(vec![rpc_420("FLOOD_WAIT_9"), Ok(true.to_bytes())]);
+        client.set_options(with_policy(Watching(Arc::clone(&seen))));
+        client.invoke_business(Some("c"), functions::account::UpdateStatus { offline: true }).await.unwrap();
+        assert_eq!(seen.lock().unwrap()[0].0, "account.updateStatus");
     }
 
     #[tokio::test(start_paused = true)]
@@ -306,5 +454,137 @@ mod tests {
         assert!(tokio::time::timeout(Duration::from_secs(10), call).await.is_err());
         tokio::time::sleep(Duration::from_secs(60)).await;
         assert_eq!(count(&mut sent), 1);
+    }
+
+    const CATEGORIES: [RateCategory; 7] = [Message, Media, Query, Admin, Bulk, Account, Global];
+
+    // One request's worth of every bucket, refilling slowly: what's missing afterwards was taken.
+    fn limited(client: &mut Client) {
+        let limits = CATEGORIES.iter().fold(RateLimits::default(), |limits, &c| limits.limit(c, 0.001, 5.0));
+        Arc::get_mut(&mut client.0).unwrap().limiter = Some(RateLimiter::new(&limits));
+    }
+
+    fn taken(client: &Client) -> Vec<RateCategory> {
+        let limiter = client.rate_limiter().unwrap();
+        CATEGORIES.into_iter().filter(|&category| limiter.available(category) < 4.5).collect()
+    }
+
+    fn set_typing() -> functions::messages::SetTyping {
+        functions::messages::SetTyping {
+            peer: base::InputPeer::InputPeerSelf,
+            top_msg_id: None,
+            action: ChatAction::Typing.write(),
+        }
+    }
+
+    #[tokio::test]
+    async fn business_calls_use_the_inner_name() {
+        let (mut client, _sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        limited(&mut client);
+        client.invoke_business(Some("c"), set_typing()).await.unwrap();
+        // `messages.setTyping` is an admin call; the wrapper's own name would have counted as a query.
+        assert_eq!(taken(&client), [Admin, Global]);
+    }
+
+    #[tokio::test]
+    async fn file_parts_and_difference_are_not_limited() {
+        let replies = (0..4).map(|_| Ok(true.to_bytes())).collect();
+        let (mut client, _sent) = Client::scripted(replies);
+        limited(&mut client);
+        let session = client.session();
+        // File parts go to their connection, and the dispatcher's getDifference straight to the session.
+        client.invoke_file_part(&session, &set_typing()).await.unwrap();
+        session.invoke(&set_typing()).await.unwrap();
+        assert!(taken(&client).is_empty());
+
+        // A plain call does take tokens, once, whether or not it's addressed to the home DC.
+        client.invoke(&set_typing()).await.unwrap();
+        assert_eq!(taken(&client), [Admin, Global]);
+        client.invoke_in_dc(session.dc_id(), &set_typing()).await.unwrap();
+        let limiter = client.rate_limiter().unwrap();
+        assert_eq!((limiter.available(Admin).round(), limiter.available(Global).round()), (3.0, 3.0));
+    }
+
+    fn quiet_client(replies: usize) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let pong = || Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes());
+        let (mut client, sent) = Client::scripted((0..replies).map(|_| pong()).collect());
+        client.set_options(Options { no_updates: true, ..Options::default() });
+        (client, sent)
+    }
+
+    #[tokio::test]
+    async fn no_updates_wraps_every_call() {
+        let (client, mut sent) = quiet_client(1);
+        let wrapped = functions::InvokeWithoutUpdates { query: functions::Ping { ping_id: 7 } };
+        client.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
+        assert_eq!(sent.try_recv().unwrap(), wrapped.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn takeout_wraps_outside() {
+        let (client, mut sent) = quiet_client(1);
+        let takeout = Client(client.0.clone(), Some(7));
+        takeout.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
+        let wrapped = functions::InvokeWithTakeout {
+            takeout_id: 7,
+            query: functions::InvokeWithoutUpdates { query: functions::Ping { ping_id: 7 } },
+        };
+        assert_eq!(sent.try_recv().unwrap(), wrapped.to_bytes());
+    }
+
+    fn auto_client(replies: usize, no_updates: bool) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (mut client, sent) = Client::scripted((0..replies).map(|_| Ok(true.to_bytes())).collect());
+        client.set_options(Options { no_updates, ..Options::default() });
+        Arc::get_mut(&mut client.0).unwrap().auto_no_updates = true;
+        (client, sent)
+    }
+
+    fn status() -> functions::account::UpdateStatus {
+        functions::account::UpdateStatus { offline: true }
+    }
+
+    #[tokio::test]
+    async fn auto_wraps_reads_not_writes() {
+        let (client, mut sent) = auto_client(2, false);
+        client.invoke(&set_typing()).await.unwrap();
+        client.invoke(&status()).await.unwrap();
+        assert_eq!(sent.try_recv().unwrap(), functions::InvokeWithoutUpdates { query: set_typing() }.to_bytes());
+        assert_eq!(sent.try_recv().unwrap(), status().to_bytes());
+    }
+
+    #[tokio::test]
+    async fn business_and_takeout_use_the_inner_name() {
+        let (client, mut sent) = auto_client(2, false);
+        client.invoke_business(Some("c"), set_typing()).await.unwrap();
+        let business = functions::InvokeWithBusinessConnection {
+            connection_id: "c".into(),
+            query: functions::InvokeWithoutUpdates { query: set_typing() },
+        };
+        assert_eq!(sent.try_recv().unwrap(), business.to_bytes());
+
+        // A takeout holds the quiet request, and the request inside a takeout is still judged by its own name.
+        let takeout = Client(client.0.clone(), Some(7));
+        takeout.invoke(&set_typing()).await.unwrap();
+        let wrapped = functions::InvokeWithTakeout {
+            takeout_id: 7,
+            query: functions::InvokeWithoutUpdates { query: set_typing() },
+        };
+        assert_eq!(sent.try_recv().unwrap(), wrapped.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn service_calls_are_never_auto_wrapped() {
+        let pong = types::Pong { msg_id: 0, ping_id: 7 }.to_bytes();
+        let (mut client, mut sent) = Client::scripted(vec![Ok(pong)]);
+        Arc::get_mut(&mut client.0).unwrap().auto_no_updates = true;
+        client.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
+        assert_eq!(sent.try_recv().unwrap(), functions::Ping { ping_id: 7 }.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn no_updates_wins_over_auto() {
+        let (client, mut sent) = auto_client(1, true);
+        client.invoke(&status()).await.unwrap();
+        assert_eq!(sent.try_recv().unwrap(), functions::InvokeWithoutUpdates { query: status() }.to_bytes());
     }
 }

@@ -21,6 +21,7 @@ use crate::raw::{Deserializable, Identifiable, Serializable, base, functions, ty
 use crate::storage::{SessionData, recording, session_string};
 
 type Any = functions::Ping;
+pub(crate) const INVOKE_WITHOUT_UPDATES: u32 = <functions::InvokeWithoutUpdates<Any> as Identifiable>::CONSTRUCTOR_ID;
 pub(super) const BIND: u32 = <functions::auth::BindTempAuthKey as Identifiable>::CONSTRUCTOR_ID;
 pub(crate) const INVOKE_WITH_LAYER: u32 = <functions::InvokeWithLayer<Any> as Identifiable>::CONSTRUCTOR_ID;
 pub(super) const GET_NEAREST_DC: u32 = <functions::help::GetNearestDc as Identifiable>::CONSTRUCTOR_ID;
@@ -233,6 +234,7 @@ fn call(
             INVOKE_WITH_LAYER => {
                 query = query.get(4..)?;
             }
+            INVOKE_WITHOUT_UPDATES => {}
             INIT_CONNECTION => recording::skip_init_connection(&mut query).ok()?,
             _ => break,
         }

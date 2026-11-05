@@ -20,7 +20,10 @@ use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, Serializable, base, functions};
 use crate::session::internals::data_center::{self, Dc};
 use crate::session::transfer::{Auth, Lease, TransferPool};
-use crate::session::{Call, Events, Observer, Salt, Session, UpdatesRx, init_connection};
+use crate::session::{
+    AutoSleep, Call, Events, Observer, RateLimiter, RateLimits, Retry, RetryPolicy, Salt, Session, UpdatesRx,
+    init_connection,
+};
 use crate::storage::recording::Recorder;
 use crate::storage::{
     FileStorage, MemoryStorage, PeerCache, SessionData, Storage, Store, StoredState, UpdateState, session_string,
@@ -54,6 +57,10 @@ pub struct ClientBuilder {
     unallowed_click_alert: Option<Arc<str>>,
     max_listeners: Option<usize>,
     max_concurrent_transmissions: Option<usize>,
+    rate_limits: Option<RateLimits>,
+    auto_sleep: AutoSleep,
+    retry_policy: Option<Retry>,
+    auto_no_updates: bool,
 }
 
 #[derive(Default)]
@@ -209,6 +216,39 @@ impl ClientBuilder {
         self
     }
 
+    /// Spaces requests out on the client's side, so a busy bot slows down instead of earning FLOOD_WAITs: each
+    /// category of request has a rate and a burst, and every request also counts against a global one. Off by
+    /// default. A rate must be above 0 and finite and a burst at least 1, or `connect` and `start` fail with
+    /// `Error::InvalidArgument`; [`Client::rate_limiter`] reads and changes them later.
+    pub fn rate_limits(mut self, limits: RateLimits) -> Self {
+        self.rate_limits = Some(limits);
+        self
+    }
+
+    /// Asks Telegram not to send this client updates: every request goes out inside `invokeWithoutUpdates`, and so
+    /// does the one that opens each connection, the ones that export a login to another DC and the ones that
+    /// import it there. For a client that only calls methods. `run` and the listeners need updates, so they fail
+    /// with `Error::InvalidArgument`.
+    ///
+    /// Telegram describes the wrapper as "Invoke a request without subscribing the used connection for updates
+    /// (this is enabled by default for file queries)" (<https://core.telegram.org/method/invokeWithoutUpdates>).
+    /// It doesn't document what an unwrapped request does to a connection's subscription, so a client with this
+    /// on wraps every request that isn't a file part.
+    pub fn no_updates(mut self) -> Self {
+        self.options.no_updates = true;
+        self
+    }
+
+    /// Sends the requests that only read (`get…`, `check…`, `read…`, searches, typing indicators and the like)
+    /// inside `invokeWithoutUpdates`, so a client that mostly reads stays out of the update flow while its writes
+    /// and `updates.*` calls go as usual. Unlike [`no_updates`](Self::no_updates) it leaves `run` and the listeners
+    /// working, and it never touches the request that opens a connection, which is what subscribes it to updates.
+    /// Off by default; `no_updates` wins when both are on.
+    pub fn auto_no_updates(mut self, on: bool) -> Self {
+        self.auto_no_updates = on;
+        self
+    }
+
     pub fn parse_mode(mut self, mode: ParseMode) -> Self {
         self.parse_mode = mode;
         self
@@ -229,15 +269,23 @@ impl ClientBuilder {
 
     /// FLOOD_WAITs up to this long are slept off and retried, at most `max_flood_sleeps` times per call; longer
     /// ones go to the caller as `Error::Rpc`. 60 seconds by default; `Duration::ZERO` hands every one to the caller.
+    /// [`retry_policy`](Self::retry_policy) replaces this and `max_flood_sleeps`.
     pub fn flood_sleep_threshold(mut self, threshold: Duration) -> Self {
-        self.options.flood_sleep_threshold = threshold;
+        self.auto_sleep.threshold = threshold;
         self
     }
 
     /// How many FLOOD_WAITs one call sleeps off, 5 by default; 0 hands every one to the caller. Lost connections
     /// need no retry setting: they are reconnected and the waiting requests sent again on their own.
     pub fn max_flood_sleeps(mut self, n: usize) -> Self {
-        self.options.max_flood_sleeps = n;
+        self.auto_sleep.tries = n;
+        self
+    }
+
+    /// Decides what happens to a failed request, in place of the default [`AutoSleep`] that `flood_sleep_threshold`
+    /// and `max_flood_sleeps` set up; [`NoRetries`](crate::session::NoRetries) hands every failure to the caller.
+    pub fn retry_policy(mut self, policy: impl RetryPolicy) -> Self {
+        self.retry_policy = Some(Retry::new(policy));
         self
     }
 
@@ -342,6 +390,10 @@ impl ClientBuilder {
         if device.tz_offset.is_some() && device.params.as_ref().is_some_and(|p| !matches!(p, Json::Object(_))) {
             return Err(Error::InvalidArgument("init_connection_params must be an object to carry tz_offset"));
         }
+        if let Some(limits) = &self.rate_limits {
+            limits.validate()?;
+        }
+        self.options.retry = self.retry_policy.take().unwrap_or_else(|| Retry::new(self.auto_sleep));
         if let Some(path) = &self.record {
             self.options.record = Some(Recorder::create(path)?);
         }
@@ -401,6 +453,8 @@ impl ClientBuilder {
             inner.handlers.listeners.limit(n);
         }
         inner.transmissions = self.max_concurrent_transmissions.map(Transmissions::new);
+        inner.limiter = self.rate_limits.as_ref().map(RateLimiter::new);
+        inner.auto_no_updates = self.auto_no_updates;
         let client = Client(Arc::new(inner), None);
         let imported = self.session_string.as_deref().is_some_and(session_string::is_import);
         if imported && user_id == 0 {
@@ -459,6 +513,8 @@ pub(crate) struct Inner {
     pub(crate) unallowed_click_alert: Option<Arc<str>>,
     // Slots for `max_concurrent_transmissions`, if set.
     pub(crate) transmissions: Option<Transmissions>,
+    pub(crate) limiter: Option<RateLimiter>,
+    pub(crate) auto_no_updates: bool,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
@@ -539,6 +595,8 @@ impl Inner {
             listener_timeout: Some(LISTENER_TIMEOUT),
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             transmissions: None,
+            limiter: None,
+            auto_no_updates: false,
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
         }
@@ -610,6 +668,10 @@ impl Client {
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             max_listeners: None,
             max_concurrent_transmissions: None,
+            rate_limits: None,
+            auto_sleep: AutoSleep::default(),
+            retry_policy: None,
+            auto_no_updates: false,
         }
     }
 
@@ -777,11 +839,16 @@ impl Client {
     }
 
     /// `invoke_in_dc` away from home, on a file connection with the login imported.
-    pub(crate) async fn invoke_on_file_connection<R: RemoteCall>(&self, dc: Dc, request: &R) -> Result<R::Return> {
+    pub(crate) async fn invoke_on_file_connection<R: RemoteCall>(
+        &self,
+        dc: Dc,
+        name: &'static str,
+        request: &R,
+    ) -> Result<R::Return> {
         let lease = self.transfer_sessions(dc, 1).await?;
         // A reopened file connection hasn't sent its layer, and the answer can carry users.
         let request = init_connection(self.0.api_id, &self.0.options, Borrowed(request));
-        invoke_sleeping_floods(&lease.sessions[0], &request, self.0.options.request_timeout).await
+        invoke_sleeping_floods(&lease.sessions[0], name, &request, self.0.options.request_timeout).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {
@@ -811,11 +878,21 @@ async fn connect(
     events: Arc<Events>,
     pfs: bool,
 ) -> Result<(Session, UpdatesRx, Vec<base::DcOption>)> {
-    let rebind = pfs.then(|| init_connection(api_id, options, functions::help::GetNearestDc {}).to_bytes());
+    let rebind = pfs.then(|| match options.no_updates {
+        true => init_connection(api_id, options, quiet(functions::help::GetNearestDc {})).to_bytes(),
+        false => init_connection(api_id, options, functions::help::GetNearestDc {}).to_bytes(),
+    });
     let (session, updates) = Session::connect(dc, auth_key, options, events, rebind).await?;
-    let init = init_connection(api_id, options, functions::help::GetConfig {});
-    let base::Config::Config(config) = session.invoke(&init).await?;
+    // This is what makes the connection subscribe to updates, so a client that wants none says so here too.
+    let base::Config::Config(config) = match options.no_updates {
+        true => session.invoke(&init_connection(api_id, options, quiet(functions::help::GetConfig {}))).await?,
+        false => session.invoke(&init_connection(api_id, options, functions::help::GetConfig {})).await?,
+    };
     Ok((session, updates, config.dc_options))
+}
+
+pub(crate) fn quiet<X>(query: X) -> functions::InvokeWithoutUpdates<X> {
+    functions::InvokeWithoutUpdates { query }
 }
 
 // Wraps a request in initConnection without cloning it.
@@ -849,6 +926,7 @@ mod tests {
     use crate::errors::Error;
     use crate::raw::{base, types};
     use crate::session::test_dc::TestDc;
+    use crate::session::{AutoSleep, RateCategory, RateLimits};
     use crate::storage::{FileStorage, MemoryStorage, PeerRecord, Recording, SessionData, Storage, UpdateState};
     use crate::types::{Json, PeerRef};
 
@@ -863,8 +941,8 @@ mod tests {
     fn builder_defaults_match_todays_behaviour() {
         let builder = Client::builder("defaults", 1, "hash");
         let options = &builder.options;
-        assert_eq!((options.max_flood_sleeps, options.updates_capacity), (5, 1024));
-        assert_eq!(options.flood_sleep_threshold, Duration::from_secs(60));
+        assert_eq!(options.updates_capacity, 1024);
+        assert_eq!(builder.auto_sleep, AutoSleep { threshold: Duration::from_secs(60), tries: 5 });
         assert!(builder.catch_up);
         assert_eq!(builder.client_platform, "unknown");
         assert_eq!(builder.listener_timeout, Some(Duration::from_secs(300)));
@@ -896,6 +974,38 @@ mod tests {
     fn zero_listeners_and_transmissions_are_stored_as_one() {
         let builder = Client::builder("zero", 1, "hash").max_listeners(0).max_concurrent_transmissions(0);
         assert_eq!((builder.max_listeners, builder.max_concurrent_transmissions), (Some(1), Some(1)));
+    }
+
+    #[tokio::test]
+    async fn rate_limits_are_checked_when_connecting() {
+        let limit = |rate, burst| RateLimits::default().limit(RateCategory::Query, rate, burst);
+        for limits in
+            [limit(0.0, 5.0), limit(-1.0, 5.0), limit(f64::NAN, 5.0), limit(f64::INFINITY, 5.0), limit(1.0, 0.5)]
+        {
+            let refused = Client::builder("limits", 1, "hash").in_memory().rate_limits(limits).connect().await;
+            assert!(matches!(refused, Err(Error::InvalidArgument(_))));
+        }
+    }
+
+    #[tokio::test]
+    async fn no_updates_wraps_user_calls_and_init() {
+        use crate::raw::functions::Ping;
+        use crate::session::test_dc::{INIT_CONNECTION, INVOKE_WITH_LAYER, INVOKE_WITHOUT_UPDATES, PING};
+        let dc = TestDc::start([5; 256], false).await;
+        let quiet = Client::builder("quiet", 1, "hash").session_string(dc.session_string([5; 256])).no_updates();
+        let client = quiet.connect().await.unwrap();
+        client.invoke(&Ping { ping_id: 3 }).await.unwrap();
+        let seen: Vec<Vec<u32>> = dc.seen().into_iter().map(|s| s.ids).collect();
+        // The request that opens the connection: layer, initConnection, the quiet wrapper, then the config call.
+        let opening = seen.iter().find(|ids| ids[0] == INVOKE_WITH_LAYER).expect("no initConnection");
+        assert_eq!((opening.len(), opening[1], opening[2]), (4, INIT_CONNECTION, INVOKE_WITHOUT_UPDATES));
+        assert!(seen.contains(&vec![INVOKE_WITHOUT_UPDATES, PING]), "{seen:?}");
+
+        let plain = Client::builder("plain", 1, "hash").session_string(dc.session_string([5; 256]));
+        let plain = plain.connect().await.unwrap();
+        plain.invoke(&Ping { ping_id: 4 }).await.unwrap();
+        let after: Vec<Vec<u32>> = dc.seen().into_iter().skip(seen.len()).map(|s| s.ids).collect();
+        assert!(after.iter().all(|ids| !ids.contains(&INVOKE_WITHOUT_UPDATES)), "{after:?}");
     }
 
     #[test]

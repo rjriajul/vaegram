@@ -1,4 +1,5 @@
 mod invoke;
+mod rate_limiter;
 mod resolve_peer;
 mod resolve_phone;
 mod resolve_username;
