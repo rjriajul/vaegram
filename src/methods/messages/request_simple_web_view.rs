@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{PeerRef, WebView};
 
+/// A request to open a simple mini app. Awaiting it returns the [`WebView`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct RequestSimpleWebView<'a> {
     client: &'a Client,
@@ -15,6 +16,9 @@ pub struct RequestSimpleWebView<'a> {
 }
 
 impl Client {
+    /// Opens a bot's mini app without a chat.
+    ///
+    /// Returns the [`WebView`] to load.
     pub fn request_simple_web_view(&self, bot_id: impl Into<PeerRef>) -> RequestSimpleWebView<'_> {
         RequestSimpleWebView {
             client: self,
@@ -28,16 +32,19 @@ impl Client {
 }
 
 impl RequestSimpleWebView<'_> {
+    /// URL to open instead of the bot's default one.
     pub fn url(mut self, url: impl Into<String>) -> Self {
         self.url = Some(url.into());
         self
     }
 
+    /// Tells Telegram the app is opened from a `switch_webview` button.
     pub fn from_switch_webview(mut self) -> Self {
         self.from_switch_webview = true;
         self
     }
 
+    /// Tells Telegram the app is opened from the side menu.
     pub fn from_side_menu(mut self) -> Self {
         self.from_side_menu = true;
         self

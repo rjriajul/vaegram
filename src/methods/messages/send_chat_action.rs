@@ -10,6 +10,7 @@ use crate::types::PeerRef;
 
 const REPEAT_DELAY: Duration = Duration::from_secs(4);
 
+/// Request built by [`Client::send_chat_action`]. Await it to send the action once.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendChatAction<'a> {
     client: &'a Client,
@@ -36,12 +37,16 @@ pub struct ChatActionHandle {
 }
 
 impl Client {
+    /// Shows an action such as typing or uploading in a chat for about 5 seconds.
+    ///
+    /// Call [`repeat`](SendChatAction::repeat) to keep it showing.
     pub fn send_chat_action(&self, chat_id: impl Into<PeerRef>, action: ChatAction) -> SendChatAction<'_> {
         SendChatAction { client: self, chat_id: chat_id.into(), action, business_connection_id: None, top_msg_id: None }
     }
 }
 
 impl<'a> SendChatAction<'a> {
+    /// Sends the action through this business connection.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.business_connection_id = Some(id.into());
         self

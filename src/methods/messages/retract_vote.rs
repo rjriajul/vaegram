@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Takes back your vote in the poll of a message.
     pub async fn retract_vote(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> Result<()> {
         let request = functions::messages::SendVote {
             peer: self.resolve_peer(chat_id).await?,

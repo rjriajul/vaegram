@@ -5,6 +5,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{PeerRef, ReplyParameters, Text};
 
+/// A request to save a draft. Awaiting it sends the request.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SaveDraft<'a> {
     client: &'a Client,
@@ -15,6 +16,8 @@ pub struct SaveDraft<'a> {
 }
 
 impl Client {
+    /// Saves a draft in a chat, replacing the one there.
+    ///
     /// Empty text clears the draft.
     pub fn save_draft(&self, chat_id: impl Into<PeerRef>, text: impl Into<Text>) -> SaveDraft<'_> {
         SaveDraft { client: self, chat_id: chat_id.into(), text: text.into(), parse_mode: None, reply_to: None }
@@ -22,6 +25,7 @@ impl Client {
 }
 
 impl SaveDraft<'_> {
+    /// The message the draft replies to.
     pub fn reply_to(mut self, reply: impl Into<ReplyParameters>) -> Self {
         self.reply_to = Some(reply.into());
         self

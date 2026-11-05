@@ -5,6 +5,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
+/// Messages found by [`Client::search_messages`]. Call [`next`](SearchMessages::next) until it returns `None`.
 #[must_use = "call .next() to fetch messages"]
 pub struct SearchMessages<'a> {
     client: &'a Client,
@@ -16,6 +17,9 @@ pub struct SearchMessages<'a> {
 }
 
 impl Client {
+    /// Searches the messages of one chat, newest first.
+    ///
+    /// Without [`query`](SearchMessages::query), [`from_user`](SearchMessages::from_user) or [`filter`](SearchMessages::filter) it walks the whole history.
     pub fn search_messages(&self, chat_id: impl Into<PeerRef>) -> SearchMessages<'_> {
         SearchMessages {
             client: self,
@@ -29,21 +33,25 @@ impl Client {
 }
 
 impl SearchMessages<'_> {
+    /// Only messages containing this text.
     pub fn query(mut self, query: impl Into<String>) -> Self {
         self.query = query.into();
         self
     }
 
+    /// Only messages sent by this user.
     pub fn from_user(mut self, user_id: impl Into<PeerRef>) -> Self {
         self.from_user = Some(user_id.into());
         self
     }
 
+    /// Only messages of this kind.
     pub fn filter(mut self, filter: MessagesFilter) -> Self {
         self.filter = filter;
         self
     }
 
+    /// Stops after this many messages. Without it the search runs to the oldest match.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
@@ -61,6 +69,7 @@ impl SearchMessages<'_> {
         Ok(total)
     }
 
+    /// Returns the next match, fetching a page when the buffered one is used up. `None` after the last match.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         loop {
             if let Some(message) = self.pages.pop(self.client) {

@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{PeerRef, ReportResult};
 
+/// A request to report messages. Awaiting it returns the [`ReportResult`] for this step.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct ReportMessages<'a> {
     client: &'a Client,
@@ -33,6 +34,7 @@ impl ReportMessages<'_> {
         self
     }
 
+    /// Free-text comment to send with the report, for when Telegram asks for one.
     pub fn comment(mut self, comment: impl Into<String>) -> Self {
         self.comment = comment.into();
         self

@@ -5,6 +5,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
+/// Request built by [`Client::search_messages_count`]. Await it to get the count.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SearchMessagesCount<'a> {
     client: &'a Client,
@@ -15,6 +16,9 @@ pub struct SearchMessagesCount<'a> {
 }
 
 impl Client {
+    /// Counts the messages of one chat that match the search.
+    ///
+    /// Without [`query`](SearchMessagesCount::query), [`from_user`](SearchMessagesCount::from_user) or [`filter`](SearchMessagesCount::filter) it counts every message.
     pub fn search_messages_count(&self, chat_id: impl Into<PeerRef>) -> SearchMessagesCount<'_> {
         SearchMessagesCount {
             client: self,
@@ -27,16 +31,19 @@ impl Client {
 }
 
 impl SearchMessagesCount<'_> {
+    /// Only messages containing this text.
     pub fn query(mut self, query: impl Into<String>) -> Self {
         self.query = query.into();
         self
     }
 
+    /// Only messages of this kind.
     pub fn filter(mut self, filter: MessagesFilter) -> Self {
         self.filter = filter;
         self
     }
 
+    /// Only messages sent by this user.
     pub fn from_user(mut self, user_id: impl Into<PeerRef>) -> Self {
         self.from_user = Some(user_id.into());
         self

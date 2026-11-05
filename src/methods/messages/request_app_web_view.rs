@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::{PeerRef, WebView};
 
+/// A request to open a bot's mini app. Awaiting it returns the [`WebView`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct RequestAppWebView<'a> {
     client: &'a Client,
@@ -15,6 +16,9 @@ pub struct RequestAppWebView<'a> {
 }
 
 impl Client {
+    /// Opens a mini app of a bot, picked by its `short_name`, from a chat.
+    ///
+    /// Returns the [`WebView`] to load.
     pub fn request_app_web_view(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -33,6 +37,7 @@ impl Client {
 }
 
 impl RequestAppWebView<'_> {
+    /// Marks that you allowed the bot to write messages to you.
     pub fn write_allowed(mut self) -> Self {
         self.write_allowed = true;
         self
