@@ -5,6 +5,7 @@ use crate::types::{BotApp, PeerRef};
 
 impl Client {
     /// Returns a Mini App of a bot by its short name.
+    ///
     /// Fails with `Error::InvalidArgument` if `short_name` is empty.
     pub async fn get_bot_app(&self, bot_id: impl Into<PeerRef>, short_name: impl Into<String>) -> Result<BotApp> {
         let short_name = short_name.into();

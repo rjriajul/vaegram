@@ -14,7 +14,8 @@ pub struct CreateBot<'a> {
 }
 
 impl Client {
-    /// Creates a new bot owned by the account, through the managing bot `manager_bot_id`.
+    /// Creates a bot owned by the account, managed by the bot `manager_bot_id`.
+    ///
     /// Awaiting the request returns the new bot as a [`User`].
     pub fn create_bot(
         &self,

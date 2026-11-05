@@ -4,7 +4,7 @@ use crate::raw::functions;
 use crate::types::User;
 
 impl Client {
-    /// Creates an account for a number that has none, then signs in.
+    /// Creates an account for a number that has none, then signs in and saves the session.
     ///
     /// Pass the `phone_code_hash` of the login code, after [`sign_in`](Client::sign_in) failed with
     /// `Error::SignUpRequired`.

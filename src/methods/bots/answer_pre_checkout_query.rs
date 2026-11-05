@@ -11,7 +11,7 @@ pub struct AnswerPreCheckoutQuery<'a> {
 }
 
 impl Client {
-    /// Telegram cancels the payment unless this is answered within 10 seconds.
+    /// Answers a pre-checkout query. The checkout is approved unless [`error`](AnswerPreCheckoutQuery::error) is set.
     pub fn answer_pre_checkout_query(&self, query_id: i64) -> AnswerPreCheckoutQuery<'_> {
         AnswerPreCheckoutQuery { client: self, query_id, error: None }
     }

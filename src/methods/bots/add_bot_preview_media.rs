@@ -6,8 +6,9 @@ use crate::types::{BotPreviewMedia, InputMedia, PeerRef};
 
 impl Client {
     /// Adds a photo or video to the preview media of a bot you own, for one language.
-    /// An empty `lang_code` targets the default previews.
-    /// Returns [`BotPreviewMedia`]. Any other media kind fails with `Error::InvalidArgument`.
+    ///
+    /// An empty `lang_code` targets the default previews. Returns the new [`BotPreviewMedia`]. Any other media
+    /// kind fails with `Error::InvalidArgument`.
     pub async fn add_bot_preview_media(
         &self,
         bot_id: impl Into<PeerRef>,

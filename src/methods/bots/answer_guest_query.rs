@@ -5,7 +5,8 @@ use crate::types::{InlineMessageId, InlineQueryResult, SentGuestMessage};
 
 impl Client {
     /// Answers a guest query with one inline result.
-    /// Returns a [`SentGuestMessage`] holding the id of the message the bot sent.
+    ///
+    /// Returns a [`SentGuestMessage`] holding the inline message id of the message the bot sent.
     pub async fn answer_guest_query(
         &self,
         guest_query_id: i64,

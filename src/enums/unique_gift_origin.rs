@@ -6,7 +6,7 @@ pub enum UniqueGiftOrigin {
     Upgrade,
     /// The gift was upgraded with an upgrade its sender prepaid.
     GiftedUpgrade,
-    /// Another user transferred the gift.
+    /// The gift was transferred from its previous owner.
     Transfer,
     /// The owner bought it on the resale market.
     Resale,

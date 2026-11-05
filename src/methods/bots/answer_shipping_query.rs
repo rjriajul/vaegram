@@ -14,6 +14,7 @@ pub struct AnswerShippingQuery<'a> {
 
 impl Client {
     /// Answers a shipping query from a payment with a flexible price.
+    ///
     /// Set either [`shipping_options`](AnswerShippingQuery::shipping_options) or
     /// [`error`](AnswerShippingQuery::error).
     pub fn answer_shipping_query(&self, query_id: i64) -> AnswerShippingQuery<'_> {
@@ -22,7 +23,7 @@ impl Client {
 }
 
 impl AnswerShippingQuery<'_> {
-    /// Shipping options offered to the user.
+    /// Offers these shipping options to the user.
     pub fn shipping_options(mut self, options: impl IntoIterator<Item = ShippingOption>) -> Self {
         self.shipping_options = Some(options.into_iter().collect());
         self

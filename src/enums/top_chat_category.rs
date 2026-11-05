@@ -3,13 +3,13 @@
 pub enum TopChatCategory {
     /// Users you message most.
     Users,
-    /// Bots you message most.
+    /// Bots you chat with most in private.
     Bots,
     /// Bots you use most in inline mode.
     InlineBots,
     /// Users you call most.
     Calls,
-    /// Chats you forward messages to most.
+    /// Users and chats you forward messages to most.
     ForwardChats,
     /// Groups you use most.
     Groups,
@@ -17,5 +17,6 @@ pub enum TopChatCategory {
     Channels,
     /// Bots whose Mini Apps you open most.
     WebAppBots,
+    /// Bots you use most in guest chats.
     GuestBots,
 }

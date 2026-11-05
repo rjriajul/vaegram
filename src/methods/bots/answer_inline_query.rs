@@ -18,6 +18,7 @@ pub struct AnswerInlineQuery<'a> {
 
 impl Client {
     /// Answers an inline query with a list of results.
+    ///
     /// Telegram caches the results for 300 seconds unless [`cache_time`](AnswerInlineQuery::cache_time) says
     /// otherwise.
     pub fn answer_inline_query<R: Into<InlineQueryResult>>(
@@ -57,13 +58,13 @@ impl AnswerInlineQuery<'_> {
         self
     }
 
-    /// Offset the client sends back in the next query to load more results.
+    /// Sets the offset the client sends back in the next query to load more results.
     pub fn next_offset(mut self, offset: impl Into<String>) -> Self {
         self.next_offset = Some(offset.into());
         self
     }
 
-    /// Button shown above the results, either a start link or a web app.
+    /// Shows a button above the results that opens a private chat with the bot or a Mini App.
     pub fn button(mut self, button: InlineQueryResultsButton) -> Self {
         self.button = Some(button);
         self

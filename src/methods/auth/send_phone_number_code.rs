@@ -36,7 +36,7 @@ impl SendPhoneNumberCode<'_> {
         self
     }
 
-    /// Options for how Telegram delivers the code.
+    /// Changes how Telegram delivers the code.
     pub fn settings(mut self, settings: PhoneNumberAuthenticationSettings) -> Self {
         self.settings = settings;
         self

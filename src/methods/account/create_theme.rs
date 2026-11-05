@@ -27,7 +27,7 @@ impl Client {
 }
 
 impl CreateTheme<'_> {
-    /// Picks the slug used in the theme's share link. Left empty by default.
+    /// Picks the slug used in the theme's share link. Empty by default.
     pub fn slug(mut self, slug: impl Into<String>) -> Self {
         self.slug = slug.into();
         self

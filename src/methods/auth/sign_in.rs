@@ -6,8 +6,8 @@ use crate::types::User;
 impl Client {
     /// Signs in with the code Telegram sent.
     ///
-    /// Saves the session and returns the account. Fails with `Error::SignUpRequired` if the number has no
-    /// account yet, so call [`sign_up`](Client::sign_up) then.
+    /// Saves the session and returns the signed-in user. Fails with `Error::SignUpRequired` if the number has no
+    /// account yet. Call [`sign_up`](Client::sign_up) then.
     pub async fn sign_in(&self, phone_number: &str, phone_code_hash: &str, phone_code: &str) -> Result<base::User> {
         let auth = self.sign_in_raw(phone_number, phone_code_hash, phone_code).await?;
         self.authorized(auth).await

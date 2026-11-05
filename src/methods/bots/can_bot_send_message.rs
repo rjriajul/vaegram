@@ -4,7 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
-    /// Returns whether you can message the bot.
+    /// Returns whether the bot is allowed to message you.
     pub async fn can_bot_send_message(&self, bot_id: impl Into<PeerRef>) -> Result<bool> {
         self.invoke(&functions::bots::CanSendMessage { bot: self.resolve_user(&bot_id.into()).await? }).await
     }

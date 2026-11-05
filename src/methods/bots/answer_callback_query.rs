@@ -15,6 +15,7 @@ pub struct AnswerCallbackQuery<'a> {
 
 impl Client {
     /// Answers a callback query from an inline keyboard button.
+    ///
     /// Awaiting the request returns whether Telegram accepted the answer.
     ///
     /// ```no_run
@@ -41,7 +42,7 @@ impl AnswerCallbackQuery<'_> {
         self
     }
 
-    /// URL for the client to open.
+    /// Makes the client open this URL.
     pub fn url(mut self, url: impl Into<String>) -> Self {
         self.url = Some(url.into());
         self

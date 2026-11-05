@@ -10,10 +10,10 @@ pub struct Takeout<'a> {
 }
 
 impl Client {
-    /// Starts a data export session; pick what it covers with the setters, then await it. User accounts only.
+    /// Starts a data export session. Pick what it covers with the setters, then await it. User accounts only.
     ///
-    /// Telegram may answer `TAKEOUT_INIT_DELAY_<seconds>` until the user confirms the export in another app or
-    /// the delay passes; [`Error::flood_wait`](crate::Error::flood_wait) gives the wait, and the client's retry
+    /// Telegram answers `TAKEOUT_INIT_DELAY_<seconds>` until the user confirms the export in another app or
+    /// the delay passes. [`Error::flood_wait`](crate::Error::flood_wait) gives the wait, and the client's retry
     /// policy sleeps off the ones it accepts, by default up to a minute.
     pub fn takeout(&self) -> Takeout<'_> {
         let request = functions::account::InitTakeoutSession {
@@ -42,6 +42,8 @@ impl Takeout<'_> {
         self
     }
 
+    /// Includes messages from basic groups.
+    ///
     /// Basic groups that were upgraded continue as supergroups, so their later history needs `supergroups()`.
     pub fn basic_groups(mut self) -> Self {
         self.request.message_chats = true;
@@ -60,7 +62,7 @@ impl Takeout<'_> {
         self
     }
 
-    /// Files up to `max_size` bytes.
+    /// Includes files up to `max_size` bytes.
     pub fn files(mut self, max_size: u64) -> Self {
         self.request.files = true;
         self.request.file_max_size = Some(i64::try_from(max_size).unwrap_or(i64::MAX));
@@ -92,7 +94,7 @@ impl TakeoutSession {
         &self.client
     }
 
-    /// Ends the session; `success = false` aborts it.
+    /// Ends the session. `success = false` aborts it.
     pub async fn finish(mut self, success: bool) -> Result<bool> {
         self.finished = true;
         self.client.invoke(&functions::account::FinishTakeoutSession { success }).await

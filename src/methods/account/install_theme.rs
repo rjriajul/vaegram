@@ -14,7 +14,7 @@ pub struct InstallTheme<'a> {
 }
 
 impl Client {
-    /// Makes a theme the account's active one. Awaiting it returns whether Telegram accepted it.
+    /// Installs a theme on the account. Awaiting the request returns whether Telegram accepted it.
     pub fn install_theme(&self, theme: &Theme) -> InstallTheme<'_> {
         InstallTheme { client: self, theme: theme.write(), dark: false, base_theme: None }
     }
