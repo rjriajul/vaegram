@@ -6,7 +6,7 @@ use crate::types::User;
 /// A TON wallet address and the user it belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserTonWalletAddress {
-    /// Telegram leaves it out when the address doesn't belong to a user it can show.
+    /// The user who owns the address. `None` when Telegram sends no user id for it.
     pub user: Option<User>,
     /// The wallet address.
     pub wallet_address: String,

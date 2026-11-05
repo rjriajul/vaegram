@@ -10,13 +10,13 @@ pub struct SupergroupStatistics {
     pub min_date: i32,
     /// Unix time the covered period ends.
     pub max_date: i32,
-    /// Member count.
+    /// Number of members.
     pub members: StatisticalValue,
-    /// Messages sent.
+    /// Number of messages sent.
     pub messages: StatisticalValue,
-    /// Members who viewed messages.
+    /// Number of members who viewed messages.
     pub viewers: StatisticalValue,
-    /// Members who sent messages.
+    /// Number of members who sent messages.
     pub posters: StatisticalValue,
     /// Member growth.
     pub growth_graph: StatisticalGraph,
@@ -45,7 +45,9 @@ pub struct SupergroupStatistics {
 /// A member ranked by messages sent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TopPoster {
+    /// The member.
     pub user: User,
+    /// Messages they sent in the period.
     pub messages: i32,
     /// Average length of their messages, in characters.
     pub avg_chars: i32,
@@ -54,6 +56,7 @@ pub struct TopPoster {
 /// An admin ranked by actions taken.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TopAdmin {
+    /// The admin.
     pub user: User,
     /// Messages deleted.
     pub deleted: i32,
@@ -66,6 +69,7 @@ pub struct TopAdmin {
 /// A member ranked by invitations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TopInviter {
+    /// The member who sent the invitations.
     pub user: User,
     /// People invited.
     pub invitations: i32,

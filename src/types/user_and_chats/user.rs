@@ -7,15 +7,15 @@ use crate::types::{ChatColor, ChatPhoto, EmojiStatus, RestrictionReason, Usernam
 /// A Telegram user or bot.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct User {
-    /// The user id.
+    /// Unique id of the user. Always positive.
     pub id: i64,
     /// The user is a bot.
     pub is_bot: bool,
-    /// First name. Empty if Telegram did not send the user.
+    /// First name. Empty if Telegram sent no name or no user object.
     pub first_name: String,
     /// Last name. `None` if not set.
     pub last_name: Option<String>,
-    /// The username, or the first active one from `usernames` when none is editable. `None` if there is none.
+    /// Main username, or the first active entry of `usernames` when Telegram sends no main one.
     pub username: Option<String>,
     /// Language code of the user's app, when Telegram sends it.
     pub language_code: Option<String>,
@@ -29,7 +29,7 @@ pub struct User {
     pub is_scam: bool,
     /// Telegram flagged the account as impersonating someone.
     pub is_fake: bool,
-    /// Bots only: the bot handles join request queries.
+    /// Bots only: the bot handles join request queries, as read from Telegram's `bot_guard` flag.
     pub supports_join_request_queries: bool,
     /// Bots only: the bot handles guest chat queries.
     pub supports_guest_queries: bool,
@@ -61,7 +61,7 @@ pub struct User {
     pub is_contact: bool,
     /// You are in each other's contacts.
     pub is_mutual_contact: bool,
-    /// Hidden on some platforms; see `restrictions`.
+    /// Hidden on some platforms. `restrictions` says where and why.
     pub is_restricted: bool,
     /// An official Telegram support account.
     pub is_support: bool,
@@ -73,9 +73,9 @@ pub struct User {
     pub is_stories_hidden: bool,
     /// Their stories are unavailable to you.
     pub is_stories_unavailable: bool,
-    /// The custom emoji shown next to a verified bot's name.
+    /// Custom emoji id of the bot verification icon shown next to the name.
     pub bot_verification_icon_custom_emoji_id: Option<i64>,
-    /// Visible only when they share it with you.
+    /// Phone number. `None` unless they share it with you.
     pub phone_number: Option<String>,
     /// Bots only: you added it to your attachment menu.
     pub added_to_attachment_menu: bool,
@@ -89,17 +89,17 @@ pub struct User {
     pub can_be_edited: bool,
     /// Bots only: the bot offers an attachment menu entry.
     pub can_be_added_to_attachment_menu: bool,
-    /// Stars charged per message sent to them.
+    /// Stars charged per message sent to them. `None` when messages are free.
     pub paid_message_star_count: Option<i64>,
     /// The emoji status. `None` if not set.
     pub emoji_status: Option<EmojiStatus>,
     /// Why the account is restricted on some platforms.
     pub restrictions: Vec<RestrictionReason>,
-    /// Every username, including collectible ones; `username` is the editable one when set.
+    /// Every username, including collectible ones.
     pub usernames: Vec<Username>,
-    /// The data center that stores the profile photo.
+    /// The data center that stores the profile photo. `None` without a photo.
     pub dc_id: Option<i32>,
-    /// The profile photo. `None` if there is none or Telegram sent no access hash for it.
+    /// The profile photo. `None` if there is none or Telegram sent no access hash for the user.
     pub photo: Option<ChatPhoto>,
     /// Color used for replies to their messages. `None` if not set.
     pub reply_color: Option<ChatColor>,

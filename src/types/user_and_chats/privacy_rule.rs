@@ -18,7 +18,7 @@ pub enum PrivacyRule {
     AllowBots,
     /// The listed users are allowed.
     AllowUsers(Vec<i64>),
-    /// Members of the listed chats are allowed. Chat ids use the signed form of [`Chat::id`](crate::types::Chat).
+    /// Members of the listed chats are allowed. Chat ids are signed, as in [`Chat::id`](crate::types::Chat::id).
     AllowChatMembers(Vec<i64>),
     /// Everyone is denied.
     DisallowAll,
@@ -28,7 +28,7 @@ pub enum PrivacyRule {
     DisallowBots,
     /// The listed users are denied.
     DisallowUsers(Vec<i64>),
-    /// Members of the listed chats are denied. Chat ids use the signed form of [`Chat::id`](crate::types::Chat).
+    /// Members of the listed chats are denied. Chat ids are signed, as in [`Chat::id`](crate::types::Chat::id).
     DisallowChatMembers(Vec<i64>),
 }
 

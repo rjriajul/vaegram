@@ -11,7 +11,7 @@ pub struct SavedDialog {
     pub chat: Chat,
     /// The latest saved message from the chat. `None` if the page did not include it.
     pub top_message: Option<Message>,
-    /// The dialog is pinned.
+    /// The dialog is pinned in Saved Messages.
     pub is_pinned: bool,
 }
 

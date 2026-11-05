@@ -3,11 +3,12 @@ use crate::raw::base;
 /// A chart from the statistics pages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatisticalGraph {
-    /// The chart data as JSON, as Telegram sends it. `zoom_token` loads a finer view when set.
+    /// The chart data as JSON, as Telegram sends it. `zoom_token` loads a zoomed view when set.
     Data { json: String, zoom_token: Option<String> },
-    /// The chart is not ready. Load it later with this token.
+    /// The chart is not ready. Load it with this token through
+    /// [`Client::get_statistical_graph`](crate::Client::get_statistical_graph).
     Async { token: String },
-    /// Telegram could not build the chart.
+    /// Telegram could not build the chart. `message` is its error text.
     Error { message: String },
 }
 

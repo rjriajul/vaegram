@@ -10,7 +10,7 @@ pub enum PassportElementError {
     FrontSide { kind: PassportElementType, file_hash: Vec<u8>, message: String },
     /// A problem with the reverse side of a document.
     ReverseSide { kind: PassportElementType, file_hash: Vec<u8>, message: String },
-    /// A problem with the selfie holding the document.
+    /// A problem with the selfie of the user holding the document.
     Selfie { kind: PassportElementType, file_hash: Vec<u8>, message: String },
     /// A problem with one uploaded file of the element.
     File { kind: PassportElementType, file_hash: Vec<u8>, message: String },

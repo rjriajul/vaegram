@@ -3,10 +3,9 @@ use crate::errors::Result;
 use crate::methods::{BlockUser, UnblockUser};
 use crate::types::{Chat, Text, User};
 
-/// Shortcuts for the `Client` methods that take this user: each one forwards to its method with the user's id and
-/// gives back what the method gives back.
+/// Name helpers, and shortcuts that call the `Client` method of the same name with the user's id.
 impl User {
-    /// The first and last name, joined.
+    /// Returns the first and last name joined by a space, or the first name alone without a last name.
     pub fn full_name(&self) -> String {
         match &self.last_name {
             Some(last) => format!("{} {last}", self.first_name),
@@ -14,7 +13,7 @@ impl User {
         }
     }
 
-    /// The full name as a mention of this user.
+    /// Returns [`full_name`](User::full_name) as a text mention of this user.
     pub fn mention(&self) -> Text {
         Text::new().mention(self.full_name(), self.id)
     }
@@ -29,12 +28,12 @@ impl User {
         client.unarchive_chats([self.id]).await
     }
 
-    /// Blocks this user.
+    /// Blocks this user. Awaiting the returned [`BlockUser`] sends the request.
     pub fn block<'a>(&self, client: &'a Client) -> BlockUser<'a> {
         client.block_user(self.id)
     }
 
-    /// Unblocks this user.
+    /// Unblocks this user. Awaiting the returned [`UnblockUser`] sends the request.
     pub fn unblock<'a>(&self, client: &'a Client) -> UnblockUser<'a> {
         client.unblock_user(self.id)
     }

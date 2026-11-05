@@ -14,15 +14,15 @@ pub struct PremiumPromo {
 pub struct PremiumSubscriptionOption {
     /// Length of the subscription in months.
     pub months: i32,
-    /// Currency code of `amount`.
+    /// Three-letter ISO 4217 currency code of `amount`.
     pub currency: String,
     /// Price in the smallest unit of `currency`.
     pub amount: i64,
     /// Link to the bot that sells this option.
     pub bot_url: String,
-    /// This is the subscription you have now.
+    /// `true` for the subscription you have now.
     pub is_current: bool,
-    /// Buying this option upgrades your current subscription.
+    /// This option can be bought as an upgrade of your current subscription.
     pub can_purchase_upgrade: bool,
 }
 
