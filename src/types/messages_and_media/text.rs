@@ -6,7 +6,9 @@ use crate::parser::{self, Kind, Span};
 use crate::raw::base;
 use crate::types::MessageEntity;
 
-/// A parse mode only applies to a `Text` made straight from a string; a built or parsed one is sent as is.
+/// Text with formatting entities, built piece by piece or parsed from HTML or Markdown.
+///
+/// A parse mode only applies to a `Text` made straight from a string. A built or parsed one is sent as is.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Text {
     pub(crate) text: String,
@@ -16,23 +18,30 @@ pub struct Text {
 }
 
 impl Text {
+    /// Creates an empty `Text`.
     pub fn new() -> Self {
         Text::default()
     }
 
+    /// Parses `html` into a `Text` with its formatting entities.
     pub fn from_html(html: &str) -> Self {
         parser::parse(html, ParseMode::Html)
     }
 
+    /// Parses `markdown` into a `Text` with its formatting entities.
     pub fn from_markdown(markdown: &str) -> Self {
         parser::parse(markdown, ParseMode::Markdown)
     }
 
+    /// Renders the text as HTML.
+    ///
     /// A `Text` made straight from a string comes out as plain text: it was never parsed.
     pub fn to_html(&self) -> String {
         parser::unparse(self, ParseMode::Html)
     }
 
+    /// Renders the text as Markdown.
+    ///
     /// Formatting Markdown can't express (quotes not covering whole lines, link text holding `]`) is left out.
     pub fn to_markdown(&self) -> String {
         parser::unparse(self, ParseMode::Markdown)
@@ -43,59 +52,76 @@ impl Text {
         Text { text: text.into(), len: text.encode_utf16().count() as i32, spans, unparsed: false }
     }
 
+    /// Appends `text` without adding formatting. Entities already on `text` are kept.
     pub fn plain(mut self, text: impl Into<Text>) -> Self {
         self.append(text.into());
         self
     }
 
+    /// Appends `text` in bold.
     pub fn bold(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Bold, text)
     }
 
+    /// Appends `text` in italics.
     pub fn italic(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Italic, text)
     }
 
+    /// Appends underlined `text`.
     pub fn underline(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Underline, text)
     }
 
+    /// Appends struck-through `text`.
     pub fn strike(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Strike, text)
     }
 
+    /// Appends `text` hidden behind a spoiler.
     pub fn spoiler(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Spoiler, text)
     }
 
+    /// Appends `text` as inline monospace code.
     pub fn code(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Code, text)
     }
 
+    /// Appends `text` as a preformatted block. `language` names the syntax for highlighting.
     pub fn pre(self, text: impl Into<Text>, language: impl Into<String>) -> Self {
         self.wrap(Kind::Pre(language.into()), text)
     }
 
+    /// Appends `text` as a link to `url`.
     pub fn link(self, text: impl Into<Text>, url: impl Into<String>) -> Self {
         self.wrap(Kind::Link(url.into()), text)
     }
 
+    /// Appends `text` as a mention of the user with `user_id`.
     pub fn mention(self, text: impl Into<Text>, user_id: i64) -> Self {
         self.wrap(Kind::Mention(user_id), text)
     }
 
+    /// Appends a custom emoji. `emoji` is the placeholder text, `document_id` the custom emoji's id.
     pub fn custom_emoji(self, emoji: impl Into<Text>, document_id: i64) -> Self {
         self.wrap(Kind::CustomEmoji(document_id), emoji)
     }
 
+    /// Appends `text` as a date and time that clients show in the reader's own time zone.
+    ///
+    /// `unix_time` is the moment to show. Each letter of `format` turns on one style: `r` relative, `t` short time,
+    /// `T` long time, `d` short date, `D` long date and `w` day of the week. Other letters are ignored.
     pub fn date_time(self, text: impl Into<Text>, unix_time: i32, format: &str) -> Self {
         self.wrap(Kind::date_time(unix_time, format), text)
     }
 
+    /// Appends `text` as a block quote, collapsed behind an expand button if `expandable` is `true`.
     pub fn blockquote(self, text: impl Into<Text>, expandable: bool) -> Self {
         self.wrap(Kind::Blockquote(expandable), text)
     }
 
+    /// Returns the plain text without formatting.
     pub fn as_str(&self) -> &str {
         &self.text
     }
@@ -105,14 +131,18 @@ impl Text {
         self.len as usize
     }
 
+    /// Returns `true` if the text has no characters.
     pub fn is_empty(&self) -> bool {
         self.text.is_empty()
     }
 
+    /// Returns the formatting entities of the text, with UTF-16 offsets.
     pub fn entities(&self) -> Vec<MessageEntity> {
         self.write_entities().iter().map(|e| MessageEntity::parse(e, &Entities::default())).collect()
     }
 
+    /// Returns the part of the text in `range`, counted in UTF-16 units, with the entities clipped to it.
+    ///
     /// An offset inside a surrogate pair moves back to the pair's start; a reversed range gives an empty `Text`.
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Text {
         let unit = |n: usize| n.min(self.len()) as i32;
@@ -130,6 +160,8 @@ impl Text {
         self.cut(from, self.boundary(from, end))
     }
 
+    /// Splits the text into parts of at most `max` UTF-16 units, keeping entities across the cuts.
+    ///
     /// Cuts after a line break, else a space, in each part's second half; never inside a custom emoji or date.
     pub fn split(&self, max: usize) -> Vec<Text> {
         let max = max.clamp(1, i32::MAX as usize) as i32;

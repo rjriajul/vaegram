@@ -7,11 +7,15 @@ use crate::types::User;
 pub struct TonWalletTransfer {
     /// The sender, or the chat's user when the message doesn't say.
     pub sender: Option<User>,
+    /// Id of the transaction, as shown on a block explorer.
     pub transaction_id: String,
+    /// Wallet address of the other party.
     pub peer_address: String,
     /// In nanotons.
     pub amount: i64,
+    /// Comment attached to the transfer. `None` if there's none.
     pub comment: Option<String>,
+    /// `true` if `comment` is encrypted.
     pub is_comment_encrypted: bool,
 }
 

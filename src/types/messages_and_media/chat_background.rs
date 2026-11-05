@@ -1,21 +1,37 @@
 use crate::raw::{base, types};
 
+/// A chat wallpaper: a picture, a pattern over colors, or a plain color fill.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatBackground {
+    /// Telegram's id of the wallpaper.
     pub id: i64,
+    /// Slug used in wallpaper links. Empty for wallpapers without a file.
     pub slug: String,
+    /// `true` if the current account created the wallpaper.
     pub is_creator: bool,
+    /// `true` if the wallpaper is one of Telegram's defaults.
     pub is_default: bool,
+    /// `true` if the file is a pattern drawn over the background colors.
     pub is_pattern: bool,
+    /// `true` if the wallpaper is meant for dark themes.
     pub is_dark: bool,
+    /// `true` if the picture is blurred.
     pub is_blurred: bool,
+    /// `true` if the picture moves with the device (parallax).
     pub is_moving: bool,
+    /// First background color as RGB. `None` if the wallpaper has no settings.
     pub background_color: Option<i32>,
+    /// Second color of a gradient, as RGB. `None` for a single color.
     pub second_background_color: Option<i32>,
+    /// Third color of a gradient, as RGB. `None` if unset.
     pub third_background_color: Option<i32>,
+    /// Fourth color of a gradient, as RGB. `None` if unset.
     pub fourth_background_color: Option<i32>,
+    /// How strongly the pattern shows. `None` if unset.
     pub intensity: Option<i32>,
+    /// Gradient angle in degrees. Only sent together with the second color.
     pub rotation_angle: Option<i32>,
+    /// Emoji the wallpaper is tied to. `None` if unset.
     pub emoji: Option<String>,
     pub(crate) access_hash: Option<i64>,
 }

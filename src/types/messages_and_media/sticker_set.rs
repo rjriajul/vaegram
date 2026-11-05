@@ -3,13 +3,18 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::types::{FileLocation, Sticker};
 
+/// A sticker set, mask set or custom emoji set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StickerSet {
+    /// Telegram's id of the set.
     pub id: i64,
     /// The short name in `t.me/addstickers/<name>` links, which the sticker set methods take.
     pub name: String,
+    /// Display title of the set.
     pub title: String,
+    /// What the set holds: regular stickers, masks or custom emoji.
     pub sticker_type: StickerType,
+    /// Stickers in the set. Sets from a list may hold only a few cover stickers, or none.
     pub stickers: Vec<Sticker>,
     /// The set's own thumbnail; without one, apps show the first sticker.
     pub thumbnail: Option<FileLocation>,

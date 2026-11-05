@@ -8,6 +8,7 @@ use crate::types::{
     Animation, Audio, Document, LivePhoto, Photo, Sticker, Upload, UploadedFile, Video, VideoNote, Voice,
 };
 
+/// Where a file to send comes from: a local path, an upload, a stored file id or a URL.
 #[derive(Debug, Clone)]
 pub struct FileSource<'a>(pub(crate) Source<'a>);
 

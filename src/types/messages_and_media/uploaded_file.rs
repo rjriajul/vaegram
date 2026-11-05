@@ -22,6 +22,7 @@ fn raw(file: vaegram::types::UploadedFile) {
 pub struct UploadedFile(pub(crate) base::InputFile);
 
 impl UploadedFile {
+    /// The file name given at upload time.
     pub fn name(&self) -> &str {
         match &self.0 {
             base::InputFile::InputFile(f) => &f.name,

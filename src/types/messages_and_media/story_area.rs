@@ -6,63 +6,94 @@ use crate::raw::{base, types};
 use crate::types::{Chat, PeerRef, ReactionType, Venue};
 use crate::utils::{get_channel_id, get_peer};
 
+/// An interactive area placed on a story's media.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoryArea {
+    /// Where the area sits on the media.
     pub position: StoryAreaPosition,
+    /// What the area shows or links to.
     pub kind: StoryAreaType,
 }
 
-/// Where an area sits on the story, in percents of the media size; `x`/`y` are the center.
+/// Where an area sits on the story, in percent of the media size. `x` and `y` are the center.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct StoryAreaPosition {
+    /// Horizontal position of the center, in percent of the media width.
     pub x_percentage: f64,
+    /// Vertical position of the center, in percent of the media height.
     pub y_percentage: f64,
+    /// Width of the area, in percent of the media width.
     pub width_percentage: f64,
+    /// Height of the area, in percent of the media height.
     pub height_percentage: f64,
+    /// Rotation of the area in degrees.
     pub rotation_angle: f64,
+    /// Corner radius, in percent of the smaller side of the area. 0 if Telegram sends none.
     pub corner_radius_percentage: f64,
 }
 
+/// What a [`StoryArea`] shows or links to.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum StoryAreaType {
+    /// A geographic point.
     Location {
+        /// Latitude in degrees.
         latitude: f64,
+        /// Longitude in degrees.
         longitude: f64,
+        /// Street address of the point. `None` if none is attached.
         address: Option<LocationAddress>,
     },
+    /// A reaction viewers can tap to send the same one.
     SuggestedReaction {
+        /// The suggested reaction.
         reaction: ReactionType,
+        /// `true` for the dark variant of the area.
         is_dark: bool,
+        /// `true` if the area is mirrored horizontally.
         is_flipped: bool,
     },
+    /// A link to a URL.
     Link {
+        /// The target URL.
         url: String,
     },
-    /// `background_color` is ARGB.
+    /// A weather widget.
     Weather {
+        /// Temperature in degrees Celsius.
         temperature: f64,
+        /// Emoji showing the weather.
         emoji: String,
+        /// Background color of the widget.
         background_color: i32,
     },
-    /// `name` is the unique gift's slug.
+    /// A link to a unique gift.
     UniqueGift {
+        /// Slug of the unique gift.
         name: String,
     },
+    /// A venue on the map.
     Venue(Venue),
     /// A link to a post of a channel. Writing it needs the channel to be known to the client.
     ChannelPost {
+        /// The channel that holds the post.
         chat: Box<Chat>,
+        /// Id of the post in `chat`.
         message_id: i32,
     },
 }
 
+/// A street address attached to a [`StoryAreaType::Location`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LocationAddress {
     /// Two-letter ISO 3166-1 alpha-2 code.
     pub country_code: String,
+    /// State or region. `None` if not given.
     pub state: Option<String>,
+    /// City. `None` if not given.
     pub city: Option<String>,
+    /// Street and number. `None` if not given.
     pub street: Option<String>,
 }
 

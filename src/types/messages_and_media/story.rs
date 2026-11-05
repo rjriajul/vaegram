@@ -6,40 +6,64 @@ use crate::methods::{DownloadMedia, DownloadSource};
 use crate::raw::base;
 use crate::types::{Chat, Media, MessageEntity, PrivacyRule, ReactionCount, ReactionType, StoryArea, User};
 
+/// A story posted to a chat's story feed.
 #[derive(Debug, Clone)]
 pub struct Story {
+    /// The chat whose story feed holds the story.
     pub chat: Chat,
+    /// Id of the story within `chat`.
     pub id: i32,
+    /// Unix time when the story was posted.
     pub date: i32,
+    /// Unix time when the story expires from the feed, unless it's pinned.
     pub expire_date: i32,
     /// The user who posted the story: the explicit author, else the story's own chat when that is a user.
     pub from_user: Option<User>,
     /// The channel or group that posted the story.
     pub sender_chat: Option<Chat>,
+    /// The user who posted the story that this one reposts. `None` if it isn't a repost or the author is hidden.
     pub forward_from: Option<User>,
+    /// The channel or group that posted the story that this one reposts.
     pub forward_from_chat: Option<Chat>,
     /// Set when the original author hides their account.
     pub forward_sender_name: Option<String>,
+    /// Id of the reposted story in its original chat.
     pub forward_from_story_id: Option<i32>,
+    /// `true` if the reposter edited the story after reposting it.
     pub is_forward_modified: bool,
+    /// Caption text. `None` if the story has no caption.
     pub caption: Option<String>,
+    /// Formatting entities in `caption`.
     pub caption_entities: Option<Vec<MessageEntity>>,
+    /// The story's photo or video. `None` if Telegram sent no media for it.
     pub media: Option<Media>,
+    /// Interactive areas placed on the media, such as locations and links.
     pub media_areas: Vec<StoryArea>,
+    /// Number of views. `None` when Telegram doesn't send view counters.
     pub view_count: Option<i32>,
+    /// Total number of reactions. `None` when Telegram doesn't send it.
     pub reaction_count: Option<i32>,
+    /// Number of times the story was forwarded or reposted. `None` when Telegram doesn't send it.
     pub forward_count: Option<i32>,
+    /// Reactions on the story with their counts.
     pub reactions: Vec<ReactionCount>,
     /// Only the story's author sees it, and only when the rules are ones `StoriesPrivacyRules` can express.
     pub privacy: Option<StoriesPrivacyRules>,
+    /// `true` if the story is pinned to the profile and stays after it expires.
     pub is_pinned: bool,
+    /// `true` if the story is visible to everyone.
     pub is_public: bool,
+    /// `true` if only close friends can see the story.
     pub is_close_friends: bool,
+    /// `true` if only contacts can see the story.
     pub is_contacts: bool,
+    /// `true` if only selected contacts can see the story.
     pub is_selected_contacts: bool,
+    /// `true` if the story was edited after posting.
     pub is_edited: bool,
     /// Posted by this account.
     pub outgoing: bool,
+    /// `true` if the story can't be forwarded or saved.
     pub has_protected_content: bool,
     /// A placeholder for a story the account can't see yet: only the dates and `is_close_friends` are known.
     pub is_skipped: bool,
@@ -139,10 +163,13 @@ impl Story {
         }
     }
 
+    /// Returns the client this story came from.
     pub fn client(&self) -> &Client {
         &self.client
     }
 
+    /// Downloads the story's photo or video.
+    ///
     /// Fails at `.await` for a story without a photo or document.
     pub fn download<'a>(&self, client: &'a Client) -> DownloadMedia<'a> {
         let location = self.media.as_ref().and_then(Media::file_location).cloned();
@@ -182,10 +209,14 @@ impl Story {
     }
 }
 
+/// A user who viewed a story.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoryViewer {
+    /// The viewer.
     pub user: User,
+    /// Unix time when the viewer opened the story.
     pub date: i32,
+    /// Reaction the viewer left. `None` if they didn't react.
     pub reaction: Option<ReactionType>,
     /// The viewer is on the account's block list.
     pub is_blocked: bool,

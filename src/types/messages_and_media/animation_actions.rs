@@ -3,10 +3,12 @@ use crate::errors::Result;
 use crate::types::Animation;
 
 impl Animation {
+    /// Saves the animation to the account's saved GIFs through `client`.
     pub async fn add_to_gifs(&self, client: &Client) -> Result<()> {
         client.add_to_gifs(self).await
     }
 
+    /// Removes the animation from the account's saved GIFs through `client`.
     pub async fn remove_from_gifs(&self, client: &Client) -> Result<()> {
         client.remove_from_gifs(self).await
     }

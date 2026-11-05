@@ -3,7 +3,9 @@ use std::str::SplitWhitespace;
 /// A command read from message text, borrowed from it: `/ban@MyBot 42 spam` is name `ban`, bot `MyBot`, args `42 spam`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Command<'a> {
+    /// Command name without the prefix and without the `@bot` suffix.
     pub name: &'a str,
+    /// Bot named after `@`. `None` if the command carries no mention.
     pub bot: Option<&'a str>,
     rest: &'a str,
 }
@@ -27,14 +29,17 @@ impl<'a> Command<'a> {
         self.bot.is_none_or(|bot| me.is_some_and(|me| me.eq_ignore_ascii_case(bot)))
     }
 
+    /// Iterates over the whitespace-separated arguments after the command.
     pub fn args(&self) -> SplitWhitespace<'a> {
         self.rest.split_whitespace()
     }
 
+    /// Returns the zero-based `i`-th argument. `None` if there are fewer.
     pub fn arg(&self, i: usize) -> Option<&'a str> {
         self.args().nth(i)
     }
 
+    /// Returns everything after the command, with leading whitespace removed.
     pub fn rest(&self) -> &'a str {
         self.rest
     }

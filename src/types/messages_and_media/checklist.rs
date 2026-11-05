@@ -3,24 +3,37 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::{Chat, MessageEntity, User};
 
+/// A checklist attached to a message.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Checklist {
+    /// Title text, without formatting.
     pub title: String,
+    /// Formatting of the title. `None` if it has none.
     pub title_entities: Option<Vec<MessageEntity>>,
+    /// The tasks, in list order.
     pub tasks: Vec<ChecklistTask>,
+    /// `true` if users other than the author can add tasks.
     pub others_can_add_tasks: bool,
+    /// `true` if users other than the author can mark tasks as done.
     pub others_can_mark_tasks_as_done: bool,
     // Kept so an edit can send the existing texts back with their formatting untouched.
     pub(crate) todo: base::TodoList,
 }
 
+/// One task of a [`Checklist`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChecklistTask {
+    /// Id of the task, unique within its checklist.
     pub id: i32,
+    /// Task text, without formatting.
     pub text: String,
+    /// Formatting of the text. `None` if it has none.
     pub text_entities: Option<Vec<MessageEntity>>,
+    /// The user who marked the task done. `None` if undone or done by a chat.
     pub completed_by_user: Option<User>,
+    /// The chat that marked the task done. `None` if undone or done by a user.
     pub completed_by_chat: Option<Chat>,
+    /// When the task was marked done, as a Unix timestamp. `None` if undone.
     pub completion_date: Option<i32>,
 }
 

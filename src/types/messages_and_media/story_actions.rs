@@ -9,24 +9,29 @@ impl Story {
         self.client().copy_story(chat_id, self.chat.id, self.id)
     }
 
+    /// Deletes this story.
     pub async fn delete(&self) -> Result<()> {
         self.client().delete_stories(self.chat.id, &[self.id]).await?;
         Ok(())
     }
 
+    /// Replaces the story's media. Returns the edited [`Story`].
     pub async fn edit_media(&self, media: InputStoryContent<'_>) -> Result<Story> {
         self.client().edit_story_media(self.chat.id, self.id, media).await
     }
 
-    /// An empty caption removes it.
+    /// Edits the story's caption. An empty caption removes it.
     pub fn edit_caption(&self, caption: impl Into<String>) -> EditStoryCaption<'_> {
         self.client().edit_story_caption(self.chat.id, self.id, caption)
     }
 
+    /// Changes who can see the story. Returns the edited [`Story`].
     pub async fn edit_privacy(&self, privacy: StoriesPrivacyRules) -> Result<Story> {
         self.client().edit_story_privacy(self.chat.id, self.id, privacy).await
     }
 
+    /// Reacts to the story with `reaction`.
+    ///
     /// `None` removes the account's reaction.
     pub async fn react(&self, reaction: Option<ReactionType>) -> Result<()> {
         self.client().send_story_reaction(self.chat.id, self.id, reaction).await
@@ -37,7 +42,7 @@ impl Story {
         self.client().forward_story(chat_id, self.chat.id, self.id)
     }
 
-    /// Marks this story and the older ones of its chat as seen; returns the ids Telegram marked.
+    /// Marks this story and the older ones of its chat as seen; returns the ids Telegram marked as read.
     pub async fn read(&self) -> Result<Vec<i32>> {
         self.client().read_stories(self.chat.id, self.id).await
     }

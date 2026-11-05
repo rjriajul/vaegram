@@ -2,9 +2,12 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::MessageEntity;
 
+/// Text together with its formatting entities.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormattedText {
+    /// The plain text.
     pub text: String,
+    /// Formatting of the text. `None` if it has none.
     pub entities: Option<Vec<MessageEntity>>,
 }
 

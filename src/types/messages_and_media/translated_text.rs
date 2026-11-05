@@ -2,9 +2,12 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::MessageEntity;
 
+/// A translation of one message or text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranslatedText {
+    /// The translated text.
     pub text: String,
+    /// Formatting entities in `text`. `None` if there are none.
     pub entities: Option<Vec<MessageEntity>>,
 }
 

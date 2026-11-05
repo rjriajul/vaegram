@@ -5,23 +5,40 @@ use crate::types::{Document, FileLocation, MaskPosition, Thumbnail};
 
 use super::input_document;
 
+/// A sticker, mask or custom emoji.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sticker {
+    /// Identifier for downloading or reusing the file.
     pub file_id: String,
+    /// Identifier that stays the same for the file over time and across clients. It can't be used to download.
     pub file_unique_id: String,
+    /// Telegram's id of the underlying document.
     pub id: i64,
+    /// Whether this is a regular sticker, a mask or a custom emoji.
     pub kind: StickerType,
+    /// MIME type of the file, such as `image/webp`.
     pub mime_type: String,
+    /// Size of the file in bytes.
     pub file_size: i64,
+    /// Unix time when the file was uploaded.
     pub date: i32,
+    /// Width in pixels. 0 if the file carries no size.
     pub width: i32,
+    /// Height in pixels. 0 if the file carries no size.
     pub height: i32,
+    /// `true` for animated (TGS) stickers.
     pub is_animated: bool,
+    /// `true` for video (WEBM) stickers.
     pub is_video: bool,
+    /// Emoji the sticker is associated with. `None` if it has none.
     pub emoji: Option<String>,
+    /// Where a mask sits on a face. `None` unless the sticker is a mask.
     pub mask_position: Option<MaskPosition>,
+    /// Id to use in a custom emoji entity. `None` unless the sticker is a custom emoji.
     pub custom_emoji_id: Option<i64>,
+    /// `true` if clients recolor the custom emoji to match the surrounding text.
     pub needs_repainting: bool,
+    /// `true` for a premium sticker (one with a full-screen effect) or a custom emoji that isn't free.
     pub is_premium: bool,
     /// Smaller copies of the file's preview.
     pub thumbs: Vec<Thumbnail>,
@@ -39,6 +56,7 @@ impl Sticker {
         Sticker::from_document(Document::parse_as(document, FileType::Sticker)?, raw)
     }
 
+    /// Returns the file format, derived from `is_animated` and `is_video`.
     pub fn format(&self) -> StickerFormat {
         if self.is_animated {
             StickerFormat::Animated

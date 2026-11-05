@@ -5,6 +5,7 @@ use crate::raw::types;
 pub struct GiftedGrams {
     /// In nanotons.
     pub ton_amount: i64,
+    /// Id of the blockchain transaction. `None` if Telegram sent none.
     pub transaction_id: Option<String>,
 }
 

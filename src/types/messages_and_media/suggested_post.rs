@@ -1,9 +1,12 @@
 use crate::enums::{SuggestedPostRefundReason, SuggestedPostState};
 use crate::raw::{base, types};
 
+/// Price offered for a suggested post.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuggestedPostPrice {
+    /// An amount of Telegram Stars.
     Stars(i64),
+    /// An amount of nanotons.
     Ton(i64),
 }
 
@@ -25,9 +28,12 @@ impl SuggestedPostPrice {
     }
 }
 
+/// Terms attached when suggesting a post to a channel.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SuggestedPostParameters {
+    /// Price offered for publishing. `None` for a free suggestion.
     pub price: Option<SuggestedPostPrice>,
+    /// Unix time to publish at. `None` leaves the time to the channel.
     pub send_date: Option<i32>,
 }
 
@@ -42,10 +48,14 @@ impl SuggestedPostParameters {
     }
 }
 
+/// Terms and status of a suggested post.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SuggestedPostInfo {
+    /// Whether the suggestion is still pending, approved or declined.
     pub state: SuggestedPostState,
+    /// Price offered. `None` for a free suggestion.
     pub price: Option<SuggestedPostPrice>,
+    /// Unix time the post is set to be published. `None` if no time was set.
     pub send_date: Option<i32>,
 }
 
@@ -63,28 +73,39 @@ impl SuggestedPostInfo {
     }
 }
 
+/// A suggested post was approved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SuggestedPostApproved {
+    /// Price paid. `None` for a free suggestion.
     pub price: Option<SuggestedPostPrice>,
+    /// Unix time the post is set to be published. `None` if no time was set.
     pub send_date: Option<i32>,
 }
 
+/// Approving a suggested post failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SuggestedPostApprovalFailed {
+    /// Price of the suggestion. `None` for a free one.
     pub price: Option<SuggestedPostPrice>,
 }
 
+/// A suggested post was declined.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuggestedPostDeclined {
+    /// Reason the admin gave. `None` if there's none.
     pub comment: Option<String>,
 }
 
+/// Payment for a suggested post was made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SuggestedPostPaid {
+    /// The amount paid.
     pub price: SuggestedPostPrice,
 }
 
+/// Payment for a suggested post was refunded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SuggestedPostRefunded {
+    /// Why the payment was refunded.
     pub reason: SuggestedPostRefundReason,
 }
