@@ -36,8 +36,10 @@ impl GetDialogs<'_> {
         self
     }
 
-    /// How many dialogs there are in the list, whatever `limit` says: the count Telegram gave with the last page,
-    /// or, before any page, from one request for a single dialog. Either way it's asked for once.
+    /// Returns how many dialogs the list holds, ignoring `limit`.
+    ///
+    /// Before the first page this sends one request for a single dialog. After that it returns the count from the
+    /// last page read without a request.
     pub async fn total(&mut self) -> Result<i32> {
         if let Some(total) = self.total {
             return Ok(total);
@@ -70,7 +72,7 @@ impl GetDialogs<'_> {
         }
     }
 
-    /// `paged` continues from the last page; without it the request starts at the top of the list.
+    /// `paged` continues from the last page. Without it the request starts at the top of the list.
     fn request(&self, limit: i32, paged: bool) -> functions::messages::GetDialogs {
         let (offset_date, offset_id, offset_peer) = if paged {
             (self.pages.offset_date, self.pages.offset_id, self.pages.offset_peer.clone())

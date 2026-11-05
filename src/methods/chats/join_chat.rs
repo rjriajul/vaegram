@@ -9,7 +9,7 @@ impl Client {
     /// Joins a public channel or supergroup, or a chat through an invite link.
     ///
     /// An invite link works as `chat_id` too, as `PeerRef::Invite`. Returns the joined `Chat`. Fails with
-    /// `Error::GuardBotApprovalRequired` when a guard bot has to approve the join first.
+    /// [`Error::GuardBotApprovalRequired`] when a guard bot has to approve the join first.
     pub async fn join_chat(&self, chat_id: impl Into<PeerRef>) -> Result<Chat> {
         let (known_id, result) = match chat_id.into() {
             PeerRef::Invite(hash) => {

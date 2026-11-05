@@ -14,7 +14,7 @@ pub struct SetChatAccentColor<'a> {
 }
 
 impl Client {
-    /// Sets the accent color of your own profile or of a channel's name and replies.
+    /// Sets the accent color of the name and replies of your account or a channel.
     ///
     /// `None` resets the color.
     /// [`background_custom_emoji_id`](SetChatAccentColor::background_custom_emoji_id) adds an emoji pattern.
@@ -34,7 +34,7 @@ impl Client {
 }
 
 impl SetChatAccentColor<'_> {
-    /// Custom emoji drawn as a pattern behind the name.
+    /// Draws this custom emoji as a pattern behind the name.
     pub fn background_custom_emoji_id(mut self, custom_emoji_id: i64) -> Self {
         self.background_custom_emoji_id = Some(custom_emoji_id);
         self

@@ -28,7 +28,7 @@ impl SetChatPhoto<'_> {
         self
     }
 
-    /// Second of the video to use as the static preview; implies `.video()`.
+    /// Uses the frame at this second of the video as the static preview. Implies [`video`](SetChatPhoto::video).
     pub fn video_start_ts(mut self, seconds: f64) -> Self {
         self.video = true;
         self.video_start_ts = Some(seconds);

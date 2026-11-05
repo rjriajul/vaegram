@@ -26,13 +26,13 @@ impl Client {
 }
 
 impl EditForumTopic<'_> {
-    /// New title of the topic.
+    /// Renames the topic.
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
         self
     }
 
-    /// 0 removes the icon.
+    /// Changes the topic icon to this custom emoji. Passing 0 removes the icon.
     pub fn icon_emoji_id(mut self, custom_emoji_id: i64) -> Self {
         self.icon_emoji_id = Some(custom_emoji_id);
         self

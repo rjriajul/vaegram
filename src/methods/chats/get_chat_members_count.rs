@@ -6,7 +6,9 @@ use crate::types::PeerRef;
 use crate::utils::chats_of;
 
 impl Client {
-    /// Returns how many members a chat has.
+    /// Returns how many members a group or channel has.
+    ///
+    /// Fails with [`Error::Unexpected`] if Telegram sends no member count.
     pub async fn get_chat_members_count(&self, chat_id: impl Into<PeerRef>) -> Result<i32> {
         let count = match self.resolve_chat(&chat_id.into()).await? {
             ChatPeer::Group(chat_id) => {

@@ -5,7 +5,9 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{Message, PeerRef};
 
-/// Public reposts of a message. Reposts to stories are left out: they are not messages.
+/// Public reposts of a channel message, read one at a time with [`next`](GetMessagePublicForwards::next).
+///
+/// Reposts to stories are left out because they are not messages.
 pub struct GetMessagePublicForwards<'a> {
     client: &'a Client,
     chat_id: PeerRef,

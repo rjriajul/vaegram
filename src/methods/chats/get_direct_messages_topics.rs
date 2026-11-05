@@ -4,7 +4,7 @@ use crate::methods::pages::DialogPages;
 use crate::raw::functions;
 use crate::types::{DirectMessagesChatTopic, PeerRef, SavedDialog};
 
-/// Pages through the topics of a direct messages chat.
+/// Topic list of a direct messages chat, read one topic at a time with [`next`](GetDirectMessagesTopics::next).
 pub struct GetDirectMessagesTopics<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -13,7 +13,9 @@ pub struct GetDirectMessagesTopics<'a> {
 }
 
 impl Client {
-    /// `chat_id` is the direct messages chat, not its channel.
+    /// Starts reading the topics of a direct messages chat.
+    ///
+    /// `chat_id` is the direct messages chat, not the channel it belongs to.
     pub fn get_direct_messages_topics(&self, chat_id: impl Into<PeerRef>) -> GetDirectMessagesTopics<'_> {
         GetDirectMessagesTopics {
             client: self,

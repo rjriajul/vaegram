@@ -11,8 +11,9 @@ pub struct SetUpgradedGiftColors<'a> {
 }
 
 impl Client {
-    /// Gives the account's name the colors of an upgraded gift it owns, by the upgraded gift's id; this needs
-    /// Premium (`PREMIUM_ACCOUNT_REQUIRED`).
+    /// Gives your name the colors of an upgraded gift you own.
+    ///
+    /// Without Premium, Telegram refuses it with `PREMIUM_ACCOUNT_REQUIRED`.
     pub fn set_upgraded_gift_colors(&self, upgraded_gift_colors_id: i64) -> SetUpgradedGiftColors<'_> {
         SetUpgradedGiftColors { client: self, upgraded_gift_colors_id, for_profile: false }
     }

@@ -6,10 +6,10 @@ use crate::types::{Chat, ChatFullInfo, Community, PeerRef, User};
 use crate::utils::get_peer;
 
 impl Client {
-    /// Returns the full `Chat` for a user, group or channel.
+    /// Returns the full [`Chat`] for a user, group or channel.
     ///
-    /// Besides the basics it fills the bio, invite link, member count and `full_info`, which cost one more request
-    /// than the chat objects that come with updates.
+    /// Unlike the chats that come with updates, the result has `full_info` set, plus the bio for users and the
+    /// description, invite link and member count for groups and channels when Telegram has them.
     ///
     /// ```no_run
     /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {

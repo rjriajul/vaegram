@@ -14,7 +14,7 @@ pub struct SetChatWallpaper<'a> {
 }
 
 impl Client {
-    /// Sets the wallpaper of a chat from a `ChatBackground`.
+    /// Sets the wallpaper of a chat from a [`ChatBackground`].
     pub fn set_chat_wallpaper(&self, chat_id: impl Into<PeerRef>, wallpaper: &ChatBackground) -> SetChatWallpaper<'_> {
         let (settings, wallpaper) = (wallpaper.write_settings(), wallpaper.write());
         SetChatWallpaper { client: self, chat_id: chat_id.into(), wallpaper, settings, for_both: false }

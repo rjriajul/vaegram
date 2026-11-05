@@ -7,7 +7,7 @@ impl Client {
     /// Turns the direct messages chat of a channel on or off.
     ///
     /// `chat_id` is the channel, not its direct messages chat. `paid_message_star_count` is the Stars price per
-    /// message and must not be negative. 0 makes messages free.
+    /// message, and 0 makes messages free. A negative price fails with `InvalidArgument`.
     pub async fn set_chat_direct_messages_group(
         &self,
         chat_id: impl Into<PeerRef>,
