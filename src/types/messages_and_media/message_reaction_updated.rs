@@ -5,15 +5,22 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::{Chat, ReactionType, User};
 
+/// A user's or chat's reaction to a message changed.
 #[derive(Clone)]
 pub struct MessageReactionUpdated {
+    /// The chat the message is in.
     pub chat: Chat,
+    /// Id of the message that was reacted to.
     pub message_id: i32,
+    /// The user who reacted. `None` if the reaction was made on behalf of a chat, see `actor_chat`.
     pub user: Option<User>,
     /// Set instead of `user` when the reaction was made on behalf of a chat.
     pub actor_chat: Option<Chat>,
+    /// Unix time of the change.
     pub date: i32,
+    /// The reactions the actor had before. Empty if they had none.
     pub old_reaction: Vec<ReactionType>,
+    /// The reactions the actor has now. Empty if they removed all of them.
     pub new_reaction: Vec<ReactionType>,
     client: Client,
 }
@@ -40,6 +47,7 @@ impl MessageReactionUpdated {
         }
     }
 
+    /// The client that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }

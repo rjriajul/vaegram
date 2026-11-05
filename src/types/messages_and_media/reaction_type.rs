@@ -1,10 +1,14 @@
 use crate::raw::{base, types};
 
+/// A reaction that can be put on a message.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ReactionType {
+    /// A standard emoji.
     Emoji(String),
+    /// A custom emoji, by its document id.
     CustomEmoji(i64),
+    /// A paid reaction, bought with Telegram Stars.
     Paid,
 }
 

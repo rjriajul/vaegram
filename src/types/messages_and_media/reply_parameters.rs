@@ -4,6 +4,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::types::{Message, PeerRef, Story};
 
+/// What a new message replies to: a message or a story, with an optional quote.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplyParameters {
     message_id: i32,
@@ -16,6 +17,7 @@ pub struct ReplyParameters {
 }
 
 impl ReplyParameters {
+    /// A reply to the message `message_id`, in the chat the reply is sent to unless `chat_id` says otherwise.
     pub fn new(message_id: i32) -> Self {
         ReplyParameters {
             message_id,
@@ -33,6 +35,7 @@ impl ReplyParameters {
         ReplyParameters { story_id: Some(story_id), ..ReplyParameters::new(0).chat_id(chat_id) }
     }
 
+    /// The chat of the replied message, when it is not the chat the reply is sent to.
     pub fn chat_id(mut self, chat_id: impl Into<PeerRef>) -> Self {
         self.chat_id = Some(chat_id.into());
         self
@@ -44,16 +47,19 @@ impl ReplyParameters {
         self
     }
 
+    /// How to parse the markup in the quote.
     pub fn quote_parse_mode(mut self, mode: ParseMode) -> Self {
         self.quote_parse_mode = Some(mode);
         self
     }
 
+    /// Where the quote starts in the replied message's text.
     pub fn quote_position(mut self, offset: i32) -> Self {
         self.quote_position = Some(offset);
         self
     }
 
+    /// Reply to this task of a checklist message.
     pub fn checklist_task_id(mut self, task_id: i32) -> Self {
         self.checklist_task_id = Some(task_id);
         self

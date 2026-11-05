@@ -4,15 +4,22 @@ use crate::types::{FileLocation, Thumbnail};
 
 use super::thumbnail::full_size;
 
+/// A photo, represented by its largest size.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Photo {
+    /// File id to download or resend the photo with.
     pub file_id: String,
     /// Stable for this photo here, but not equal to the Bot API's `file_unique_id` for it.
     pub file_unique_id: String,
+    /// Telegram's id of the photo.
     pub id: i64,
+    /// Width of the largest size, in pixels.
     pub width: i32,
+    /// Height of the largest size, in pixels.
     pub height: i32,
+    /// Size of the largest size in bytes.
     pub file_size: i64,
+    /// Unix time the photo was uploaded.
     pub date: i32,
     /// Smaller sizes of the photo.
     pub thumbs: Vec<Thumbnail>,

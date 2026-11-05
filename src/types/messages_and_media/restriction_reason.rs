@@ -5,6 +5,7 @@ use crate::raw::base;
 pub struct RestrictionReason {
     /// The platforms it applies to, such as `ios` or `all`.
     pub platform: String,
+    /// Short code for the reason, such as `sensitive`.
     pub reason: String,
     /// The text shown in place of the content.
     pub text: String,

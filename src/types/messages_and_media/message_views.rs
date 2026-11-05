@@ -1,9 +1,13 @@
 use crate::raw::base;
 
+/// View, forward and reply counters of a message.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MessageViews {
+    /// Number of views. `None` if Telegram sent no count.
     pub views: Option<i32>,
+    /// Number of forwards. `None` if Telegram sent no count.
     pub forwards: Option<i32>,
+    /// Number of replies in the message's comment thread. `None` if the message has no replies information.
     pub replies: Option<i32>,
 }
 

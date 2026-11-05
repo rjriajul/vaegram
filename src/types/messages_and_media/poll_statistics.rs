@@ -1,8 +1,10 @@
 use crate::raw::base;
 use crate::types::StatisticalGraph;
 
+/// Statistics of a poll.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PollStatistics {
+    /// Graph of the poll's votes.
     pub votes_graph: StatisticalGraph,
 }
 

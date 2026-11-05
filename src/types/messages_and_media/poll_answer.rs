@@ -3,11 +3,16 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::{Chat, User};
 
+/// A change to someone's vote in a poll.
 #[derive(Debug, Clone)]
 pub struct PollAnswer {
+    /// Id of the poll.
     pub poll_id: i64,
+    /// The voter, when it is a user.
     pub user: Option<User>,
+    /// The voter, when it is a chat.
     pub voter_chat: Option<Chat>,
+    /// Positions of the chosen options, counted from 0.
     pub option_ids: Vec<i32>,
     client: Client,
 }
@@ -21,6 +26,7 @@ impl PollAnswer {
         PollAnswer { poll_id: raw.poll_id, user, voter_chat, option_ids: raw.positions, client: client.clone() }
     }
 
+    /// The client that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }

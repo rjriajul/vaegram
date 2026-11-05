@@ -5,6 +5,7 @@ use crate::types::{PaidReactor, ReactionCount};
 /// The reactions on a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageReactions {
+    /// Each reaction on the message with its count.
     pub reactions: Vec<ReactionCount>,
     /// The reactions are tags on a message in Saved Messages.
     pub are_tags: bool,
