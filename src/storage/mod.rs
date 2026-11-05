@@ -103,16 +103,26 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     result
 }
 
+/// Creates `path` as a new file only the owner can read, replacing whatever regular file or symlink is there.
+///
+/// The old entry is removed and the new file made with `create_new`, so it never reuses an inode someone else may
+/// hold open and never follows a link to somewhere else. A directory or other non-regular file is refused. If
+/// something reappears at `path` between the two steps, the open fails with `AlreadyExists`.
 pub(crate) fn create_private(path: &Path) -> io::Result<fs::File> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_file() || meta.is_symlink() => delete(path)?,
+        Ok(_) => {
+            let why = format!("{} is not a regular file", path.display());
+            return Err(io::Error::new(io::ErrorKind::AlreadyExists, why));
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
     let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let file = options.open(path)?;
-    // `mode` only applies when the file is created; one left from before could be world-readable.
-    #[cfg(unix)]
-    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
-    Ok(file)
+    options.open(path)
 }
 
 pub(crate) fn delete(path: &Path) -> io::Result<()> {
@@ -124,7 +134,16 @@ pub(crate) fn delete(path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::write_private;
+    use super::{create_private, write_private};
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("vaegram-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn leaves_a_file_at_the_old_temp_name_alone() {
@@ -151,5 +170,77 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(written.is_err());
         assert_eq!(names, ["bot.session"]);
+    }
+
+    #[test]
+    fn create_private_replaces_an_existing_file() {
+        let dir = scratch("create-private-replace");
+        let path = dir.join("bot.session");
+        std::fs::write(&path, b"old contents, longer than the new ones").unwrap();
+        let mut file = create_private(&path).unwrap();
+        file.write_all(b"new").unwrap();
+        drop(file);
+        let saved = std::fs::read(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(saved.unwrap(), b"new");
+    }
+
+    #[test]
+    fn create_private_refuses_a_directory() {
+        let dir = scratch("create-private-dir");
+        let path = dir.join("bot.session");
+        std::fs::create_dir_all(path.join("inside")).unwrap();
+        let created = create_private(&path);
+        let kept = path.join("inside").is_dir();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(created.unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+        assert!(kept, "the directory is left alone");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_private_leaves_a_file_someone_holds_open_alone() {
+        use std::io::Read;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let dir = scratch("create-private-reader");
+        let path = dir.join("bot.session");
+        std::fs::write(&path, b"old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let mut reader = std::fs::File::open(&path).unwrap();
+        let old_inode = reader.metadata().unwrap().ino();
+
+        let mut file = create_private(&path).unwrap();
+        file.write_all(b"secret key").unwrap();
+        drop(file);
+
+        let mut seen = Vec::new();
+        reader.read_to_end(&mut seen).unwrap();
+        let meta = std::fs::metadata(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(seen, b"old", "the reader sees no new bytes");
+        assert_ne!(meta.ino(), old_inode, "the new file has its own inode");
+        assert_eq!(meta.permissions().mode() & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_private_replaces_a_symlink_instead_of_following_it() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let dir = scratch("create-private-link");
+        let (path, target) = (dir.join("bot.session"), dir.join("target"));
+        std::fs::write(&target, b"someone else's file").unwrap();
+        symlink(&target, &path).unwrap();
+
+        let mut file = create_private(&path).unwrap();
+        file.write_all(b"secret key").unwrap();
+        drop(file);
+
+        let meta = std::fs::symlink_metadata(&path).unwrap();
+        let (at_path, at_target) = (std::fs::read(&path), std::fs::read(&target));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(at_target.unwrap(), b"someone else's file");
+        assert!(meta.is_file(), "path is a regular file now, not a link");
+        assert_eq!(meta.permissions().mode() & 0o777, 0o600);
+        assert_eq!(at_path.unwrap(), b"secret key");
     }
 }
