@@ -2,27 +2,35 @@ use crate::parser::{Kind, MAX_NESTING, Span};
 use crate::raw::{base, types};
 use crate::types::Text;
 
-/// Formatting comes from [`Text`]; the methods here add what only rich messages have.
+/// Text inside a rich message block.
+///
+/// Formatting comes from [`Text`], which converts into a `RichText`. The methods here add what only rich messages
+/// have. Plain strings and vectors of texts convert too, so most block constructors take them directly.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RichText(pub(crate) base::RichText);
 
 impl RichText {
+    /// Inline math holding the formula `source`.
     pub fn math(source: impl Into<String>) -> Self {
         RichText(base::RichText::TextMath(Box::new(types::TextMath { source: source.into() })))
     }
 
+    /// Wraps the text in a marked (highlighted) span.
     pub fn marked(self) -> Self {
         RichText(base::RichText::TextMarked(Box::new(types::TextMarked { text: self.0 })))
     }
 
+    /// Wraps the text as a subscript.
     pub fn sub(self) -> Self {
         RichText(base::RichText::TextSubscript(Box::new(types::TextSubscript { text: self.0 })))
     }
 
+    /// Wraps the text as a superscript.
     pub fn sup(self) -> Self {
         RichText(base::RichText::TextSuperscript(Box::new(types::TextSuperscript { text: self.0 })))
     }
 
+    /// Names the text as an anchor `name`. Empty text makes a bare anchor point.
     pub fn anchor(self, name: impl Into<String>) -> Self {
         RichText(base::RichText::TextAnchor(Box::new(types::TextAnchor { text: self.0, name: name.into() })))
     }
@@ -40,6 +48,7 @@ impl RichText {
     }
 }
 
+/// An empty string becomes empty text.
 impl From<String> for RichText {
     fn from(text: String) -> Self {
         RichText(plain(text))
@@ -70,6 +79,7 @@ impl From<Text> for RichText {
     }
 }
 
+/// Joins the texts one after another.
 impl<T: Into<RichText>> From<Vec<T>> for RichText {
     fn from(texts: Vec<T>) -> Self {
         let texts = texts.into_iter().map(|t| t.into().0).collect();

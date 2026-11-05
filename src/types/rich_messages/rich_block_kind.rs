@@ -11,6 +11,7 @@ use crate::types::{
 /// The caption of a media block, a collage or a slideshow.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RichBlockCaption {
+    /// The caption text. May be empty when only a credit is set.
     pub text: RichText,
     /// Who or what the block is credited to.
     pub credit: Option<RichText>,
@@ -23,92 +24,161 @@ pub struct RichBlockCaption {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum RichBlockKind {
+    /// A paragraph of text.
     Paragraph(RichText),
-    /// `level` is 1 (largest) to 6.
+    /// A heading. `level` is 1 (largest) to 6.
     Heading {
+        /// Heading level, 1 to 6.
         level: u8,
+        /// Text of the heading.
         text: RichText,
     },
+    /// A preformatted code block. `language` is empty when the block names none.
     Preformatted {
+        /// The code text.
         text: RichText,
+        /// Language name, empty when none is given.
         language: String,
     },
+    /// A footer line.
     Footer(RichText),
+    /// A horizontal divider.
     Divider,
+    /// A math block holding the formula source.
     Math(String),
+    /// A named anchor holding the anchor name.
     Anchor(String),
+    /// A thinking block.
     Thinking(RichText),
+    /// A bulleted or numbered list.
     List(Vec<RichListItem>),
+    /// A quote made of blocks. `credit` is `None` when the quote has no attribution.
     BlockQuote {
+        /// Blocks inside the quote.
         blocks: Vec<RichBlock>,
+        /// Attribution of the quote.
         credit: Option<RichText>,
     },
+    /// A quote collapsed until expanded. `credit` is `None` when the quote has no attribution.
     ExpandableBlockQuote {
+        /// Text of the quote.
         text: RichText,
+        /// Attribution of the quote.
         credit: Option<RichText>,
     },
+    /// A highlighted excerpt. `credit` is `None` when it has no attribution.
     PullQuote {
+        /// Text of the excerpt.
         text: RichText,
+        /// Attribution of the excerpt.
         credit: Option<RichText>,
     },
+    /// A collage of media blocks. `caption` is `None` when it has neither text nor credit.
     Collage {
+        /// Media blocks in the collage.
         blocks: Vec<RichBlock>,
+        /// Caption of the collage.
         caption: Option<RichBlockCaption>,
     },
+    /// A slideshow of media blocks. `caption` is `None` when it has neither text nor credit.
     Slideshow {
+        /// Media blocks in the slideshow.
         blocks: Vec<RichBlock>,
+        /// Caption of the slideshow.
         caption: Option<RichBlockCaption>,
     },
+    /// A table. `title` is `None` when there is none, and rows without cells are dropped.
     Table {
+        /// Title above the table.
         title: Option<RichText>,
+        /// Rows of cells, in order.
         rows: Vec<Vec<RichTableCell>>,
+        /// Whether the table draws borders.
         is_bordered: bool,
+        /// Whether alternate rows are shaded.
         is_striped: bool,
+        /// Whether the table uses tighter spacing.
         is_compact: bool,
     },
+    /// A collapsible section with a `summary` line. `is_open` is whether it is shown expanded.
     Details {
+        /// Line that stays visible when the section is collapsed.
         summary: RichText,
+        /// Blocks inside the section.
         blocks: Vec<RichBlock>,
+        /// Whether the section is shown expanded.
         is_open: bool,
     },
+    /// A map. A map whose coordinates can't be read is [`Unsupported`](RichBlockKind::Unsupported) instead.
     Map {
+        /// Center of the map.
         location: Location,
+        /// Zoom level of the map.
         zoom: i32,
+        /// Width of the map in pixels.
         width: i32,
+        /// Height of the map in pixels.
         height: i32,
+        /// Caption of the map.
         caption: Option<RichBlockCaption>,
     },
+    /// A row of buttons. `align` is `None` when the row sets no alignment.
     Buttons {
+        /// Buttons in the row.
         buttons: Vec<RichButton>,
+        /// Alignment of the row.
         align: Option<Align>,
     },
+    /// A photo. `photo` is `None` when the message doesn't carry the file.
     Photo {
+        /// The photo file.
         photo: Option<Photo>,
+        /// Whether the photo is hidden behind a spoiler.
         has_spoiler: bool,
+        /// Caption of the photo.
         caption: Option<RichBlockCaption>,
     },
+    /// A video. `video` is `None` when the message doesn't carry the file.
     Video {
+        /// The video file.
         video: Option<Video>,
+        /// Whether the video is hidden behind a spoiler.
         has_spoiler: bool,
+        /// Caption of the video.
         caption: Option<RichBlockCaption>,
     },
+    /// An animation. Without the file, a video block that autoplays and loops is read as this, with `animation`
+    /// set to `None`.
     Animation {
+        /// The animation file.
         animation: Option<Animation>,
+        /// Whether the animation is hidden behind a spoiler.
         has_spoiler: bool,
+        /// Caption of the animation.
         caption: Option<RichBlockCaption>,
     },
+    /// An audio file. `audio` is `None` when the message doesn't carry the file.
     Audio {
+        /// The audio file.
         audio: Option<Audio>,
+        /// Caption of the audio file.
         caption: Option<RichBlockCaption>,
     },
+    /// A voice note.
     VoiceNote {
+        /// The voice note file.
         voice_note: Voice,
+        /// Caption of the voice note.
         caption: Option<RichBlockCaption>,
     },
+    /// A document. `document` is `None` when the message doesn't carry the file.
     Document {
+        /// The document file.
         document: Option<Document>,
+        /// Caption of the document.
         caption: Option<RichBlockCaption>,
     },
+    /// A legacy page block with no friendly form.
     Unsupported,
 }
 
@@ -128,6 +198,7 @@ fn caption(caption: &base::PageCaption) -> Option<RichBlockCaption> {
 }
 
 impl RichBlock {
+    /// Reads the block into a [`RichBlockKind`]. Media is resolved from the message the block came from.
     pub fn kind(&self) -> RichBlockKind {
         use base::PageBlock as B;
         let blocks = |items: &[base::PageBlock]| items.iter().map(|b| self.child(b)).collect::<Vec<_>>();
@@ -376,14 +447,17 @@ impl RichListItem {
         &self.label
     }
 
+    /// The blocks that make up the item.
     pub fn content(&self) -> &[RichBlock] {
         &self.blocks
     }
 
+    /// Whether the item shows a checkbox.
     pub fn has_checkbox(&self) -> bool {
         self.checkbox
     }
 
+    /// Whether the item's checkbox is ticked.
     pub fn is_checked(&self) -> bool {
         self.checked
     }
@@ -406,6 +480,7 @@ impl RichTableCell {
         c.text.as_ref().map(text)
     }
 
+    /// Whether the cell is a header cell.
     pub fn is_header(&self) -> bool {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         c.header
@@ -423,6 +498,7 @@ impl RichTableCell {
         c.rowspan.unwrap_or(1).max(1)
     }
 
+    /// The horizontal alignment of the cell text, [`Align::Left`] unless set otherwise.
     pub fn horizontal_alignment(&self) -> Align {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         if c.align_center {
@@ -434,6 +510,7 @@ impl RichTableCell {
         }
     }
 
+    /// The vertical alignment of the cell text, [`VAlign::Top`] unless set otherwise.
     pub fn vertical_alignment(&self) -> VAlign {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         if c.valign_middle {
@@ -452,10 +529,12 @@ impl RichButton {
         RichButton { text: text(&b.text).text(), kind: b.r#type.clone(), style: read_style(b.style.as_ref()) }
     }
 
+    /// The button label.
     pub fn text(&self) -> &str {
         &self.text
     }
 
+    /// The button's color style, [`RichButtonStyle::Default`] when none is set.
     pub fn button_style(&self) -> RichButtonStyle {
         self.style
     }

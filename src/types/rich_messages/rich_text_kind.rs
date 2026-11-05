@@ -9,92 +9,147 @@ use crate::types::{InlineKeyboardButton, RichButtonStyle, RichText};
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum RichTextKind {
+    /// No text.
     Empty,
+    /// Text without formatting.
     Plain(String),
+    /// Several texts one after another.
     Concat(Vec<RichText>),
+    /// Bold text.
     Bold(RichText),
+    /// Italic text.
     Italic(RichText),
+    /// Underlined text.
     Underline(RichText),
+    /// Struck-through text.
     Strikethrough(RichText),
+    /// Text hidden behind a spoiler.
     Spoiler(RichText),
+    /// Subscript text.
     Subscript(RichText),
+    /// Superscript text.
     Superscript(RichText),
+    /// Marked (highlighted) text.
     Marked(RichText),
+    /// Fixed-width code text.
     Code(RichText),
+    /// A link to `url`. Anchor links, which start with `#`, read as [`AnchorLink`](RichTextKind::AnchorLink).
     Url {
+        /// Text shown for the link.
         text: RichText,
+        /// Address the link points to.
         url: String,
     },
     /// A link to the anchor `name`; an empty name leads back to the top of the message.
     AnchorLink {
+        /// Text shown for the link.
         text: RichText,
+        /// Name of the anchor, without the leading `#`.
         name: String,
     },
+    /// An email address.
     Email {
+        /// Text shown for the address.
         text: RichText,
+        /// The email address.
         email: String,
     },
+    /// A phone number.
     Phone {
+        /// Text shown for the number.
         text: RichText,
+        /// The phone number.
         phone: String,
     },
+    /// A bank card number.
     BankCard(RichText),
+    /// A TON address.
     TonAddress(RichText),
+    /// A mention of a user by username.
     Mention(RichText),
+    /// A hashtag.
     Hashtag(RichText),
+    /// A cashtag.
     Cashtag(RichText),
+    /// A bot command.
     BotCommand(RichText),
     /// A mention of a user without a username.
     TextMention {
+        /// Text shown for the mention.
         text: RichText,
+        /// Id of the mentioned user.
         user_id: i64,
     },
     /// A place other text can link to.
     Anchor {
+        /// Name of the anchor.
         name: String,
     },
     /// Text that other text can link to.
     Reference {
+        /// The text other text links to.
         text: RichText,
+        /// Name of the reference.
         name: String,
     },
+    /// Inline math holding the formula source.
     Math(String),
+    /// A custom emoji. `id` is its document id and `alt` the emoji it replaces.
     CustomEmoji {
+        /// Document id of the custom emoji.
         id: i64,
+        /// Regular emoji the custom emoji replaces.
         alt: String,
     },
     /// An inline image: a document of the message.
     Image {
+        /// Id of the image document.
         document_id: i64,
+        /// Width of the image in pixels.
         width: i32,
+        /// Height of the image in pixels.
         height: i32,
     },
     /// A date the client shows in the reader's format; the flags say which parts it shows.
     DateTime {
+        /// Fallback text for the date.
         text: RichText,
+        /// Unix time being shown.
         date: i32,
+        /// Whether the date is shown relative to now.
         relative: bool,
+        /// Whether the time is shown in short form.
         short_time: bool,
+        /// Whether the time is shown in long form.
         long_time: bool,
+        /// Whether the date is shown in short form.
         short_date: bool,
+        /// Whether the date is shown in long form.
         long_date: bool,
+        /// Whether the day of the week is shown.
         day_of_week: bool,
     },
     /// New text with the text it replaced.
     Diff {
+        /// The new text.
         text: RichText,
+        /// The text that was replaced.
         old_text: RichText,
     },
     /// A button inside text; `action` is `None` only when its data can't be read (a callback whose data isn't
     /// UTF-8).
     Button {
+        /// Label of the button.
         text: RichText,
+        /// What the button does.
         action: Option<InlineKeyboardButton>,
+        /// Visual style of the button.
         style: RichButtonStyle,
     },
 }
 
 impl RichText {
+    /// Reads the text into a [`RichTextKind`] describing its outermost formatting.
     pub fn kind(&self) -> RichTextKind {
         use base::RichText as T;
         let wrap = |t: &base::RichText| RichText(t.clone());
