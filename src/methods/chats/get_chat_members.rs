@@ -21,7 +21,7 @@ pub struct GetChatMembers<'a> {
 impl Client {
     /// Returns the members of a chat.
     ///
-    /// Awaiting returns a `Vec` of [`ChatMember`](crate::types::ChatMember). Channels are read 200 at a time until
+    /// Awaiting returns a `Vec` of [`ChatMember`]. Channels are read 200 at a time until
     /// `limit` or the end of the list. Basic groups ignore `query` and `filter`.
     ///
     /// ```no_run

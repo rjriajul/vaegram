@@ -9,7 +9,7 @@ impl Client {
     /// Boosts the chat with the given boost slots and returns the account's boosts afterwards.
     ///
     /// An empty `slots` fails with `Error::InvalidArgument`. Slot numbers are the `slot` of a
-    /// [`MyBoost`](crate::types::MyBoost).
+    /// [`MyBoost`].
     pub async fn apply_boost(
         &self,
         chat_id: impl Into<PeerRef>,

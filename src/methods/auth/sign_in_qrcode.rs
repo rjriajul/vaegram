@@ -8,7 +8,7 @@ use crate::utils::base64url_encode;
 impl Client {
     /// Requests a QR login token.
     ///
-    /// Returns [`LoginToken::Url`](crate::types::LoginToken::Url) with a `tg://login` link to show as a QR code, or
+    /// Returns [`LoginToken::Url`] with a `tg://login` link to show as a QR code, or
     /// `LoginToken::Authorized` if the login already went through.
     pub async fn sign_in_qrcode(&self) -> Result<LoginToken> {
         let request = functions::auth::ExportLoginToken {
