@@ -21,6 +21,7 @@ impl<'a> InputSticker<'a> {
         InputSticker::with_file(StickerFile::Upload(sticker.into()), emoji.into())
     }
 
+    /// A sticker that's already on Telegram, taken from a [`FileLocation`] instead of uploaded.
     pub fn existing(sticker: impl Into<FileLocation>, emoji: impl Into<String>) -> Self {
         InputSticker::with_file(StickerFile::Stored(sticker.into()), emoji.into())
     }
@@ -29,11 +30,13 @@ impl<'a> InputSticker<'a> {
         InputSticker { file, emoji, mask_position: None, keywords: None }
     }
 
+    /// Where the sticker sits on a face, which makes it a mask.
     pub fn mask_position(mut self, position: MaskPosition) -> Self {
         self.mask_position = Some(position);
         self
     }
 
+    /// Search keywords for the sticker, stored as one comma-separated string.
     pub fn keywords(mut self, keywords: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.keywords = Some(InputSticker::join_keywords(keywords));
         self

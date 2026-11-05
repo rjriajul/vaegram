@@ -5,14 +5,23 @@ use crate::types::{Document, FileLocation, Photo};
 /// A photo with a short video that plays when it is held. The ids, sizes and download are the video's.
 #[derive(Debug, Clone)]
 pub struct LivePhoto {
+    /// The still photo. `None` if Telegram sent none.
     pub photo: Option<Photo>,
+    /// Identifier of the video file, for downloading it.
     pub file_id: String,
+    /// Identifier of the video file that stays the same across clients and sessions.
     pub file_unique_id: String,
+    /// Telegram's id of the video document.
     pub id: i64,
+    /// MIME type of the video.
     pub mime_type: String,
+    /// Size of the video in bytes.
     pub file_size: i64,
+    /// Width of the video, in pixels. `0` if Telegram sent no video attributes.
     pub width: i32,
+    /// Height of the video, in pixels. `0` if Telegram sent no video attributes.
     pub height: i32,
+    /// Duration of the video, in seconds. `0` if Telegram sent no video attributes.
     pub duration: i32,
     pub(crate) location: FileLocation,
 }

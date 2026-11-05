@@ -5,6 +5,9 @@ use crate::raw::{base, types};
 use crate::session::transfer::try_join_all;
 use crate::types::{InputMedia, Location, PeerRef, Venue};
 
+/// Media attached to a poll, its explanation or one of its options.
+///
+/// Build one from an [`InputMedia`], a [`Location`], a [`Venue`], or with [`link`](InputPollMedia::link).
 pub struct InputPollMedia<'a>(Kind<'a>);
 
 enum Kind<'a> {
@@ -13,16 +16,21 @@ enum Kind<'a> {
 }
 
 impl InputPollMedia<'_> {
+    /// A map location without an accuracy radius.
+    ///
     /// For accuracy, pass a [`Location`] instead.
     pub fn location(latitude: f64, longitude: f64) -> Self {
         Location::new(latitude, longitude).into()
     }
 
+    /// A venue with only a title and an address.
+    ///
     /// For a Foursquare or Google Places id, pass a [`Venue`] instead.
     pub fn venue(latitude: f64, longitude: f64, title: impl Into<String>, address: impl Into<String>) -> Self {
         Venue::new(latitude, longitude, title, address).into()
     }
 
+    /// A web page preview for the URL.
     pub fn link(url: impl Into<String>) -> Self {
         InputPollMedia(Kind::Ready(base::InputMedia::InputMediaWebPage(Box::new(types::InputMediaWebPage {
             force_large_media: false,

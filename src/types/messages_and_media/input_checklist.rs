@@ -4,6 +4,9 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::Checklist;
 
+/// A checklist to send, built from a title and its tasks.
+///
+/// Convert a received [`Checklist`] with `From<&Checklist>` to resend it with its formatting kept.
 #[derive(Debug, Clone)]
 pub struct InputChecklist {
     // Entities are `Some` only for texts taken from a received checklist; those skip the parse mode.
@@ -15,6 +18,7 @@ pub struct InputChecklist {
 }
 
 impl InputChecklist {
+    /// Starts a checklist with the given title and no tasks.
     pub fn new(title: impl Into<String>) -> Self {
         InputChecklist {
             title: (title.into(), None),
@@ -25,30 +29,39 @@ impl InputChecklist {
         }
     }
 
+    /// Adds a task to the checklist.
+    ///
     /// Task ids must be positive and unique within the checklist.
     pub fn task(mut self, id: i32, text: impl Into<String>) -> Self {
         self.tasks.push((id, text.into(), None));
         self
     }
 
+    /// Parses the title and the tasks added with [`task`](InputChecklist::task) as HTML.
     pub fn html(self) -> Self {
         self.parse_mode(ParseMode::Html)
     }
 
+    /// Parses the title and the tasks added with [`task`](InputChecklist::task) as Markdown.
     pub fn markdown(self) -> Self {
         self.parse_mode(ParseMode::Markdown)
     }
 
+    /// Parses the title and the tasks added with [`task`](InputChecklist::task) with the given mode.
+    ///
+    /// Texts copied from a received checklist keep their entities and skip the mode.
     pub fn parse_mode(mut self, mode: ParseMode) -> Self {
         self.parse_mode = Some(mode);
         self
     }
 
+    /// Lets other users add tasks to the checklist.
     pub fn others_can_add_tasks(mut self) -> Self {
         self.others_can_add_tasks = true;
         self
     }
 
+    /// Lets other users mark tasks as done.
     pub fn others_can_mark_tasks_as_done(mut self) -> Self {
         self.others_can_mark_tasks_as_done = true;
         self

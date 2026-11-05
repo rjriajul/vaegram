@@ -10,11 +10,13 @@ pub struct Giveaway {
     pub chats: Vec<Chat>,
     /// When the winners are picked.
     pub winners_selection_date: i32,
+    /// How many winners are picked.
     pub winner_count: i32,
     /// Only users who join after the giveaway starts can win.
     pub only_new_members: bool,
     /// Everyone can see the winners once they're picked.
     pub has_public_winners: bool,
+    /// Extra prize text from the organizers. `None` if there is none.
     pub prize_description: Option<String>,
     /// Two-letter codes of the countries users must be from; empty for everywhere.
     pub country_codes: Vec<String>,

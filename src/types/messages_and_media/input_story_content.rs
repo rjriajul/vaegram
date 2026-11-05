@@ -6,21 +6,28 @@ use crate::types::Upload;
 /// What a story shows: a 1080×1920 photo, or a 720×1280 MPEG4 video of up to 60 seconds.
 #[derive(Clone, Copy, Debug)]
 pub enum InputStoryContent<'a> {
+    /// A photo story.
     Photo(Upload<'a>),
     /// Times are in seconds; an animation plays without sound.
     Video {
+        /// The video file.
         video: Upload<'a>,
+        /// Length of the video.
         duration: f64,
+        /// Timestamp of the frame used as the cover.
         cover_frame_timestamp: f64,
+        /// Marks the video as a silent animation.
         is_animation: bool,
     },
 }
 
 impl<'a> InputStoryContent<'a> {
+    /// A photo story.
     pub fn photo(photo: impl Into<Upload<'a>>) -> Self {
         InputStoryContent::Photo(photo.into())
     }
 
+    /// A video story of the given length in seconds, with the cover at the first frame.
     pub fn video(video: impl Into<Upload<'a>>, duration: f64) -> Self {
         InputStoryContent::Video { video: video.into(), duration, cover_frame_timestamp: 0.0, is_animation: false }
     }

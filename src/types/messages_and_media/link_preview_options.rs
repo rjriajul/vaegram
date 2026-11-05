@@ -2,16 +2,19 @@ use crate::Client;
 use crate::raw::{base, types};
 
 /// What to preview for a link in a message. Read from received messages, and passed to `send_message`,
-/// `edit_message_text` and `edit_inline_text` through `.link_preview_options(..)`; `ClientBuilder::link_preview_options`
-/// sets a default for every call that gives none.
+/// `edit_message_text` and `edit_inline_text` through `.link_preview_options(..)`.
+/// `ClientBuilder::link_preview_options` sets a default for every call that gives none.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LinkPreviewOptions {
     /// The link to preview instead of the first one in the text.
     pub url: Option<String>,
     /// Send without any preview. Wins over `url`. Never set on received messages.
     pub is_disabled: bool,
+    /// Shrinks the preview's media.
     pub prefer_small_media: bool,
+    /// Enlarges the preview's media.
     pub prefer_large_media: bool,
+    /// Puts the preview above the message text instead of below it.
     pub show_above_text: bool,
 }
 

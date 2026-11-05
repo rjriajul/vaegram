@@ -8,31 +8,51 @@ use crate::types::{
     LivePhoto, Location, Message, PaidMediaInfo, Photo, Poll, Sticker, Story, Venue, Video, VideoNote, Voice,
 };
 
+/// The media a message carries, one variant per kind.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Media {
+    /// A photo.
     Photo(Photo),
+    /// A file sent as a document.
     Document(Document),
+    /// A GIF or a silent looping video.
     Animation(Animation),
+    /// An audio file.
     Audio(Audio),
+    /// A video.
     Video(Video),
+    /// A round video message.
     VideoNote(VideoNote),
+    /// A voice note.
     Voice(Voice),
+    /// A sticker.
     Sticker(Sticker),
+    /// A photo with a short video.
     LivePhoto(LivePhoto),
+    /// A shared contact.
     Contact(Contact),
+    /// A shared location, static or live.
     Location(Location),
+    /// A shared venue.
     Venue(Venue),
+    /// An animated dice, with the value it landed on.
     Dice(Dice),
+    /// A poll or quiz.
     Poll(Poll),
+    /// An invoice.
     Invoice(Invoice),
+    /// A checklist.
     Checklist(Checklist),
+    /// A game.
     Game(Game),
+    /// Media behind a Stars paywall.
     PaidMedia(PaidMediaInfo),
     /// A forwarded story. Boxed, since a story holds media itself.
     Story(Box<Story>),
+    /// A giveaway announcement.
     Giveaway(Giveaway),
-    /// Boxed, since it holds a whole `Chat`.
+    /// The results of a finished giveaway. Boxed, since it holds a whole `Chat`.
     GiveawayWinners(Box<GiveawayWinners>),
 }
 
@@ -106,6 +126,7 @@ impl Media {
         })
     }
 
+    /// The [`MediaKind`] of this media.
     pub fn kind(&self) -> MediaKind {
         match self {
             Media::Photo(_) => MediaKind::Photo,
@@ -160,86 +181,107 @@ impl Media {
 }
 
 impl Message {
+    /// The photo, if the message's media is one.
     pub fn photo(&self) -> Option<&Photo> {
         if let Some(Media::Photo(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The document, if the message's media is one.
     pub fn document(&self) -> Option<&Document> {
         if let Some(Media::Document(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The animation, if the message's media is one.
     pub fn animation(&self) -> Option<&Animation> {
         if let Some(Media::Animation(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The audio file, if the message's media is one.
     pub fn audio(&self) -> Option<&Audio> {
         if let Some(Media::Audio(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The video, if the message's media is one.
     pub fn video(&self) -> Option<&Video> {
         if let Some(Media::Video(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The video note, if the message's media is one.
     pub fn video_note(&self) -> Option<&VideoNote> {
         if let Some(Media::VideoNote(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The voice note, if the message's media is one.
     pub fn voice(&self) -> Option<&Voice> {
         if let Some(Media::Voice(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The sticker, if the message's media is one.
     pub fn sticker(&self) -> Option<&Sticker> {
         if let Some(Media::Sticker(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The live photo, if the message's media is one.
     pub fn live_photo(&self) -> Option<&LivePhoto> {
         if let Some(Media::LivePhoto(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The contact, if the message's media is one.
     pub fn contact(&self) -> Option<&Contact> {
         if let Some(Media::Contact(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The location, if the message's media is one.
     pub fn location(&self) -> Option<&Location> {
         if let Some(Media::Location(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The venue, if the message's media is one.
     pub fn venue(&self) -> Option<&Venue> {
         if let Some(Media::Venue(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The dice, if the message's media is one.
     pub fn dice(&self) -> Option<&Dice> {
         if let Some(Media::Dice(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The poll, if the message's media is one.
     pub fn poll(&self) -> Option<&Poll> {
         if let Some(Media::Poll(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The invoice, if the message's media is one.
     pub fn invoice(&self) -> Option<&Invoice> {
         if let Some(Media::Invoice(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The checklist, if the message's media is one.
     pub fn checklist(&self) -> Option<&Checklist> {
         if let Some(Media::Checklist(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The game, if the message's media is one.
     pub fn game(&self) -> Option<&Game> {
         if let Some(Media::Game(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The forwarded story, if the message's media is one.
     pub fn story(&self) -> Option<&Story> {
         if let Some(Media::Story(m)) = &self.media { Some(&**m) } else { None }
     }
 
+    /// The giveaway, if the message's media is one.
     pub fn giveaway(&self) -> Option<&Giveaway> {
         if let Some(Media::Giveaway(m)) = &self.media { Some(m) } else { None }
     }
 
+    /// The giveaway winners, if the message's media is one.
     pub fn giveaway_winners(&self) -> Option<&GiveawayWinners> {
         if let Some(Media::GiveawayWinners(m)) = &self.media { Some(&**m) } else { None }
     }
 
+    /// The paid media, if the message's media is one.
     pub fn paid_media(&self) -> Option<&PaidMediaInfo> {
         if let Some(Media::PaidMedia(m)) = &self.media { Some(m) } else { None }
     }
