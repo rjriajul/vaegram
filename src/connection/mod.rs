@@ -7,11 +7,13 @@ pub use proxy::{Proxy, Secret};
 pub use transport::{Framing, RecvBuf, Transport};
 
 use std::io;
+use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
@@ -27,11 +29,47 @@ const READ_CHUNK: usize = 64 << 10;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// A byte stream a [`ConnectionFactory`] hands back: a TCP socket, a TLS session, a tunnel, anything.
+pub trait Stream: AsyncRead + AsyncWrite + Send + Unpin {}
+
+impl<T: AsyncRead + AsyncWrite + Send + Unpin> Stream for T {}
+
+/// The future a [`ConnectionFactory`] returns: the opened stream, or why it couldn't be opened.
+pub type Connecting<'a> = Pin<Box<dyn Future<Output = io::Result<Box<dyn Stream>>> + Send + 'a>>;
+
+/// Opens the byte stream a connection runs over, in place of a plain TCP connect: to bind a local address, enter a
+/// network namespace or tunnel. It's given the data center's address, or the proxy's when one is set (the proxy
+/// handshake then runs over the stream). A closure `Fn(SocketAddr) -> impl Future<Output = io::Result<impl Stream>>`
+/// is one. Transfer and CDN connections use it too.
+pub trait ConnectionFactory: Send + Sync {
+    fn connect(&self, addr: SocketAddr) -> Connecting<'_>;
+}
+
+impl<F, Fut, S> ConnectionFactory for F
+where
+    F: Fn(SocketAddr) -> Fut + Send + Sync,
+    Fut: Future<Output = io::Result<S>> + Send + 'static,
+    S: Stream + 'static,
+{
+    fn connect(&self, addr: SocketAddr) -> Connecting<'_> {
+        let stream = self(addr);
+        Box::pin(async move { Ok(Box::new(stream.await?) as Box<dyn Stream>) })
+    }
+}
+
+impl std::fmt::Debug for dyn ConnectionFactory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ConnectionFactory")
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Options {
     pub transport: Transport,
     pub obfuscated: bool,
     pub proxy: Option<Proxy>,
+    /// Opens every connection's stream instead of a TCP connect; see [`ConnectionFactory`].
+    pub connection_factory: Option<Arc<dyn ConnectionFactory>>,
     pub request_timeout: Duration,
     /// Asked after every failed request whether to send it again, and after how long. The default sleeps off
     /// FLOOD_WAITs of up to a minute, five times per request.
@@ -53,6 +91,7 @@ impl Default for Options {
             transport: Transport::default(),
             obfuscated: false,
             proxy: None,
+            connection_factory: None,
             request_timeout: Duration::from_secs(30),
             retry: Retry::default(),
             no_updates: false,
@@ -122,19 +161,37 @@ impl Connection {
         if options.transport == Transport::Full && (options.obfuscated || secret.is_some()) {
             return Err(Error::InvalidArgument("the full transport can't be obfuscated or go through an MTProxy"));
         }
-        let stream = match &options.proxy {
-            None => TcpStream::connect(addr).await?,
-            Some(proxy) => {
-                let mut stream = TcpStream::connect(proxy.endpoint()).await?;
-                proxy.handshake(&mut stream, addr).await?;
-                stream
+        let (read, mut write) = match &options.connection_factory {
+            None => {
+                let stream = match &options.proxy {
+                    None => TcpStream::connect(addr).await?,
+                    Some(proxy) => {
+                        let mut stream = TcpStream::connect(proxy.endpoint()).await?;
+                        proxy.handshake(&mut stream, addr).await?;
+                        stream
+                    }
+                };
+                stream.set_nodelay(true)?;
+                let (read, write) = stream.into_split();
+                (ReadHalf::Tcp(read), WriteHalf::Tcp(write))
+            }
+            Some(factory) => {
+                let mut stream = match &options.proxy {
+                    None => factory.connect(addr).await?,
+                    Some(proxy) => {
+                        let mut stream = dial_any(factory.as_ref(), proxy.endpoint()).await?;
+                        proxy.handshake(&mut stream, addr).await?;
+                        stream
+                    }
+                };
+                stream.flush().await?;
+                let (read, write) = tokio::io::split(stream);
+                (ReadHalf::Boxed(read), WriteHalf::Boxed(write))
             }
         };
         let transport =
             if secret.is_some_and(|s| s.padded) { Transport::PaddedIntermediate } else { options.transport };
-        stream.set_nodelay(true)?;
         let tls = secret.is_some_and(|s| s.domain.is_some());
-        let (read, mut write) = stream.into_split();
         let (encrypt, decrypt, records) = match transport.tag() {
             Some(tag) if options.obfuscated || secret.is_some() => {
                 let (header, encrypt, decrypt) = obfuscated::init(tag, dc.wire_id() as i16, secret.map(|s| &s.key));
@@ -177,6 +234,18 @@ impl Connection {
     }
 }
 
+/// Dials the first address of `host` the factory can open, as a TCP connect to a host name tries each in turn.
+async fn dial_any(factory: &dyn ConnectionFactory, host: (&str, u16)) -> io::Result<Box<dyn Stream>> {
+    let mut last = io::Error::other("the host has no address");
+    for addr in tokio::net::lookup_host(host).await? {
+        match factory.connect(addr).await {
+            Ok(stream) => return Ok(stream),
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
 pub(crate) struct Reader {
     wire: Wire,
     framing: Framing,
@@ -205,7 +274,7 @@ impl Reader {
 }
 
 struct Wire {
-    half: OwnedReadHalf,
+    half: ReadHalf,
     records: Option<RecordReader>,
 }
 
@@ -219,8 +288,51 @@ impl AsyncRead for Wire {
     }
 }
 
+// TCP keeps its own halves, so the default path has no boxing or dynamic dispatch.
+enum ReadHalf {
+    Tcp(OwnedReadHalf),
+    Boxed(tokio::io::ReadHalf<Box<dyn Stream>>),
+}
+
+impl AsyncRead for ReadHalf {
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ReadHalf::Tcp(half) => Pin::new(half).poll_read(cx, buf),
+            ReadHalf::Boxed(half) => Pin::new(half).poll_read(cx, buf),
+        }
+    }
+}
+
+enum WriteHalf {
+    Tcp(OwnedWriteHalf),
+    Boxed(tokio::io::WriteHalf<Box<dyn Stream>>),
+}
+
+impl AsyncWrite for WriteHalf {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            WriteHalf::Tcp(half) => Pin::new(half).poll_write(cx, buf),
+            WriteHalf::Boxed(half) => Pin::new(half).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            WriteHalf::Tcp(half) => Pin::new(half).poll_flush(cx),
+            WriteHalf::Boxed(half) => Pin::new(half).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            WriteHalf::Tcp(half) => Pin::new(half).poll_shutdown(cx),
+            WriteHalf::Boxed(half) => Pin::new(half).poll_shutdown(cx),
+        }
+    }
+}
+
 pub(crate) struct Writer {
-    half: OwnedWriteHalf,
+    half: WriteHalf,
     framing: Framing,
     encrypt: Option<Ctr>,
     records: Option<RecordWriter>,
@@ -243,6 +355,8 @@ impl Writer {
             None => &self.buf[start..],
         };
         self.half.write_all(wire).await?;
+        // A boxed stream may buffer (TLS does); TCP's flush is a no-op.
+        self.half.flush().await?;
         Ok(())
     }
 
@@ -306,5 +420,102 @@ mod tests {
         assert_eq!(connection.recv().await.unwrap(), b"abcd1234");
         assert_eq!(connection.recv().await.unwrap(), b"efgh5678");
         assert_eq!(server.await.unwrap(), [b"abcd1234".to_vec(), b"efgh5678".to_vec()]);
+    }
+
+    /// Reads the intermediate tag and one packet, then sends the packet back.
+    async fn echo_one(stream: &mut (impl AsyncRead + AsyncWrite + Unpin)) -> [u8; 4] {
+        let (mut tag, mut len) = ([0; 4], [0; 4]);
+        stream.read_exact(&mut tag).await.unwrap();
+        stream.read_exact(&mut len).await.unwrap();
+        let mut payload = vec![0; u32::from_le_bytes(len) as usize];
+        stream.read_exact(&mut payload).await.unwrap();
+        stream.write_all(&len).await.unwrap();
+        stream.write_all(&payload).await.unwrap();
+        tag
+    }
+
+    /// A factory that hands out one end of an in-memory pipe, never a socket, and records what it was asked for.
+    fn piped() -> (Options, tokio::io::DuplexStream, Arc<std::sync::Mutex<Vec<SocketAddr>>>) {
+        let (ours, theirs) = tokio::io::duplex(1 << 16);
+        let (dialed, end) = (Arc::new(std::sync::Mutex::new(Vec::new())), std::sync::Mutex::new(Some(ours)));
+        let seen = dialed.clone();
+        let factory = move |addr: SocketAddr| {
+            seen.lock().unwrap().push(addr);
+            let end = end.lock().unwrap().take();
+            async move { end.ok_or_else(|| io::Error::other("dialed twice")) }
+        };
+        (Options { connection_factory: Some(Arc::new(factory)), ..Options::default() }, theirs, dialed)
+    }
+
+    #[tokio::test]
+    async fn custom_connector_carries_the_handshake() {
+        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false };
+        let (options, mut server, dialed) = piped();
+        let server = tokio::spawn(async move { echo_one(&mut server).await });
+        let mut connection = Connection::connect(&dc, &options).await.unwrap();
+        connection.send(b"abcd1234").await.unwrap();
+        assert_eq!(connection.recv().await.unwrap(), b"abcd1234");
+        assert_eq!((server.await.unwrap(), dialed.lock().unwrap().clone()), ([0xee; 4], vec![dc.addr]));
+    }
+
+    #[tokio::test]
+    async fn proxy_runs_over_connector() {
+        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false };
+        let (options, mut server, dialed) = piped();
+        let proxy = Proxy::Http { host: "127.0.0.1".into(), port: 8080, auth: None };
+        let options = Options { proxy: Some(proxy), ..options };
+        let server = tokio::spawn(async move {
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                head.push(server.read_u8().await.unwrap());
+            }
+            server.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await.unwrap();
+            (head, echo_one(&mut server).await)
+        });
+        let mut connection = Connection::connect(&dc, &options).await.unwrap();
+        connection.send(b"abcd1234").await.unwrap();
+        assert_eq!(connection.recv().await.unwrap(), b"abcd1234");
+        let (head, tag) = server.await.unwrap();
+        assert!(head.starts_with(b"CONNECT 149.154.167.51:443 "), "{}", String::from_utf8_lossy(&head));
+        // The factory is asked for the proxy; the data center is reached through it.
+        assert_eq!((tag, dialed.lock().unwrap().clone()), ([0xee; 4], vec!["127.0.0.1:8080".parse().unwrap()]));
+    }
+
+    #[tokio::test]
+    async fn every_proxy_address_is_tried() {
+        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false };
+        let dialed = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = dialed.clone();
+        // "localhost" may give an IPv6 address first; only an IPv4 one opens, onto a pipe nobody reads.
+        let factory = move |addr: SocketAddr| {
+            seen.lock().unwrap().push(addr);
+            async move {
+                match addr.is_ipv4() {
+                    true => Ok(tokio::io::duplex(64).0),
+                    false => Err(io::Error::new(io::ErrorKind::ConnectionRefused, "no IPv6 here")),
+                }
+            }
+        };
+        let proxy = Proxy::Http { host: "localhost".into(), port: 8080, auth: None };
+        let options = Options { proxy: Some(proxy), connection_factory: Some(Arc::new(factory)), ..Options::default() };
+        assert!(Connection::connect(&dc, &options).await.is_err());
+        // Dialing stopped at the first address that opened, however the host resolved.
+        assert!(dialed.lock().unwrap().last().is_some_and(SocketAddr::is_ipv4), "{:?}", dialed.lock().unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_connector_error_fails_connect() {
+        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false };
+        let refuse = |_: SocketAddr| async {
+            Err::<tokio::io::DuplexStream, _>(io::Error::new(io::ErrorKind::ConnectionRefused, "no route"))
+        };
+        let options = Options { connection_factory: Some(Arc::new(refuse)), ..Options::default() };
+        let result = Connection::connect(&dc, &options).await;
+        assert!(
+            matches!(&result, Err(Error::Io(e)) if e.kind() == io::ErrorKind::ConnectionRefused),
+            "{:?}",
+            result.err()
+        );
+        assert_eq!(format!("{:?}", options.connection_factory.unwrap()), "ConnectionFactory");
     }
 }
