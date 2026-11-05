@@ -15,7 +15,8 @@ pub struct GetUserProfileAudios<'a> {
 impl Client {
     /// Fetches the audios a user saved to their profile.
     ///
-    /// Awaiting it returns a `UserProfileAudios` with the total count and the audios of this page.
+    /// Awaiting it returns a [`UserProfileAudios`] with the total count and up to
+    /// [`limit`](GetUserProfileAudios::limit) audios, 100 by default.
     pub fn get_user_profile_audios(&self, user_id: impl Into<PeerRef>) -> GetUserProfileAudios<'_> {
         GetUserProfileAudios { client: self, user_id: user_id.into(), offset: 0, limit: 100 }
     }

@@ -1,16 +1,16 @@
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 
-/// A bot's mini app, as returned by `messages.getBotApp`.
+/// A bot's mini app, as returned by [`Client::get_bot_app`](crate::Client::get_bot_app).
 #[derive(Debug, Clone, PartialEq)]
 pub struct BotApp {
-    /// The app's id.
+    /// Telegram's id for the app.
     pub id: i64,
     /// Short name used to link to the app.
     pub short_name: String,
-    /// The app's title.
+    /// Title shown for the app.
     pub title: String,
-    /// The app's description.
+    /// Description shown for the app.
     pub description: String,
     /// Telegram marks the app as inactive for the user.
     pub inactive: bool,

@@ -12,14 +12,16 @@ pub struct DeleteTonWallet<'a> {
 }
 
 impl Client {
-    /// Detaches the account's wallet and starts a fresh one. Irreversible.
+    /// Detaches the account's wallet, starts a fresh one and returns the new [`TonWalletState`].
+    ///
+    /// The old wallet can't be attached again.
     pub fn delete_ton_wallet(&self) -> DeleteTonWallet<'_> {
         DeleteTonWallet { client: self, password: None }
     }
 }
 
 impl DeleteTonWallet<'_> {
-    /// The cloud password, for accounts that have one.
+    /// Confirms the change with the account's cloud password.
     pub fn password(mut self, password: impl Into<String>) -> Self {
         self.password = Some(password.into());
         self

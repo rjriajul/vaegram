@@ -10,7 +10,7 @@ pub struct SearchStickers<'a> {
 }
 
 impl Client {
-    /// Searches stickers by a text query, 50 to a page.
+    /// Searches stickers by a text query and returns the matching [`Sticker`]s, 50 by default.
     pub fn search_stickers(&self, query: impl Into<String>) -> SearchStickers<'_> {
         let request = functions::messages::SearchStickers {
             emojis: false,
@@ -50,7 +50,7 @@ impl SearchStickers<'_> {
         self
     }
 
-    /// Caps how many stickers one page holds. The default is 50.
+    /// Caps how many stickers come back. The default is 50.
     pub fn limit(mut self, limit: i32) -> Self {
         self.request.limit = limit;
         self

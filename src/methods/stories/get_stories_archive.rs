@@ -6,7 +6,7 @@ use crate::utils::get_peer;
 
 const PAGE_SIZE: usize = 100;
 
-/// Stories of a chat, fetched 100 at a time. Call `next` until it returns `None`.
+/// Archived or pinned stories of a chat, fetched 100 at a time. Call `next` until it returns `None`.
 #[must_use = "call .next() to fetch stories"]
 pub struct StoryPages<'a> {
     client: &'a Client,
@@ -19,6 +19,8 @@ pub struct StoryPages<'a> {
 }
 
 impl Client {
+    /// Returns the archived stories of a chat as pages fetched on demand with [`StoryPages::next`].
+    ///
     /// Only the chat itself, or a channel's admins, can read its archive.
     pub fn get_stories_archive(&self, chat_id: impl Into<PeerRef>) -> StoryPages<'_> {
         StoryPages::new(self, chat_id.into(), true)
@@ -43,7 +45,7 @@ impl<'a> StoryPages<'a> {
         self
     }
 
-    /// Returns the next story, or `None` when the list or the `limit` is exhausted.
+    /// Returns the next story, or `None` when the stories or the `limit` run out.
     pub async fn next(&mut self) -> Result<Option<Story>> {
         loop {
             if self.remaining == 0 {

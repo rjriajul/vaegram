@@ -13,7 +13,10 @@ pub struct GetChatPhotos<'a> {
 }
 
 impl Client {
-    /// A user's profile photos, newest first: up to 100 per call, skipping `offset` of them.
+    /// Fetches a user's profile photos, newest first.
+    ///
+    /// Awaiting it returns a [`UserProfilePhotos`] with the total count and up to
+    /// [`limit`](GetChatPhotos::limit) photos, 100 by default.
     pub fn get_chat_photos(&self, user_id: impl Into<PeerRef>) -> GetChatPhotos<'_> {
         GetChatPhotos { client: self, user_id: user_id.into(), offset: 0, limit: 100 }
     }

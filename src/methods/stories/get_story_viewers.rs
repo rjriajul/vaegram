@@ -14,7 +14,7 @@ pub struct GetStoryViewers<'a> {
 }
 
 impl Client {
-    /// Lists the people who viewed a story you posted.
+    /// Lists the people who viewed a story you posted, fetched on demand with [`GetStoryViewers::next`].
     pub fn get_story_viewers(&self, chat_id: impl Into<PeerRef>, story_id: i32) -> GetStoryViewers<'_> {
         GetStoryViewers { client: self, chat_id: chat_id.into(), story_id, pages: OffsetPages::new(100) }
     }
@@ -27,7 +27,7 @@ impl GetStoryViewers<'_> {
         self
     }
 
-    /// Returns the next [`StoryViewer`], or `None` when the list or the `limit` is exhausted.
+    /// Returns the next [`StoryViewer`], or `None` when the viewers or the `limit` run out.
     pub async fn next(&mut self) -> Result<Option<StoryViewer>> {
         loop {
             if let Some(viewer) = self.pages.pop() {

@@ -3,7 +3,7 @@ use crate::raw::{base, types};
 /// A device or app that is logged in to the account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveSession {
-    /// Telegram's identifier for the session. It is the authorization hash.
+    /// Authorization hash that identifies the session. Pass it to `terminate_session` to log the session out.
     pub id: i64,
     /// Device model the app reported when it logged in.
     pub device_model: String,
@@ -25,7 +25,7 @@ pub struct ActiveSession {
     pub ip_address: String,
     /// Region and country, joined as `Region, Country`. Holds whichever one Telegram sent if the other is empty.
     pub location: String,
-    /// The session making this request.
+    /// The session is the one this client runs on.
     pub is_current: bool,
     /// The app is an official Telegram app.
     pub is_official_application: bool,

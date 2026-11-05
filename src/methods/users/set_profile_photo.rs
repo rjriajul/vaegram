@@ -16,9 +16,9 @@ pub struct SetProfilePhoto<'a> {
 }
 
 impl Client {
-    /// Uploads a new profile photo for your account.
+    /// Uploads a file and makes it your profile photo.
     ///
-    /// Awaiting it returns once Telegram has accepted the upload.
+    /// Awaiting it uploads the file, then sets it. It returns once Telegram has accepted the new photo.
     pub fn set_profile_photo<'a>(&'a self, photo: impl Into<Upload<'a>>) -> SetProfilePhoto<'a> {
         SetProfilePhoto::new(self, None, photo.into())
     }

@@ -22,6 +22,8 @@ pub struct EditStoryMedia<'a> {
 
 impl Client {
     /// Replaces the media of a story you posted and returns the edited [`Story`].
+    ///
+    /// Awaiting it uploads the new media first. The caption and media areas stay as they were unless set.
     pub fn edit_story_media<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,
@@ -42,19 +44,21 @@ impl Client {
 }
 
 impl EditStoryMedia<'_> {
-    /// Replaces the story's media areas; an empty list removes them.
+    /// Replaces the story's media areas. An empty list removes them.
     pub fn media_areas(mut self, areas: impl IntoIterator<Item = StoryArea>) -> Self {
         self.areas = Some(areas.into_iter().collect());
         self
     }
 
-    /// Replaces the caption; an empty one removes it.
+    /// Replaces the caption. An empty one removes it.
     pub fn caption(mut self, caption: impl Into<String>) -> Self {
         self.caption = Some(caption.into());
         self
     }
 
-    /// The file id of an audio file to play with the story.
+    /// Plays the audio file with this file id along with the story.
+    ///
+    /// Fails with `InvalidArgument` if the file id doesn't name a document.
     pub fn music(mut self, file_id: impl Into<String>) -> Self {
         self.music = Some(file_id.into());
         self

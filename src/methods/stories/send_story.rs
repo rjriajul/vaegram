@@ -51,7 +51,7 @@ impl Client {
 }
 
 impl SendStory<'_> {
-    /// Sets the story caption, parsed with the builder's parse mode.
+    /// Adds a caption, parsed with the builder's parse mode.
     pub fn caption(mut self, caption: impl Into<String>) -> Self {
         self.caption = caption.into();
         self
@@ -63,7 +63,9 @@ impl SendStory<'_> {
         self
     }
 
-    /// 6, 12, 24 or 48 hours with Premium; otherwise Telegram only accepts 24 hours.
+    /// Keeps the story up for this many seconds.
+    ///
+    /// Premium accounts can pick 6, 12, 24 or 48 hours. Without Premium, Telegram accepts only 24 hours.
     pub fn period(mut self, seconds: i32) -> Self {
         self.period = Some(seconds);
         self
@@ -87,7 +89,9 @@ impl SendStory<'_> {
         self
     }
 
-    /// The file id of an audio file to play with the story.
+    /// Plays the audio file with this file id along with the story.
+    ///
+    /// Fails with `InvalidArgument` if the file id doesn't name a document.
     pub fn music(mut self, file_id: impl Into<String>) -> Self {
         self.music = Some(file_id.into());
         self

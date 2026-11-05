@@ -6,7 +6,7 @@ use crate::types::User;
 /// A bot listed in the attachment menu or the side menu.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttachMenuBot {
-    /// The bot's user.
+    /// The bot as a [`User`].
     pub bot: User,
     /// Name shown for the bot in the menu.
     pub short_name: String,

@@ -8,7 +8,7 @@ use crate::types::User;
 pub struct BotAccessSettings {
     /// Access to the bot is restricted.
     pub is_access_restricted: bool,
-    /// Users added to the bot's access list.
+    /// Users added to the bot's access list. Empty if Telegram sent none.
     pub added_users: Vec<User>,
 }
 

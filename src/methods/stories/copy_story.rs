@@ -27,7 +27,7 @@ impl Client {
     /// Posts a copy of a story to `chat_id` without downloading it.
     ///
     /// Awaiting it fetches the story from `from_chat_id`, reposts its photo or document and returns the new
-    /// [`Story`]. Stories with any other media fail with an error. The original caption is kept unless
+    /// [`Story`]. Stories with any other media fail with `Unexpected`. The original caption is kept unless
     /// [`caption`](CopyStory::caption) is set.
     pub fn copy_story(
         &self,
@@ -51,7 +51,7 @@ impl Client {
 }
 
 impl CopyStory<'_> {
-    /// Replaces the original caption; an empty one removes it.
+    /// Replaces the original caption. An empty one removes it.
     pub fn caption(mut self, caption: impl Into<String>) -> Self {
         self.caption = Some(caption.into());
         self
@@ -63,7 +63,7 @@ impl CopyStory<'_> {
         self
     }
 
-    /// Sets how long the story stays up, in seconds.
+    /// Keeps the new story up for this many seconds.
     pub fn period(mut self, seconds: i32) -> Self {
         self.period = Some(seconds);
         self

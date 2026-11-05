@@ -12,7 +12,10 @@ pub struct EnableStealthMode<'a> {
 }
 
 impl Client {
-    /// Premium only; the hidden periods come from the server's `stories_stealth_*_period` config.
+    /// Turns on story stealth mode and returns the new [`StoriesStealthMode`].
+    ///
+    /// Premium only. The hidden periods come from the server's `stories_stealth_*_period` config. Fails with
+    /// `Unexpected` if Telegram sends no stealth mode back.
     pub fn enable_stealth_mode(&self) -> EnableStealthMode<'_> {
         EnableStealthMode { client: self, past: false, future: false }
     }
