@@ -20,6 +20,11 @@ pub trait Listenable: Listened {}
 pub trait Listened: Subject + Inspect + Sized {
     fn book(listeners: &Listeners) -> &Book<Self>;
     fn identity<'a>(&'a self, me: &Me) -> Option<Identity<'a>>;
+
+    /// Runs once before `Client::listen` hands the answer back: fills what the client's fetch options ask for.
+    fn prepare(self) -> impl Future<Output = Self> + Send {
+        std::future::ready(self)
+    }
 }
 
 /// What a listener's criteria are checked against.
@@ -44,6 +49,10 @@ impl Listened for Message {
         }
         let user = self.from_user.as_ref().map(|u| u.id).or(self.sender_chat.as_ref().map(|c| c.id));
         Some(Identity { chat: Some(self.chat.id), user, message: Some(self.id), inline: None })
+    }
+
+    fn prepare(self) -> impl Future<Output = Self> + Send {
+        crate::handlers::Routed::prepare(self)
     }
 }
 

@@ -96,12 +96,30 @@ pub(crate) trait Routed: Clone + Send + 'static {
     fn order_key(&self) -> Option<i64> {
         self.chat_id()
     }
+
+    /// Runs once before the handlers get the item: fills what the client's fetch options ask for.
+    fn prepare(self) -> impl Future<Output = Self> + Send {
+        std::future::ready(self)
+    }
 }
 
 impl Routed for Message {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }
+
+    fn prepare(self) -> impl Future<Output = Self> + Send {
+        prefetched(self)
+    }
+}
+
+async fn prefetched(mut message: Message) -> Message {
+    if !message.client().0.fetch.any() {
+        return message;
+    }
+    let client = message.client().clone();
+    client.prefetch(std::slice::from_mut(&mut message)).await;
+    message
 }
 
 impl Routed for CallbackQuery {

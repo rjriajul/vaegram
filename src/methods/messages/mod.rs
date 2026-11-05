@@ -76,6 +76,7 @@ mod mark_checklist_tasks_as_done;
 mod pages;
 mod pin_chat_message;
 mod pin_saved_dialog;
+mod prefetch;
 mod read_chat_history;
 mod read_mentions;
 mod read_message_contents;

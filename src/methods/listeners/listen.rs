@@ -34,7 +34,7 @@ impl<T: Listenable> Listen<'_, T> {
     async fn send(self) -> Result<T> {
         let criteria = self.spec.resolve(self.client).await?;
         let listeners = &self.client.0.handlers.listeners;
-        T::book(listeners).listen(listeners.next_id(), criteria).await
+        Ok(T::book(listeners).listen(listeners.next_id(), criteria).await?.prepare().await)
     }
 }
 

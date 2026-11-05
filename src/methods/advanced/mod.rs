@@ -8,7 +8,7 @@ mod save_file;
 mod upload_file;
 mod upload_stream;
 
-pub(crate) use invoke::invoke_sleeping_floods;
+pub(crate) use invoke::{invoke_sleeping_floods, without_retries};
 pub use recover_gaps::RecoverGaps;
 pub(crate) use resolve_peer::ChatPeer;
 pub use upload_file::UploadFile;
