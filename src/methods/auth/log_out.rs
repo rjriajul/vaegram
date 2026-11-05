@@ -6,6 +6,8 @@ impl Client {
     /// Terminates the authorization on Telegram's side, forgets the account's cached peers, update state and
     /// transfer connections, and deletes everything the storage engine kept: the `.session` file, unless the client
     /// was built with another [`storage_engine`](crate::ClientBuilder::storage_engine).
+    ///
+    /// After this the client saves nothing more, a later sign-in included. Build a new `Client` to log in again.
     pub async fn log_out(&self) -> Result<()> {
         self.invoke(&functions::auth::LogOut {}).await?;
         self.forget_account();

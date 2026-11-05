@@ -127,7 +127,8 @@ struct Log {
 }
 
 impl Recorder {
-    /// Replaces `path`.
+    /// Replaces `path` with a new file only the owner can read. A symlink there is replaced, never followed; a
+    /// directory or other non-regular file is refused.
     pub fn create(path: &Path) -> io::Result<Recorder> {
         let mut file = super::create_private(path)?;
         file.write_all(MAGIC)?;
