@@ -4,9 +4,9 @@ use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use super::engine::{PeerRecord, Storage, StorageFuture, StoredState};
+use super::engine::{PeerRecord, Storage, StorageFuture, StorageReporter, StoredState};
 use super::memory_storage::Tables;
-use super::{SessionData, create_private, file_format, write_private};
+use super::{Reports, SessionData, create_private, file_format, write_private};
 
 const MIN_COMPACT: usize = 1 << 20;
 
@@ -18,6 +18,8 @@ const MIN_COMPACT: usize = 1 << 20;
 pub struct FileStorage {
     path: PathBuf,
     file: Mutex<Open>,
+    // Outside `Open`, which `close` resets.
+    reports: Reports,
 }
 
 #[derive(Default)]
@@ -45,7 +47,8 @@ impl FileStorage {
     pub fn new(name: impl AsRef<Path>) -> FileStorage {
         let mut path = name.as_ref().as_os_str().to_owned();
         path.push(".session");
-        FileStorage { path: PathBuf::from(path), file: Mutex::new(Open { compact_at: MIN_COMPACT, ..Open::default() }) }
+        let file = Mutex::new(Open { compact_at: MIN_COMPACT, ..Open::default() });
+        FileStorage { path: PathBuf::from(path), file, reports: Reports::default() }
     }
 
     pub fn path(&self) -> &Path {
@@ -77,11 +80,14 @@ impl FileStorage {
         };
         let replayed = file_format::replay(&bytes)?;
         if replayed.damaged {
-            eprintln!(
-                "vaegram: {}: dropping a half-written record at byte {}; the next save cuts it off",
-                self.path.display(),
-                replayed.good_len
-            );
+            self.reports.report(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "{}: dropping a half-written record at byte {}; the next save cuts it off",
+                    self.path.display(),
+                    replayed.good_len
+                ),
+            ));
         }
         open.tables = replayed.tables;
         open.skipped = replayed.skipped;
@@ -117,7 +123,7 @@ impl FileStorage {
     }
 
     /// Rewrites the file from memory once the appended records outgrow the live ones.
-    fn compact_if_due(open: &mut Open, path: &Path) {
+    fn compact_if_due(&self, open: &mut Open, path: &Path) {
         if open.appended <= open.compact_at.max(open.live).max(open.retry_at) {
             return;
         }
@@ -131,7 +137,8 @@ impl FileStorage {
             }
             Err(e) => {
                 open.retry_at = open.appended.saturating_mul(2);
-                eprintln!("vaegram: {}: couldn't compact the session file: {e}", path.display());
+                let why = format!("{}: couldn't compact the session file: {e}", path.display());
+                self.reports.report(io::Error::new(e.kind(), why));
             }
         }
     }
@@ -153,6 +160,10 @@ impl fmt::Debug for FileStorage {
 }
 
 impl Storage for FileStorage {
+    fn set_reporter(&self, reporter: StorageReporter) {
+        self.reports.set(reporter);
+    }
+
     fn open(&self) -> StorageFuture<'_, ()> {
         Box::pin(async move { self.with(|_, _| Ok(())) })
     }
@@ -184,7 +195,7 @@ impl Storage for FileStorage {
             self.with(|open, path| {
                 FileStorage::append(open, path, |b| file_format::session(b, session))?;
                 open.tables.session = Some(session.clone());
-                FileStorage::compact_if_due(open, path);
+                self.compact_if_due(open, path);
                 Ok(())
             })
         })
@@ -199,7 +210,7 @@ impl Storage for FileStorage {
             self.with(|open, path| {
                 FileStorage::append(open, path, |b| file_format::state(b, state))?;
                 open.tables.state = Some(state.clone());
-                FileStorage::compact_if_due(open, path);
+                self.compact_if_due(open, path);
                 Ok(())
             })
         })
@@ -215,7 +226,7 @@ impl Storage for FileStorage {
                 for p in peers {
                     open.tables.upsert(p.clone());
                 }
-                FileStorage::compact_if_due(open, path);
+                self.compact_if_due(open, path);
                 Ok(())
             })
         })
@@ -242,7 +253,7 @@ impl Storage for FileStorage {
             self.with(|open, path| {
                 FileStorage::append(open, path, file_format::clear_peers)?;
                 open.tables.clear_peers();
-                FileStorage::compact_if_due(open, path);
+                self.compact_if_due(open, path);
                 Ok(())
             })
         })
@@ -317,6 +328,51 @@ mod tests {
         assert_eq!(&after[..good.len()], &good[..], "the good records stay as they were");
         assert!(!replayed.damaged, "the torn bytes were cut off before the append");
         assert_eq!(replayed.tables.export(None), [peer(2, 2), peer(1, 1)]);
+    }
+
+    #[tokio::test]
+    async fn a_torn_tail_is_reported_once() {
+        let dir = temp_dir("torn-report");
+        let storage = FileStorage::new(dir.join("bot"));
+        storage.save_session(&session()).await.unwrap();
+        let mut torn = std::fs::read(storage.path()).unwrap();
+        torn.extend_from_slice(&[40, 0, 0, 0, 1, 2, 3, 4, 3, 9, 9]);
+        std::fs::write(storage.path(), &torn).unwrap();
+
+        let reopened = FileStorage::new(dir.join("bot"));
+        let reports = conformance::collect_reports(&reopened);
+        reopened.open().await.unwrap();
+        reopened.update_peers(&[peer(2, 2)]).await.unwrap();
+        reopened.update_peers(&[peer(3, 3)]).await.unwrap();
+        let reports = reports.lock().unwrap().clone();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(reports.len(), 1, "{reports:?}");
+        assert!(reports[0].contains("dropping a half-written record at byte"), "{reports:?}");
+    }
+
+    // A directory where the file was makes the rewrite's rename fail; unix only, as a file in use can't be replaced
+    // by one elsewhere.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_failed_compaction_is_reported() {
+        let dir = temp_dir("compact-report");
+        let storage = FileStorage::new(dir.join("bot"));
+        let reports = conformance::collect_reports(&storage);
+        // Above the session record's size, so saving it doesn't compact yet.
+        storage.lock().compact_at = 1024;
+        storage.save_session(&session()).await.unwrap();
+        std::fs::remove_file(storage.path()).unwrap();
+        std::fs::create_dir(storage.path()).unwrap();
+        for updated in 0..200 {
+            storage.update_peers(&[peer(1, updated), peer(2, updated)]).await.unwrap();
+            if !reports.lock().unwrap().is_empty() {
+                break;
+            }
+        }
+        let reports = reports.lock().unwrap().clone();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(reports.len(), 1, "{reports:?}");
+        assert!(reports[0].contains("couldn't compact the session file"), "{reports:?}");
     }
 
     #[tokio::test]

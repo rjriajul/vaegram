@@ -10,7 +10,7 @@ use tokio::sync::{Mutex, MutexGuard};
 use tokio::time::Instant;
 
 use super::SessionData;
-use super::engine::{PeerRecord, Storage, StorageFuture, StoredState};
+use super::engine::{PeerRecord, Reports, Storage, StorageFuture, StorageReporter, StoredState};
 use super::file_format;
 use super::memory_storage::Tables;
 
@@ -41,6 +41,7 @@ pub struct S3Storage {
     key: Path,
     interval: Duration,
     object: Mutex<Object>,
+    reports: Reports,
     #[cfg(test)]
     fail_uploads: std::sync::atomic::AtomicBool,
 }
@@ -78,6 +79,7 @@ impl S3Storage {
             key,
             interval: INTERVAL,
             object: Mutex::new(Object::default()),
+            reports: Reports::default(),
             #[cfg(test)]
             fail_uploads: std::sync::atomic::AtomicBool::new(false),
         }
@@ -109,7 +111,8 @@ impl S3Storage {
         };
         let replayed = file_format::replay(bytes.as_deref().unwrap_or_default())?;
         if replayed.damaged {
-            eprintln!("vaegram: {}: dropping a half-written record; the next upload leaves it out", self.key);
+            let why = format!("{}: dropping a half-written record; the next upload leaves it out", self.key);
+            self.reports.report(io::Error::new(io::ErrorKind::InvalidData, why));
         }
         *object = Object {
             opened: true,
@@ -182,6 +185,10 @@ impl fmt::Debug for S3Storage {
 }
 
 impl Storage for S3Storage {
+    fn set_reporter(&self, reporter: StorageReporter) {
+        self.reports.set(reporter);
+    }
+
     fn open(&self) -> StorageFuture<'_, ()> {
         Box::pin(async move { self.object().await.map(drop) })
     }
@@ -341,6 +348,20 @@ mod tests {
         assert_eq!(replayed.tables.session.as_ref().map(|s| s.user_id), Some(77));
         assert_eq!(replayed.tables.state, Some(state));
         assert_eq!(replayed.tables.export(None), [peer(2, 6), peer(1, 5)]);
+    }
+
+    #[tokio::test]
+    async fn a_torn_tail_is_reported_once() {
+        let (store, storage) = in_memory();
+        let mut bytes = file_format::snapshot(&Default::default(), &[]);
+        bytes.extend_from_slice(&[40, 0, 0, 0, 1, 2, 3, 4, 3, 9, 9]);
+        store.put(&Path::from(KEY), PutPayload::from(bytes)).await.unwrap();
+        let reports = conformance::collect_reports(&storage);
+        storage.open().await.unwrap();
+        storage.save_session(&session(1)).await.unwrap();
+        let reports = reports.lock().unwrap().clone();
+        assert_eq!(reports.len(), 1, "{reports:?}");
+        assert!(reports[0].contains(KEY) && reports[0].contains("half-written record"), "{reports:?}");
     }
 
     #[tokio::test(start_paused = true)]
