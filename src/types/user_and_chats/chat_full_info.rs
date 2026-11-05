@@ -8,7 +8,10 @@ use crate::types::{
 };
 use crate::utils::{get_channel_id, get_peer};
 
-/// What only the full profile of a chat tells; `get_chat` fills it. Each group of fields says which chats have it.
+/// Details from the full profile of a chat, which only `get_chat` fetches.
+///
+/// Users and bots, basic groups, and supergroups and channels each fill a different set of fields. Fields a
+/// chat kind doesn't have stay `None` or `false`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatFullInfo {
     // Every chat.
@@ -18,13 +21,13 @@ pub struct ChatFullInfo {
     pub folder_id: Option<i32>,
     /// The background of this chat for you.
     pub chat_background: Option<ChatBackground>,
-    /// Your background in this chat replaces the one the other side set.
+    /// `true` if your background in this private chat replaces the one the other side set.
     pub is_wallpaper_overridden: bool,
     /// Seconds after which new messages are deleted. `None` if auto-delete is off.
     pub message_auto_delete_time: Option<i32>,
-    /// The emoji of the chat theme.
+    /// The emoji of the chat theme. `None` if no theme is set or a user's theme comes from a unique gift.
     pub theme: Option<String>,
-    /// The theme of this chat's share card; `None` on the default one.
+    /// The theme of this chat's share card. `None` for the default one.
     pub share_theme: Option<ShareTheme>,
     /// `true` if the chat has scheduled messages.
     pub can_schedule_messages: bool,
@@ -46,11 +49,11 @@ pub struct ChatFullInfo {
     pub bot_verification: Option<BotVerification>,
 
     // Groups and channels.
-    /// The primary invite link, for admins.
+    /// The primary invite link. Only admins get it.
     pub invite_link: Option<String>,
     /// Number of join requests waiting for approval.
     pub join_requests_count: Option<i32>,
-    /// `None` when not sent; a default value when no reactions are allowed.
+    /// Reactions members can use. Holds no reactions, with `all_are_enabled` `false`, when reactions are off.
     pub available_reactions: Option<ChatReactions>,
     /// Most reactions one user can put on a message.
     pub reactions_limit: Option<i32>,
@@ -82,7 +85,7 @@ pub struct ChatFullInfo {
     pub boosts_applied: Option<i32>,
     /// How many boosts lift the restrictions on you.
     pub unrestrict_boost_count: Option<i32>,
-    /// The basic group this supergroup was upgraded from.
+    /// Id of the basic group this supergroup was upgraded from.
     pub migrated_from_chat_id: Option<i64>,
     /// Id of the last message in the basic group before the upgrade.
     pub migrated_from_max_message_id: Option<i32>,
@@ -90,7 +93,7 @@ pub struct ChatFullInfo {
     pub can_view_participants: bool,
     /// `true` if you can set the group's sticker set.
     pub can_set_sticker_set: bool,
-    /// New members see the messages sent before they joined.
+    /// `true` if new members see the messages sent before they joined.
     pub has_visible_history: bool,
     /// `true` if you can see the chat's statistics.
     pub can_view_stats: bool,
@@ -130,11 +133,11 @@ pub struct ChatFullInfo {
     pub personal_channel: Option<Chat>,
     /// The latest post of the personal channel.
     pub personal_channel_message_id: Option<i32>,
-    /// The photo you set for this contact; only you see it.
+    /// The photo you set for this contact. Only you see it.
     pub personal_photo: Option<ChatPhoto>,
     /// The photo shown to those who may not see the main one.
     pub public_photo: Option<ChatPhoto>,
-    /// Number of groups you share with the user.
+    /// Number of groups you share with the user. Set for every user.
     pub common_chats_count: Option<i32>,
     /// The name shown on forwards when the user hides their account.
     pub private_forward_name: Option<String>,
@@ -164,6 +167,7 @@ pub struct ChatFullInfo {
     pub note: Option<FormattedText>,
     /// `true` if you can call the user.
     pub is_phone_calls_available: bool,
+    /// `true` if the user's privacy settings keep you from calling them.
     pub is_phone_calls_private: bool,
     /// `true` if you can video call the user.
     pub is_video_calls_available: bool,
@@ -171,17 +175,19 @@ pub struct ChatFullInfo {
     pub can_pin_message: bool,
     /// `false` if the user doesn't accept voice and video messages.
     pub can_send_voice_messages: bool,
-    /// The user can't see your stories.
+    /// `true` if the user can't see your stories.
     pub is_blocked_my_stories_from: bool,
-    /// Messaging this user needs Premium.
+    /// `true` if messaging this user needs Telegram Premium.
     pub is_contact_require_premium: bool,
     /// `false` if the user hides when they read messages.
     pub is_read_dates_available: bool,
+    /// `true` if you turned sponsored messages back on. Only set on your own profile.
     pub is_ads_enabled: bool,
     /// `true` if the bot may manage the user's emoji status.
     pub bot_can_manage_emoji_status: bool,
+    /// `true` if the user shows a gift button in the message input field.
     pub display_gifts_button: bool,
-    /// The user's app is not an official or verified one.
+    /// `true` if the user's app is not an official or verified one.
     pub uses_unofficial_app: bool,
 }
 

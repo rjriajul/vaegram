@@ -9,9 +9,9 @@ pub struct BusinessChatLink {
     pub link: String,
     /// Text prefilled in the message box.
     pub text: String,
-    /// Entities of the prefilled text. `None` if it has none.
+    /// Formatting of the prefilled text. `None` if the text is plain.
     pub entities: Option<Vec<MessageEntity>>,
-    /// Name the owner gave the link. `None` if unnamed.
+    /// Name the owner gave the link. `None` if the link is unnamed.
     pub title: Option<String>,
     /// Times the link has been opened.
     pub views: i32,
@@ -24,7 +24,7 @@ pub struct BusinessChatLinkInfo {
     pub chat: Chat,
     /// Text prefilled in the message box.
     pub text: String,
-    /// Entities of the prefilled text. `None` if it has none.
+    /// Formatting of the prefilled text. `None` if the text is plain.
     pub entities: Option<Vec<MessageEntity>>,
 }
 
@@ -36,7 +36,7 @@ impl BusinessChatLink {
         BusinessChatLink { link, text: message, entities, title, views }
     }
 
-    /// Returns the last path segment of the link.
+    /// Returns the last path segment of the link, such as `AbCdEf` for `https://t.me/m/AbCdEf`.
     pub fn slug(&self) -> &str {
         self.link.rsplit('/').next().unwrap_or(&self.link)
     }

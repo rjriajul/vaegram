@@ -7,7 +7,7 @@ use crate::types::{FormattedText, User};
 pub struct BotVerification {
     /// The bot that gave the verification.
     pub bot: User,
-    /// The icon shown next to the name.
+    /// Custom emoji id of the icon shown next to the verified name.
     pub custom_emoji_id: i64,
     /// Text describing the verification.
     pub description: FormattedText,

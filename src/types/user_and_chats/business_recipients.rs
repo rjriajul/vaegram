@@ -13,11 +13,12 @@ pub struct BusinessRecipients {
     pub contacts: bool,
     /// Includes chats with people who aren't contacts.
     pub non_contacts: bool,
-    /// Reads the selection above and `users` as chats to leave out instead of include.
+    /// Treats the flags above and `users` as chats to leave out instead of chats to include.
     pub exclude_selected: bool,
-    /// Ids of users picked individually.
+    /// Ids of users picked one by one.
     pub users: Vec<i64>,
-    /// Ids of users a connected bot skips. Setting greeting and away messages fails if this is not empty.
+    /// Ids of users a connected bot skips. Setting greeting and away messages fails with `InvalidArgument` if
+    /// it isn't empty.
     pub exclude_users: Vec<i64>,
 }
 

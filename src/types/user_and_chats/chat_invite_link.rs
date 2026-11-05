@@ -19,7 +19,7 @@ pub struct ChatInviteLink {
     pub is_primary: bool,
     /// `true` once the link has been revoked.
     pub is_revoked: bool,
-    /// Name given to the link. `None` if it has none.
+    /// Name given to the link. `None` if the link is unnamed.
     pub name: Option<String>,
     /// Unix time the link expires. `None` if it never does.
     pub expire_date: Option<i32>,
@@ -29,7 +29,7 @@ pub struct ChatInviteLink {
     pub member_count: Option<i32>,
     /// Number of join requests still waiting for approval.
     pub pending_join_request_count: Option<i32>,
-    /// Seconds a subscription lasts before it renews.
+    /// Seconds a subscription lasts before it renews. `None` for links that aren't paid subscriptions.
     pub subscription_period: Option<i32>,
     /// Stars charged per subscription period. `None` for links that aren't paid subscriptions.
     pub subscription_price: Option<i64>,

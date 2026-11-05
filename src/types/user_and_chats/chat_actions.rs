@@ -10,7 +10,9 @@ use crate::types::{Chat, ChatMember, ChatPermissions, ChatPrivileges, FailedToAd
 /// Shortcuts for the `Client` methods that take this chat: each one forwards to its method with the chat's id and
 /// gives back what the method gives back.
 impl Chat {
-    /// The name of a user or bot chat, or the title of a group or channel.
+    /// Returns the first and last name of a user or bot, or the title of a group or channel.
+    ///
+    /// `None` if the chat carries no name.
     pub fn full_name(&self) -> Option<String> {
         match self.kind {
             ChatType::Private | ChatType::Bot => match (self.first_name.as_deref(), self.last_name.as_deref()) {

@@ -14,7 +14,7 @@ use crate::utils::{get_channel_id, get_peer, get_peer_id};
 pub struct Chat {
     /// Chat id. Users are positive, basic groups negative and channels in the form `-1001234567890`.
     pub id: i64,
-    /// Whether the chat is a user, bot, group, supergroup or channel.
+    /// Kind of chat: private, bot, group, supergroup or channel.
     pub kind: ChatType,
     /// Title of a group or channel. `None` for private chats.
     pub title: Option<String>,
@@ -30,11 +30,11 @@ pub struct Chat {
     pub description: Option<String>,
     /// The chat's primary invite link, from `get_chat`.
     pub invite_link: Option<String>,
-    /// Number of members. `None` if Telegram didn't send it.
+    /// Number of members. `None` for users, and for channels when Telegram omits it.
     pub members_count: Option<i32>,
-    /// The bot answering join request queries; only admins get it from `get_chat`.
+    /// The bot answering join request queries. Only admins get it, and only from `get_chat`.
     pub guard_bot: Option<User>,
-    /// The community the chat or bot belongs to; only `get_chat` fills it.
+    /// The community the chat or bot belongs to. Only `get_chat` fills it.
     pub community: Option<Community>,
     /// `true` for the direct messages chat of a channel.
     pub is_direct_messages: bool,
@@ -68,9 +68,9 @@ pub struct Chat {
     pub photo: Option<ChatPhoto>,
     /// The data center of the chat photo.
     pub dc_id: Option<i32>,
-    /// Accent color of replies and the name. `None` for basic groups.
+    /// Accent color of replies and the name. `None` for basic groups and when unset.
     pub reply_color: Option<ChatColor>,
-    /// Accent color of the profile page. `None` for basic groups.
+    /// Accent color of the profile page. `None` for basic groups and when unset.
     pub profile_color: Option<ChatColor>,
     /// Emoji shown next to the name. `None` if unset.
     pub emoji_status: Option<EmojiStatus>,
@@ -92,13 +92,13 @@ pub struct Chat {
     pub has_protected_content: bool,
     /// You were removed from this group or channel.
     pub is_banned: bool,
-    /// Unix time your ban ends. `None` if Telegram sends no end date.
+    /// Unix time your ban from the channel ends. `None` if you aren't banned or the ban has no end date.
     pub banned_until_date: Option<i32>,
     /// `true` if channel posts show the profile of the admin who wrote them.
     pub show_message_sender_name: bool,
     /// `true` if channel posts carry the signature of their author.
     pub sign_messages: bool,
-    /// Boost level of the channel. `None` if Telegram didn't send one.
+    /// Boost level of the supergroup or channel. `None` for other chats or when Telegram omits it.
     pub level: Option<i32>,
     /// `true` if people must join the supergroup before they can send messages.
     pub join_to_send_messages: bool,
@@ -112,9 +112,9 @@ pub struct Chat {
     pub has_forum_tabs: bool,
     /// `true` if the channel accepts direct messages.
     pub has_direct_messages_group: bool,
-    /// The direct messages chat of this channel.
+    /// Id of the direct messages chat of this channel.
     pub direct_messages_chat_id: Option<i64>,
-    /// Only `get_chat` fills it.
+    /// Details from the full profile. Only `get_chat` fills it.
     pub full_info: Option<Box<ChatFullInfo>>,
 }
 

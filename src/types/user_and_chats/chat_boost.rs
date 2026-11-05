@@ -30,9 +30,9 @@ pub enum ChatBoostSource {
         /// The user who received the gift code.
         user: User,
     },
-    /// A giveaway created by the chat; `user` is the winner, unless the prize went unclaimed.
+    /// A boost won in a giveaway the chat ran.
     Giveaway {
-        /// Id of the giveaway message in the chat.
+        /// Id of the giveaway message in the chat. `0` if Telegram omits it.
         giveaway_message_id: i32,
         /// The winner. `None` if the prize went unclaimed.
         user: Option<User>,
@@ -89,7 +89,7 @@ impl ChatBoost {
 }
 
 impl ChatBoostSource {
-    /// The booster. `None` for a giveaway whose prize went unclaimed.
+    /// Returns the booster. `None` for a giveaway whose prize went unclaimed.
     pub fn user(&self) -> Option<&User> {
         match self {
             ChatBoostSource::Premium { user } | ChatBoostSource::GiftCode { user } => Some(user),
@@ -99,14 +99,14 @@ impl ChatBoostSource {
 }
 
 impl ChatBoostUpdated {
-    /// The client that received this update.
+    /// Returns the client that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }
 }
 
 impl ChatBoostRemoved {
-    /// The client that received this update.
+    /// Returns the client that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }

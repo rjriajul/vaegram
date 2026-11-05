@@ -7,7 +7,7 @@ pub struct Birthday {
     pub day: i32,
     /// Month of the year, starting at 1 for January.
     pub month: i32,
-    /// Hidden by the owner or never set.
+    /// Year of birth. `None` when the user doesn't share it.
     pub year: Option<i32>,
 }
 

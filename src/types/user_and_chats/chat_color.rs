@@ -6,7 +6,7 @@ use crate::raw::base;
 pub struct ChatColor {
     /// Id of the color in the list from `get_peer_colors` or `get_peer_profile_colors`.
     pub color: Option<i32>,
-    /// Id of the custom emoji used as the background pattern. `None` if there is none.
+    /// Id of the custom emoji used as the background pattern. `None` if there's no pattern.
     pub background_emoji_id: Option<i64>,
 }
 

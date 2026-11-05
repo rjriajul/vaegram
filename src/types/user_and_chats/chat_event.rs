@@ -7,17 +7,19 @@ use crate::utils::get_channel_id;
 /// An entry in a chat's admin log.
 #[derive(Debug, Clone)]
 pub struct ChatEvent {
-    /// Id of the log entry.
+    /// Id of the log entry, unique within the chat's log.
     pub id: i64,
     /// Unix time the action happened.
     pub date: i32,
-    /// The user who did it.
+    /// The user who did the action.
     pub user: User,
-    /// What was done.
+    /// The action that was done.
     pub action: ChatEventAction,
 }
 
-/// What an admin log entry records. Actions the library doesn't map are [`ChatEventAction::Unknown`].
+/// What an admin log entry records.
+///
+/// Actions vaegram doesn't map, and entries whose message fails to parse, come as [`ChatEventAction::Unknown`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum ChatEventAction {
@@ -83,7 +85,7 @@ pub enum ChatEventAction {
     VideoChatStarted,
     /// A video chat was ended.
     VideoChatEnded,
-    /// An action the library doesn't map.
+    /// An action vaegram doesn't map, or one whose message failed to parse.
     Unknown,
 }
 

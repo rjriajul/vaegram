@@ -22,7 +22,7 @@ pub struct ChannelStatistics {
     pub shares_per_story: StatisticalValue,
     /// Average reactions on a story.
     pub reactions_per_story: StatisticalValue,
-    /// Percent of followers with notifications on, from 0 to 100. `0` if the total is not positive.
+    /// Percent of followers with notifications on, from 0 to 100. `0.0` if Telegram reports no followers.
     pub enabled_notifications: f64,
     /// Follower growth over time.
     pub growth_graph: StatisticalGraph,
@@ -59,11 +59,11 @@ pub struct PostInteractions {
     pub id: i32,
     /// `true` if this entry is a story instead of a message.
     pub is_story: bool,
-    /// Number of views.
+    /// Views of the post or story.
     pub views: i32,
-    /// Number of forwards.
+    /// Forwards of the post or story.
     pub forwards: i32,
-    /// Number of reactions.
+    /// Reactions on the post or story.
     pub reactions: i32,
 }
 

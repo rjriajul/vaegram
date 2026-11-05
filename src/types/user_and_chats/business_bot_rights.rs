@@ -1,11 +1,13 @@
 use crate::raw::{base, types};
 
-/// What a bot may do in a business account it is connected to. A field is `true` when the right is granted.
+/// What a bot may do in a business account it is connected to.
+///
+/// A field is `true` when the right is granted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BusinessBotRights {
     /// Send messages in the chats it handles.
     pub can_reply: bool,
-    /// Read the messages of the chats it handles.
+    /// Mark the messages of the chats it handles as read.
     pub can_read_messages: bool,
     /// Delete messages the bot sent.
     pub can_delete_sent_messages: bool,

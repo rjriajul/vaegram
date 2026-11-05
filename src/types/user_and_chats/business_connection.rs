@@ -6,7 +6,7 @@ use crate::types::{BusinessBotRights, User};
 /// A bot's connection to a business account.
 #[derive(Debug, Clone)]
 pub struct BusinessConnection {
-    /// Id of the connection.
+    /// Id of the connection, as business updates and requests carry it.
     pub id: String,
     /// The business account.
     pub user: User,

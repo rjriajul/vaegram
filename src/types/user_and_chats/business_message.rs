@@ -9,7 +9,7 @@ pub struct BusinessGreetingMessage {
     pub shortcut_id: i32,
     /// Chats the message is sent to.
     pub recipients: BusinessRecipients,
-    /// How long a chat must be quiet to be greeted again.
+    /// Days a chat must be quiet before it's greeted again.
     pub no_activity_days: i32,
 }
 
@@ -22,7 +22,7 @@ pub struct BusinessAwayMessage {
     pub recipients: BusinessRecipients,
     /// When the message is sent.
     pub schedule: BusinessAwayMessageSchedule,
-    /// Sent only while the account is offline.
+    /// `true` to send the message only while the account is offline.
     pub offline_only: bool,
 }
 
