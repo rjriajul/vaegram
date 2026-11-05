@@ -30,9 +30,7 @@ impl Story {
         self.client().edit_story_privacy(self.chat.id, self.id, privacy).await
     }
 
-    /// Reacts to the story with `reaction`.
-    ///
-    /// `None` removes the account's reaction.
+    /// Reacts to the story with `reaction`. `None` removes the account's reaction.
     pub async fn react(&self, reaction: Option<ReactionType>) -> Result<()> {
         self.client().send_story_reaction(self.chat.id, self.id, reaction).await
     }
@@ -42,7 +40,7 @@ impl Story {
         self.client().forward_story(chat_id, self.chat.id, self.id)
     }
 
-    /// Marks this story and the older ones of its chat as seen; returns the ids Telegram marked as read.
+    /// Marks this story and the older ones of its chat as read. Returns the ids Telegram marked.
     pub async fn read(&self) -> Result<Vec<i32>> {
         self.client().read_stories(self.chat.id, self.id).await
     }

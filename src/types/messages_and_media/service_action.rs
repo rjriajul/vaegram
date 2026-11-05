@@ -37,7 +37,7 @@ pub enum ServiceAction {
     MigrateFromChatId(i64),
     /// A message was pinned. Holds the id of the pinned message.
     PinnedMessage(i32),
-    /// In seconds; 0 turns auto-deletion off.
+    /// The auto-delete timer changed. Holds the new period in seconds, 0 when auto-deletion is off.
     AutoDeleteTimerChanged(i32),
     /// A video chat was scheduled.
     VideoChatScheduled {
@@ -48,7 +48,7 @@ pub enum ServiceAction {
     VideoChatStarted,
     /// A video chat ended.
     VideoChatEnded {
-        /// In seconds.
+        /// How long the video chat lasted, in seconds.
         duration: i32,
     },
     /// Users were invited to the video chat.
@@ -95,7 +95,7 @@ pub enum ServiceAction {
     GeneralForumTopicUnhidden,
     /// A gift was sent.
     Gift(Box<GiftInfo>),
-    /// A unique gift.
+    /// A unique gift was received, upgraded or transferred.
     UniqueGift(Box<UniqueGiftInfo>),
     /// An invoice was paid.
     SuccessfulPayment(Box<SuccessfulPayment>),
@@ -107,16 +107,16 @@ pub enum ServiceAction {
     ChecklistTasksAdded(ChecklistTasksAdded),
     /// A player set a new score in a game.
     GameHighScore {
-        /// Id of the game.
+        /// Id of the game the score was set in.
         game_id: i64,
-        /// The new score.
+        /// The player's new score.
         score: i32,
     },
     /// The sender boosted the chat. Holds how many boosts they applied.
     BoostAdded(i32),
     /// Data a web app sent through its button.
     WebAppData(Box<WebAppData>),
-    /// The owner left; ownership passes to this user once the transfer completes.
+    /// The owner left the chat. This user becomes the owner once the transfer completes.
     ChatOwnerLeft(User),
     /// Ownership of the chat passed to this user.
     ChatOwnerChanged(User),
@@ -134,7 +134,7 @@ pub enum ServiceAction {
     GiftedGrams(Box<GiftedGrams>),
     /// A giveaway was started.
     GiveawayCreated {
-        /// Set for a giveaway of Telegram Stars.
+        /// Stars to split among the winners. `None` unless the giveaway is of Telegram Stars.
         prize_star_count: Option<i64>,
     },
     /// A giveaway ended. The giveaway message is the reply target.
@@ -154,7 +154,7 @@ pub enum ServiceAction {
     PhoneCallStarted {
         /// Id of the call.
         id: i64,
-        /// Whether it is a video call.
+        /// `true` for a video call.
         is_video: bool,
     },
     /// A phone call ended.
@@ -167,14 +167,14 @@ pub enum ServiceAction {
         is_missed: bool,
         /// Whether the call is still going.
         is_active: bool,
-        /// Whether it is a video call.
+        /// `true` for a video call.
         is_video: bool,
-        /// In seconds.
+        /// How long the call lasted, in seconds.
         duration: Option<i32>,
     },
     /// A screenshot of the chat was taken.
     ScreenshotTaken,
-    /// An offer to buy an upgraded gift.
+    /// Someone offered to buy an upgraded gift.
     UpgradedGiftPurchaseOffer(Box<UpgradedGiftPurchaseOffer>),
     /// An offer to buy an upgraded gift was rejected.
     UpgradedGiftPurchaseOfferRejected(Box<UpgradedGiftPurchaseOfferRejected>),
@@ -196,9 +196,9 @@ pub enum ServiceAction {
     ChatBackgroundSet {
         /// The new background.
         background: Box<ChatBackground>,
-        /// The background was already in use.
+        /// `true` if the sender applied a background the other user had sent earlier.
         is_same: bool,
-        /// Set for both users of a private chat.
+        /// `true` if the background was set for both users of the private chat.
         is_for_both: bool,
     },
     /// The sender suggests this photo as the recipient's profile photo.
@@ -209,7 +209,7 @@ pub enum ServiceAction {
     PaidMessagesRefunded {
         /// Number of messages refunded.
         message_count: i32,
-        /// Stars refunded.
+        /// Total Stars refunded.
         star_count: i64,
     },
     /// The price of a message to this chat changed.
@@ -224,15 +224,15 @@ pub enum ServiceAction {
         /// Stars a direct message now costs.
         paid_message_star_count: i64,
     },
-    /// An option was added to a poll. Holds the new option; the poll is the reply target.
+    /// An option was added to a poll. Holds the new option. The poll is the reply target.
     PollOptionAdded(Box<PollOption>),
-    /// An option was removed from a poll. Holds the removed option; the poll is the reply target.
+    /// An option was removed from a poll. Holds the removed option. The poll is the reply target.
     PollOptionDeleted(Box<PollOption>),
     /// The user sent Telegram Passport data to a bot.
     PassportDataSent,
     /// The bot received Telegram Passport data. The data stays encrypted.
     PassportDataReceived,
-    /// A transfer through a TON wallet.
+    /// Grams were transferred through a TON wallet.
     TonWalletTransfer(Box<TonWalletTransfer>),
     /// A TON Connect request.
     TonConnectRequest(Box<TonConnectRequest>),

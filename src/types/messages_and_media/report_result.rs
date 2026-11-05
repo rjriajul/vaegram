@@ -4,30 +4,30 @@ use crate::raw::base;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ReportResult {
-    /// Pick one of `options` and report again with its `option`.
+    /// Telegram wants a reason. Report again with the `option` of one of `options`.
     ChooseOption {
-        /// The prompt to show above the options.
+        /// Prompt to show above the options.
         title: String,
-        /// The choices to offer.
+        /// Reasons to choose from.
         options: Vec<ReportOption>,
     },
-    /// Report again with this `option` and a comment; the comment may be empty when `optional`.
+    /// Telegram wants a comment. Report again with this `option` and a comment.
     AddComment {
-        /// Whether the comment may be left empty.
+        /// `true` if the comment may be left empty.
         optional: bool,
-        /// Opaque value to pass back when reporting again.
+        /// Opaque value to pass to [`ReportMessages::option`](crate::methods::ReportMessages::option).
         option: Vec<u8>,
     },
-    /// The report was accepted; there are no more steps.
+    /// Telegram accepted the report. There are no more steps.
     Reported,
 }
 
 /// A choice offered during a report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReportOption {
-    /// The label to show.
+    /// Label to show for this reason.
     pub text: String,
-    /// Opaque value to pass back when reporting again.
+    /// Opaque value to pass to [`ReportMessages::option`](crate::methods::ReportMessages::option).
     pub option: Vec<u8>,
 }
 

@@ -3,11 +3,11 @@ use crate::raw::{base, types};
 /// A payment that was refunded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefundedPayment {
-    /// Currency code of the payment.
+    /// Three-letter currency code, or `XTR` for Telegram Stars.
     pub currency: String,
     /// Amount in the smallest units of `currency`.
     pub total_amount: i64,
-    /// The payload the bot set on the invoice.
+    /// The payload the bot set on the invoice. Empty if Telegram sent none.
     pub invoice_payload: String,
     /// Telegram's id of the charge.
     pub telegram_payment_charge_id: String,

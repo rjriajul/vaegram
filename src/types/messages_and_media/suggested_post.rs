@@ -92,7 +92,7 @@ pub struct SuggestedPostApprovalFailed {
 /// A suggested post was declined.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuggestedPostDeclined {
-    /// Reason the admin gave. `None` if there's none.
+    /// Reason the admin gave. `None` if the admin gave none.
     pub comment: Option<String>,
 }
 

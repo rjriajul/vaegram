@@ -17,15 +17,17 @@ pub struct Story {
     pub date: i32,
     /// Unix time when the story expires from the feed, unless it's pinned.
     pub expire_date: i32,
-    /// The user who posted the story: the explicit author, else the story's own chat when that is a user.
+    /// The user who posted the story. `None` if a channel or group posted it.
     pub from_user: Option<User>,
-    /// The channel or group that posted the story.
+    /// The channel or group that posted the story. `None` if a user posted it.
     pub sender_chat: Option<Chat>,
-    /// The user who posted the story that this one reposts. `None` if it isn't a repost or the author is hidden.
+    /// The user who posted the story that this one reposts. `None` if it isn't a repost, or the
+    /// original author is a chat or hides their account.
     pub forward_from: Option<User>,
-    /// The channel or group that posted the story that this one reposts.
+    /// The channel or group that posted the story that this one reposts. `None` if it isn't a repost of a
+    /// chat's story.
     pub forward_from_chat: Option<Chat>,
-    /// Set when the original author hides their account.
+    /// Name of the original author when they hide their account.
     pub forward_sender_name: Option<String>,
     /// Id of the reposted story in its original chat.
     pub forward_from_story_id: Option<i32>,
@@ -47,7 +49,8 @@ pub struct Story {
     pub forward_count: Option<i32>,
     /// Reactions on the story with their counts.
     pub reactions: Vec<ReactionCount>,
-    /// Only the story's author sees it, and only when the rules are ones `StoriesPrivacyRules` can express.
+    /// Who can see the story. `None` unless the account posted the story and its rules match one of the
+    /// [`StoriesPrivacyRules`] variants.
     pub privacy: Option<StoriesPrivacyRules>,
     /// `true` if the story is pinned to the profile and stays after it expires.
     pub is_pinned: bool,
@@ -61,11 +64,12 @@ pub struct Story {
     pub is_selected_contacts: bool,
     /// `true` if the story was edited after posting.
     pub is_edited: bool,
-    /// Posted by this account.
+    /// `true` if the current account posted the story.
     pub outgoing: bool,
     /// `true` if the story can't be forwarded or saved.
     pub has_protected_content: bool,
-    /// A placeholder for a story the account can't see yet: only the dates and `is_close_friends` are known.
+    /// `true` for a placeholder Telegram sends instead of the full story. Only `id`, the dates and
+    /// `is_close_friends` are set.
     pub is_skipped: bool,
     client: Client,
 }
@@ -170,7 +174,7 @@ impl Story {
 
     /// Downloads the story's photo or video.
     ///
-    /// Fails at `.await` for a story without a photo or document.
+    /// Awaiting it fails with [`Error::InvalidArgument`] if the story has no downloadable media.
     pub fn download<'a>(&self, client: &'a Client) -> DownloadMedia<'a> {
         let location = self.media.as_ref().and_then(Media::file_location).cloned();
         let location = location.ok_or(Error::InvalidArgument("this story has no photo or document to download"));
@@ -212,15 +216,15 @@ impl Story {
 /// A user who viewed a story.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoryViewer {
-    /// The viewer.
+    /// The user who viewed the story.
     pub user: User,
     /// Unix time when the viewer opened the story.
     pub date: i32,
     /// Reaction the viewer left. `None` if they didn't react.
     pub reaction: Option<ReactionType>,
-    /// The viewer is on the account's block list.
+    /// `true` if the viewer is on the account's block list.
     pub is_blocked: bool,
-    /// The viewer is hidden from the account's stories only.
+    /// `true` if the viewer is blocked from seeing the account's stories only.
     pub is_blocked_my_stories_from: bool,
 }
 

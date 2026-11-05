@@ -9,8 +9,8 @@ pub struct TextQuote {
     pub entities: Option<Vec<MessageEntity>>,
     /// The quote as rich text, when it was taken from a rich message.
     pub rich_text: Option<RichText>,
-    /// Offset of the quote in the original message's text.
+    /// Offset of the quote in the replied message's text, in UTF-16 code units.
     pub position: i32,
-    /// `true` if the sender picked the quoted part by hand instead of Telegram quoting the whole message.
+    /// `true` if the sender chose the quote. `false` if Telegram added it.
     pub is_manual: bool,
 }

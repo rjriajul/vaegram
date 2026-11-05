@@ -56,7 +56,7 @@ pub enum StoryAreaType {
     },
     /// A link to a URL.
     Link {
-        /// The target URL.
+        /// URL the area opens.
         url: String,
     },
     /// A weather widget.
@@ -65,7 +65,7 @@ pub enum StoryAreaType {
         temperature: f64,
         /// Emoji showing the weather.
         emoji: String,
-        /// Background color of the widget.
+        /// Background color of the widget, as ARGB.
         background_color: i32,
     },
     /// A link to a unique gift.
@@ -87,13 +87,13 @@ pub enum StoryAreaType {
 /// A street address attached to a [`StoryAreaType::Location`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LocationAddress {
-    /// Two-letter ISO 3166-1 alpha-2 code.
+    /// Country as a two-letter ISO 3166-1 alpha-2 code.
     pub country_code: String,
-    /// State or region. `None` if not given.
+    /// State or region, if the address has one.
     pub state: Option<String>,
-    /// City. `None` if not given.
+    /// City, if the address has one.
     pub city: Option<String>,
-    /// Street and number. `None` if not given.
+    /// Street and house number, if the address has one.
     pub street: Option<String>,
 }
 

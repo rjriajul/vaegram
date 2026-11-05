@@ -25,8 +25,8 @@ pub struct StrippedThumbnail {
 }
 
 impl StrippedThumbnail {
-    /// The thumbnail as a complete JPEG. Empty when `data` isn't a stripped thumbnail.
-    /// Rebuilds the full JPEG from the stripped data.
+    /// Rebuilds the complete JPEG from the stripped data. Returns an empty `Vec` if `data` isn't a stripped
+    /// thumbnail.
     pub fn to_jpeg(&self) -> Vec<u8> {
         expand_inline_bytes(&self.data).unwrap_or_default()
     }

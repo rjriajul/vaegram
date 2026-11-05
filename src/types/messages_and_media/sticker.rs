@@ -30,7 +30,7 @@ pub struct Sticker {
     pub is_animated: bool,
     /// `true` for video (WEBM) stickers.
     pub is_video: bool,
-    /// Emoji the sticker is associated with. `None` if it has none.
+    /// Emoji the sticker is associated with. `None` if the sticker has no emoji.
     pub emoji: Option<String>,
     /// Where a mask sits on a face. `None` unless the sticker is a mask.
     pub mask_position: Option<MaskPosition>,

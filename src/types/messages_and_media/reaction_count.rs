@@ -4,11 +4,12 @@ use crate::types::ReactionType;
 /// How many times one reaction was used on a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReactionCount {
-    /// The reaction.
+    /// The reaction being counted.
     pub kind: ReactionType,
-    /// Number of times it was used.
+    /// Number of times the reaction was put on the message.
     pub total_count: i32,
-    /// Set when the current account picked this reaction; lower values were picked earlier.
+    /// Position of this reaction among the ones the current account picked. Lower values were picked
+    /// earlier. `None` if the account didn't pick it.
     pub chosen_order: Option<i32>,
 }
 

@@ -143,7 +143,7 @@ impl Text {
 
     /// Returns the part of the text in `range`, counted in UTF-16 units, with the entities clipped to it.
     ///
-    /// An offset inside a surrogate pair moves back to the pair's start; a reversed range gives an empty `Text`.
+    /// An offset inside a surrogate pair moves back to the pair's start. A reversed range gives an empty `Text`.
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Text {
         let unit = |n: usize| n.min(self.len()) as i32;
         let start = match range.start_bound() {
@@ -162,7 +162,8 @@ impl Text {
 
     /// Splits the text into parts of at most `max` UTF-16 units, keeping entities across the cuts.
     ///
-    /// Cuts after a line break, else a space, in each part's second half; never inside a custom emoji or date.
+    /// Each cut falls after a line break, else after a space, in the part's second half. No cut lands inside a
+    /// custom emoji or date.
     pub fn split(&self, max: usize) -> Vec<Text> {
         let max = max.clamp(1, i32::MAX as usize) as i32;
         let (mut parts, mut from) = (Vec::new(), (0, 0));

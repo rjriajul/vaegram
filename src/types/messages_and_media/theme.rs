@@ -12,7 +12,7 @@ pub struct Theme {
     pub id: i64,
     /// Short name used in the theme's `t.me/addtheme/<slug>` link.
     pub slug: String,
-    /// Display title.
+    /// Display title of the theme.
     pub title: String,
     /// Emoji the theme is tied to. `None` if it has none.
     pub emoji: Option<String>,
@@ -24,7 +24,7 @@ pub struct Theme {
     pub is_for_chat: bool,
     /// Number of installs. 0 if Telegram sends no count.
     pub installs_count: i32,
-    /// One entry per base theme the theme supports. Empty for themes made from a file.
+    /// One entry per base theme the theme supports.
     pub settings: Vec<ThemeSettings>,
     pub(crate) access_hash: i64,
 }
@@ -82,13 +82,13 @@ impl ThemeSettings {
         }
     }
 
-    /// Sets a separate accent color for outgoing messages.
+    /// Gives outgoing messages their own accent color instead of `accent_color`.
     pub fn outbox_accent_color(mut self, color: i32) -> Self {
         self.outbox_accent_color = Some(color);
         self
     }
 
-    /// Sets the message bubble colors. More than one makes a gradient.
+    /// Colors the message bubbles. More than one color makes a gradient.
     pub fn message_colors(mut self, colors: impl IntoIterator<Item = i32>) -> Self {
         self.message_colors = colors.into_iter().collect();
         self
@@ -100,7 +100,7 @@ impl ThemeSettings {
         self
     }
 
-    /// Sets the chat wallpaper.
+    /// Adds a chat wallpaper to the theme.
     pub fn wallpaper(mut self, wallpaper: ChatBackground) -> Self {
         self.wallpaper = Some(wallpaper);
         self

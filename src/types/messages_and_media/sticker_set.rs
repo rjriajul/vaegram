@@ -16,7 +16,7 @@ pub struct StickerSet {
     pub sticker_type: StickerType,
     /// Stickers in the set. Sets from a list may hold only a few cover stickers, or none.
     pub stickers: Vec<Sticker>,
-    /// The set's own thumbnail; without one, apps show the first sticker.
+    /// The set's own thumbnail. `None` if the set has none, and apps then show the first sticker.
     pub thumbnail: Option<FileLocation>,
 }
 
