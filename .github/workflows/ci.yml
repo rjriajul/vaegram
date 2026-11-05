@@ -5,6 +5,11 @@ on: [push, pull_request]
 permissions:
   contents: read
 
+# Debuginfo and incremental caches make up most of target/ and don't help a one-shot CI build; skipping them keeps builds smaller and faster.
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_INCREMENTAL: 0
+
 jobs:
   rust:
     runs-on: ${{ matrix.os }}
@@ -45,6 +50,10 @@ jobs:
         if: matrix.toolchain == 'stable' && matrix.os == 'ubuntu-latest'
         run: cargo publish --dry-run -p vaegram
 
+      - name: Disk space
+        if: always() && runner.os != 'Windows'
+        run: df -h && du -sh target
+
   # The storage engines' write paths against real servers. Their tests are #[ignore]d everywhere else.
   storage-services:
     runs-on: ubuntu-latest
@@ -78,3 +87,7 @@ jobs:
       # Matches nothing until an engine with a live conformance test exists, which passes too.
       - name: Storage conformance on live servers
         run: cargo test -p vaegram --features mongodb,redis --lib -- --ignored conformance_on_a_live_server
+
+      - name: Disk space
+        if: always()
+        run: df -h
