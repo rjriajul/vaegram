@@ -57,8 +57,10 @@ impl Dispatcher {
             let entities = Arc::new(Entities::new(&self.client, users, chats));
             for message in messages {
                 t.emit(new_message(message), &entities);
+                self.recovered.0 += 1;
             }
             for update in others {
+                self.recovered.1 += 1;
                 if matches!(update, base::Update::UpdateChannelTooLong(_)) || channel_of(&update).is_some() {
                     t.update(update, &entities, false);
                 } else {
@@ -97,6 +99,7 @@ impl Dispatcher {
                     let entities = Arc::new(Entities::new(&self.client, d.users, d.chats));
                     for message in d.messages {
                         self.tracker.emit(new_channel_message(message), &entities);
+                        self.recovered.0 += 1;
                     }
                     if let base::Dialog::Dialog(dialog) = &d.dialog {
                         let to = dialog.pts.unwrap_or(pts);
@@ -112,9 +115,11 @@ impl Dispatcher {
                     let entities = Arc::new(Entities::new(&self.client, d.users, d.chats));
                     for message in d.new_messages {
                         self.tracker.emit(new_channel_message(message), &entities);
+                        self.recovered.0 += 1;
                     }
                     for update in d.other_updates {
                         self.tracker.emit(update, &entities);
+                        self.recovered.1 += 1;
                     }
                     pts = d.pts;
                     // Stored per page: a failure on a later page retries from here, not from page 1 again.

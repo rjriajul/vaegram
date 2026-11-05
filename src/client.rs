@@ -10,9 +10,9 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::connection::{Options, Proxy, Transport};
 use crate::crypto::rsa::PublicKey;
-use crate::dispatcher::Routes;
 use crate::dispatcher::listeners::UNEXPECTED_CLICK;
 use crate::dispatcher::router::run_hook;
+use crate::dispatcher::{Recover, Routes};
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::handlers::UpdateKind;
@@ -518,6 +518,8 @@ pub(crate) struct Inner {
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
+    // Where `recover_gaps` sends its requests while `run` is taking updates.
+    pub(crate) recover: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Recover>>>,
 }
 
 pub(crate) struct Transmissions {
@@ -599,6 +601,7 @@ impl Inner {
             auto_no_updates: false,
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
+            recover: Mutex::new(None),
         }
     }
 
