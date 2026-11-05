@@ -1,25 +1,29 @@
 use crate::errors::Result;
-use crate::types::{ForumTopic, Message, Story};
+use crate::types::{ForumTopic, Message, ServiceAction, Story};
 
 /// The id of the General topic of a forum.
 const GENERAL_TOPIC_ID: i32 = 1;
 
 impl Message {
-    /// The story this message replies to. `None` when it replies to no story, or the story is gone.
+    /// The story this message replies to, or what `fetch_stories` fetched for it. `None` when it replies to no
+    /// story, or the story is gone.
     pub async fn reply_to_story(&self) -> Result<Option<Story>> {
         let (Some(story_id), Some(chat_id)) = (self.reply_to_story_id, self.reply_to_story_user_id) else {
             return Ok(None);
         };
+        if let Some(story) = self.prefetched.as_ref().and_then(|p| p.story.as_ref()) {
+            return Ok(story.clone());
+        }
         Ok(self.client().get_stories(chat_id, &[story_id]).await?.into_iter().next())
     }
 
     /// The forum topic this message belongs to: its thread, or the General topic when it has none. `None` outside
     /// forums.
     pub async fn topic(&self) -> Result<Option<ForumTopic>> {
-        if !self.chat.is_forum {
-            return Ok(None);
+        let Some(topic_id) = self.topic_id() else { return Ok(None) };
+        if let Some(topic) = self.prefetched.as_ref().and_then(|p| p.topic.as_ref()) {
+            return Ok(topic.clone());
         }
-        let topic_id = self.message_thread_id.unwrap_or(GENERAL_TOPIC_ID);
         let caches = &self.client().0.caches;
         if let Some(topic) = caches.topic(self.chat.id, topic_id) {
             return Ok(Some(topic));
@@ -29,6 +33,33 @@ impl Message {
             caches.store_topic(self.chat.id, topic);
         }
         Ok(topic)
+    }
+
+    /// The message a pin service message pinned: what `fetch_replies` fetched, the message cache's copy, or
+    /// Telegram's answer. `None` for other messages, or when the pinned message is gone.
+    pub async fn pinned_message(&self) -> Result<Option<Message>> {
+        let Some(id) = self.pinned_id() else { return Ok(None) };
+        if let Some(pinned) = self.prefetched.as_ref().and_then(|p| p.pinned.as_ref()) {
+            return Ok(pinned.clone());
+        }
+        let client = self.client();
+        let cached = client.0.caches.message(self.chat.id, id);
+        if let Some(message) = cached.and_then(|c| Message::from_raw(client, c.raw, &c.entities)) {
+            return Ok(Some(message));
+        }
+        Ok(client.get_messages(self.chat.id, &[id]).await?.pop().flatten())
+    }
+
+    pub(crate) fn topic_id(&self) -> Option<i32> {
+        self.chat.is_forum.then(|| self.message_thread_id.unwrap_or(GENERAL_TOPIC_ID))
+    }
+
+    // A business chat's message ids belong to the other account, so the bot can't look them up.
+    pub(crate) fn pinned_id(&self) -> Option<i32> {
+        match self.service {
+            Some(ServiceAction::PinnedMessage(id)) if self.business_connection_id.is_none() => Some(id),
+            _ => None,
+        }
     }
 }
 

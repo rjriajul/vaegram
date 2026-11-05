@@ -60,6 +60,8 @@ pub struct ClientBuilder {
     max_concurrent_transmissions: Option<usize>,
     max_message_cache_size: usize,
     max_topic_cache_size: usize,
+    fetch: Fetch,
+    max_sticker_set_name_cache_size: usize,
     rate_limits: Option<RateLimits>,
     auto_sleep: AutoSleep,
     retry_policy: Option<Retry>,
@@ -249,6 +251,42 @@ impl ClientBuilder {
     /// Keeps up to `n` forum topics that `Message::topic()` fetched; editing a topic drops it. Off (0) by default.
     pub fn max_topic_cache_size(mut self, n: usize) -> Self {
         self.max_topic_cache_size = n;
+        self
+    }
+
+    /// Fetches the message each new message replies to, and the one a pin service message pinned, before handlers
+    /// see it, so `reply_to_message()` and `pinned_message()` answer without a request; the message cache answers
+    /// first when it's on. A fetched reply comes without its own reply. A failed fetch leaves the helper asking
+    /// Telegram itself. Business messages skip this: their ids belong to the other account. Off by default.
+    pub fn fetch_replies(mut self, enabled: bool) -> Self {
+        self.fetch.replies = enabled;
+        self
+    }
+
+    /// Fetches the forum topic of each new message in a forum before handlers see it, so `topic()` answers without
+    /// a request. Bots can't fetch topics by id, so a bot skips this. Off by default.
+    pub fn fetch_topics(mut self, enabled: bool) -> Self {
+        self.fetch.topics = enabled;
+        self
+    }
+
+    /// Fetches the story a new message replies to, and the full story behind story media that came without it,
+    /// before handlers see the message. Bots can't fetch stories, so a bot skips this. Off by default.
+    pub fn fetch_stories(mut self, enabled: bool) -> Self {
+        self.fetch.stories = enabled;
+        self
+    }
+
+    /// Looks up the set name of every sticker in new messages before handlers see them, filling
+    /// `Sticker::set_name`: one request per set, then the name cache. Off by default.
+    pub fn fetch_stickers(mut self, enabled: bool) -> Self {
+        self.fetch.stickers = enabled;
+        self
+    }
+
+    /// How many sticker set names `fetch_stickers` keeps; 250 by default, 0 to look a set up every time.
+    pub fn max_sticker_set_name_cache_size(mut self, n: usize) -> Self {
+        self.max_sticker_set_name_cache_size = n;
         self
     }
 
@@ -489,7 +527,9 @@ impl ClientBuilder {
             inner.handlers.listeners.limit(n);
         }
         inner.transmissions = self.max_concurrent_transmissions.map(Transmissions::new);
-        inner.caches = Caches::new(self.max_message_cache_size, self.max_topic_cache_size);
+        let set_names = if self.fetch.stickers { self.max_sticker_set_name_cache_size } else { 0 };
+        inner.caches = Caches::new(self.max_message_cache_size, self.max_topic_cache_size).with_set_names(set_names);
+        inner.fetch = self.fetch;
         inner.limiter = self.rate_limits.as_ref().map(RateLimiter::new);
         inner.auto_no_updates = self.auto_no_updates;
         let client = Client(Arc::new(inner), None);
@@ -558,6 +598,22 @@ pub(crate) struct Inner {
     // Where `recover_gaps` sends its requests while `run` is taking updates.
     pub(crate) recover: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Recover>>>,
     pub(crate) caches: Caches,
+    pub(crate) fetch: Fetch,
+}
+
+/// What a client fetches for a new message before its handlers run.
+#[derive(Clone, Copy, Default, Debug)]
+pub(crate) struct Fetch {
+    pub(crate) replies: bool,
+    pub(crate) topics: bool,
+    pub(crate) stories: bool,
+    pub(crate) stickers: bool,
+}
+
+impl Fetch {
+    pub(crate) fn any(self) -> bool {
+        self.replies || self.topics || self.stories || self.stickers
+    }
 }
 
 pub(crate) struct Transmissions {
@@ -641,6 +697,7 @@ impl Inner {
             stop: tokio::sync::watch::Sender::new(false),
             recover: Mutex::new(None),
             caches: Caches::default(),
+            fetch: Fetch::default(),
         }
     }
 
@@ -712,6 +769,8 @@ impl Client {
             max_concurrent_transmissions: None,
             max_message_cache_size: 0,
             max_topic_cache_size: 0,
+            fetch: Fetch::default(),
+            max_sticker_set_name_cache_size: 250,
             rate_limits: None,
             auto_sleep: AutoSleep::default(),
             retry_policy: None,

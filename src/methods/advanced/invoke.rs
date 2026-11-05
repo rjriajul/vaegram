@@ -154,6 +154,16 @@ impl Client {
     }
 }
 
+tokio::task_local! {
+    static NO_RETRIES: ();
+}
+
+/// Runs `future` with every request it sends going out once, whatever the retry policy says: a failure, a
+/// FLOOD_WAIT included, goes straight back to the caller.
+pub(crate) async fn without_retries<F: Future>(future: F) -> F::Output {
+    NO_RETRIES.scope((), future).await
+}
+
 /// Sends `request`, asking the session's retry policy after every failure whether to send it again. `name` is
 /// what the policy is told the request is.
 pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(
@@ -166,6 +176,9 @@ pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(
     loop {
         let result = session.invoke_with_timeout(request, timeout).await;
         let Err(error) = &result else { return result };
+        if NO_RETRIES.try_with(|_| ()).is_ok() {
+            return result;
+        }
         match session.should_retry(name, error, retries + 1, slept, None) {
             ControlFlow::Continue(wait) => {
                 retries += 1;

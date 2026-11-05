@@ -11,10 +11,10 @@ use crate::methods::{
 use crate::raw::{base, types};
 use crate::types::push_plain;
 use crate::types::{
-    Chat, Command, DirectMessagesTopic, ExternalReplyInfo, FactCheck, InlineKeyboardMarkup, InputMedia,
+    Chat, Command, DirectMessagesTopic, ExternalReplyInfo, FactCheck, ForumTopic, InlineKeyboardMarkup, InputMedia,
     LinkPreviewOptions, Media, MessageEntity, MessageOrigin, MessageReactions, MessageText, PeerRef, ReactionType,
-    ReplyMarkup, RestrictionReason, RichMessage, RichText, ServiceAction, SuggestedPostInfo, Text, TextQuote, User,
-    WebPage,
+    ReplyMarkup, RestrictionReason, RichMessage, RichText, ServiceAction, Story, SuggestedPostInfo, Text, TextQuote,
+    User, WebPage,
 };
 use crate::utils::{get_peer, get_peer_id};
 
@@ -108,7 +108,19 @@ pub struct Message {
     pub(crate) raw: Box<types::Message>,
     // The replied message a business update carries, since the bot can't read the account's history.
     replied: Option<Box<Message>>,
+    // What the client's fetch options looked up before handlers saw the message.
+    pub(crate) prefetched: Option<Box<Prefetched>>,
     client: Client,
+}
+
+/// Each slot is `None` when nothing was fetched (the option is off, or the fetch failed), and `Some(None)` when
+/// Telegram answered that there's nothing there.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Prefetched {
+    pub(crate) reply: Option<Option<Message>>,
+    pub(crate) pinned: Option<Option<Message>>,
+    pub(crate) topic: Option<Option<ForumTopic>>,
+    pub(crate) story: Option<Option<Story>>,
 }
 
 impl Message {
@@ -229,6 +241,7 @@ impl Message {
             fact_check: raw.factcheck.as_ref().map(|f| FactCheck::parse(f, entities)),
             raw,
             replied: None,
+            prefetched: None,
             client: client.clone(),
         }
     }
@@ -548,12 +561,15 @@ impl Message {
             .then_some(command)
     }
 
-    /// Fetches the message this one replies to, on demand, or takes it from the message cache when that's on;
-    /// `None` when it isn't a reply or that message is gone. A business message has only the replied message its
-    /// update carried.
+    /// Fetches the message this one replies to, on demand, or takes what `fetch_replies` fetched, or the message
+    /// cache's copy when that's on; `None` when it isn't a reply or that message is gone. A business message has
+    /// only the replied message its update carried.
     pub async fn reply_to_message(&self) -> Result<Option<Message>> {
         if let Some(replied) = &self.replied {
             return Ok(Some((**replied).clone()));
+        }
+        if let Some(reply) = self.prefetched.as_ref().and_then(|p| p.reply.as_ref()) {
+            return Ok(reply.clone());
         }
         let Some(id) = self.reply_to_message_id.filter(|_| self.business_connection_id.is_none()) else {
             return Ok(None);

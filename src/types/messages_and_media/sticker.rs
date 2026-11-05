@@ -25,6 +25,11 @@ pub struct Sticker {
     pub is_premium: bool,
     /// Smaller copies of the file's preview.
     pub thumbs: Vec<Thumbnail>,
+    /// The short name of the set the sticker is from: filled when it comes from a set's own listing, or when the
+    /// client's `fetch_stickers` option looked it up. `None` otherwise, and for stickers in no set.
+    pub set_name: Option<String>,
+    // The set the sticker names, as id and access hash, for looking its name up.
+    pub(crate) set: Option<(i64, i64)>,
     pub(crate) location: FileLocation,
 }
 
@@ -46,7 +51,7 @@ impl Sticker {
 
     /// `None` when the attributes mark neither a sticker nor a custom emoji.
     pub(crate) fn from_document(document: Document, raw: &types::Document) -> Option<Sticker> {
-        let (mut sticker, mut image, mut video) = (None, None, None);
+        let (mut sticker, mut image, mut video, mut set) = (None, None, None, None);
         for attribute in &raw.attributes {
             match attribute {
                 base::DocumentAttribute::DocumentAttributeSticker(a) => {
@@ -59,9 +64,11 @@ impl Sticker {
                         .any(|size| matches!(size, base::VideoSize::VideoSize(s) if s.r#type == "f"));
                     sticker =
                         Some((kind, &a.alt, a.mask_coords.as_ref().and_then(MaskPosition::parse), false, premium));
+                    set = set_id(&a.stickerset);
                 }
                 base::DocumentAttribute::DocumentAttributeCustomEmoji(a) => {
                     sticker = Some((StickerType::CustomEmoji, &a.alt, None, a.text_color, !a.free));
+                    set = set_id(&a.stickerset);
                 }
                 base::DocumentAttribute::DocumentAttributeImageSize(a) => image = Some((a.w, a.h)),
                 base::DocumentAttribute::DocumentAttributeVideo(a) => video = Some((a.w, a.h)),
@@ -89,12 +96,21 @@ impl Sticker {
             needs_repainting,
             is_premium,
             thumbs,
+            set_name: None,
+            set,
             location,
         })
     }
 
     pub(crate) fn input_document(&self) -> base::InputDocument {
         input_document(&self.location)
+    }
+}
+
+fn set_id(set: &base::InputStickerSet) -> Option<(i64, i64)> {
+    match set {
+        base::InputStickerSet::InputStickerSetID(s) => Some((s.id, s.access_hash)),
+        _ => None,
     }
 }
 

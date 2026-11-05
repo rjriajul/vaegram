@@ -70,11 +70,12 @@ pub(crate) struct Cached {
 // Outside channels message ids are per account, so 0 stands for every chat that isn't a channel.
 type MessageKey = (i64, i32);
 
-/// The message and forum topic caches, each off (`None`) unless its size is set.
+/// The message, forum topic and sticker set name caches, each off (`None`) unless its size is set.
 #[derive(Default)]
 pub(crate) struct Caches {
     messages: Option<Mutex<Lru<MessageKey, Cached>>>,
     topics: Option<Mutex<Lru<(i64, i32), ForumTopic>>>,
+    set_names: Option<Mutex<Lru<i64, String>>>,
 }
 
 impl Caches {
@@ -82,6 +83,23 @@ impl Caches {
         Caches {
             messages: (messages > 0).then(|| Mutex::new(Lru::new(messages))),
             topics: (topics > 0).then(|| Mutex::new(Lru::new(topics))),
+            set_names: None,
+        }
+    }
+
+    pub(crate) fn with_set_names(mut self, size: usize) -> Caches {
+        self.set_names = (size > 0).then(|| Mutex::new(Lru::new(size)));
+        self
+    }
+
+    /// The short name of the sticker set with this id, if looked up before.
+    pub(crate) fn set_name(&self, set_id: i64) -> Option<String> {
+        self.set_names.as_ref()?.lock().unwrap().get(&set_id).cloned()
+    }
+
+    pub(crate) fn store_set_name(&self, set_id: i64, name: &str) {
+        if let Some(names) = &self.set_names {
+            names.lock().unwrap().insert(set_id, name.to_owned());
         }
     }
 

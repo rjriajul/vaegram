@@ -55,6 +55,7 @@ impl Tasks {
             let _permit = permit(permits).await;
             let chat_id = item.chat_id();
             let Some((last, rest)) = callbacks.split_last() else { return };
+            let item = item.prepare().await;
             for callback in rest {
                 if let Err(error) = callback(item.clone()).await {
                     return report(on_error, events, HandlerError { kind, chat_id, error }).await;
