@@ -1,14 +1,18 @@
+#[cfg(feature = "dns-config")]
+mod dns_config;
 mod fake_tls;
-#[cfg(feature = "websocket")]
+#[cfg(any(feature = "websocket", feature = "dns-config"))]
 mod http1;
 mod obfuscated;
 mod proxy;
-#[cfg(feature = "websocket")]
+#[cfg(any(feature = "websocket", feature = "dns-config"))]
 mod tls;
 mod transport;
 #[cfg(feature = "websocket")]
 mod websocket;
 
+#[cfg(feature = "dns-config")]
+pub use dns_config::{AccessPointRule, DnsConfig, IpPort};
 pub use proxy::{Proxy, Secret};
 pub use transport::{Framing, RecvBuf, Transport};
 

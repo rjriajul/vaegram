@@ -56,6 +56,13 @@ impl PublicKey {
         (key.n.bits() == 2048).then_some(key)
     }
 
+    /// `data` read as a big-endian number and raised to the public exponent, with no padding: how a signed blob
+    /// such as the DNS config is opened.
+    #[cfg(feature = "dns-config")]
+    pub(crate) fn raw_public(&self, data: &[u8]) -> [u8; 256] {
+        to_be_padded(&BigUint::from_bytes_be(data).modpow(&self.e, &self.n))
+    }
+
     pub fn fingerprint(&self) -> i64 {
         let mut buf = Vec::new();
         self.n.to_bytes_be().serialize(&mut buf);
