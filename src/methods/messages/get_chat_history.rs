@@ -130,6 +130,7 @@ impl GetChatHistory<'_> {
             let page = self.client.invoke(&request).await?;
             self.started = true;
             self.pages.fill(self.client, page);
+            self.pages.prefetch(self.client).await;
         }
     }
 

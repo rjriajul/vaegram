@@ -13,6 +13,8 @@ impl Client {
         let user_id = self.resolve_user(&user_id.into()).await?;
         let request = functions::messages::GetPersonalChannelHistory { user_id, limit, max_id: 0, min_id: 0, hash: 0 };
         let (messages, entities) = Message::unpack(self, self.invoke(&request).await?);
-        Ok(messages.into_iter().filter_map(|m| Message::from_raw(self, m, &entities)).collect())
+        let mut found: Vec<_> = messages.into_iter().filter_map(|m| Message::from_raw(self, m, &entities)).collect();
+        self.prefetch(&mut found).await;
+        Ok(found)
     }
 }

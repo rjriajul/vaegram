@@ -70,6 +70,7 @@ impl SearchMessages<'_> {
             let request = self.request(limit, true).await?;
             let page = self.client.invoke(&request).await?;
             self.pages.fill(self.client, page);
+            self.pages.prefetch(self.client).await;
         }
     }
 

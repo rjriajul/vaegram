@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+use tokio::time::Instant;
+
 use crate::Client;
 use crate::client::Fetch;
 use crate::methods::advanced::without_retries;
@@ -11,26 +13,64 @@ use crate::types::{ForumTopic, Media, Message, Story};
 // its keys out, so the helpers ask again on demand.
 type Found<T> = HashMap<(i64, i32), Option<T>>;
 
+// Sticker set lookups in flight at once.
+const SET_LOOKUPS: usize = 4;
+
+/// `future`'s output if it comes by `deadline`; no deadline (a `request_timeout` too long to add) waits for it.
+async fn within<F: Future>(deadline: Option<Instant>, future: F) -> Option<F::Output> {
+    match deadline {
+        Some(deadline) => tokio::time::timeout_at(deadline, future).await.ok(),
+        None => Some(future.await),
+    }
+}
+
 impl Client {
-    /// Fills what the fetch options ask for before handlers see the messages: the replied and pinned messages, forum
-    /// topics, stories and sticker set names. A fetched message gets its topic, stories and set names too, but no
-    /// reply or pin of its own. Handlers wait for this, so nothing here sleeps off a FLOOD_WAIT or waits past
-    /// `request_timeout`: a flood or a timeout leaves every slot empty, and the helpers ask on demand.
+    /// Fills what the fetch options ask for, for messages handlers are about to see or a read is about to return:
+    /// the replied and pinned messages, forum topics, stories and sticker set names, in one batch for all of them.
+    /// A fetched message gets its topic, stories and set names too, but no reply or pin of its own. The caller
+    /// waits for this, so nothing here sleeps off a FLOOD_WAIT or waits past `request_timeout`. Each kind stands
+    /// alone: one that floods, fails or runs out of time leaves only its own slots empty, and the helpers ask on
+    /// demand.
     pub(crate) async fn prefetch(&self, messages: &mut [Message]) {
+        if !self.0.fetch.any() || messages.is_empty() {
+            return;
+        }
+        let deadline = Instant::now().checked_add(self.0.options.request_timeout);
+        without_retries(self.fill(messages, deadline)).await;
+    }
+
+    /// `prefetch` for a read whose answer has holes where messages are missing.
+    pub(crate) async fn prefetch_found(&self, messages: &mut [Option<Message>]) {
         if !self.0.fetch.any() {
             return;
         }
-        let fill = without_retries(self.fill(messages));
-        let _ = tokio::time::timeout(self.0.options.request_timeout, fill).await;
+        let at: Vec<usize> = messages.iter().enumerate().filter(|(_, m)| m.is_some()).map(|(i, _)| i).collect();
+        let mut found: Vec<Message> = messages.iter_mut().filter_map(Option::take).collect();
+        self.prefetch(&mut found).await;
+        for (i, message) in at.into_iter().zip(found) {
+            messages[i] = Some(message);
+        }
     }
 
-    // The slots change only after the last request, so a timeout can't leave them half filled.
-    async fn fill(&self, messages: &mut [Message]) {
+    // A kind's slots change only once all of it has come, so a timeout can't leave that kind half filled.
+    async fn fill(&self, messages: &mut [Message], deadline: Option<Instant>) {
         let fetch = self.0.fetch;
-        let mut found = if fetch.replies { self.fetch_messages(messages).await } else { Found::new() };
+        let mut found = match fetch.replies {
+            true => within(deadline, self.fetch_messages(messages)).await.unwrap_or_default(),
+            false => Found::new(),
+        };
         let bot = self.0.me.lock().unwrap().is_bot;
         let wanted = Wanted::of(fetch, bot, messages.iter().chain(found.values().flatten()));
-        let extras = self.fetch_extras(wanted).await;
+        let (topics, stories, names) = tokio::join!(
+            within(deadline, self.fetch_topics(wanted.topics)),
+            within(deadline, self.fetch_stories(wanted.stories)),
+            within(deadline, self.fetch_set_names(wanted.sets))
+        );
+        let extras = Extras {
+            topics: topics.unwrap_or_default(),
+            stories: stories.unwrap_or_default(),
+            names: names.unwrap_or_default(),
+        };
         found.values_mut().flatten().for_each(|m| extras.apply(m));
         for message in messages {
             extras.apply(message);
@@ -82,15 +122,6 @@ impl Client {
         found
     }
 
-    async fn fetch_extras(&self, wanted: Wanted) -> Extras {
-        let (topics, stories, names) = tokio::join!(
-            self.fetch_topics(wanted.topics),
-            self.fetch_stories(wanted.stories),
-            self.fetch_set_names(wanted.sets)
-        );
-        Extras { topics, stories, names }
-    }
-
     async fn fetch_topics(&self, wanted: BTreeMap<i64, Vec<i32>>) -> Found<ForumTopic> {
         let mut found = Found::new();
         for (chat, ids) in wanted {
@@ -129,12 +160,23 @@ impl Client {
         found
     }
 
-    // One messages.getStickerSet per set the name cache doesn't know; a set that fails stays unnamed.
+    // One messages.getStickerSet per set the name cache doesn't know, SET_LOOKUPS at a time; a set that fails stays
+    // unnamed.
     async fn fetch_set_names(&self, wanted: BTreeMap<i64, i64>) -> HashMap<i64, String> {
-        let mut names = HashMap::new();
-        for (id, access_hash) in wanted {
+        let mut lanes: [Vec<(i64, i64)>; SET_LOOKUPS] = Default::default();
+        for (i, set) in wanted.into_iter().enumerate() {
+            lanes[i % SET_LOOKUPS].push(set);
+        }
+        let [a, b, c, d] = lanes;
+        let (a, b, c, d) = tokio::join!(self.set_names(a), self.set_names(b), self.set_names(c), self.set_names(d));
+        a.into_iter().chain(b).chain(c).chain(d).collect()
+    }
+
+    async fn set_names(&self, sets: Vec<(i64, i64)>) -> Vec<(i64, String)> {
+        let mut names = Vec::new();
+        for (id, access_hash) in sets {
             if let Some(name) = self.0.caches.set_name(id) {
-                names.insert(id, name);
+                names.push((id, name));
                 continue;
             }
             let stickerset =
@@ -143,7 +185,7 @@ impl Client {
             let Ok(base::messages::StickerSet::StickerSet(set)) = self.invoke(&request).await else { continue };
             let base::StickerSet::StickerSet(set) = &set.set;
             self.0.caches.store_set_name(id, &set.short_name);
-            names.insert(id, set.short_name.clone());
+            names.push((id, set.short_name.clone()));
         }
         names
     }
@@ -545,6 +587,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sets_are_looked_up_side_by_side() {
+        let fetch = Fetch { stickers: true, ..Fetch::default() };
+        let (client, mut sent) = client(fetch, true, vec![sticker_set(10, "cats"), sticker_set(11, "dogs")]);
+        let mut batch = [sticker_message(&client, 1, 10), sticker_message(&client, 2, 11)];
+        client.prefetch(&mut batch).await;
+        let mut asked = [sent.try_recv().unwrap(), sent.try_recv().unwrap()];
+        asked.sort();
+        let ask = |id| messages::GetStickerSet { stickerset: set_id(id), hash: 0 }.to_bytes();
+        let mut want = [ask(10), ask(11)];
+        want.sort();
+        assert_eq!(asked, want);
+        let mut names: Vec<_> = batch.iter().map(set_name).collect();
+        names.sort();
+        assert_eq!(names, [Some("cats"), Some("dogs")]);
+    }
+
+    #[tokio::test]
     async fn stickerset_invalid_leaves_no_name() {
         let fetch = Fetch { replies: false, topics: false, stories: false, stickers: true };
         let (client, mut sent) = client(fetch, true, vec![refused("STICKERSET_INVALID")]);
@@ -552,5 +611,90 @@ mod tests {
         sent.try_recv().unwrap();
         assert_eq!(set_name(&m), None);
         assert!(client.0.caches.set_name(10).is_none());
+    }
+
+    fn replying(id: i32, to: i32) -> types::Message {
+        let mut raw = Message::bare(id, get_peer(-5), 0);
+        let header = types::MessageReplyHeader { reply_to_msg_id: Some(to), ..header() };
+        raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(header)));
+        raw
+    }
+
+    fn history_page() -> Vec<types::Message> {
+        vec![replying(12, 1), replying(11, 2), Message::bare(10, get_peer(-5), 0)]
+    }
+
+    #[tokio::test]
+    async fn a_history_page_fetches_its_replies_in_one_request() {
+        let replied = vec![Message::bare(1, get_peer(-5), 0), Message::bare(2, get_peer(-5), 0)];
+        let (client, mut sent) = client(REPLIES, false, vec![found(history_page()), found(replied)]);
+        let mut history = client.get_chat_history(-5).limit(3);
+        let mut read = Vec::new();
+        while let Some(m) = history.next().await.unwrap() {
+            read.push(m);
+        }
+        sent.try_recv().unwrap();
+        assert_eq!(sent.try_recv().unwrap(), get_messages(&[1, 2]));
+        assert!(sent.try_recv().is_err(), "one getMessages for the page");
+        let mut replies = Vec::new();
+        for m in &read {
+            replies.push(m.reply_to_message().await.unwrap().map(|r| r.id));
+        }
+        assert_eq!(replies, [Some(1), Some(2), None]);
+        assert!(sent.try_recv().is_err(), "a reply was fetched again");
+    }
+
+    #[tokio::test]
+    async fn fetch_off_history_sends_one_request_per_page() {
+        let (client, mut sent) = client(Fetch::default(), false, vec![found(history_page())]);
+        let mut history = client.get_chat_history(-5).limit(3);
+        let mut count = 0;
+        while history.next().await.unwrap().is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 3);
+        sent.try_recv().unwrap();
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn get_messages_prefetches() {
+        let (client, mut sent) =
+            client(REPLIES, false, vec![found(vec![replying(9, 4)]), found(vec![Message::bare(4, get_peer(-5), 0)])]);
+        let got = client.get_messages(-5, &[9]).await.unwrap();
+        assert_eq!(sent.try_recv().unwrap(), get_messages(&[9]));
+        assert_eq!(sent.try_recv().unwrap(), get_messages(&[4]));
+        let [Some(m)] = got.as_slice() else { panic!("{got:?}") };
+        assert_eq!(m.reply_to_message().await.unwrap().map(|r| r.id), Some(4));
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn topics_and_stories_batch_per_chat() {
+        let fetch = Fetch { topics: true, stories: true, ..Fetch::default() };
+        let (client, mut sent) = client(fetch, false, vec![refused("CHANNEL_PRIVATE"), refused("PEER_ID_INVALID")]);
+        let input =
+            base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 9, access_hash: 1 }));
+        client.0.peers.lock().unwrap().insert(get_channel_id(9), input.clone());
+        let mut batch: Vec<Message> = [(1, 6, 4), (2, 6, 5), (3, 7, 4)]
+            .into_iter()
+            .map(|(id, thread, story)| {
+                let raw = Message::bare(id, get_peer(get_channel_id(9)), 0);
+                let mut m = Message::parse(&client, Box::new(raw), &crate::dispatcher::Entities::default());
+                (m.chat.is_forum, m.message_thread_id) = (true, Some(thread));
+                (m.reply_to_story_id, m.reply_to_story_user_id) = (Some(story), Some(0));
+                m
+            })
+            .collect();
+        client.prefetch(&mut batch).await;
+        // One request per chat for each kind; the two kinds go out together, in either order.
+        let topics = messages::GetForumTopicsByID { peer: input, topics: vec![6, 7] }.to_bytes();
+        let stories = stories::GetStoriesByID { peer: base::InputPeer::InputPeerSelf, id: vec![4, 5] }.to_bytes();
+        let mut got = [sent.try_recv().unwrap(), sent.try_recv().unwrap()];
+        got.sort();
+        let mut want = [topics, stories];
+        want.sort();
+        assert_eq!(got, want);
+        assert!(sent.try_recv().is_err());
     }
 }

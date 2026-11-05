@@ -11,6 +11,8 @@ const HISTORY_LIMIT: usize = 100;
 pub(super) struct Pages {
     buffer: std::vec::IntoIter<base::Message>,
     entities: Entities,
+    // The page parsed ahead of time, when a fetch option needs whole messages; `pop` takes from it first.
+    prefetched: Option<std::vec::IntoIter<Message>>,
     pub(super) remaining: usize,
     by_rate: bool,
     // Oldest first: `offset_id` is then the lowest id the next page may hold, not the last one seen.
@@ -28,6 +30,7 @@ impl Pages {
         Pages {
             buffer: Vec::new().into_iter(),
             entities: Entities::default(),
+            prefetched: None,
             remaining: usize::MAX,
             by_rate: false,
             reverse: false,
@@ -73,7 +76,20 @@ impl Pages {
         if self.advance(messages.last().map(position), next_rate, complete) {
             self.buffer = messages.into_iter();
             self.entities = entities;
+            self.prefetched = None;
         }
+    }
+
+    /// Right after `fill`: with a fetch option on, parses the page now and fills what the options ask for in one
+    /// batch for the whole page.
+    pub(super) async fn prefetch(&mut self, client: &Client) {
+        if !client.0.fetch.any() {
+            return;
+        }
+        let raw = std::mem::take(&mut self.buffer);
+        let mut messages: Vec<Message> = raw.filter_map(|m| Message::from_raw(client, m, &self.entities)).collect();
+        client.prefetch(&mut messages).await;
+        self.prefetched = Some(messages.into_iter());
     }
 
     fn advance(&mut self, last: Option<(i64, i32, i32)>, next_rate: Option<i32>, complete: bool) -> bool {
@@ -109,6 +125,11 @@ impl Pages {
     }
 
     pub(super) fn pop(&mut self, client: &Client) -> Option<Message> {
+        if let Some(prefetched) = self.prefetched.as_mut().filter(|_| self.remaining > 0) {
+            let message = prefetched.next()?;
+            self.remaining -= 1;
+            return Some(message);
+        }
         while self.remaining > 0 {
             if let Some(message) = Message::from_raw(client, self.buffer.next()?, &self.entities) {
                 self.remaining -= 1;

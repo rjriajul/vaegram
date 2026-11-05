@@ -9,7 +9,9 @@ impl Client {
     /// The result lines up with `message_ids`; missing or service messages are `None`.
     pub async fn get_messages(&self, chat_id: impl Into<PeerRef>, message_ids: &[i32]) -> Result<Vec<Option<Message>>> {
         let (found, entities) = self.get_raw_messages(chat_id, message_ids).await?;
-        Ok(found.into_iter().map(|m| m.map(|m| Message::parse(self, m, &entities))).collect())
+        let mut found: Vec<_> = found.into_iter().map(|m| m.map(|m| Message::parse(self, m, &entities))).collect();
+        self.prefetch_found(&mut found).await;
+        Ok(found)
     }
 
     pub(crate) async fn get_raw_messages(

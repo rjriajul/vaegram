@@ -46,15 +46,17 @@ impl GetMessagePublicForwards<'_> {
             let page = *page;
             let entities = Entities::new(self.client, page.users, page.chats);
             let client = self.client;
-            self.pages.refill(page.forwards, page.next_offset, |forwards| {
-                forwards
-                    .into_iter()
-                    .filter_map(|f| match f {
-                        base::PublicForward::PublicForwardMessage(f) => Message::from_raw(client, f.message, &entities),
-                        base::PublicForward::PublicForwardStory(_) => None,
-                    })
-                    .collect()
-            });
+            // Stories stay in as `None`, so a page of only stories doesn't end the list.
+            let mut forwards: Vec<Option<Message>> = page
+                .forwards
+                .into_iter()
+                .map(|f| match f {
+                    base::PublicForward::PublicForwardMessage(f) => Message::from_raw(client, f.message, &entities),
+                    base::PublicForward::PublicForwardStory(_) => None,
+                })
+                .collect();
+            client.prefetch_found(&mut forwards).await;
+            self.pages.refill(forwards, page.next_offset, |forwards| forwards.into_iter().flatten().collect());
         }
     }
 }
