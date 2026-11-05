@@ -16,6 +16,8 @@ pub struct CopyMessages<'a> {
 }
 
 impl Client {
+    /// An `Err(Error::Unexpected(..))` means the reply held no update list, so the copies may already have been
+    /// made: check the destination chat before sending again.
     pub fn copy_messages<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,
@@ -52,17 +54,17 @@ impl CopyMessages<'_> {
         request.drop_author = true;
         request.drop_media_captions = self.remove_caption;
         let updates = client.invoke(&request).await?;
-        Ok(sent_ids(&updates, &request.random_id))
+        sent_ids(&updates, &request.random_id)
     }
 }
 
 send_builder!(CopyMessages, Vec<i32>);
 
-fn sent_ids(updates: &base::Updates, random_ids: &[i64]) -> Vec<i32> {
+fn sent_ids(updates: &base::Updates, random_ids: &[i64]) -> Result<Vec<i32>> {
     let updates = match updates {
         base::Updates::Updates(u) => &u.updates,
         base::Updates::UpdatesCombined(u) => &u.updates,
-        _ => return Vec::new(),
+        _ => return Err(Error::Unexpected("messages.forwardMessages returned no update list")),
     };
     let sent_id = |r: &i64| {
         updates.iter().find_map(|u| match u {
@@ -70,7 +72,7 @@ fn sent_ids(updates: &base::Updates, random_ids: &[i64]) -> Vec<i32> {
             _ => None,
         })
     };
-    random_ids.iter().filter_map(sent_id).collect()
+    Ok(random_ids.iter().filter_map(sent_id).collect())
 }
 
 #[cfg(test)]
@@ -88,7 +90,7 @@ mod tests {
             date: 0,
             seq: 0,
         }));
-        assert_eq!(sent_ids(&updates, &[10, 20, 30]), [11, 12]);
-        assert!(sent_ids(&base::Updates::UpdatesTooLong, &[10]).is_empty());
+        assert_eq!(sent_ids(&updates, &[10, 20, 30]).unwrap(), [11, 12]);
+        assert!(sent_ids(&base::Updates::UpdatesTooLong, &[10]).is_err());
     }
 }

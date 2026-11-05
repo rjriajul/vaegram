@@ -360,8 +360,49 @@ pub(crate) mod tests {
         let voice = document_media("audio/ogg", vec![audio(true)]);
         let mut inputs = vec![round, document_media("video/mp4", animated), voice];
         inputs.extend(unreadable_live_photos());
+        let photo = |photo| {
+            let photo =
+                types::MessageMediaPhoto { spoiler: false, live_photo: false, photo, ttl_seconds: None, video: None };
+            base::MessageMedia::MessageMediaPhoto(Box::new(photo))
+        };
+        let document = |document| {
+            let media = types::MessageMediaDocument {
+                nopremium: false,
+                spoiler: false,
+                video: false,
+                round: false,
+                voice: false,
+                alt_documents: None,
+                video_cover: None,
+                video_timestamp: None,
+                document,
+                ttl_seconds: None,
+            };
+            base::MessageMedia::MessageMediaDocument(Box::new(media))
+        };
+        let empty_photo = base::Photo::PhotoEmpty(types::PhotoEmpty { id: 1 });
+        let empty_document = base::Document::DocumentEmpty(types::DocumentEmpty { id: 1 });
+        let cached = types::PhotoCachedSize { r#type: "i".into(), w: 8, h: 8, bytes: vec![1] };
+        let cached_only = base::Photo::Photo(Box::new(types::Photo {
+            has_stickers: false,
+            id: 9,
+            access_hash: 2,
+            file_reference: Vec::new(),
+            date: 3,
+            sizes: vec![base::PhotoSize::PhotoCachedSize(Box::new(cached))],
+            video_sizes: None,
+            dc_id: 2,
+        }));
+        inputs.extend([
+            photo(Some(cached_only)),
+            photo(None),
+            photo(Some(empty_photo)),
+            document(None),
+            document(Some(empty_document)),
+        ]);
         for media in inputs {
-            assert_eq!(Some(parse(media.clone()).kind()), MediaKind::of(&media));
+            let parsed = Media::parse(&Client::offline(), &media, &Entities::default());
+            assert_eq!(parsed.map(|m| m.kind()), MediaKind::of(&media));
         }
     }
 

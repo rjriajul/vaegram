@@ -20,6 +20,12 @@ pub struct Photo {
 }
 
 impl Photo {
+    /// Whether `parse` gives a photo: one with a size to download, which a stripped or cached-only photo lacks.
+    pub(crate) fn is_downloadable(photo: &base::Photo) -> bool {
+        let base::Photo::Photo(p) = photo else { return false };
+        full_size(&p.sizes).is_some_and(|size| !size.0.is_empty())
+    }
+
     pub(crate) fn parse(photo: &base::Photo) -> Option<Photo> {
         let base::Photo::Photo(p) = photo else { return None };
         let (thumb_size, width, height, file_size) = full_size(&p.sizes)?;
