@@ -8,7 +8,9 @@ impl Client {
     /// The album the message belongs to, in order.
     pub async fn get_media_group(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> Result<Vec<Message>> {
         let (group, entities) = self.media_group(chat_id, message_id).await?;
-        Ok(group.into_iter().map(|m| Message::parse(self, m, &entities)).collect())
+        let mut group: Vec<_> = group.into_iter().map(|m| Message::parse(self, m, &entities)).collect();
+        self.prefetch(&mut group).await;
+        Ok(group)
     }
 
     pub(super) async fn media_group(

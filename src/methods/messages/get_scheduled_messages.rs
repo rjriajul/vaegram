@@ -12,7 +12,10 @@ impl Client {
             m.scheduled = true;
             m
         };
-        Ok(messages.into_iter().filter_map(|m| Message::from_raw(self, m, &entities)).map(scheduled).collect())
+        let mut found: Vec<_> =
+            messages.into_iter().filter_map(|m| Message::from_raw(self, m, &entities)).map(scheduled).collect();
+        self.prefetch(&mut found).await;
+        Ok(found)
     }
 }
 

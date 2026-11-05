@@ -45,6 +45,7 @@ impl GetDiscussionReplies<'_> {
             };
             let page = self.client.invoke(&request).await?;
             self.pages.fill(self.client, page);
+            self.pages.prefetch(self.client).await;
         }
     }
 }
