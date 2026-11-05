@@ -35,18 +35,27 @@ pub enum Proxy {
         port: u16,
         secret: Secret,
     },
+    /// An MTProxy behind an HTTPS relay, as `tg://webproxy` links give: the stream to the data center rides in
+    /// HTTPS requests to `host`, so it gets through networks that only let HTTPS out. `host` is a DNS name, not an
+    /// IP address, and the secret is plain or `dd`, never `ee`; `connect` checks both.
+    #[cfg(feature = "web-proxy")]
+    Web {
+        host: String,
+        secret: Secret,
+    },
 }
 
 impl Proxy {
     // Lets Telegram show the proxy's sponsored channel.
     pub(crate) fn input_client_proxy(&self) -> Option<base::InputClientProxy> {
-        match self {
-            Proxy::MtProxy { host, port, .. } => {
-                let proxy = types::InputClientProxy { address: host.clone(), port: (*port).into() };
-                Some(base::InputClientProxy::InputClientProxy(Box::new(proxy)))
-            }
-            Proxy::Socks5 { .. } | Proxy::Socks4 { .. } | Proxy::Http { .. } => None,
-        }
+        let (address, port) = match self {
+            Proxy::MtProxy { host, port, .. } => (host, *port),
+            #[cfg(feature = "web-proxy")]
+            Proxy::Web { host, .. } => (host, 443),
+            Proxy::Socks5 { .. } | Proxy::Socks4 { .. } | Proxy::Http { .. } => return None,
+        };
+        let proxy = types::InputClientProxy { address: address.clone(), port: port.into() };
+        Some(base::InputClientProxy::InputClientProxy(Box::new(proxy)))
     }
 
     pub fn scheme(&self) -> ProxyScheme {
@@ -55,6 +64,8 @@ impl Proxy {
             Proxy::Socks4 { .. } => ProxyScheme::Socks4,
             Proxy::Http { .. } => ProxyScheme::Http,
             Proxy::MtProxy { .. } => ProxyScheme::MtProxy,
+            #[cfg(feature = "web-proxy")]
+            Proxy::Web { .. } => ProxyScheme::Web,
         }
     }
 
@@ -64,10 +75,23 @@ impl Proxy {
             | Proxy::Socks4 { host, port }
             | Proxy::Http { host, port, .. }
             | Proxy::MtProxy { host, port, .. } => (host, *port),
+            #[cfg(feature = "web-proxy")]
+            Proxy::Web { host, .. } => (host, 443),
         }
     }
 
-    /// An MTProxy needs no request here: it reads the DC from the obfuscation header.
+    /// The proxy's secret, for the proxies that obfuscate with one.
+    pub(crate) fn secret(&self) -> Option<&Secret> {
+        match self {
+            Proxy::MtProxy { secret, .. } => Some(secret),
+            #[cfg(feature = "web-proxy")]
+            Proxy::Web { secret, .. } => Some(secret),
+            Proxy::Socks5 { .. } | Proxy::Socks4 { .. } | Proxy::Http { .. } => None,
+        }
+    }
+
+    /// An MTProxy needs no request here: it reads the DC from the obfuscation header. Neither does a web proxy's
+    /// relay, which the stream reaches already opened.
     pub(crate) async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         s: &mut S,
@@ -81,6 +105,8 @@ impl Proxy {
                 Some(domain) => Ok(fake_tls::handshake(s, &secret.key, domain).await?),
                 None => Ok(()),
             },
+            #[cfg(feature = "web-proxy")]
+            Proxy::Web { .. } => Ok(()),
         }
     }
 }
@@ -93,6 +119,8 @@ impl fmt::Debug for Proxy {
             Proxy::Socks4 { .. } => "Socks4",
             Proxy::Http { .. } => "Http",
             Proxy::MtProxy { .. } => "MtProxy",
+            #[cfg(feature = "web-proxy")]
+            Proxy::Web { .. } => "Web",
         };
         let (host, port) = self.endpoint();
         f.debug_struct(kind).field("host", &host).field("port", &port).finish_non_exhaustive()
@@ -205,10 +233,25 @@ fn from_link(kind: &str, query: &str) -> Result<Proxy> {
     }
 }
 
+/// The proxy a `tg://webproxy` or `t.me/webproxy` link names: `server` (or `host`) and `secret`.
+#[cfg(feature = "web-proxy")]
+fn from_web_link(query: &str) -> Result<Proxy> {
+    let mut values = query_values(query)?;
+    let host = values.remove("server").or_else(|| values.remove("host")).filter(|h| !h.is_empty());
+    let (Some(host), Some(secret)) = (host, values.remove("secret")) else {
+        return Err(Error::InvalidArgument("web proxy link needs a server and a secret"));
+    };
+    let secret: Secret = secret.parse()?;
+    if secret.domain.is_some() {
+        return Err(Error::InvalidArgument("a web proxy takes a plain or dd secret, not an ee one"));
+    }
+    Ok(Proxy::Web { host: super::web_proxy::canonical_host(&host)?, secret })
+}
+
 /// A proxy from `socks5://[user:pass@]host:port`, `socks4://host:port`, `http://[user:pass@]host:port`, or a
 /// MTProxy / SOCKS5 link (`tg://proxy?server=..&port=..&secret=..`, `https://t.me/proxy?..`, `tg://socks?..`).
-/// Credentials are percent-decoded. Web proxy links are refused. An error never repeats what was parsed, since it may
-/// hold a password or secret.
+/// Credentials are percent-decoded. Web proxy links (`tg://webproxy?server=..&secret=..`) need the `web-proxy`
+/// feature. An error never repeats what was parsed, since it may hold a password or secret.
 impl FromStr for Proxy {
     type Err = Error;
 
@@ -226,7 +269,10 @@ impl FromStr for Proxy {
         };
         let link = |kind: &str| match kind {
             "proxy" | "socks" => from_link(kind, query),
-            "webproxy" => Err(Error::InvalidArgument("web proxy links aren't supported")),
+            #[cfg(feature = "web-proxy")]
+            "webproxy" => from_web_link(query),
+            #[cfg(not(feature = "web-proxy"))]
+            "webproxy" => Err(Error::InvalidArgument("web proxy links need the web-proxy feature")),
             _ => Err(Error::InvalidArgument("not a proxy address or proxy link")),
         };
         if scheme == "tg" {
@@ -606,10 +652,27 @@ mod parse_tests {
     }
 
     #[test]
-    fn web_proxy_links_are_refused() {
+    fn web_proxy_links_without_a_server_and_secret_are_refused() {
         for link in ["tg://webproxy?url=https%3A%2F%2Fx.org", "https://t.me/webproxy?url=x"] {
             assert!(matches!(parse(link), Err(Error::InvalidArgument(m)) if m.contains("web proxy")), "{link}");
         }
+    }
+
+    #[cfg(feature = "web-proxy")]
+    #[test]
+    fn parses_web_proxy_links() {
+        let link = "tg://webproxy?server=Relay.Example.COM.&secret=dd000102030405060708090a0b0c0d0e0f";
+        let Ok(Proxy::Web { host, secret }) = parse(link) else { panic!("{link}") };
+        assert_eq!((host.as_str(), secret.padded, secret.key[15]), ("relay.example.com", true, 15));
+        let tme = parse("https://t.me/webproxy?host=relay.example.com&secret=000102030405060708090a0b0c0d0e0f");
+        assert!(matches!(tme, Ok(Proxy::Web { ref host, .. }) if host == "relay.example.com"));
+        assert_eq!(tme.unwrap().scheme(), ProxyScheme::Web);
+        // The relay never adds fake TLS, so an ee secret can't work; nor can an IP address or a one-label name.
+        let ee = format!("tg://webproxy?server=relay.example.com&secret=ee{}{}", "00".repeat(16), "61".repeat(4));
+        for bad in [ee.as_str(), "tg://webproxy?server=1.2.3.4&secret=000102030405060708090a0b0c0d0e0f"] {
+            assert!(matches!(parse(bad), Err(Error::InvalidArgument(_))), "{bad}");
+        }
+        assert!(parse("tg://webproxy?server=relay&secret=000102030405060708090a0b0c0d0e0f").is_err());
     }
 
     #[test]

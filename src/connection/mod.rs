@@ -1,13 +1,15 @@
 #[cfg(feature = "dns-config")]
 mod dns_config;
 mod fake_tls;
-#[cfg(any(feature = "websocket", feature = "dns-config"))]
+#[cfg(any(feature = "websocket", feature = "dns-config", feature = "web-proxy"))]
 mod http1;
 mod obfuscated;
 mod proxy;
-#[cfg(any(feature = "websocket", feature = "dns-config"))]
+#[cfg(any(feature = "websocket", feature = "dns-config", feature = "web-proxy"))]
 mod tls;
 mod transport;
+#[cfg(feature = "web-proxy")]
+mod web_proxy;
 #[cfg(feature = "websocket")]
 mod websocket;
 
@@ -38,6 +40,10 @@ use obfuscated::Ctr;
 const READ_CHUNK: usize = 64 << 10;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+// A web proxy's setup is several HTTPS requests and a long poll for WELCOME, each with its own deadline; this only
+// bounds the whole.
+#[cfg(feature = "web-proxy")]
+const WEB_PROXY_CONNECT_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// A byte stream a [`ConnectionFactory`] hands back: a TCP socket, a TLS session, a tunnel, anything.
 pub trait Stream: AsyncRead + AsyncWrite + Send + Unpin {}
@@ -173,17 +179,21 @@ impl Connection {
     pub async fn connect(dc: &Dc, options: &Options) -> Result<Self> {
         let addr = dc.addr;
         let via = if options.proxy.is_some() { " through the proxy" } else { "" };
-        tokio::time::timeout(CONNECT_TIMEOUT, Self::open(dc, options))
+        #[cfg(feature = "web-proxy")]
+        let limit = match options.proxy {
+            Some(Proxy::Web { .. }) => WEB_PROXY_CONNECT_TIMEOUT,
+            _ => CONNECT_TIMEOUT,
+        };
+        #[cfg(not(feature = "web-proxy"))]
+        let limit = CONNECT_TIMEOUT;
+        tokio::time::timeout(limit, Self::open(dc, options))
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, format!("connecting to {addr}{via} timed out")))?
     }
 
     async fn open(dc: &Dc, options: &Options) -> Result<Self> {
         let addr = dc.addr;
-        let secret = match &options.proxy {
-            Some(Proxy::MtProxy { secret, .. }) => Some(secret),
-            _ => None,
-        };
+        let secret = options.proxy.as_ref().and_then(Proxy::secret);
         // The full transport sends no header to hide, so obfuscation has nothing to wrap, and an MTProxy only
         // understands the obfuscated ones.
         if options.transport == Transport::Full && (options.obfuscated || secret.is_some()) {
@@ -196,9 +206,15 @@ impl Connection {
             }
             return Self::open_websocket(dc, options, &websocket::Endpoint::of(dc)?).await;
         }
-        let (read, write) = match &options.connection_factory {
-            None => {
-                let stream = match &options.proxy {
+        let (read, write) = match (&options.connection_factory, &options.proxy) {
+            #[cfg(feature = "web-proxy")]
+            (factory, Some(Proxy::Web { host, secret })) => {
+                let stream: Box<dyn Stream> = Box::new(web_proxy::open(host, secret, factory.clone()).await?);
+                let (read, write) = tokio::io::split(stream);
+                (ReadHalf::Boxed(read), WriteHalf::Boxed(write))
+            }
+            (None, proxy) => {
+                let stream = match proxy {
                     None => TcpStream::connect(addr).await?,
                     Some(proxy) => {
                         let mut stream = TcpStream::connect(proxy.endpoint()).await?;
@@ -210,8 +226,8 @@ impl Connection {
                 let (read, write) = stream.into_split();
                 (ReadHalf::Tcp(read), WriteHalf::Tcp(write))
             }
-            Some(factory) => {
-                let mut stream = match &options.proxy {
+            (Some(factory), proxy) => {
+                let mut stream = match proxy {
                     None => factory.connect(addr).await?,
                     Some(proxy) => {
                         let mut stream = dial_any(factory.as_ref(), proxy.endpoint()).await?;
@@ -238,10 +254,7 @@ impl Connection {
 
     /// Sends what the transport starts with, the obfuscation header or the transport's tag, on a stream just opened.
     async fn start(dc: &Dc, options: &Options, read: ReadHalf, mut write: WriteHalf, obfuscate: bool) -> Result<Self> {
-        let secret = match &options.proxy {
-            Some(Proxy::MtProxy { secret, .. }) => Some(secret),
-            _ => None,
-        };
+        let secret = options.proxy.as_ref().and_then(Proxy::secret);
         let transport =
             if secret.is_some_and(|s| s.padded) { Transport::PaddedIntermediate } else { options.transport };
         let tls = secret.is_some_and(|s| s.domain.is_some());
