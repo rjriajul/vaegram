@@ -2,6 +2,9 @@ use crate::types::InputMessageContent;
 
 use super::inline_query_result::{Parts, setters};
 
+/// A contact.
+///
+/// When picked, sends the contact unless [`input_message_content`](Self::input_message_content) is set.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultContact {
     parts: Parts,
@@ -12,6 +15,7 @@ pub struct InlineQueryResultContact {
 }
 
 impl InlineQueryResultContact {
+    /// Creates a contact result. The list title is the first name, plus the last name if set.
     pub fn new(phone_number: impl Into<String>, first_name: impl Into<String>) -> Self {
         InlineQueryResultContact {
             parts: Parts::new(),
@@ -22,11 +26,13 @@ impl InlineQueryResultContact {
         }
     }
 
+    /// Last name of the contact.
     pub fn last_name(mut self, last_name: impl Into<String>) -> Self {
         self.last_name = last_name.into();
         self
     }
 
+    /// Additional data about the contact as a vCard.
     pub fn vcard(mut self, vcard: impl Into<String>) -> Self {
         self.vcard = vcard.into();
         self

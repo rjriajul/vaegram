@@ -1,5 +1,6 @@
 use super::inline_query_result::{Parts, WebFile, setters};
 
+/// An MP3 file at a URL.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultAudio {
     parts: Parts,
@@ -7,6 +8,7 @@ pub struct InlineQueryResultAudio {
 }
 
 impl InlineQueryResultAudio {
+    /// Creates a result for the audio at `audio_url`.
     pub fn new(audio_url: impl Into<String>, title: impl Into<String>) -> Self {
         let parts = Parts { title: Some(title.into()), ..Parts::new() };
         InlineQueryResultAudio { parts, file: WebFile::new(audio_url.into(), "audio/mpeg") }

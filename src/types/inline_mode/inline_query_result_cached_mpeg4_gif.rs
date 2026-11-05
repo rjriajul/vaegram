@@ -2,12 +2,14 @@ use crate::types::Animation;
 
 use super::inline_query_result::{Parts, Stored, setters};
 
+/// A [`Animation`](crate::types::Animation) already on Telegram's servers, offered as an inline result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultCachedMpeg4Gif {
     parts: Parts,
 }
 
 impl InlineQueryResultCachedMpeg4Gif {
+    /// Creates a result from `animation`.
     pub fn new(animation: &Animation) -> Self {
         let parts = Parts { stored: Some(Stored::document(&animation.location)), ..Parts::new() };
         InlineQueryResultCachedMpeg4Gif { parts }

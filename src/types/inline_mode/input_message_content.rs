@@ -5,9 +5,11 @@ use crate::methods::geo_point;
 use crate::raw::{base, types};
 use crate::types::{InputInvoice, InputRichMessage};
 
+/// Content of the message sent when the user picks an inline result.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum InputMessageContent {
+    /// A text message.
     Text {
         text: String,
         parse_mode: Option<ParseMode>,
@@ -17,6 +19,7 @@ pub enum InputMessageContent {
         prefer_large_media: bool,
         prefer_small_media: bool,
     },
+    /// A location.
     Location {
         latitude: f64,
         longitude: f64,
@@ -25,6 +28,7 @@ pub enum InputMessageContent {
         heading: Option<i32>,
         proximity_alert_radius: Option<i32>,
     },
+    /// A venue.
     Venue {
         latitude: f64,
         longitude: f64,
@@ -35,25 +39,35 @@ pub enum InputMessageContent {
         venue_id: String,
         venue_type: String,
     },
+    /// A contact.
     Contact {
+        /// Contact's phone number.
         phone_number: String,
+        /// Contact's first name.
         first_name: String,
+        /// Contact's last name. Empty if there is none.
         last_name: String,
+        /// Extra contact data as a vCard. Empty if there is none.
         vcard: String,
     },
+    /// An invoice.
     Invoice(Box<InputInvoice>),
+    /// A rich message.
     Rich(InputRichMessage),
 }
 
 impl InputMessageContent {
+    /// Creates plain text content, sent without parsing.
     pub fn text(text: impl Into<String>) -> Self {
         InputMessageContent::formatted(text.into(), None)
     }
 
+    /// Creates text content parsed as HTML.
     pub fn html(text: impl Into<String>) -> Self {
         InputMessageContent::formatted(text.into(), Some(ParseMode::Html))
     }
 
+    /// Creates text content parsed as Markdown.
     pub fn markdown(text: impl Into<String>) -> Self {
         InputMessageContent::formatted(text.into(), Some(ParseMode::Markdown))
     }
@@ -70,6 +84,7 @@ impl InputMessageContent {
         }
     }
 
+    /// Creates location content.
     pub fn location(latitude: f64, longitude: f64) -> Self {
         InputMessageContent::Location {
             latitude,
@@ -81,6 +96,7 @@ impl InputMessageContent {
         }
     }
 
+    /// Creates venue content with the given coordinates, name and address.
     pub fn venue(latitude: f64, longitude: f64, title: impl Into<String>, address: impl Into<String>) -> Self {
         InputMessageContent::Venue {
             latitude,
@@ -93,6 +109,7 @@ impl InputMessageContent {
         }
     }
 
+    /// Creates contact content.
     pub fn contact(phone_number: impl Into<String>, first_name: impl Into<String>) -> Self {
         InputMessageContent::Contact {
             phone_number: phone_number.into(),
@@ -102,6 +119,7 @@ impl InputMessageContent {
         }
     }
 
+    /// Creates invoice content.
     pub fn invoice(invoice: InputInvoice) -> Self {
         InputMessageContent::Invoice(Box::new(invoice))
     }

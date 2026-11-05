@@ -17,6 +17,9 @@ use super::input_message_content::{web_document, web_photo};
 
 macro_rules! results {
     ($($variant:ident($result:ident) => $kind:literal,)*) => {
+        /// One result offered in an answer to an inline query.
+        ///
+        /// Each variant wraps the `InlineQueryResult*` type of the same name, and each of those converts with `Into`.
         #[derive(Debug, Clone, PartialEq)]
         #[non_exhaustive]
         pub enum InlineQueryResult {
@@ -77,85 +80,100 @@ macro_rules! setters {
         }
     };
     (@reply_markup) => {
+        /// Attaches a keyboard to the message sent when the user picks this result.
         pub fn reply_markup(mut self, markup: impl Into<$crate::types::ReplyMarkup>) -> Self {
             self.parts.reply_markup = Some(markup.into());
             self
         }
     };
     (@input_message_content) => {
+        /// Replaces the message sent when the user picks this result.
         pub fn input_message_content(mut self, content: impl Into<$crate::types::InputMessageContent>) -> Self {
             self.parts.content = Some(content.into());
             self
         }
     };
     (@caption) => {
+        /// Caption of the sent media, parsed with the client's default parse mode unless one is set here.
         pub fn caption(mut self, caption: impl Into<String>) -> Self {
             self.parts.caption = caption.into();
             self
         }
 
+        /// Parses the caption with `mode` instead of the client's default.
         pub fn parse_mode(mut self, mode: $crate::enums::ParseMode) -> Self {
             self.parts.parse_mode = Some(mode);
             self
         }
 
+        /// Parses the caption as HTML.
         pub fn html(self) -> Self {
             self.parse_mode($crate::enums::ParseMode::Html)
         }
 
+        /// Parses the caption as Markdown.
         pub fn markdown(self) -> Self {
             self.parse_mode($crate::enums::ParseMode::Markdown)
         }
     };
     (@caption_above) => {
+        /// Shows the caption above the media instead of below it.
         pub fn show_caption_above_media(mut self) -> Self {
             self.parts.caption_above = true;
             self
         }
     };
     (@title) => {
+        /// Title shown for the result in the results list.
         pub fn title(mut self, title: impl Into<String>) -> Self {
             self.parts.title = Some(title.into());
             self
         }
     };
     (@description) => {
+        /// Short description shown under the title in the results list.
         pub fn description(mut self, description: impl Into<String>) -> Self {
             self.parts.description = Some(description.into());
             self
         }
     };
     (@url) => {
+        /// URL attached to the result.
         pub fn url(mut self, url: impl Into<String>) -> Self {
             self.parts.url = Some(url.into());
             self
         }
     };
     (@thumbnail) => {
+        /// URL of a JPEG thumbnail shown in the results list.
         pub fn thumbnail(mut self, thumbnail_url: impl Into<String>) -> Self {
             self.parts.thumbnail_url = Some(thumbnail_url.into());
             self
         }
     };
     (@dimensions) => {
+        /// Width and height of the media, in pixels.
         pub fn dimensions(mut self, width: i32, height: i32) -> Self {
             (self.file.width, self.file.height) = (width, height);
             self
         }
     };
     (@duration) => {
+        /// Duration of the media, in seconds.
         pub fn duration(mut self, seconds: i32) -> Self {
             self.file.duration = seconds;
             self
         }
     };
     (@mime_type) => {
+        /// MIME type of the file at the URL, replacing the default for this result kind.
         pub fn mime_type(mut self, mime_type: impl Into<String>) -> Self {
             self.file.mime_type = mime_type.into();
             self
         }
     };
     (@performer) => {
+        /// Performer name shown for the audio.
         pub fn performer(mut self, performer: impl Into<String>) -> Self {
             self.file.performer = Some(performer.into());
             self

@@ -1,20 +1,30 @@
 use crate::raw::base;
 
+/// One page of results returned by a bot for an inline query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InlineBotResults {
+    /// Id of the query these results answer.
     pub query_id: i64,
     /// Pass to `.offset()` for the next page; `None` on the last one.
     pub next_offset: Option<String>,
+    /// Whether Telegram shows the results as a media gallery instead of a list.
     pub gallery: bool,
+    /// The results on this page.
     pub results: Vec<InlineBotResult>,
 }
 
+/// A single result in [`InlineBotResults`], reduced to its listing fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InlineBotResult {
+    /// Id of the result, unique within the page.
     pub id: String,
+    /// Telegram result type, such as `article`, `photo` or `gif`.
     pub kind: String,
+    /// Title of the result. `None` if the bot gave none.
     pub title: Option<String>,
+    /// Short description of the result. `None` if the bot gave none.
     pub description: Option<String>,
+    /// URL attached to the result. Always `None` for media results.
     pub url: Option<String>,
 }
 

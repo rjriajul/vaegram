@@ -10,6 +10,7 @@ use crate::utils::{base64url_decode, base64url_encode};
 pub struct InlineMessageId(pub(crate) base::InputBotInlineMessageID);
 
 impl InlineMessageId {
+    /// Returns the data center the message lives on.
     pub fn dc_id(&self) -> i32 {
         match &self.0 {
             base::InputBotInlineMessageID::InputBotInlineMessageID(m) => m.dc_id,

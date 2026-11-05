@@ -1,5 +1,6 @@
 use super::inline_query_result::{Parts, WebFile, setters};
 
+/// A GIF file at a URL.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultGif {
     parts: Parts,
@@ -7,6 +8,7 @@ pub struct InlineQueryResultGif {
 }
 
 impl InlineQueryResultGif {
+    /// Creates a result for the GIF at `gif_url`, previewed by the image at `thumbnail_url`.
     pub fn new(gif_url: impl Into<String>, thumbnail_url: impl Into<String>) -> Self {
         let parts = Parts { thumbnail_url: Some(thumbnail_url.into()), ..Parts::new() };
         InlineQueryResultGif { parts, file: WebFile::new(gif_url.into(), "image/gif") }

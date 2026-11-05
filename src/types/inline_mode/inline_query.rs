@@ -7,14 +7,20 @@ use crate::methods::AnswerInlineQuery;
 use crate::raw::{base, types};
 use crate::types::{InlineQueryResult, Location, User};
 
+/// An inline query a user typed after the bot's username.
 #[derive(Clone)]
 pub struct InlineQuery {
+    /// Id to pass to [`Client::answer_inline_query`] when answering.
     pub id: i64,
+    /// The user who sent the query.
     pub from_user: User,
+    /// Text the user typed after the bot's username.
     pub query: String,
+    /// Offset to continue from: the `next_offset` of the previous answer, empty for the first page.
     pub offset: String,
     /// The kind of chat the query was sent from; `Private` also covers the chat with the bot itself.
     pub chat_type: Option<ChatType>,
+    /// Location of the user. `None` if Telegram doesn't send one.
     pub location: Option<Location>,
     client: Client,
 }
@@ -40,10 +46,14 @@ impl InlineQuery {
         }
     }
 
+    /// Returns the client this update arrived on.
     pub fn client(&self) -> &Client {
         &self.client
     }
 
+    /// Answers this query with `results`.
+    ///
+    /// Shorthand for [`Client::answer_inline_query`] with this query's id.
     pub fn answer<R: Into<InlineQueryResult>>(&self, results: impl IntoIterator<Item = R>) -> AnswerInlineQuery<'_> {
         self.client.answer_inline_query(self.id, results)
     }
