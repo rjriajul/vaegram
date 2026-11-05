@@ -1,5 +1,7 @@
 use crate::types::{FileLocation, MaskPosition, Upload};
 
+/// A sticker to put in a sticker set.
+///
 /// New files take their format from the extension: `.webp` or `.png` static, `.tgs` animated, `.webm` video.
 #[derive(Debug, Clone)]
 pub struct InputSticker<'a> {
@@ -16,12 +18,14 @@ pub(crate) enum StickerFile<'a> {
 }
 
 impl<'a> InputSticker<'a> {
+    /// Creates a sticker from a new file.
+    ///
     /// `emoji` holds the one to twenty emoji the sticker stands for, written one after another.
     pub fn new(sticker: impl Into<Upload<'a>>, emoji: impl Into<String>) -> Self {
         InputSticker::with_file(StickerFile::Upload(sticker.into()), emoji.into())
     }
 
-    /// A sticker that's already on Telegram, taken from a [`FileLocation`] instead of uploaded.
+    /// Creates a sticker that's already on Telegram, taken from a [`FileLocation`] instead of uploaded.
     pub fn existing(sticker: impl Into<FileLocation>, emoji: impl Into<String>) -> Self {
         InputSticker::with_file(StickerFile::Stored(sticker.into()), emoji.into())
     }
@@ -30,13 +34,13 @@ impl<'a> InputSticker<'a> {
         InputSticker { file, emoji, mask_position: None, keywords: None }
     }
 
-    /// Where the sticker sits on a face, which makes it a mask.
+    /// Places the sticker on a face, which makes it a mask.
     pub fn mask_position(mut self, position: MaskPosition) -> Self {
         self.mask_position = Some(position);
         self
     }
 
-    /// Search keywords for the sticker, stored as one comma-separated string.
+    /// Adds search keywords for the sticker, joined into one comma-separated string.
     pub fn keywords(mut self, keywords: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.keywords = Some(InputSticker::join_keywords(keywords));
         self

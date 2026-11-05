@@ -16,21 +16,21 @@ enum Kind<'a> {
 }
 
 impl InputPollMedia<'_> {
-    /// A map location without an accuracy radius.
+    /// Creates a map location without an accuracy radius.
     ///
     /// For accuracy, pass a [`Location`] instead.
     pub fn location(latitude: f64, longitude: f64) -> Self {
         Location::new(latitude, longitude).into()
     }
 
-    /// A venue with only a title and an address.
+    /// Creates a venue with only a title and an address.
     ///
     /// For a Foursquare or Google Places id, pass a [`Venue`] instead.
     pub fn venue(latitude: f64, longitude: f64, title: impl Into<String>, address: impl Into<String>) -> Self {
         Venue::new(latitude, longitude, title, address).into()
     }
 
-    /// A web page preview for the URL.
+    /// Creates a web page preview for the URL.
     pub fn link(url: impl Into<String>) -> Self {
         InputPollMedia(Kind::Ready(base::InputMedia::InputMediaWebPage(Box::new(types::InputMediaWebPage {
             force_large_media: false,

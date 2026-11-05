@@ -13,7 +13,7 @@ pub struct GiveawayPrizeStars {
     pub boosted_chat: Chat,
     /// Id of the message that announced the giveaway, in `boosted_chat`.
     pub giveaway_message_id: i32,
-    /// A prize nobody claimed, returned to the chat.
+    /// `true` if nobody claimed the prize and it went back to the chat.
     pub is_unclaimed: bool,
 }
 

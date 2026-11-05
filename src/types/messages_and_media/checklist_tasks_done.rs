@@ -1,3 +1,5 @@
+/// Tasks marked as done or not done in a checklist.
+///
 /// The checklist is the message this service message replies to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChecklistTasksDone {

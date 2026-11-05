@@ -1,6 +1,8 @@
 use std::str::SplitWhitespace;
 
-/// A command read from message text, borrowed from it: `/ban@MyBot 42 spam` is name `ban`, bot `MyBot`, args `42 spam`.
+/// A command read from message text, borrowed from it.
+///
+/// `/ban@MyBot 42 spam` has the name `ban`, the bot `MyBot` and the arguments `42 spam`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Command<'a> {
     /// Command name without the prefix and without the `@bot` suffix.

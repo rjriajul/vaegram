@@ -19,19 +19,20 @@ pub struct ChatBackground {
     pub is_blurred: bool,
     /// `true` if the picture moves with the device (parallax).
     pub is_moving: bool,
-    /// First background color as RGB. `None` if the wallpaper has no settings.
+    /// Fill color as RGB, or the first color of a gradient.
     pub background_color: Option<i32>,
-    /// Second color of a gradient, as RGB. `None` for a single color.
+    /// Second color of a gradient, as RGB. `None` for a single-color fill.
     pub second_background_color: Option<i32>,
-    /// Third color of a gradient, as RGB. `None` if unset.
+    /// Third color of a gradient, as RGB.
     pub third_background_color: Option<i32>,
-    /// Fourth color of a gradient, as RGB. `None` if unset.
+    /// Fourth color of a gradient, as RGB.
     pub fourth_background_color: Option<i32>,
-    /// How strongly the pattern shows. `None` if unset.
+    /// How strongly the pattern shows over the colors.
     pub intensity: Option<i32>,
-    /// Gradient angle in degrees. Only sent together with the second color.
+    /// Gradient angle in degrees. Telegram sends and reads it only together with
+    /// [`second_background_color`](Self::second_background_color).
     pub rotation_angle: Option<i32>,
-    /// Emoji the wallpaper is tied to. `None` if unset.
+    /// Emoji the wallpaper is tied to.
     pub emoji: Option<String>,
     pub(crate) access_hash: Option<i64>,
 }

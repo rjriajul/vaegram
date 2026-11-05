@@ -12,9 +12,9 @@ pub struct Game {
     pub title: String,
     /// Description of the game.
     pub description: String,
-    /// Photo of the game. `None` if Telegram sent none.
+    /// Photo of the game. `None` if the game has no photo.
     pub photo: Option<Photo>,
-    /// Animation of the game. `None` if Telegram sent none.
+    /// Animation of the game. `None` if the game has no document or it isn't an animation.
     pub animation: Option<Animation>,
 }
 

@@ -9,7 +9,7 @@ use crate::utils::get_peer;
 /// A message in a chat that only one user, the receiver, sees.
 #[derive(Debug, Clone)]
 pub struct EphemeralMessage {
-    /// The ephemeral message id; it has its own sequence, separate from regular message ids.
+    /// Id of the message. Ephemeral ids have their own sequence, separate from regular message ids.
     pub id: i32,
     /// The chat the message was sent in.
     pub chat: Chat,
@@ -25,9 +25,9 @@ pub struct EphemeralMessage {
     pub text: String,
     /// `true` if the current account sent the message.
     pub outgoing: bool,
-    /// The template a bot sends as the welcome message of its private chats.
+    /// `true` if the message is the template a bot sends as the welcome message of its private chats.
     pub is_welcome_template: bool,
-    /// The regular message this one is anchored to.
+    /// Id of the regular message this one is anchored to.
     pub anchor_message_id: Option<i32>,
     /// Id of the thread or forum topic the message is in. `None` outside threads.
     pub message_thread_id: Option<i32>,
@@ -35,7 +35,7 @@ pub struct EphemeralMessage {
     pub entities: Option<Vec<MessageEntity>>,
     /// Attached media. `None` if there is none.
     pub media: Option<Media>,
-    /// The id of the ephemeral message this one replies to.
+    /// Id of the ephemeral message this one replies to. `None` if it isn't a reply.
     pub reply_to_message_id: Option<i32>,
     /// `true` if forwarding and saving the message is restricted.
     pub has_protected_content: bool,
@@ -107,12 +107,12 @@ impl EphemeralMessage {
             .ok_or(Error::Unexpected("Telegram sent no ephemeral message back"))
     }
 
-    /// Edits the text of the ephemeral message. Await the request to apply it.
+    /// Edits the text of the message. Awaiting returns the edited [`EphemeralMessage`].
     pub fn edit_text(&self, text: impl Into<MessageText>) -> EditEphemeralMessage<'_> {
         self.client.edit_ephemeral_message_text(self.chat.id, self.receiver_user.id, self.id, text)
     }
 
-    /// Deletes the ephemeral message for its receiver. Returns Telegram's answer.
+    /// Deletes the message for its receiver. Returns the `bool` Telegram answers with.
     pub async fn delete(&self) -> Result<bool> {
         self.client.delete_ephemeral_message(self.chat.id, self.receiver_user.id, self.id).await
     }
@@ -122,7 +122,10 @@ impl EphemeralMessage {
         &self.client
     }
 
-    /// Sends an ephemeral reply to this message in the same chat. Await the request to send.
+    /// Sends an ephemeral reply to this message in the same chat.
+    ///
+    /// The reply goes to the sender of an incoming message, or to the same receiver for an outgoing one.
+    /// Awaiting returns the sent [`EphemeralMessage`].
     pub fn reply(&self, text: impl Into<String>) -> SendEphemeralMessage<'_> {
         let receiver = self.from_user.as_ref().filter(|_| !self.outgoing).map_or(self.receiver_user.id, |u| u.id);
         self.client.send_ephemeral_message(self.chat.id, receiver, text).reply_to_ephemeral(self.id)

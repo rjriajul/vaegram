@@ -15,7 +15,7 @@ pub struct CheckedGiftCode {
     pub from_chat: Option<Chat>,
     /// Id of the giveaway message. `None` if the code isn't from a giveaway.
     pub giveaway_message_id: Option<i32>,
-    /// `None` for an unclaimed giveaway prize: anyone holding the link can apply it.
+    /// The user the code was given to. `None` if Telegram names no recipient.
     pub to_user: Option<User>,
     /// When the code was applied, as a Unix timestamp. `None` if it is unused.
     pub used_date: Option<i32>,

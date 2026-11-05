@@ -10,7 +10,7 @@ pub struct FactCheck {
     pub need_check: bool,
     /// The two-letter code of the country the check is shown in.
     pub country: Option<String>,
-    /// Text of the fact check. `None` if Telegram sent none.
+    /// Text of the fact check. Telegram sends it together with `country`, so both are `None` or both set.
     pub text: Option<String>,
     /// Formatting of the text. `None` if it has none.
     pub text_entities: Option<Vec<MessageEntity>>,

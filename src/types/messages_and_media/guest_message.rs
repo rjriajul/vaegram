@@ -4,16 +4,16 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::{Chat, InlineQueryResult, Message, SentGuestMessage, User};
 
-/// A message in a chat the bot isn't in; `answer` is the only way to respond there.
+/// A message in a chat the bot isn't in. [`answer`](GuestMessage::answer) is the only way to respond there.
 #[derive(Debug, Clone)]
 pub struct GuestMessage {
     /// The message that invoked the bot.
     pub message: Message,
     /// Id of the guest query, which [`answer`](GuestMessage::answer) replies to.
     pub query_id: i64,
-    /// The user the message came via. `None` if it came via a chat.
+    /// The user the message came via. `None` if it came via a chat or Telegram names no caller.
     pub caller_user: Option<User>,
-    /// The chat the message came via. `None` if it came via a user.
+    /// The chat the message came via. `None` if it came via a user or Telegram names no caller.
     pub caller_chat: Option<Chat>,
 }
 

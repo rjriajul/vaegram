@@ -8,26 +8,26 @@ use crate::types::Upload;
 pub enum InputStoryContent<'a> {
     /// A photo story.
     Photo(Upload<'a>),
-    /// Times are in seconds; an animation plays without sound.
+    /// A video story. Times are in seconds, and an animation plays without sound.
     Video {
         /// The video file.
         video: Upload<'a>,
-        /// Length of the video.
+        /// Length of the video, in seconds.
         duration: f64,
-        /// Timestamp of the frame used as the cover.
+        /// Time of the frame used as the cover, in seconds.
         cover_frame_timestamp: f64,
-        /// Marks the video as a silent animation.
+        /// `true` if the video is a silent animation.
         is_animation: bool,
     },
 }
 
 impl<'a> InputStoryContent<'a> {
-    /// A photo story.
+    /// Creates a photo story.
     pub fn photo(photo: impl Into<Upload<'a>>) -> Self {
         InputStoryContent::Photo(photo.into())
     }
 
-    /// A video story of the given length in seconds, with the cover at the first frame.
+    /// Creates a video story of the given length in seconds, with the cover at the first frame.
     pub fn video(video: impl Into<Upload<'a>>, duration: f64) -> Self {
         InputStoryContent::Video { video: video.into(), duration, cover_frame_timestamp: 0.0, is_animation: false }
     }

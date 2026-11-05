@@ -8,21 +8,21 @@ use crate::utils::{get_channel_id, get_peer};
 pub struct Giveaway {
     /// The channels a user must join to take part.
     pub chats: Vec<Chat>,
-    /// When the winners are picked.
+    /// When the winners are picked, as a Unix timestamp.
     pub winners_selection_date: i32,
     /// How many winners are picked.
     pub winner_count: i32,
-    /// Only users who join after the giveaway starts can win.
+    /// `true` if only users who join after the giveaway starts can win.
     pub only_new_members: bool,
-    /// Everyone can see the winners once they're picked.
+    /// `true` if everyone can see the winners once they're picked.
     pub has_public_winners: bool,
     /// Extra prize text from the organizers. `None` if there is none.
     pub prize_description: Option<String>,
-    /// Two-letter codes of the countries users must be from; empty for everywhere.
+    /// Two-letter codes of the countries users must be from. Empty if users from any country can take part.
     pub country_codes: Vec<String>,
-    /// Stars split between the winners, for a Star giveaway.
+    /// Stars split between the winners. `None` unless it's a Star giveaway.
     pub prize_star_count: Option<i64>,
-    /// Months of Premium each winner gets, for a Premium giveaway.
+    /// Months of Premium each winner gets. `None` unless it's a Premium giveaway.
     pub premium_subscription_month_count: Option<i32>,
 }
 

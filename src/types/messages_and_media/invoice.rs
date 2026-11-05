@@ -3,11 +3,11 @@ use crate::raw::types;
 /// An invoice sent in a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invoice {
-    /// Product name.
+    /// Name of the product.
     pub title: String,
-    /// Product description.
+    /// Description of the product.
     pub description: String,
-    /// Deep-linking parameter that starts the bot to pay this invoice.
+    /// Bot deep-linking parameter that generates this invoice.
     pub start_parameter: String,
     /// Currency code of the price.
     pub currency: String,

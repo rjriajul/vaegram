@@ -3,11 +3,11 @@ use crate::raw::types;
 /// A shared phone contact.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Contact {
-    /// Phone number as the sender wrote it.
+    /// The contact's phone number.
     pub phone_number: String,
-    /// Contact's first name.
+    /// The contact's first name.
     pub first_name: String,
-    /// Contact's last name. `None` if empty.
+    /// The contact's last name. `None` if empty.
     pub last_name: Option<String>,
     /// Telegram id of the contact. `None` if the number isn't linked to an account.
     pub user_id: Option<i64>,

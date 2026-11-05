@@ -9,7 +9,7 @@ pub struct Draft {
     pub text: String,
     /// Formatting of the text. `None` if it has none.
     pub entities: Option<Vec<MessageEntity>>,
-    /// Id of the message the draft replies to. `None` if it isn't a reply.
+    /// Id of the message the draft replies to. `None` if it isn't a reply to a message.
     pub reply_to_message_id: Option<i32>,
     /// Forum topic the draft belongs to. `None` outside topics.
     pub topic_id: Option<i32>,
