@@ -5,6 +5,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{InputPhoneContact, User};
 
 impl Client {
+    /// Imports phone contacts and returns the users that are on Telegram.
     pub async fn import_contacts(&self, contacts: &[InputPhoneContact]) -> Result<Vec<User>> {
         let contacts = contacts
             .iter()

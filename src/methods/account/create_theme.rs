@@ -3,6 +3,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::types::{Theme, ThemeSettings};
 
+/// Request built by [`Client::create_theme`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct CreateTheme<'a> {
     client: &'a Client,
@@ -12,6 +13,9 @@ pub struct CreateTheme<'a> {
 }
 
 impl Client {
+    /// Creates a theme from its settings and returns the new [`Theme`].
+    ///
+    /// Fails with `InvalidArgument` when awaited with no settings.
     pub fn create_theme(
         &self,
         title: impl Into<String>,
@@ -23,6 +27,7 @@ impl Client {
 }
 
 impl CreateTheme<'_> {
+    /// Picks the slug used in the theme's share link. Left empty by default.
     pub fn slug(mut self, slug: impl Into<String>) -> Self {
         self.slug = slug.into();
         self

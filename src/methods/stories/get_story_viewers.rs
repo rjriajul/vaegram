@@ -5,6 +5,7 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{PeerRef, StoryViewer};
 
+/// Viewers of a story, fetched 100 at a time. Call `next` until it returns `None`.
 pub struct GetStoryViewers<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -13,17 +14,20 @@ pub struct GetStoryViewers<'a> {
 }
 
 impl Client {
+    /// Lists the people who viewed a story you posted.
     pub fn get_story_viewers(&self, chat_id: impl Into<PeerRef>, story_id: i32) -> GetStoryViewers<'_> {
         GetStoryViewers { client: self, chat_id: chat_id.into(), story_id, pages: OffsetPages::new(100) }
     }
 }
 
 impl GetStoryViewers<'_> {
+    /// Stops after this many viewers in total.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next [`StoryViewer`], or `None` when the list or the `limit` is exhausted.
     pub async fn next(&mut self) -> Result<Option<StoryViewer>> {
         loop {
             if let Some(viewer) = self.pages.pop() {

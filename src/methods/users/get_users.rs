@@ -6,6 +6,10 @@ use crate::types::{PeerRef, User};
 use crate::utils::input_user;
 
 impl Client {
+    /// Returns users by id, in the order given.
+    ///
+    /// Ids Telegram doesn't return a user for fail with `PeerNotFound`. Users the client hasn't seen are still
+    /// requested, with an access hash of 0.
     pub async fn get_users(&self, user_ids: impl IntoIterator<Item = impl Into<PeerRef>>) -> Result<Vec<User>> {
         let users: Vec<PeerRef> = user_ids.into_iter().map(Into::into).collect();
         let mut user_ids = Vec::with_capacity(users.len());

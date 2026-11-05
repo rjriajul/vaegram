@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::{PeerRef, Story};
 
 impl Client {
+    /// Changes who can see a story and returns the edited [`Story`].
     pub async fn edit_story_privacy(
         &self,
         chat_id: impl Into<PeerRef>,

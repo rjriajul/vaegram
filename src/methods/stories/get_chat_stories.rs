@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{PeerRef, Story};
 
 impl Client {
+    /// Returns the active stories of a chat.
     pub async fn get_chat_stories(&self, chat_id: impl Into<PeerRef>) -> Result<Vec<Story>> {
         let peer = self.resolve_peer(chat_id).await?;
         let base::stories::PeerStories::PeerStories(s) =

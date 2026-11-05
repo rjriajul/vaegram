@@ -4,6 +4,9 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Deletes stories of a chat and returns the ids that were deleted.
+    ///
+    /// Fails with `InvalidArgument` if `story_ids` is empty.
     pub async fn delete_stories(&self, chat_id: impl Into<PeerRef>, story_ids: &[i32]) -> Result<Vec<i32>> {
         if story_ids.is_empty() {
             return Err(Error::InvalidArgument("delete_stories needs at least one story id"));

@@ -3,6 +3,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::types::StoriesStealthMode;
 
+/// Request built by [`Client::enable_stealth_mode`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct EnableStealthMode<'a> {
     client: &'a Client,
@@ -18,11 +19,13 @@ impl Client {
 }
 
 impl EnableStealthMode<'_> {
+    /// Hides the stories you viewed in the recent past from their authors.
     pub fn past(mut self) -> Self {
         self.past = true;
         self
     }
 
+    /// Hides the stories you view in the coming period from their authors.
     pub fn future(mut self) -> Self {
         self.future = true;
         self

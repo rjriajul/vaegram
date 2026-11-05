@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::ChatBackground;
 
 impl Client {
+    /// Returns the wallpapers saved to the account.
     pub async fn get_wallpapers(&self) -> Result<Vec<ChatBackground>> {
         match self.invoke(&functions::account::GetWallPapers { hash: 0 }).await? {
             base::account::WallPapers::WallPapers(w) => {

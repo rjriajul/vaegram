@@ -5,6 +5,7 @@ use crate::types::Audio;
 use crate::types::messages_and_media::input_document;
 
 impl Client {
+    /// Removes an audio from the music on your profile.
     pub async fn remove_profile_audio(&self, audio: &Audio) -> Result<()> {
         let request =
             functions::account::SaveMusic { unsave: true, id: input_document(&audio.location), after_id: None };

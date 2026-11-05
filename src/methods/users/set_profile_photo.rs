@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::{PeerRef, Upload};
 
+/// Request built by [`Client::set_profile_photo`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetProfilePhoto<'a> {
     client: &'a Client,
@@ -15,6 +16,9 @@ pub struct SetProfilePhoto<'a> {
 }
 
 impl Client {
+    /// Uploads a new profile photo for your account.
+    ///
+    /// Awaiting it returns once Telegram has accepted the upload.
     pub fn set_profile_photo<'a>(&'a self, photo: impl Into<Upload<'a>>) -> SetProfilePhoto<'a> {
         SetProfilePhoto::new(self, None, photo.into())
     }
@@ -38,12 +42,13 @@ impl<'a> SetProfilePhoto<'a> {
         self
     }
 
+    /// Uploads the file as a profile video instead of a photo.
     pub fn video(mut self) -> Self {
         self.video = true;
         self
     }
 
-    /// Second of the video to use as the static preview; implies `.video()`.
+    /// Second of the video to use as the static preview. Implies [`video`](SetProfilePhoto::video).
     pub fn video_start_ts(mut self, seconds: f64) -> Self {
         self.video = true;
         self.video_start_ts = Some(seconds);

@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::FoundContacts;
 
 impl Client {
+    /// Searches your contacts and global results by name or username, returning at most `limit` matches.
     pub async fn search_contacts(&self, query: &str, limit: i32) -> Result<FoundContacts> {
         let request = functions::contacts::Search { broadcasts: false, bots: false, q: query.into(), limit };
         Ok(FoundContacts::parse(self, self.invoke(&request).await?))

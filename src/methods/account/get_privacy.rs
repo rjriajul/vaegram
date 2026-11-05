@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::PrivacyRule;
 
 impl Client {
+    /// Returns the rules for one privacy setting.
     pub async fn get_privacy(&self, key: PrivacyKey) -> Result<Vec<PrivacyRule>> {
         let rules = self.invoke(&functions::account::GetPrivacy { key: key.write() }).await?;
         Ok(PrivacyRule::parse_all(self, rules))

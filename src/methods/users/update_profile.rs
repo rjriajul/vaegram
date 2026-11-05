@@ -3,6 +3,7 @@ use crate::errors::{Error, Result};
 use crate::raw::functions;
 use crate::types::User;
 
+/// Request built by [`Client::update_profile`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct UpdateProfile<'a> {
     client: &'a Client,
@@ -12,22 +13,28 @@ pub struct UpdateProfile<'a> {
 }
 
 impl Client {
+    /// Changes your first name, last name or bio, and returns the updated [`User`].
+    ///
+    /// Only the fields you set change. Awaiting it with none set fails with `InvalidArgument`.
     pub fn update_profile(&self) -> UpdateProfile<'_> {
         UpdateProfile { client: self, first_name: None, last_name: None, bio: None }
     }
 }
 
 impl UpdateProfile<'_> {
+    /// Changes your first name.
     pub fn first_name(mut self, first_name: impl Into<String>) -> Self {
         self.first_name = Some(first_name.into());
         self
     }
 
+    /// Changes your last name. An empty string removes it.
     pub fn last_name(mut self, last_name: impl Into<String>) -> Self {
         self.last_name = Some(last_name.into());
         self
     }
 
+    /// Changes your bio. An empty string removes it.
     pub fn bio(mut self, bio: impl Into<String>) -> Self {
         self.bio = Some(bio.into());
         self

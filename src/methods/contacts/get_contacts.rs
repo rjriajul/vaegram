@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::User;
 
 impl Client {
+    /// Returns all your contacts.
     pub async fn get_contacts(&self) -> Result<Vec<User>> {
         let found = match self.invoke(&functions::contacts::GetContacts { hash: 0 }).await? {
             base::contacts::Contacts::Contacts(found) => found,

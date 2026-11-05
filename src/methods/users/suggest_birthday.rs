@@ -4,6 +4,7 @@ use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Suggests a birthday for a user to add to their profile. `year` can be `None`.
     pub async fn suggest_birthday(
         &self,
         user_id: impl Into<PeerRef>,

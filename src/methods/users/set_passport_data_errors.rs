@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::{PassportElementError, PeerRef};
 
 impl Client {
+    /// Reports problems in a user's Telegram Passport data, which the user must fix before resubmitting.
     pub async fn set_passport_data_errors(
         &self,
         user_id: impl Into<PeerRef>,

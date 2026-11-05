@@ -2,6 +2,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, functions};
 
+/// Request built by [`Client::takeout`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct Takeout<'a> {
     client: &'a Client,
@@ -29,11 +30,13 @@ impl Client {
 }
 
 impl Takeout<'_> {
+    /// Includes the contact list in the export.
     pub fn contacts(mut self) -> Self {
         self.request.contacts = true;
         self
     }
 
+    /// Includes messages from private chats.
     pub fn private_chats(mut self) -> Self {
         self.request.message_users = true;
         self
@@ -45,11 +48,13 @@ impl Takeout<'_> {
         self
     }
 
+    /// Includes messages from supergroups.
     pub fn supergroups(mut self) -> Self {
         self.request.message_megagroups = true;
         self
     }
 
+    /// Includes messages from channels.
     pub fn channels(mut self) -> Self {
         self.request.message_channels = true;
         self

@@ -5,6 +5,7 @@ use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions, types};
 use crate::types::{PeerRef, Text};
 
+/// Request built by [`Client::set_contact_note`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetContactNote<'a> {
     client: &'a Client,

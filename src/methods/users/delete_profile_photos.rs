@@ -5,6 +5,7 @@ use crate::types::Photo;
 use crate::types::messages_and_media::input_photo;
 
 impl Client {
+    /// Deletes the given photos from your profile.
     pub async fn delete_profile_photos(&self, photos: &[Photo]) -> Result<()> {
         let id = photos.iter().map(|photo| input_photo(&photo.location)).collect();
         self.invoke(&functions::photos::DeletePhotos { id }).await?;

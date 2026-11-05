@@ -5,6 +5,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::Chat;
 
+/// Request built by [`Client::get_blocked_message_senders`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GetBlockedMessageSenders<'a> {
     client: &'a Client,
@@ -14,13 +15,14 @@ pub struct GetBlockedMessageSenders<'a> {
 }
 
 impl Client {
+    /// Lists the chats on a block list, `limit` at a time starting at `offset`.
     pub fn get_blocked_message_senders(&self, offset: i32, limit: i32) -> GetBlockedMessageSenders<'_> {
         GetBlockedMessageSenders { client: self, offset, limit, list: BlockList::Main }
     }
 }
 
 impl GetBlockedMessageSenders<'_> {
-    /// Chooses the block list; the default is the main one.
+    /// Chooses the block list. Defaults to [`BlockList::Main`].
     pub fn block_list(mut self, list: BlockList) -> Self {
         self.list = list;
         self

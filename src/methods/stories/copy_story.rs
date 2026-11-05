@@ -24,6 +24,11 @@ pub struct CopyStory<'a> {
 }
 
 impl Client {
+    /// Posts a copy of a story to `chat_id` without downloading it.
+    ///
+    /// Awaiting it fetches the story from `from_chat_id`, reposts its photo or document and returns the new
+    /// [`Story`]. Stories with any other media fail with an error. The original caption is kept unless
+    /// [`caption`](CopyStory::caption) is set.
     pub fn copy_story(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -52,21 +57,25 @@ impl CopyStory<'_> {
         self
     }
 
+    /// Chooses who can see the new story.
     pub fn privacy(mut self, privacy: StoriesPrivacyRules) -> Self {
         self.privacy = privacy;
         self
     }
 
+    /// Sets how long the story stays up, in seconds.
     pub fn period(mut self, seconds: i32) -> Self {
         self.period = Some(seconds);
         self
     }
 
+    /// Pins the new story to the chat's profile.
     pub fn pinned(mut self) -> Self {
         self.pinned = true;
         self
     }
 
+    /// Stops viewers from forwarding or saving the new story.
     pub fn protect_content(mut self) -> Self {
         self.protect_content = true;
         self

@@ -7,6 +7,7 @@ use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions};
 use crate::types::{InputStoryContent, PeerRef, Story, StoryArea};
 
+/// Request built by [`Client::send_story`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendStory<'a> {
     client: &'a Client,
@@ -26,6 +27,9 @@ pub struct SendStory<'a> {
 }
 
 impl Client {
+    /// Posts a story to a chat and returns the new [`Story`].
+    ///
+    /// Awaiting it uploads the media first, then publishes the story.
     pub fn send_story<'a>(&'a self, chat_id: impl Into<PeerRef>, media: InputStoryContent<'a>) -> SendStory<'a> {
         SendStory {
             client: self,
@@ -47,11 +51,13 @@ impl Client {
 }
 
 impl SendStory<'_> {
+    /// Sets the story caption, parsed with the builder's parse mode.
     pub fn caption(mut self, caption: impl Into<String>) -> Self {
         self.caption = caption.into();
         self
     }
 
+    /// Chooses who can see the story.
     pub fn privacy(mut self, privacy: StoriesPrivacyRules) -> Self {
         self.privacy = privacy;
         self
@@ -63,16 +69,19 @@ impl SendStory<'_> {
         self
     }
 
+    /// Pins the story to the chat's profile.
     pub fn pinned(mut self) -> Self {
         self.pinned = true;
         self
     }
 
+    /// Attaches interactive areas to the story, such as locations or reactions.
     pub fn media_areas(mut self, areas: impl IntoIterator<Item = StoryArea>) -> Self {
         self.areas = areas.into_iter().collect();
         self
     }
 
+    /// Stops viewers from forwarding or saving the story.
     pub fn protect_content(mut self) -> Self {
         self.protect_content = true;
         self

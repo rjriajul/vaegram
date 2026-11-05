@@ -5,6 +5,10 @@ use crate::raw::{base, functions};
 use crate::types::InputMedia;
 
 impl Client {
+    /// Adds an audio file to the music on your profile.
+    ///
+    /// A `media` that isn't audio fails with `InvalidArgument`. The file is uploaded first, then saved to the
+    /// profile.
     pub async fn add_profile_audio(&self, media: &InputMedia<'_>) -> Result<()> {
         if media.kind != MediaKind::Audio {
             return Err(Error::InvalidArgument("profile music is an audio file"));

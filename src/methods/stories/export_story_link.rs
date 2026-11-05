@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Returns a public t.me link to a story.
     pub async fn export_story_link(&self, chat_id: impl Into<PeerRef>, story_id: i32) -> Result<String> {
         let peer = self.resolve_peer(chat_id).await?;
         let base::ExportedStoryLink::ExportedStoryLink(link) =

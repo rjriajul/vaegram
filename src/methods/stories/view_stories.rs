@@ -4,6 +4,9 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Counts you as a viewer of the given stories.
+    ///
+    /// Fails with `InvalidArgument` if `story_ids` is empty.
     pub async fn view_stories(&self, chat_id: impl Into<PeerRef>, story_ids: &[i32]) -> Result<()> {
         if story_ids.is_empty() {
             return Err(Error::InvalidArgument("view_stories needs at least one story id"));

@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{PeerRef, ReactionType};
 
 impl Client {
+    /// Reacts to a story. Passing `None` removes your reaction.
     pub async fn send_story_reaction(
         &self,
         chat_id: impl Into<PeerRef>,

@@ -21,6 +21,7 @@ pub struct EditStoryMedia<'a> {
 }
 
 impl Client {
+    /// Replaces the media of a story you posted and returns the edited [`Story`].
     pub fn edit_story_media<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,

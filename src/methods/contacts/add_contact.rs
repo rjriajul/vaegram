@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
+/// Request built by [`Client::add_contact`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct AddContact<'a> {
     client: &'a Client,
@@ -14,6 +15,7 @@ pub struct AddContact<'a> {
 }
 
 impl Client {
+    /// Adds a user to your contacts under the given first name.
     pub fn add_contact(&self, user_id: impl Into<PeerRef>, first_name: impl Into<String>) -> AddContact<'_> {
         AddContact {
             client: self,
@@ -27,16 +29,19 @@ impl Client {
 }
 
 impl AddContact<'_> {
+    /// Stores a last name for the contact.
     pub fn last_name(mut self, last_name: impl Into<String>) -> Self {
         self.last_name = last_name.into();
         self
     }
 
+    /// Stores a phone number for the contact. Left empty by default.
     pub fn phone_number(mut self, phone_number: impl Into<String>) -> Self {
         self.phone_number = phone_number.into();
         self
     }
 
+    /// Lets the user see your phone number once they are a contact.
     pub fn share_phone_number(mut self) -> Self {
         self.share_phone_number = true;
         self
