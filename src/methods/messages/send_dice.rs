@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::{Message, PeerRef};
 
+/// Request built by [`Client::send_dice`]. Await it to send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendDice<'a> {
     client: &'a Client,
@@ -13,6 +14,9 @@ pub struct SendDice<'a> {
 }
 
 impl Client {
+    /// Sends an animated dice message with a random result.
+    ///
+    /// Awaiting the request returns the sent [`Message`].
     pub fn send_dice(&self, chat_id: impl Into<PeerRef>) -> SendDice<'_> {
         let media = types::InputMediaDice { emoticon: "🎲".into() };
         SendDice { client: self, chat_id: chat_id.into(), media, options: SendOptions::default() }
@@ -20,6 +24,7 @@ impl Client {
 }
 
 impl SendDice<'_> {
+    /// Emoji that picks the animation. Defaults to the die emoji.
     pub fn emoji(mut self, emoji: impl Into<String>) -> Self {
         self.media.emoticon = emoji.into();
         self

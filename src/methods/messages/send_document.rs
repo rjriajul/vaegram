@@ -4,6 +4,7 @@ use crate::session::transfer::Report;
 use crate::types::messages_and_media::media_setters;
 use crate::types::{FileSource, InputMedia, PeerRef};
 
+/// Request built by [`Client::send_document`]. Await it to upload and send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendDocument<'a> {
     client: &'a Client,
@@ -14,6 +15,9 @@ pub struct SendDocument<'a> {
 }
 
 impl Client {
+    /// Sends a file as a document, without conversion or preview.
+    ///
+    /// Awaiting the request uploads the file if needed and returns the sent [`crate::types::Message`].
     pub fn send_document<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,

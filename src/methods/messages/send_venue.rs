@@ -5,6 +5,7 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::{Location, Message, PeerRef, Venue};
 
+/// Request built by [`Client::send_venue`]. Await it to send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendVenue<'a> {
     client: &'a Client,
@@ -14,6 +15,9 @@ pub struct SendVenue<'a> {
 }
 
 impl Client {
+    /// Sends a venue: a point on the map with a title and an address.
+    ///
+    /// Awaiting the request returns the sent [`Message`].
     pub fn send_venue(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -28,21 +32,25 @@ impl Client {
 }
 
 impl SendVenue<'_> {
+    /// Foursquare id of the venue. Wins over a Google Places id if both are set.
     pub fn foursquare_id(mut self, id: impl Into<String>) -> Self {
         self.venue.foursquare_id = Some(id.into());
         self
     }
 
+    /// Foursquare type of the venue. Only sent with a Foursquare id.
     pub fn foursquare_type(mut self, venue_type: impl Into<String>) -> Self {
         self.venue.foursquare_type = Some(venue_type.into());
         self
     }
 
+    /// Google Places id of the venue. Ignored if a Foursquare id is set.
     pub fn google_place_id(mut self, id: impl Into<String>) -> Self {
         self.venue.google_place_id = Some(id.into());
         self
     }
 
+    /// Google Places type of the venue. Only sent with a Google Places id.
     pub fn google_place_type(mut self, place_type: impl Into<String>) -> Self {
         self.venue.google_place_type = Some(place_type.into());
         self

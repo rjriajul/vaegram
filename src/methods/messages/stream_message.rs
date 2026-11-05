@@ -18,6 +18,7 @@ use crate::types::{Message, PeerRef};
 const KEEPALIVE: Duration = Duration::from_secs(20);
 const MAX_UTF16: usize = 4096;
 
+/// Builder returned by [`Client::stream_message`]. Nothing is sent until [`start`](StreamMessage::start).
 #[must_use = "call .start() to begin streaming"]
 pub struct StreamMessage<'a> {
     client: &'a Client,
@@ -25,6 +26,7 @@ pub struct StreamMessage<'a> {
     options: DraftOptions,
 }
 
+/// A running stream of drafts. Dropping it aborts the stream, and [`finish`](MessageStream::finish) ends it.
 pub struct MessageStream {
     shared: Arc<StreamShared>,
     task: Option<JoinHandle<Result<Vec<Message>>>>,
@@ -49,14 +51,17 @@ struct State {
 }
 
 impl Client {
-    /// Streams a reply as live drafts; long text continues in a new message every 4096 UTF-16 units.
-    /// Parts are formatted separately, so with a parse mode keep each tag inside one chunk.
+    /// Streams a reply as live drafts.
+    ///
+    /// Long text continues in a new message every 4096 UTF-16 units. Parts are formatted separately, so with a
+    /// parse mode keep each tag inside one chunk. Call [`start`](StreamMessage::start) to begin.
     pub fn stream_message(&self, chat_id: impl Into<PeerRef>) -> StreamMessage<'_> {
         StreamMessage { client: self, chat_id: chat_id.into(), options: DraftOptions::default() }
     }
 }
 
 impl StreamMessage<'_> {
+    /// Starts the background task that sends drafts, and returns the stream to push text into.
     pub fn start(self) -> MessageStream {
         let state = State {
             draft_id: new_draft_id(),
@@ -72,8 +77,10 @@ impl StreamMessage<'_> {
 draft_setters!(StreamMessage);
 
 impl MessageStream {
-    /// Appends a chunk without waiting for the network. Returns false once the user pressed stop or
-    /// a send failed; `finish` then reports the failure.
+    /// Appends a chunk without waiting for the network.
+    ///
+    /// Returns `false` once the user pressed stop or a send failed. [`finish`](MessageStream::finish) then
+    /// reports the failure.
     pub fn push(&self, chunk: &str) -> bool {
         if self.is_stopped() || self.task.as_ref().is_none_or(JoinHandle::is_finished) {
             return false;
@@ -83,6 +90,7 @@ impl MessageStream {
         true
     }
 
+    /// Whether the user pressed stop on the draft. Only reported when `can_stop` is set.
     pub fn is_stopped(&self) -> bool {
         self.shared.stopped.load(Ordering::Relaxed)
     }

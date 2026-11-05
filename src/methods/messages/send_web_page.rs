@@ -3,7 +3,10 @@ use crate::Client;
 use crate::types::{LinkPreviewOptions, PeerRef, Text};
 
 impl Client {
-    /// A message that previews `url`, whatever links the text has. `.link_preview_options(..)` refines it.
+    /// Sends a text message that previews `url`, whatever links the text has.
+    ///
+    /// [`SendMessage::link_preview_options`] refines the preview. Awaiting the request returns the sent
+    /// [`Message`](crate::types::Message).
     pub fn send_web_page(
         &self,
         chat_id: impl Into<PeerRef>,

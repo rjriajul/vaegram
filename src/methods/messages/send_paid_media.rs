@@ -6,6 +6,7 @@ use crate::raw::{base, types};
 use crate::session::transfer::try_join_all;
 use crate::types::{InputMedia, Message, PeerRef, Text};
 
+/// Request built by [`Client::send_paid_media`]. Await it to upload and send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPaidMedia<'a> {
     client: &'a Client,
@@ -19,7 +20,11 @@ pub struct SendPaidMedia<'a> {
 }
 
 impl Client {
-    /// 1 to 10 photos, videos or live photos behind one caption; item captions are ignored.
+    /// Sends 1 to 10 photos, videos or live photos that cost `star_count` Stars to open.
+    ///
+    /// The items share one caption, set with [`caption`](SendPaidMedia::caption), and their own captions are
+    /// ignored. Any other count or kind fails with `Error::InvalidArgument`. Awaiting the request returns the
+    /// sent [`Message`].
     pub fn send_paid_media<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,
@@ -40,16 +45,19 @@ impl Client {
 }
 
 impl SendPaidMedia<'_> {
+    /// Payload string sent with the paid media.
     pub fn payload(mut self, payload: impl Into<String>) -> Self {
         self.payload = Some(payload.into());
         self
     }
 
+    /// Caption shared by all items.
     pub fn caption(mut self, caption: impl Into<Text>) -> Self {
         self.caption = caption.into();
         self
     }
 
+    /// Shows the caption above the media instead of below it.
     pub fn show_caption_above_media(mut self) -> Self {
         self.options.invert_media = true;
         self

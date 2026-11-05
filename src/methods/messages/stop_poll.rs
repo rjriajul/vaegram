@@ -5,6 +5,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::types::{Message, PeerRef, ReplyMarkup};
 
+/// Request built by [`Client::stop_poll`]. Await it to send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct StopPoll<'a> {
     client: &'a Client,
@@ -15,7 +16,10 @@ pub struct StopPoll<'a> {
 }
 
 impl Client {
-    /// Closes a poll and returns the edited message; the final results are in `raw.media`.
+    /// Closes a poll.
+    ///
+    /// Awaiting the request returns the edited message, with the final results in `raw.media`. Outside a business
+    /// chat it reads the message first, and a message without a poll fails with `Error::InvalidArgument`.
     pub fn stop_poll(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> StopPoll<'_> {
         let chat_id = chat_id.into();
         StopPoll { client: self, chat_id, message_id, reply_markup: None, business_connection_id: None }
@@ -23,11 +27,13 @@ impl Client {
 }
 
 impl StopPoll<'_> {
+    /// Replaces the inline keyboard of the message.
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
         self
     }
 
+    /// Closes a poll sent on behalf of the business account behind this connection id.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.business_connection_id = Some(id.into());
         self

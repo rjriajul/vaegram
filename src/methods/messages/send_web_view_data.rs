@@ -5,6 +5,9 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Sends `data` from a web app to a bot, naming the keyboard button `button_text` that opened it.
+    ///
+    /// An empty `button_text` or `data` fails with `Error::InvalidArgument` before any request is sent.
     pub async fn send_web_view_data(&self, bot_id: impl Into<PeerRef>, button_text: &str, data: &str) -> Result<()> {
         if button_text.is_empty() || data.is_empty() {
             return Err(Error::InvalidArgument("send_web_view_data takes a button text and data"));

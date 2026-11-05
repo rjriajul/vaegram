@@ -4,6 +4,7 @@ use crate::session::transfer::Report;
 use crate::types::messages_and_media::media_setters;
 use crate::types::{FileSource, InputMedia, PeerRef};
 
+/// Request built by [`Client::send_video_note`]. Await it to upload and send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendVideoNote<'a> {
     client: &'a Client,
@@ -14,6 +15,9 @@ pub struct SendVideoNote<'a> {
 }
 
 impl Client {
+    /// Sends a round video message.
+    ///
+    /// Awaiting the request uploads the file if needed and returns the sent [`crate::types::Message`].
     pub fn send_video_note<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,

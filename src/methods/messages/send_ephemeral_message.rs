@@ -11,6 +11,7 @@ enum ReplyTo {
     Ephemeral(i32),
 }
 
+/// Request built by [`Client::send_ephemeral_message`]. Await it to send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendEphemeralMessage<'a> {
     client: &'a Client,
@@ -26,6 +27,9 @@ pub struct SendEphemeralMessage<'a> {
 }
 
 impl Client {
+    /// Sends a message in a chat that only `receiver_user_id` sees.
+    ///
+    /// Awaiting the request returns the sent [`EphemeralMessage`].
     pub fn send_ephemeral_message(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -48,32 +52,40 @@ impl Client {
 }
 
 impl<'a> SendEphemeralMessage<'a> {
+    /// Answers the callback query with this id by sending the message.
     pub fn callback_query_id(mut self, query_id: i64) -> Self {
         self.callback_query_id = Some(query_id);
         self
     }
 
-    /// The caption comes from `InputMedia::caption`; the message text must then be empty.
+    /// Attaches media to the message.
+    ///
+    /// The caption comes from `InputMedia::caption`. The message text must then be empty, or awaiting fails with
+    /// `Error::InvalidArgument`.
     pub fn media(mut self, media: InputMedia<'a>) -> Self {
         self.media = Some(media);
         self
     }
 
+    /// Stops the receiver from forwarding or saving the message.
     pub fn protect_content(mut self) -> Self {
         self.protect_content = true;
         self
     }
 
+    /// Replies to a regular message.
     pub fn reply_to(mut self, reply: impl Into<ReplyParameters>) -> Self {
         self.reply_to = Some(ReplyTo::Message(reply.into()));
         self
     }
 
+    /// Replies to the ephemeral message with this id.
     pub fn reply_to_ephemeral(mut self, ephemeral_message_id: i32) -> Self {
         self.reply_to = Some(ReplyTo::Ephemeral(ephemeral_message_id));
         self
     }
 
+    /// Attaches a reply markup to the message.
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
         self

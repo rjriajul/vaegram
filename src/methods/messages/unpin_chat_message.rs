@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
+/// Request built by [`Client::unpin_chat_message`]. Await it to send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct UnpinChatMessage<'a> {
     client: &'a Client,
@@ -12,12 +13,16 @@ pub struct UnpinChatMessage<'a> {
 }
 
 impl Client {
+    /// Unpins one message in a chat.
+    ///
+    /// Awaiting the request returns `()`.
     pub fn unpin_chat_message(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> UnpinChatMessage<'_> {
         UnpinChatMessage { client: self, chat_id: chat_id.into(), message_id, business_connection_id: None }
     }
 }
 
 impl UnpinChatMessage<'_> {
+    /// Unpins in a chat of the business account behind this connection id.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.business_connection_id = Some(id.into());
         self

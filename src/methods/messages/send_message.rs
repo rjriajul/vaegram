@@ -5,6 +5,7 @@ use crate::errors::Result;
 use crate::raw::base;
 use crate::types::{LinkPreviewOptions, Message, PeerRef, Text};
 
+/// Request built by [`Client::send_message`]. Await it to send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendMessage<'a> {
     client: &'a Client,
@@ -16,6 +17,17 @@ pub struct SendMessage<'a> {
 }
 
 impl Client {
+    /// Sends a text message.
+    ///
+    /// Text is trimmed and parsed with the client's default parse mode unless [`html`](SendMessage::html),
+    /// [`markdown`](SendMessage::markdown) or [`parse_mode`](SendMessage::parse_mode) is set.
+    /// Awaiting the request returns the sent [`Message`].
+    ///
+    /// ```no_run
+    /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
+    /// let message = client.send_message("me", "Hello").await?;
+    /// # Ok(()) }
+    /// ```
     pub fn send_message(&self, chat_id: impl Into<PeerRef>, text: impl Into<Text>) -> SendMessage<'_> {
         SendMessage {
             client: self,
@@ -47,7 +59,7 @@ impl Client {
 }
 
 impl SendMessage<'_> {
-    /// Sends the text without a link preview (Pyrogram's `disable_web_page_preview`).
+    /// Sends the text without a link preview.
     pub fn disable_web_page_preview(mut self) -> Self {
         self.options.no_webpage = true;
         self

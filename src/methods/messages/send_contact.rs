@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::{Message, PeerRef};
 
+/// Request built by [`Client::send_contact`]. Await it to send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendContact<'a> {
     client: &'a Client,
@@ -13,6 +14,9 @@ pub struct SendContact<'a> {
 }
 
 impl Client {
+    /// Sends a phone contact card.
+    ///
+    /// Awaiting the request returns the sent [`Message`].
     pub fn send_contact(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -30,11 +34,13 @@ impl Client {
 }
 
 impl SendContact<'_> {
+    /// Last name shown on the contact card. Empty by default.
     pub fn last_name(mut self, last_name: impl Into<String>) -> Self {
         self.media.last_name = last_name.into();
         self
     }
 
+    /// vCard data for the contact. Empty by default.
     pub fn vcard(mut self, vcard: impl Into<String>) -> Self {
         self.media.vcard = vcard.into();
         self

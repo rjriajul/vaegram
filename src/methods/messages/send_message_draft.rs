@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::{MessageText, PeerRef};
 
+/// Request built by [`Client::send_message_draft`]. Await it to send the draft.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendMessageDraft<'a> {
     pub(super) client: &'a Client,
@@ -24,29 +25,37 @@ pub(super) struct DraftOptions {
 macro_rules! draft_setters {
     ($builder:ident) => {
         impl $builder<'_> {
+            /// Parses the text as HTML.
             pub fn html(self) -> Self {
                 self.parse_mode($crate::enums::ParseMode::Html)
             }
 
+            /// Parses the text as Markdown.
             pub fn markdown(self) -> Self {
                 self.parse_mode($crate::enums::ParseMode::Markdown)
             }
 
+            /// Sets how the text is parsed. Without it the client's default parse mode applies.
             pub fn parse_mode(mut self, mode: $crate::enums::ParseMode) -> Self {
                 self.options.parse_mode = Some(mode);
                 self
             }
 
+            /// Sends the draft into a forum topic.
             pub fn message_thread_id(mut self, message_thread_id: i32) -> Self {
                 self.options.message_thread_id = Some(message_thread_id);
                 self
             }
 
+            /// Sets the `can_stop` flag of the draft action.
+            ///
+            /// On a message stream it is what lets a press of stop reach the stream.
             pub fn can_stop(mut self) -> Self {
                 self.options.can_stop = true;
                 self
             }
 
+            /// Sets the `keep_on_stop` flag of the draft action.
             pub fn keep_on_stop(mut self) -> Self {
                 self.options.keep_on_stop = true;
                 self
@@ -57,8 +66,10 @@ macro_rules! draft_setters {
 pub(super) use draft_setters;
 
 impl Client {
-    /// Streams a partial message to the user while it is being generated; resend with the same
-    /// `draft_id` to update it. Empty text is allowed.
+    /// Streams a partial message to the user while it is being generated.
+    ///
+    /// Sending again with the same `draft_id` updates the draft. Empty text is allowed.
+    /// Awaiting the request returns the `bool` result of the underlying typing action.
     pub fn send_message_draft(
         &self,
         chat_id: impl Into<PeerRef>,

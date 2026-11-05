@@ -5,6 +5,7 @@ use crate::types::{Message, PeerRef, ReplyMarkup};
 
 use super::edit_message_live_location::edit_live_location;
 
+/// Request built by [`Client::stop_message_live_location`]. Await it to send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct StopMessageLiveLocation<'a> {
     client: &'a Client,
@@ -15,6 +16,9 @@ pub struct StopMessageLiveLocation<'a> {
 }
 
 impl Client {
+    /// Stops updating a live location message.
+    ///
+    /// Awaiting the request returns the edited [`Message`].
     pub fn stop_message_live_location(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -31,11 +35,13 @@ impl Client {
 }
 
 impl StopMessageLiveLocation<'_> {
+    /// Replaces the inline keyboard of the message.
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
         self
     }
 
+    /// Edits a message sent on behalf of the business account behind this connection id.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.business_connection_id = Some(id.into());
         self

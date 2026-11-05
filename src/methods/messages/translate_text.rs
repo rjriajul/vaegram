@@ -5,6 +5,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::types::{Text, TranslatedText};
 
+/// Request built by [`Client::translate_text`]. Await it to send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct TranslateText<'a> {
     client: &'a Client,
@@ -14,6 +15,9 @@ pub struct TranslateText<'a> {
 }
 
 impl Client {
+    /// Translates a piece of text into `to_language_code`.
+    ///
+    /// Awaiting the request returns the [`crate::types::TranslatedText`].
     pub fn translate_text(&self, to_language_code: impl Into<String>, text: impl Into<Text>) -> TranslateText<'_> {
         TranslateText { client: self, to_language_code: to_language_code.into(), text: text.into(), parse_mode: None }
     }

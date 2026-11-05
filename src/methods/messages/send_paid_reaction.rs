@@ -6,6 +6,7 @@ use crate::raw::functions;
 use crate::session::internals::now;
 use crate::types::PeerRef;
 
+/// Request built by [`Client::send_paid_reaction`]. Await it to send.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPaidReaction<'a> {
     client: &'a Client,
@@ -16,6 +17,9 @@ pub struct SendPaidReaction<'a> {
 }
 
 impl Client {
+    /// Sends a paid reaction worth `star_count` Stars to a message.
+    ///
+    /// A `star_count` below 1 fails with `Error::InvalidArgument`. Awaiting the request returns `()`.
     pub fn send_paid_reaction(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -27,7 +31,7 @@ impl Client {
 }
 
 impl SendPaidReaction<'_> {
-    /// Chooses who the reaction is shown as; without it the account's own setting applies.
+    /// Chooses who the reaction is shown as. Without it the account's own setting applies.
     pub fn privacy(mut self, privacy: PaidReactionPrivacy) -> Self {
         self.privacy = Some(privacy);
         self

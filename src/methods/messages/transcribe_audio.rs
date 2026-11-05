@@ -4,6 +4,8 @@ use crate::raw::functions;
 use crate::types::{PeerRef, TranscribedAudio};
 
 impl Client {
+    /// Transcribes the audio of a voice or video note message to text.
+    ///
     /// While `pending` is set, the final text arrives later as a raw `UpdateTranscribedAudio`.
     pub async fn transcribe_audio(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> Result<TranscribedAudio> {
         let peer = self.resolve_peer(chat_id).await?;
