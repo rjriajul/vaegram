@@ -20,7 +20,8 @@ use crate::utils::{get_peer, get_peer_id};
 
 /// A message in a chat, with its sender, content and metadata.
 ///
-/// Media messages keep their text in `caption` and leave `text` empty. The methods on this type, such as
+/// Media messages keep their text in `caption` and leave `text` empty. A link preview doesn't count as media.
+/// The methods on this type, such as
 /// [`reply`](Message::reply) and [`edit_text`](Message::edit_text), act on this message in its own chat.
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -42,11 +43,11 @@ pub struct Message {
     pub edit_date: Option<i32>,
     /// Formatting entities of `text`.
     pub entities: Option<Vec<MessageEntity>>,
-    /// The text of a media message. `None` if the sender added none.
+    /// The text of a media message. `None` for a text message, or if the sender wrote no caption.
     pub caption: Option<String>,
     /// Formatting entities of `caption`.
     pub caption_entities: Option<Vec<MessageEntity>>,
-    /// The attached media. `None` for a text message.
+    /// The attached media. `None` for a text message and for media of a kind [`Media`] doesn't cover.
     pub media: Option<Media>,
     /// The link preview of a text message; `media` stays `None` and the text stays in `text`.
     pub web_page: Option<WebPage>,
@@ -68,13 +69,13 @@ pub struct Message {
     pub message_thread_id: Option<i32>,
     /// The message is in a forum topic.
     pub is_topic_message: bool,
-    /// The part of the replied message that this one quotes.
+    /// The part of the replied message that this one quotes. `None` if the reply quotes nothing.
     pub quote: Option<TextQuote>,
     /// Details of a reply to a message in another chat. `None` for other messages.
     pub external_reply: Option<Box<ExternalReplyInfo>>,
     /// Where a forwarded message came from. `None` if it isn't a forward.
     pub forward_origin: Option<MessageOrigin>,
-    /// A channel post that Telegram copied into its linked discussion group.
+    /// The message is a channel post that Telegram copied into the channel's linked discussion group.
     pub is_automatic_forward: bool,
     /// The inline bot the message was sent through.
     pub via_bot: Option<User>,
@@ -498,8 +499,8 @@ impl Message {
 
     /// Edits the text of this message.
     ///
-    /// Awaiting the request returns the edited [`Message`]. Through a business connection the edit goes through
-    /// that connection.
+    /// Awaiting the request returns the edited [`Message`]. A message that came through a business connection is
+    /// edited through that connection.
     ///
     /// ```no_run
     /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
@@ -512,7 +513,8 @@ impl Message {
 
     /// Edits the caption of this media message.
     ///
-    /// It is the same request as [`edit_text`](Message::edit_text), with a plain string as the new text.
+    /// Telegram stores a caption as the message text, so this is the same request as
+    /// [`edit_text`](Message::edit_text).
     pub fn edit_caption(&self, caption: impl Into<String>) -> EditMessageText<'_> {
         self.edit_text(caption.into())
     }
@@ -574,10 +576,8 @@ impl Message {
         self.on_behalf(self.client.unpin_chat_message(self.chat.id, self.id))
     }
 
-    /// Reacts to this message.
-    ///
-    /// The reaction is sent as the bot itself, also for a message that came through a business connection.
     // Business bot rights don't cover reactions, so the bot reacts as itself.
+    /// Adds a reaction to this message. On a business message the bot reacts as itself, not as the business account.
     pub fn react(&self, reaction: impl Into<ReactionType>) -> SendReaction<'_> {
         self.client.send_reaction(self.chat.id, self.id).reaction(reaction)
     }
@@ -616,7 +616,9 @@ impl Message {
         }
     }
 
-    /// How many seconds the photo or document stays available after it's opened. `None` for other media.
+    /// How many seconds the photo or document stays available after it's opened.
+    ///
+    /// `None` if it doesn't self-destruct, and for other media.
     pub fn ttl_seconds(&self) -> Option<i32> {
         match &self.raw.media {
             Some(base::MessageMedia::MessageMediaPhoto(m)) => m.ttl_seconds,
@@ -717,6 +719,8 @@ impl Message {
     }
 
     /// Sends an album to this chat as a reply to this message.
+    ///
+    /// Awaiting the request returns the sent messages.
     pub fn reply_media_group<'a>(&'a self, media: impl IntoIterator<Item = InputMedia<'a>>) -> SendMediaGroup<'a> {
         self.answer_media_group(media).reply_to(self.id)
     }

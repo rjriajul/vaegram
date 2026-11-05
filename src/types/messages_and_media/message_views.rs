@@ -7,7 +7,7 @@ pub struct MessageViews {
     pub views: Option<i32>,
     /// Number of forwards. `None` if Telegram sent no count.
     pub forwards: Option<i32>,
-    /// Number of replies in the message's comment thread. `None` if the message has no replies information.
+    /// Number of replies in the message's comment thread. `None` if the message has no comment thread.
     pub replies: Option<i32>,
 }
 

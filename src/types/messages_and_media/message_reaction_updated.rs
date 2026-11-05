@@ -5,14 +5,14 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::{Chat, ReactionType, User};
 
-/// A user's or chat's reaction to a message changed.
+/// A change to the reactions one user or chat left on a message.
 #[derive(Clone)]
 pub struct MessageReactionUpdated {
     /// The chat the message is in.
     pub chat: Chat,
     /// Id of the message that was reacted to.
     pub message_id: i32,
-    /// The user who reacted. `None` if the reaction was made on behalf of a chat, see `actor_chat`.
+    /// The user who reacted. `None` if the reaction was made on behalf of a chat, which is then in `actor_chat`.
     pub user: Option<User>,
     /// Set instead of `user` when the reaction was made on behalf of a chat.
     pub actor_chat: Option<Chat>,
@@ -47,7 +47,7 @@ impl MessageReactionUpdated {
         }
     }
 
-    /// The client that received this update.
+    /// The [`Client`] that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }

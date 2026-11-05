@@ -3,7 +3,7 @@ use crate::dispatcher::Entities;
 use crate::raw::types;
 use crate::types::{Chat, Poll};
 
-/// A poll changed, for example its results or whether it is closed.
+/// An update with the new state of a poll, such as fresh results or its closing.
 #[derive(Debug, Clone)]
 pub struct PollUpdated {
     /// The poll as it now stands.
@@ -25,7 +25,7 @@ impl PollUpdated {
         })
     }
 
-    /// The client that received this update.
+    /// The [`Client`] that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }

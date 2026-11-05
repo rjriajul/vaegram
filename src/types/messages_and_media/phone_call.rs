@@ -9,6 +9,6 @@ pub struct PhoneCallEnded {
     pub is_video: bool,
     /// Why the call ended.
     pub reason: PhoneCallDiscardReason,
-    /// In seconds; `None` when the call never connected.
+    /// Length of the call in seconds. `None` when the call never connected.
     pub duration: Option<i32>,
 }

@@ -36,7 +36,7 @@ impl Message {
         self.client().vote_poll(self.chat.id, self.id, options).await
     }
 
-    /// Withdraws your vote from the poll in this message.
+    /// Withdraws the account's vote from the poll in this message.
     pub async fn retract_vote(&self) -> Result<()> {
         self.client().retract_vote(self.chat.id, self.id).await
     }
@@ -128,7 +128,7 @@ impl EphemeralMessage {
         self.client().edit_ephemeral_message_media(self.chat.id, self.receiver_user.id, self.id, media)
     }
 
-    /// `None` removes the keyboard.
+    /// Replaces the inline keyboard of this ephemeral message. `None` removes the keyboard.
     pub fn edit_reply_markup(&self, reply_markup: Option<InlineKeyboardMarkup>) -> EditEphemeralMessage<'_> {
         let edit = self.client().edit_ephemeral_message_reply_markup(self.chat.id, self.receiver_user.id, self.id);
         match reply_markup {

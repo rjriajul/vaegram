@@ -3,6 +3,8 @@ use crate::enums::MessageEntityType;
 use crate::raw::base;
 use crate::types::User;
 
+/// A formatted span of message text, such as bold text, a link or a mention.
+///
 /// Offsets and lengths are in UTF-16 code units.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageEntity {

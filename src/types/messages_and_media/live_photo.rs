@@ -5,7 +5,7 @@ use crate::types::{Document, FileLocation, Photo};
 /// A photo with a short video that plays when it is held. The ids, sizes and download are the video's.
 #[derive(Debug, Clone)]
 pub struct LivePhoto {
-    /// The still photo. `None` if Telegram sent none.
+    /// The still photo. `None` if Telegram sent none or it can't be downloaded.
     pub photo: Option<Photo>,
     /// Identifier of the video file, for downloading it.
     pub file_id: String,

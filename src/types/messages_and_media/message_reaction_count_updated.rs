@@ -5,7 +5,7 @@ use crate::dispatcher::Entities;
 use crate::raw::types;
 use crate::types::{Chat, ReactionCount};
 
-/// The reaction counts of a message changed.
+/// An update to the reaction counts of a message.
 #[derive(Clone)]
 pub struct MessageReactionCountUpdated {
     /// The chat the message is in.
@@ -34,7 +34,7 @@ impl MessageReactionCountUpdated {
         }
     }
 
-    /// The client that received this update.
+    /// The [`Client`] that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }

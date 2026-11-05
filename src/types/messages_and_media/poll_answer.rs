@@ -26,7 +26,7 @@ impl PollAnswer {
         PollAnswer { poll_id: raw.poll_id, user, voter_chat, option_ids: raw.positions, client: client.clone() }
     }
 
-    /// The client that received this update.
+    /// The [`Client`] that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }

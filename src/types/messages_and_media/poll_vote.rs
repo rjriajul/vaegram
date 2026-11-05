@@ -6,7 +6,7 @@ use crate::utils::get_peer_id;
 pub struct PollVote {
     /// Id of the user or chat that voted.
     pub voter_id: i64,
-    /// The chosen options, each as the option data of a poll option.
+    /// The chosen options, each as the bytes of its `PollOption::data`.
     pub options: Vec<Vec<u8>>,
     /// When the vote was cast, as a Unix timestamp.
     pub date: i32,

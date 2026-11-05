@@ -3,12 +3,12 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::Chat;
 
-/// A streamed message draft was stopped. Arrives as a stop-draft typing action in a private chat.
+/// Notice that a bot stopped streaming a message draft, sent as a stop-draft typing action in a private chat.
 #[derive(Debug, Clone)]
 pub struct MessageGenerationStopped {
     /// The private chat the draft was in.
     pub chat: Chat,
-    /// The thread the draft was in, if any.
+    /// Id of the thread the draft was in. `None` outside of a thread.
     pub message_thread_id: Option<i32>,
     /// Id of the stopped draft.
     pub draft_id: i64,
@@ -33,7 +33,7 @@ impl MessageGenerationStopped {
         })
     }
 
-    /// The client that received this update.
+    /// The [`Client`] that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }

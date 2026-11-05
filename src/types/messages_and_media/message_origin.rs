@@ -33,7 +33,7 @@ pub enum MessageOrigin {
         date: i32,
         /// The chat the message was sent on behalf of.
         sender_chat: Chat,
-        /// Signature of the author, `None` when there is none.
+        /// Signature of the author. `None` if Telegram sent none.
         author_signature: Option<String>,
     },
     /// Posted in a channel, with the id of the original post.
@@ -44,7 +44,7 @@ pub enum MessageOrigin {
         chat: Chat,
         /// Id of the original post in the channel.
         message_id: i32,
-        /// Signature of the post author, `None` when there is none.
+        /// Signature of the post author. `None` if the channel doesn't sign posts.
         author_signature: Option<String>,
     },
 }

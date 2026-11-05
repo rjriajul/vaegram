@@ -26,7 +26,7 @@ pub struct Poll {
     pub allows_multiple_answers: bool,
     /// Index into [`Poll::options`] of the right answer of a quiz, once the client may see it.
     pub correct_option_id: Option<usize>,
-    /// Text shown after a wrong quiz answer. `None` if there is none or the client may not see it yet.
+    /// Explanation of a quiz's right answer. `None` if there is none or the account can't see it yet.
     pub explanation: Option<String>,
     /// Formatting of the explanation. `None` if it has none.
     pub explanation_entities: Option<Vec<MessageEntity>>,

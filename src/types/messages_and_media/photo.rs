@@ -17,7 +17,7 @@ pub struct Photo {
     pub width: i32,
     /// Height of the largest size, in pixels.
     pub height: i32,
-    /// Size of the largest size in bytes.
+    /// File size of the largest size, in bytes.
     pub file_size: i64,
     /// Unix time the photo was uploaded.
     pub date: i32,

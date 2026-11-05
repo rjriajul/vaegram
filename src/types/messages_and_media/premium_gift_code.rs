@@ -8,11 +8,11 @@ use crate::types::{Chat, MessageEntity};
 pub struct PremiumGiftCode {
     /// The chat that created the code, if any.
     pub creator: Option<Chat>,
-    /// The message the sender attached.
+    /// The message the sender attached. `None` if there is none.
     pub text: Option<String>,
     /// Formatting entities of `text`.
     pub entities: Option<Vec<MessageEntity>>,
-    /// Whether the code was won in a giveaway.
+    /// The code was won in a giveaway.
     pub is_from_giveaway: bool,
     /// A giveaway prize nobody claimed.
     pub is_unclaimed: bool,

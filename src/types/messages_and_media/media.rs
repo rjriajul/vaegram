@@ -126,7 +126,7 @@ impl Media {
         })
     }
 
-    /// The [`MediaKind`] of this media.
+    /// The [`MediaKind`] of this media, the same value message filters match on.
     pub fn kind(&self) -> MediaKind {
         match self {
             Media::Photo(_) => MediaKind::Photo,
