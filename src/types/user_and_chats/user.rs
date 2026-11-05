@@ -4,31 +4,56 @@ use crate::enums::UserStatus;
 use crate::raw::base;
 use crate::types::{ChatColor, ChatPhoto, EmojiStatus, RestrictionReason, Username};
 
+/// A Telegram user or bot.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct User {
+    /// The user id.
     pub id: i64,
+    /// The user is a bot.
     pub is_bot: bool,
+    /// First name. Empty if Telegram did not send the user.
     pub first_name: String,
+    /// Last name. `None` if not set.
     pub last_name: Option<String>,
+    /// The username, or the first active one from `usernames` when none is editable. `None` if there is none.
     pub username: Option<String>,
+    /// Language code of the user's app, when Telegram sends it.
     pub language_code: Option<String>,
+    /// The user has Telegram Premium.
     pub is_premium: bool,
+    /// The account is deleted.
     pub is_deleted: bool,
+    /// Verified by Telegram.
     pub is_verified: bool,
+    /// Telegram flagged the account as a scam.
     pub is_scam: bool,
+    /// Telegram flagged the account as impersonating someone.
     pub is_fake: bool,
+    /// Bots only: the bot handles join request queries.
     pub supports_join_request_queries: bool,
+    /// Bots only: the bot handles guest chat queries.
     pub supports_guest_queries: bool,
+    /// Bots only: the bot can be added to groups.
     pub can_join_groups: bool,
+    /// Bots only: the bot sees all messages in groups, not only commands and replies.
     pub can_read_all_group_messages: bool,
+    /// Bots only: the bot handles inline queries.
     pub supports_inline_queries: bool,
+    /// Bots only: the bot can be connected to a business account.
     pub can_connect_to_business: bool,
+    /// Bots only: the bot has a main Mini App.
     pub has_main_web_app: bool,
+    /// Bots only: the bot can manage other bots.
     pub can_manage_bots: bool,
+    /// Bots only: the bot chat shows topics.
     pub has_topics_enabled: bool,
+    /// Bots only: users can create topics in the bot chat.
     pub allows_users_to_create_topics: bool,
+    /// Online status. `None` when Telegram did not send it.
     pub status: Option<UserStatus>,
+    /// Unix time the user was last online. Set only when `status` is offline.
     pub last_online_date: Option<i32>,
+    /// Unix time the user's online status expires. Set only when `status` is online.
     pub next_offline_date: Option<i32>,
     /// This is your own account.
     pub is_self: bool,
@@ -46,6 +71,7 @@ pub struct User {
     pub is_close_friend: bool,
     /// You hid their stories.
     pub is_stories_hidden: bool,
+    /// Their stories are unavailable to you.
     pub is_stories_unavailable: bool,
     /// The custom emoji shown next to a verified bot's name.
     pub bot_verification_icon_custom_emoji_id: Option<i64>,
@@ -65,14 +91,19 @@ pub struct User {
     pub can_be_added_to_attachment_menu: bool,
     /// Stars charged per message sent to them.
     pub paid_message_star_count: Option<i64>,
+    /// The emoji status. `None` if not set.
     pub emoji_status: Option<EmojiStatus>,
+    /// Why the account is restricted on some platforms.
     pub restrictions: Vec<RestrictionReason>,
     /// Every username, including collectible ones; `username` is the editable one when set.
     pub usernames: Vec<Username>,
     /// The data center that stores the profile photo.
     pub dc_id: Option<i32>,
+    /// The profile photo. `None` if there is none or Telegram sent no access hash for it.
     pub photo: Option<ChatPhoto>,
+    /// Color used for replies to their messages. `None` if not set.
     pub reply_color: Option<ChatColor>,
+    /// Color of the profile page. `None` if not set.
     pub profile_color: Option<ChatColor>,
 }
 

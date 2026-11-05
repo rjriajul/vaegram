@@ -3,7 +3,9 @@ use crate::raw::base;
 /// What Telegram wants signed to prove you own a wallet key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TonWalletOwnershipProofChallenge {
+    /// The payload to sign.
     pub payload: String,
+    /// The domain to include in the signed data.
     pub domain: String,
     /// Unix time after which the challenge is no longer accepted.
     pub expiration_date: i32,

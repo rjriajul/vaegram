@@ -3,8 +3,11 @@ use crate::raw::base;
 /// A link that lets whoever opens it message you without paying, even if you charge for messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoPaidMessagesToken {
+    /// The raw token.
     pub token: String,
+    /// The link that carries the token.
     pub link: String,
+    /// Unix time the link stops working. `None` if it never expires.
     pub expiration_date: Option<i32>,
 }
 

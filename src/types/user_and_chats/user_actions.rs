@@ -19,22 +19,27 @@ impl User {
         Text::new().mention(self.full_name(), self.id)
     }
 
+    /// Moves the chat with this user to the archive.
     pub async fn archive(&self, client: &Client) -> Result<()> {
         client.archive_chats([self.id]).await
     }
 
+    /// Moves the chat with this user out of the archive.
     pub async fn unarchive(&self, client: &Client) -> Result<()> {
         client.unarchive_chats([self.id]).await
     }
 
+    /// Blocks this user.
     pub fn block<'a>(&self, client: &'a Client) -> BlockUser<'a> {
         client.block_user(self.id)
     }
 
+    /// Unblocks this user.
     pub fn unblock<'a>(&self, client: &'a Client) -> UnblockUser<'a> {
         client.unblock_user(self.id)
     }
 
+    /// Returns the chats you share with this user.
     pub async fn get_common_chats(&self, client: &Client) -> Result<Vec<Chat>> {
         client.get_common_chats(self.id).await
     }

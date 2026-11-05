@@ -1,16 +1,26 @@
 use crate::enums::PassportElementType;
 use crate::raw::{base, types};
 
+/// An error in a Telegram Passport element, reported back to the user so they can correct it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PassportElementError {
+    /// A problem in one field of the element's data.
     DataField { kind: PassportElementType, field_name: String, data_hash: Vec<u8>, message: String },
+    /// A problem with the front side of a document.
     FrontSide { kind: PassportElementType, file_hash: Vec<u8>, message: String },
+    /// A problem with the reverse side of a document.
     ReverseSide { kind: PassportElementType, file_hash: Vec<u8>, message: String },
+    /// A problem with the selfie holding the document.
     Selfie { kind: PassportElementType, file_hash: Vec<u8>, message: String },
+    /// A problem with one uploaded file of the element.
     File { kind: PassportElementType, file_hash: Vec<u8>, message: String },
+    /// A problem with a list of uploaded files.
     Files { kind: PassportElementType, file_hashes: Vec<Vec<u8>>, message: String },
+    /// A problem with one translation of the document.
     TranslationFile { kind: PassportElementType, file_hash: Vec<u8>, message: String },
+    /// A problem with a list of translation files.
     TranslationFiles { kind: PassportElementType, file_hashes: Vec<Vec<u8>>, message: String },
+    /// A problem with the element as a whole.
     Unspecified { kind: PassportElementType, element_hash: Vec<u8>, message: String },
 }
 

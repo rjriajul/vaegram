@@ -42,6 +42,7 @@ impl TonWalletState {
         }
     }
 
+    /// The client that fetched this state.
     pub fn client(&self) -> &Client {
         &self.client
     }
