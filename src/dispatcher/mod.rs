@@ -139,7 +139,13 @@ impl Dispatcher {
             };
             match next {
                 Ok(Some(incoming)) => self.process(incoming),
-                Ok(None) => return false,
+                Ok(None) => {
+                    // The connection is gone for good: save here, since the next save is on drop, which a crash skips.
+                    if self.same_account() {
+                        self.client.0.save_state(&self.tracker.state).await;
+                    }
+                    return false;
+                }
                 Err(_) => self.tracker.expire(Instant::now()),
             }
             self.resolve().await;
@@ -256,7 +262,7 @@ mod tests {
     use crate::errors::{Error, RpcError};
     use crate::raw::{Identifiable, Serializable};
     use crate::session::UpdatesRx;
-    use crate::storage::UpdateState;
+    use crate::storage::{Recording, Storage, UpdateState};
     use crate::types::{Message, RawUpdate};
     use crate::utils::{get_channel_id, get_peer};
 
@@ -712,5 +718,44 @@ mod tests {
         let got = answers.recv().await.expect("the handler never answered");
         assert!(matches!(got, Err(Error::ListenerStopped)), "{got:?}");
         assert!(start.elapsed() < std::time::Duration::from_secs(300), "stop waited for the listener's timeout");
+    }
+
+    fn recording_client() -> (Client, Arc<Recording>) {
+        let engine = Arc::new(Recording::default());
+        let (mut client, _sent) = Client::scripted(Vec::new());
+        Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
+        (client, engine)
+    }
+
+    /// Runs a dispatcher over one update that moves pts to 2, then closes the update channel.
+    async fn run_until_disconnected(client: &Client, forget_account: bool) -> bool {
+        let mut d = Dispatcher::new(client.clone(), &state());
+        let (updates, mut rx) = UpdatesRx::channel();
+        let short = types::UpdateShort { update: new_message(2), date: 0 };
+        let incoming = Incoming { updates: base::Updates::UpdateShort(Box::new(short)), from_request: false };
+        updates.send(incoming).await.unwrap();
+        drop(updates);
+        if forget_account {
+            client.forget_account();
+        }
+        d.run(&mut rx).await
+    }
+
+    #[tokio::test]
+    async fn a_lost_connection_saves_the_update_state() {
+        let (client, engine) = recording_client();
+        let stopped = run_until_disconnected(&client, false).await;
+        // Read before the client is dropped, which would save it anyway.
+        let saved = engine.load_state().await.unwrap().and_then(|s| s.update);
+        assert!(!stopped);
+        assert_eq!(saved.map(|s| s.pts), Some(2));
+    }
+
+    #[tokio::test]
+    async fn a_lost_connection_saves_nothing_for_a_forgotten_account() {
+        let (client, engine) = recording_client();
+        let stopped = run_until_disconnected(&client, true).await;
+        assert!(!stopped);
+        assert!(!engine.calls().contains(&"save_state"), "{:?}", engine.calls());
     }
 }
