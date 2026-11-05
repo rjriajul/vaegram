@@ -1,10 +1,11 @@
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
-use crate::storage::input_peer;
+use crate::storage::{USERNAME_TTL, input_peer};
 use crate::types::PeerRef;
 use crate::utils::{CHANNEL_OFFSET, chats_of, input_user};
 
@@ -22,7 +23,7 @@ impl Client {
         let chat_id = match chat {
             PeerRef::Id(id) => *id,
             PeerRef::Me => return Ok((self.0.me.lock().unwrap().id, base::InputPeer::InputPeerSelf)),
-            PeerRef::Username(name) => self.resolve_username(name).await?,
+            PeerRef::Username(name) => self.username_id(name).await?,
             PeerRef::Invite(hash) => {
                 let request = functions::messages::CheckChatInvite { hash: String::from(&**hash) };
                 let chat = match self.invoke(&request).await? {
@@ -35,6 +36,29 @@ impl Client {
             }
         };
         Ok((chat_id, self.resolve_id(chat_id).await?))
+    }
+
+    /// A username's peer: from memory or the store while the name is fresh, else from Telegram.
+    async fn username_id(&self, name: &str) -> Result<i64> {
+        let name = name.trim_start_matches('@').to_ascii_lowercase();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+        let fresh = |updated: i64| now.saturating_sub(updated) <= USERNAME_TTL.as_secs() as i64;
+        let cached = self.0.peers.lock().unwrap().by_username(&name);
+        if let Some((id, _)) = cached.filter(|&(_, updated)| fresh(updated)) {
+            return Ok(id);
+        }
+        match self.0.store.get_peer_by_username(name.clone()).await {
+            Ok(Some(record)) => {
+                if fresh(record.updated) && input_peer(record.id, record.access_hash).is_some() {
+                    let id = record.id;
+                    self.0.peers.lock().unwrap().load([record]);
+                    return Ok(id);
+                }
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("vaegram: couldn't look @{name} up in storage, asking Telegram: {e}"),
+        }
+        self.resolve_username(&name).await
     }
 
     async fn resolve_id(&self, chat_id: i64) -> Result<base::InputPeer> {
@@ -288,5 +312,74 @@ mod tests {
         assert_eq!(u32::from_le_bytes(body[..4].try_into().unwrap()), users::GetUsers::CONSTRUCTOR_ID);
         assert!(matches!(result, Err(Error::Unexpected("offline"))), "{result:?}");
         assert_eq!(engine.calls(), ["get_peer_by_id"]);
+    }
+
+    #[tokio::test]
+    async fn a_failing_store_sends_names_and_numbers_to_telegram() {
+        let offline = || Err(Error::Unexpected("offline"));
+        let (mut client, mut sent) = Client::scripted(vec![offline(), offline()]);
+        let engine = std::sync::Arc::new(crate::storage::Recording::failing());
+        std::sync::Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
+        let by_name = client.resolve_peer("@alice").await;
+        let by_phone = client.resolve_phone("+1 555 0100").await;
+        assert!(matches!(by_name, Err(Error::Unexpected("offline"))), "{by_name:?}");
+        assert!(matches!(by_phone, Err(Error::Unexpected("offline"))), "{by_phone:?}");
+        let constructor = |body: Vec<u8>| u32::from_le_bytes(body[..4].try_into().unwrap());
+        assert_eq!(constructor(sent.try_recv().unwrap()), contacts::ResolveUsername::CONSTRUCTOR_ID);
+        assert_eq!(constructor(sent.try_recv().unwrap()), contacts::ResolvePhone::CONSTRUCTOR_ID);
+        assert_eq!(engine.calls(), ["get_peer_by_username", "get_peer_by_phone_number"]);
+    }
+
+    fn user_named(id: i64, username: &str) -> base::User {
+        let mut buf = Vec::new();
+        // flags: access_hash (bit 0) and username (bit 3)
+        0b1001u32.serialize(&mut buf);
+        0u32.serialize(&mut buf);
+        id.serialize(&mut buf);
+        7i64.serialize(&mut buf);
+        username.to_owned().serialize(&mut buf);
+        base::User::User(Box::new(types::User::deserialize_bare(&mut &buf[..]).unwrap()))
+    }
+
+    #[tokio::test]
+    async fn a_fresh_username_is_resolved_without_a_request() {
+        let (client, mut sent) = Client::scripted(Vec::new());
+        crate::dispatcher::Entities::new(&client, vec![user_named(100, "Alice")], Vec::new());
+        let (id, _) = client.resolve(&PeerRef::Username("@alice".into())).await.unwrap();
+        assert_eq!(id, 100);
+        assert!(sent.try_recv().is_err(), "a request went out");
+    }
+
+    #[tokio::test]
+    async fn a_stale_username_is_looked_up_again() {
+        let (client, mut sent) = Client::scripted(vec![Err(Error::Unexpected("offline"))]);
+        let mut old = crate::storage::PeerRecord::new(100, 7);
+        (old.usernames, old.updated) = (vec!["alice".into()], 1);
+        client.0.peers.lock().unwrap().load([old]);
+        let _ = client.resolve(&PeerRef::Username("alice".into())).await;
+        assert_eq!(
+            sent.try_recv().map(|b| u32::from_le_bytes(b[..4].try_into().unwrap())).ok(),
+            Some(contacts::ResolveUsername::CONSTRUCTOR_ID)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stale_name_confirmed_by_telegram_is_fresh_again() {
+        let peer = base::Peer::PeerUser(types::PeerUser { user_id: 100 });
+        let resolved = types::contacts::ResolvedPeer { peer, chats: Vec::new(), users: vec![user_named(100, "alice")] };
+        let reply = base::contacts::ResolvedPeer::ResolvedPeer(Box::new(resolved)).to_bytes();
+        let (client, mut sent) = Client::scripted(vec![Ok(reply)]);
+        let mut old = crate::storage::PeerRecord::new(100, 7);
+        let nine_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(9 * 60 * 60);
+        let then = nine_hours_ago.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        (old.usernames, old.updated) = (vec!["alice".into()], then);
+        client.0.peers.lock().unwrap().load([old]);
+
+        for _ in 0..2 {
+            let (id, _) = client.resolve(&PeerRef::Username("alice".into())).await.unwrap();
+            assert_eq!(id, 100);
+        }
+        assert!(sent.try_recv().is_ok(), "the stale name was looked up");
+        assert!(sent.try_recv().is_err(), "the confirmed name was looked up again");
     }
 }

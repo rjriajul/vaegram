@@ -850,7 +850,7 @@ mod tests {
     use crate::raw::{base, types};
     use crate::session::test_dc::TestDc;
     use crate::storage::{FileStorage, MemoryStorage, PeerRecord, Recording, SessionData, Storage, UpdateState};
-    use crate::types::Json;
+    use crate::types::{Json, PeerRef};
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("vaegram-client-{name}-{}", std::process::id()));
@@ -991,6 +991,24 @@ mod tests {
         assert_eq!(peer, expected);
         assert!(sent.try_recv().is_err(), "a request went out");
         assert!(client.0.peers.lock().unwrap().contains_key(&777), "and it stays cached");
+    }
+
+    #[tokio::test]
+    async fn a_stored_username_survives_a_restart() {
+        let dir = temp_dir("usernames");
+        let (mut client, _) = Client::scripted(Vec::new());
+        Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
+        *client.0.me.lock().unwrap() = Me { id: 1001, is_bot: true, ..Me::default() };
+        client.save().await.unwrap();
+        client.0.peers.lock().unwrap().remember(777, 5, &["Alice"], None);
+        drop(client);
+
+        let (mut client, mut sent) = Client::scripted(Vec::new());
+        Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
+        let found = client.resolve(&PeerRef::Username("@alice".into())).await;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(found.unwrap().0, 777);
+        assert!(sent.try_recv().is_err(), "a request went out");
     }
 
     #[tokio::test]

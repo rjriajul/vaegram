@@ -1,5 +1,6 @@
 #[cfg(test)]
 pub(crate) mod conformance;
+mod copy;
 mod engine;
 mod file_format;
 mod file_storage;
@@ -22,13 +23,14 @@ mod store;
 #[cfg(feature = "vault")]
 mod vault_storage;
 
+pub use copy::copy;
 pub use engine::{PeerRecord, Storage, StorageFuture, StoredState};
 pub use file_storage::FileStorage;
 pub use hybrid_storage::HybridStorage;
 pub use memory_storage::MemoryStorage;
 #[cfg(feature = "mongodb")]
 pub use mongo_storage::MongoStorage;
-pub(crate) use peer_cache::{PeerCache, input_peer};
+pub(crate) use peer_cache::{PeerCache, USERNAME_TTL, input_peer};
 #[cfg(feature = "redb")]
 pub use redb_storage::RedbStorage;
 #[cfg(feature = "redis")]

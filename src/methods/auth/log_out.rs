@@ -22,7 +22,7 @@ mod tests {
     use crate::dispatcher::Dispatcher;
     use crate::errors::{Error, Result};
     use crate::raw::{Serializable, base, types};
-    use crate::storage::{FileStorage, Recording, Storage, UpdateState};
+    use crate::storage::{FileStorage, MemoryStorage, Recording, Storage, UpdateState};
 
     fn logged_out() -> Vec<u8> {
         base::auth::LoggedOut::LoggedOut(Box::new(types::auth::LoggedOut { future_auth_token: None })).to_bytes()
@@ -138,5 +138,25 @@ mod tests {
         let result = client.log_out().await;
         assert!(matches!(saved, Err(Error::Io(_))), "{saved:?}");
         assert!(matches!(result, Err(Error::Io(_))), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn log_out_forgets_usernames() {
+        let engine = Arc::new(MemoryStorage::new());
+        let client = client_with(engine.clone(), vec![Ok(logged_out())]);
+        log_in_a(&client).await;
+        client.0.peers.lock().unwrap().remember(777, 5, &["alice"], Some("15550777"));
+        client.0.store.flush().await;
+        let saved = engine.get_peer_by_username("alice").await.unwrap().map(|p| p.id);
+
+        client.log_out().await.unwrap();
+        let cached = {
+            let peers = client.0.peers.lock().unwrap();
+            (peers.by_username("alice"), peers.by_phone_number("15550777"))
+        };
+        assert_eq!(saved, Some(777));
+        assert_eq!(cached, (None, None));
+        assert_eq!(engine.get_peer_by_username("alice").await.unwrap(), None);
+        assert_eq!(engine.get_peer_by_phone_number("15550777").await.unwrap(), None);
     }
 }
