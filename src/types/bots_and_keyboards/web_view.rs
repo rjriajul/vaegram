@@ -2,11 +2,16 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, functions};
 
+/// A mini app opened for the user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebView {
+    /// URL to load in the web view.
     pub url: String,
+    /// Id for answering the web app query. `None` if Telegram sent none.
     pub query_id: Option<i64>,
+    /// Opens the web view at full height.
     pub fullsize: bool,
+    /// Opens the web view in fullscreen.
     pub fullscreen: bool,
     pub same_origin: bool,
 }
@@ -24,8 +29,10 @@ impl WebView {
     }
 }
 
+/// A [`WebView`] together with the request that keeps it alive.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WebViewSession {
+    /// The web view.
     pub view: WebView,
     request: functions::messages::ProlongWebView,
 }

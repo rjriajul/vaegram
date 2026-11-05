@@ -3,16 +3,26 @@ use crate::enums::AttachMenuPeerType;
 use crate::raw::types;
 use crate::types::User;
 
+/// A bot listed in the attachment menu or the side menu.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttachMenuBot {
+    /// The bot's user.
     pub bot: User,
+    /// Name shown for the bot in the menu.
     pub short_name: String,
+    /// Telegram marks the bot as inactive for the user.
     pub inactive: bool,
+    /// The bot's mini app has a settings screen.
     pub has_settings: bool,
+    /// The bot asks for permission to message the user.
     pub request_write_access: bool,
+    /// The bot appears in the attachment menu.
     pub show_in_attach_menu: bool,
+    /// The bot appears in the side menu.
     pub show_in_side_menu: bool,
+    /// Telegram shows a disclaimer before the bot is added to the side menu.
     pub side_menu_disclaimer_needed: bool,
+    /// Chat types the bot shows up in. Empty if Telegram sent none.
     pub peer_types: Vec<AttachMenuPeerType>,
 }
 

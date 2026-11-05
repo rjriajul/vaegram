@@ -4,24 +4,32 @@ use crate::types::ChatPrivileges;
 /// Asks the user to pick a group or channel; it arrives as `ServiceAction::ChatShared` carrying `request_id`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyboardButtonRequestChat {
+    /// Identifies the request in the [`ChatShared`](crate::types::ChatShared) that comes back.
     pub request_id: i32,
     /// A channel rather than a group.
     pub chat_is_channel: bool,
     /// Groups only. `Some(true)` only forums.
     pub chat_is_forum: Option<bool>,
+    /// `Some(true)` only chats with a username, `Some(false)` only chats without. `None` for either.
     pub chat_has_username: Option<bool>,
     /// Only chats the user owns.
     pub chat_is_created: bool,
+    /// Rights the user must have as an administrator of the chat. `None` for no requirement.
     pub user_administrator_rights: Option<ChatPrivileges>,
+    /// Rights the bot is to get as an administrator of the chat. `None` for no requirement.
     pub bot_administrator_rights: Option<ChatPrivileges>,
     /// Groups only: the bot has to be a member.
     pub bot_is_member: bool,
+    /// Also share the chat's title.
     pub request_title: bool,
+    /// Also share the chat's username.
     pub request_username: bool,
+    /// Also share the chat's photo.
     pub request_photo: bool,
 }
 
 impl KeyboardButtonRequestChat {
+    /// Creates a request for a group, with no further filters.
     pub fn new(request_id: i32) -> Self {
         KeyboardButtonRequestChat {
             request_id,
@@ -38,51 +46,61 @@ impl KeyboardButtonRequestChat {
         }
     }
 
+    /// Asks for a channel instead of a group.
     pub fn chat_is_channel(mut self) -> Self {
         self.chat_is_channel = true;
         self
     }
 
+    /// Limits groups to forums or to non-forums. Ignored for channels.
     pub fn chat_is_forum(mut self, is_forum: bool) -> Self {
         self.chat_is_forum = Some(is_forum);
         self
     }
 
+    /// Limits chats to those with or without a username.
     pub fn chat_has_username(mut self, has_username: bool) -> Self {
         self.chat_has_username = Some(has_username);
         self
     }
 
+    /// Limits chats to those the user owns.
     pub fn chat_is_created(mut self) -> Self {
         self.chat_is_created = true;
         self
     }
 
+    /// Requires the user to have these rights in the chat.
     pub fn user_administrator_rights(mut self, rights: ChatPrivileges) -> Self {
         self.user_administrator_rights = Some(rights);
         self
     }
 
+    /// Asks for the bot to get these rights in the chat.
     pub fn bot_administrator_rights(mut self, rights: ChatPrivileges) -> Self {
         self.bot_administrator_rights = Some(rights);
         self
     }
 
+    /// Limits groups to those the bot is a member of. Ignored for channels.
     pub fn bot_is_member(mut self) -> Self {
         self.bot_is_member = true;
         self
     }
 
+    /// Also shares the chat's title.
     pub fn request_title(mut self) -> Self {
         self.request_title = true;
         self
     }
 
+    /// Also shares the chat's username.
     pub fn request_username(mut self) -> Self {
         self.request_username = true;
         self
     }
 
+    /// Also shares the chat's photo.
     pub fn request_photo(mut self) -> Self {
         self.request_photo = true;
         self

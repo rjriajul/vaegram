@@ -1,14 +1,19 @@
 use crate::raw::{base, types};
 use crate::types::LabeledPrice;
 
+/// One way to ship an order, with its price lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShippingOption {
+    /// Identifier the bot picks. Comes back as [`crate::types::PreCheckoutQuery::shipping_option_id`].
     pub id: String,
+    /// Name shown to the buyer.
     pub title: String,
+    /// Price lines that make up the cost of this option.
     pub prices: Vec<LabeledPrice>,
 }
 
 impl ShippingOption {
+    /// Creates a shipping option.
     pub fn new(
         id: impl Into<String>,
         title: impl Into<String>,

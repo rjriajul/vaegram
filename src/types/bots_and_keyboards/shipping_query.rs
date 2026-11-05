@@ -7,11 +7,16 @@ use crate::methods::AnswerShippingQuery;
 use crate::raw::types;
 use crate::types::{ShippingAddress, ShippingOption, User};
 
+/// A buyer's shipping address, sent so the bot can offer shipping options and prices.
 #[derive(Clone)]
 pub struct ShippingQuery {
+    /// Id of the query, used to answer it.
     pub id: i64,
+    /// The user buying.
     pub from_user: User,
+    /// The payload the bot set on the invoice.
     pub invoice_payload: String,
+    /// The address to ship to.
     pub shipping_address: ShippingAddress,
     client: Client,
 }
@@ -27,14 +32,17 @@ impl ShippingQuery {
         }
     }
 
+    /// The client that received the query.
     pub fn client(&self) -> &Client {
         &self.client
     }
 
+    /// Offers shipping options for the address. Await the returned request to send it.
     pub fn answer(&self, options: impl IntoIterator<Item = ShippingOption>) -> AnswerShippingQuery<'_> {
         self.client.answer_shipping_query(self.id).shipping_options(options)
     }
 
+    /// Tells the user the order can't ship to this address, with `reason` as the message.
     pub async fn decline(&self, reason: impl Into<String>) -> Result<()> {
         self.client.answer_shipping_query(self.id).error(reason).await.map(drop)
     }

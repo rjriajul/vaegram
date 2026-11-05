@@ -2,39 +2,62 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::{Chat, StarAmount, User};
 
+/// The other side of a Stars transaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TransactionPartner {
+    /// A user, for example paying for an invoice or a subscription.
     User {
+        /// The user.
         user: Box<User>,
+        /// The affiliate that earned a commission on this sale. `None` if there is none.
         affiliate: Option<AffiliateInfo>,
+        /// The payload the bot set on the invoice. `None` if the transaction has no bot payload.
         invoice_payload: Option<String>,
+        /// Length of the subscription period in seconds. `None` if it isn't a subscription.
         subscription_period: Option<i32>,
     },
+    /// A chat or channel.
     Chat(Chat),
+    /// Commission paid out by an affiliate program.
     AffiliateProgram {
+        /// The bot that runs the program.
         sponsor_user: User,
+        /// Commission as parts per thousand of the sale.
         commission_per_mille: i32,
     },
+    /// A withdrawal to Fragment. `None` if Telegram gave no state.
     Fragment(Option<RevenueWithdrawalState>),
+    /// Telegram Ads.
     TelegramAds,
+    /// Telegram API usage, such as paid broadcasts.
     TelegramApi {
+        /// Number of requests covered by the transaction.
         request_count: i32,
     },
+    /// Any partner this library doesn't map.
     Other,
 }
 
+/// Affiliate commission that came with a sale.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AffiliateInfo {
+    /// The chat that earned the commission.
     pub affiliate: Chat,
+    /// Commission as parts per thousand of the sale.
     pub commission_per_mille: i32,
+    /// Commission amount the affiliate received.
     pub amount: StarAmount,
 }
 
+/// Progress of a withdrawal to Fragment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RevenueWithdrawalState {
+    /// The withdrawal is still in progress.
     Pending,
+    /// The withdrawal finished. `date` is a Unix timestamp and `url` points to the transaction.
     Succeeded { date: i32, url: String },
+    /// The withdrawal failed.
     Failed,
 }
 

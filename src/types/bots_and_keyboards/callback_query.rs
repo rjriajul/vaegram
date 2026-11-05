@@ -11,29 +11,41 @@ use crate::types::{
 };
 use crate::utils::get_peer;
 
+/// A press of an inline keyboard button that carries callback data.
 #[derive(Clone)]
 pub struct CallbackQuery {
+    /// The query id, used to answer it.
     pub id: i64,
+    /// The user who pressed the button.
     pub from_user: User,
+    /// The message the button is on.
     pub origin: CallbackOrigin,
+    /// The data attached to the button. Invalid UTF-8 is replaced.
     pub data: String,
     /// Set when a `callback_game` button was pressed; answer with the game's URL to open it.
     pub game_short_name: Option<String>,
+    /// Identifies the chat the message was shown in.
     pub chat_instance: i64,
     // A business update carries the pressed message, since the bot can't read the account's history.
     carried: Option<Box<Message>>,
     client: Client,
 }
 
+/// Where the pressed button lives.
 #[derive(Debug, Clone)]
 pub enum CallbackOrigin {
+    /// A regular message in a chat.
     Message {
+        /// The chat the message is in.
         chat: Box<Chat>,
+        /// Id of the message within the chat.
         message_id: i32,
         /// Set for a business account's messages; edits then go through that connection.
         business_connection_id: Option<String>,
     },
+    /// A message sent through inline mode.
     Inline(InlineMessageId),
+    /// An ephemeral message.
     Ephemeral(Box<EphemeralMessage>),
 }
 
@@ -124,6 +136,7 @@ impl CallbackQuery {
         }
     }
 
+    /// The client that received the update.
     pub fn client(&self) -> &Client {
         &self.client
     }
@@ -147,6 +160,7 @@ impl CallbackQuery {
         }
     }
 
+    /// The chat of the message. `None` for inline messages.
     pub fn chat(&self) -> Option<&Chat> {
         match &self.origin {
             CallbackOrigin::Message { chat, .. } => Some(&**chat),
@@ -155,6 +169,7 @@ impl CallbackQuery {
         }
     }
 
+    /// Id of the message. `None` for inline messages.
     pub fn message_id(&self) -> Option<i32> {
         match &self.origin {
             CallbackOrigin::Message { message_id, .. } => Some(*message_id),
@@ -163,10 +178,12 @@ impl CallbackQuery {
         }
     }
 
+    /// The inline message id. `None` unless the button is on an inline message.
     pub fn inline_message_id(&self) -> Option<&InlineMessageId> {
         if let CallbackOrigin::Inline(id) = &self.origin { Some(id) } else { None }
     }
 
+    /// The business connection of the message. `None` unless it belongs to a business account.
     pub fn business_connection_id(&self) -> Option<&str> {
         match &self.origin {
             CallbackOrigin::Message { business_connection_id, .. } => business_connection_id.as_deref(),
@@ -174,10 +191,12 @@ impl CallbackQuery {
         }
     }
 
+    /// Starts an answer to this query. See [`Client::answer_callback_query`].
     pub fn answer(&self) -> AnswerCallbackQuery<'_> {
         self.client.answer_callback_query(self.id)
     }
 
+    /// Edits the text of the message the button is on, whatever kind of message it is.
     pub fn edit_message_text(&self, text: impl Into<MessageText>) -> EditCallbackMessageText<'_> {
         let client = &self.client;
         match &self.origin {
@@ -216,6 +235,7 @@ impl CallbackQuery {
         }
     }
 
+    /// Deletes the message the button is on. Inline messages can't be deleted and return an error.
     pub async fn delete_message(&self) -> Result<()> {
         match &self.origin {
             CallbackOrigin::Message { message_id, business_connection_id: Some(connection), .. } => {
@@ -242,22 +262,29 @@ impl fmt::Debug for CallbackQuery {
     }
 }
 
+/// A text edit of the message behind a [`CallbackQuery`], awaited like any other edit.
 #[must_use = "a request does nothing until it is awaited"]
 pub enum EditCallbackMessageText<'a> {
+    /// Edit of a regular message.
     Message(EditMessageText<'a>),
+    /// Edit of an inline message.
     Inline(EditInlineText<'a>),
+    /// Edit of an ephemeral message.
     Ephemeral(EditEphemeralMessage<'a>),
 }
 
 impl EditCallbackMessageText<'_> {
+    /// Parses the text as HTML.
     pub fn html(self) -> Self {
         self.parse_mode(ParseMode::Html)
     }
 
+    /// Parses the text as Markdown.
     pub fn markdown(self) -> Self {
         self.parse_mode(ParseMode::Markdown)
     }
 
+    /// Parses the text with `mode`.
     pub fn parse_mode(self, mode: ParseMode) -> Self {
         match self {
             Self::Message(edit) => Self::Message(edit.parse_mode(mode)),
@@ -275,6 +302,7 @@ impl EditCallbackMessageText<'_> {
         }
     }
 
+    /// Replaces the message's keyboard.
     pub fn reply_markup(self, markup: impl Into<ReplyMarkup>) -> Self {
         match self {
             Self::Message(edit) => Self::Message(edit.reply_markup(markup)),

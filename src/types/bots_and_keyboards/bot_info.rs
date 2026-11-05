@@ -1,9 +1,13 @@
 use crate::raw::base;
 
+/// A bot's name and descriptions in one language.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BotInfo {
+    /// The bot's name.
     pub name: String,
+    /// The bot's short description (its about text).
     pub short_description: String,
+    /// The text shown in an empty chat with the bot.
     pub description: String,
 }
 

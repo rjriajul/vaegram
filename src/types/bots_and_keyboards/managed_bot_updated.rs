@@ -4,9 +4,12 @@ use crate::errors::Result;
 use crate::raw::types;
 use crate::types::User;
 
+/// Update about a bot that this bot manages.
 #[derive(Debug, Clone)]
 pub struct ManagedBotUpdated {
+    /// The user the update names.
     pub user: User,
+    /// The managed bot.
     pub bot: User,
     client: Client,
 }
@@ -20,14 +23,17 @@ impl ManagedBotUpdated {
         }
     }
 
+    /// The client that received the update.
     pub fn client(&self) -> &Client {
         &self.client
     }
 
+    /// Returns the managed bot's current token.
     pub async fn get_token(&self) -> Result<String> {
         self.client.get_managed_bot_token(self.bot.id).await
     }
 
+    /// Revokes the managed bot's token and returns the new one.
     pub async fn replace_token(&self) -> Result<String> {
         self.client.replace_managed_bot_token(self.bot.id).await
     }

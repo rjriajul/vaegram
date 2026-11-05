@@ -3,6 +3,7 @@ use crate::methods::{EditEphemeralMessage, EditInlineMedia, EditMessageMedia, in
 use crate::types::{CallbackOrigin, CallbackQuery, EditCallbackMessageText, InputMedia, ReplyMarkup};
 
 impl CallbackQuery {
+    /// Edits the text of the message the button is on, same as [`CallbackQuery::edit_message_text`].
     pub fn edit_message_caption(&self, caption: impl Into<String>) -> EditCallbackMessageText<'_> {
         self.edit_message_text(caption.into())
     }
@@ -24,14 +25,19 @@ impl CallbackQuery {
     }
 }
 
+/// A media edit of the message behind a [`CallbackQuery`], awaited like any other edit.
 #[must_use = "a request does nothing until it is awaited"]
 pub enum EditCallbackMessageMedia<'a> {
+    /// Edit of a regular message.
     Message(EditMessageMedia<'a>),
+    /// Edit of an inline message.
     Inline(EditInlineMedia<'a>),
+    /// Edit of an ephemeral message.
     Ephemeral(EditEphemeralMessage<'a>),
 }
 
 impl EditCallbackMessageMedia<'_> {
+    /// Replaces the message's keyboard.
     pub fn reply_markup(self, markup: impl Into<ReplyMarkup>) -> Self {
         match self {
             Self::Message(edit) => Self::Message(edit.reply_markup(markup)),

@@ -2,10 +2,14 @@ use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::types::User;
 
+/// One entry of a game's high score table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameHighScore {
+    /// Place in the table.
     pub position: i32,
+    /// The player.
     pub user: User,
+    /// The player's score.
     pub score: i32,
 }
 

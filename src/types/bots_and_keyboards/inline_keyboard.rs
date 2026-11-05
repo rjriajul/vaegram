@@ -3,17 +3,22 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::types::{LoginUrl, PeerRef, SwitchInlineQueryChosenChat, WebAppInfo};
 
+/// A keyboard of buttons attached to a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InlineKeyboardMarkup {
+    /// The buttons, one inner `Vec` per row.
     pub rows: Vec<Vec<InlineKeyboardButton>>,
+    /// Sets the `force_reply` flag on the keyboard.
     pub force_reply: bool,
 }
 
 impl InlineKeyboardMarkup {
+    /// Creates a keyboard from rows of buttons.
     pub fn new(rows: impl IntoIterator<Item = Vec<InlineKeyboardButton>>) -> Self {
         InlineKeyboardMarkup { rows: rows.into_iter().collect(), force_reply: false }
     }
 
+    /// Sets the `force_reply` flag on the keyboard.
     pub fn force_reply(mut self) -> Self {
         self.force_reply = true;
         self
@@ -48,12 +53,17 @@ impl InlineKeyboardMarkup {
     }
 }
 
+/// Color of an inline button.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ButtonStyle {
+    /// The client's normal button color.
     #[default]
     Default,
+    /// Highlighted as the main action.
     Primary,
+    /// Marks a destructive action.
     Danger,
+    /// Marks a confirming action.
     Success,
 }
 
@@ -72,24 +82,36 @@ impl ButtonStyle {
     }
 }
 
+/// A button on an [`InlineKeyboardMarkup`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InlineKeyboardButton {
+    /// The label.
     pub text: String,
+    /// What pressing the button does.
     pub action: InlineAction,
+    /// The button's color.
     pub style: ButtonStyle,
     /// A custom emoji shown before the text.
     pub icon_custom_emoji_id: Option<i64>,
 }
 
+/// What an [`InlineKeyboardButton`] does when pressed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InlineAction {
+    /// Sends the data to the bot as a [`CallbackQuery`](crate::types::CallbackQuery).
     Callback(String),
+    /// Opens a link.
     Url(String),
+    /// Lets the user pick a chat and starts an inline query with this text there.
     SwitchInlineQuery(String),
+    /// Starts an inline query with this text in the current chat.
     SwitchInlineQueryCurrentChat(String),
+    /// Copies the text to the clipboard.
     CopyText(String),
+    /// A button that does nothing when pressed.
     Disabled,
+    /// Opens the game of a game message.
     CallbackGame,
     /// Opens a mini app.
     WebApp(WebAppInfo),
@@ -110,26 +132,32 @@ impl InlineKeyboardButton {
         InlineKeyboardButton { text: text.into(), action, style: ButtonStyle::Default, icon_custom_emoji_id: None }
     }
 
+    /// A button that sends `data` to the bot when pressed.
     pub fn callback(text: impl Into<String>, data: impl Into<String>) -> Self {
         Self::new(text, InlineAction::Callback(data.into()))
     }
 
+    /// A button that opens a link.
     pub fn url(text: impl Into<String>, url: impl Into<String>) -> Self {
         Self::new(text, InlineAction::Url(url.into()))
     }
 
+    /// A button that lets the user pick a chat and starts an inline query with `query` there.
     pub fn switch_inline_query(text: impl Into<String>, query: impl Into<String>) -> Self {
         Self::new(text, InlineAction::SwitchInlineQuery(query.into()))
     }
 
+    /// A button that starts an inline query with `query` in the current chat.
     pub fn switch_inline_query_current_chat(text: impl Into<String>, query: impl Into<String>) -> Self {
         Self::new(text, InlineAction::SwitchInlineQueryCurrentChat(query.into()))
     }
 
+    /// A button that copies `copy` to the clipboard.
     pub fn copy_text(text: impl Into<String>, copy: impl Into<String>) -> Self {
         Self::new(text, InlineAction::CopyText(copy.into()))
     }
 
+    /// A button that does nothing when pressed.
     pub fn disabled(text: impl Into<String>) -> Self {
         Self::new(text, InlineAction::Disabled)
     }
@@ -139,30 +167,37 @@ impl InlineKeyboardButton {
         Self::new(text, InlineAction::CallbackGame)
     }
 
+    /// A button that opens a mini app.
     pub fn web_app(text: impl Into<String>, web_app: WebAppInfo) -> Self {
         Self::new(text, InlineAction::WebApp(web_app))
     }
 
+    /// A button that logs the user in on a website.
     pub fn login_url(text: impl Into<String>, login_url: LoginUrl) -> Self {
         Self::new(text, InlineAction::LoginUrl(login_url))
     }
 
+    /// A button that opens a user's profile. The user has to be known to the client.
     pub fn user_profile(text: impl Into<String>, user_id: i64) -> Self {
         Self::new(text, InlineAction::UserProfile(user_id))
     }
 
+    /// A button that opens a chat picker and starts an inline query in the chosen chat.
     pub fn switch_inline_query_chosen_chat(text: impl Into<String>, chosen: SwitchInlineQueryChosenChat) -> Self {
         Self::new(text, InlineAction::SwitchInlineQueryChosenChat(chosen))
     }
 
+    /// A button that pays an invoice. It has to be the first button of the first row.
     pub fn pay(text: impl Into<String>) -> Self {
         Self::new(text, InlineAction::Pay)
     }
 
+    /// Like [`callback`](Self::callback), but the user has to enter their cloud password first.
     pub fn callback_with_password(text: impl Into<String>, data: impl Into<String>) -> Self {
         Self::new(text, InlineAction::CallbackWithPassword(data.into()))
     }
 
+    /// Changes the button's color.
     pub fn style(mut self, style: ButtonStyle) -> Self {
         self.style = style;
         self

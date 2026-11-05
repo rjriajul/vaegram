@@ -6,10 +6,14 @@ use crate::enums::SubscriptionState;
 use crate::raw::types;
 use crate::types::User;
 
+/// A user's Star subscription to the bot was canceled, restored or failed to renew.
 #[derive(Clone)]
 pub struct BotSubscriptionUpdated {
+    /// The subscriber.
     pub user: User,
+    /// The payload of the invoice the subscription was bought with.
     pub invoice_payload: String,
+    /// What happened to the subscription.
     pub state: SubscriptionState,
     client: Client,
 }
@@ -30,6 +34,7 @@ impl BotSubscriptionUpdated {
         })
     }
 
+    /// The client that received the update.
     pub fn client(&self) -> &Client {
         &self.client
     }

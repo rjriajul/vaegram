@@ -7,11 +7,16 @@ use crate::types::{
     LoginUrl, ReplyKeyboardMarkup, ReplyKeyboardRemove, SwitchInlineQueryChosenChat, WebAppInfo,
 };
 
+/// Buttons or keyboard actions attached to a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReplyMarkup {
+    /// Buttons shown under the message.
     Inline(InlineKeyboardMarkup),
+    /// A custom keyboard that replaces the regular one.
     Keyboard(ReplyKeyboardMarkup),
+    /// Removes the custom keyboard.
     Remove(ReplyKeyboardRemove),
+    /// Makes the user's client open a reply to the message.
     ForceReply(ForceReply),
 }
 

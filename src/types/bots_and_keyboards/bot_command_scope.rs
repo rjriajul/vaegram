@@ -3,14 +3,22 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::PeerRef;
 
+/// Where a set of bot commands applies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BotCommandScope {
+    /// Used when no narrower scope matches.
     Default,
+    /// Every private chat with the bot.
     AllPrivateChats,
+    /// Every group and supergroup the bot is in.
     AllGroupChats,
+    /// Administrators of every group and supergroup the bot is in.
     AllChatAdministrators,
+    /// One chat.
     Chat(PeerRef),
+    /// The administrators of one chat.
     ChatAdministrators(PeerRef),
+    /// One user in one chat.
     ChatMember { chat_id: PeerRef, user_id: PeerRef },
 }
 

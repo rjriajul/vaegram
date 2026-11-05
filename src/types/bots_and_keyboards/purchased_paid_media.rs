@@ -5,9 +5,12 @@ use crate::dispatcher::Entities;
 use crate::raw::types;
 use crate::types::User;
 
+/// A user bought paid media the bot sent.
 #[derive(Clone)]
 pub struct PurchasedPaidMedia {
+    /// The buyer.
     pub from_user: User,
+    /// The payload the bot set on the paid media.
     pub payload: String,
     client: Client,
 }
@@ -25,6 +28,7 @@ impl PurchasedPaidMedia {
         }
     }
 
+    /// The client that received the update.
     pub fn client(&self) -> &Client {
         &self.client
     }

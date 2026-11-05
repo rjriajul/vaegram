@@ -1,6 +1,7 @@
 /// A mini app to open from a button.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebAppInfo {
+    /// URL of the mini app.
     pub url: String,
 }
 
