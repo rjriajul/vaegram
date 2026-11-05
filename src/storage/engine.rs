@@ -1,6 +1,7 @@
+use std::fmt;
 use std::io;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{SessionData, UpdateState};
 use crate::session::Salt;
@@ -8,11 +9,49 @@ use crate::session::Salt;
 /// What every [`Storage`] method returns: boxed, so `Arc<dyn Storage>` can hold any engine.
 pub type StorageFuture<'a, T> = Pin<Box<dyn Future<Output = io::Result<T>> + Send + 'a>>;
 
+/// Where an engine reports trouble it works around: a damaged record it dropped, a write it will retry. The
+/// client turns each report into [`ClientEvent::StorageFailed`](crate::enums::ClientEvent::StorageFailed).
+pub type StorageReporter = Arc<dyn Fn(io::Error) + Send + Sync>;
+
+/// What the built-in engines keep their reporter in. Replaced by each `set_reporter`, so an engine that moves to
+/// another client reports to that one.
+#[derive(Default)]
+pub(crate) struct Reports(Mutex<Option<StorageReporter>>);
+
+impl Reports {
+    pub(crate) fn set(&self, reporter: StorageReporter) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(reporter);
+    }
+
+    /// Silent until a reporter is set, as an engine used on its own is.
+    pub(crate) fn report(&self, error: io::Error) {
+        // Called outside the lock, so a reporter may set another one.
+        let reporter = self.0.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(reporter) = reporter {
+            reporter(error);
+        }
+    }
+}
+
+impl fmt::Debug for Reports {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Reports")
+    }
+}
+
 /// Where a client keeps its login, its update state and the peers it has met.
 ///
-/// The client calls an engine from one thread of its own, never from the caller's runtime, so an engine may block
-/// or await as it likes. Open is called before anything else; close may be followed by open again.
+/// Apart from `set_reporter`, a plain call made once before `open`, the client calls an engine from one thread of
+/// its own, never from the caller's runtime, so an engine may block or await as it likes. Open is called before
+/// anything else; close may be followed by open again.
 pub trait Storage: Send + Sync + 'static {
+    /// Called once by the client before [`open`](Self::open), with where to report trouble the engine works around
+    /// by itself (a damaged record it dropped, a write it will retry). The built-in engines use it; an engine that
+    /// doesn't need to can leave this out and stay silent.
+    fn set_reporter(&self, reporter: StorageReporter) {
+        let _ = reporter;
+    }
+
     /// Connects, creates or migrates.
     fn open(&self) -> StorageFuture<'_, ()> {
         Box::pin(async { Ok(()) })
@@ -61,6 +100,10 @@ pub trait Storage: Send + Sync + 'static {
 }
 
 impl<T: Storage + ?Sized> Storage for Arc<T> {
+    fn set_reporter(&self, reporter: StorageReporter) {
+        (**self).set_reporter(reporter)
+    }
+
     fn open(&self) -> StorageFuture<'_, ()> {
         (**self).open()
     }

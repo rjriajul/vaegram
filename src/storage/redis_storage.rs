@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use redis::{Client, Pipeline, RedisError, cmd, pipe};
 
-use super::engine::{PeerRecord, Storage, StorageFuture, StoredState};
+use super::engine::{PeerRecord, Reports, Storage, StorageFuture, StorageReporter, StoredState};
 use super::{SessionData, UpdateState};
 use crate::session::Salt;
 use crate::utils::{CHANNEL_OFFSET, get_channel_id};
@@ -36,13 +36,19 @@ pub struct RedisStorage {
     client: Client,
     prefix: String,
     conn: Mutex<Option<ConnectionManager>>,
+    reports: Reports,
 }
 
 impl RedisStorage {
     /// `url` is a `redis://` URL; nothing connects until the storage is opened.
     pub fn new(url: &str, name: &str) -> io::Result<RedisStorage> {
         let client = Client::open(url).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "not a Redis URL"))?;
-        Ok(RedisStorage { client, prefix: format!("vaegram:{name}"), conn: Mutex::new(None) })
+        Ok(RedisStorage {
+            client,
+            prefix: format!("vaegram:{name}"),
+            conn: Mutex::new(None),
+            reports: Reports::default(),
+        })
     }
 
     /// Puts every key under `prefix` instead of `vaegram:<name>`.
@@ -75,7 +81,7 @@ impl RedisStorage {
         let policy: Result<Vec<String>, _> =
             cmd("CONFIG").arg("GET").arg("maxmemory-policy").query_async(&mut conn).await;
         if let Some(warning) = policy.ok().and_then(|reply| reply.get(1).and_then(|p| eviction_warning(p))) {
-            eprintln!("{warning}");
+            self.reports.report(io::Error::other(warning));
         }
         let version: Option<i64> =
             cmd("GET").arg(self.key("version")).query_async(&mut conn).await.map_err(io_error)?;
@@ -450,7 +456,7 @@ fn io_error(e: RedisError) -> io::Error {
 fn eviction_warning(policy: &str) -> Option<String> {
     (policy != "noeviction").then(|| {
         format!(
-            "vaegram: Redis evicts keys under maxmemory-policy {policy}, and an evicted session key is a lost login: \
+            "Redis evicts keys under maxmemory-policy {policy}, and an evicted session key is a lost login: \
              use noeviction, or a database of its own"
         )
     })
@@ -532,6 +538,10 @@ impl fmt::Debug for RedisStorage {
 }
 
 impl Storage for RedisStorage {
+    fn set_reporter(&self, reporter: StorageReporter) {
+        self.reports.set(reporter);
+    }
+
     fn open(&self) -> StorageFuture<'_, ()> {
         Box::pin(async move { self.conn().await.map(drop) })
     }
@@ -917,6 +927,24 @@ mod tests {
         assert_eq!(eviction_warning("noeviction"), None);
         let warning = eviction_warning("allkeys-lru").unwrap();
         assert!(warning.contains("allkeys-lru") && warning.contains("lost login") && warning.contains("noeviction"));
+    }
+
+    #[tokio::test]
+    async fn an_evicting_server_is_reported_once_on_open() {
+        let evicting = MiniRedis::start("allkeys-lru").await;
+        let storage = RedisStorage::new(&evicting.url(), "bot").unwrap();
+        let reports = conformance::collect_reports(&storage);
+        storage.open().await.unwrap();
+        storage.save_state(&StoredState::new(1, Salt::default(), None)).await.unwrap();
+        let reports = reports.lock().unwrap().clone();
+        assert_eq!(reports.len(), 1, "{reports:?}");
+        assert!(reports[0].contains("allkeys-lru") && reports[0].contains("lost login"), "{reports:?}");
+
+        let quiet = MiniRedis::start("noeviction").await;
+        let storage = RedisStorage::new(&quiet.url(), "bot").unwrap();
+        let reports = conformance::collect_reports(&storage);
+        storage.open().await.unwrap();
+        assert!(reports.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

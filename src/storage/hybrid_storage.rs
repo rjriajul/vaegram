@@ -9,8 +9,8 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
-use super::engine::{PeerRecord, Storage, StorageFuture, StoredState};
-use super::{MemoryStorage, SessionData};
+use super::engine::{PeerRecord, Storage, StorageFuture, StorageReporter, StoredState};
+use super::{MemoryStorage, Reports, SessionData};
 
 const RETRY_MIN: Duration = Duration::from_secs(1);
 const RETRY_MAX: Duration = Duration::from_secs(30);
@@ -48,6 +48,7 @@ struct Shared {
     idle: Notify,
     // Held for every remote write, so a delete waits for the write in flight.
     remote: tokio::sync::Mutex<()>,
+    reports: Reports,
 }
 
 #[derive(Default)]
@@ -88,18 +89,18 @@ impl Queue {
         self.state = self.state.take().or(batch.state);
     }
 
-    /// Drops the oldest peer writes over `limit`.
-    fn trim(&mut self, limit: usize) {
+    /// Drops the oldest peer writes over `limit`, and returns how many.
+    fn trim(&mut self, limit: usize) -> usize {
         let excess = self.peers.len().saturating_sub(limit);
         if excess == 0 {
-            return;
+            return 0;
         }
         let mut oldest: Vec<(i64, i64)> = self.peers.values().map(|p| (p.updated, p.id)).collect();
         oldest.sort_unstable();
         for (_, id) in &oldest[..excess] {
             self.peers.remove(id);
         }
-        eprintln!("vaegram: the remote storage is behind; {excess} peer writes were dropped (they stay local)");
+        excess
     }
 }
 
@@ -108,11 +109,20 @@ impl Shared {
         self.pending.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Reports peer writes `trim` dropped; called with no lock held.
+    fn dropped(&self, excess: usize) {
+        if excess > 0 {
+            let why = format!("the remote storage is behind; {excess} peer writes were dropped (they stay local)");
+            self.reports.report(io::Error::other(why));
+        }
+    }
+
     fn enqueue(&self, f: impl FnOnce(&mut Queue)) {
         let mut pending = self.pending();
         f(&mut pending.queue);
-        pending.queue.trim(self.queue_size);
+        let excess = pending.queue.trim(self.queue_size);
         drop(pending);
+        self.dropped(excess);
         self.wake.notify_one();
     }
 
@@ -129,23 +139,29 @@ impl Shared {
     fn finish(&self, epoch: u64, failed: bool) {
         let mut pending = self.pending();
         let batch = pending.in_flight.take();
+        let mut excess = 0;
         if let Some((batch, _)) = batch.filter(|_| failed && pending.epoch == epoch) {
             pending.queue.put_back(Arc::unwrap_or_clone(batch));
-            pending.queue.trim(self.queue_size);
+            excess = pending.queue.trim(self.queue_size);
         }
         if pending.queue.is_empty() {
             self.idle.notify_waiters();
         }
+        drop(pending);
+        self.dropped(excess);
     }
 
     /// Puts back a batch whose write was cut off, unless a log-out came after it was taken.
     fn recover(&self) {
         let mut pending = self.pending();
         let epoch = pending.epoch;
+        let mut excess = 0;
         if let Some((batch, _)) = pending.in_flight.take().filter(|(_, taken)| *taken == epoch) {
             pending.queue.put_back(Arc::unwrap_or_clone(batch));
-            pending.queue.trim(self.queue_size);
+            excess = pending.queue.trim(self.queue_size);
         }
+        drop(pending);
+        self.dropped(excess);
     }
 
     fn drained(&self) -> bool {
@@ -190,7 +206,8 @@ async fn run(shared: Arc<Shared>, remote: Arc<dyn Storage>) {
         match written {
             Ok(()) => delay = RETRY_MIN,
             Err(e) => {
-                eprintln!("vaegram: couldn't write to the remote storage, retrying in {}s: {e}", delay.as_secs());
+                let why = format!("couldn't write to the remote storage, retrying in {}s: {e}", delay.as_secs());
+                shared.reports.report(io::Error::new(e.kind(), why));
                 tokio::select! {
                     () = tokio::time::sleep(delay) => {},
                     () = shared.flush.notified() => {},
@@ -216,6 +233,7 @@ impl HybridStorage {
                 flush: Notify::new(),
                 idle: Notify::new(),
                 remote: tokio::sync::Mutex::new(()),
+                reports: Reports::default(),
             }),
             worker: Mutex::new(None),
         }
@@ -373,6 +391,13 @@ impl fmt::Debug for HybridStorage {
 }
 
 impl Storage for HybridStorage {
+    // The wrapped engines see it too: the remote's own warnings (a Redis that evicts keys) come out of `open`.
+    fn set_reporter(&self, reporter: StorageReporter) {
+        self.shared.reports.set(reporter.clone());
+        self.local.set_reporter(reporter.clone());
+        self.remote.set_reporter(reporter);
+    }
+
     fn open(&self) -> StorageFuture<'_, ()> {
         Box::pin(self.open())
     }
@@ -611,6 +636,24 @@ mod tests {
         assert_eq!(remote.inner.load_session().await.unwrap().map(|s| s.user_id), Some(7));
         assert_eq!(remote.inner.load_state().await.unwrap(), Some(state(7)));
         assert_eq!(remote.inner.export_peers(None).await.unwrap(), [peer(3, 3), peer(2, 2)]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropped_peers_and_failed_writes_are_reported() {
+        let remote = Arc::new(Remote::default());
+        let hybrid = HybridStorage::new(remote.clone()).queue_size(2);
+        let reports = conformance::collect_reports(&hybrid);
+        hybrid.open().await.unwrap();
+        remote.down.store(true, Ordering::SeqCst);
+        hybrid.update_peers(&[peer(1, 1), peer(2, 2), peer(3, 3)]).await.unwrap();
+        // The first retry waits a second, so only the first failed try has happened.
+        sleep(Duration::from_millis(500)).await;
+        let reports = reports.lock().unwrap().clone();
+        remote.down.store(false, Ordering::SeqCst);
+        hybrid.close().await.unwrap();
+        let count = |what: &str| reports.iter().filter(|r| r.contains(what)).count();
+        assert_eq!((count("peer writes were dropped"), count("couldn't write to the remote storage")), (1, 1));
+        assert_eq!(reports.len(), 2, "{reports:?}");
     }
 
     #[tokio::test(start_paused = true)]

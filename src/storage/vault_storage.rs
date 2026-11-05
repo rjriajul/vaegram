@@ -11,7 +11,7 @@ use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject;
 use serde_json::{Value, json};
 
-use super::engine::{PeerRecord, Storage, StorageFuture, StoredState};
+use super::engine::{PeerRecord, Storage, StorageFuture, StorageReporter, StoredState};
 use super::{MemoryStorage, SessionData, session_string};
 
 const FORMAT: u64 = 1;
@@ -292,6 +292,11 @@ impl fmt::Debug for VaultStorage {
 }
 
 impl Storage for VaultStorage {
+    // Vault itself reports nothing; the engine holding the rest may.
+    fn set_reporter(&self, reporter: StorageReporter) {
+        self.data.set_reporter(reporter);
+    }
+
     fn open(&self) -> StorageFuture<'_, ()> {
         Box::pin(async move {
             self.read().await.map_err(|e| self.named(e))?;

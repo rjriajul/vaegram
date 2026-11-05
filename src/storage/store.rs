@@ -7,6 +7,7 @@ use std::time::Duration;
 use tokio::sync::{Notify, mpsc, oneshot};
 
 use super::{PeerRecord, SessionData, Storage, StoredState, UpdateState};
+use crate::enums::ClientEvent;
 use crate::session::{Events, Salt};
 
 const FLUSH_EVERY: Duration = Duration::from_secs(5);
@@ -101,6 +102,9 @@ impl Store {
     }
 
     pub(crate) async fn open(&self) -> io::Result<()> {
+        // Before it opens, so what the engine finds while opening is reported too.
+        let events = self.events.clone();
+        self.engine.set_reporter(Arc::new(move |error| events.warn(ClientEvent::StorageFailed { error })));
         self.call(|e| async move { e.open().await }).await
     }
 
@@ -337,12 +341,19 @@ pub(crate) struct Recording {
     calls: Mutex<Vec<&'static str>>,
     inner: super::MemoryStorage,
     fail: bool,
+    // Reports "the engine warns" when it opens, as an engine that finds something wrong with its data would.
+    warns: bool,
+    reports: super::Reports,
 }
 
 #[cfg(test)]
 impl Recording {
     pub(crate) fn failing() -> Recording {
         Recording { fail: true, ..Recording::default() }
+    }
+
+    pub(crate) fn warning() -> Recording {
+        Recording { warns: true, ..Recording::default() }
     }
 
     pub(crate) fn calls(&self) -> Vec<&'static str> {
@@ -357,8 +368,17 @@ impl Recording {
 
 #[cfg(test)]
 impl Storage for Recording {
+    fn set_reporter(&self, reporter: super::StorageReporter) {
+        self.reports.set(reporter);
+    }
+
     fn open(&self) -> super::StorageFuture<'_, ()> {
-        Box::pin(async move { self.call("open") })
+        Box::pin(async move {
+            if self.warns {
+                self.reports.report(io::Error::other("the engine warns"));
+            }
+            self.call("open")
+        })
     }
 
     fn close(&self) -> super::StorageFuture<'_, ()> {
@@ -503,6 +523,17 @@ mod tests {
         let got: Vec<ClientEvent> = got.try_iter().collect();
         let [ClientEvent::StorageFailed { error }] = &got[..] else { panic!("{got:?}") };
         assert_eq!(error.to_string(), "failed to save the update state: store is down");
+    }
+
+    #[tokio::test]
+    async fn what_an_engine_reports_reaches_the_event_listener() {
+        let events = Arc::new(Events::default());
+        let got = events.record();
+        let store = Store::new(Arc::new(Recording::warning()), events);
+        store.open().await.unwrap();
+        let got: Vec<ClientEvent> = got.try_iter().collect();
+        let [ClientEvent::StorageFailed { error }] = &got[..] else { panic!("{got:?}") };
+        assert_eq!(error.to_string(), "the engine warns");
     }
 
     #[tokio::test]

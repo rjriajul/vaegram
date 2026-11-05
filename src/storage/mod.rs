@@ -24,7 +24,8 @@ mod store;
 mod vault_storage;
 
 pub use copy::copy;
-pub use engine::{PeerRecord, Storage, StorageFuture, StoredState};
+pub(crate) use engine::Reports;
+pub use engine::{PeerRecord, Storage, StorageFuture, StorageReporter, StoredState};
 pub use file_storage::FileStorage;
 pub use hybrid_storage::HybridStorage;
 pub use memory_storage::MemoryStorage;

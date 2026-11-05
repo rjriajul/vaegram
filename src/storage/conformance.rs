@@ -2,9 +2,18 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use super::{PeerRecord, SessionData, Storage, StoredState, UpdateState};
 use crate::session::Salt;
+
+/// Gives `engine` a reporter that keeps what it is told, for tests of what an engine reports.
+pub(crate) fn collect_reports(engine: &dyn Storage) -> Arc<Mutex<Vec<String>>> {
+    let reports = Arc::<Mutex<Vec<String>>>::default();
+    let sink = reports.clone();
+    engine.set_reporter(Arc::new(move |error| sink.lock().unwrap().push(error.to_string())));
+    reports
+}
 
 type Fields = (i32, bool, Option<SocketAddr>, i32, [u8; 256], i64, bool);
 
