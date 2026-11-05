@@ -4,7 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::export_message_link`]. Await it to get the link as a `String`.
+/// Request built by [`Client::export_message_link`]. Awaiting it returns the link as a `String`.
 pub struct ExportMessageLink<'a> {
     client: &'a Client,
     chat_id: PeerRef,

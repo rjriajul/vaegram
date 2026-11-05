@@ -5,7 +5,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::types::{Text, TranslatedText};
 
-/// Request built by [`Client::translate_text`]. Await it to send.
+/// Request built by [`Client::translate_text`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct TranslateText<'a> {
     client: &'a Client,

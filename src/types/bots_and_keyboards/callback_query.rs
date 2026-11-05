@@ -240,7 +240,7 @@ impl CallbackQuery {
         }
     }
 
-    /// Deletes the message the button is on. Fails with `InvalidArgument` for an inline message.
+    /// Deletes the message the button is on. Fails with `Error::InvalidArgument` for an inline message.
     pub async fn delete_message(&self) -> Result<()> {
         match &self.origin {
             CallbackOrigin::Message { message_id, business_connection_id: Some(connection), .. } => {

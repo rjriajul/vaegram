@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{PeerRef, ReactionType};
 
-/// Request built by [`Client::send_reaction`]. Await it to send.
+/// Request built by [`Client::send_reaction`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendReaction<'a> {
     client: &'a Client,

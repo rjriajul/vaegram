@@ -10,7 +10,8 @@ pub struct UsersShared {
     pub users: Vec<SharedUser>,
 }
 
-/// Fields other than `user_id` are only set when the button asked for them.
+/// Fields other than `user_id` are only set when the button asked for them. Only the bot's copy carries them; the
+/// requesting user's copy has only `user_id`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SharedUser {
     /// Id of the picked user.

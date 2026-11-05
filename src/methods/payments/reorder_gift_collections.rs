@@ -6,7 +6,7 @@ use crate::types::PeerRef;
 impl Client {
     /// Sets the order of the gift collections on a profile.
     ///
-    /// Fails with `InvalidArgument` if `collection_ids` is empty.
+    /// Fails with `Error::InvalidArgument` if `collection_ids` is empty.
     pub async fn reorder_gift_collections(&self, owner_id: impl Into<PeerRef>, collection_ids: &[i32]) -> Result<()> {
         if collection_ids.is_empty() {
             return Err(Error::InvalidArgument("collection_ids is empty"));

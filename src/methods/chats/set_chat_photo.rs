@@ -15,7 +15,7 @@ pub struct SetChatPhoto<'a> {
 }
 
 impl Client {
-    /// Sets the photo of a basic group, supergroup or channel from an uploaded file.
+    /// Uploads `photo` and sets it as the photo of a basic group, supergroup or channel.
     pub fn set_chat_photo<'a>(&'a self, chat_id: impl Into<PeerRef>, photo: impl Into<Upload<'a>>) -> SetChatPhoto<'a> {
         SetChatPhoto { client: self, chat_id: chat_id.into(), file: photo.into(), video: false, video_start_ts: None }
     }

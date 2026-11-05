@@ -16,14 +16,14 @@ pub struct BanChatMember<'a> {
 impl Client {
     /// Bans a user or chat from a group, supergroup or channel.
     ///
-    /// A basic group only removes the user. A ban with `until_date` needs a supergroup or channel.
+    /// A basic group only removes the user and ignores `until_date`.
     pub fn ban_chat_member(&self, chat_id: impl Into<PeerRef>, user_id: impl Into<PeerRef>) -> BanChatMember<'_> {
         BanChatMember { client: self, chat_id: chat_id.into(), user_id: user_id.into(), until_date: 0 }
     }
 }
 
 impl BanChatMember<'_> {
-    /// Ends the ban at this Unix time. 0, or a time less than 30 seconds away, bans forever.
+    /// Ends the ban at this Unix time. 0, or a time less than 30 seconds or more than 366 days away, bans forever.
     pub fn until_date(mut self, until_date: i32) -> Self {
         self.until_date = until_date;
         self

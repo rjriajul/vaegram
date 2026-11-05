@@ -3,7 +3,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::types::{InputRichMessage, Message, PeerRef};
 
-/// Request built by [`Client::send_rich_message`]. Await it to send.
+/// Request built by [`Client::send_rich_message`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendRichMessage<'a> {
     client: &'a Client,

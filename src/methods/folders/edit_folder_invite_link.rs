@@ -20,7 +20,7 @@ impl Client {
     /// Edits a folder invite link, given as the full link or its slug.
     ///
     /// Only the options set on the builder change. Awaiting returns the updated [`FolderInviteLink`].
-    /// A link with no slug fails with `InvalidArgument`.
+    /// A link with no slug fails with `Error::InvalidArgument`.
     pub fn edit_folder_invite_link(&self, folder_id: i32, invite_link: &str) -> EditFolderInviteLink<'_> {
         let slug = slug(invite_link).map(str::to_owned);
         EditFolderInviteLink { client: self, folder_id, slug, name: None, chat_ids: None }

@@ -5,7 +5,7 @@ use crate::raw::functions;
 use crate::types::{InputChecklist, Message, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::edit_message_checklist`]. Await it to get the edited [`Message`].
+/// Request built by [`Client::edit_message_checklist`]. Awaiting it returns the edited [`Message`].
 pub struct EditMessageChecklist<'a> {
     client: &'a Client,
     chat_id: PeerRef,

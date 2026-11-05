@@ -15,7 +15,7 @@ pub struct UpdateProfile<'a> {
 impl Client {
     /// Changes your first name, last name or bio, and returns the updated [`User`].
     ///
-    /// Only the fields you set change. Awaiting it with none set fails with `InvalidArgument`.
+    /// Only the fields you set change. Awaiting it with none set fails with `Error::InvalidArgument`.
     pub fn update_profile(&self) -> UpdateProfile<'_> {
         UpdateProfile { client: self, first_name: None, last_name: None, bio: None }
     }

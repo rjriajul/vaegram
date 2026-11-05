@@ -10,7 +10,7 @@ pub enum UniqueGiftOrigin {
     Transfer,
     /// The owner bought it on the resale market.
     Resale,
-    /// The owner got it by accepting a purchase offer.
+    /// The owner bought it with a purchase offer that the previous owner accepted.
     Offer,
     /// The owner crafted it.
     Craft,

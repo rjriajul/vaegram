@@ -40,7 +40,8 @@ impl Client {
 }
 
 impl SendGiftPurchaseOffer<'_> {
-    /// Pays up to this many Stars if the owner charges for messages. Fails with `InvalidArgument` unless positive.
+    /// Pays up to this many Stars if the owner charges for messages. Fails with `Error::InvalidArgument` unless
+    /// positive.
     pub fn paid_message_star_count(mut self, star_count: i64) -> Self {
         self.paid_message_star_count = Some(star_count);
         self

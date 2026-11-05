@@ -17,8 +17,7 @@ pub struct EnableCloudPassword<'a> {
 impl Client {
     /// Sets a cloud password on an account that has none.
     ///
-    /// Fails with `Error::InvalidArgument` if the account already has one or `password` is empty. Awaiting it
-    /// returns the `bool` Telegram answers with.
+    /// Fails with `Error::InvalidArgument` if the account already has one or `password` is empty.
     pub fn enable_cloud_password(&self, password: impl Into<String>) -> EnableCloudPassword<'_> {
         EnableCloudPassword { client: self, password: password.into(), hint: None, email: None }
     }

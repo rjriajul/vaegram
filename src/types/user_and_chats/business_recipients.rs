@@ -17,7 +17,7 @@ pub struct BusinessRecipients {
     pub exclude_selected: bool,
     /// Ids of users picked one by one.
     pub users: Vec<i64>,
-    /// Ids of users a connected bot skips. Setting greeting and away messages fails with `InvalidArgument` if
+    /// Ids of users a connected bot skips. Setting greeting and away messages fails with `Error::InvalidArgument` if
     /// it isn't empty.
     pub exclude_users: Vec<i64>,
 }

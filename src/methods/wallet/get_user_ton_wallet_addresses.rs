@@ -6,7 +6,7 @@ use crate::types::{PeerRef, UserTonWalletAddress};
 impl Client {
     /// Returns the TON wallet addresses of the given users.
     ///
-    /// Fails with `InvalidArgument` if `user_ids` is empty.
+    /// Fails with `Error::InvalidArgument` if `user_ids` is empty.
     pub async fn get_user_ton_wallet_addresses(
         &self,
         user_ids: impl IntoIterator<Item = impl Into<PeerRef>>,

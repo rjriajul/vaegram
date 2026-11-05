@@ -26,7 +26,7 @@ impl Client {
 impl GetFeaturedStickerSets<'_> {
     /// Lists custom emoji sets instead of sticker sets.
     ///
-    /// Fails with `InvalidArgument` when combined with [`offset`](GetFeaturedStickerSets::offset) or
+    /// Fails with `Error::InvalidArgument` when combined with [`offset`](GetFeaturedStickerSets::offset) or
     /// [`limit`](GetFeaturedStickerSets::limit), because older featured sets are only listed for stickers.
     pub fn custom_emoji(mut self) -> Self {
         self.custom_emoji = true;

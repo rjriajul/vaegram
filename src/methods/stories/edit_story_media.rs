@@ -58,7 +58,7 @@ impl EditStoryMedia<'_> {
 
     /// Plays the audio file with this file id along with the story.
     ///
-    /// Fails with `InvalidArgument` if the file id doesn't name a document.
+    /// Fails with `Error::InvalidArgument` if the file id doesn't name a document.
     pub fn music(mut self, file_id: impl Into<String>) -> Self {
         self.music = Some(file_id.into());
         self

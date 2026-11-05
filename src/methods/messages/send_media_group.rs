@@ -6,7 +6,7 @@ use crate::raw::{base, functions, types};
 use crate::session::transfer::try_join_all;
 use crate::types::{InputMedia, Message, PeerRef};
 
-/// Request built by [`Client::send_media_group`]. Await it to upload and send.
+/// Request built by [`Client::send_media_group`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendMediaGroup<'a> {
     client: &'a Client,
@@ -16,7 +16,7 @@ pub struct SendMediaGroup<'a> {
 }
 
 impl Client {
-    /// Sends 2 to 10 photos and videos, or only audio, or only documents, as one album.
+    /// Sends 2 to 10 photos and videos, only audio, or only documents as one album.
     ///
     /// Awaiting the request uploads the files and returns the sent [`Message`]s sorted by id. An album can't be a
     /// suggested post, and any other item count fails with `Error::InvalidArgument`.

@@ -42,7 +42,7 @@ impl RichMessage {
         }
     }
 
-    /// Returns the top-level blocks, each able to read its own kind and the photos and documents of this message.
+    /// Returns the top-level blocks, each able to read its kind and this message's files.
     pub fn blocks(&self) -> Vec<RichBlock> {
         let source = Arc::new(Resolved { photos: self.raw.photos.clone(), documents: self.raw.documents.clone() });
         let files = Files { source: Some(source), ..Files::default() };

@@ -4,7 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{InlineMessageId, InputMedia, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::edit_inline_media`]. Await it to get Telegram's `bool` answer.
+/// Request built by [`Client::edit_inline_media`]. Awaiting it returns Telegram's `bool` answer.
 pub struct EditInlineMedia<'a> {
     client: &'a Client,
     inline_message_id: InlineMessageId,

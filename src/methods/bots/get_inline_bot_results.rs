@@ -16,7 +16,8 @@ pub struct GetInlineBotResults<'a> {
 }
 
 impl Client {
-    /// Sends an inline query to a bot as if you typed `@bot query` in a chat.
+    /// Sends an inline query to a bot, as typing `@bot query` in a chat does.
+    ///
     /// Awaiting the request returns the bot's [`InlineBotResults`].
     pub fn get_inline_bot_results(
         &self,

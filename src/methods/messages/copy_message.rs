@@ -7,7 +7,7 @@ use crate::types::messages_and_media::{input_document_of, input_photo_of};
 use crate::types::{Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request to copy a message. Await it to get the new [`Message`].
+/// Request built by [`Client::copy_message`]. Awaiting it returns the new [`Message`].
 pub struct CopyMessage<'a> {
     client: &'a Client,
     chat_id: PeerRef,

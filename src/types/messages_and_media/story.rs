@@ -17,9 +17,10 @@ pub struct Story {
     pub date: i32,
     /// Unix time when the story expires from the feed, unless it's pinned.
     pub expire_date: i32,
-    /// The user who posted the story. `None` if a channel or group posted it.
+    /// The user who posted the story. `None` if a channel or group posted it, or Telegram didn't send the story itself.
     pub from_user: Option<User>,
-    /// The channel or group that posted the story. `None` if a user posted it.
+    /// The channel or group that posted the story. `None` if a user posted it, or Telegram didn't send the story
+    /// itself.
     pub sender_chat: Option<Chat>,
     /// The user who posted the story that this one reposts. `None` if it isn't a repost, or the
     /// original author is a chat or hides their account.

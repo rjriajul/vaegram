@@ -110,7 +110,7 @@ pub enum ServiceKind {
     GiftedPremium,
     /// Stars were gifted.
     GiftedStars,
-    /// TON was gifted.
+    /// Toncoin was gifted.
     GiftedGrams,
     /// A giveaway was created.
     GiveawayCreated,

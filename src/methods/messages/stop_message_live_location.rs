@@ -5,7 +5,7 @@ use crate::types::{Message, PeerRef, ReplyMarkup};
 
 use super::edit_message_live_location::edit_live_location;
 
-/// Request built by [`Client::stop_message_live_location`]. Await it to send.
+/// Request built by [`Client::stop_message_live_location`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct StopMessageLiveLocation<'a> {
     client: &'a Client,

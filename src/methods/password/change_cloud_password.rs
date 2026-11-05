@@ -17,8 +17,7 @@ pub struct ChangeCloudPassword<'a> {
 impl Client {
     /// Replaces the cloud password with `new_password`, given the current one.
     ///
-    /// An empty `new_password` fails with `Error::InvalidArgument`. Awaiting it returns the `bool` Telegram answers
-    /// with.
+    /// An empty `new_password` fails with `Error::InvalidArgument`.
     pub fn change_cloud_password(
         &self,
         current_password: impl Into<String>,

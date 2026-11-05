@@ -6,7 +6,7 @@ use crate::raw::functions;
 use crate::session::internals::now;
 use crate::types::PeerRef;
 
-/// Request built by [`Client::send_paid_reaction`]. Await it to send.
+/// Request built by [`Client::send_paid_reaction`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPaidReaction<'a> {
     client: &'a Client,

@@ -5,6 +5,7 @@ use crate::types::{KeyboardButton, PeerRef};
 
 impl Client {
     /// Prepares a keyboard button that the bot's Mini App can ask `user_id` to press.
+    ///
     /// Returns the request id Telegram assigns to the prepared button.
     pub async fn save_prepared_keyboard_button(
         &self,

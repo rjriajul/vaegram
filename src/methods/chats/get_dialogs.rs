@@ -30,7 +30,8 @@ impl GetDialogs<'_> {
         self
     }
 
-    /// Reads the folder with this id instead of the main list. Folder 1 is the archive.
+    /// Reads the archive (`1`) instead of the main list (`0`). Chat folder ids from [`Client::get_folders`] don't
+    /// work here.
     pub fn chat_list(mut self, folder_id: i32) -> Self {
         self.folder_id = Some(folder_id);
         self

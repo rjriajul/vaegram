@@ -54,8 +54,7 @@ impl RawUpdate {
         sorted(self.entities.users.keys())
     }
 
-    /// Returns the ids of the chats that came with the update, in ascending order and in the format
-    /// `Chat::id` uses.
+    /// Returns the ids of the update's chats in ascending order, in `Chat::id` format.
     pub fn chat_ids(&self) -> impl Iterator<Item = i64> + use<> {
         sorted(self.entities.chats.keys())
     }

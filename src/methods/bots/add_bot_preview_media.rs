@@ -5,7 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::{BotPreviewMedia, InputMedia, PeerRef};
 
 impl Client {
-    /// Adds a photo or video to the preview media of a bot you own, for one language.
+    /// Adds a photo or video to the preview media of your bot for one language.
     ///
     /// An empty `lang_code` targets the default previews. Returns the new [`BotPreviewMedia`]. Any other media
     /// kind fails with `Error::InvalidArgument`.

@@ -16,6 +16,7 @@ pub struct SetInlineGameScore<'a> {
 
 impl Client {
     /// Sets a user's score in a game sent through inline mode.
+    ///
     /// Fails unless the score beats the user's current one. See [`SetInlineGameScore::force`].
     pub fn set_inline_game_score(
         &self,
@@ -35,7 +36,7 @@ impl Client {
 }
 
 impl SetInlineGameScore<'_> {
-    /// Sets the score even if it doesn't beat the user's current one, so it can go down.
+    /// Sets the score even if it's lower than the user's current one.
     pub fn force(mut self) -> Self {
         self.force = true;
         self

@@ -94,8 +94,7 @@ macro_rules! setters {
         }
     };
     (@caption) => {
-        /// Caption of the sent media, parsed with the client's default parse mode unless
-        /// `parse_mode` is set.
+        /// Caption of the sent media, in the client's default parse mode unless `parse_mode` is set.
         pub fn caption(mut self, caption: impl Into<String>) -> Self {
             self.parts.caption = caption.into();
             self

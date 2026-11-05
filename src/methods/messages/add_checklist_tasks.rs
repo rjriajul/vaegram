@@ -6,7 +6,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{PeerRef, Text};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request to append tasks to a checklist message. Await it to send.
+/// Request built by [`Client::add_checklist_tasks`].
 pub struct AddChecklistTasks<'a> {
     client: &'a Client,
     chat_id: PeerRef,

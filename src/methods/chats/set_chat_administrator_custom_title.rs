@@ -7,7 +7,8 @@ use crate::utils;
 impl Client {
     /// Sets the custom title shown next to an administrator of a supergroup.
     ///
-    /// Keeps the administrator's current rights. Fails with `InvalidArgument` if the user is not an administrator.
+    /// Keeps the administrator's current rights. Fails with `Error::InvalidArgument` if the user is not an
+    /// administrator.
     pub async fn set_chat_administrator_custom_title(
         &self,
         chat_id: impl Into<PeerRef>,

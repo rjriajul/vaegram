@@ -16,6 +16,7 @@ pub struct RequestCallbackAnswer<'a> {
 
 impl Client {
     /// Presses an inline keyboard button as the user and waits for the bot's answer.
+    ///
     /// `data` is the button's callback data. Awaiting the request returns the bot's [`CallbackAnswer`].
     pub fn request_callback_answer(
         &self,

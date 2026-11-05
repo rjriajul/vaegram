@@ -64,7 +64,7 @@ impl AnswerInlineQuery<'_> {
         self
     }
 
-    /// Shows a button above the results that opens a private chat with the bot or a Mini App.
+    /// Shows a button above the results that opens the bot's chat or a Mini App.
     pub fn button(mut self, button: InlineQueryResultsButton) -> Self {
         self.button = Some(button);
         self

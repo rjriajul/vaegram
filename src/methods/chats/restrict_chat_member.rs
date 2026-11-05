@@ -16,7 +16,7 @@ pub struct RestrictChatMember<'a> {
 impl Client {
     /// Limits what a member can do in a supergroup.
     ///
-    /// Fails with `InvalidArgument` for a basic group. Pass `ChatPermissions::default()` to mute the user.
+    /// Fails with `Error::InvalidArgument` for a basic group. Pass `ChatPermissions::default()` to mute the user.
     pub fn restrict_chat_member(
         &self,
         chat_id: impl Into<PeerRef>,

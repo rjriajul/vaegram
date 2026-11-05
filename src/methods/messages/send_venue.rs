@@ -5,7 +5,7 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::{Location, Message, PeerRef, Venue};
 
-/// Request built by [`Client::send_venue`]. Await it to send.
+/// Request built by [`Client::send_venue`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendVenue<'a> {
     client: &'a Client,

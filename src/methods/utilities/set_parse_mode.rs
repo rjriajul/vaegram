@@ -5,6 +5,7 @@ use crate::enums::ParseMode;
 
 impl Client {
     /// Changes the markup every later text and caption is read with, unless a call sets its own `parse_mode`.
+    ///
     /// Calls already in flight keep the mode they started with.
     pub fn set_parse_mode(&self, mode: ParseMode) {
         *self.0.parse_mode.lock().unwrap_or_else(PoisonError::into_inner) = mode;

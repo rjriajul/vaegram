@@ -27,7 +27,7 @@ impl<'a> InputStoryContent<'a> {
         InputStoryContent::Photo(photo.into())
     }
 
-    /// Creates a video story of the given length in seconds, with the cover at the first frame.
+    /// Creates a video story lasting the given seconds, with its first frame as cover.
     pub fn video(video: impl Into<Upload<'a>>, duration: f64) -> Self {
         InputStoryContent::Video { video: video.into(), duration, cover_frame_timestamp: 0.0, is_animation: false }
     }

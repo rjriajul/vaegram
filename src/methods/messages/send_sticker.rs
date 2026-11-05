@@ -4,7 +4,7 @@ use crate::session::transfer::Report;
 use crate::types::messages_and_media::media_setters;
 use crate::types::{FileSource, InputMedia, PeerRef};
 
-/// Request built by [`Client::send_sticker`]. Await it to upload and send.
+/// Request built by [`Client::send_sticker`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendSticker<'a> {
     client: &'a Client,

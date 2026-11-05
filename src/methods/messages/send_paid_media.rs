@@ -6,7 +6,7 @@ use crate::raw::{base, types};
 use crate::session::transfer::try_join_all;
 use crate::types::{InputMedia, Message, PeerRef, Text};
 
-/// Request built by [`Client::send_paid_media`]. Await it to upload and send.
+/// Request built by [`Client::send_paid_media`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPaidMedia<'a> {
     client: &'a Client,

@@ -5,8 +5,8 @@ use crate::types::{LinkPreviewOptions, PeerRef, Text};
 impl Client {
     /// Sends a text message that previews `url`, whatever links the text has.
     ///
-    /// [`SendMessage::link_preview_options`] refines the preview. Awaiting the request returns the sent
-    /// [`Message`](crate::types::Message).
+    /// Calling [`SendMessage::link_preview_options`] replaces these options, so set `url` there again. Awaiting the
+    /// request returns the sent [`Message`](crate::types::Message).
     pub fn send_web_page(
         &self,
         chat_id: impl Into<PeerRef>,

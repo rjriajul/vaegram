@@ -5,7 +5,7 @@ use crate::raw::{base, functions};
 impl Client {
     /// Restores access to a lapsed Star subscription already paid for, without paying again.
     ///
-    /// Fails with `InvalidArgument` if `subscription_id` is empty.
+    /// Fails with `Error::InvalidArgument` if `subscription_id` is empty.
     pub async fn reuse_star_subscription(&self, subscription_id: &str) -> Result<()> {
         if subscription_id.is_empty() {
             return Err(Error::InvalidArgument("subscription_id is empty"));

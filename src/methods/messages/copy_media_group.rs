@@ -10,7 +10,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request to copy an album. Await it to get the new [`Message`]s, sorted by id.
+/// Request built by [`Client::copy_media_group`]. Awaiting it returns the new [`Message`]s, sorted by id.
 pub struct CopyMediaGroup<'a> {
     client: &'a Client,
     chat_id: PeerRef,

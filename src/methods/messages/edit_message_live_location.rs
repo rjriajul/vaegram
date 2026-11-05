@@ -5,7 +5,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{Message, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::edit_message_live_location`]. Await it to get the edited [`Message`].
+/// Request built by [`Client::edit_message_live_location`]. Awaiting it returns the edited [`Message`].
 pub struct EditMessageLiveLocation<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -64,7 +64,7 @@ impl EditMessageLiveLocation<'_> {
         self
     }
 
-    /// New live period, in seconds, counted from now.
+    /// New live period in seconds.
     pub fn live_period(mut self, seconds: i32) -> Self {
         self.live_period = Some(seconds);
         self

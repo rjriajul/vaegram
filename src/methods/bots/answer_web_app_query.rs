@@ -4,7 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{InlineMessageId, InlineQueryResult};
 
 impl Client {
-    /// Sends the message that a Mini App asked the bot to send on behalf of the user.
+    /// Sends the message a Mini App asked the bot to send for the user.
     ///
     /// Returns the [`InlineMessageId`] of the sent message, or `None` if Telegram doesn't report one.
     pub async fn answer_web_app_query(

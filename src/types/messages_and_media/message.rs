@@ -65,7 +65,8 @@ pub struct Message {
     pub reply_to_story_user_id: Option<i64>,
     /// The poll option this message replies to, the same bytes as [`PollOption::data`](crate::types::PollOption).
     pub reply_to_poll_option_id: Option<Vec<u8>>,
-    /// Id of the forum topic or reply thread the message is in. `None` outside of one.
+    /// Id of the forum topic or reply thread the message is in. `None` outside of one, and outside forums for a
+    /// direct reply to the thread's first message.
     pub message_thread_id: Option<i32>,
     /// The message is in a forum topic.
     pub is_topic_message: bool,
@@ -589,9 +590,9 @@ impl Message {
 
     /// Downloads the file of this message's media.
     ///
-    /// Awaiting the request returns the file as bytes. It fails at `.await` for media without a file (contact,
-    /// location, venue, dice, poll). The returned [`DownloadMedia`] has the same setters as
-    /// [`Client::download_media`].
+    /// Awaiting the request returns the file as bytes. It fails with `Error::InvalidArgument` unless the media is a
+    /// photo, live photo, document, animation, audio, video, video note, voice note or sticker. The returned
+    /// [`DownloadMedia`] has the same setters as [`Client::download_media`].
     ///
     /// ```no_run
     /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {

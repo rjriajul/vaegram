@@ -130,7 +130,7 @@ pub enum ServiceAction {
     GiftedPremium(Box<GiftedPremium>),
     /// Telegram Stars were gifted.
     GiftedStars(Box<GiftedStars>),
-    /// Grams were gifted.
+    /// Toncoin was gifted.
     GiftedGrams(Box<GiftedGrams>),
     /// A giveaway was started.
     GiveawayCreated {
@@ -232,7 +232,7 @@ pub enum ServiceAction {
     PassportDataSent,
     /// The bot received Telegram Passport data. The data stays encrypted.
     PassportDataReceived,
-    /// Grams were transferred through a TON wallet.
+    /// Toncoin was transferred through a TON wallet.
     TonWalletTransfer(Box<TonWalletTransfer>),
     /// A TON Connect request.
     TonConnectRequest(Box<TonConnectRequest>),

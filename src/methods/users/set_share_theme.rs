@@ -16,7 +16,7 @@ pub struct SetShareTheme<'a> {
 impl Client {
     /// Changes the share card theme of a chat. Awaiting it with no option set restores the default theme.
     ///
-    /// Fails with `InvalidArgument` if [`gift`](SetShareTheme::gift) is combined with a backdrop or emojis.
+    /// Fails with `Error::InvalidArgument` if [`gift`](SetShareTheme::gift) is combined with a backdrop or emojis.
     pub fn set_share_theme(&self, chat_id: impl Into<PeerRef>) -> SetShareTheme<'_> {
         SetShareTheme { client: self, chat_id: chat_id.into(), backdrop_id: None, emojis: None, gift: None }
     }

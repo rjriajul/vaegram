@@ -5,7 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::CheckedGiftCode;
 
 impl Client {
-    /// Reads who a gift code came from and whether it was already used, without redeeming it.
+    /// Reads who sent a gift code and whether it was used, without redeeming it.
     ///
     /// `slug` is a bare slug or a `t.me/giftcode/...` or `tg://giftcode?slug=...` link. Fails with
     /// `Error::InvalidArgument` if no slug can be read from it.

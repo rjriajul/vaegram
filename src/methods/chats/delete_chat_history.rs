@@ -36,7 +36,7 @@ impl DeleteChatHistory<'_> {
         self
     }
 
-    /// Clears the history for you without removing the messages for others. Ignored for channels.
+    /// Clears the messages but keeps the chat in your chat list. Ignored for channels and supergroups.
     pub fn just_clear(mut self) -> Self {
         self.just_clear = true;
         self

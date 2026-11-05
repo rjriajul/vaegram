@@ -5,6 +5,7 @@ use crate::types::AcceptedGiftTypes;
 
 impl Client {
     /// Sets whether the business account shows a gift button and which gift types it accepts.
+    ///
     /// Every other global privacy setting of the account stays as it is.
     pub async fn set_business_account_gift_settings(
         &self,

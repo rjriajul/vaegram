@@ -5,7 +5,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::types::{Message, PeerRef, ReplyMarkup};
 
-/// Request built by [`Client::stop_poll`]. Await it to send.
+/// Request built by [`Client::stop_poll`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct StopPoll<'a> {
     client: &'a Client,

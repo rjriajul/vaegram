@@ -6,7 +6,8 @@ use crate::types::{InputCredentials, PaymentForm, PaymentResult, StarAmount};
 /// Request built by [`Client::send_payment_form`].
 ///
 /// A Stars or Toncoin form takes no credentials, order info, shipping or tip, and setting any of them fails with
-/// `InvalidArgument`. A card form fails with `InvalidArgument` without [`credentials`](SendPaymentForm::credentials).
+/// `Error::InvalidArgument`. A card form fails with `Error::InvalidArgument` without
+/// [`credentials`](SendPaymentForm::credentials).
 ///
 /// A timed-out payment may have gone through, so check the balance before retrying.
 #[must_use = "a request does nothing until it is awaited"]

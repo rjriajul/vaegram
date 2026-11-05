@@ -13,7 +13,7 @@ impl Client {
     ///
     /// ```no_run
     /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
-    /// client.delete_messages(-1001234567890_i64, &[10, 11]).await?;
+    /// client.delete_messages(-1001234567890, &[10, 11]).await?;
     /// # Ok(()) }
     /// ```
     pub async fn delete_messages(&self, chat_id: impl Into<PeerRef>, message_ids: &[i32]) -> Result<()> {

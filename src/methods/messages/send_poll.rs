@@ -6,7 +6,7 @@ use crate::raw::{base, types};
 use crate::types::messages_and_media::PollMedia;
 use crate::types::{InputPollMedia, InputPollOption, Message, PeerRef};
 
-/// Request built by [`Client::send_poll`]. Await it to send.
+/// Request built by [`Client::send_poll`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPoll<'a> {
     client: &'a Client,

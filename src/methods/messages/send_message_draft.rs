@@ -4,7 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::{MessageText, PeerRef};
 
-/// Request built by [`Client::send_message_draft`]. Await it to send the draft.
+/// Request built by [`Client::send_message_draft`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendMessageDraft<'a> {
     pub(super) client: &'a Client,

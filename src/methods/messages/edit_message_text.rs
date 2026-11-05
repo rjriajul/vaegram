@@ -6,7 +6,7 @@ use crate::raw::{base, functions};
 use crate::types::{LinkPreviewOptions, Message, MessageText, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::edit_message_text`]. Await it to get the edited [`Message`].
+/// Request built by [`Client::edit_message_text`]. Awaiting it returns the edited [`Message`].
 pub struct EditMessageText<'a> {
     client: &'a Client,
     chat_id: PeerRef,

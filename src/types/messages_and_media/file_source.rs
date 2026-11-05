@@ -47,7 +47,7 @@ impl FileSource<'_> {
     ///
     /// Only an empty or non-HTTP(S) URL fails here, with [`Error::InvalidArgument`]. A URL Telegram can't fetch
     /// fails when it answers, as [`Error::Rpc`]. A URL carries no attributes such as duration, title or thumbnail,
-    /// so only photos and plain documents can use one. Other senders fail with `InvalidArgument`.
+    /// so only photos and plain documents can use one. Other senders fail with `Error::InvalidArgument`.
     pub fn url(url: impl Into<String>) -> Result<Self> {
         let url = url.into();
         let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"));

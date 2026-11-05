@@ -12,7 +12,7 @@ pub struct Takeout<'a> {
 impl Client {
     /// Starts a data export session. Pick what it covers with the setters, then await it. User accounts only.
     ///
-    /// Telegram answers `TAKEOUT_INIT_DELAY_<seconds>` until the user confirms the export in another app or
+    /// Telegram can answer `TAKEOUT_INIT_DELAY_<seconds>` until the user confirms the export in another app or
     /// the delay passes. [`Error::flood_wait`](crate::Error::flood_wait) gives the wait, and the client's retry
     /// policy sleeps off the ones it accepts, by default up to a minute.
     pub fn takeout(&self) -> Takeout<'_> {

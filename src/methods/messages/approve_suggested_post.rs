@@ -4,7 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request to approve a suggested post. Await it to send.
+/// Request built by [`Client::approve_suggested_post`].
 pub struct ApproveSuggestedPost<'a> {
     client: &'a Client,
     chat_id: PeerRef,

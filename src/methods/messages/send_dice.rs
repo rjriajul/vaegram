@@ -4,7 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::{Message, PeerRef};
 
-/// Request built by [`Client::send_dice`]. Await it to send.
+/// Request built by [`Client::send_dice`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendDice<'a> {
     client: &'a Client,

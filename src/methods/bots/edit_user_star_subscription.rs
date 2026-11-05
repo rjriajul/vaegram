@@ -4,7 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
-    /// Cancels or restores a user's Stars subscription to the bot, found by its payment charge id.
+    /// Cancels or restores a user's Stars subscription to the bot by its payment charge id.
     ///
     /// `is_canceled` false restores a canceled subscription.
     pub async fn edit_user_star_subscription(

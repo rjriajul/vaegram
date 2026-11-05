@@ -11,7 +11,7 @@ enum ReplyTo {
     Ephemeral(i32),
 }
 
-/// Request built by [`Client::send_ephemeral_message`]. Await it to send.
+/// Request built by [`Client::send_ephemeral_message`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendEphemeralMessage<'a> {
     client: &'a Client,

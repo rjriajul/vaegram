@@ -5,6 +5,7 @@ use crate::types::{BusinessBotRights, BusinessRecipients, PeerRef};
 
 impl Client {
     /// Connects a bot to the account's business profile, or updates its rights and recipients.
+    ///
     /// Fails with `Error::InvalidArgument` unless `recipients` selects at least one kind of chat or user.
     pub async fn update_connected_bot(
         &self,

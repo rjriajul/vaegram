@@ -5,7 +5,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{PeerRef, ReplyParameters, Text};
 
-/// Request built by [`Client::save_draft`]. Await it to save the draft.
+/// Request built by [`Client::save_draft`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SaveDraft<'a> {
     client: &'a Client,

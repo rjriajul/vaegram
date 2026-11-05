@@ -14,7 +14,7 @@ pub struct RecoverGaps<'a> {
 impl Client {
     /// Fetches the updates this client missed, without waiting for it to notice a gap.
     ///
-    /// Needs `run` to be taking updates, or fails with `InvalidArgument`. Resolves to how many messages and then
+    /// Needs `run` to be taking updates, or fails with `Error::InvalidArgument`. Resolves to how many messages and then
     /// how many other updates came back, and they reach handlers as usual. The counts include whatever else was
     /// already due at that moment. A failed difference is reported as `ClientEvent::DifferenceFailed`, not here.
     pub fn recover_gaps(&self) -> RecoverGaps<'_> {
@@ -23,8 +23,9 @@ impl Client {
 }
 
 impl RecoverGaps<'_> {
-    /// Recovers only these: `0` for the common box of messages and updates, `-100...` ids for channels. A channel this
-    /// client has no update state for is skipped. By default everything is recovered.
+    /// Recovers only these: `0` for the common update box, `-100...` ids for channels.
+    ///
+    /// A channel this client has no update state for is skipped. By default everything is recovered.
     pub fn chat_ids(mut self, ids: impl IntoIterator<Item = i64>) -> Self {
         self.chat_ids = Some(ids.into_iter().collect());
         self

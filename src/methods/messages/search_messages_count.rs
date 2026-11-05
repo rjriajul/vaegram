@@ -5,7 +5,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
-/// Request built by [`Client::search_messages_count`]. Await it to get the count.
+/// Request built by [`Client::search_messages_count`]. Awaiting it returns the count.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SearchMessagesCount<'a> {
     client: &'a Client,

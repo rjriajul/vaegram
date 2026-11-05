@@ -19,7 +19,7 @@ pub struct GiftPremiumSubscription<'a> {
 impl Client {
     /// Gifts Premium for `month_count` months to a user, paid in Stars.
     ///
-    /// Fails with `InvalidArgument` if `user_id` is not a user.
+    /// Fails with `Error::InvalidArgument` if `user_id` is not a user.
     pub fn gift_premium_subscription(
         &self,
         user_id: impl Into<PeerRef>,

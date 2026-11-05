@@ -7,7 +7,6 @@ pub struct BotCommand {
     pub command: String,
     /// What the command does, as shown in the menu.
     pub description: String,
-    /// Sent to Telegram as the command's `ephemeral` flag.
     pub is_ephemeral: bool,
 }
 

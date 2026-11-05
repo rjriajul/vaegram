@@ -59,7 +59,7 @@ impl RequestWebView<'_> {
         self
     }
 
-    /// Makes the message the bot posts for you when the app closes a reply to this message.
+    /// Makes the bot's message, sent for you when the app closes, reply to this message.
     pub fn reply_to(mut self, reply: impl Into<ReplyParameters>) -> Self {
         self.reply_to = Some(reply.into());
         self

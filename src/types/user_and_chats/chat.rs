@@ -30,7 +30,8 @@ pub struct Chat {
     pub description: Option<String>,
     /// The chat's primary invite link, from `get_chat`.
     pub invite_link: Option<String>,
-    /// Number of members. `None` for users, and for channels when Telegram omits it.
+    /// Number of members. `None` for users, for chats you're banned from, and for supergroups and channels when
+    /// Telegram omits it.
     pub members_count: Option<i32>,
     /// The bot answering join request queries. Only admins get it, and only from `get_chat`.
     pub guard_bot: Option<User>,

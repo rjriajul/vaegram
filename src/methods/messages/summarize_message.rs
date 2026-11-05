@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{FormattedText, PeerRef};
 
-/// Request built by [`Client::summarize_message`]. Await it to send.
+/// Request built by [`Client::summarize_message`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SummarizeMessage<'a> {
     client: &'a Client,
@@ -29,7 +29,7 @@ impl SummarizeMessage<'_> {
         self
     }
 
-    /// Tone of the summary, as a free-form string such as `"casual"`.
+    /// Tone of the summary.
     pub fn tone(mut self, tone: impl Into<String>) -> Self {
         self.tone = Some(tone.into());
         self

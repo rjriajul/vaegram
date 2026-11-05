@@ -41,7 +41,7 @@ impl AddContact<'_> {
         self
     }
 
-    /// Adds the user as an exception to your phone number privacy, so they can see your number.
+    /// Adds the user as an exception to your phone number privacy, so they see it.
     pub fn share_phone_number(mut self) -> Self {
         self.share_phone_number = true;
         self

@@ -13,7 +13,7 @@ pub struct SavePreparedInlineMessage<'a> {
 }
 
 impl Client {
-    /// Stores a message that the Mini App of `user_id` can share.
+    /// Stores a message that `user_id` can share from the bot's Mini App.
     ///
     /// Without any `allow_*` option it can go to every chat type.
     pub fn save_prepared_inline_message(

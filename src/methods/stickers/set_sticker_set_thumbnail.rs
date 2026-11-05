@@ -7,6 +7,7 @@ use crate::utils::input_sticker_set;
 
 impl Client {
     /// Sets the thumbnail of a regular or mask set, or removes it with `None` so apps show the first sticker.
+    ///
     /// `user_id` is the set's owner, who the file is uploaded for.
     pub async fn set_sticker_set_thumbnail(
         &self,

@@ -8,7 +8,7 @@ use super::get_my_boosts::my_boosts;
 impl Client {
     /// Boosts the chat with the given boost slots and returns the account's boosts afterwards.
     ///
-    /// Slot numbers are the `slot` of a [`MyBoost`]. Fails with `InvalidArgument` if `slots` is empty.
+    /// Slot numbers are the `slot` of a [`MyBoost`]. Fails with `Error::InvalidArgument` if `slots` is empty.
     pub async fn apply_boost(
         &self,
         chat_id: impl Into<PeerRef>,

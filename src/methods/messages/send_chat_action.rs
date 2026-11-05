@@ -10,7 +10,7 @@ use crate::types::PeerRef;
 
 const REPEAT_DELAY: Duration = Duration::from_secs(4);
 
-/// Request built by [`Client::send_chat_action`]. Await it to send the action once.
+/// Request built by [`Client::send_chat_action`]. Awaiting it sends the action once.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendChatAction<'a> {
     client: &'a Client,

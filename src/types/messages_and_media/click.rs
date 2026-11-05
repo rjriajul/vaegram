@@ -34,7 +34,7 @@ impl<'a> From<&'a str> for ButtonRef<'a> {
     }
 }
 
-/// Request that presses a button of a message's keyboard. Await it to get the [`ClickResult`].
+/// Request built by [`Message::click`]. Awaiting it returns the [`ClickResult`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct Click<'a> {
     message: &'a Message,

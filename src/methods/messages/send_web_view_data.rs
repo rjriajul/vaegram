@@ -5,7 +5,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
-    /// Sends `data` from a web app to a bot, naming the keyboard button `button_text` that opened it.
+    /// Sends `data` from a web app to a bot, naming the opening button `button_text`.
     ///
     /// An empty `button_text` or `data` fails with `Error::InvalidArgument` before any request is sent.
     pub async fn send_web_view_data(&self, bot_id: impl Into<PeerRef>, button_text: &str, data: &str) -> Result<()> {

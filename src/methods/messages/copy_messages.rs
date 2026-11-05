@@ -6,7 +6,7 @@ use crate::raw::base;
 use crate::types::PeerRef;
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::copy_messages`]. Await it to get the ids of the copies.
+/// Request built by [`Client::copy_messages`]. Awaiting it returns the ids of the copies.
 pub struct CopyMessages<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -25,7 +25,7 @@ impl Client {
     ///
     /// ```no_run
     /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
-    /// let ids = client.copy_messages("me", -1001234567890_i64, &[10, 11]).await?;
+    /// let ids = client.copy_messages("me", -1001234567890, &[10, 11]).await?;
     /// # Ok(()) }
     /// ```
     pub fn copy_messages<'a>(

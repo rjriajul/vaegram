@@ -24,10 +24,9 @@ pub struct ReplaceTonWallet<'a> {
 }
 
 impl Client {
-    /// Swaps the account's wallet for one you hold the key to and returns the new [`TonWalletState`].
+    /// Swaps the account's wallet for one you hold the key to.
     ///
-    /// The old wallet is detached for good. With a [`password`](ReplaceTonWallet::password) set, awaiting it
-    /// fetches the cloud password parameters first.
+    /// Returns the new [`TonWalletState`]. The old wallet is detached.
     pub fn replace_ton_wallet(&self, proof: TonWalletOwnershipProof) -> ReplaceTonWallet<'_> {
         ReplaceTonWallet { client: self, proof, password: None, anchor_public_key: None }
     }

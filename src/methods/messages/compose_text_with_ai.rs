@@ -6,7 +6,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{ComposedText, Text};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request to rewrite a text with Telegram's AI composer. Await it to get a [`ComposedText`].
+/// Request built by [`Client::compose_text_with_ai`]. Awaiting it returns a [`ComposedText`].
 pub struct ComposeTextWithAi<'a> {
     client: &'a Client,
     text: Text,

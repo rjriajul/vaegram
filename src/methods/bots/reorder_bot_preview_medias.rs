@@ -5,6 +5,7 @@ use crate::types::{BotPreviewMedia, PeerRef};
 
 impl Client {
     /// Sets the order of a bot's preview media for one language to `order`.
+    ///
     /// Fails with `Error::InvalidArgument` if `order` is empty or a preview has no usable media.
     pub async fn reorder_bot_preview_medias(
         &self,

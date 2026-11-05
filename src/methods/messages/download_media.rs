@@ -98,8 +98,9 @@ impl Client {
     ///
     /// `media` is a read type such as [`Photo`](crate::types::Photo), a [`FileLocation`] or a `file_id` string.
     /// Awaiting the request returns the whole file as bytes. A file id that doesn't parse fails the request before
-    /// anything is sent. If the file reference has expired and the file came from a message or story, the download
-    /// reads that message or story again once and retries.
+    /// anything is sent. An expired file reference fails the download.
+    /// [`Message::download`](crate::types::Message::download) and `Story::download` re-read their source once and
+    /// retry.
     pub fn download_media(&self, media: impl TryInto<FileLocation, Error: Into<Error>>) -> DownloadMedia<'_> {
         DownloadMedia::new(self, media.try_into().map_err(Into::into), None)
     }
@@ -280,7 +281,7 @@ impl Master<'_> {
 }
 
 impl MediaStream<'_> {
-    /// Returns the next chunk, `None` at the end of the file, or the error that stopped the download.
+    /// Returns the next chunk, `None` at the end, or the error that stopped the download.
     pub async fn next(&mut self) -> Option<Result<Vec<u8>>> {
         poll_fn(|cx| {
             if let Some(download) = &mut self.download {

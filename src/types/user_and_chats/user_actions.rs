@@ -5,7 +5,7 @@ use crate::types::{Chat, Text, User};
 
 /// Name helpers, and shortcuts that call the `Client` method of the same name with the user's id.
 impl User {
-    /// Returns the first and last name joined by a space, or the first name alone without a last name.
+    /// Returns the first and last name joined by a space, or the first name alone.
     pub fn full_name(&self) -> String {
         match &self.last_name {
             Some(last) => format!("{} {last}", self.first_name),

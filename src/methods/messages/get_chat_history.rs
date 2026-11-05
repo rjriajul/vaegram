@@ -40,13 +40,13 @@ impl GetChatHistory<'_> {
         self
     }
 
-    /// Starts the walk from this message id instead of the newest message.
+    /// Starts below this message id, so the walk skips it and anything newer. With `reverse` it starts at this id.
     pub fn offset_id(mut self, message_id: i32) -> Self {
         self.pages.offset_id = message_id;
         self
     }
 
-    /// Starts the walk from this Unix time instead of the newest message.
+    /// Starts at messages older than this Unix time instead of the newest message.
     pub fn offset_date(mut self, unix_time: i32) -> Self {
         self.offset_date = unix_time;
         self

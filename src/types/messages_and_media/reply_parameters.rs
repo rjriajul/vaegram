@@ -38,7 +38,7 @@ impl ReplyParameters {
         ReplyParameters { story_id: Some(story_id), ..ReplyParameters::new(0).chat_id(chat_id) }
     }
 
-    /// Replies to a message in this chat instead of the chat the reply is sent to.
+    /// Replies to a message in this chat instead of the one the reply goes to.
     pub fn chat_id(mut self, chat_id: impl Into<PeerRef>) -> Self {
         self.chat_id = Some(chat_id.into());
         self

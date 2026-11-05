@@ -6,7 +6,7 @@ use crate::raw::{RemoteCall, functions};
 use crate::types::{InlineMessageId, LinkPreviewOptions, MessageText, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::edit_inline_text`]. Await it to get Telegram's `bool` answer.
+/// Request built by [`Client::edit_inline_text`]. Awaiting it returns Telegram's `bool` answer.
 pub struct EditInlineText<'a> {
     client: &'a Client,
     inline_message_id: InlineMessageId,
@@ -81,7 +81,7 @@ impl EditInlineText<'_> {
         self
     }
 
-    /// Picks the link to preview, how to show it and whether it goes above the text, in place of the client default.
+    /// Which link to preview, how, and whether to show it above the text. Replaces the client default.
     pub fn link_preview_options(mut self, options: LinkPreviewOptions) -> Self {
         self.link_preview_options = Some(options);
         self

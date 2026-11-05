@@ -5,7 +5,7 @@ use crate::raw::functions;
 use crate::types::{InlineKeyboardMarkup, Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::edit_message_reply_markup`]. Await it to get the edited [`Message`].
+/// Request built by [`Client::edit_message_reply_markup`]. Awaiting it returns the edited [`Message`].
 pub struct EditMessageReplyMarkup<'a> {
     client: &'a Client,
     chat_id: PeerRef,

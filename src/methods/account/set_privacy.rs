@@ -8,7 +8,7 @@ use crate::utils::get_peer;
 impl Client {
     /// Replaces the rules of one privacy setting and returns the rules Telegram stored.
     ///
-    /// Chat member rules take only group and channel ids. Any other id fails with `InvalidArgument`.
+    /// Chat member rules take only group and channel ids. Any other id fails with `Error::InvalidArgument`.
     pub async fn set_privacy(&self, key: PrivacyKey, rules: &[PrivacyRule]) -> Result<Vec<PrivacyRule>> {
         let input = self.input_privacy_rules(rules).await?;
         let rules = self.invoke(&functions::account::SetPrivacy { key: key.write(), rules: input }).await?;

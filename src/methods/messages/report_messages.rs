@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{PeerRef, ReportResult};
 
-/// Request built by [`Client::report_messages`]. Await it to get the [`ReportResult`] for this step.
+/// Request built by [`Client::report_messages`]. Awaiting it returns the [`ReportResult`] for this step.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct ReportMessages<'a> {
     client: &'a Client,
@@ -14,8 +14,10 @@ pub struct ReportMessages<'a> {
 }
 
 impl Client {
-    /// Reports messages in steps: awaiting it without an option asks Telegram for the options to choose from, and
-    /// each answer says what the next step needs, until it is [`ReportResult::Reported`].
+    /// Reports messages in steps until the result is [`ReportResult::Reported`].
+    ///
+    /// Awaiting it without an option asks Telegram for the options to choose from, and each answer says what the
+    /// next step needs.
     pub fn report_messages(&self, chat_id: impl Into<PeerRef>, message_ids: &[i32]) -> ReportMessages<'_> {
         ReportMessages {
             client: self,

@@ -20,7 +20,8 @@ pub struct RichBlockCaption {
 /// What a block of a received rich message is.
 ///
 /// A media block keeps its kind when the message doesn't carry its file (as in a message you just sent): the file is
-/// `None`. `Unsupported` is only for the legacy page blocks that have no friendly form.
+/// `None`. `Unsupported` is for the legacy page blocks that have no friendly form, unreadable maps and maps built with
+/// [`RichBlock::map`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum RichBlockKind {
@@ -111,7 +112,8 @@ pub enum RichBlockKind {
         /// Whether the section is shown expanded.
         is_open: bool,
     },
-    /// A map. A map whose coordinates can't be read is [`Unsupported`](RichBlockKind::Unsupported) instead.
+    /// A map. A map whose coordinates can't be read, or a map built with [`RichBlock::map`], is
+    /// [`Unsupported`](RichBlockKind::Unsupported) instead.
     Map {
         /// Center of the map.
         location: Location,
@@ -180,7 +182,8 @@ pub enum RichBlockKind {
         /// Caption of the document.
         caption: Option<RichBlockCaption>,
     },
-    /// A legacy page block with no friendly form, or a map whose coordinates can't be read.
+    /// A legacy page block with no friendly form, a map whose coordinates can't be read, or a map built with
+    /// [`RichBlock::map`].
     Unsupported,
 }
 

@@ -5,7 +5,7 @@ use crate::errors::Result;
 use crate::raw::base;
 use crate::types::{LinkPreviewOptions, Message, PeerRef, Text};
 
-/// Request built by [`Client::send_message`]. Await it to send.
+/// Request built by [`Client::send_message`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendMessage<'a> {
     client: &'a Client,

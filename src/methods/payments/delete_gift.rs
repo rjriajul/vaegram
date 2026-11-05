@@ -14,7 +14,7 @@ impl Client {
     /// Deletes a received gift for good, with no Stars in return.
     ///
     /// `owned_gift_id` is the `owned_gift_id` of an owned gift, or a unique gift's slug. Fails with
-    /// `InvalidArgument` if it is empty.
+    /// `Error::InvalidArgument` if it is empty.
     pub fn delete_gift(&self, owned_gift_id: impl Into<String>) -> DeleteGift<'_> {
         DeleteGift { client: self, owned_gift_id: owned_gift_id.into(), connection_id: None }
     }

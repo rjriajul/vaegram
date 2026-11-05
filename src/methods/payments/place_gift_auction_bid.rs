@@ -21,7 +21,7 @@ impl Client {
     /// Bids `star_count` Stars in the auction for the gift with this `gift_id`.
     ///
     /// The bid is for the current account unless [`recipient`](PlaceGiftAuctionBid::recipient) is set. Nothing is
-    /// paid above `star_count`: fails with `InvalidArgument` if `star_count` is not positive or the payment form
+    /// paid above `star_count`: fails with `Error::InvalidArgument` if `star_count` is not positive or the payment form
     /// asks for more.
     pub fn place_gift_auction_bid(&self, gift_id: i64, star_count: i64) -> PlaceGiftAuctionBid<'_> {
         PlaceGiftAuctionBid {

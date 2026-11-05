@@ -7,7 +7,7 @@ use crate::utils::get_peer;
 impl Client {
     /// Returns stories of a chat by id.
     ///
-    /// Fails with `InvalidArgument` if `story_ids` is empty.
+    /// Fails with `Error::InvalidArgument` if `story_ids` is empty.
     pub async fn get_stories(&self, chat_id: impl Into<PeerRef>, story_ids: &[i32]) -> Result<Vec<Story>> {
         if story_ids.is_empty() {
             return Err(Error::InvalidArgument("get_stories needs at least one story id"));

@@ -19,6 +19,7 @@ pub struct EditBusinessChatLink<'a> {
 
 impl Client {
     /// Replaces the prefilled text and title of a business chat link, found by its slug.
+    ///
     /// Awaiting fails with `Error::InvalidArgument` if `slug` is empty.
     pub fn edit_business_chat_link(&self, slug: impl Into<String>, text: impl Into<Text>) -> EditBusinessChatLink<'_> {
         EditBusinessChatLink { client: self, slug: slug.into(), text: text.into(), parse_mode: None, title: None }

@@ -7,6 +7,7 @@ use crate::types::{LoginToken, User};
 
 impl Client {
     /// Logs in by QR code: `show` gets each fresh `tg://login` link to render until someone scans it.
+    ///
     /// With two-step verification on this fails with `SESSION_PASSWORD_NEEDED`; call `check_password` then.
     pub async fn authorize_qr(&self, mut show: impl FnMut(&str)) -> Result<User> {
         loop {

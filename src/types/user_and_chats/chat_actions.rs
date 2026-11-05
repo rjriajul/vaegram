@@ -10,7 +10,7 @@ use crate::types::{Chat, ChatMember, ChatPermissions, ChatPrivileges, FailedToAd
 /// Shortcuts for the `Client` methods that take this chat: each one forwards to its method with the chat's id and
 /// gives back what the method gives back.
 impl Chat {
-    /// Returns the first and last name of a user or bot, or the title of a group or channel.
+    /// Returns a user's or bot's first and last name, or a group's or channel's title.
     ///
     /// `None` if the chat carries no name.
     pub fn full_name(&self) -> Option<String> {

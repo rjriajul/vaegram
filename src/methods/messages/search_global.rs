@@ -69,13 +69,13 @@ impl SearchGlobal<'_> {
         self
     }
 
-    /// Only messages sent at or after this Unix time.
+    /// Lower bound on the send date, as a Unix time.
     pub fn min_date(mut self, date: i32) -> Self {
         self.min_date = date;
         self
     }
 
-    /// Only messages sent at or before this Unix time.
+    /// Upper bound on the send date, as a Unix time.
     pub fn max_date(mut self, date: i32) -> Self {
         self.max_date = date;
         self

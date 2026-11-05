@@ -15,7 +15,7 @@ impl Client {
     /// Sets your emoji status to a custom emoji, or clears it when `custom_emoji_id` is `None`.
     ///
     /// Awaiting it returns whether Telegram accepted the change. For a collectible status, pass `None` here and
-    /// use [`collectible_id`](SetEmojiStatus::collectible_id). Setting both fails with `InvalidArgument`.
+    /// use [`collectible_id`](SetEmojiStatus::collectible_id). Setting both fails with `Error::InvalidArgument`.
     pub fn set_emoji_status(&self, custom_emoji_id: Option<i64>) -> SetEmojiStatus<'_> {
         SetEmojiStatus { client: self, custom_emoji_id, collectible_id: None, until: None }
     }

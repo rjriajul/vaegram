@@ -6,7 +6,7 @@ use crate::types::PeerRef;
 impl Client {
     /// Removes users from your contacts.
     ///
-    /// Fails with `InvalidArgument` if `user_ids` is empty.
+    /// Fails with `Error::InvalidArgument` if `user_ids` is empty.
     pub async fn delete_contacts(&self, user_ids: impl IntoIterator<Item = impl Into<PeerRef>>) -> Result<()> {
         let user_ids: Vec<PeerRef> = user_ids.into_iter().map(Into::into).collect();
         if user_ids.is_empty() {

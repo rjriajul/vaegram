@@ -17,6 +17,7 @@ pub struct CreateBusinessChatLink<'a> {
 
 impl Client {
     /// Creates a link that opens a chat with the business account with `text` prefilled.
+    ///
     /// Awaiting the request returns the new [`BusinessChatLink`].
     pub fn create_business_chat_link(&self, text: impl Into<Text>) -> CreateBusinessChatLink<'_> {
         CreateBusinessChatLink { client: self, text: text.into(), parse_mode: None, title: None }

@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
-/// Request built by [`Client::unpin_chat_message`]. Await it to send.
+/// Request built by [`Client::unpin_chat_message`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct UnpinChatMessage<'a> {
     client: &'a Client,

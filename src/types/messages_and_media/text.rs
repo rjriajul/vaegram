@@ -108,7 +108,7 @@ impl Text {
         self.wrap(Kind::CustomEmoji(document_id), emoji)
     }
 
-    /// Appends `text` as a date and time that clients show in the reader's own time zone.
+    /// Appends `text` as a date and time shown in the reader's own time zone.
     ///
     /// `unix_time` is the moment to show. Each letter of `format` turns on one style: `r` relative, `t` short time,
     /// `T` long time, `d` short date, `D` long date and `w` day of the week. Other letters are ignored.
@@ -141,7 +141,7 @@ impl Text {
         self.write_entities().iter().map(|e| MessageEntity::parse(e, &Entities::default())).collect()
     }
 
-    /// Returns the part of the text in `range`, counted in UTF-16 units, with the entities clipped to it.
+    /// Returns the text in `range`, in UTF-16 units, with entities clipped to it.
     ///
     /// An offset inside a surrogate pair moves back to the pair's start. A reversed range gives an empty `Text`.
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Text {
@@ -160,7 +160,7 @@ impl Text {
         self.cut(from, self.boundary(from, end))
     }
 
-    /// Splits the text into parts of at most `max` UTF-16 units, keeping entities across the cuts.
+    /// Splits the text into parts of at most `max` UTF-16 units, keeping entities across cuts.
     ///
     /// Each cut falls after a line break, else after a space, in the part's second half. No cut lands inside a
     /// custom emoji or date.

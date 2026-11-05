@@ -5,7 +5,7 @@ use crate::raw::functions;
 use crate::types::{InputMedia, Message, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::edit_message_media`]. Await it to get the edited [`Message`].
+/// Request built by [`Client::edit_message_media`]. Awaiting it returns the edited [`Message`].
 pub struct EditMessageMedia<'a> {
     client: &'a Client,
     chat_id: PeerRef,

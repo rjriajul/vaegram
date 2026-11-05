@@ -4,7 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::{Message, PeerRef};
 
-/// Request built by [`Client::send_contact`]. Await it to send.
+/// Request built by [`Client::send_contact`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendContact<'a> {
     client: &'a Client,

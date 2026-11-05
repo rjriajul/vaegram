@@ -71,7 +71,7 @@ impl SearchGiftsForResale<'_> {
         self
     }
 
-    /// Returns the next gift, loading another page when needed, or `None` when the listing is exhausted.
+    /// Returns the next gift, loading another page when needed, or `None` at the end.
     pub async fn next(&mut self) -> Result<Option<UniqueGift>> {
         loop {
             if let Some(gift) = self.pages.pop() {

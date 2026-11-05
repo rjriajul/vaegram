@@ -6,7 +6,7 @@ use crate::raw::base;
 use crate::types::messages_and_media::{Source, media_setters};
 use crate::types::{FileSource, InputMedia, Message, PeerRef, Text};
 
-/// Request built by [`Client::send_cached_media`]. Await it to send.
+/// Request built by [`Client::send_cached_media`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendCachedMedia<'a> {
     client: &'a Client,

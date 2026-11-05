@@ -6,7 +6,7 @@ use crate::raw::{base, functions};
 use crate::types::{EphemeralMessage, InputMedia, MessageText, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by the `edit_ephemeral_message_*` methods. Await it to get the edited [`EphemeralMessage`].
+/// Request built by the `edit_ephemeral_message_*` methods. Awaiting it returns the edited [`EphemeralMessage`].
 pub struct EditEphemeralMessage<'a> {
     client: &'a Client,
     chat_id: PeerRef,

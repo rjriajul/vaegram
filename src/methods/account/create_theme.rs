@@ -15,7 +15,7 @@ pub struct CreateTheme<'a> {
 impl Client {
     /// Creates a theme from its settings and returns the new [`Theme`].
     ///
-    /// Fails with `InvalidArgument` when awaited with no settings.
+    /// Fails with `Error::InvalidArgument` when awaited with no settings.
     pub fn create_theme(
         &self,
         title: impl Into<String>,

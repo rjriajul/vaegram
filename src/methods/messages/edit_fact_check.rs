@@ -6,7 +6,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{Message, PeerRef, Text};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::edit_fact_check`]. Await it to get the edited [`Message`].
+/// Request built by [`Client::edit_fact_check`]. Awaiting it returns the edited [`Message`].
 pub struct EditFactCheck<'a> {
     client: &'a Client,
     chat_id: PeerRef,

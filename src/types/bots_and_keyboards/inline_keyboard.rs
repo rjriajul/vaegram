@@ -8,7 +8,6 @@ use crate::types::{LoginUrl, PeerRef, SwitchInlineQueryChosenChat, WebAppInfo};
 pub struct InlineKeyboardMarkup {
     /// The buttons, one inner `Vec` per row.
     pub rows: Vec<Vec<InlineKeyboardButton>>,
-    /// Sent as the raw markup's `force_reply` flag.
     pub force_reply: bool,
 }
 
@@ -18,7 +17,6 @@ impl InlineKeyboardMarkup {
         InlineKeyboardMarkup { rows: rows.into_iter().collect(), force_reply: false }
     }
 
-    /// Turns on the raw markup's `force_reply` flag.
     pub fn force_reply(mut self) -> Self {
         self.force_reply = true;
         self
@@ -53,7 +51,7 @@ impl InlineKeyboardMarkup {
     }
 }
 
-/// Color of an inline button.
+/// Color of a keyboard button.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ButtonStyle {
     /// The client's normal button color.
@@ -142,7 +140,7 @@ impl InlineKeyboardButton {
         Self::new(text, InlineAction::Url(url.into()))
     }
 
-    /// A button that lets the user pick a chat and starts an inline query with `query` there.
+    /// A button that starts an inline query with `query` in a chat the user picks.
     pub fn switch_inline_query(text: impl Into<String>, query: impl Into<String>) -> Self {
         Self::new(text, InlineAction::SwitchInlineQuery(query.into()))
     }
@@ -182,7 +180,7 @@ impl InlineKeyboardButton {
         Self::new(text, InlineAction::UserProfile(user_id))
     }
 
-    /// A button that opens a chat picker and starts an inline query in the chosen chat.
+    /// A button that opens a chat picker and starts an inline query there.
     pub fn switch_inline_query_chosen_chat(text: impl Into<String>, chosen: SwitchInlineQueryChosenChat) -> Self {
         Self::new(text, InlineAction::SwitchInlineQueryChosenChat(chosen))
     }

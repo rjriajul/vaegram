@@ -13,8 +13,6 @@ pub struct DeleteTonWallet<'a> {
 
 impl Client {
     /// Detaches the account's wallet, starts a fresh one and returns the new [`TonWalletState`].
-    ///
-    /// The old wallet can't be attached again.
     pub fn delete_ton_wallet(&self) -> DeleteTonWallet<'_> {
         DeleteTonWallet { client: self, password: None }
     }

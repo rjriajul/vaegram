@@ -296,7 +296,7 @@ impl RichBlock {
         RichBlock { block: base::PageBlock::PageBlockDetails(Box::new(details)), files }
     }
 
-    /// Creates a map centered on a point, shown at `zoom` in a `width` by `height` frame.
+    /// Creates a map centered on a point, at `zoom` in a `width` by `height` frame.
     pub fn map(latitude: f64, longitude: f64, zoom: i32, width: i32, height: i32) -> Self {
         let map = types::InputPageBlockMap {
             geo: geo_point(latitude, longitude, None),

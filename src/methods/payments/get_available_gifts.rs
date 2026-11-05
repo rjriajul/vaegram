@@ -5,7 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::Gift;
 
 impl Client {
-    /// Lists the gifts currently on sale in the gift shop.
+    /// Lists the gifts in the gift shop, including sold-out ones (see [`Gift::is_sold_out`]).
     ///
     /// Unique gifts are left out. A gift that doesn't parse is skipped.
     pub async fn get_available_gifts(&self) -> Result<Vec<Gift>> {

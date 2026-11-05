@@ -7,7 +7,7 @@ use crate::types::User;
 /// Update about a bot that this bot manages.
 #[derive(Debug, Clone)]
 pub struct ManagedBotUpdated {
-    /// The user the update names.
+    /// The user who created the managed bot.
     pub user: User,
     /// The managed bot.
     pub bot: User,

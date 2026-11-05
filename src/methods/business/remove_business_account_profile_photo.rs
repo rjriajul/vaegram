@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 
 impl Client {
     /// Removes the profile photo of the business account behind a connection.
+    ///
     /// With `is_public` it removes the public photo instead of the main one.
     pub async fn remove_business_account_profile_photo(
         &self,

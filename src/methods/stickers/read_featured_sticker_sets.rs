@@ -5,7 +5,7 @@ use crate::raw::functions;
 impl Client {
     /// Marks featured sticker sets as seen.
     ///
-    /// Fails with `InvalidArgument` if `set_ids` is empty.
+    /// Fails with `Error::InvalidArgument` if `set_ids` is empty.
     pub async fn read_featured_sticker_sets(&self, set_ids: &[i64]) -> Result<()> {
         if set_ids.is_empty() {
             return Err(Error::InvalidArgument("read_featured_sticker_sets takes at least one set id"));

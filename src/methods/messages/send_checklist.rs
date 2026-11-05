@@ -3,7 +3,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::types::{InputChecklist, Message, PeerRef};
 
-/// Request built by [`Client::send_checklist`]. Await it to send.
+/// Request built by [`Client::send_checklist`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendChecklist<'a> {
     client: &'a Client,

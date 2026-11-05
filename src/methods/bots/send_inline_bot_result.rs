@@ -18,6 +18,7 @@ pub struct SendInlineBotResult<'a> {
 
 impl Client {
     /// Sends a result picked from [`get_inline_bot_results`](Client::get_inline_bot_results) to a chat.
+    ///
     /// `query_id` comes from those results and `result_id` from the picked entry.
     pub fn send_inline_bot_result(
         &self,

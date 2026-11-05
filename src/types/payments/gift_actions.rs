@@ -65,48 +65,50 @@ impl OwnedGift {
         }
     }
 
-    /// Shows the gift on the profile. Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    /// Shows the gift on the profile. Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub async fn show(&self, client: &Client) -> Result<()> {
         client.show_gift(self.id()?).await
     }
 
-    /// Hides the gift from the profile. Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    /// Hides the gift from the profile. Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub async fn hide(&self, client: &Client) -> Result<()> {
         client.hide_gift(self.id()?).await
     }
 }
 
 impl OwnedGiftRegular {
-    /// Shows the gift on the profile. Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    /// Shows the gift on the profile. Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub async fn show(&self, client: &Client) -> Result<()> {
         client.show_gift(owned_id(&self.owned_gift_id)?).await
     }
 
-    /// Hides the gift from the profile. Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    /// Hides the gift from the profile. Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub async fn hide(&self, client: &Client) -> Result<()> {
         client.hide_gift(owned_id(&self.owned_gift_id)?).await
     }
 
     /// Builds a request that converts the gift to Stars and gives it up.
-    /// Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    ///
+    /// Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub fn convert<'a>(&self, client: &'a Client) -> Result<ConvertGiftToStars<'a>> {
         Ok(client.convert_gift_to_stars(owned_id(&self.owned_gift_id)?))
     }
 
     /// Builds a request that upgrades the gift to a unique gift.
-    /// Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    ///
+    /// Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub fn upgrade<'a>(&self, client: &'a Client) -> Result<UpgradeGift<'a>> {
         Ok(client.upgrade_gift(owned_id(&self.owned_gift_id)?))
     }
 }
 
 impl OwnedGiftUnique {
-    /// Shows the gift on the profile. Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    /// Shows the gift on the profile. Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub async fn show(&self, client: &Client) -> Result<()> {
         client.show_gift(owned_id(&self.owned_gift_id)?).await
     }
 
-    /// Hides the gift from the profile. Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    /// Hides the gift from the profile. Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub async fn hide(&self, client: &Client) -> Result<()> {
         client.hide_gift(owned_id(&self.owned_gift_id)?).await
     }
@@ -118,36 +120,38 @@ impl OwnedGiftUnique {
 }
 
 impl GiftInfo {
-    /// Shows the gift on the profile. Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    /// Shows the gift on the profile. Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub async fn show(&self, client: &Client) -> Result<()> {
         client.show_gift(owned_id(&self.owned_gift_id)?).await
     }
 
-    /// Hides the gift from the profile. Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    /// Hides the gift from the profile. Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub async fn hide(&self, client: &Client) -> Result<()> {
         client.hide_gift(owned_id(&self.owned_gift_id)?).await
     }
 
     /// Builds a request that converts the gift to Stars and gives it up.
-    /// Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    ///
+    /// Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub fn convert<'a>(&self, client: &'a Client) -> Result<ConvertGiftToStars<'a>> {
         Ok(client.convert_gift_to_stars(owned_id(&self.owned_gift_id)?))
     }
 
     /// Builds a request that upgrades the gift to a unique gift.
-    /// Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    ///
+    /// Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub fn upgrade<'a>(&self, client: &'a Client) -> Result<UpgradeGift<'a>> {
         Ok(client.upgrade_gift(owned_id(&self.owned_gift_id)?))
     }
 }
 
 impl UniqueGiftInfo {
-    /// Shows the gift on the profile. Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    /// Shows the gift on the profile. Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub async fn show(&self, client: &Client) -> Result<()> {
         client.show_gift(owned_id(&self.owned_gift_id)?).await
     }
 
-    /// Hides the gift from the profile. Fails with `InvalidArgument` if `owned_gift_id` is `None`.
+    /// Hides the gift from the profile. Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
     pub async fn hide(&self, client: &Client) -> Result<()> {
         client.hide_gift(owned_id(&self.owned_gift_id)?).await
     }

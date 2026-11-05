@@ -13,7 +13,7 @@ pub struct ValidateOrderInfo<'a> {
 }
 
 impl Client {
-    /// Asks the payment provider to check the contact and shipping details for the invoice of `form`.
+    /// Asks the payment provider to check the contact and shipping details for `form`.
     ///
     /// Awaiting returns a [`ValidatedOrderInfo`] with the id for
     /// [`SendPaymentForm::order_info_id`](crate::methods::SendPaymentForm::order_info_id) and the shipping options.
