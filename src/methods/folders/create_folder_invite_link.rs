@@ -15,7 +15,7 @@ pub struct CreateFolderInviteLink<'a> {
 impl Client {
     /// Creates an invite link that shares `chat_ids` of the folder.
     ///
-    /// Awaiting it returns the [`FolderInviteLink`]. An empty `chat_ids` fails with `Error::InvalidArgument`.
+    /// Awaiting it returns the [`FolderInviteLink`]. An empty `chat_ids` fails with `InvalidArgument`.
     pub fn create_folder_invite_link(
         &self,
         folder_id: i32,
@@ -27,7 +27,7 @@ impl Client {
 }
 
 impl CreateFolderInviteLink<'_> {
-    /// Title of the link. Empty by default.
+    /// Gives the link a title. Empty by default.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

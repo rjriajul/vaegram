@@ -19,7 +19,8 @@ pub struct EditFolderInviteLink<'a> {
 impl Client {
     /// Edits a folder invite link, given as the full link or its slug.
     ///
-    /// Awaiting it returns the updated [`FolderInviteLink`]. Only the options that are set change.
+    /// Only the options set on the builder change. Awaiting returns the updated [`FolderInviteLink`].
+    /// A link with no slug fails with `InvalidArgument`.
     pub fn edit_folder_invite_link(&self, folder_id: i32, invite_link: &str) -> EditFolderInviteLink<'_> {
         let slug = slug(invite_link).map(str::to_owned);
         EditFolderInviteLink { client: self, folder_id, slug, name: None, chat_ids: None }
@@ -27,13 +28,13 @@ impl Client {
 }
 
 impl EditFolderInviteLink<'_> {
-    /// New title of the link.
+    /// Renames the link.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
     }
 
-    /// New set of chats the link shares.
+    /// Replaces the chats the link shares.
     pub fn chat_ids(mut self, chat_ids: impl IntoIterator<Item = impl Into<PeerRef>>) -> Self {
         self.chat_ids = Some(chat_ids.into_iter().map(Into::into).collect());
         self

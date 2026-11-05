@@ -9,7 +9,7 @@ impl Client {
     /// Creates a folder and returns it with the id it got.
     ///
     /// The id is the lowest free one from 2 up, since 0 and 1 belong to "All chats" and the archive. The `id`
-    /// already on `folder` is ignored.
+    /// already on `folder` is ignored. Fetches the folder list through [`Client::get_folders`] to find the id.
     pub async fn create_folder(&self, mut folder: Folder) -> Result<Folder> {
         let taken = self.get_folders().await?;
         folder.id = FIRST_ID;

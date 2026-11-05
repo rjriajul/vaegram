@@ -13,7 +13,7 @@ pub struct UnblockUser<'a> {
 }
 
 impl Client {
-    /// Unblocks a user. Which block list is used depends on [`block_list`](UnblockUser::block_list).
+    /// Unblocks a user on [`BlockList::Main`] unless [`block_list`](UnblockUser::block_list) picks another.
     pub fn unblock_user(&self, user_id: impl Into<PeerRef>) -> UnblockUser<'_> {
         UnblockUser { client: self, user_id: user_id.into(), list: BlockList::Main }
     }

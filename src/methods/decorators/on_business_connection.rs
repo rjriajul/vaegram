@@ -9,7 +9,7 @@ use crate::types::BusinessConnection;
 impl Client {
     /// Registers a handler for changes to a business connection of the bot that pass `filter`.
     ///
-    /// Returns a `HandlerRef` to set the group, make the handler stop later groups, or get its id.
+    /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_business_connection<F, Fut, T>(&self, filter: Filter<BusinessConnection>, f: F) -> HandlerRef<'_>
     where
         F: Fn(BusinessConnection) -> Fut + Send + Sync + 'static,

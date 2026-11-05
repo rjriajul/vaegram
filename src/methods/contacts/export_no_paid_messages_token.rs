@@ -3,7 +3,6 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::NoPaidMessagesToken;
 
-/// Makes a link that lets whoever opens it message you without paying.
 /// Request built by [`Client::export_no_paid_messages_token`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct ExportNoPaidMessagesToken<'a> {
@@ -13,7 +12,9 @@ pub struct ExportNoPaidMessagesToken<'a> {
 }
 
 impl Client {
-    /// Creates a link that lets whoever opens it message you without paying. Awaiting it returns the token.
+    /// Creates a link that lets whoever opens it message you without paying.
+    ///
+    /// Awaiting returns a [`NoPaidMessagesToken`] with the token, its link and its expiry.
     pub fn export_no_paid_messages_token(&self) -> ExportNoPaidMessagesToken<'_> {
         ExportNoPaidMessagesToken { client: self, revoke: false, temporary: false }
     }

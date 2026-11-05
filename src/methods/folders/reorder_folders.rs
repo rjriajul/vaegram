@@ -3,9 +3,9 @@ use crate::errors::{Error, Result};
 use crate::raw::functions;
 
 impl Client {
-    /// Sets the order of the folders to `folder_ids`.
+    /// Puts the folders in the order of `folder_ids`.
     ///
-    /// An empty slice fails with `Error::InvalidArgument`.
+    /// An empty slice fails with `InvalidArgument`.
     pub async fn reorder_folders(&self, folder_ids: &[i32]) -> Result<()> {
         if folder_ids.is_empty() {
             return Err(Error::InvalidArgument("reorder_folders needs at least one folder id"));

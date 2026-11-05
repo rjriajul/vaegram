@@ -7,7 +7,7 @@ impl Client {
     /// Looks up a folder invite link without joining.
     ///
     /// Accepts the full link or its slug. Returns what the link would add, including the chats the account
-    /// hasn't joined.
+    /// hasn't joined. A link with no slug fails with `InvalidArgument`.
     pub async fn check_folder_invite_link(&self, invite_link: &str) -> Result<FolderInviteLinkInfo> {
         let invite =
             self.invoke(&functions::chatlists::CheckChatlistInvite { slug: slug(invite_link)?.into() }).await?;

@@ -15,7 +15,9 @@ pub struct GetBlockedMessageSenders<'a> {
 }
 
 impl Client {
-    /// Lists the chats on a block list, `limit` at a time starting at `offset`.
+    /// Returns up to `limit` users and chats from a block list, skipping the first `offset`.
+    ///
+    /// Reads [`BlockList::Main`] unless [`block_list`](GetBlockedMessageSenders::block_list) picks another.
     pub fn get_blocked_message_senders(&self, offset: i32, limit: i32) -> GetBlockedMessageSenders<'_> {
         GetBlockedMessageSenders { client: self, offset, limit, list: BlockList::Main }
     }

@@ -3,7 +3,9 @@ use crate::errors::Result;
 use crate::types::PeerRef;
 
 impl Client {
-    /// Lets a banned channel send messages in a chat as itself again. Same as [`Client::unban_chat_member`].
+    /// Lets a banned channel post in a chat as itself again.
+    ///
+    /// Calls [`Client::unban_chat_member`] with the channel as the member.
     pub async fn unban_chat_sender_chat(
         &self,
         chat_id: impl Into<PeerRef>,

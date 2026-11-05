@@ -8,7 +8,7 @@ use super::create_folder_invite_link::chatlist;
 impl Client {
     /// Joins the given chats that were added to a shared folder.
     ///
-    /// An empty `chat_ids` fails with `Error::InvalidArgument`.
+    /// An empty `chat_ids` fails with `InvalidArgument`.
     pub async fn join_folder_updates(
         &self,
         folder_id: i32,

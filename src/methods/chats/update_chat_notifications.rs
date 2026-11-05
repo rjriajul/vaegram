@@ -14,7 +14,7 @@ pub struct UpdateChatNotifications<'a> {
 impl Client {
     /// Changes the notification settings of a chat.
     ///
-    /// Only the settings set on the builder change. Awaiting returns Telegram's `bool` result.
+    /// Only the settings set on the builder change. Awaiting returns the `bool` Telegram sends back.
     pub fn update_chat_notifications(&self, chat_id: impl Into<PeerRef>) -> UpdateChatNotifications<'_> {
         let settings = types::InputPeerNotifySettings {
             show_previews: None,
@@ -30,7 +30,7 @@ impl Client {
 }
 
 impl UpdateChatNotifications<'_> {
-    /// Mutes the chat until this unix time. 0 unmutes it.
+    /// Mutes the chat until this unix time. `0` unmutes it.
     pub fn mute_until(mut self, date: i32) -> Self {
         self.settings.mute_until = Some(date);
         self

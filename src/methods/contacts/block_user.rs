@@ -13,7 +13,7 @@ pub struct BlockUser<'a> {
 }
 
 impl Client {
-    /// Blocks a user. Which block list is used depends on [`block_list`](BlockUser::block_list).
+    /// Blocks a user on [`BlockList::Main`] unless [`block_list`](BlockUser::block_list) picks another.
     pub fn block_user(&self, user_id: impl Into<PeerRef>) -> BlockUser<'_> {
         BlockUser { client: self, user_id: user_id.into(), list: BlockList::Main }
     }

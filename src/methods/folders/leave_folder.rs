@@ -16,7 +16,7 @@ pub struct LeaveFolder<'a> {
 impl Client {
     /// Leaves a shared folder.
     ///
-    /// Awaiting it removes the folder. The chats are kept unless [`leave_chats`](LeaveFolder::leave_chats) is set.
+    /// Awaiting removes the folder. The chats stay joined unless [`leave_chats`](LeaveFolder::leave_chats) is set.
     pub fn leave_folder(&self, folder_id: i32) -> LeaveFolder<'_> {
         LeaveFolder { client: self, folder_id, leave_chats: false }
     }

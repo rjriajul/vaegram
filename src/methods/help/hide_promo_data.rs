@@ -4,9 +4,9 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
-    /// Hides the promotion of `chat_id`, as returned by [`get_promo_data`](Client::get_promo_data).
+    /// Hides the promoted chat returned by [`get_promo_data`](Client::get_promo_data).
     ///
-    /// Returns whether Telegram accepted the request.
+    /// Returns the `bool` Telegram sends back.
     pub async fn hide_promo_data(&self, chat_id: impl Into<PeerRef>) -> Result<bool> {
         let peer = self.resolve_peer(chat_id).await?;
         self.invoke(&functions::help::HidePromoData { peer }).await

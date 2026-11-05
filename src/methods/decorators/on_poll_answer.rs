@@ -9,7 +9,7 @@ use crate::types::PollAnswer;
 impl Client {
     /// Registers a handler for votes in a poll that pass `filter`.
     ///
-    /// Returns a `HandlerRef` to set the group, make the handler stop later groups, or get its id.
+    /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_poll_answer<F, Fut, T>(&self, filter: Filter<PollAnswer>, f: F) -> HandlerRef<'_>
     where
         F: Fn(PollAnswer) -> Fut + Send + Sync + 'static,

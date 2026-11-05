@@ -29,19 +29,19 @@ impl Client {
 }
 
 impl AddContact<'_> {
-    /// Stores a last name for the contact.
+    /// Stores a last name for the contact. Empty by default.
     pub fn last_name(mut self, last_name: impl Into<String>) -> Self {
         self.last_name = last_name.into();
         self
     }
 
-    /// Stores a phone number for the contact. Left empty by default.
+    /// Stores a phone number for the contact. Empty by default.
     pub fn phone_number(mut self, phone_number: impl Into<String>) -> Self {
         self.phone_number = phone_number.into();
         self
     }
 
-    /// Lets the user see your phone number once they are a contact.
+    /// Adds the user as an exception to your phone number privacy, so they can see your number.
     pub fn share_phone_number(mut self) -> Self {
         self.share_phone_number = true;
         self
