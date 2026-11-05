@@ -47,6 +47,7 @@ impl DeleteChatHistory<'_> {
             let request =
                 functions::channels::DeleteHistory { for_everyone: self.revoke, channel, max_id: self.max_id };
             client.invoke(&request).await?;
+            client.0.caches.evict_chat(chat_id);
             return Ok(());
         }
         let request = functions::messages::DeleteHistory {
@@ -57,6 +58,8 @@ impl DeleteChatHistory<'_> {
             min_date: None,
             max_date: None,
         };
-        client.affected_history(chat_id, &request).await
+        client.affected_history(chat_id, &request).await?;
+        client.0.caches.evict_chat(chat_id);
+        Ok(())
     }
 }

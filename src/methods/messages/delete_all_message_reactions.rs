@@ -10,11 +10,12 @@ impl Client {
         chat_id: impl Into<PeerRef>,
         user_id: impl Into<PeerRef>,
     ) -> Result<()> {
-        let request = functions::messages::DeleteParticipantReactions {
-            peer: self.resolve_peer(chat_id).await?,
-            participant: self.resolve_peer(user_id).await?,
-        };
+        let (chat_id, peer) = self.resolve(&chat_id.into()).await?;
+        let request =
+            functions::messages::DeleteParticipantReactions { peer, participant: self.resolve_peer(user_id).await? };
         self.invoke(&request).await?;
+        // Any message of the chat may have lost a reaction.
+        self.0.caches.evict_chat(chat_id);
         Ok(())
     }
 }

@@ -384,6 +384,7 @@ impl Router {
 
     pub(crate) fn dispatch(&self, client: &Client, update: base::Update, entities: &Arc<Entities>, tasks: &mut Tasks) {
         use base::Update as U;
+        client.0.caches.observe(&update, entities);
         for (_, callback) in &self.raw {
             let raw = RawUpdate { update: update.clone(), entities: entities.clone() };
             tasks.raw(callback(client.clone(), raw));

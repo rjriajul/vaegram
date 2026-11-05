@@ -1,3 +1,4 @@
+pub(crate) mod cache;
 mod difference;
 mod entities;
 pub(crate) mod listeners;

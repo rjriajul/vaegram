@@ -20,7 +20,15 @@ impl Message {
             return Ok(None);
         }
         let topic_id = self.message_thread_id.unwrap_or(GENERAL_TOPIC_ID);
-        Ok(self.client().get_forum_topics_by_id(self.chat.id, &[topic_id]).await?.into_iter().next())
+        let caches = &self.client().0.caches;
+        if let Some(topic) = caches.topic(self.chat.id, topic_id) {
+            return Ok(Some(topic));
+        }
+        let topic = self.client().get_forum_topics_by_id(self.chat.id, &[topic_id]).await?.into_iter().next();
+        if let Some(topic) = &topic {
+            caches.store_topic(self.chat.id, topic);
+        }
+        Ok(topic)
     }
 }
 

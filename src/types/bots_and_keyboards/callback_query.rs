@@ -128,13 +128,18 @@ impl CallbackQuery {
         &self.client
     }
 
-    /// The message the button was pressed on. A business press already carries it; a regular one fetches it, so
-    /// `None` means it was deleted since. Inline and ephemeral presses have no regular message: `Ok(None)`.
+    /// The message the button was pressed on. A business press already carries it; a regular one comes from the
+    /// message cache when it's on, else is fetched, so `None` means it was deleted since. Inline and ephemeral
+    /// presses have no regular message: `Ok(None)`.
     pub async fn message(&self) -> Result<Option<Message>> {
         match &self.origin {
             CallbackOrigin::Message { chat, message_id, business_connection_id } => {
                 if business_connection_id.is_some() {
                     return Ok(self.carried.as_deref().cloned());
+                }
+                let cached = self.client.0.caches.message(chat.id, *message_id);
+                if let Some(message) = cached.and_then(|c| Message::from_raw(&self.client, c.raw, &c.entities)) {
+                    return Ok(Some(message));
                 }
                 Ok(self.client.get_messages(chat.id, &[*message_id]).await?.into_iter().next().flatten())
             }
