@@ -16,7 +16,7 @@ pub struct SummarizeMessage<'a> {
 impl Client {
     /// Asks Telegram to summarize the text of a message.
     ///
-    /// Awaiting the request returns the summary as [`crate::types::FormattedText`].
+    /// Awaiting the request returns the summary as [`FormattedText`].
     pub fn summarize_message(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> SummarizeMessage<'_> {
         SummarizeMessage { client: self, chat_id: chat_id.into(), message_id, to_language_code: None, tone: None }
     }

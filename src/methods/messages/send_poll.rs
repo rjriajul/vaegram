@@ -22,7 +22,7 @@ pub struct SendPoll<'a> {
 impl Client {
     /// Sends a poll.
     ///
-    /// Telegram takes 1 to 12 options, and any other count fails with `Error::InvalidArgument`.
+    /// A poll takes 1 to 12 options, and any other count fails with `Error::InvalidArgument`.
     /// Awaiting the request returns the sent [`Message`].
     pub fn send_poll<'a>(
         &'a self,
@@ -103,7 +103,7 @@ impl<'a> SendPoll<'a> {
         self
     }
 
-    /// Sets the poll's `subscribers_only` flag, so only subscribers can vote.
+    /// Lets only subscribers vote.
     pub fn members_only(mut self) -> Self {
         self.poll.subscribers_only = true;
         self

@@ -50,7 +50,7 @@ impl SendVenue<'_> {
         self
     }
 
-    /// Google Places type of the venue. Only sent with a Google Places id.
+    /// Google Places type of the venue. Only sent when the Google Places id is sent.
     pub fn google_place_type(mut self, place_type: impl Into<String>) -> Self {
         self.venue.google_place_type = Some(place_type.into());
         self

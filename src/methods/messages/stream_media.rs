@@ -4,7 +4,7 @@ use crate::errors::Error;
 use crate::types::FileLocation;
 
 impl Client {
-    /// Yields the file in order while later chunks download. Same as `download_media(media).stream()`.
+    /// Yields the file in order while later chunks download, like `download_media(media).stream()`.
     ///
     /// For a byte range, use [`DownloadMedia::offset`](super::DownloadMedia::offset) and
     /// [`limit`](super::DownloadMedia::limit): `client.download_media(media).offset(o).limit(n).stream()`.

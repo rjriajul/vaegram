@@ -6,8 +6,8 @@ use crate::types::{PeerRef, TranslatedText};
 impl Client {
     /// Translates the text of messages into `to_language_code`.
     ///
-    /// An empty `message_ids` fails with `Error::InvalidArgument`. Returns one [`crate::types::TranslatedText`] per
-    /// translated message.
+    /// An empty `message_ids` fails with `Error::InvalidArgument`. Returns one [`TranslatedText`] per translated
+    /// message.
     pub async fn translate_message_text(
         &self,
         to_language_code: impl Into<String>,

@@ -6,9 +6,9 @@ use crate::types::PeerRef;
 impl Client {
     /// Votes in a poll for the options at the given positions.
     ///
-    /// Positions index the poll's options from 0, and several are only valid in multiple-choice polls. The message
-    /// is fetched first to find the option ids. An empty `options`, a missing poll or an out-of-range position
-    /// fails with `Error::InvalidArgument`.
+    /// Positions index the poll's options from 0, and only multiple-choice polls take several. The message is
+    /// fetched first to find the option ids. An empty `options`, a message without a poll or an out-of-range
+    /// position fails with `Error::InvalidArgument`.
     pub async fn vote_poll(&self, chat_id: impl Into<PeerRef>, message_id: i32, options: &[usize]) -> Result<()> {
         if options.is_empty() {
             return Err(Error::InvalidArgument("a vote takes at least one option; retract_vote takes a vote back"));

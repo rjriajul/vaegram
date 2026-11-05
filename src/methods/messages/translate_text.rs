@@ -17,7 +17,7 @@ pub struct TranslateText<'a> {
 impl Client {
     /// Translates a piece of text into `to_language_code`.
     ///
-    /// Awaiting the request returns the [`crate::types::TranslatedText`].
+    /// Awaiting the request returns the [`TranslatedText`].
     pub fn translate_text(&self, to_language_code: impl Into<String>, text: impl Into<Text>) -> TranslateText<'_> {
         TranslateText { client: self, to_language_code: to_language_code.into(), text: text.into(), parse_mode: None }
     }

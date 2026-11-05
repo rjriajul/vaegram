@@ -7,8 +7,8 @@ use crate::types::CheckedGiftCode;
 impl Client {
     /// Reads who a gift code came from and whether it was already used, without redeeming it.
     ///
-    /// `slug` is a bare slug or a `t.me/giftcode/...` or `tg://giftcode?slug=...` link. Fails with `InvalidArgument`
-    /// if no slug can be read from it.
+    /// `slug` is a bare slug or a `t.me/giftcode/...` or `tg://giftcode?slug=...` link. Fails with
+    /// `Error::InvalidArgument` if no slug can be read from it.
     pub async fn check_gift_code(&self, slug: &str) -> Result<CheckedGiftCode> {
         let slug = gift_code_slug(slug)?.into();
         let base::payments::CheckedGiftCode::CheckedGiftCode(code) =

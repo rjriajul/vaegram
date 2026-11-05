@@ -16,7 +16,7 @@ pub struct SendReaction<'a> {
 impl Client {
     /// Sets the current account's reactions on a message.
     ///
-    /// Awaiting the request without adding any reaction removes the existing ones. Awaiting returns `()`.
+    /// Awaiting the request without adding any reaction removes the existing ones.
     pub fn send_reaction(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> SendReaction<'_> {
         SendReaction { client: self, chat_id: chat_id.into(), message_id, reactions: Vec::new(), big: false }
     }

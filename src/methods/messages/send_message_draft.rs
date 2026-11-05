@@ -47,15 +47,13 @@ macro_rules! draft_setters {
                 self
             }
 
-            /// Sets the `can_stop` flag of the draft action.
-            ///
-            /// On a message stream it is what lets a press of stop reach the stream.
+            /// Lets the user stop the draft. A message stream reports the stop only when this is set.
             pub fn can_stop(mut self) -> Self {
                 self.options.can_stop = true;
                 self
             }
 
-            /// Sets the `keep_on_stop` flag of the draft action.
+            /// Keeps the draft shown after the user stops it.
             pub fn keep_on_stop(mut self) -> Self {
                 self.options.keep_on_stop = true;
                 self
@@ -69,7 +67,7 @@ impl Client {
     /// Streams a partial message to the user while it is being generated.
     ///
     /// Sending again with the same `draft_id` updates the draft. Empty text is allowed.
-    /// Awaiting the request returns the `bool` result of the underlying typing action.
+    /// Awaiting the request returns the `bool` that `messages.setTyping` answers with.
     pub fn send_message_draft(
         &self,
         chat_id: impl Into<PeerRef>,

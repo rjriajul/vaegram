@@ -18,8 +18,8 @@ pub struct StopPoll<'a> {
 impl Client {
     /// Closes a poll.
     ///
-    /// Awaiting the request returns the edited message, with the final results in `raw.media`. Outside a business
-    /// chat it reads the message first, and a message without a poll fails with `Error::InvalidArgument`.
+    /// Awaiting the request returns the edited [`Message`], with the final results in [`Message::poll`]. Outside a
+    /// business chat it reads the message first, and a message id without a poll fails with `Error::InvalidArgument`.
     pub fn stop_poll(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> StopPoll<'_> {
         let chat_id = chat_id.into();
         StopPoll { client: self, chat_id, message_id, reply_markup: None, business_connection_id: None }

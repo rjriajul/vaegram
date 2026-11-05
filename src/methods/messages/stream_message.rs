@@ -90,7 +90,7 @@ impl MessageStream {
         true
     }
 
-    /// Whether the user pressed stop on the draft. Only reported when `can_stop` is set.
+    /// Returns whether the user pressed stop on the draft. Only reported when `can_stop` is set.
     pub fn is_stopped(&self) -> bool {
         self.shared.stopped.load(Ordering::Relaxed)
     }
