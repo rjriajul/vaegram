@@ -11,7 +11,7 @@ pub enum PhoneCallDiscardReason {
     HungUp,
     /// The callee was busy.
     Busy,
-    /// The call moved to a conference call; holds that call's invite slug.
+    /// The call moved to a conference call. Holds that call's invite slug.
     MigrateConferenceCall(String),
 }
 

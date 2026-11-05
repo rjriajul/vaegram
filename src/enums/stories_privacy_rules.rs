@@ -8,12 +8,12 @@ pub enum StoriesPrivacyRules {
         /// User ids that can't see the story.
         except: Vec<i64>,
     },
-    /// Your contacts except the listed user ids.
+    /// The account's contacts except the listed user ids.
     Contacts {
         /// User ids that can't see the story.
         except: Vec<i64>,
     },
-    /// Only your close friends list.
+    /// Only the account's close friends.
     CloseFriends,
     /// Only the listed users. Negative ids are groups, and their members can see the story.
     SelectedUsers(Vec<i64>),

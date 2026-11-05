@@ -6,9 +6,9 @@ pub enum BaseTheme {
     /// Telegram's classic theme.
     #[default]
     Classic,
-    /// The default light theme.
+    /// The light Day theme.
     Day,
-    /// The default dark theme.
+    /// The dark Night theme.
     Night,
     /// The tinted variant of the dark theme.
     Tinted,

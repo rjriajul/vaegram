@@ -1,4 +1,4 @@
-/// What the account is in a community.
+/// The account's standing in a community.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum CommunityMemberStatus {

@@ -20,7 +20,7 @@ pub enum ServiceKind {
     GroupChatCreated,
     /// A supergroup was created.
     SupergroupChatCreated,
-    /// A channel was created.
+    /// A channel was created. Also reported for a supergroup when the chat's type isn't known.
     ChannelChatCreated,
     /// The group was upgraded to a supergroup.
     MigrateToChatId,
@@ -146,7 +146,7 @@ pub enum ServiceKind {
     SuggestBirthday,
     /// Paid messages were refunded.
     PaidMessagesRefunded,
-    /// The price per message changed in a group.
+    /// The price per message changed in a chat that isn't known to be a channel.
     PaidMessagePriceChanged,
     /// The price of direct messages changed in a channel.
     DirectMessagePriceChanged,

@@ -26,7 +26,8 @@ pub enum SentCodeType {
     SmsWord,
     /// A text message whose code is a phrase.
     SmsPhrase,
-    /// Telegram asks for a login email, and the account has none yet. It has to be set up in an official app first.
+    /// Telegram asks for a login email, and the account has none yet. It has to be set up in an official app
+    /// first.
     SetUpEmailRequired,
 }
 

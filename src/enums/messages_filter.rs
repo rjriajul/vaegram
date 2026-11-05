@@ -28,7 +28,7 @@ pub enum MessagesFilter {
     Audio,
     /// Service messages about a chat photo change.
     ChatPhoto,
-    /// Phone call service messages. Missed calls are not singled out.
+    /// Phone call service messages, missed or not.
     PhoneCall,
     /// Messages that mention the current account.
     Mention,
