@@ -2,7 +2,7 @@ use crate::types::Document;
 
 use super::inline_query_result::{Parts, Stored, setters};
 
-/// A [`Document`](crate::types::Document) already on Telegram's servers, offered as an inline result.
+/// A [`Document`] already on Telegram's servers, offered as an inline result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultCachedDocument {
     parts: Parts,

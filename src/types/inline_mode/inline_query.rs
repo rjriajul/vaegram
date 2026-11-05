@@ -51,7 +51,7 @@ impl InlineQuery {
         &self.client
     }
 
-    /// Answers this query with `results`.
+    /// Answers the query with `results`.
     ///
     /// Shorthand for [`Client::answer_inline_query`] with this query's id.
     pub fn answer<R: Into<InlineQueryResult>>(&self, results: impl IntoIterator<Item = R>) -> AnswerInlineQuery<'_> {

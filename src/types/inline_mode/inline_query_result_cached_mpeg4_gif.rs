@@ -2,7 +2,7 @@ use crate::types::Animation;
 
 use super::inline_query_result::{Parts, Stored, setters};
 
-/// A [`Animation`](crate::types::Animation) already on Telegram's servers, offered as an inline result.
+/// An [`Animation`] already on Telegram's servers, offered as an MPEG-4 animation result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultCachedMpeg4Gif {
     parts: Parts,

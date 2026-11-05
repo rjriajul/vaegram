@@ -2,7 +2,7 @@ use crate::types::Audio;
 
 use super::inline_query_result::{Parts, Stored, setters};
 
-/// A [`Audio`](crate::types::Audio) already on Telegram's servers, offered as an inline result.
+/// An [`Audio`] already on Telegram's servers, offered as an inline result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultCachedAudio {
     parts: Parts,

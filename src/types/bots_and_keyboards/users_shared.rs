@@ -1,9 +1,10 @@
 use crate::types::Photo;
 
-/// Users the user picked in answer to a [`crate::types::KeyboardButtonRequestUsers`] button.
+/// Users picked in answer to a
+/// [`KeyboardButtonRequestUsers`](crate::types::KeyboardButtonRequestUsers) button.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UsersShared {
-    /// The id set on the request button.
+    /// The `request_id` set on the button.
     pub request_id: i32,
     /// The users that were picked.
     pub users: Vec<SharedUser>,
@@ -12,7 +13,7 @@ pub struct UsersShared {
 /// Fields other than `user_id` are only set when the button asked for them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SharedUser {
-    /// Id of the user.
+    /// Id of the picked user.
     pub user_id: i64,
     /// First name. `None` unless the button asked for it.
     pub first_name: Option<String>,

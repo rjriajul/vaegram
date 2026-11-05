@@ -2,7 +2,7 @@ use crate::types::Video;
 
 use super::inline_query_result::{Parts, Stored, setters};
 
-/// A [`Video`](crate::types::Video) already on Telegram's servers, offered as an inline result.
+/// A [`Video`] already on Telegram's servers, offered as an inline result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultCachedVideo {
     parts: Parts,

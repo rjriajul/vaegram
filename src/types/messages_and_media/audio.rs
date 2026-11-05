@@ -6,11 +6,11 @@ use crate::types::{Document, FileLocation, Thumbnail};
 pub struct Audio {
     /// Encoded identifier for sending or downloading the file again.
     pub file_id: String,
-    /// Identifier derived from the file's id. It stays the same across sessions and accounts.
+    /// Id that stays the same for this file everywhere. It can't be used to download.
     pub file_unique_id: String,
     /// Telegram's id of the document.
     pub id: i64,
-    /// Original file name. `None` if the sender gave none.
+    /// Original file name. `None` if the file has no filename attribute.
     pub file_name: Option<String>,
     /// MIME type reported by Telegram.
     pub mime_type: String,

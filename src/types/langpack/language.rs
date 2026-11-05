@@ -19,11 +19,11 @@ pub struct Language {
     pub translated_count: i32,
     /// Link to the translation platform page for the language.
     pub translations_url: String,
-    /// The pack is an official one.
+    /// Set when the pack is an official one.
     pub official: bool,
-    /// The language is written right to left.
+    /// Set when the language is written right to left.
     pub rtl: bool,
-    /// The pack is a beta.
+    /// Set when the pack is a beta.
     pub beta: bool,
 }
 

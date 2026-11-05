@@ -2,7 +2,7 @@ use crate::types::Photo;
 
 use super::inline_query_result::{Parts, Stored, setters};
 
-/// A [`Photo`](crate::types::Photo) already on Telegram's servers, offered as an inline result.
+/// A [`Photo`] already on Telegram's servers, offered as an inline result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultCachedPhoto {
     parts: Parts,

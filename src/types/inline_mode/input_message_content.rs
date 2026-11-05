@@ -45,9 +45,9 @@ pub enum InputMessageContent {
         phone_number: String,
         /// Contact's first name.
         first_name: String,
-        /// Contact's last name. Empty if there is none.
+        /// Contact's last name. Empty if not set.
         last_name: String,
-        /// Extra contact data as a vCard. Empty if there is none.
+        /// Extra contact data as a vCard. Empty if not set.
         vcard: String,
     },
     /// An invoice.
@@ -57,7 +57,7 @@ pub enum InputMessageContent {
 }
 
 impl InputMessageContent {
-    /// Creates plain text content, sent without parsing.
+    /// Creates text content parsed with the client's default parse mode.
     pub fn text(text: impl Into<String>) -> Self {
         InputMessageContent::formatted(text.into(), None)
     }
@@ -84,7 +84,7 @@ impl InputMessageContent {
         }
     }
 
-    /// Creates location content.
+    /// Creates content that sends a location.
     pub fn location(latitude: f64, longitude: f64) -> Self {
         InputMessageContent::Location {
             latitude,
@@ -109,7 +109,7 @@ impl InputMessageContent {
         }
     }
 
-    /// Creates contact content.
+    /// Creates content that sends a contact.
     pub fn contact(phone_number: impl Into<String>, first_name: impl Into<String>) -> Self {
         InputMessageContent::Contact {
             phone_number: phone_number.into(),
@@ -119,7 +119,7 @@ impl InputMessageContent {
         }
     }
 
-    /// Creates invoice content.
+    /// Creates content that sends an invoice.
     pub fn invoice(invoice: InputInvoice) -> Self {
         InputMessageContent::Invoice(Box::new(invoice))
     }

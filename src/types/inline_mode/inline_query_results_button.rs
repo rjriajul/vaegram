@@ -8,11 +8,11 @@ pub enum InlineQueryResultsButton {
         /// Text sent after `/start`.
         start_parameter: String,
     },
-    /// Opens the Web App at `url`.
+    /// Opens the mini app at `url`.
     WebApp {
         /// Button label.
         text: String,
-        /// Web App URL.
+        /// URL of the mini app.
         url: String,
     },
 }
@@ -23,7 +23,7 @@ impl InlineQueryResultsButton {
         InlineQueryResultsButton::Start { text: text.into(), start_parameter: start_parameter.into() }
     }
 
-    /// Creates a button that opens the Web App at `url`.
+    /// Creates a button that opens the mini app at `url`.
     pub fn web_app(text: impl Into<String>, url: impl Into<String>) -> Self {
         InlineQueryResultsButton::WebApp { text: text.into(), url: url.into() }
     }

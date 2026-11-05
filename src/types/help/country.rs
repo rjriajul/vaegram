@@ -9,7 +9,7 @@ pub struct Country {
     pub default_name: String,
     /// Name in the language Telegram was asked for. `None` if Telegram sent no localized name.
     pub name: Option<String>,
-    /// Telegram marks the country as hidden.
+    /// Set when Telegram marks the country as hidden.
     pub hidden: bool,
     /// Dialing codes of the country.
     pub country_codes: Vec<CountryCode>,

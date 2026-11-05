@@ -6,6 +6,7 @@ pub struct WebAppInfo {
 }
 
 impl WebAppInfo {
+    /// Creates a mini app button target that opens `url`.
     pub fn new(url: impl Into<String>) -> Self {
         WebAppInfo { url: url.into() }
     }
