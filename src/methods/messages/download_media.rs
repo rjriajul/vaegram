@@ -1235,12 +1235,15 @@ mod tests {
 
     #[tokio::test]
     async fn a_dropped_stream_frees_its_permit() {
-        let (c, whole) = (CHUNK as usize, numbered(3));
-        let replies = (0..3).map(|i| file(whole[i * c..(i + 1) * c].to_vec())).collect();
+        // Two chunks, so the download uses two connections: the client's own session, registered twice (by
+        // `with_session` and `located`). A third chunk would make it ask for a third connection, and the pool would
+        // dial the real data center, so the test would pass or fail with the network.
+        let (c, whole) = (CHUNK as usize, numbered(2));
+        let replies = (0..2).map(|i| file(whole[i * c..(i + 1) * c].to_vec())).collect();
         let (mut client, _rx) = Client::scripted(replies);
         one_download_at_a_time(&mut client);
         let slots = client.0.transmissions.as_ref().unwrap().downloads.clone();
-        let mut stream = client.download_media(located(&client, Some(3 * c as i64))).stream();
+        let mut stream = client.download_media(located(&client, Some(2 * c as i64))).stream();
         assert!(stream.next().await.unwrap().is_ok());
         assert_eq!(slots.available_permits(), 0, "the stream isn't done, so it keeps its slot");
         drop(stream);
