@@ -200,7 +200,7 @@ mod tests {
 
     fn cache() -> (PeerCache, Arc<Store>, Arc<MemoryStorage>) {
         let engine = Arc::new(MemoryStorage::new());
-        let store = Arc::new(Store::new(engine.clone()));
+        let store = Arc::new(Store::new(engine.clone(), Arc::default()));
         (PeerCache::new(store.clone()), store, engine)
     }
 

@@ -21,7 +21,10 @@ impl Client {
                 }
             }
             Ok(None) => {}
-            Err(e) => eprintln!("vaegram: couldn't look a phone number up in storage, asking Telegram: {e}"),
+            Err(e) => self.0.events.storage_failed(
+                e.kind(),
+                format_args!("couldn't look a phone number up in storage, asking Telegram: {e}"),
+            ),
         }
         let base::contacts::ResolvedPeer::ResolvedPeer(resolved) =
             self.invoke(&functions::contacts::ResolvePhone { phone }).await?;

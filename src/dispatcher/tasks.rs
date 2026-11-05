@@ -100,13 +100,7 @@ pub(crate) async fn run_hook(client: Client, kind: UpdateKind, hook: Callback<Cl
 async fn report(on_error: Option<ErrorCallback>, events: Arc<Events>, error: HandlerError) {
     match on_error {
         Some(on_error) => on_error(error).await,
-        None => {
-            match error.chat_id {
-                Some(chat) => eprintln!("vaegram: {:?} handler failed in chat {chat}: {}", error.kind, error.error),
-                None => eprintln!("vaegram: {:?} handler failed: {}", error.kind, error.error),
-            }
-            events.emit(ClientEvent::HandlerFailed { error });
-        }
+        None => events.warn(ClientEvent::HandlerFailed { error }),
     }
 }
 

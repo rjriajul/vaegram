@@ -464,6 +464,10 @@ impl ClientBuilder {
         self
     }
 
+    /// Connects, and when the storage holds no login, logs in. The builder's bot token, phone number, code and
+    /// password are used when set; what is missing is asked on stdin, with prompts on stdout: a phone number or bot
+    /// token, the confirmation code, the password, and for a new account the name and the terms of service. Use
+    /// [`connect`](Self::connect) with `send_code` and `sign_in` to log in without any console I/O.
     pub async fn start(self) -> Result<Client> {
         let (client, login) = self.open().await?;
         if client.0.me.lock().unwrap().id == 0 {
@@ -493,7 +497,8 @@ impl ClientBuilder {
             (None, Some(_)) => Arc::new(MemoryStorage::new()),
             (None, None) => Arc::new(self.default_engine()),
         };
-        let store = Arc::new(Store::new(engine));
+        let events = Arc::new(Events::default());
+        let store = Arc::new(Store::new(engine, events.clone()));
         store.open().await?;
         let stored = match &self.session_string {
             Some(s) => Some(session_string::parse(s).map_err(Error::InvalidSession)?),
@@ -512,7 +517,6 @@ impl ClientBuilder {
         let dc = |addr| Dc { id: dc_id, addr, test: test_mode };
         let (state, salt) = store.load_state(user_id).await?;
         let warm = store.warm().await?;
-        let events = Arc::new(Events::default());
         let saved = auth_key.map(|key| (key, salt));
         let try_addr = |addr| connect(dc(addr), saved, self.api_id, &self.options, events.clone(), self.pfs);
         // A saved address comes from help.getConfig and can go stale.
@@ -772,7 +776,7 @@ impl Inner {
     /// Points the client at `engine`, for tests that check what reaches it.
     #[cfg(test)]
     pub(crate) fn set_store(&mut self, engine: Arc<dyn Storage>) {
-        self.store = Arc::new(Store::new(engine));
+        self.store = Arc::new(Store::new(engine, self.events.clone()));
         self.peers.get_mut().unwrap().set_store(self.store.clone());
     }
 }
@@ -835,8 +839,9 @@ impl Client {
 
     #[cfg(test)]
     pub(crate) fn offline() -> Client {
-        let store = Arc::new(Store::new(Arc::new(MemoryStorage::new())));
-        let mut inner = Inner::new(Session::offline(), UpdatesRx::offline(), store);
+        let updates = UpdatesRx::offline();
+        let store = Arc::new(Store::new(Arc::new(MemoryStorage::new()), updates.events.clone()));
+        let mut inner = Inner::new(Session::offline(), updates, store);
         inner.me.get_mut().unwrap().is_bot = true;
         Client(Arc::new(inner), None)
     }

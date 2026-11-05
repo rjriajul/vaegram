@@ -31,6 +31,13 @@ pub enum ClientEvent {
     RecordingFailed {
         error: std::io::Error,
     },
+    /// A call to the storage engine failed and `error` says which. The client carries on: a lookup falls back to
+    /// asking Telegram, and a save that failed is tried again with the next one. This can fire on the engine's own
+    /// thread.
+    #[non_exhaustive]
+    StorageFailed {
+        error: std::io::Error,
+    },
     /// The handlers fell behind and `count` batches of updates didn't fit in the queue. Updates that move pts or
     /// qts are fetched again; `unrecoverable` of the batches also held others (callback queries, typing, ...) that
     /// are gone. More `max_concurrent_handlers` or faster handlers keep it at 0.
