@@ -1,4 +1,5 @@
-//! Just enough HTTP/1.1 to read a response head, as a WebSocket upgrade answers with.
+//! Just enough HTTP/1.1 to read a response head, as a WebSocket upgrade answers with, and whole responses off a
+//! keep-alive connection.
 
 use std::io;
 
@@ -44,6 +45,101 @@ pub(crate) async fn read_head<S: AsyncRead + Unpin>(stream: &mut S) -> io::Resul
         }
         buf.extend_from_slice(&chunk[..n]);
     }
+}
+
+/// One whole response off a keep-alive connection. `pending` holds the bytes read past the previous response and
+/// keeps those read past this one. The body is delimited by `Content-Length` or chunked framing and holds at most
+/// `max_body` bytes; a body that runs to the close can't be told from a dropped connection, so it's refused.
+#[cfg(feature = "web-proxy")]
+pub(crate) async fn read_response<S: AsyncRead + Unpin>(
+    stream: &mut S,
+    pending: &mut Vec<u8>,
+    max_body: usize,
+) -> io::Result<(Head, Vec<u8>)> {
+    let end = fill_until(stream, pending, MAX_HEAD, b"\r\n\r\n").await?;
+    let head = parse(&pending[..end])?;
+    pending.drain(..end + 4);
+    let chunked = head.header("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
+    if chunked {
+        let mut body = Vec::new();
+        loop {
+            let end = fill_until(stream, pending, MAX_HEAD, b"\r\n").await?;
+            let line = std::str::from_utf8(&pending[..end]).map_err(|_| invalid("a chunk size isn't text"))?;
+            let size = line.split(';').next().unwrap_or_default().trim();
+            let size = usize::from_str_radix(size, 16).map_err(|_| invalid("a chunk size isn't hex"))?;
+            pending.drain(..end + 2);
+            if size == 0 {
+                // Trailer fields, if any, then the blank line that ends the body.
+                loop {
+                    let end = fill_until(stream, pending, MAX_HEAD, b"\r\n").await?;
+                    pending.drain(..end + 2);
+                    if end == 0 {
+                        return Ok((head, body));
+                    }
+                }
+            }
+            if body.len().saturating_add(size) > max_body {
+                return Err(invalid("the HTTP response body is too long"));
+            }
+            fill_to(stream, pending, size + 2).await?;
+            if pending[size..size + 2] != *b"\r\n" {
+                return Err(invalid("a chunk doesn't end where its size says"));
+            }
+            body.extend_from_slice(&pending[..size]);
+            pending.drain(..size + 2);
+        }
+    }
+    let body = match head.header("content-length") {
+        Some(length) => {
+            let length: usize = length.parse().map_err(|_| invalid("a bad Content-Length"))?;
+            if length > max_body {
+                return Err(invalid("the HTTP response body is too long"));
+            }
+            fill_to(stream, pending, length).await?;
+            pending.drain(..length).collect()
+        }
+        None if matches!(head.status, 204 | 304) => Vec::new(),
+        None => return Err(invalid("an HTTP response has neither Content-Length nor chunked framing")),
+    };
+    Ok((head, body))
+}
+
+/// Reads into `pending` until `needle` is in it, within `limit` bytes; returns where it starts.
+#[cfg(feature = "web-proxy")]
+async fn fill_until<S: AsyncRead + Unpin>(
+    stream: &mut S,
+    pending: &mut Vec<u8>,
+    limit: usize,
+    needle: &[u8],
+) -> io::Result<usize> {
+    loop {
+        if let Some(at) = pending.windows(needle.len()).position(|w| w == needle) {
+            return Ok(at);
+        }
+        if pending.len() > limit {
+            return Err(invalid("an HTTP line is too long"));
+        }
+        read_more(stream, pending).await?;
+    }
+}
+
+#[cfg(feature = "web-proxy")]
+async fn fill_to<S: AsyncRead + Unpin>(stream: &mut S, pending: &mut Vec<u8>, len: usize) -> io::Result<()> {
+    while pending.len() < len {
+        read_more(stream, pending).await?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "web-proxy")]
+async fn read_more<S: AsyncRead + Unpin>(stream: &mut S, pending: &mut Vec<u8>) -> io::Result<()> {
+    let mut chunk = [0; 4096];
+    let n = stream.read(&mut chunk).await?;
+    if n == 0 {
+        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the server closed inside an HTTP response"));
+    }
+    pending.extend_from_slice(&chunk[..n]);
+    Ok(())
 }
 
 fn parse(head: &[u8]) -> io::Result<Head> {
@@ -92,5 +188,45 @@ mod tests {
         let (mut client, server) = tokio::io::duplex(64);
         drop(server);
         assert_eq!(read_head(&mut client).await.err().map(|e| e.kind()), Some(std::io::ErrorKind::UnexpectedEof));
+    }
+
+    #[cfg(feature = "web-proxy")]
+    #[tokio::test]
+    async fn reads_keep_alive_responses_one_after_another() {
+        use super::read_response;
+        let answers = concat!(
+            "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc",
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2;x=y\r\nde\r\n1\r\nf\r\n0\r\nTrailer: z\r\n\r\n",
+            "HTTP/1.1 204 No Content\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\ng",
+        );
+        let (mut client, mut server) = tokio::io::duplex(16);
+        tokio::spawn(async move { server.write_all(answers.as_bytes()).await });
+        let mut pending = Vec::new();
+        let mut bodies = Vec::new();
+        for _ in 0..4 {
+            let (head, body) = read_response(&mut client, &mut pending, 64).await.unwrap();
+            bodies.push((head.status, String::from_utf8(body).unwrap()));
+        }
+        let want = [(200, "abc"), (200, "def"), (204, ""), (200, "g")];
+        assert_eq!(bodies, want.map(|(s, b)| (s, b.to_owned())));
+        assert!(pending.is_empty());
+    }
+
+    #[cfg(feature = "web-proxy")]
+    #[tokio::test]
+    async fn refuses_bodies_it_cant_delimit_or_that_run_long() {
+        use super::read_response;
+        for answer in [
+            &b"HTTP/1.1 200 OK\r\n\r\nrest"[..],
+            b"HTTP/1.1 200 OK\r\nContent-Length: 65\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n41\r\n",
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nab\r\n",
+        ] {
+            let (mut client, mut server) = tokio::io::duplex(256);
+            tokio::spawn(async move { server.write_all(answer).await });
+            let kind = read_response(&mut client, &mut Vec::new(), 64).await.err().map(|e| e.kind());
+            assert_eq!(kind, Some(std::io::ErrorKind::InvalidData), "{answer:?}");
+        }
     }
 }

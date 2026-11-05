@@ -60,6 +60,7 @@ regex = ["dep:regex"]
 # Transports over TLS.
 websocket = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 dns-config = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
+web-proxy = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 
 [dev-dependencies]
 metrics-util = "0.20"

@@ -6,6 +6,8 @@ pub enum ProxyScheme {
     Socks5,
     Http,
     MtProxy,
+    /// An MTProxy reached through an HTTPS relay (`tg://webproxy`).
+    Web,
 }
 
 impl ProxyScheme {
@@ -15,6 +17,7 @@ impl ProxyScheme {
             ProxyScheme::Socks5 => "socks5",
             ProxyScheme::Http => "http",
             ProxyScheme::MtProxy => "mtproxy",
+            ProxyScheme::Web => "web",
         }
     }
 }
