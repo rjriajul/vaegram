@@ -10,9 +10,9 @@ pub enum TransactionPartner {
     User {
         /// The user.
         user: Box<User>,
-        /// The affiliate that earned a commission on this sale. `None` if there is none.
+        /// The affiliate that earned a commission on this sale. `None` unless the sale came through one.
         affiliate: Option<AffiliateInfo>,
-        /// The payload the bot set on the invoice. `None` if the transaction has no bot payload.
+        /// The payload the bot set on the invoice. `None` if the transaction carries none.
         invoice_payload: Option<String>,
         /// Length of the subscription period in seconds. `None` if it isn't a subscription.
         subscription_period: Option<i32>,
@@ -26,13 +26,13 @@ pub enum TransactionPartner {
         /// Commission as parts per thousand of the sale.
         commission_per_mille: i32,
     },
-    /// A withdrawal to Fragment. `None` if Telegram gave no state.
+    /// A withdrawal to Fragment. `None` if it's neither pending nor failed but lacks a date and URL.
     Fragment(Option<RevenueWithdrawalState>),
     /// Telegram Ads.
     TelegramAds,
     /// Telegram API usage, such as paid broadcasts.
     TelegramApi {
-        /// Number of requests covered by the transaction.
+        /// Number of requests over the regular limits that the transaction pays for. 0 if Telegram sends none.
         request_count: i32,
     },
     /// Any partner this library doesn't map.

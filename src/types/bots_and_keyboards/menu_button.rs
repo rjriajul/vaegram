@@ -3,7 +3,7 @@ use crate::raw::{base, types};
 /// The button next to the input field in a chat with the bot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuButton {
-    /// Falls back to the button set for all users; has no effect when setting that one.
+    /// Falls back to the button set for all users. Has no effect when setting that one.
     Default,
     /// Opens the bot's command list.
     Commands,

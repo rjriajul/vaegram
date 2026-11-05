@@ -1,7 +1,7 @@
 use crate::raw::{base, types};
 use crate::types::ChatPrivileges;
 
-/// Asks the user to pick a group or channel; it arrives as `ServiceAction::ChatShared` carrying `request_id`.
+/// Asks the user to pick a group or channel. It arrives as `ServiceAction::ChatShared` carrying `request_id`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyboardButtonRequestChat {
     /// Identifies the request in the [`ChatShared`](crate::types::ChatShared) that comes back.
@@ -14,9 +14,9 @@ pub struct KeyboardButtonRequestChat {
     pub chat_has_username: Option<bool>,
     /// Only chats the user owns.
     pub chat_is_created: bool,
-    /// Rights the user must have as an administrator of the chat. `None` for no requirement.
+    /// Administrator rights the user must have in the chat. `None` for no requirement.
     pub user_administrator_rights: Option<ChatPrivileges>,
-    /// Rights the bot is to get as an administrator of the chat. `None` for no requirement.
+    /// Administrator rights the bot must have in the chat. `None` for no requirement.
     pub bot_administrator_rights: Option<ChatPrivileges>,
     /// Groups only: the bot has to be a member.
     pub bot_is_member: bool,
@@ -70,13 +70,13 @@ impl KeyboardButtonRequestChat {
         self
     }
 
-    /// Requires the user to have these rights in the chat.
+    /// Requires the user to have these administrator rights in the chat.
     pub fn user_administrator_rights(mut self, rights: ChatPrivileges) -> Self {
         self.user_administrator_rights = Some(rights);
         self
     }
 
-    /// Asks for the bot to get these rights in the chat.
+    /// Requires the bot to have these administrator rights in the chat.
     pub fn bot_administrator_rights(mut self, rights: ChatPrivileges) -> Self {
         self.bot_administrator_rights = Some(rights);
         self

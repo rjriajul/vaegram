@@ -1,15 +1,15 @@
 use crate::raw::{base, types};
 
-/// Asks the user to pick users; they arrive as `ServiceAction::UsersShared` carrying `request_id`.
+/// Asks the user to pick users. They arrive as `ServiceAction::UsersShared` carrying `request_id`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyboardButtonRequestUsers {
-    /// Identifies the request in the users shared back.
+    /// Identifies the request in the `ServiceAction::UsersShared` that comes back.
     pub request_id: i32,
     /// `Some(true)` only bots, `Some(false)` only people.
     pub user_is_bot: Option<bool>,
     /// `Some(true)` only Premium users, `Some(false)` only users without Premium.
     pub user_is_premium: Option<bool>,
-    /// How many users the user may pick.
+    /// Most users the user can pick. [`new`](Self::new) sets it to 1.
     pub max_quantity: i32,
     /// Also share the users' names.
     pub request_name: bool,
@@ -45,7 +45,7 @@ impl KeyboardButtonRequestUsers {
         self
     }
 
-    /// 1 to 10.
+    /// Lets the user pick up to `n` users, from 1 to 10.
     pub fn max_quantity(mut self, n: i32) -> Self {
         self.max_quantity = n;
         self

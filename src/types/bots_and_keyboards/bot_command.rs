@@ -3,7 +3,7 @@ use crate::raw::{base, types};
 /// A command a bot lists in its command menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BotCommand {
-    /// The command text.
+    /// The command, as the user types it after `/`.
     pub command: String,
     /// What the command does, as shown in the menu.
     pub description: String,

@@ -50,25 +50,25 @@ impl InputInvoice {
         invoice
     }
 
-    /// Sets the payment provider token.
+    /// Sends the payment through the provider this token belongs to.
     pub fn provider_token(mut self, token: impl Into<String>) -> Self {
         self.0.provider = Some(token.into());
         self
     }
 
-    /// Sets JSON data passed to the payment provider. Defaults to `{}`.
+    /// JSON data passed to the payment provider. Defaults to `{}`.
     pub fn provider_data(mut self, json: impl Into<String>) -> Self {
         self.0.provider_data = base::DataJSON::DataJSON(Box::new(types::DataJSON { data: json.into() }));
         self
     }
 
-    /// Sets the deep link parameter for the bot.
+    /// Adds a start parameter for deep links to the bot.
     pub fn start_parameter(mut self, parameter: impl Into<String>) -> Self {
         self.0.start_param = Some(parameter.into());
         self
     }
 
-    /// Sets the invoice photo from a URL. The size is only sent if both `width` and `height` are above zero.
+    /// Shows the photo at `url` on the invoice. The size is sent only when `width` and `height` are both positive.
     pub fn photo(mut self, url: impl Into<String>, width: i32, height: i32) -> Self {
         let size = types::DocumentAttributeImageSize { w: width, h: height };
         let attributes = if width > 0 && height > 0 {
@@ -81,8 +81,8 @@ impl InputInvoice {
         self
     }
 
-    /// Allows tips up to `max_tip_amount` and offers the suggested amounts. Amounts are in the currency's
-    /// smallest units.
+    /// Lets the buyer tip up to `max_tip_amount`, offering the suggested amounts as presets. Amounts are in the
+    /// currency's smallest units.
     pub fn tips(mut self, max_tip_amount: i64, suggested_tip_amounts: impl IntoIterator<Item = i64>) -> Self {
         let invoice = self.invoice();
         invoice.max_tip_amount = Some(max_tip_amount);

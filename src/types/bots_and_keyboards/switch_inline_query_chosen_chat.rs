@@ -16,7 +16,7 @@ pub struct SwitchInlineQueryChosenChat {
 }
 
 impl SwitchInlineQueryChosenChat {
-    /// Creates a picker that allows no chat type yet. Turn types on with the `allow_*` methods.
+    /// Creates a picker with every chat type off. Turn types on with the `allow_*` methods.
     pub fn new(query: impl Into<String>) -> Self {
         SwitchInlineQueryChosenChat { query: query.into(), ..Default::default() }
     }

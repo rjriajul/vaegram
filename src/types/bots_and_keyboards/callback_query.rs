@@ -20,9 +20,9 @@ pub struct CallbackQuery {
     pub from_user: User,
     /// The message the button is on.
     pub origin: CallbackOrigin,
-    /// The data attached to the button. Invalid UTF-8 is replaced.
+    /// The data attached to the button, empty if it has none. Invalid UTF-8 is replaced.
     pub data: String,
-    /// Set when a `callback_game` button was pressed; answer with the game's URL to open it.
+    /// Set when a `callback_game` button was pressed. Answer with the game's URL to open it.
     pub game_short_name: Option<String>,
     /// Identifies the chat the message was shown in.
     pub chat_instance: i64,
@@ -40,7 +40,7 @@ pub enum CallbackOrigin {
         chat: Box<Chat>,
         /// Id of the message within the chat.
         message_id: i32,
-        /// Set for a business account's messages; edits then go through that connection.
+        /// Set for a business account's messages. Edits then go through that connection.
         business_connection_id: Option<String>,
     },
     /// A message sent through inline mode.
@@ -141,9 +141,11 @@ impl CallbackQuery {
         &self.client
     }
 
-    /// The message the button was pressed on. A business press already carries it; a regular one comes from the
-    /// message cache when it's on, else is fetched, so `None` means it was deleted since. Inline and ephemeral
-    /// presses have no regular message: `Ok(None)`.
+    /// Returns the message the button was pressed on.
+    ///
+    /// A business press already carries it. A regular one comes from the message cache when it's on and is
+    /// fetched otherwise, so `None` means it was deleted since. Inline and ephemeral presses have no regular
+    /// message and return `Ok(None)`.
     pub async fn message(&self) -> Result<Option<Message>> {
         match &self.origin {
             CallbackOrigin::Message { chat, message_id, business_connection_id } => {
@@ -196,7 +198,10 @@ impl CallbackQuery {
         self.client.answer_callback_query(self.id)
     }
 
-    /// Edits the text of the message the button is on, whatever kind of message it is.
+    /// Edits the text of the message the button is on.
+    ///
+    /// Works for regular, inline and ephemeral messages. A business account's message is edited through its
+    /// connection.
     pub fn edit_message_text(&self, text: impl Into<MessageText>) -> EditCallbackMessageText<'_> {
         let client = &self.client;
         match &self.origin {
@@ -212,7 +217,7 @@ impl CallbackQuery {
         }
     }
 
-    /// `None` removes the keyboard.
+    /// Replaces the inline keyboard of the message the button is on. `None` removes the keyboard.
     pub async fn edit_message_reply_markup(&self, reply_markup: Option<InlineKeyboardMarkup>) -> Result<()> {
         match &self.origin {
             CallbackOrigin::Message { chat, message_id, business_connection_id } => {
@@ -235,7 +240,7 @@ impl CallbackQuery {
         }
     }
 
-    /// Deletes the message the button is on. Inline messages can't be deleted and return an error.
+    /// Deletes the message the button is on. Fails with `InvalidArgument` for an inline message.
     pub async fn delete_message(&self) -> Result<()> {
         match &self.origin {
             CallbackOrigin::Message { message_id, business_connection_id: Some(connection), .. } => {
@@ -262,7 +267,7 @@ impl fmt::Debug for CallbackQuery {
     }
 }
 
-/// A text edit of the message behind a [`CallbackQuery`], awaited like any other edit.
+/// A text edit of the message behind a [`CallbackQuery`]. Awaiting it sends the edit and returns `()`.
 #[must_use = "a request does nothing until it is awaited"]
 pub enum EditCallbackMessageText<'a> {
     /// Edit of a regular message.
@@ -293,7 +298,7 @@ impl EditCallbackMessageText<'_> {
         }
     }
 
-    /// Ephemeral messages have no link previews to turn off.
+    /// Turns off the link preview. Does nothing for an ephemeral message, which has no previews.
     pub fn disable_web_page_preview(self) -> Self {
         match self {
             Self::Message(edit) => Self::Message(edit.disable_web_page_preview()),

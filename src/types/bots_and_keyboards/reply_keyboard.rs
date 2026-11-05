@@ -192,7 +192,8 @@ impl KeyboardButton {
     }
 }
 
-/// Request for the user to create a bot managed by this bot; the result arrives as `ServiceAction::ManagedBotCreated`.
+/// Request for the user to create a bot managed by this bot. The result arrives as
+/// `ServiceAction::ManagedBotCreated`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyboardButtonRequestManagedBot {
     /// Id echoed back in the result, to tell requests apart.

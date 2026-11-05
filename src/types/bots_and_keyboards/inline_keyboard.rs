@@ -8,7 +8,7 @@ use crate::types::{LoginUrl, PeerRef, SwitchInlineQueryChosenChat, WebAppInfo};
 pub struct InlineKeyboardMarkup {
     /// The buttons, one inner `Vec` per row.
     pub rows: Vec<Vec<InlineKeyboardButton>>,
-    /// Sets the `force_reply` flag on the keyboard.
+    /// Sent as the raw markup's `force_reply` flag.
     pub force_reply: bool,
 }
 
@@ -18,13 +18,13 @@ impl InlineKeyboardMarkup {
         InlineKeyboardMarkup { rows: rows.into_iter().collect(), force_reply: false }
     }
 
-    /// Sets the `force_reply` flag on the keyboard.
+    /// Turns on the raw markup's `force_reply` flag.
     pub fn force_reply(mut self) -> Self {
         self.force_reply = true;
         self
     }
 
-    /// Resolves the users that profile and login buttons name, which takes requests for those Telegram doesn't know yet.
+    /// Resolves the users that profile and login buttons name. Each user not known yet costs a request.
     pub(crate) async fn write(&self, client: &Client) -> Result<base::ReplyMarkup> {
         let mut rows = Vec::with_capacity(self.rows.len());
         for row in &self.rows {
@@ -117,11 +117,11 @@ pub enum InlineAction {
     WebApp(WebAppInfo),
     /// Logs the user in on a website.
     LoginUrl(LoginUrl),
-    /// Opens the profile of the user with this id; the user has to be known to the client.
+    /// Opens the profile of the user with this id. Sending the keyboard fails if the user can't be resolved.
     UserProfile(i64),
     /// Opens a chat picker and starts an inline query there.
     SwitchInlineQueryChosenChat(SwitchInlineQueryChosenChat),
-    /// Pays an invoice; it has to be the first button of the first row.
+    /// Pays an invoice. It has to be the first button of the first row.
     Pay,
     /// Like `Callback`, but the user has to enter their cloud password first.
     CallbackWithPassword(String),
@@ -162,7 +162,7 @@ impl InlineKeyboardButton {
         Self::new(text, InlineAction::Disabled)
     }
 
-    /// Opens the game of a `send_game` message; it has to be the first button of the first row.
+    /// Opens the game of a `send_game` message. It has to be the first button of the first row.
     pub fn callback_game(text: impl Into<String>) -> Self {
         Self::new(text, InlineAction::CallbackGame)
     }
@@ -177,7 +177,7 @@ impl InlineKeyboardButton {
         Self::new(text, InlineAction::LoginUrl(login_url))
     }
 
-    /// A button that opens a user's profile. The user has to be known to the client.
+    /// A button that opens a user's profile. Sending the keyboard fails if the user can't be resolved.
     pub fn user_profile(text: impl Into<String>, user_id: i64) -> Self {
         Self::new(text, InlineAction::UserProfile(user_id))
     }

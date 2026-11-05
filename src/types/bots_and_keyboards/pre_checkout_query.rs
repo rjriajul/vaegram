@@ -6,7 +6,8 @@ use crate::errors::Result;
 use crate::raw::types;
 use crate::types::{OrderInfo, User};
 
-/// A buyer's final confirmation before paying an invoice. Answer it with `approve` or `decline`.
+/// A buyer's final confirmation before paying an invoice. Answer it with [`approve`](Self::approve) or
+/// [`decline`](Self::decline).
 #[derive(Clone)]
 pub struct PreCheckoutQuery {
     /// Id of the query, used to answer it.
@@ -19,7 +20,8 @@ pub struct PreCheckoutQuery {
     pub total_amount: i64,
     /// The payload the bot set on the invoice.
     pub invoice_payload: String,
-    /// Id of the shipping option the user chose. `None` if the invoice has none.
+    /// Id of the [`ShippingOption`](crate::types::ShippingOption) the user chose. `None` if there was none to
+    /// choose.
     pub shipping_option_id: Option<String>,
     /// Details the user gave at checkout. `None` if the invoice asked for none.
     pub order_info: Option<OrderInfo>,

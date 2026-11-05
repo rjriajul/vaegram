@@ -7,7 +7,7 @@ pub struct LoginUrl {
     pub url: String,
     /// Replaces the button's text in forwarded messages.
     pub forward_text: Option<String>,
-    /// The bot whose login the user authorizes, when not the sending bot; it has to be linked to the domain.
+    /// The bot whose login the user authorizes, when not the sending bot. It has to be linked to the domain.
     /// Only for sending: a login button read from a received message never carries it back.
     pub bot_username: Option<String>,
     /// Asks the user to let the bot write to them.

@@ -3,12 +3,15 @@ use crate::methods::{EditEphemeralMessage, EditInlineMedia, EditMessageMedia, in
 use crate::types::{CallbackOrigin, CallbackQuery, EditCallbackMessageText, InputMedia, ReplyMarkup};
 
 impl CallbackQuery {
-    /// Edits the text of the message the button is on, same as [`CallbackQuery::edit_message_text`].
+    /// Edits the caption of the message the button is on. Calls [`CallbackQuery::edit_message_text`], since
+    /// one request edits text and captions alike.
     pub fn edit_message_caption(&self, caption: impl Into<String>) -> EditCallbackMessageText<'_> {
         self.edit_message_text(caption.into())
     }
 
-    /// An inline message only takes a file already on Telegram, not a new upload.
+    /// Replaces the media of the message the button is on.
+    ///
+    /// An inline message takes only a file already on Telegram, not a new upload.
     pub fn edit_message_media<'a>(&'a self, media: InputMedia<'a>) -> EditCallbackMessageMedia<'a> {
         let client = self.client();
         match &self.origin {
@@ -25,7 +28,7 @@ impl CallbackQuery {
     }
 }
 
-/// A media edit of the message behind a [`CallbackQuery`], awaited like any other edit.
+/// A media edit of the message behind a [`CallbackQuery`]. Awaiting it sends the edit and returns `()`.
 #[must_use = "a request does nothing until it is awaited"]
 pub enum EditCallbackMessageMedia<'a> {
     /// Edit of a regular message.

@@ -11,7 +11,7 @@ pub struct StarTransaction {
     pub amount: StarAmount,
     /// When the transaction happened, as a Unix timestamp.
     pub date: i32,
-    /// `true` if the transaction is a refund.
+    /// Set when the transaction is a refund.
     pub refund: bool,
     /// The other party in the transaction.
     pub partner: TransactionPartner,

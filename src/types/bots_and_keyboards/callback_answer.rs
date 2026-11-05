@@ -5,7 +5,7 @@ use crate::raw::base;
 pub struct CallbackAnswer {
     /// Message to show the user. `None` if the bot sent none.
     pub text: Option<String>,
-    /// Show the text as an alert instead of a brief notice.
+    /// Shows the text as an alert instead of a brief notice.
     pub alert: bool,
     /// A link for the client to open. `None` if the bot sent none.
     pub url: Option<String>,

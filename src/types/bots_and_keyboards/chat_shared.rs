@@ -10,8 +10,8 @@ pub struct ChatShared {
     pub chat_id: i64,
     /// The chat's title. `None` unless the button asked for it.
     pub title: Option<String>,
-    /// The chat's username. `None` unless the button asked for it, or the chat has none.
+    /// The chat's username. `None` if the button didn't ask for it or the chat has none.
     pub username: Option<String>,
-    /// The chat's photo. `None` unless the button asked for it, or the chat has none.
+    /// The chat's photo. `None` if the button didn't ask for it or the chat has none.
     pub photo: Option<Photo>,
 }
