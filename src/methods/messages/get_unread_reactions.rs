@@ -4,7 +4,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
-/// A walk over the matching messages. Call [`next`](GetUnreadReactions::next) until it returns `None`.
+/// Pages through messages with unseen reactions. Call [`next`](GetUnreadReactions::next) until it returns `None`.
 #[must_use = "call .next() to fetch messages"]
 pub struct GetUnreadReactions<'a> {
     client: &'a Client,
@@ -14,7 +14,7 @@ pub struct GetUnreadReactions<'a> {
 }
 
 impl Client {
-    /// Your messages in a chat with reactions you haven't seen, newest first.
+    /// Walks your messages in a chat that have reactions you haven't seen, newest first.
     pub fn get_unread_reactions(&self, chat_id: impl Into<PeerRef>) -> GetUnreadReactions<'_> {
         GetUnreadReactions { client: self, chat_id: chat_id.into(), top_msg_id: None, pages: Pages::new() }
     }

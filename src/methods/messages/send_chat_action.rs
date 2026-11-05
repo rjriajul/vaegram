@@ -29,7 +29,7 @@ pub struct RepeatChatAction<'a> {
 }
 
 /// Keeps a chat action showing. The background task holds a clone of the client, which stays alive until the handle
-/// is stopped or dropped. Stopping doesn't clear the indicator at once; send [`ChatAction::Cancel`] for that.
+/// is stopped or dropped. Stopping doesn't clear the indicator at once. Send [`ChatAction::Cancel`] for that.
 #[derive(Debug)]
 #[must_use = "dropping the handle stops the action"]
 pub struct ChatActionHandle {
@@ -52,7 +52,7 @@ impl<'a> SendChatAction<'a> {
         self
     }
 
-    /// Shows the action in this topic of a forum, or thread of a chat; a repeating action keeps it.
+    /// Shows the action in this forum topic or thread. A repeating action keeps it.
     pub fn message_thread_id(mut self, id: i32) -> Self {
         self.top_msg_id = Some(id);
         self
@@ -68,7 +68,7 @@ impl<'a> SendChatAction<'a> {
         Ok(())
     }
 
-    /// Sends the action once; returns the request and the business connection it went through.
+    /// Sends the action once and returns the request and the business connection it went through.
     async fn request(self) -> Result<(functions::messages::SetTyping, Option<String>)> {
         let peer = self.client.resolve_peer(self.chat_id).await?;
         let request = functions::messages::SetTyping { peer, top_msg_id: self.top_msg_id, action: self.action.write() };
@@ -78,7 +78,7 @@ impl<'a> SendChatAction<'a> {
 }
 
 impl RepeatChatAction<'_> {
-    /// The time between two sends; it must not be zero.
+    /// Changes the time between two sends from the default 4 seconds. Zero fails with `Error::InvalidArgument`.
     pub fn repeat_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self

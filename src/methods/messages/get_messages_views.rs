@@ -6,7 +6,7 @@ use crate::types::{MessageViews, PeerRef};
 impl Client {
     /// Returns the view and forward counts of messages, in the order of `message_ids`.
     ///
-    /// Doesn't count as a view. Fails with `InvalidArgument` when `message_ids` is empty.
+    /// Doesn't count as a view. Fails with `Error::InvalidArgument` when `message_ids` is empty.
     pub async fn get_messages_views(
         &self,
         chat_id: impl Into<PeerRef>,

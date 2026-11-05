@@ -24,7 +24,7 @@ impl Client {
 }
 
 impl SendDice<'_> {
-    /// Emoji that picks the animation. Defaults to the die emoji.
+    /// Picks the animation by its emoji. Defaults to the die.
     pub fn emoji(mut self, emoji: impl Into<String>) -> Self {
         self.media.emoticon = emoji.into();
         self

@@ -14,7 +14,9 @@ pub struct ExportMessageLink<'a> {
 }
 
 impl Client {
-    /// A `t.me` link to a message in a channel or supergroup; other chats have no message links.
+    /// Exports a `t.me` link to a message in a channel or supergroup.
+    ///
+    /// Other chats have no message links, so they fail with `Error::InvalidArgument`.
     pub fn export_message_link(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> ExportMessageLink<'_> {
         ExportMessageLink { client: self, chat_id: chat_id.into(), message_id, grouped: false, thread: false }
     }

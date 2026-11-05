@@ -13,10 +13,12 @@ pub struct SendChecklist<'a> {
 }
 
 impl Client {
+    /// Sends a checklist.
+    ///
     /// Bots can send checklists only on behalf of a business account, see
     /// [`SendChecklist::business_connection_id`].
     ///
-    /// Awaiting the request returns the sent [`crate::types::Message`].
+    /// Awaiting the request returns the sent [`Message`].
     pub fn send_checklist(&self, chat_id: impl Into<PeerRef>, checklist: InputChecklist) -> SendChecklist<'_> {
         SendChecklist { client: self, chat_id: chat_id.into(), checklist, options: SendOptions::default() }
     }

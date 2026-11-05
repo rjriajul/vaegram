@@ -18,7 +18,8 @@ pub struct SearchMessagesCount<'a> {
 impl Client {
     /// Counts the messages of one chat that match the search.
     ///
-    /// Without [`query`](SearchMessagesCount::query), [`from_user`](SearchMessagesCount::from_user) or [`filter`](SearchMessagesCount::filter) it counts every message.
+    /// Without [`query`](SearchMessagesCount::query), [`from_user`](SearchMessagesCount::from_user) or
+    /// [`filter`](SearchMessagesCount::filter) it counts every message.
     pub fn search_messages_count(&self, chat_id: impl Into<PeerRef>) -> SearchMessagesCount<'_> {
         SearchMessagesCount {
             client: self,

@@ -40,7 +40,7 @@ impl SendContact<'_> {
         self
     }
 
-    /// vCard data for the contact. Empty by default.
+    /// Attaches vCard data to the contact. Empty by default.
     pub fn vcard(mut self, vcard: impl Into<String>) -> Self {
         self.media.vcard = vcard.into();
         self

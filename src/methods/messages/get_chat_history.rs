@@ -5,7 +5,7 @@ use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
 #[must_use = "call .next() to fetch messages"]
-/// Pages through the messages of a chat, newest first. Call [`next`](GetChatHistory::next) for each message.
+/// Pages through the messages of a chat. Call [`next`](GetChatHistory::next) for each message.
 pub struct GetChatHistory<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -18,7 +18,7 @@ pub struct GetChatHistory<'a> {
 }
 
 impl Client {
-    /// Walks the history of `chat_id`.
+    /// Walks the history of `chat_id`, newest message first unless [`reverse`](GetChatHistory::reverse) is set.
     pub fn get_chat_history(&self, chat_id: impl Into<PeerRef>) -> GetChatHistory<'_> {
         GetChatHistory {
             client: self,
@@ -40,13 +40,13 @@ impl GetChatHistory<'_> {
         self
     }
 
-    /// Starts from this message id; the message itself is left out.
+    /// Starts the walk from this message id instead of the newest message.
     pub fn offset_id(mut self, message_id: i32) -> Self {
         self.pages.offset_id = message_id;
         self
     }
 
-    /// Starts at this Unix time.
+    /// Starts the walk from this Unix time instead of the newest message.
     pub fn offset_date(mut self, unix_time: i32) -> Self {
         self.offset_date = unix_time;
         self

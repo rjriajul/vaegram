@@ -15,9 +15,9 @@ pub struct SearchPosts<'a> {
 }
 
 impl Client {
-    /// Searches the posts of public channels, by [`query`](SearchPosts::query) or by [`hashtag`](SearchPosts::hashtag).
+    /// Searches the posts of public channels by [`query`](SearchPosts::query) or [`hashtag`](SearchPosts::hashtag).
     ///
-    /// Telegram allows a few free searches a day; after that each one costs Stars, see
+    /// Telegram allows a few free searches a day. After that each one costs Stars, up to the cap set with
     /// [`allow_paid_stars`](SearchPosts::allow_paid_stars).
     pub fn search_posts(&self) -> SearchPosts<'_> {
         SearchPosts { client: self, query: None, hashtag: None, allow_paid_stars: None, pages: Pages::by_rate() }
@@ -48,7 +48,7 @@ impl SearchPosts<'_> {
         self
     }
 
-    /// The most Stars the search may cost once the free searches are used up. Without it Telegram refuses a search that would cost any.
+    /// The most Stars the search may cost once the free searches are used up.
     pub fn allow_paid_stars(mut self, stars: i64) -> Self {
         self.allow_paid_stars = Some(stars);
         self
@@ -56,7 +56,7 @@ impl SearchPosts<'_> {
 
     /// Returns the next post, fetching a page when the buffered one is used up. `None` after the last post.
     ///
-    /// Fails with `InvalidArgument` unless exactly one of query and hashtag is set.
+    /// Fails with `Error::InvalidArgument` unless exactly one of query and hashtag is set.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         if self.query.is_some() == self.hashtag.is_some() {
             return Err(Error::InvalidArgument("search_posts takes either a query or a hashtag"));

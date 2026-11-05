@@ -4,7 +4,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
-/// A walk over the matching messages. Call [`next`](GetUnreadMentions::next) until it returns `None`.
+/// Pages through unread mentions. Call [`next`](GetUnreadMentions::next) until it returns `None`.
 #[must_use = "call .next() to fetch messages"]
 pub struct GetUnreadMentions<'a> {
     client: &'a Client,
@@ -14,7 +14,7 @@ pub struct GetUnreadMentions<'a> {
 }
 
 impl Client {
-    /// The unread messages that mention you in a chat, newest first.
+    /// Walks the unread messages that mention you in a chat, newest first.
     pub fn get_unread_mentions(&self, chat_id: impl Into<PeerRef>) -> GetUnreadMentions<'_> {
         GetUnreadMentions { client: self, chat_id: chat_id.into(), top_msg_id: None, pages: Pages::new() }
     }

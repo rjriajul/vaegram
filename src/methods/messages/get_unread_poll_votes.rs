@@ -4,7 +4,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
-/// A walk over the matching messages. Call [`next`](GetUnreadPollVotes::next) until it returns `None`.
+/// Pages through polls with unseen votes. Call [`next`](GetUnreadPollVotes::next) until it returns `None`.
 #[must_use = "call .next() to fetch messages"]
 pub struct GetUnreadPollVotes<'a> {
     client: &'a Client,
@@ -14,7 +14,7 @@ pub struct GetUnreadPollVotes<'a> {
 }
 
 impl Client {
-    /// Your polls in a chat with votes you haven't seen, newest first.
+    /// Walks your polls in a chat that have votes you haven't seen, newest first.
     pub fn get_unread_poll_votes(&self, chat_id: impl Into<PeerRef>) -> GetUnreadPollVotes<'_> {
         GetUnreadPollVotes { client: self, chat_id: chat_id.into(), top_msg_id: None, pages: Pages::new() }
     }

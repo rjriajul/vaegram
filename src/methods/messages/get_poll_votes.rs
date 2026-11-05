@@ -5,7 +5,7 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{PeerRef, PollVote};
 
-/// Who voted for what in a poll. Call [`next`](GetPollVotes::next) until it returns `None`.
+/// Pages through the votes of a poll. Call [`next`](GetPollVotes::next) until it returns `None`.
 pub struct GetPollVotes<'a> {
     client: &'a Client,
     chat_id: PeerRef,

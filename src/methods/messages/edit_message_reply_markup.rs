@@ -15,7 +15,9 @@ pub struct EditMessageReplyMarkup<'a> {
 }
 
 impl Client {
-    /// Replaces the inline keyboard of `message_id` and returns the edited [`Message`]. `None` removes the keyboard.
+    /// Replaces the inline keyboard of `message_id` and returns the edited [`Message`].
+    ///
+    /// Passing `None` removes the keyboard.
     pub fn edit_message_reply_markup(
         &self,
         chat_id: impl Into<PeerRef>,

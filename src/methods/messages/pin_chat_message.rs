@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
-/// A request to pin a message. Awaiting it sends the request.
+/// Request built by [`Client::pin_chat_message`]. Await it to pin the message.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct PinChatMessage<'a> {
     client: &'a Client,

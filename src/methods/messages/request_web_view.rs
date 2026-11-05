@@ -21,7 +21,8 @@ pub struct RequestWebView<'a> {
 impl Client {
     /// Opens a bot's mini app in a chat.
     ///
-    /// Returns a [`WebViewSession`] holding the [`WebView`]. Fails with `Unexpected` if Telegram sends no query id.
+    /// Returns a [`WebViewSession`] holding the [`WebView`]. Fails with `Error::Unexpected` if Telegram sends no
+    /// query id.
     ///
     /// While it stays open, call [`WebViewSession::prolong`] every 60 seconds.
     pub fn request_web_view(&self, chat_id: impl Into<PeerRef>, bot_id: impl Into<PeerRef>) -> RequestWebView<'_> {
@@ -52,19 +53,19 @@ impl RequestWebView<'_> {
         self
     }
 
-    /// Sends the message the bot posts for you when the app closes without a notification.
+    /// Posts the message the bot sends for you when the app closes without a notification.
     pub fn disable_notification(mut self) -> Self {
         self.disable_notification = true;
         self
     }
 
-    /// The message to reply to with the message the bot posts for you when the app closes.
+    /// Makes the message the bot posts for you when the app closes a reply to this message.
     pub fn reply_to(mut self, reply: impl Into<ReplyParameters>) -> Self {
         self.reply_to = Some(reply.into());
         self
     }
 
-    /// The peer the bot posts as when the app closes.
+    /// Posts the closing message as this peer instead of as you.
     pub fn send_as(mut self, chat_id: impl Into<PeerRef>) -> Self {
         self.send_as = Some(chat_id.into());
         self

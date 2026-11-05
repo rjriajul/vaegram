@@ -19,7 +19,8 @@ pub struct SearchMessages<'a> {
 impl Client {
     /// Searches the messages of one chat, newest first.
     ///
-    /// Without [`query`](SearchMessages::query), [`from_user`](SearchMessages::from_user) or [`filter`](SearchMessages::filter) it walks the whole history.
+    /// Without [`query`](SearchMessages::query), [`from_user`](SearchMessages::from_user) or
+    /// [`filter`](SearchMessages::filter) it walks the whole history.
     pub fn search_messages(&self, chat_id: impl Into<PeerRef>) -> SearchMessages<'_> {
         SearchMessages {
             client: self,

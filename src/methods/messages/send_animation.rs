@@ -17,7 +17,7 @@ pub struct SendAnimation<'a> {
 impl Client {
     /// Sends a GIF or a silent MPEG-4 video as an animation.
     ///
-    /// Awaiting the request uploads the file if needed and returns the sent [`crate::types::Message`].
+    /// Awaiting the request uploads the file if needed and returns the sent [`Message`](crate::types::Message).
     pub fn send_animation<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,

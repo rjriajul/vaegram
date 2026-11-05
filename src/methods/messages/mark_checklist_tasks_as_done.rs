@@ -6,7 +6,7 @@ use crate::types::PeerRef;
 impl Client {
     /// Marks checklist tasks of a message as done or not done.
     ///
-    /// Fails with `InvalidArgument` when both id slices are empty.
+    /// Fails with `Error::InvalidArgument` when both id slices are empty.
     pub async fn mark_checklist_tasks_as_done(
         &self,
         chat_id: impl Into<PeerRef>,

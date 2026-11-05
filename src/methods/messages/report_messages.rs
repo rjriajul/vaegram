@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{PeerRef, ReportResult};
 
-/// A request to report messages. Awaiting it returns the [`ReportResult`] for this step.
+/// Request built by [`Client::report_messages`]. Await it to get the [`ReportResult`] for this step.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct ReportMessages<'a> {
     client: &'a Client,

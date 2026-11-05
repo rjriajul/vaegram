@@ -22,7 +22,8 @@ pub struct SendCachedMedia<'a> {
 impl Client {
     /// Sends a file already on Telegram by its file id, as a photo or a document depending on what the id names.
     ///
-    /// Awaiting the request returns the sent [`crate::types::Message`]. Fails if the file id is invalid.
+    /// Awaiting the request returns the sent [`Message`]. A malformed file id fails with `Error::InvalidArgument`
+    /// before any request is sent.
     pub fn send_cached_media(&self, chat_id: impl Into<PeerRef>, file_id: impl Into<String>) -> SendCachedMedia<'_> {
         SendCachedMedia {
             client: self,

@@ -37,7 +37,7 @@ impl Client {
 }
 
 impl RequestAppWebView<'_> {
-    /// Marks that you allowed the bot to write messages to you.
+    /// Grants the bot permission to send you messages.
     pub fn write_allowed(mut self) -> Self {
         self.write_allowed = true;
         self

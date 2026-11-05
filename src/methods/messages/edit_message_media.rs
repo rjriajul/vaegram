@@ -16,7 +16,9 @@ pub struct EditMessageMedia<'a> {
 }
 
 impl Client {
-    /// Replaces the media of `message_id`, with the caption taken from `media`, and returns the edited [`Message`].
+    /// Replaces the media of `message_id` and returns the edited [`Message`].
+    ///
+    /// The new caption and parse mode come from `media`.
     pub fn edit_message_media<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,
