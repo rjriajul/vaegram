@@ -7,7 +7,7 @@ use crate::types::User;
 pub struct ChatJoiner {
     /// The user who joined.
     pub user: User,
-    /// Unix time they joined.
+    /// Unix time the user joined.
     pub date: i32,
     /// The user's bio. `None` if Telegram didn't send one.
     pub bio: Option<String>,

@@ -2,7 +2,6 @@ use crate::raw::base;
 use crate::types::StatisticalGraph;
 
 /// Statistics for one channel message.
-/// Statistics for one channel message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageStatistics {
     /// Views of the message over time.

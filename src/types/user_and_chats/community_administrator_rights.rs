@@ -1,17 +1,17 @@
 use crate::raw::base;
 
-/// What the account may do as an administrator of a community.
+/// What the account can do as an administrator of a community.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CommunityAdministratorRights {
-    /// Use the community's management tools.
+    /// Whether the admin can use the community's management tools.
     pub can_manage_community: bool,
-    /// Change the community's name, photo and other settings.
+    /// Whether the admin can change the community's name, photo and other settings.
     pub can_change_info: bool,
-    /// Add chats to the community and remove them.
+    /// Whether the admin can add chats to the community and remove them.
     pub can_edit_chat_list: bool,
-    /// Add other administrators.
+    /// Whether the admin can add other administrators.
     pub can_promote_members: bool,
-    /// Ban members.
+    /// Whether the admin can ban members.
     pub can_ban_members: bool,
 }
 

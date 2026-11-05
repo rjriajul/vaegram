@@ -5,7 +5,7 @@ use crate::types::Chat;
 /// A topic of a forum supergroup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForumTopic {
-    /// Also the `message_thread_id` of the messages in this topic.
+    /// Id of the topic, which is also the `message_thread_id` of its messages.
     pub id: i32,
     /// The topic title.
     pub title: String,
@@ -13,31 +13,33 @@ pub struct ForumTopic {
     pub icon_color: i32,
     /// Id of the custom emoji used as the icon. `None` for the default icon.
     pub icon_emoji_id: Option<i64>,
-    /// The creator gave no title, so the bot will likely want to rename the topic.
+    /// Whether the topic was created without a title.
     pub is_name_implicit: bool,
     /// Unix time the topic was created.
     pub date: i32,
     /// Id of the latest message in the topic.
     pub top_message_id: i32,
-    /// Unread messages in the topic.
+    /// Number of unread messages in the topic.
     pub unread_messages_count: i32,
-    /// Unread messages that mention the account.
+    /// Number of unread messages that mention the account.
     pub unread_mentions_count: i32,
-    /// Unread reactions to the account's messages.
+    /// Number of unread reactions to the account's messages.
     pub unread_reactions_count: i32,
-    /// The topic is closed to new messages.
+    /// Whether the topic is closed to new messages.
     pub is_closed: bool,
-    /// The topic is pinned.
+    /// Whether the topic is pinned.
     pub is_pinned: bool,
-    /// The topic is hidden from the topic list.
+    /// Whether the topic is hidden from the topic list.
     pub is_hidden: bool,
     /// The user or channel that opened the topic.
     pub creator: Option<Chat>,
-    /// Whether you opened the topic.
+    /// Whether the account opened the topic.
     pub is_my: bool,
-    /// Reduced info: counters and read state are unset; `get_forum_topics_by_id` returns the full topic.
+    /// Whether Telegram sent reduced info, with counters and read state unset.
+    ///
+    /// `get_forum_topics_by_id` returns the full topic.
     pub is_short: bool,
-    /// Unread votes in your non-anonymous polls in this topic.
+    /// Number of unread votes in the account's non-anonymous polls in this topic.
     pub unread_poll_vote_count: i32,
 }
 

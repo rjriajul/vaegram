@@ -3,37 +3,37 @@ use crate::raw::{base, types};
 /// What a member without admin rights may do. `Default` allows nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ChatPermissions {
-    /// Send plain text messages.
+    /// Whether members can send plain text messages.
     pub can_send_messages: bool,
-    /// Send music files.
+    /// Whether members can send music files.
     pub can_send_audios: bool,
-    /// Send general files.
+    /// Whether members can send general files.
     pub can_send_documents: bool,
-    /// Send photos.
+    /// Whether members can send photos.
     pub can_send_photos: bool,
-    /// Send videos.
+    /// Whether members can send videos.
     pub can_send_videos: bool,
-    /// Send round video messages.
+    /// Whether members can send round video messages.
     pub can_send_video_notes: bool,
-    /// Send voice messages.
+    /// Whether members can send voice messages.
     pub can_send_voice_notes: bool,
-    /// Send polls.
+    /// Whether members can send polls.
     pub can_send_polls: bool,
-    /// Send stickers, GIFs and games, and use inline bots.
+    /// Whether members can send stickers, GIFs and games, and use inline bots.
     pub can_send_other_messages: bool,
-    /// Embed link previews in messages.
+    /// Whether members can embed link previews in messages.
     pub can_add_web_page_previews: bool,
-    /// React to messages.
+    /// Whether members can react to messages.
     pub can_react_to_messages: bool,
-    /// Edit their own member tag.
+    /// Whether members can edit their own member tag (their rank).
     pub can_edit_tag: bool,
-    /// Change the chat title, photo and other settings.
+    /// Whether members can change the chat title, photo and other settings.
     pub can_change_info: bool,
-    /// Add new members or create invite links.
+    /// Whether members can add new members or create invite links.
     pub can_invite_users: bool,
-    /// Pin messages.
+    /// Whether members can pin messages.
     pub can_pin_messages: bool,
-    /// Create and edit forum topics.
+    /// Whether members can create and edit forum topics.
     pub can_manage_topics: bool,
 }
 

@@ -1,6 +1,8 @@
 use crate::raw::base;
 
-/// `None` means the chat follows the account's default for its kind of chat.
+/// Notification settings for one chat.
+///
+/// A `None` field means the chat follows the account's default for its kind of chat.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ChatNotifications {
     /// Whether notifications show a message preview.

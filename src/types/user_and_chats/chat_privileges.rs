@@ -3,41 +3,41 @@ use crate::raw::{base, types};
 /// What an administrator may do. `Default` grants nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ChatPrivileges {
-    /// The admin's messages show the chat as sender, not their name.
+    /// Whether the admin's messages show the chat as sender instead of their name.
     pub is_anonymous: bool,
-    /// Access the admin log, statistics and other chat management tools.
+    /// Whether the admin can access the admin log, statistics and other chat management tools.
     pub can_manage_chat: bool,
-    /// Delete other members' messages.
+    /// Whether the admin can delete other members' messages.
     pub can_delete_messages: bool,
-    /// Start and manage video chats.
+    /// Whether the admin can start and manage video chats.
     pub can_manage_video_chats: bool,
-    /// Ban and restrict members.
+    /// Whether the admin can ban and restrict members.
     pub can_restrict_members: bool,
-    /// Add other administrators.
+    /// Whether the admin can add other administrators.
     pub can_promote_members: bool,
-    /// Change the chat title, photo and other settings.
+    /// Whether the admin can change the chat title, photo and other settings.
     pub can_change_info: bool,
-    /// Add members and manage invite links.
+    /// Whether the admin can add members and manage invite links.
     pub can_invite_users: bool,
-    /// Post stories on behalf of the chat.
+    /// Whether the admin can post stories on behalf of the chat.
     pub can_post_stories: bool,
-    /// Edit stories the chat's other admins posted.
+    /// Whether the admin can edit stories the chat's other admins posted.
     pub can_edit_stories: bool,
-    /// Delete stories the chat's other admins posted.
+    /// Whether the admin can delete stories the chat's other admins posted.
     pub can_delete_stories: bool,
-    /// Post messages in a channel.
+    /// Whether the admin can post messages in a channel.
     pub can_post_messages: bool,
-    /// Edit other members' messages in a channel.
+    /// Whether the admin can edit other members' messages in a channel.
     pub can_edit_messages: bool,
-    /// Pin messages.
+    /// Whether the admin can pin messages.
     pub can_pin_messages: bool,
-    /// Create, edit and close forum topics.
+    /// Whether the admin can create, edit and close forum topics.
     pub can_manage_topics: bool,
-    /// Manage the channel's direct messages.
+    /// Whether the admin can manage the channel's direct messages.
     pub can_manage_direct_messages: bool,
-    /// Edit members' tags.
+    /// Whether the admin can edit members' tags.
     pub can_manage_tags: bool,
-    /// Send welcome messages.
+    /// Whether the admin can send welcome messages.
     pub can_send_welcome_messages: bool,
 }
 

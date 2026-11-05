@@ -22,7 +22,7 @@ pub struct ChatJoinRequest {
     pub bio: Option<String>,
     /// The invite link used. `None` for a public join-request link.
     pub invite_link: Option<String>,
-    /// Set if the chat's guard bot has to answer the request.
+    /// Query id the chat's guard bot answers the request with. `None` if no guard bot handles it.
     pub query_id: Option<i64>,
     client: Client,
 }

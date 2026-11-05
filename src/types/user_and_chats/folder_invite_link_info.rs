@@ -8,7 +8,7 @@ use crate::types::{Chat, MessageEntity};
 pub struct FolderInviteLinkInfo {
     /// Id of the folder, when the account already joined it. `None` otherwise.
     pub folder_id: Option<i32>,
-    /// `None` once joined: Telegram doesn't send the title of a list the account already has.
+    /// Title of the folder. `None` once the account has joined it, since Telegram doesn't send it then.
     pub title: Option<String>,
     /// Entities in `title`, such as custom emoji.
     pub title_entities: Vec<MessageEntity>,

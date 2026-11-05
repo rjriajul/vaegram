@@ -7,9 +7,9 @@ use crate::types::{BusinessBotRights, BusinessRecipients, User};
 pub struct ConnectedBot {
     /// The bot.
     pub bot: User,
-    /// The chats the bot may handle.
+    /// The chats the bot handles.
     pub recipients: BusinessRecipients,
-    /// What the bot may do in those chats.
+    /// What the bot can do in those chats.
     pub rights: BusinessBotRights,
     /// Device the bot was connected from.
     pub device: Option<String>,

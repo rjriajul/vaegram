@@ -5,9 +5,9 @@ use crate::raw::base;
 pub struct FailedToAddMember {
     /// Id of the user who wasn't added.
     pub user_id: i64,
-    /// The user would have been added if the account had Premium.
+    /// Whether the user would have been added if the account had Premium.
     pub premium_would_allow_invite: bool,
-    /// The user only receives messages from Premium accounts.
+    /// Whether the user only receives messages from Premium accounts.
     pub premium_required_to_send_messages: bool,
 }
 

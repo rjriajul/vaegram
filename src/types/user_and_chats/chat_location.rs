@@ -6,7 +6,7 @@ use crate::types::Location;
 pub struct ChatLocation {
     /// The point on the map.
     pub location: Location,
-    /// The address as a person typed it.
+    /// The address set for the group's location.
     pub address: String,
 }
 

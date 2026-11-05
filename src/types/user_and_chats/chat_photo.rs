@@ -5,13 +5,13 @@ use crate::types::{AnimatedChatPhoto, ChatPhotoSticker};
 /// The current photo of a user or chat. Pass a file id to `download_media`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatPhoto {
-    /// The photo is a short video.
+    /// Whether the photo is a short video.
     pub has_animation: bool,
-    /// Set by you for this contact only; others see another photo.
+    /// Whether you set this photo for the contact yourself. Only you see it.
     pub is_personal: bool,
-    /// The video of an animated photo; only full chat info and `get_chat` fill it.
+    /// The video of an animated photo. Only full chat info, as from `get_chat`, fills it.
     pub animation: Option<Box<AnimatedChatPhoto>>,
-    /// The sticker or emoji the photo was made from; only full chat info and `get_chat` fill it.
+    /// The sticker or emoji the photo was made from. Only full chat info, as from `get_chat`, fills it.
     pub sticker: Option<Box<ChatPhotoSticker>>,
     pub(crate) peer_id: i64,
     pub(crate) access_hash: i64,
@@ -44,22 +44,22 @@ impl ChatPhoto {
         }
     }
 
-    /// The 160x160 version.
+    /// Returns the file id of the 160x160 version.
     pub fn small_file_id(&self) -> String {
         self.file_id(ThumbnailSource::ChatPhotoSmall { chat_id: self.peer_id, chat_access_hash: self.access_hash })
     }
 
-    /// The 640x640 version.
+    /// Returns the file id of the 640x640 version.
     pub fn big_file_id(&self) -> String {
         self.file_id(ThumbnailSource::ChatPhotoBig { chat_id: self.peer_id, chat_access_hash: self.access_hash })
     }
 
-    /// Unique id of the photo. Stays the same for the small and big versions.
+    /// Returns the unique id of the photo. It is the same for the small and big versions.
     pub fn small_photo_unique_id(&self) -> String {
         unique_id(self.photo_id)
     }
 
-    /// Unique id of the photo. Stays the same for the small and big versions.
+    /// Returns the unique id of the photo. It is the same for the small and big versions.
     pub fn big_photo_unique_id(&self) -> String {
         unique_id(self.photo_id)
     }

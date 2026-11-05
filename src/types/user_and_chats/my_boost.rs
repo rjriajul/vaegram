@@ -2,11 +2,10 @@ use crate::dispatcher::Entities;
 use crate::raw::types;
 use crate::types::Chat;
 
-/// One of your boost slots and the chat it currently boosts.
-/// One of your boost slots and the chat it currently boosts.
+/// One of the account's boost slots and the chat it currently boosts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MyBoost {
-    /// Slot number.
+    /// Number of the boost slot.
     pub slot: i32,
     /// The boosted chat. `None` while the slot is unused.
     pub chat: Option<Chat>,

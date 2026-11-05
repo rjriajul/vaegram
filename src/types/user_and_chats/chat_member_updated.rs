@@ -14,11 +14,11 @@ pub struct ChatMemberUpdated {
     pub from_user: User,
     /// Unix time of the change.
     pub date: i32,
-    /// The member before the change. `None` if Telegram didn't send it.
+    /// The member before the change. `None` if the user wasn't in the chat before.
     pub old_chat_member: Option<ChatMember>,
-    /// The member after the change. `None` if Telegram didn't send it.
+    /// The member after the change. `None` if the user is no longer in the chat.
     pub new_chat_member: Option<ChatMember>,
-    /// The invite link the user joined with. `None` if they didn't use one.
+    /// The invite link the user joined with. `None` without a link or for a public join request.
     pub invite_link: Option<ChatInviteLink>,
     /// `true` if the user joined after a join request was approved.
     pub via_join_request: bool,

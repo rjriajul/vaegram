@@ -10,33 +10,33 @@ use crate::utils::get_peer;
 pub struct ChatPreview {
     /// The chat title.
     pub title: String,
-    /// Whether the invite is for a group, supergroup or channel.
+    /// The kind of chat the invite leads to.
     pub kind: ChatType,
     /// The chat description. `None` when it has none.
     pub about: Option<String>,
-    /// Empty for invites to chats the account already joined or may peek into: `chat` carries the photo then.
+    /// The chat photo. `None` for chats the account already joined or can peek into, where `chat` has it.
     pub photo: Option<Photo>,
     /// Number of members in the chat.
     pub members_count: i32,
-    /// Some of the members, when Telegram shows them. Empty for already-joined and peek invites; see `chat`.
+    /// Some of the members, when Telegram shows them. Empty when `chat` is set.
     pub members: Vec<User>,
-    /// The chat has a public username.
+    /// Whether the chat has a public username.
     pub is_public: bool,
-    /// Joining needs an admin's approval.
+    /// Whether joining needs an admin's approval.
     pub join_by_request: bool,
-    /// The chat carries Telegram's verified badge.
+    /// Whether the chat has Telegram's verified badge.
     pub is_verified: bool,
-    /// Telegram flagged the chat as a scam.
+    /// Whether Telegram flagged the chat as a scam.
     pub is_scam: bool,
-    /// Telegram flagged the chat as an impersonation.
+    /// Whether Telegram flagged the chat as an impersonation.
     pub is_fake: bool,
-    /// The Stars a subscription to this channel costs per period.
+    /// Stars a subscription to the channel costs per period. `None` without a paid subscription.
     pub subscription_star_count: Option<i64>,
-    /// The length in seconds of a subscription period.
+    /// Length of a subscription period in seconds. `None` without a paid subscription.
     pub subscription_period: Option<i32>,
     /// The verification a bot gave the chat. `None` when it has none.
     pub bot_verification: Option<BotVerification>,
-    /// The chat itself, when the account is already a member or may peek into it.
+    /// The chat itself. Set only when the account is already a member or can peek into it.
     pub chat: Option<Chat>,
 }
 

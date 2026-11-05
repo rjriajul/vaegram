@@ -3,6 +3,6 @@
 pub struct ForumTopicEdited {
     /// The new title. `None` if it didn't change.
     pub title: Option<String>,
-    /// The new icon, if it changed; `Some(0)` means the icon was removed.
+    /// Custom emoji id of the new icon. `None` if it didn't change, `Some(0)` if the icon was removed.
     pub icon_emoji_id: Option<i64>,
 }

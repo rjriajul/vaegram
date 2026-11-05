@@ -9,17 +9,17 @@ pub struct DirectMessagesChatTopic {
     pub topic: DirectMessagesTopic,
     /// Id of the latest message in the conversation.
     pub top_message_id: i32,
-    /// Unread messages in the conversation.
+    /// Number of unread messages in the conversation.
     pub unread_messages_count: i32,
-    /// Unread reactions in the conversation.
+    /// Number of unread reactions in the conversation.
     pub unread_reactions_count: i32,
     /// Id of the last incoming message that was read.
     pub last_read_inbox_message_id: i32,
     /// Id of the last outgoing message that was read.
     pub last_read_outbox_message_id: i32,
-    /// The conversation was marked as unread by hand.
+    /// Whether the conversation was marked as unread by hand.
     pub unread_mark: bool,
-    /// The sender is exempt from paying for messages.
+    /// Whether the sender is exempt from paying for messages.
     pub can_send_unpaid_messages: bool,
 }
 

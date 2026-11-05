@@ -5,29 +5,29 @@ use crate::types::User;
 /// What Telegram suggests doing with a chat, and what it knows about the other side.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatSettings {
-    /// The chat can be reported as spam.
+    /// Whether the chat can be reported as spam.
     pub can_report_spam: bool,
-    /// The user can be added to contacts.
+    /// Whether the user can be added to contacts.
     pub can_add_contact: bool,
-    /// The user can be blocked.
+    /// Whether the user can be blocked.
     pub can_block_contact: bool,
-    /// The account's phone number can be shared with the user.
+    /// Whether the account's phone number can be shared with the user.
     pub can_share_contact: bool,
-    /// Adding the user to contacts needs an exception to their privacy settings.
+    /// Whether adding the user to contacts needs an exception to their privacy settings.
     pub need_contacts_exception: bool,
-    /// Telegram moved the chat to the archive on its own.
+    /// Whether Telegram moved the chat to the archive on its own.
     pub is_autoarchived: bool,
-    /// The account can invite members to the group.
+    /// Whether the account can invite members to the group.
     pub can_invite_members: bool,
-    /// The connected business bot is paused in this chat.
+    /// Whether the connected business bot is paused in this chat.
     pub is_business_bot_paused: bool,
-    /// The connected business bot may reply in this chat.
+    /// Whether the connected business bot can reply in this chat.
     pub can_business_bot_reply: bool,
-    /// The chat was requested through a request button and is a channel.
+    /// Whether the chat in `request_chat_title` is a channel rather than a group.
     pub request_chat_is_channel: bool,
-    /// Title of the chat that was requested through a request button.
+    /// Title of the chat the account asked to join, in a private chat with one of its admins.
     pub request_chat_title: Option<String>,
-    /// Unix time the chat was requested through a request button.
+    /// Unix time the account sent the join request named in `request_chat_title`.
     pub request_chat_date: Option<i32>,
     /// The business bot connected to this chat. `None` when there is none.
     pub business_bot: Option<User>,

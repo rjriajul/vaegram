@@ -6,11 +6,11 @@ use crate::raw::{base, types};
 pub struct ChatPhotoSticker {
     /// Whether the photo comes from a custom emoji or a regular sticker.
     pub kind: ChatPhotoStickerType,
-    /// For a regular sticker: the id of its set, when Telegram names the set by id.
+    /// Id of the sticker's set. Set only for a regular sticker whose set Telegram names by id.
     pub sticker_set_id: Option<i64>,
-    /// For a regular sticker: its id.
+    /// Id of the sticker. Set only for a regular sticker.
     pub sticker_id: Option<i64>,
-    /// For a custom emoji: its id.
+    /// Id of the custom emoji. Set only for a custom emoji.
     pub custom_emoji_id: Option<i64>,
 }
 

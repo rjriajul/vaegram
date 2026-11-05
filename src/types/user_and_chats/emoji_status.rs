@@ -7,10 +7,11 @@ pub struct EmojiStatus {
     pub custom_emoji_id: i64,
     /// Unix time the status expires. `None` when it doesn't.
     pub until: Option<i32>,
-    /// Set when the status is a unique gift; `name` is its slug from `t.me/nft/<name>`.
+    /// Id of the unique gift when the status is one. `None` for a plain emoji status, as are all fields below.
     pub collectible_id: Option<i64>,
+    /// Slug of the unique gift, as in `t.me/nft/<name>`.
     pub name: Option<String>,
-    /// The unique gift's title, backdrop pattern and colors; set only with `collectible_id`.
+    /// Title of the unique gift.
     pub title: Option<String>,
     /// Id of the custom emoji that makes up the backdrop pattern.
     pub pattern_custom_emoji_id: Option<i64>,

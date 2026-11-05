@@ -6,7 +6,7 @@ use crate::utils::get_peer_id;
 /// The sender a channel's direct messages conversation belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectMessagesTopic {
-    /// Id of the peer the topic is for.
+    /// Bot API style id of the peer the topic is for.
     pub topic_id: i64,
     /// The sender. `None` when the peer isn't a user.
     pub user: Option<User>,
