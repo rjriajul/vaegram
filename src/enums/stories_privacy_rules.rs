@@ -1,15 +1,21 @@
 use crate::types::PrivacyRule;
 
+/// Who can see a story. The default is [`Public`](Self::Public) with no exceptions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoriesPrivacyRules {
+    /// Everyone except the listed user ids.
     Public {
+        /// User ids that can't see the story.
         except: Vec<i64>,
     },
+    /// Your contacts except the listed user ids.
     Contacts {
+        /// User ids that can't see the story.
         except: Vec<i64>,
     },
+    /// Only your close friends list.
     CloseFriends,
-    /// Negative ids are groups: their members can see the story.
+    /// Only the listed users. Negative ids are groups, and their members can see the story.
     SelectedUsers(Vec<i64>),
 }
 

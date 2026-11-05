@@ -1,6 +1,10 @@
+/// Kind of sticker, or of the stickers in a set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StickerType {
+    /// An ordinary sticker.
     Regular,
+    /// A mask placed over faces in photos.
     Mask,
+    /// A custom emoji, usable inside message text.
     CustomEmoji,
 }
