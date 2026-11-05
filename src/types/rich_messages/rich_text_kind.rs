@@ -40,7 +40,7 @@ pub enum RichTextKind {
         /// Address the link points to.
         url: String,
     },
-    /// A link to the anchor `name`; an empty name leads back to the top of the message.
+    /// A link to the anchor `name`. An empty name leads back to the top of the message.
     AnchorLink {
         /// Text shown for the link.
         text: RichText,
@@ -94,7 +94,7 @@ pub enum RichTextKind {
     },
     /// Inline math holding the formula source.
     Math(String),
-    /// A custom emoji. `id` is its document id and `alt` the emoji it replaces.
+    /// A custom emoji.
     CustomEmoji {
         /// Document id of the custom emoji.
         id: i64,
@@ -105,12 +105,12 @@ pub enum RichTextKind {
     Image {
         /// Id of the image document.
         document_id: i64,
-        /// Width of the image in pixels.
+        /// Width of the image.
         width: i32,
-        /// Height of the image in pixels.
+        /// Height of the image.
         height: i32,
     },
-    /// A date the client shows in the reader's format; the flags say which parts it shows.
+    /// A date the client shows in the reader's format. The flags say which parts it shows.
     DateTime {
         /// Fallback text for the date.
         text: RichText,
@@ -136,12 +136,12 @@ pub enum RichTextKind {
         /// The text that was replaced.
         old_text: RichText,
     },
-    /// A button inside text; `action` is `None` only when its data can't be read (a callback whose data isn't
-    /// UTF-8).
+    /// A button inside text.
     Button {
         /// Label of the button.
         text: RichText,
-        /// What the button does.
+        /// What the button does. `None` for a button the keyboard parser can't read, such as a callback whose
+        /// data isn't UTF-8.
         action: Option<InlineKeyboardButton>,
         /// Visual style of the button.
         style: RichButtonStyle,

@@ -14,7 +14,8 @@ use crate::types::{Document, Photo};
 pub struct RichMessage {
     /// Whether the message is laid out right to left.
     pub rtl: bool,
-    /// Telegram sent only part of the message. The `messages.getRichMessage` call returns all of it.
+    /// Whether Telegram sent only part of the message.
+    /// [`Client::get_rich_message`](crate::Client::get_rich_message) fetches all of it.
     pub part: bool,
     pub(crate) raw: Box<types::RichMessage>,
 }
@@ -41,7 +42,7 @@ impl RichMessage {
         }
     }
 
-    /// The top-level blocks, each able to read its own kind and the photos and documents of this message.
+    /// Returns the top-level blocks, each able to read its own kind and the photos and documents of this message.
     pub fn blocks(&self) -> Vec<RichBlock> {
         let source = Arc::new(Resolved { photos: self.raw.photos.clone(), documents: self.raw.documents.clone() });
         let files = Files { source: Some(source), ..Files::default() };
@@ -66,9 +67,10 @@ impl RichMessage {
         document.and_then(Document::parse)
     }
 
-    /// The message as plain text without formatting, with the text of each block on its own line.
+    /// Returns the message as plain text without formatting.
     ///
-    /// Blocks with no text are skipped.
+    /// Each piece of text, including captions and text in nested blocks, goes on its own line. Empty pieces are
+    /// skipped.
     pub fn text(&self) -> String {
         RichMessage::plain_text(&self.raw)
     }

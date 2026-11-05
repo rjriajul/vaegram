@@ -5,7 +5,7 @@ use crate::raw::base;
 pub struct UpgradedGiftValueInfo {
     /// Currency code of the prices.
     pub currency: String,
-    /// The estimated value.
+    /// Estimated value of the gift.
     pub value: i64,
     /// Whether `value` is an average rather than a single price.
     pub is_value_average: bool,
@@ -21,15 +21,15 @@ pub struct UpgradedGiftValueInfo {
     pub last_sale_price: Option<i64>,
     /// Whether the latest sale happened on Fragment.
     pub is_last_sale_on_fragment: bool,
-    /// Lowest price among current listings. `None` if Telegram doesn't send it.
+    /// Lowest price among current listings. `None` if Telegram leaves it out.
     pub minimum_price: Option<i64>,
-    /// Average sale price. `None` if Telegram doesn't send it.
+    /// Average sale price, if Telegram sends one.
     pub average_sale_price: Option<i64>,
-    /// Listings of this gift on Telegram. `None` if Telegram doesn't send it.
+    /// Number of listings of this gift on Telegram, if Telegram sends it.
     pub telegram_listed_gift_count: Option<i32>,
-    /// Listings of this gift on Fragment. `None` if Telegram doesn't send it.
+    /// Number of listings of this gift on Fragment. Set together with `fragment_url`.
     pub fragment_listed_gift_count: Option<i32>,
-    /// Link to the Fragment listings. `None` if Telegram doesn't send it.
+    /// Link to the Fragment listings. Set together with `fragment_listed_gift_count`.
     pub fragment_url: Option<String>,
 }
 

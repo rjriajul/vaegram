@@ -10,12 +10,12 @@ use crate::types::Text;
 pub struct RichText(pub(crate) base::RichText);
 
 impl RichText {
-    /// Inline math holding the formula `source`.
+    /// Creates inline math holding the formula `source`.
     pub fn math(source: impl Into<String>) -> Self {
         RichText(base::RichText::TextMath(Box::new(types::TextMath { source: source.into() })))
     }
 
-    /// Wraps the text in a marked (highlighted) span.
+    /// Highlights the text.
     pub fn marked(self) -> Self {
         RichText(base::RichText::TextMarked(Box::new(types::TextMarked { text: self.0 })))
     }
@@ -30,19 +30,19 @@ impl RichText {
         RichText(base::RichText::TextSuperscript(Box::new(types::TextSuperscript { text: self.0 })))
     }
 
-    /// Names the text as an anchor `name`. Empty text makes a bare anchor point.
+    /// Makes the text an anchor that links can point to by `name`. Empty text makes a bare anchor point.
     pub fn anchor(self, name: impl Into<String>) -> Self {
         RichText(base::RichText::TextAnchor(Box::new(types::TextAnchor { text: self.0, name: name.into() })))
     }
 
-    /// The text without formatting.
+    /// Returns the text without formatting.
     pub fn text(&self) -> String {
         let mut out = String::new();
         push_plain(&self.0, &mut out);
         out
     }
 
-    /// `true` for text without any content.
+    /// Returns `true` for empty text, such as text made from an empty string.
     pub fn is_empty(&self) -> bool {
         matches!(self.0, base::RichText::TextEmpty)
     }

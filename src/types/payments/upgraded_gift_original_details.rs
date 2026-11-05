@@ -14,7 +14,7 @@ pub struct UpgradedGiftOriginalDetails {
     pub date: i32,
     /// The text the sender attached. `None` if there was none.
     pub text: Option<String>,
-    /// Formatting entities of `text`.
+    /// Formatting entities of `text`. `None` when there is no text or it has no formatting.
     pub entities: Option<Vec<MessageEntity>>,
 }
 

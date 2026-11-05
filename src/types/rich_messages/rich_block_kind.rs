@@ -11,9 +11,9 @@ use crate::types::{
 /// The caption of a media block, a collage or a slideshow.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RichBlockCaption {
-    /// The caption text. May be empty when only a credit is set.
+    /// The caption text. Empty when only a credit is set.
     pub text: RichText,
-    /// Who or what the block is credited to.
+    /// Who or what the block is credited to. `None` when the caption has no credit.
     pub credit: Option<RichText>,
 }
 
@@ -26,9 +26,9 @@ pub struct RichBlockCaption {
 pub enum RichBlockKind {
     /// A paragraph of text.
     Paragraph(RichText),
-    /// A heading. `level` is 1 (largest) to 6.
+    /// A heading.
     Heading {
-        /// Heading level, 1 to 6.
+        /// Heading level, from 1 for the largest to 6.
         level: u8,
         /// Text of the heading.
         text: RichText,
@@ -52,14 +52,16 @@ pub enum RichBlockKind {
     Thinking(RichText),
     /// A bulleted or numbered list.
     List(Vec<RichListItem>),
-    /// A quote made of blocks. `credit` is `None` when the quote has no attribution.
+    /// A quote made of blocks. A plain text quote is read as one paragraph block. `credit` is `None` when the
+    /// quote has no attribution.
     BlockQuote {
         /// Blocks inside the quote.
         blocks: Vec<RichBlock>,
         /// Attribution of the quote.
         credit: Option<RichText>,
     },
-    /// A quote collapsed until expanded. `credit` is `None` when the quote has no attribution.
+    /// A text quote that stays collapsed until the reader expands it. `credit` is `None` when the quote has no
+    /// attribution.
     ExpandableBlockQuote {
         /// Text of the quote.
         text: RichText,
@@ -87,7 +89,7 @@ pub enum RichBlockKind {
         /// Caption of the slideshow.
         caption: Option<RichBlockCaption>,
     },
-    /// A table. `title` is `None` when there is none, and rows without cells are dropped.
+    /// A table. `title` is `None` when the table has none, and rows without cells are dropped.
     Table {
         /// Title above the table.
         title: Option<RichText>,
@@ -100,7 +102,7 @@ pub enum RichBlockKind {
         /// Whether the table uses tighter spacing.
         is_compact: bool,
     },
-    /// A collapsible section with a `summary` line. `is_open` is whether it is shown expanded.
+    /// A collapsible section with a `summary` line.
     Details {
         /// Line that stays visible when the section is collapsed.
         summary: RichText,
@@ -115,9 +117,9 @@ pub enum RichBlockKind {
         location: Location,
         /// Zoom level of the map.
         zoom: i32,
-        /// Width of the map in pixels.
+        /// Width of the map frame.
         width: i32,
-        /// Height of the map in pixels.
+        /// Height of the map frame.
         height: i32,
         /// Caption of the map.
         caption: Option<RichBlockCaption>,
@@ -164,7 +166,7 @@ pub enum RichBlockKind {
         /// Caption of the audio file.
         caption: Option<RichBlockCaption>,
     },
-    /// A voice note.
+    /// A voice note, read from a video or audio block whose file is a voice note.
     VoiceNote {
         /// The voice note file.
         voice_note: Voice,
@@ -178,7 +180,7 @@ pub enum RichBlockKind {
         /// Caption of the document.
         caption: Option<RichBlockCaption>,
     },
-    /// A legacy page block with no friendly form.
+    /// A legacy page block with no friendly form, or a map whose coordinates can't be read.
     Unsupported,
 }
 
@@ -442,63 +444,65 @@ fn ordered_label(num: i32, kind: &str) -> String {
 }
 
 impl RichListItem {
-    /// The label shown before the item: a bullet, or the item's number or letter. Empty for an item you built.
+    /// Returns the label shown before the item: a bullet, or the item's number or letter. Empty for an item you
+    /// built.
     pub fn label(&self) -> &str {
         &self.label
     }
 
-    /// The blocks that make up the item.
+    /// Returns the blocks that make up the item.
     pub fn content(&self) -> &[RichBlock] {
         &self.blocks
     }
 
-    /// Whether the item shows a checkbox.
+    /// Returns `true` if the item shows a checkbox.
     pub fn has_checkbox(&self) -> bool {
         self.checkbox
     }
 
-    /// Whether the item's checkbox is ticked.
+    /// Returns `true` if the item's checkbox is ticked.
     pub fn is_checked(&self) -> bool {
         self.checked
     }
 
-    /// For an ordered list, the number of the item.
+    /// Returns the item's number in an ordered list. `None` for a bulleted list or an item you built.
     pub fn value(&self) -> Option<i32> {
         self.value
     }
 
-    /// For an ordered list, how the numbers are written: `"1"`, `"a"`, `"A"`, `"i"` or `"I"`.
+    /// Returns how an ordered list writes its numbers: `"1"`, `"a"`, `"A"`, `"i"` or `"I"`. `None` for a
+    /// bulleted list or an item you built.
     pub fn numbering(&self) -> Option<&str> {
         self.numbering.as_deref()
     }
 }
 
 impl RichTableCell {
-    /// `None` for an invisible cell.
+    /// Returns the cell text. `None` when the cell has no text.
     pub fn text(&self) -> Option<RichText> {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         c.text.as_ref().map(text)
     }
 
-    /// Whether the cell is a header cell.
+    /// Returns `true` for a header cell.
     pub fn is_header(&self) -> bool {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         c.header
     }
 
-    /// How many columns the cell spans, at least 1.
+    /// Returns how many columns the cell spans, at least 1.
     pub fn column_span(&self) -> i32 {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         c.colspan.unwrap_or(1).max(1)
     }
 
-    /// How many rows the cell spans, at least 1.
+    /// Returns how many rows the cell spans, at least 1.
     pub fn row_span(&self) -> i32 {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         c.rowspan.unwrap_or(1).max(1)
     }
 
-    /// The horizontal alignment of the cell text, [`Align::Left`] unless set otherwise.
+    /// Returns the horizontal alignment of the cell text, [`Align::Left`] unless set otherwise.
     pub fn horizontal_alignment(&self) -> Align {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         if c.align_center {
@@ -510,7 +514,7 @@ impl RichTableCell {
         }
     }
 
-    /// The vertical alignment of the cell text, [`VAlign::Top`] unless set otherwise.
+    /// Returns the vertical alignment of the cell text, [`VAlign::Top`] unless set otherwise.
     pub fn vertical_alignment(&self) -> VAlign {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         if c.valign_middle {
@@ -529,17 +533,18 @@ impl RichButton {
         RichButton { text: text(&b.text).text(), kind: b.r#type.clone(), style: read_style(b.style.as_ref()) }
     }
 
-    /// The button label.
+    /// Returns the button label.
     pub fn text(&self) -> &str {
         &self.text
     }
 
-    /// The button's color style, [`RichButtonStyle::Default`] when none is set.
+    /// Returns the button's color style, [`RichButtonStyle::Default`] when none is set.
     pub fn button_style(&self) -> RichButtonStyle {
         self.style
     }
 
-    /// What the button does. `None` only for a button whose data can't be read: a callback whose data isn't UTF-8.
+    /// Returns what the button does. `None` for a button the keyboard parser can't read, such as a callback
+    /// whose data isn't UTF-8.
     pub fn action(&self) -> Option<InlineKeyboardButton> {
         button_action(&self.kind, &self.text)
     }

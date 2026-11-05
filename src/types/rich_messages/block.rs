@@ -146,12 +146,12 @@ impl RichBlock {
         RichBlock { block, files: Files::default() }
     }
 
-    /// A paragraph of text.
+    /// Creates a paragraph of text.
     pub fn paragraph(text: impl Into<RichText>) -> Self {
         Self::new(base::PageBlock::PageBlockParagraph(Box::new(types::PageBlockParagraph { text: self::text(text) })))
     }
 
-    /// A heading. `level` is clamped to 1..=6.
+    /// Creates a heading. `level` is clamped to 1..=6.
     pub fn heading(level: u8, text: impl Into<RichText>) -> Self {
         use base::PageBlock as B;
         let text = self::text(text);
@@ -165,38 +165,38 @@ impl RichBlock {
         })
     }
 
-    /// A preformatted code block tagged with `language`.
+    /// Creates a preformatted code block tagged with `language`.
     pub fn preformatted(text: impl Into<RichText>, language: impl Into<String>) -> Self {
         let block = types::PageBlockPreformatted { text: self::text(text), language: language.into() };
         Self::new(base::PageBlock::PageBlockPreformatted(Box::new(block)))
     }
 
-    /// A footer line of text.
+    /// Creates a footer line of text.
     pub fn footer(text: impl Into<RichText>) -> Self {
         Self::new(base::PageBlock::PageBlockFooter(Box::new(types::PageBlockFooter { text: self::text(text) })))
     }
 
-    /// A horizontal divider.
+    /// Creates a horizontal divider.
     pub fn divider() -> Self {
         Self::new(base::PageBlock::PageBlockDivider)
     }
 
-    /// A math block holding the formula `source`.
+    /// Creates a math block holding the formula `source`.
     pub fn math(source: impl Into<String>) -> Self {
         Self::new(base::PageBlock::PageBlockMath(Box::new(types::PageBlockMath { source: source.into() })))
     }
 
-    /// A named anchor, a point in the message that can be linked to by `name`.
+    /// Creates an anchor that links can point to by `name`.
     pub fn anchor(name: impl Into<String>) -> Self {
         Self::new(base::PageBlock::PageBlockAnchor(Box::new(types::PageBlockAnchor { name: name.into() })))
     }
 
-    /// A thinking block holding `text`.
+    /// Creates a thinking block holding `text`.
     pub fn thinking(text: impl Into<RichText>) -> Self {
         Self::new(base::PageBlock::PageBlockThinking(Box::new(types::PageBlockThinking { text: self::text(text) })))
     }
 
-    /// A bulleted list. Media inside the items is carried along with the block.
+    /// Creates a bulleted list. Media inside the items is carried along with the block.
     pub fn list(items: impl IntoIterator<Item = RichListItem>) -> Self {
         let mut files = Files::default();
         let items = items
@@ -213,7 +213,7 @@ impl RichBlock {
         RichBlock { block: base::PageBlock::PageBlockList(Box::new(types::PageBlockList { items })), files }
     }
 
-    /// A numbered list. Items are numbered from 1 in the order given.
+    /// Creates a numbered list. Items are numbered from 1 in the order given.
     pub fn ordered_list(items: impl IntoIterator<Item = RichListItem>) -> Self {
         let mut files = Files::default();
         let items = items
@@ -231,7 +231,7 @@ impl RichBlock {
         RichBlock { block: base::PageBlock::PageBlockOrderedList(Box::new(list)), files }
     }
 
-    /// A quote that contains other blocks. Add an attribution with [`credit`](RichBlock::credit).
+    /// Creates a quote that contains other blocks. Add an attribution with [`credit`](RichBlock::credit).
     pub fn blockquote(blocks: impl IntoIterator<Item = RichBlock>) -> Self {
         let mut files = Files::default();
         let blocks = unzip(blocks, &mut files);
@@ -239,34 +239,34 @@ impl RichBlock {
         RichBlock { block: base::PageBlock::PageBlockBlockquoteBlocks(Box::new(quote)), files }
     }
 
-    /// A text quote that is collapsed until the reader expands it.
+    /// Creates a text quote that stays collapsed until the reader expands it.
     pub fn expandable_blockquote(text: impl Into<RichText>) -> Self {
         let quote =
             types::PageBlockBlockquote { collapsed: true, text: self::text(text), caption: base::RichText::TextEmpty };
         Self::new(base::PageBlock::PageBlockBlockquote(Box::new(quote)))
     }
 
-    /// A pullquote, a highlighted excerpt. Add an attribution with [`credit`](RichBlock::credit).
+    /// Creates a pullquote, a highlighted excerpt. Add an attribution with [`credit`](RichBlock::credit).
     pub fn pullquote(text: impl Into<RichText>) -> Self {
         let quote = types::PageBlockPullquote { text: self::text(text), caption: base::RichText::TextEmpty };
         Self::new(base::PageBlock::PageBlockPullquote(Box::new(quote)))
     }
 
-    /// A collage of media blocks such as photos and videos.
+    /// Creates a collage of media blocks such as photos and videos.
     pub fn collage(items: impl IntoIterator<Item = RichBlock>) -> Self {
         let mut files = Files::default();
         let collage = types::PageBlockCollage { items: unzip(items, &mut files), caption: caption() };
         RichBlock { block: base::PageBlock::PageBlockCollage(Box::new(collage)), files }
     }
 
-    /// A slideshow of media blocks such as photos and videos.
+    /// Creates a slideshow of media blocks such as photos and videos.
     pub fn slideshow(items: impl IntoIterator<Item = RichBlock>) -> Self {
         let mut files = Files::default();
         let slideshow = types::PageBlockSlideshow { items: unzip(items, &mut files), caption: caption() };
         RichBlock { block: base::PageBlock::PageBlockSlideshow(Box::new(slideshow)), files }
     }
 
-    /// A table built from rows of cells. It starts without borders, stripes or a title.
+    /// Creates a table from rows of cells. It starts without borders, stripes or a title.
     ///
     /// See [`bordered`](RichBlock::bordered), [`striped`](RichBlock::striped), [`compact`](RichBlock::compact) and
     /// [`caption`](RichBlock::caption).
@@ -288,15 +288,15 @@ impl RichBlock {
         Self::new(base::PageBlock::PageBlockTable(Box::new(table)))
     }
 
-    /// A collapsible section with a `summary` line and hidden `blocks`. Starts collapsed, see
-    /// [`open`](RichBlock::open).
+    /// Creates a collapsible section with a `summary` line and hidden `blocks`. It starts collapsed unless
+    /// [`open`](RichBlock::open) is called.
     pub fn details(summary: impl Into<RichText>, blocks: impl IntoIterator<Item = RichBlock>) -> Self {
         let mut files = Files::default();
         let details = types::PageBlockDetails { open: false, blocks: unzip(blocks, &mut files), title: text(summary) };
         RichBlock { block: base::PageBlock::PageBlockDetails(Box::new(details)), files }
     }
 
-    /// A map centered on a point, shown at `zoom` in a `width` by `height` frame.
+    /// Creates a map centered on a point, shown at `zoom` in a `width` by `height` frame.
     pub fn map(latitude: f64, longitude: f64, zoom: i32, width: i32, height: i32) -> Self {
         let map = types::InputPageBlockMap {
             geo: geo_point(latitude, longitude, None),
@@ -308,7 +308,7 @@ impl RichBlock {
         Self::new(base::PageBlock::InputPageBlockMap(Box::new(map)))
     }
 
-    /// A row of buttons. Left-aligned unless [`align`](RichBlock::align) says otherwise.
+    /// Creates a row of buttons. No alignment is sent unless [`align`](RichBlock::align) sets one.
     pub fn buttons(row: impl IntoIterator<Item = RichButton>) -> Self {
         let buttons = row.into_iter().map(RichButton::write).collect();
         let row = types::PageBlockButtonRow { align_left: false, align_center: false, align_right: false, buttons };
@@ -362,7 +362,8 @@ impl RichBlock {
         RichBlock { block: base::PageBlock::PageBlockDocument(Box::new(block)), files }
     }
 
-    /// Titles a table; captions a photo, video, audio, document, collage, slideshow or map; other blocks ignore it.
+    /// Titles a table, or captions a photo, video, audio, document, collage, slideshow or map. Other blocks
+    /// ignore it.
     pub fn caption(mut self, text: impl Into<RichText>) -> Self {
         if let base::PageBlock::PageBlockTable(b) = &mut self.block {
             b.title = self::text(text);
@@ -372,7 +373,7 @@ impl RichBlock {
         self
     }
 
-    /// Credits a quote, pullquote or a block that takes a caption; other blocks ignore it.
+    /// Credits a quote, pullquote or a block that takes a caption. Other blocks ignore it.
     pub fn credit(mut self, text: impl Into<RichText>) -> Self {
         use base::PageBlock as B;
         let text = self::text(text);
@@ -389,7 +390,7 @@ impl RichBlock {
         self
     }
 
-    /// Hides a photo or video behind a spoiler; other blocks ignore it.
+    /// Hides a photo or video behind a spoiler. Other blocks ignore it.
     pub fn spoiler(mut self) -> Self {
         match &mut self.block {
             base::PageBlock::PageBlockPhoto(b) => b.spoiler = true,
@@ -399,7 +400,7 @@ impl RichBlock {
         self
     }
 
-    /// Shows a details block expanded; other blocks ignore it.
+    /// Shows a details block expanded. Other blocks ignore it.
     pub fn open(mut self) -> Self {
         if let base::PageBlock::PageBlockDetails(b) = &mut self.block {
             b.open = true;
@@ -407,7 +408,7 @@ impl RichBlock {
         self
     }
 
-    /// Draws borders around table cells. Tables only.
+    /// Draws borders around table cells. Other blocks ignore it.
     pub fn bordered(mut self) -> Self {
         if let base::PageBlock::PageBlockTable(b) = &mut self.block {
             b.bordered = true;
@@ -415,7 +416,7 @@ impl RichBlock {
         self
     }
 
-    /// Shades alternate table rows. Tables only.
+    /// Shades alternate table rows. Other blocks ignore it.
     pub fn striped(mut self) -> Self {
         if let base::PageBlock::PageBlockTable(b) = &mut self.block {
             b.striped = true;
@@ -423,7 +424,7 @@ impl RichBlock {
         self
     }
 
-    /// Tightens table cell spacing. Tables only.
+    /// Tightens table cell spacing. Other blocks ignore it.
     pub fn compact(mut self) -> Self {
         if let base::PageBlock::PageBlockTable(b) = &mut self.block {
             b.compact = true;
@@ -431,7 +432,7 @@ impl RichBlock {
         self
     }
 
-    /// Aligns the buttons of a row. Button rows only.
+    /// Aligns the buttons of a row. Other blocks ignore it.
     pub fn align(mut self, align: Align) -> Self {
         if let base::PageBlock::PageBlockButtonRow(b) = &mut self.block {
             (b.align_left, b.align_center, b.align_right) =
@@ -442,12 +443,12 @@ impl RichBlock {
 }
 
 impl RichListItem {
-    /// A plain item holding one paragraph of `text`.
+    /// Creates an item holding one paragraph of `text`.
     pub fn new(text: impl Into<RichText>) -> Self {
         Self::blocks([RichBlock::paragraph(text)])
     }
 
-    /// An item made of several blocks instead of a single paragraph.
+    /// Creates an item made of several blocks instead of a single paragraph.
     pub fn blocks(blocks: impl IntoIterator<Item = RichBlock>) -> Self {
         RichListItem {
             checkbox: false,
@@ -459,14 +460,14 @@ impl RichListItem {
         }
     }
 
-    /// An item with a checkbox, ticked when `checked` is true.
+    /// Creates an item with a checkbox, ticked when `checked` is true.
     pub fn checkbox(text: impl Into<RichText>, checked: bool) -> Self {
         RichListItem { checkbox: true, checked, ..Self::new(text) }
     }
 }
 
 impl RichTableCell {
-    /// A body cell with `text`, aligned left and top.
+    /// Creates a body cell holding `text`, with no alignment or span set.
     pub fn new(text: impl Into<RichText>) -> Self {
         RichTableCell(base::PageTableCell::PageTableCell(Box::new(types::PageTableCell {
             header: false,
@@ -517,14 +518,16 @@ impl RichTableCell {
 }
 
 impl RichButton {
-    /// Refuses a button that names a user (a profile button, or a login button naming a bot), which can't be
-    /// written without looking the user up.
+    /// Converts an inline keyboard button into a rich message button.
+    ///
+    /// Fails for a button that names a user (a profile button, or a login button naming a bot), because it
+    /// can't be written without looking the user up.
     pub fn new(button: &InlineKeyboardButton) -> Result<Self> {
         let base::KeyboardInlineButton::KeyboardInlineButton(b) = button.write_offline()?;
         Ok(RichButton { text: b.text, kind: b.r#type, style: RichButtonStyle::Default })
     }
 
-    /// Picks the button's color style. The default sends no style.
+    /// Changes the button's color style. [`RichButtonStyle::Default`] sends no style.
     pub fn style(mut self, style: RichButtonStyle) -> Self {
         self.style = style;
         self

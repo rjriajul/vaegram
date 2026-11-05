@@ -15,7 +15,7 @@ use crate::types::{Document, Photo};
 pub enum InputRichMessage {
     /// HTML source, which refers to files added with [`media`](InputRichMessage::media) by their id.
     Html { html: String, media: Vec<InputRichMessageMedia>, rtl: bool, no_autolink: bool },
-    /// Markdown source, with files added with [`media`](InputRichMessage::media) by their id.
+    /// Markdown source, which refers to files added with [`media`](InputRichMessage::media) by their id.
     Markdown { markdown: String, media: Vec<InputRichMessageMedia>, rtl: bool, no_autolink: bool },
     /// Blocks built in code. Users mentioned in their text are resolved when the message is sent.
     Blocks { blocks: Vec<RichBlock>, media: Vec<InputRichMessageMedia>, rtl: bool, no_autolink: bool },
@@ -26,17 +26,17 @@ pub enum InputRichMessage {
 pub struct InputRichMessageMedia(base::InputRichFile);
 
 impl InputRichMessage {
-    /// Rich message content from HTML.
+    /// Creates content from HTML source.
     pub fn html(html: impl Into<String>) -> Self {
         InputRichMessage::Html { html: html.into(), media: Vec::new(), rtl: false, no_autolink: false }
     }
 
-    /// Rich message content from Markdown.
+    /// Creates content from Markdown source.
     pub fn markdown(markdown: impl Into<String>) -> Self {
         InputRichMessage::Markdown { markdown: markdown.into(), media: Vec::new(), rtl: false, no_autolink: false }
     }
 
-    /// Rich message content from blocks. Files used by media blocks are attached automatically.
+    /// Creates content from blocks. Files that media blocks show are attached automatically.
     pub fn blocks(blocks: impl IntoIterator<Item = RichBlock>) -> Self {
         InputRichMessage::Blocks {
             blocks: blocks.into_iter().collect(),
@@ -66,7 +66,7 @@ impl InputRichMessage {
         self
     }
 
-    /// Attaches a file to the message. Call it once per file.
+    /// Attaches one file to the message.
     ///
     /// HTML and Markdown content refer to the file by the string id given to the media. Blocks reference files by
     /// numeric id, so the string id is dropped for them.
@@ -132,7 +132,7 @@ impl InputRichMessage {
 }
 
 impl InputRichMessageMedia {
-    /// An existing [`Photo`] that content refers to as `id`.
+    /// Wraps an existing [`Photo`] that the content refers to as `id`.
     pub fn photo(id: impl Into<String>, photo: &Photo) -> Self {
         let photo = input_photo(&photo.location);
         InputRichMessageMedia(base::InputRichFile::InputRichFilePhoto(Box::new(types::InputRichFilePhoto {
@@ -141,7 +141,7 @@ impl InputRichMessageMedia {
         })))
     }
 
-    /// An existing [`Document`] that content refers to as `id`.
+    /// Wraps an existing [`Document`] that the content refers to as `id`.
     pub fn document(id: impl Into<String>, document: &Document) -> Self {
         let document = input_document(&document.location);
         InputRichMessageMedia(base::InputRichFile::InputRichFileDocument(Box::new(types::InputRichFileDocument {

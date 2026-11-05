@@ -12,12 +12,13 @@ pub enum PaymentResult {
 }
 
 impl PaymentResult {
-    /// Whether the payment went through.
+    /// Returns `true` if the payment went through.
     pub fn success(&self) -> bool {
         matches!(self, PaymentResult::Paid)
     }
 
-    /// The page to finish the payment at, for [`PaymentResult::VerificationNeeded`]. `None` otherwise.
+    /// Returns the page to finish the payment at, or `None` unless this is
+    /// [`PaymentResult::VerificationNeeded`].
     pub fn verification_url(&self) -> Option<&str> {
         match self {
             PaymentResult::VerificationNeeded { url } => Some(url),

@@ -22,7 +22,7 @@ use crate::types::{LabeledPrice, OrderInfo, PaymentOption, SavedCredentials, Use
 /// ```
 #[derive(Clone, PartialEq)]
 pub struct PaymentForm {
-    /// The form id Telegram assigned.
+    /// Form id. [`Client::send_payment_form`] sends it back to pay this form.
     pub id: i64,
     /// Which kind of payment this is, derived from the form and its invoice.
     pub kind: PaymentFormType,
@@ -32,30 +32,32 @@ pub struct PaymentForm {
     pub title: Option<String>,
     /// The invoice description. `None` for a Star gift form.
     pub description: Option<String>,
-    /// URL of the invoice photo. `None` if it has none.
+    /// URL of the invoice photo. `None` if the invoice has no photo, and always for a Star gift form.
     pub photo_url: Option<String>,
     /// Currency code of the prices.
     pub currency: String,
-    /// The priced items.
+    /// Labeled price parts that make up the total.
     pub prices: Vec<LabeledPrice>,
     /// Sum of `prices` in the currency's smallest units. Saturates instead of overflowing.
     pub total_amount: i64,
-    /// Seconds between charges: paying this form starts a subscription.
+    /// Seconds between charges. Set only when paying this form starts a subscription.
     pub subscription_period: Option<i32>,
-    /// Whether the invoice is a test one.
+    /// Whether the invoice is in test mode, so no real money is charged.
     pub is_test: bool,
-    /// The payment provider's account; only card forms have one.
+    /// The payment provider's account. Only card forms have one.
     pub payment_provider: Option<User>,
-    /// The provider's payment page; card forms only.
+    /// The provider's payment page. Only card forms have one.
     pub url: Option<String>,
+    /// Name of the provider for paying in-app with [`native_params`](Self::native_params). Only card forms can
+    /// have one.
     pub native_provider: Option<String>,
     /// The provider's JSON parameters for paying in-app.
     pub native_params: Option<String>,
-    /// Other ways to pay the form.
+    /// Other ways to pay a card form, each a title and a URL. Empty for Star forms.
     pub additional_payment_options: Vec<PaymentOption>,
-    /// Cards the provider remembers for this account.
+    /// Cards the provider remembers for this account. Empty for Star forms.
     pub saved_credentials: Vec<SavedCredentials>,
-    /// Order info saved by an earlier payment. `None` if there is none.
+    /// Order info saved by an earlier payment. `None` if nothing is saved, and always for Star forms.
     pub saved_order_info: Option<OrderInfo>,
     /// Whether the provider can remember a new card.
     ///
