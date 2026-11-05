@@ -4,7 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 use crate::utils::CHANNEL_OFFSET;
 
-/// Request built by [`Client::delete_chat_history`].
+/// Request built by [`Client::delete_chat_history`]. Awaiting it returns `()`.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct DeleteChatHistory<'a> {
     client: &'a Client,
@@ -17,7 +17,7 @@ pub struct DeleteChatHistory<'a> {
 impl Client {
     /// Deletes the message history of a chat.
     ///
-    /// Without options it deletes every message for yourself only. Awaiting returns `()`.
+    /// Without options it deletes every message, only for you.
     pub fn delete_chat_history(&self, chat_id: impl Into<PeerRef>) -> DeleteChatHistory<'_> {
         DeleteChatHistory { client: self, chat_id: chat_id.into(), max_id: 0, revoke: false, just_clear: false }
     }

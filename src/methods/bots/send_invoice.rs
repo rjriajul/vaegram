@@ -13,6 +13,8 @@ pub struct SendInvoice<'a> {
 }
 
 impl Client {
+    /// Sends an invoice.
+    ///
     /// A custom inline keyboard must start with a Pay button.
     pub fn send_invoice(&self, chat_id: impl Into<PeerRef>, invoice: InputInvoice) -> SendInvoice<'_> {
         SendInvoice { client: self, chat_id: chat_id.into(), invoice, options: SendOptions::default() }

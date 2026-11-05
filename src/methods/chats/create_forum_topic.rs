@@ -5,7 +5,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::types::{Chat, ForumTopic, PeerRef};
 
-/// Request built by [`Client::create_forum_topic`].
+/// Request built by [`Client::create_forum_topic`]. Awaiting it returns the new [`ForumTopic`].
 pub struct CreateForumTopic<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -17,7 +17,8 @@ pub struct CreateForumTopic<'a> {
 impl Client {
     /// Creates a topic in a forum supergroup.
     ///
-    /// Awaiting returns the new `ForumTopic`, taken from the service message in Telegram's reply.
+    /// Awaiting returns the new [`ForumTopic`], built from the service message in Telegram's reply. Fails with
+    /// `Error::Unexpected` if the reply holds no such message.
     pub fn create_forum_topic(&self, chat_id: impl Into<PeerRef>, title: impl Into<String>) -> CreateForumTopic<'_> {
         CreateForumTopic {
             client: self,
@@ -30,13 +31,13 @@ impl Client {
 }
 
 impl CreateForumTopic<'_> {
-    /// One of 0x6FB9F0, 0xFFD67E, 0xCB86DB, 0x8EEE98, 0xFF93B2 or 0xFB6F5F.
+    /// Colors the topic icon. Telegram takes 0x6FB9F0, 0xFFD67E, 0xCB86DB, 0x8EEE98, 0xFF93B2 or 0xFB6F5F.
     pub fn icon_color(mut self, color: i32) -> Self {
         self.icon_color = Some(color);
         self
     }
 
-    /// A custom emoji from [`Client::get_forum_topic_icon_stickers`].
+    /// Uses a custom emoji from [`Client::get_forum_topic_icon_stickers`] as the topic icon.
     pub fn icon_emoji_id(mut self, custom_emoji_id: i64) -> Self {
         self.icon_emoji_id = Some(custom_emoji_id);
         self

@@ -43,7 +43,7 @@ pub(super) fn check_slug(slug: &str) -> Result<()> {
 }
 
 impl CreateBusinessChatLink<'_> {
-    /// Name that tells the link apart in the account's list of links.
+    /// Names the link in the account's list of links.
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
         self

@@ -21,7 +21,9 @@ pub struct PostStory<'a> {
 }
 
 impl Client {
-    /// Posts a story for a business account; `active_period` is in seconds: 6, 12, 24 or 48 hours.
+    /// Posts a story for the business account behind a connection, visible to everyone.
+    ///
+    /// `active_period` is in seconds and must be 6, 12, 24 or 48 hours.
     pub fn post_story<'a>(
         &'a self,
         business_connection_id: impl Into<String>,
@@ -49,13 +51,13 @@ impl Client {
 }
 
 impl PostStory<'_> {
-    /// Text shown under the story, parsed with the request's parse mode.
+    /// Adds a caption under the story, parsed with the request's parse mode.
     pub fn caption(mut self, caption: impl Into<String>) -> Self {
         self.caption = caption.into();
         self
     }
 
-    /// Interactive areas placed on the story.
+    /// Places interactive areas on the story.
     pub fn areas(mut self, areas: impl IntoIterator<Item = StoryArea>) -> Self {
         self.areas = areas.into_iter().collect();
         self

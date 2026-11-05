@@ -5,11 +5,11 @@ use crate::raw::{base, functions, types};
 use crate::types::{FailedToAddMember, PeerRef};
 
 impl Client {
-    /// Adds users to a basic group or channel.
+    /// Adds users to a basic group, supergroup or channel.
     ///
-    /// Returns the users Telegram could not add, as [`FailedToAddMember`]. Fails with `InvalidArgument` if `user_ids`
-    /// is empty. `forward_limit` is how many recent messages the new members see and applies to basic groups only,
-    /// which are sent one request per user.
+    /// Returns the users Telegram could not add, as [`FailedToAddMember`]. Fails with `Error::InvalidArgument` if
+    /// `user_ids` is empty. `forward_limit` is how many recent messages new members of a basic group can see.
+    /// Supergroups and channels ignore it. A basic group takes one request per user.
     pub async fn add_chat_members(
         &self,
         chat_id: impl Into<PeerRef>,

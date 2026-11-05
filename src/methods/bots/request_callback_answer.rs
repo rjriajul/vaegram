@@ -34,13 +34,13 @@ impl Client {
 }
 
 impl RequestCallbackAnswer<'_> {
-    /// Presses the "play" button of a game message instead; `data` is ignored.
+    /// Presses the "play" button of a game message instead. `data` is ignored.
     pub fn game(mut self) -> Self {
         self.data = None;
         self
     }
 
-    /// Your 2FA password, for buttons that ask for it (like transferring a bot).
+    /// Sends the account's 2FA password, for buttons that ask for it (like transferring a bot).
     pub fn password(mut self, password: impl Into<String>) -> Self {
         self.password = Some(password.into());
         self

@@ -6,7 +6,7 @@ use crate::types::PeerRef;
 impl Client {
     /// Moves chats to the archive folder.
     ///
-    /// Fails with `InvalidArgument` if `chat_ids` is empty.
+    /// Fails with `Error::InvalidArgument` if `chat_ids` is empty.
     pub async fn archive_chats(&self, chat_ids: impl IntoIterator<Item = impl Into<PeerRef>>) -> Result<()> {
         self.move_to_folder(chat_ids.into_iter().map(Into::into).collect(), 1).await
     }

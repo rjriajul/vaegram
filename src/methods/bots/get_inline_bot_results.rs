@@ -35,19 +35,19 @@ impl Client {
 }
 
 impl GetInlineBotResults<'_> {
-    /// The chat the query is typed in; Saved Messages by default.
+    /// Chat the query is typed in. Defaults to Saved Messages.
     pub fn chat_id(mut self, chat_id: impl Into<PeerRef>) -> Self {
         self.chat_id = Some(chat_id.into());
         self
     }
 
-    /// Offset taken from the previous results, to fetch the next page.
+    /// Fetches the next page, using the offset from the previous results.
     pub fn offset(mut self, offset: impl Into<String>) -> Self {
         self.offset = offset.into();
         self
     }
 
-    /// Sends your location with the query, for bots that ask for it.
+    /// Sends a location with the query, for bots that ask for it.
     pub fn location(mut self, latitude: f64, longitude: f64) -> Self {
         self.location = Some((latitude, longitude));
         self

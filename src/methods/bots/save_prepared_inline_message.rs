@@ -13,7 +13,9 @@ pub struct SavePreparedInlineMessage<'a> {
 }
 
 impl Client {
-    /// Stores a message that the Mini App of `user_id` can share; any chat type unless restricted with `allow_*`.
+    /// Stores a message that the Mini App of `user_id` can share.
+    ///
+    /// Without any `allow_*` option it can go to every chat type.
     pub fn save_prepared_inline_message(
         &self,
         user_id: impl Into<PeerRef>,

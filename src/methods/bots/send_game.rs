@@ -14,6 +14,8 @@ pub struct SendGame<'a> {
 }
 
 impl Client {
+    /// Sends a game by its short name.
+    ///
     /// Without a reply markup Telegram adds a Play button.
     pub fn send_game(&self, chat_id: impl Into<PeerRef>, game_short_name: impl Into<String>) -> SendGame<'_> {
         SendGame {

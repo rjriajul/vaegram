@@ -3,7 +3,9 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
-/// Request built by [`Client::set_game_score`]. Awaiting it returns the edited [`Message`], or `None`.
+/// Request built by [`Client::set_game_score`]. Awaiting it returns the edited [`Message`].
+///
+/// The result is `None` if [`disable_edit_message`](SetGameScore::disable_edit_message) is set.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetGameScore<'a> {
     client: &'a Client,
@@ -16,7 +18,9 @@ pub struct SetGameScore<'a> {
 }
 
 impl Client {
-    /// Fails unless the score beats the user's current one; see [`SetGameScore::force`].
+    /// Sets a user's score in a game message.
+    ///
+    /// Fails unless the score beats the user's current one. See [`SetGameScore::force`].
     pub fn set_game_score(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -43,7 +47,7 @@ impl SetGameScore<'_> {
         self
     }
 
-    /// Keeps the game message as it is instead of showing the new scoreboard; the result is then `None`.
+    /// Keeps the game message as it is instead of showing the new scoreboard. The result is then `None`.
     pub fn disable_edit_message(mut self) -> Self {
         self.edit_message = false;
         self

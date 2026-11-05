@@ -6,7 +6,7 @@ use crate::types::Chat;
 use crate::utils::{get_channel_id, get_peer};
 
 impl Client {
-    /// Creates a broadcast channel and returns it as a `Chat`.
+    /// Creates a broadcast channel and returns it as a [`Chat`].
     pub async fn create_channel(&self, title: impl Into<String>, description: impl Into<String>) -> Result<Chat> {
         create(self, title.into(), description.into(), true).await
     }

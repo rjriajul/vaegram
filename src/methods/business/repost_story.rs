@@ -17,7 +17,9 @@ pub struct RepostStory<'a> {
 }
 
 impl Client {
-    /// Reposts a story from one business account to another; both must be connected to this bot.
+    /// Reposts a story to the business account behind a connection, visible to everyone.
+    ///
+    /// The account the story comes from must be connected to the same bot.
     pub fn repost_story(
         &self,
         business_connection_id: impl Into<String>,

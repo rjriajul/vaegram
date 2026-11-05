@@ -15,8 +15,9 @@ pub struct SetBusinessAwayMessage<'a> {
 }
 
 impl Client {
-    /// Sets the away message to the quick reply shortcut `shortcut_id`, sent to the given recipients.
-    /// It is sent at all times unless [`schedule`](SetBusinessAwayMessage::schedule) narrows it.
+    /// Sets the away message to the quick reply shortcut `shortcut_id`, sent to `recipients`.
+    ///
+    /// The message is active at all times unless [`schedule`](SetBusinessAwayMessage::schedule) narrows it.
     pub fn set_business_away_message<'a>(
         &'a self,
         shortcut_id: i32,
@@ -33,7 +34,7 @@ impl Client {
 }
 
 impl SetBusinessAwayMessage<'_> {
-    /// When the away message is active. Defaults to `BusinessAwayMessageSchedule::Always`.
+    /// Limits when the away message is active. Defaults to [`BusinessAwayMessageSchedule::Always`].
     pub fn schedule(mut self, schedule: BusinessAwayMessageSchedule) -> Self {
         self.schedule = schedule;
         self
