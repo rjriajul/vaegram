@@ -5,26 +5,47 @@ use crate::raw::{base, types};
 use crate::types::{Chat, Gift, MessageEntity, UniqueGift};
 use crate::utils::get_peer_id;
 
+/// A regular gift sent or received in a chat, taken from a service message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GiftInfo {
+    /// The gift.
     pub gift: Gift,
+    /// Id that addresses the gift in calls such as [`Client::show_gift`](crate::Client::show_gift).
+    /// `None` if the gift can't be addressed.
     pub owned_gift_id: Option<String>,
+    /// Stars the receiver gets for converting the gift. `None` if Telegram doesn't send it.
     pub convert_star_count: Option<i64>,
+    /// Stars the upgrade costs. `None` if Telegram doesn't send it.
     pub prepaid_upgrade_star_count: Option<i64>,
+    /// Whether the upgrade is paid separately from the gift.
     pub is_upgrade_separate: bool,
+    /// Whether the gift can be upgraded to a unique gift.
     pub can_be_upgraded: bool,
+    /// Text the sender attached. `None` if there is none.
     pub text: Option<String>,
+    /// Formatting entities of `text`.
     pub entities: Option<Vec<MessageEntity>>,
+    /// Whether the sender's name is hidden.
     pub is_private: bool,
+    /// Serial number of the unique gift. `None` if it isn't set.
     pub unique_gift_number: Option<i32>,
+    /// Chat that sent the gift.
     pub sender: Option<Chat>,
+    /// Chat that received the gift.
     pub receiver: Option<Chat>,
+    /// Whether the gift is shown on the receiver's profile.
     pub is_saved: bool,
+    /// Whether the gift was converted to Stars.
     pub was_converted: bool,
+    /// Whether the gift was upgraded to a unique gift.
     pub was_upgraded: bool,
+    /// Whether the gift was refunded.
     pub was_refunded: bool,
+    /// Whether the upgrade was paid in advance.
     pub is_prepaid_upgrade: bool,
+    /// Whether the gift was won in an auction.
     pub is_from_auction: bool,
+    /// Hash that identifies the prepaid upgrade. `None` if there is none.
     pub prepaid_upgrade_hash: Option<String>,
     /// The service message that announced the upgrade.
     pub upgraded_message_id: Option<i32>,
@@ -32,26 +53,47 @@ pub struct GiftInfo {
     pub gift_message_id: Option<i32>,
 }
 
+/// A unique gift sent, received or changed, taken from a service message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UniqueGiftInfo {
+    /// The unique gift.
     pub gift: UniqueGift,
+    /// How the gift came to this owner.
     pub origin: UniqueGiftOrigin,
+    /// Stars the gift last sold for. `None` if it wasn't a Stars resale.
     pub last_resale_star_count: Option<i64>,
+    /// TON amount the gift last sold for. `None` if it wasn't a TON resale.
     pub last_resale_ton_amount: Option<i64>,
+    /// Id that addresses the gift in calls such as [`Client::show_gift`](crate::Client::show_gift).
+    /// `None` if the gift can't be addressed.
     pub owned_gift_id: Option<String>,
+    /// Stars a transfer costs. `None` if Telegram doesn't send it.
     pub transfer_star_count: Option<i64>,
+    /// Unix time from which the gift can be transferred.
     pub next_transfer_date: Option<i32>,
+    /// Text the sender attached. `None` if there is none.
     pub text: Option<String>,
+    /// Formatting entities of `text`.
     pub entities: Option<Vec<MessageEntity>>,
+    /// Whether the sender's name is hidden.
     pub is_private: bool,
+    /// Chat that sent the gift.
     pub sender: Option<Chat>,
+    /// Chat that received the gift.
     pub receiver: Option<Chat>,
+    /// Whether the gift is shown on the receiver's profile.
     pub is_saved: bool,
+    /// Whether the gift was refunded.
     pub was_refunded: bool,
+    /// Whether the upgrade was paid in advance.
     pub is_prepaid_upgrade: bool,
+    /// Unix time from which the gift can be exported.
     pub export_date: Option<i32>,
+    /// Unix time from which the gift can be resold.
     pub next_resale_date: Option<i32>,
+    /// Unix time from which the gift can be used for crafting.
     pub craft_date: Option<i32>,
+    /// Stars it costs to remove the original details from the gift.
     pub drop_original_details_star_count: Option<i64>,
 }
 

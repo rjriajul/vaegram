@@ -9,23 +9,35 @@ use crate::utils::compute_password_check;
 pub enum InputCredentials {
     /// A card entered just now; `data` is the provider's JSON token.
     New {
+        /// The provider's JSON token.
         data: String,
+        /// Whether the provider may remember the card.
         allow_save: bool,
     },
-    /// A card from [`PaymentForm::saved_credentials`](crate::types::PaymentForm::saved_credentials); needs your 2FA password.
+    /// A card from [`PaymentForm::saved_credentials`](crate::types::PaymentForm::saved_credentials).
+    ///
+    /// Needs the account's 2FA password.
     Saved {
+        /// The `id` of the saved card.
         saved_credentials_id: String,
+        /// The account's 2FA password. Sent only to fetch a temporary password for the payment.
         password: String,
     },
+    /// A payment token from Apple Pay.
     ApplePay {
+        /// The provider's JSON token.
         data: String,
     },
+    /// A payment token from Google Pay.
     GooglePay {
+        /// The provider's JSON token.
         data: String,
     },
 }
 
 impl InputCredentials {
+    /// A card entered just now, from the provider's JSON token. The provider doesn't save it unless
+    /// [`allow_save`](InputCredentials::allow_save) is called.
     pub fn new(data: impl Into<String>) -> InputCredentials {
         InputCredentials::New { data: data.into(), allow_save: false }
     }
@@ -38,14 +50,17 @@ impl InputCredentials {
         self
     }
 
+    /// A saved card, confirmed with the account's 2FA password.
     pub fn saved(saved_credentials_id: impl Into<String>, password: impl Into<String>) -> InputCredentials {
         InputCredentials::Saved { saved_credentials_id: saved_credentials_id.into(), password: password.into() }
     }
 
+    /// An Apple Pay payment token.
     pub fn apple_pay(data: impl Into<String>) -> InputCredentials {
         InputCredentials::ApplePay { data: data.into() }
     }
 
+    /// A Google Pay payment token.
     pub fn google_pay(data: impl Into<String>) -> InputCredentials {
         InputCredentials::GooglePay { data: data.into() }
     }

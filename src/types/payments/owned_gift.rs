@@ -5,49 +5,81 @@ use crate::raw::{base, types};
 use crate::types::messages_and_media::text_with_entities;
 use crate::types::{Gift, MessageEntity, UniqueGift, User};
 
+/// A gift on a user's or channel's profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnedGift {
+    /// A gift that isn't upgraded.
     Regular(Box<OwnedGiftRegular>),
+    /// A gift upgraded to a unique one.
     Unique(Box<OwnedGiftUnique>),
 }
 
+/// A gift on a profile that hasn't been upgraded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedGiftRegular {
+    /// The gift.
     pub gift: Gift,
+    /// Id to address the gift with. `None` if Telegram sends neither a message id nor a saved id.
     pub owned_gift_id: Option<String>,
+    /// The user who sent the gift. `None` if the sender isn't a user or is hidden.
     pub sender_user: Option<User>,
+    /// Unix time the gift was sent.
     pub send_date: i32,
+    /// The text the sender attached. `None` if there is none.
     pub text: Option<String>,
+    /// Formatting entities of `text`.
     pub entities: Option<Vec<MessageEntity>>,
+    /// Whether the sender's name is hidden.
     pub is_private: bool,
+    /// Whether the gift is shown on the profile.
     pub is_saved: bool,
+    /// Whether the gift can be upgraded to a unique gift.
     pub can_be_upgraded: bool,
+    /// Whether the gift was refunded.
     pub was_refunded: bool,
+    /// Stars the owner gets for converting the gift. `None` if Telegram doesn't send it.
     pub convert_star_count: Option<i64>,
+    /// Stars the upgrade costs. `None` if Telegram doesn't send it.
     pub prepaid_upgrade_star_count: Option<i64>,
+    /// Whether the upgrade is paid separately from the gift.
     pub is_upgrade_separate: bool,
+    /// Serial number of the unique gift. `None` if it isn't set.
     pub unique_gift_number: Option<i32>,
     /// Lets anyone pay for this gift's upgrade with [`Client::buy_gift_upgrade`].
     pub prepaid_upgrade_hash: Option<String>,
 }
 
+/// A unique gift on a profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedGiftUnique {
+    /// The gift.
     pub gift: UniqueGift,
+    /// Id to address the gift with. `None` if Telegram sends neither a message id nor a saved id.
     pub owned_gift_id: Option<String>,
+    /// The user who sent the gift. `None` if the sender isn't a user or is hidden.
     pub sender_user: Option<User>,
+    /// Unix time the gift was sent.
     pub send_date: i32,
+    /// Whether the gift is shown on the profile.
     pub is_saved: bool,
+    /// Whether Telegram sent a transfer price or a transfer date for the gift.
     pub can_be_transferred: bool,
+    /// Stars a transfer costs. `None` if Telegram doesn't send it.
     pub transfer_star_count: Option<i64>,
+    /// Unix time the gift can be transferred from. `None` if Telegram doesn't send it.
     pub next_transfer_date: Option<i32>,
+    /// Stars it costs to remove the original details. `None` if Telegram doesn't send it.
     pub drop_original_details_star_count: Option<i64>,
 }
 
+/// One page of a profile's gifts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedGifts {
+    /// How many gifts the profile has in all.
     pub total_count: i32,
+    /// The gifts on this page.
     pub gifts: Vec<OwnedGift>,
+    /// Offset to pass for the next page. `None` on the last page.
     pub next_offset: Option<String>,
 }
 

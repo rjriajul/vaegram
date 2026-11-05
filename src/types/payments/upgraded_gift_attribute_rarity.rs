@@ -6,9 +6,13 @@ use crate::raw::base;
 pub enum UpgradedGiftAttributeRarity {
     /// The attribute shows up in this many of every thousand gifts.
     PerMille(i32),
+    /// The uncommon tier.
     Uncommon,
+    /// The rare tier.
     Rare,
+    /// The epic tier.
     Epic,
+    /// The legendary tier.
     Legendary,
 }
 

@@ -1,6 +1,10 @@
-/// A card the provider remembers for this account. Pay with it through [`InputCredentials::saved`](crate::types::InputCredentials::saved).
+/// A card the provider remembers for this account.
+///
+/// Pay with it through [`InputCredentials::saved`](crate::types::InputCredentials::saved).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedCredentials {
+    /// The id to pass as `saved_credentials_id`.
     pub id: String,
+    /// The card's display name.
     pub title: String,
 }

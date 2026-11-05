@@ -2,11 +2,16 @@ use super::gift::sticker;
 use crate::raw::base;
 use crate::types::Sticker;
 
+/// A named collection of gifts on a profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GiftCollection {
+    /// Collection id.
     pub id: i32,
+    /// Collection title.
     pub name: String,
+    /// Sticker used as the collection icon. `None` if it has none.
     pub icon: Option<Sticker>,
+    /// Number of gifts in the collection.
     pub gift_count: i32,
 }
 

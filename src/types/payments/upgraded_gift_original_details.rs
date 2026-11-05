@@ -6,10 +6,15 @@ use crate::types::{Chat, MessageEntity};
 /// Who sent a gift before it was upgraded, to whom, and with what message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpgradedGiftOriginalDetails {
+    /// Who sent the gift. `None` if the sender was hidden.
     pub sender: Option<Chat>,
+    /// Who received the gift.
     pub receiver: Chat,
+    /// Unix time the gift was sent.
     pub date: i32,
+    /// The text the sender attached. `None` if there was none.
     pub text: Option<String>,
+    /// Formatting entities of `text`.
     pub entities: Option<Vec<MessageEntity>>,
 }
 

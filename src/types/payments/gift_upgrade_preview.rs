@@ -4,15 +4,20 @@ use crate::types::GiftUpgradeVariants;
 /// What upgrading a gift can give, and what it costs now and later.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GiftUpgradePreview {
+    /// The models, symbols and backdrops the upgrade can pick from.
     pub variants: GiftUpgradeVariants,
+    /// The upgrade price over time. Each entry applies from its `date`.
     pub prices: Vec<GiftUpgradePrice>,
+    /// The upgrade prices that follow `prices`.
     pub next_prices: Vec<GiftUpgradePrice>,
 }
 
 /// The upgrade price from `date` on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GiftUpgradePrice {
+    /// Unix time the price starts to apply.
     pub date: i32,
+    /// The price in Stars.
     pub star_count: i64,
 }
 
