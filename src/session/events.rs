@@ -57,9 +57,24 @@ impl Events {
     pub(crate) fn emit(&self, event: ClientEvent) {
         let listener = self.listener.read().unwrap().clone();
         if let Some(listener) = listener {
-            // A panicking listener would otherwise take the connection down with it; the panic hook still reports it.
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(event)));
+            call(&listener, event);
         }
+    }
+
+    /// For what the client can only report, not act on: the listener gets it, and with none set it is one line on
+    /// stderr, so an app that never listens still sees it. Apart from the interactive login, the only place the
+    /// crate writes to the terminal.
+    pub(crate) fn warn(&self, event: ClientEvent) {
+        let listener = self.listener.read().unwrap().clone();
+        match listener {
+            Some(listener) => call(&listener, event),
+            None => eprintln!("vaegram: {}", describe(&event)),
+        }
+    }
+
+    /// A failed storage call, as `warn` reports it; `message` says what was being done and why it failed.
+    pub(crate) fn storage_failed(&self, kind: std::io::ErrorKind, message: impl std::fmt::Display) {
+        self.warn(ClientEvent::StorageFailed { error: std::io::Error::new(kind, message.to_string()) });
     }
 
     pub(crate) fn on_link(&self, listener: LinkListener) {
@@ -144,6 +159,23 @@ impl Events {
     }
 }
 
+// A panicking listener would otherwise take the connection down with it; the panic hook still reports it.
+fn call(listener: &Listener, event: ClientEvent) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(event)));
+}
+
+/// What `warn` writes when nobody listens.
+fn describe(event: &ClientEvent) -> String {
+    match event {
+        ClientEvent::HandlerFailed { error } => match error.chat_id {
+            Some(chat) => format!("{:?} handler failed in chat {chat}: {}", error.kind, error.error),
+            None => format!("{:?} handler failed: {}", error.kind, error.error),
+        },
+        ClientEvent::StorageFailed { error } => error.to_string(),
+        other => format!("{other:?}"),
+    }
+}
+
 // getDifference replays only what moved pts or qts.
 fn unrecoverable(updates: &base::Updates) -> bool {
     let lost = |u: &base::Update| u.pts().is_none() && u.qts().is_none();
@@ -157,7 +189,10 @@ fn unrecoverable(updates: &base::Updates) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Affected, Events, NESTED_LIMIT};
+    use super::{Affected, Events, NESTED_LIMIT, describe};
+    use crate::enums::ClientEvent;
+    use crate::errors::Error;
+    use crate::handlers::{HandlerError, UpdateKind};
     use crate::raw::base;
 
     #[test]
@@ -178,5 +213,30 @@ mod tests {
         }
         assert_eq!(events.nested.lock().unwrap().len(), NESTED_LIMIT);
         assert_eq!(events.take_dropped(), (2, 0));
+    }
+
+    #[test]
+    fn warn_goes_to_the_listener() {
+        let events = Events::default();
+        let got = events.record();
+        events.warn(ClientEvent::Reconnected { dc: 2, attempt: 1 });
+        events.storage_failed(std::io::ErrorKind::PermissionDenied, "failed to save the update state: disk full");
+        let got: Vec<ClientEvent> = got.try_iter().collect();
+        assert!(matches!(got[0], ClientEvent::Reconnected { dc: 2, attempt: 1 }), "{got:?}");
+        let ClientEvent::StorageFailed { error } = &got[1] else { panic!("{got:?}") };
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(error.to_string(), "failed to save the update state: disk full");
+    }
+
+    #[test]
+    fn unheard_warnings_are_described_in_one_line() {
+        let failed = |chat_id| ClientEvent::HandlerFailed {
+            error: HandlerError { kind: UpdateKind::Message, chat_id, error: Error::Timeout },
+        };
+        let timeout = Error::Timeout.to_string();
+        assert_eq!(describe(&failed(Some(5))), format!("Message handler failed in chat 5: {timeout}"));
+        assert_eq!(describe(&failed(None)), format!("Message handler failed: {timeout}"));
+        let storage = ClientEvent::StorageFailed { error: std::io::Error::other("failed to close the storage engine") };
+        assert_eq!(describe(&storage), "failed to close the storage engine");
     }
 }

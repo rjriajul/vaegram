@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::sync::{Notify, mpsc, oneshot};
 
 use super::{PeerRecord, SessionData, Storage, StoredState, UpdateState};
-use crate::session::Salt;
+use crate::session::{Events, Salt};
 
 const FLUSH_EVERY: Duration = Duration::from_secs(5);
 const FLUSH_AT: usize = 512;
@@ -51,22 +51,24 @@ impl Pending {
 pub(crate) struct Store {
     engine: Arc<dyn Storage>,
     pending: Arc<Pending>,
+    // Where the thread reports what it can't write; the engine's failures never stop the client.
+    events: Arc<Events>,
     worker: OnceLock<io::Result<mpsc::UnboundedSender<Message>>>,
 }
 
 impl Store {
-    pub(crate) fn new(engine: Arc<dyn Storage>) -> Store {
-        Store { engine, pending: Arc::default(), worker: OnceLock::new() }
+    pub(crate) fn new(engine: Arc<dyn Storage>, events: Arc<Events>) -> Store {
+        Store { engine, pending: Arc::default(), events, worker: OnceLock::new() }
     }
 
     fn worker(&self) -> io::Result<&mpsc::UnboundedSender<Message>> {
         let worker = self.worker.get_or_init(|| {
             let (tx, rx) = mpsc::unbounded_channel();
-            let (engine, pending) = (self.engine.clone(), self.pending.clone());
+            let (engine, pending, events) = (self.engine.clone(), self.pending.clone(), self.events.clone());
             let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
             std::thread::Builder::new()
                 .name("vaegram-store".into())
-                .spawn(move || runtime.block_on(work(engine, pending, rx)))?;
+                .spawn(move || runtime.block_on(work(engine, pending, events, rx)))?;
             Ok(tx)
         });
         worker.as_ref().map_err(|e| io::Error::new(e.kind(), format!("couldn't start the store thread: {e}")))
@@ -195,7 +197,7 @@ impl Store {
 
     fn start_flushing(&self) {
         if let Err(e) = self.worker() {
-            eprintln!("vaegram: {e}; saves wait until it starts");
+            self.events.storage_failed(e.kind(), format_args!("{e}; saves wait until it starts"));
         }
     }
 
@@ -231,7 +233,10 @@ impl Store {
         let Some(Ok(worker)) = self.worker.get() else { return };
         let (tx, rx) = std_mpsc::channel();
         if worker.send(Message::Finish(tx)).is_ok() && rx.recv_timeout(DROP_WAIT).is_err() {
-            eprintln!("vaegram: the storage engine didn't finish saving within {DROP_WAIT:?}; giving up on it");
+            self.events.storage_failed(
+                io::ErrorKind::TimedOut,
+                format_args!("the storage engine didn't finish saving within {DROP_WAIT:?}; giving up on it"),
+            );
         }
     }
 }
@@ -240,28 +245,33 @@ fn stopped() -> io::Error {
     io::Error::other("the store thread stopped")
 }
 
-async fn work(engine: Arc<dyn Storage>, pending: Arc<Pending>, mut rx: mpsc::UnboundedReceiver<Message>) {
+async fn work(
+    engine: Arc<dyn Storage>,
+    pending: Arc<Pending>,
+    events: Arc<Events>,
+    mut rx: mpsc::UnboundedReceiver<Message>,
+) {
     let mut tick = tokio::time::interval(FLUSH_EVERY);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     tick.tick().await;
-    let save = || isolated(flush(engine.clone(), pending.clone()), "while saving");
+    let save = || isolated(&events, flush(engine.clone(), pending.clone(), events.clone()), "while saving");
     loop {
         tokio::select! {
             message = rx.recv() => match message {
-                Some(Message::Run(job)) => isolated(job(engine.clone()), "in a call").await,
+                Some(Message::Run(job)) => isolated(&events, job(engine.clone()), "in a call").await,
                 Some(Message::Flush(done)) => {
                     save().await;
                     let _ = done.send(());
                 }
                 Some(Message::Finish(done)) => {
                     save().await;
-                    isolated(close(engine.clone()), "while closing").await;
+                    isolated(&events, close(engine.clone(), events.clone()), "while closing").await;
                     let _ = done.send(());
                     return;
                 }
                 None => {
                     save().await;
-                    return isolated(close(engine.clone()), "while closing").await;
+                    return isolated(&events, close(engine.clone(), events.clone()), "while closing").await;
                 }
             },
             _ = tick.tick() => save().await,
@@ -271,23 +281,24 @@ async fn work(engine: Arc<dyn Storage>, pending: Arc<Pending>, mut rx: mpsc::Unb
 }
 
 /// Runs `task` as a task of its own, so an engine that panics fails that one job, not the store thread.
-async fn isolated(task: impl Future<Output = ()> + Send + 'static, what: &str) {
+async fn isolated(events: &Events, task: impl Future<Output = ()> + Send + 'static, what: &str) {
     if let Err(e) = tokio::spawn(task).await {
-        eprintln!("vaegram: the storage engine panicked {what}: {e}; the store keeps going");
+        let why = format!("the storage engine panicked {what}: {e}; the store keeps going");
+        events.storage_failed(io::ErrorKind::Other, why);
     }
 }
 
-async fn close(engine: Arc<dyn Storage>) {
+async fn close(engine: Arc<dyn Storage>, events: Arc<Events>) {
     if let Err(e) = engine.close().await {
-        eprintln!("vaegram: failed to close the storage engine: {e}");
+        events.storage_failed(e.kind(), format_args!("failed to close the storage engine: {e}"));
     }
 }
 
-async fn flush(engine: Arc<dyn Storage>, pending: Arc<Pending>) {
+async fn flush(engine: Arc<dyn Storage>, pending: Arc<Pending>, events: Arc<Events>) {
     let peers: Vec<PeerRecord> = std::mem::take(&mut pending.lock().peers).into_values().collect();
     if !peers.is_empty() && !pending.lock().dead {
         if let Err(e) = engine.update_peers(&peers).await {
-            eprintln!("vaegram: failed to save {} known chats: {e}", peers.len());
+            events.storage_failed(e.kind(), format_args!("failed to save {} known chats: {e}", peers.len()));
             // Back in the queue, unless a newer record of the same peer arrived meanwhile.
             let mut queued = pending.lock();
             for p in peers {
@@ -298,14 +309,14 @@ async fn flush(engine: Arc<dyn Storage>, pending: Arc<Pending>) {
     let state = pending.lock().state.take();
     if let Some(state) = state.filter(|_| !pending.lock().dead) {
         if let Err(e) = engine.save_state(&state).await {
-            eprintln!("vaegram: failed to save the update state: {e}");
+            events.storage_failed(e.kind(), format_args!("failed to save the update state: {e}"));
             pending.lock().state.get_or_insert(state);
         }
     }
     let salt = pending.lock().salt.take();
     if let Some((owner, salt)) = salt.filter(|_| !pending.lock().dead) {
         if let Err(e) = save_salt(&*engine, owner, salt).await {
-            eprintln!("vaegram: failed to save the server salt: {e}");
+            events.storage_failed(e.kind(), format_args!("failed to save the server salt: {e}"));
             let mut queued = pending.lock();
             if queued.state.is_none() {
                 queued.salt.get_or_insert((owner, salt));
@@ -439,7 +450,8 @@ mod tests {
     use std::time::Duration;
 
     use super::{Recording, Store};
-    use crate::session::Salt;
+    use crate::enums::ClientEvent;
+    use crate::session::{Events, Salt};
     use crate::storage::{MemoryStorage, PeerRecord, Storage, StorageFuture, StoredState, UpdateState};
 
     fn state(pts: i32) -> StoredState {
@@ -448,7 +460,7 @@ mod tests {
 
     #[tokio::test]
     async fn jobs_run_on_the_store_thread() {
-        let store = Store::new(Arc::new(MemoryStorage::new()));
+        let store = Store::new(Arc::new(MemoryStorage::new()), Arc::default());
         let name = store.call(|_| async { Ok(std::thread::current().name().map(str::to_owned)) }).await.unwrap();
         assert_eq!(name.as_deref(), Some("vaegram-store"));
         assert_ne!(std::thread::current().name(), Some("vaegram-store"));
@@ -457,7 +469,7 @@ mod tests {
     #[tokio::test]
     async fn peers_are_coalesced_by_id() {
         let engine = Arc::new(Recording::default());
-        let store = Store::new(engine.clone());
+        let store = Store::new(engine.clone(), Arc::default());
         let mut newer = PeerRecord::new(1, 2);
         newer.updated = 5;
         store.queue_peers([PeerRecord::new(1, 1), PeerRecord::new(2, 1)]);
@@ -470,7 +482,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_flush_keeps_the_writes_queued() {
-        let store = Store::new(Arc::new(Recording::failing()));
+        let store = Store::new(Arc::new(Recording::failing()), Arc::default());
         store.queue_peers([PeerRecord::new(1, 1)]);
         store.queue_state(state(3));
         store.flush().await;
@@ -482,9 +494,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failed_save_reaches_the_event_listener() {
+        let events = Arc::new(Events::default());
+        let got = events.record();
+        let store = Store::new(Arc::new(Recording::failing()), events);
+        store.queue_state(state(3));
+        store.flush().await;
+        let got: Vec<ClientEvent> = got.try_iter().collect();
+        let [ClientEvent::StorageFailed { error }] = &got[..] else { panic!("{got:?}") };
+        assert_eq!(error.to_string(), "failed to save the update state: store is down");
+    }
+
+    #[tokio::test]
     async fn drop_flushes_the_last_state() {
         let engine = Arc::new(MemoryStorage::new());
-        let store = Store::new(engine.clone());
+        let store = Store::new(engine.clone(), Arc::default());
         store.queue_peers([PeerRecord::new(1, 1)]);
         let saved = tokio::task::spawn_blocking(move || store.finish(Some(state(9)))).await;
         saved.unwrap();
@@ -494,7 +518,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_store_that_never_worked_starts_no_thread_on_drop() {
-        let store = Store::new(Arc::new(MemoryStorage::new()));
+        let store = Store::new(Arc::new(MemoryStorage::new()), Arc::default());
         store.finish(None);
         assert!(!store.started());
     }
@@ -531,7 +555,7 @@ mod tests {
 
     #[tokio::test]
     async fn drop_gives_up_after_the_timeout() {
-        let store = Store::new(Arc::new(Stuck(MemoryStorage::new())));
+        let store = Store::new(Arc::new(Stuck(MemoryStorage::new())), Arc::default());
         store.queue_peers([PeerRecord::new(1, 1)]);
         let started = std::time::Instant::now();
         tokio::task::spawn_blocking(move || store.finish(Some(state(1)))).await.unwrap();
@@ -542,7 +566,7 @@ mod tests {
     #[tokio::test]
     async fn log_out_stops_queued_writes() {
         let engine = Arc::new(Recording::default());
-        let store = Store::new(engine.clone());
+        let store = Store::new(engine.clone(), Arc::default());
         store.queue_peers([PeerRecord::new(1, 1)]);
         store.queue_state(state(2));
         store.delete().await.unwrap();
@@ -560,7 +584,7 @@ mod tests {
         let engine = Arc::new(MemoryStorage::new());
         engine.save_state(&state(4)).await.unwrap();
         engine.update_peers(&[PeerRecord::new(1, 1)]).await.unwrap();
-        let store = Store::new(engine.clone());
+        let store = Store::new(engine.clone(), Arc::default());
         let mine = store.load_state(7).await.unwrap();
         let other = store.load_state(8).await.unwrap();
         assert_eq!(mine.0.map(|u| u.pts), Some(4));
@@ -572,7 +596,7 @@ mod tests {
     async fn a_salt_alone_keeps_the_saved_update() {
         let engine = Arc::new(MemoryStorage::new());
         engine.save_state(&state(4)).await.unwrap();
-        let store = Store::new(engine.clone());
+        let store = Store::new(engine.clone(), Arc::default());
         let salt = Salt { value: 9, time_offset: 2 };
         store.queue_salt(7, salt);
         store.flush().await;
@@ -587,7 +611,7 @@ mod tests {
     #[tokio::test]
     async fn a_queued_state_takes_a_later_salt() {
         let engine = Arc::new(MemoryStorage::new());
-        let store = Store::new(engine.clone());
+        let store = Store::new(engine.clone(), Arc::default());
         let salt = Salt { value: 9, time_offset: 2 };
         store.queue_state(state(5));
         store.queue_salt(7, salt);
@@ -635,7 +659,7 @@ mod tests {
     #[tokio::test]
     async fn a_panicking_engine_fails_one_job_and_the_store_keeps_going() {
         let engine = Arc::new(Panicky::default());
-        let store = Store::new(engine.clone());
+        let store = Store::new(engine.clone(), Arc::default());
         assert!(store.get_peer(1).await.is_err());
         assert_eq!(store.get_peer(1).await.unwrap(), None);
 

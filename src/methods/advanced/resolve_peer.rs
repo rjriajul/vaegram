@@ -56,7 +56,10 @@ impl Client {
                 }
             }
             Ok(None) => {}
-            Err(e) => eprintln!("vaegram: couldn't look @{name} up in storage, asking Telegram: {e}"),
+            Err(e) => self
+                .0
+                .events
+                .storage_failed(e.kind(), format_args!("couldn't look @{name} up in storage, asking Telegram: {e}")),
         }
         self.resolve_username(&name).await
     }
@@ -79,7 +82,10 @@ impl Client {
                     }
                 }
                 Ok(None) => {}
-                Err(e) => eprintln!("vaegram: couldn't look chat {chat_id} up in storage, asking Telegram: {e}"),
+                Err(e) => self.0.events.storage_failed(
+                    e.kind(),
+                    format_args!("couldn't look chat {chat_id} up in storage, asking Telegram: {e}"),
+                ),
             }
         }
 
@@ -320,6 +326,7 @@ mod tests {
         let (mut client, mut sent) = Client::scripted(vec![offline(), offline()]);
         let engine = std::sync::Arc::new(crate::storage::Recording::failing());
         std::sync::Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
+        let events = client.0.events.record();
         let by_name = client.resolve_peer("@alice").await;
         let by_phone = client.resolve_phone("+1 555 0100").await;
         assert!(matches!(by_name, Err(Error::Unexpected("offline"))), "{by_name:?}");
@@ -328,6 +335,20 @@ mod tests {
         assert_eq!(constructor(sent.try_recv().unwrap()), contacts::ResolveUsername::CONSTRUCTOR_ID);
         assert_eq!(constructor(sent.try_recv().unwrap()), contacts::ResolvePhone::CONSTRUCTOR_ID);
         assert_eq!(engine.calls(), ["get_peer_by_username", "get_peer_by_phone_number"]);
+        let reported: Vec<String> = events
+            .try_iter()
+            .map(|e| match e {
+                crate::enums::ClientEvent::StorageFailed { error } => error.to_string(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            reported,
+            [
+                "couldn't look @alice up in storage, asking Telegram: store is down",
+                "couldn't look a phone number up in storage, asking Telegram: store is down",
+            ]
+        );
     }
 
     fn user_named(id: i64, username: &str) -> base::User {
