@@ -2,6 +2,14 @@ name: vaegram
 
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
+# Debuginfo and incremental caches make up most of target/ and don't help a one-shot CI build; skipping them keeps builds smaller and faster.
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_INCREMENTAL: 0
+
 jobs:
   rust:
     runs-on: ${{ matrix.os }}
@@ -12,10 +20,12 @@ jobs:
         toolchain: ["1.85", stable]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ matrix.toolchain }}
           components: clippy, rustfmt
@@ -40,6 +50,10 @@ jobs:
         if: matrix.toolchain == 'stable' && matrix.os == 'ubuntu-latest'
         run: cargo publish --dry-run -p vaegram
 
+      - name: Disk space
+        if: always() && runner.os != 'Windows'
+        run: df -h && du -sh target
+
   # The storage engines' write paths against real servers. Their tests are #[ignore]d everywhere else.
   storage-services:
     runs-on: ubuntu-latest
@@ -61,13 +75,19 @@ jobs:
       VAEGRAM_REDIS_URL: redis://localhost:6379
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
 
       # Matches nothing until an engine with a live conformance test exists, which passes too.
       - name: Storage conformance on live servers
         run: cargo test -p vaegram --features mongodb,redis --lib -- --ignored conformance_on_a_live_server
+
+      - name: Disk space
+        if: always()
+        run: df -h

@@ -4,16 +4,35 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
 jobs:
   crates:
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       id-token: write
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Check the release commit
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_SHA is not on main"; exit 1; }
+          for crate in vaegram vae; do
+            version=$(cargo metadata --no-deps --format-version 1 | jq -r ".packages[] | select(.name == \"$crate\") | .version")
+            [ "${TAG#v}" = "$version" ] || { echo "::error::tag $TAG does not match $crate $version"; exit 1; }
+          done
 
       - name: Find unpublished crates
         id: todo
@@ -25,12 +44,12 @@ jobs:
           done
           echo "crates=$todo" >> "$GITHUB_OUTPUT"
 
-      - uses: rust-lang/crates-io-auth-action@v1
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         if: steps.todo.outputs.crates != ''
         id: auth
 
       - name: Publish to crates.io
         if: steps.todo.outputs.crates != ''
-        run: for crate in ${{ steps.todo.outputs.crates }}; do cargo publish -p "$crate"; done
+        run: for crate in ${{ steps.todo.outputs.crates }}; do cargo publish --locked -p "$crate"; done
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
