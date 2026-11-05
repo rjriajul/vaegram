@@ -1,15 +1,24 @@
 use crate::raw::{base, types};
 use crate::types::AcceptedGiftTypes;
 
+/// Account-wide privacy settings for chats with people who aren't contacts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GlobalPrivacySettings {
+    /// Chats from new non-contacts are archived and muted.
     pub archive_and_mute_new_noncontact_peers: bool,
+    /// Archived chats stay unmuted when new messages arrive.
     pub keep_archived_unmuted: bool,
+    /// Archived chats stay in their folders.
     pub keep_archived_folders: bool,
+    /// Hides when the account has read messages.
     pub hide_read_marks: bool,
+    /// Non-contacts need Premium to message the account.
     pub new_noncontact_peers_require_premium: bool,
+    /// Shows the gifts button in chats with the account.
     pub display_gifts_button: bool,
+    /// Stars a non-contact pays to message the account. `None` when messages are free.
     pub noncontact_peers_paid_stars: Option<i64>,
+    /// The gift types the account accepts. `None` when Telegram sent no restriction.
     pub accepted_gift_types: Option<AcceptedGiftTypes>,
 }
 

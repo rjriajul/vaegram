@@ -1,20 +1,35 @@
 use crate::raw::{base, types};
 
+/// What a bot may do in a business account it is connected to. A field is `true` when the right is granted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BusinessBotRights {
+    /// Send messages in the chats it handles.
     pub can_reply: bool,
+    /// Read the messages of the chats it handles.
     pub can_read_messages: bool,
+    /// Delete messages the bot sent.
     pub can_delete_sent_messages: bool,
+    /// Delete messages the account received.
     pub can_delete_all_messages: bool,
+    /// Change the account's name.
     pub can_edit_name: bool,
+    /// Change the account's bio.
     pub can_edit_bio: bool,
+    /// Change the account's profile photo.
     pub can_edit_profile_photo: bool,
+    /// Change the account's username.
     pub can_edit_username: bool,
+    /// Change which gifts the account accepts.
     pub can_change_gift_settings: bool,
+    /// View the account's gifts and Star balance.
     pub can_view_gifts_and_stars: bool,
+    /// Convert the account's gifts to Stars.
     pub can_convert_gifts_to_stars: bool,
+    /// Transfer and upgrade the account's gifts.
     pub can_transfer_and_upgrade_gifts: bool,
+    /// Transfer Stars from the account.
     pub can_transfer_stars: bool,
+    /// Post and manage stories for the account.
     pub can_manage_stories: bool,
 }
 

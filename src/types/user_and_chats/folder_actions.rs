@@ -16,6 +16,7 @@ fn remove(list: &mut Vec<i64>, id: i64) {
 /// Shortcuts for the `Client` folder methods. The chat helpers change a copy of the folder's lists and save it with
 /// `edit_folder`; they leave this value as it is, so fetch the folder again to see the change.
 impl Folder {
+    /// Deletes the folder. The chats in it stay.
     pub async fn delete(&self, client: &Client) -> Result<()> {
         client.delete_folder(self.id).await
     }
@@ -70,6 +71,9 @@ impl Folder {
         client.edit_folder(&folder).await
     }
 
+    /// Creates an invite link that shares the folder with the given chats.
+    ///
+    /// Awaiting returns the [`FolderInviteLink`](crate::types::FolderInviteLink).
     pub fn create_invite_link<'a>(
         &self,
         client: &'a Client,

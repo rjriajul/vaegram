@@ -4,8 +4,11 @@ use crate::types::Sticker;
 /// What a business account shows in an empty private chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BusinessIntro {
+    /// Heading of the intro.
     pub title: String,
+    /// Body text of the intro.
     pub text: String,
+    /// Sticker shown with the intro. `None` if none is set.
     pub sticker: Option<Sticker>,
 }
 

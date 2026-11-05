@@ -1,15 +1,22 @@
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 
+/// The weekly opening hours of a business account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BusinessOpeningHours {
+    /// Id of the time zone the hours are in. Must not be empty when setting the hours.
     pub time_zone_name: String,
+    /// Open intervals as `(start, end)` in minutes from Monday 00:00.
     pub opening_hours: Vec<(i32, i32)>,
     /// Read from Telegram; ignored when setting the hours.
     pub is_open_now: bool,
 }
 
 impl BusinessOpeningHours {
+    /// Creates opening hours with `is_open_now` set to `false`.
+    ///
+    /// Intervals are checked when the hours are set. Each one must start within the week, have a positive
+    /// length, run no longer than a week and end before 8 days after Monday 00:00.
     pub fn new(time_zone_name: impl Into<String>, opening_hours: impl IntoIterator<Item = (i32, i32)>) -> Self {
         let (time_zone_name, opening_hours) = (time_zone_name.into(), opening_hours.into_iter().collect());
         BusinessOpeningHours { time_zone_name, opening_hours, is_open_now: false }

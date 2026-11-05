@@ -1,21 +1,39 @@
 use crate::raw::{base, types};
 
+/// Selects which kinds of events an admin log query returns.
+///
+/// With every field `false`, the query isn't filtered and returns all events.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ChatEventFilter {
+    /// Bans, unbans, kicks and restriction changes.
     pub new_restrictions: bool,
+    /// Promotions and demotions of administrators.
     pub new_privileges: bool,
+    /// Users joining and being invited.
     pub new_members: bool,
+    /// Changes to the title, description, username and photo.
     pub chat_info: bool,
+    /// Changes to chat settings.
     pub chat_settings: bool,
+    /// Invite links being created, edited, revoked or deleted.
     pub invite_links: bool,
+    /// Deleted messages.
     pub deleted_messages: bool,
+    /// Edited messages.
     pub edited_messages: bool,
+    /// Pinned and unpinned messages.
     pub pinned_messages: bool,
+    /// Users leaving.
     pub leaving_members: bool,
+    /// Video chats starting and ending.
     pub video_chats: bool,
+    /// Messages sent by admins.
     pub sent_messages: bool,
+    /// Changes to forum topics.
     pub forum_topics: bool,
+    /// Members extending their paid subscription.
     pub subscription_extensions: bool,
+    /// Changes to member ranks.
     pub member_ranks: bool,
 }
 

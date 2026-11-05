@@ -2,13 +2,20 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::{BusinessBotRights, BusinessRecipients, User};
 
+/// A bot connected to the account for Telegram Business.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectedBot {
+    /// The bot.
     pub bot: User,
+    /// The chats the bot may handle.
     pub recipients: BusinessRecipients,
+    /// What the bot may do in those chats.
     pub rights: BusinessBotRights,
+    /// Device the bot was connected from.
     pub device: Option<String>,
+    /// Unix time the bot was connected.
     pub date: Option<i32>,
+    /// Location the bot was connected from.
     pub location: Option<String>,
 }
 

@@ -2,26 +2,42 @@ use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::types::Chat;
 
+/// A participant of a group call or live stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupCallMember {
     /// A user, or a chat speaking as itself.
     pub chat: Chat,
+    /// Unix time the participant joined.
     pub date: i32,
+    /// Unix time the participant last spoke. `None` if they haven't.
     pub active_date: Option<i32>,
     /// Hundredths of a percent: 10000 is 100%.
     pub volume: Option<i32>,
+    /// The participant's bio. `None` when they have none.
     pub about: Option<String>,
+    /// Stars the participant has paid in the call.
     pub paid_star_count: Option<i64>,
+    /// The participant is muted.
     pub is_muted: bool,
+    /// The participant left the call.
     pub is_left: bool,
+    /// The participant may unmute themselves.
     pub can_self_unmute: bool,
+    /// The participant joined with this update.
     pub is_just_joined: bool,
+    /// The account muted the participant for itself.
     pub is_muted_by_you: bool,
+    /// An admin set the participant's volume.
     pub is_volume_by_admin: bool,
+    /// The participant is the account itself.
     pub is_self: bool,
+    /// The participant joined the call's video.
     pub is_video_joined: bool,
+    /// The participant raised their hand.
     pub is_hand_raised: bool,
+    /// The participant's camera is on.
     pub is_video_enabled: bool,
+    /// The participant is sharing their screen.
     pub is_screen_sharing_enabled: bool,
 }
 

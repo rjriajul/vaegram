@@ -54,10 +54,12 @@ impl ChatPhoto {
         self.file_id(ThumbnailSource::ChatPhotoBig { chat_id: self.peer_id, chat_access_hash: self.access_hash })
     }
 
+    /// Unique id of the photo. Stays the same for the small and big versions.
     pub fn small_photo_unique_id(&self) -> String {
         unique_id(self.photo_id)
     }
 
+    /// Unique id of the photo. Stays the same for the small and big versions.
     pub fn big_photo_unique_id(&self) -> String {
         unique_id(self.photo_id)
     }

@@ -1,39 +1,69 @@
 use crate::raw::base;
 use crate::types::{StatisticalGraph, StatisticalValue};
 
+/// Statistics of a channel over a period.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChannelStatistics {
+    /// Unix time the period starts.
     pub min_date: i32,
+    /// Unix time the period ends.
     pub max_date: i32,
+    /// Follower count.
     pub followers: StatisticalValue,
+    /// Average views of a post.
     pub views_per_post: StatisticalValue,
+    /// Average shares of a post.
     pub shares_per_post: StatisticalValue,
+    /// Average reactions on a post.
     pub reactions_per_post: StatisticalValue,
+    /// Average views of a story.
     pub views_per_story: StatisticalValue,
+    /// Average shares of a story.
     pub shares_per_story: StatisticalValue,
+    /// Average reactions on a story.
     pub reactions_per_story: StatisticalValue,
+    /// Percent of followers with notifications on, from 0 to 100. `0` if the total is not positive.
     pub enabled_notifications: f64,
+    /// Follower growth over time.
     pub growth_graph: StatisticalGraph,
+    /// Followers over time.
     pub followers_graph: StatisticalGraph,
+    /// Followers who muted the channel over time.
     pub mute_graph: StatisticalGraph,
+    /// Views by hour of the day.
     pub top_hours_graph: StatisticalGraph,
+    /// Post interactions over time.
     pub interactions_graph: StatisticalGraph,
+    /// Instant View interactions over time.
     pub iv_interactions_graph: StatisticalGraph,
+    /// Views by traffic source.
     pub views_by_source_graph: StatisticalGraph,
+    /// New followers by traffic source.
     pub new_followers_by_source_graph: StatisticalGraph,
+    /// Followers by language.
     pub languages_graph: StatisticalGraph,
+    /// Post reactions by emoji.
     pub reactions_by_emotion_graph: StatisticalGraph,
+    /// Story interactions over time.
     pub story_interactions_graph: StatisticalGraph,
+    /// Story reactions by emoji.
     pub story_reactions_by_emotion_graph: StatisticalGraph,
+    /// Interaction counts of recent posts and stories.
     pub recent_posts_interactions: Vec<PostInteractions>,
 }
 
+/// Interaction counts of one post or story.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PostInteractions {
+    /// Id of the message, or of the story if `is_story` is `true`.
     pub id: i32,
+    /// `true` if this entry is a story instead of a message.
     pub is_story: bool,
+    /// Number of views.
     pub views: i32,
+    /// Number of forwards.
     pub forwards: i32,
+    /// Number of reactions.
     pub reactions: i32,
 }
 

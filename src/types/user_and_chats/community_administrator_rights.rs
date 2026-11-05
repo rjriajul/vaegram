@@ -3,10 +3,15 @@ use crate::raw::base;
 /// What the account may do as an administrator of a community.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CommunityAdministratorRights {
+    /// Use the community's management tools.
     pub can_manage_community: bool,
+    /// Change the community's name, photo and other settings.
     pub can_change_info: bool,
+    /// Add chats to the community and remove them.
     pub can_edit_chat_list: bool,
+    /// Add other administrators.
     pub can_promote_members: bool,
+    /// Ban members.
     pub can_ban_members: bool,
 }
 

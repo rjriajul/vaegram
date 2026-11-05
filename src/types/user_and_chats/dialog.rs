@@ -4,18 +4,30 @@ use crate::raw::base;
 use crate::types::{Chat, Message};
 use crate::utils::get_peer_id;
 
+/// A chat in the account's chat list, with its last message and unread counters.
 #[derive(Debug, Clone)]
 pub struct Dialog {
+    /// The chat.
     pub chat: Chat,
+    /// The latest message. `None` when Telegram sent no message for it.
     pub top_message: Option<Message>,
+    /// Unread messages in the chat.
     pub unread_messages_count: i32,
+    /// Unread messages that mention the account.
     pub unread_mentions_count: i32,
+    /// Unread reactions to the account's messages.
     pub unread_reactions_count: i32,
+    /// The chat was marked as unread by hand.
     pub unread_mark: bool,
+    /// The chat is pinned in its list.
     pub is_pinned: bool,
+    /// The `folder_id` Telegram sent. `None` when it sent none.
     pub chat_list: Option<i32>,
+    /// Id of the last incoming message the account has read.
     pub last_read_inbox_message_id: i32,
+    /// Id of the last outgoing message the other side has read.
     pub last_read_outbox_message_id: i32,
+    /// Unread votes in the account's non-anonymous polls.
     pub unread_poll_vote_count: i32,
     /// Seconds after which new messages here are deleted automatically.
     pub ttl_period: Option<i32>,

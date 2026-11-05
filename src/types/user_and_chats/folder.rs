@@ -6,24 +6,42 @@ use crate::raw::{base, types};
 use crate::types::MessageEntity;
 use crate::utils::get_channel_id;
 
+/// A chat folder.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Folder {
+    /// The folder id.
     pub id: i32,
+    /// The folder title.
     pub title: String,
+    /// Entities in `title`, such as custom emoji.
     pub title_entities: Vec<MessageEntity>,
+    /// Custom emoji in the title don't animate.
     pub no_title_animation: bool,
+    /// The emoji shown as the folder's icon.
     pub emoji: Option<String>,
+    /// Index of the folder's tag color. `None` for no color.
     pub color: Option<i32>,
+    /// Ids of the chats pinned at the top of the folder.
     pub pinned_chats: Vec<i64>,
+    /// Ids of the chats that always belong to the folder.
     pub included_chats: Vec<i64>,
+    /// Ids of the chats that never belong to the folder.
     pub excluded_chats: Vec<i64>,
+    /// Includes chats with contacts.
     pub contacts: bool,
+    /// Includes chats with users who aren't contacts.
     pub non_contacts: bool,
+    /// Includes groups.
     pub groups: bool,
+    /// Includes channels.
     pub channels: bool,
+    /// Includes chats with bots.
     pub bots: bool,
+    /// Leaves out muted chats.
     pub exclude_muted: bool,
+    /// Leaves out chats with no unread messages.
     pub exclude_read: bool,
+    /// Leaves out archived chats.
     pub exclude_archived: bool,
     /// Shared through an invite link. Telegram ignores exclusions and chat type flags on these.
     pub is_shareable: bool,

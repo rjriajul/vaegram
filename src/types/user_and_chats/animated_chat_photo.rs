@@ -6,8 +6,11 @@ use crate::raw::{base, types};
 pub struct AnimatedChatPhoto {
     /// The width and height of the square video.
     pub length: i32,
+    /// Id to download the video with.
     pub file_id: String,
+    /// Id that stays the same across sessions. It can't be used to download.
     pub file_unique_id: String,
+    /// Size of the video in bytes.
     pub file_size: i64,
     /// The second of the video used as the still photo.
     pub main_frame_timestamp: Option<f64>,

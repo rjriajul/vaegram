@@ -4,20 +4,32 @@ use crate::raw::base;
 use crate::types::{Chat, ChatPermissions, ChatPrivileges, User};
 use crate::utils::get_peer_id;
 
+/// A member of a chat with their status and rights.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatMember {
+    /// The member.
     pub user: User,
+    /// The member's role or state in the chat.
     pub status: ChatMemberStatus,
+    /// `false` for members who have left or are banned, or restricted members who have left.
     pub is_member: bool,
+    /// The member's custom title or rank. `None` if they have none.
     pub custom_title: Option<String>,
+    /// Unix time the member joined. `None` if Telegram didn't send it.
     pub joined_date: Option<i32>,
+    /// Unix time a restriction or ban ends, or a paid subscription expires. `None` if there is none.
     pub until_date: Option<i32>,
+    /// Administrator rights. `None` for members who aren't administrators or the owner.
     pub privileges: Option<ChatPrivileges>,
+    /// Permissions of a restricted member. `None` for anyone else.
     pub permissions: Option<ChatPermissions>,
     /// The banned or departed chat when the member isn't a user; `user` then holds only its id.
     pub chat: Option<Chat>,
+    /// Who invited the member. `None` if Telegram didn't send it.
     pub invited_by: Option<User>,
+    /// Who promoted the administrator. `None` for other members.
     pub promoted_by: Option<User>,
+    /// Who restricted or banned the member. `None` for other members.
     pub restricted_by: Option<User>,
     /// Whether you may change this administrator's rights.
     pub can_be_edited: bool,

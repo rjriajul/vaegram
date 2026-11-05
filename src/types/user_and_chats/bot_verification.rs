@@ -5,9 +5,11 @@ use crate::types::{FormattedText, User};
 /// A verification mark given by a bot that verifies users and chats.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BotVerification {
+    /// The bot that gave the verification.
     pub bot: User,
     /// The icon shown next to the name.
     pub custom_emoji_id: i64,
+    /// Text describing the verification.
     pub description: FormattedText,
 }
 

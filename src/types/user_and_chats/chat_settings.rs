@@ -2,26 +2,46 @@ use crate::dispatcher::Entities;
 use crate::raw::types;
 use crate::types::User;
 
+/// What Telegram suggests doing with a chat, and what it knows about the other side.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatSettings {
+    /// The chat can be reported as spam.
     pub can_report_spam: bool,
+    /// The user can be added to contacts.
     pub can_add_contact: bool,
+    /// The user can be blocked.
     pub can_block_contact: bool,
+    /// The account's phone number can be shared with the user.
     pub can_share_contact: bool,
+    /// Adding the user to contacts needs an exception to their privacy settings.
     pub need_contacts_exception: bool,
+    /// Telegram moved the chat to the archive on its own.
     pub is_autoarchived: bool,
+    /// The account can invite members to the group.
     pub can_invite_members: bool,
+    /// The connected business bot is paused in this chat.
     pub is_business_bot_paused: bool,
+    /// The connected business bot may reply in this chat.
     pub can_business_bot_reply: bool,
+    /// The chat was requested through a request button and is a channel.
     pub request_chat_is_channel: bool,
+    /// Title of the chat that was requested through a request button.
     pub request_chat_title: Option<String>,
+    /// Unix time the chat was requested through a request button.
     pub request_chat_date: Option<i32>,
+    /// The business bot connected to this chat. `None` when there is none.
     pub business_bot: Option<User>,
+    /// Link to manage the connected business bot.
     pub business_bot_manage_url: Option<String>,
+    /// Stars the account pays for each message it sends here.
     pub paid_message_star_count: Option<i64>,
+    /// Month the other user registered, as Telegram sends it.
     pub registration_month: Option<String>,
+    /// Country of the other user's phone number.
     pub phone_country: Option<String>,
+    /// Unix time the other user last changed their name.
     pub name_change_date: Option<i32>,
+    /// Unix time the other user last changed their photo.
     pub photo_change_date: Option<i32>,
 }
 

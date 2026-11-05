@@ -4,9 +4,11 @@ use crate::types::ReactionType;
 /// The reactions members may put on messages; the default allows none.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatReactions {
+    /// Every emoji reaction is allowed.
     pub all_are_enabled: bool,
     /// With `all_are_enabled`, custom emoji are allowed too.
     pub allow_custom_emoji: bool,
+    /// The allowed reactions. Empty when `all_are_enabled` is set.
     pub reactions: Vec<ReactionType>,
 }
 

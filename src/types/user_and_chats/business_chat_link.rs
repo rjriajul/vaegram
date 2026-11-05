@@ -2,19 +2,29 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::{Chat, MessageEntity};
 
+/// A link that opens a chat with a business account, with a prefilled message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BusinessChatLink {
+    /// The full `t.me` link.
     pub link: String,
+    /// Text prefilled in the message box.
     pub text: String,
+    /// Entities of the prefilled text. `None` if it has none.
     pub entities: Option<Vec<MessageEntity>>,
+    /// Name the owner gave the link. `None` if unnamed.
     pub title: Option<String>,
+    /// Times the link has been opened.
     pub views: i32,
 }
 
+/// What a business chat link resolves to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BusinessChatLinkInfo {
+    /// The business account the link opens.
     pub chat: Chat,
+    /// Text prefilled in the message box.
     pub text: String,
+    /// Entities of the prefilled text. `None` if it has none.
     pub entities: Option<Vec<MessageEntity>>,
 }
 
@@ -26,6 +36,7 @@ impl BusinessChatLink {
         BusinessChatLink { link, text: message, entities, title, views }
     }
 
+    /// Returns the last path segment of the link.
     pub fn slug(&self) -> &str {
         self.link.rsplit('/').next().unwrap_or(&self.link)
     }

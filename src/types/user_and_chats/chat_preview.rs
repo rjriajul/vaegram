@@ -8,24 +8,33 @@ use crate::utils::get_peer;
 /// What an invite link shows about a chat before it is joined.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChatPreview {
+    /// The chat title.
     pub title: String,
+    /// Whether the invite is for a group, supergroup or channel.
     pub kind: ChatType,
+    /// The chat description. `None` when it has none.
     pub about: Option<String>,
     /// Empty for invites to chats the account already joined or may peek into: `chat` carries the photo then.
     pub photo: Option<Photo>,
+    /// Number of members in the chat.
     pub members_count: i32,
     /// Some of the members, when Telegram shows them. Empty for already-joined and peek invites; see `chat`.
     pub members: Vec<User>,
     /// The chat has a public username.
     pub is_public: bool,
+    /// Joining needs an admin's approval.
     pub join_by_request: bool,
+    /// The chat carries Telegram's verified badge.
     pub is_verified: bool,
+    /// Telegram flagged the chat as a scam.
     pub is_scam: bool,
+    /// Telegram flagged the chat as an impersonation.
     pub is_fake: bool,
     /// The Stars a subscription to this channel costs per period.
     pub subscription_star_count: Option<i64>,
     /// The length in seconds of a subscription period.
     pub subscription_period: Option<i32>,
+    /// The verification a bot gave the chat. `None` when it has none.
     pub bot_verification: Option<BotVerification>,
     /// The chat itself, when the account is already a member or may peek into it.
     pub chat: Option<Chat>,

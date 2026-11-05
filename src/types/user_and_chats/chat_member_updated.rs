@@ -5,15 +5,24 @@ use crate::enums::ChatMemberStatus;
 use crate::raw::{base, types};
 use crate::types::{Chat, ChatInviteLink, ChatMember, User};
 
+/// A change to a member's status in a chat.
 #[derive(Debug, Clone)]
 pub struct ChatMemberUpdated {
+    /// The chat the change happened in.
     pub chat: Chat,
+    /// The user who made the change.
     pub from_user: User,
+    /// Unix time of the change.
     pub date: i32,
+    /// The member before the change. `None` if Telegram didn't send it.
     pub old_chat_member: Option<ChatMember>,
+    /// The member after the change. `None` if Telegram didn't send it.
     pub new_chat_member: Option<ChatMember>,
+    /// The invite link the user joined with. `None` if they didn't use one.
     pub invite_link: Option<ChatInviteLink>,
+    /// `true` if the user joined after a join request was approved.
     pub via_join_request: bool,
+    /// `true` if the user joined through a chat folder invite link.
     pub via_chat_folder_invite_link: bool,
     client: Client,
 }
@@ -88,6 +97,7 @@ impl ChatMemberUpdated {
         }
     }
 
+    /// The client that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }

@@ -4,6 +4,7 @@ use crate::raw::{base, types};
 /// A sticker or custom emoji used as a chat photo.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatPhotoSticker {
+    /// Whether the photo comes from a custom emoji or a regular sticker.
     pub kind: ChatPhotoStickerType,
     /// For a regular sticker: the id of its set, when Telegram names the set by id.
     pub sticker_set_id: Option<i64>,

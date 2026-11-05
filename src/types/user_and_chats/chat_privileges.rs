@@ -1,24 +1,43 @@
 use crate::raw::{base, types};
 
+/// What an administrator may do. `Default` grants nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ChatPrivileges {
+    /// The admin's messages show the chat as sender, not their name.
     pub is_anonymous: bool,
+    /// Access the admin log, statistics and other chat management tools.
     pub can_manage_chat: bool,
+    /// Delete other members' messages.
     pub can_delete_messages: bool,
+    /// Start and manage video chats.
     pub can_manage_video_chats: bool,
+    /// Ban and restrict members.
     pub can_restrict_members: bool,
+    /// Add other administrators.
     pub can_promote_members: bool,
+    /// Change the chat title, photo and other settings.
     pub can_change_info: bool,
+    /// Add members and manage invite links.
     pub can_invite_users: bool,
+    /// Post stories on behalf of the chat.
     pub can_post_stories: bool,
+    /// Edit stories the chat's other admins posted.
     pub can_edit_stories: bool,
+    /// Delete stories the chat's other admins posted.
     pub can_delete_stories: bool,
+    /// Post messages in a channel.
     pub can_post_messages: bool,
+    /// Edit other members' messages in a channel.
     pub can_edit_messages: bool,
+    /// Pin messages.
     pub can_pin_messages: bool,
+    /// Create, edit and close forum topics.
     pub can_manage_topics: bool,
+    /// Manage the channel's direct messages.
     pub can_manage_direct_messages: bool,
+    /// Edit members' tags.
     pub can_manage_tags: bool,
+    /// Send welcome messages.
     pub can_send_welcome_messages: bool,
 }
 

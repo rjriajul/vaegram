@@ -1,26 +1,44 @@
 use crate::raw::base;
 
+/// An accent color for names and reply quotes that Telegram offers for selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccentColor {
+    /// Telegram's id for the color.
     pub id: i32,
+    /// `true` if Telegram marks the color as hidden.
     pub is_hidden: bool,
+    /// Colors of the light theme palette. Empty if Telegram sent none.
     pub colors: Vec<i32>,
+    /// Colors of the dark theme palette. Empty if Telegram sent none.
     pub dark_colors: Vec<i32>,
+    /// Minimum boost level a channel needs to use the color. `None` if Telegram sends no level.
     pub channel_min_level: Option<i32>,
+    /// Minimum boost level a group needs to use the color. `None` if Telegram sends no level.
     pub group_min_level: Option<i32>,
 }
 
+/// An accent color for profile pages that Telegram offers for selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileAccentColor {
+    /// Telegram's id for the color.
     pub id: i32,
+    /// `true` if Telegram marks the color as hidden.
     pub is_hidden: bool,
+    /// Palette colors of the light theme. Empty if Telegram sent none.
     pub palette_colors: Vec<i32>,
+    /// Background colors of the light theme. Empty if Telegram sent none.
     pub background_colors: Vec<i32>,
+    /// Story ring colors of the light theme. Empty if Telegram sent none.
     pub story_colors: Vec<i32>,
+    /// Palette colors of the dark theme. Empty if Telegram sent none.
     pub dark_palette_colors: Vec<i32>,
+    /// Background colors of the dark theme. Empty if Telegram sent none.
     pub dark_background_colors: Vec<i32>,
+    /// Story ring colors of the dark theme. Empty if Telegram sent none.
     pub dark_story_colors: Vec<i32>,
+    /// Minimum boost level a channel needs to use the color. `None` if Telegram sends no level.
     pub channel_min_level: Option<i32>,
+    /// Minimum boost level a group needs to use the color. `None` if Telegram sends no level.
     pub group_min_level: Option<i32>,
 }
 

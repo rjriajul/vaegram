@@ -2,22 +2,34 @@ use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::types::Chat;
 
+/// A topic of a forum supergroup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForumTopic {
     /// Also the `message_thread_id` of the messages in this topic.
     pub id: i32,
+    /// The topic title.
     pub title: String,
+    /// Color of the topic icon.
     pub icon_color: i32,
+    /// Id of the custom emoji used as the icon. `None` for the default icon.
     pub icon_emoji_id: Option<i64>,
     /// The creator gave no title, so the bot will likely want to rename the topic.
     pub is_name_implicit: bool,
+    /// Unix time the topic was created.
     pub date: i32,
+    /// Id of the latest message in the topic.
     pub top_message_id: i32,
+    /// Unread messages in the topic.
     pub unread_messages_count: i32,
+    /// Unread messages that mention the account.
     pub unread_mentions_count: i32,
+    /// Unread reactions to the account's messages.
     pub unread_reactions_count: i32,
+    /// The topic is closed to new messages.
     pub is_closed: bool,
+    /// The topic is pinned.
     pub is_pinned: bool,
+    /// The topic is hidden from the topic list.
     pub is_hidden: bool,
     /// The user or channel that opened the topic.
     pub creator: Option<Chat>,
