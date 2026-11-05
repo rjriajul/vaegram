@@ -7,7 +7,7 @@ use crate::utils::compute_password_check;
 #[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InputCredentials {
-    /// A card entered just now; `data` is the provider's JSON token.
+    /// A card entered just now.
     New {
         /// The provider's JSON token.
         data: String,
@@ -20,7 +20,8 @@ pub enum InputCredentials {
     Saved {
         /// The `id` of the saved card.
         saved_credentials_id: String,
-        /// The account's 2FA password. Sent only to fetch a temporary password for the payment.
+        /// The account's 2FA password. It isn't sent: it only proves the password to get a 60-second
+        /// temporary password for the payment.
         password: String,
     },
     /// A payment token from Apple Pay.
@@ -50,7 +51,7 @@ impl InputCredentials {
         self
     }
 
-    /// A saved card, confirmed with the account's 2FA password.
+    /// A saved card, confirmed with the account's 2FA password when the payment is sent.
     pub fn saved(saved_credentials_id: impl Into<String>, password: impl Into<String>) -> InputCredentials {
         InputCredentials::Saved { saved_credentials_id: saved_credentials_id.into(), password: password.into() }
     }

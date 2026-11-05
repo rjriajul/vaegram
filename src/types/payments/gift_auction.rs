@@ -1,4 +1,6 @@
-/// A gift sold through rounds of an auction; see [`Client::get_gift_auction_state`](crate::Client::get_gift_auction_state).
+/// A gift sold through rounds of an auction.
+///
+/// [`Client::get_gift_auction_state`](crate::Client::get_gift_auction_state) fetches its current state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GiftAuction {
     /// Slug that identifies the auction.

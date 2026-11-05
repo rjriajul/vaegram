@@ -11,11 +11,11 @@ pub struct GiftInfo {
     /// The gift.
     pub gift: Gift,
     /// Id that addresses the gift in calls such as [`Client::show_gift`](crate::Client::show_gift).
-    /// `None` if the gift can't be addressed.
+    /// Always set when parsed from a service message.
     pub owned_gift_id: Option<String>,
-    /// Stars the receiver gets for converting the gift. `None` if Telegram doesn't send it.
+    /// Stars the receiver gets for converting the gift.
     pub convert_star_count: Option<i64>,
-    /// Stars the upgrade costs. `None` if Telegram doesn't send it.
+    /// Stars paid in advance for the upgrade.
     pub prepaid_upgrade_star_count: Option<i64>,
     /// Whether the upgrade is paid separately from the gift.
     pub is_upgrade_separate: bool,
@@ -27,7 +27,7 @@ pub struct GiftInfo {
     pub entities: Option<Vec<MessageEntity>>,
     /// Whether the sender's name is hidden.
     pub is_private: bool,
-    /// Serial number of the unique gift. `None` if it isn't set.
+    /// Serial number of the gift.
     pub unique_gift_number: Option<i32>,
     /// Chat that sent the gift.
     pub sender: Option<Chat>,
@@ -65,9 +65,9 @@ pub struct UniqueGiftInfo {
     /// TON amount the gift last sold for. `None` if it wasn't a TON resale.
     pub last_resale_ton_amount: Option<i64>,
     /// Id that addresses the gift in calls such as [`Client::show_gift`](crate::Client::show_gift).
-    /// `None` if the gift can't be addressed.
+    /// Always set when parsed from a service message.
     pub owned_gift_id: Option<String>,
-    /// Stars a transfer costs. `None` if Telegram doesn't send it.
+    /// Stars a transfer costs.
     pub transfer_star_count: Option<i64>,
     /// Unix time from which the gift can be transferred.
     pub next_transfer_date: Option<i32>,

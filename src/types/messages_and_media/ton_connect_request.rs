@@ -11,11 +11,11 @@ pub struct TonConnectRequest {
     pub is_accepted: bool,
     /// `true` if the user declined the request.
     pub is_declined: bool,
-    /// Name of the app asking to connect. `None` if not sent.
+    /// Name of the app asking to connect.
     pub dapp_name: Option<String>,
-    /// Topic of the connection. `None` if not sent.
+    /// Topic of the connection request.
     pub topic: Option<String>,
-    /// Id for tracing the request. `None` if not sent.
+    /// Id for tracing the request.
     pub trace_id: Option<String>,
 }
 

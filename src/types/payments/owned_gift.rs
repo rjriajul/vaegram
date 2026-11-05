@@ -21,7 +21,7 @@ pub struct OwnedGiftRegular {
     pub gift: Gift,
     /// Id to address the gift with. `None` if Telegram sends neither a message id nor a saved id.
     pub owned_gift_id: Option<String>,
-    /// The user who sent the gift. `None` if the sender isn't a user or is hidden.
+    /// The user who sent the gift. `None` if Telegram sends no sender or the sender isn't a user.
     pub sender_user: Option<User>,
     /// Unix time the gift was sent.
     pub send_date: i32,
@@ -37,13 +37,13 @@ pub struct OwnedGiftRegular {
     pub can_be_upgraded: bool,
     /// Whether the gift was refunded.
     pub was_refunded: bool,
-    /// Stars the owner gets for converting the gift. `None` if Telegram doesn't send it.
+    /// Stars the owner gets for converting the gift.
     pub convert_star_count: Option<i64>,
-    /// Stars the upgrade costs. `None` if Telegram doesn't send it.
+    /// Stars paid in advance for the upgrade.
     pub prepaid_upgrade_star_count: Option<i64>,
     /// Whether the upgrade is paid separately from the gift.
     pub is_upgrade_separate: bool,
-    /// Serial number of the unique gift. `None` if it isn't set.
+    /// Serial number of the gift.
     pub unique_gift_number: Option<i32>,
     /// Lets anyone pay for this gift's upgrade with [`Client::buy_gift_upgrade`].
     pub prepaid_upgrade_hash: Option<String>,
@@ -56,19 +56,19 @@ pub struct OwnedGiftUnique {
     pub gift: UniqueGift,
     /// Id to address the gift with. `None` if Telegram sends neither a message id nor a saved id.
     pub owned_gift_id: Option<String>,
-    /// The user who sent the gift. `None` if the sender isn't a user or is hidden.
+    /// The user who sent the gift. `None` if Telegram sends no sender or the sender isn't a user.
     pub sender_user: Option<User>,
     /// Unix time the gift was sent.
     pub send_date: i32,
     /// Whether the gift is shown on the profile.
     pub is_saved: bool,
-    /// Whether Telegram sent a transfer price or a transfer date for the gift.
+    /// `true` if Telegram sent a transfer price or a transfer date for the gift.
     pub can_be_transferred: bool,
-    /// Stars a transfer costs. `None` if Telegram doesn't send it.
+    /// Stars a transfer costs.
     pub transfer_star_count: Option<i64>,
-    /// Unix time the gift can be transferred from. `None` if Telegram doesn't send it.
+    /// Unix time the gift can be transferred from.
     pub next_transfer_date: Option<i32>,
-    /// Stars it costs to remove the original details. `None` if Telegram doesn't send it.
+    /// Stars it costs to remove the original details.
     pub drop_original_details_star_count: Option<i64>,
 }
 

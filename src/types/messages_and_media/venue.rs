@@ -10,13 +10,13 @@ pub struct Venue {
     pub title: String,
     /// Street address of the venue.
     pub address: String,
-    /// Foursquare id. `None` unless the provider is Foursquare.
+    /// Foursquare id of the place. `None` unless Foursquare is the provider.
     pub foursquare_id: Option<String>,
-    /// Foursquare category. `None` unless the provider is Foursquare.
+    /// Foursquare category of the place.
     pub foursquare_type: Option<String>,
-    /// Google Places id. `None` unless the provider is Google Places.
+    /// Google Places id of the place. `None` unless Google Places is the provider.
     pub google_place_id: Option<String>,
-    /// Google Places category. `None` unless the provider is Google Places.
+    /// Google Places category of the place.
     pub google_place_type: Option<String>,
 }
 

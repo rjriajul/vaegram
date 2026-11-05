@@ -18,7 +18,7 @@ pub struct WebPage {
     pub title: Option<String>,
     /// Short description of the page.
     pub description: Option<String>,
-    /// Preview photo. `None` if the page has none.
+    /// Preview photo of the page.
     pub photo: Option<Photo>,
     /// The page's main document: a video, audio, animation, sticker or file.
     pub media: Option<Media>,

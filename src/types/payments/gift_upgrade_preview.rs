@@ -6,9 +6,9 @@ use crate::types::GiftUpgradeVariants;
 pub struct GiftUpgradePreview {
     /// The models, symbols and backdrops the upgrade can pick from.
     pub variants: GiftUpgradeVariants,
-    /// The upgrade price over time. Each entry applies from its `date`.
+    /// Upgrade prices. Each entry applies from its `date`.
     pub prices: Vec<GiftUpgradePrice>,
-    /// The upgrade prices that follow `prices`.
+    /// Upgrade prices Telegram lists as coming next.
     pub next_prices: Vec<GiftUpgradePrice>,
 }
 

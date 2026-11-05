@@ -10,13 +10,13 @@ pub struct GiftAuctionState {
     pub gift: Gift,
     /// Whether the auction is running or over.
     pub status: GiftAuctionStatus,
-    /// The user's current bid, if they have one in this auction.
+    /// The account's bid. `None` if the account has no bid in this auction.
     pub my_bid: Option<GiftAuctionBid>,
     /// How many gifts the account has won in this auction.
     pub acquired_gift_count: i32,
-    /// Whether the account's bid was returned.
+    /// `true` if Telegram returned the account's bid.
     pub is_bid_returned: bool,
-    /// Timeout in seconds that Telegram attaches to the state.
+    /// Timeout Telegram attaches to the state.
     pub timeout: i32,
 }
 
@@ -38,7 +38,7 @@ pub struct ActiveGiftAuction {
     pub end_date: i32,
     /// Smallest bid in Stars Telegram accepts right now.
     pub min_bid_star_count: i64,
-    /// Bid levels reached so far.
+    /// Bid levels of the auction.
     pub bid_levels: Vec<GiftAuctionBidLevel>,
     /// Users with the highest bids.
     pub top_bidders: Vec<User>,
@@ -46,7 +46,7 @@ pub struct ActiveGiftAuction {
     pub next_round_date: i32,
     /// Serial number of the last gift sold.
     pub last_gift_number: i32,
-    /// Gifts not yet sold.
+    /// Number of gifts not sold yet.
     pub remaining_gift_count: i32,
     /// Number of the round in progress.
     pub current_round: i32,
@@ -67,16 +67,16 @@ pub struct FinishedGiftAuction {
     pub average_price_star_count: i64,
     /// Number of won gifts now listed for resale. `None` if Telegram doesn't send it.
     pub listed_count: Option<i32>,
-    /// Number of won gifts listed on Fragment. `None` if Telegram doesn't send it.
+    /// Number of won gifts listed on Fragment.
     pub fragment_listed_count: Option<i32>,
-    /// Link to the Fragment listings. `None` if Telegram doesn't send it.
+    /// Link to the Fragment listings. Set together with `fragment_listed_count`.
     pub fragment_listed_url: Option<String>,
 }
 
 /// The account's bid in a gift auction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GiftAuctionBid {
-    /// Stars bid.
+    /// Amount bid, in Stars.
     pub star_count: i64,
     /// Unix time the bid was placed.
     pub date: i32,
@@ -100,7 +100,7 @@ pub struct GiftAuctionBidLevel {
 /// One round of a gift auction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GiftAuctionRound {
-    /// Round number.
+    /// Number of the round.
     pub number: i32,
     /// Length of the round in seconds.
     pub duration: i32,

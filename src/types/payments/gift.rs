@@ -9,13 +9,13 @@ use crate::utils::get_peer_id;
 /// A regular gift that can be sent to a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gift {
-    /// Gift id.
+    /// Id of the gift.
     pub id: i64,
     /// Sticker that shows the gift.
     pub sticker: Sticker,
     /// Price in Stars.
     pub star_count: i64,
-    /// Stars the upgrade to a unique gift costs. `None` if Telegram doesn't send a price.
+    /// Stars it costs to upgrade the gift to a [`UniqueGift`].
     pub upgrade_star_count: Option<i64>,
     /// Total supply of a limited gift. `None` if the gift is not limited.
     pub total_count: Option<i32>,
@@ -31,23 +31,23 @@ pub struct Gift {
     pub has_colors: bool,
     /// Sold only through an auction: see [`Client::get_gift_auction_state`](crate::Client::get_gift_auction_state).
     pub is_auction: bool,
-    /// Chat that released the gift. `None` if Telegram sends none.
+    /// Chat that released the gift.
     pub publisher_chat: Option<Chat>,
-    /// Gift title. `None` if Telegram sends none.
+    /// Title of the gift.
     pub title: Option<String>,
     /// Stars the gift's receiver gets for converting it.
     pub convert_star_count: i64,
     /// How many of this gift are listed for resale.
     pub available_resale_count: Option<i64>,
-    /// Lowest resale price in Stars. `None` if Telegram sends none.
+    /// Lowest resale price in Stars.
     pub minimum_resell_star_count: Option<i64>,
     /// How many models, symbols and backdrops the gift can be upgraded into.
     pub unique_gift_variant_count: Option<i32>,
-    /// Unix time of the first sale. `None` if Telegram sends none.
+    /// Unix time of the first sale.
     pub first_sale_date: Option<i32>,
-    /// Unix time of the last sale. `None` if Telegram sends none.
+    /// Unix time of the last sale.
     pub last_sale_date: Option<i32>,
-    /// Unix time until which the gift is locked. `None` if it is not locked.
+    /// Unix time until which the gift is locked.
     pub locked_until_date: Option<i32>,
     /// Whether the supply is limited.
     pub is_limited: bool,
@@ -57,16 +57,16 @@ pub struct Gift {
     pub is_for_birthday: bool,
     /// Whether each user can buy only a limited number of copies.
     pub is_limited_per_user: bool,
-    /// Auction details. `None` if the gift is not sold through an auction.
+    /// Auction details. `None` unless Telegram sends the auction's slug, round size and start date.
     pub auction_info: Option<GiftAuction>,
-    /// Colors the gift is drawn on. `None` if Telegram sends none.
+    /// Colors the gift is drawn on.
     pub background: Option<GiftBackground>,
 }
 
 /// A unique gift, upgraded from a regular [`Gift`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UniqueGift {
-    /// This unique gift's own id; `gift_id` is the regular gift it was upgraded from.
+    /// Id of this unique gift.
     pub id: i64,
     /// Id of the regular gift this one was upgraded from.
     pub gift_id: i64,
@@ -76,27 +76,27 @@ pub struct UniqueGift {
     pub name: String,
     /// Serial number among the upgraded copies.
     pub number: i32,
-    /// Model attribute. `None` if Telegram sends none.
+    /// Model of the gift. `None` if Telegram sends none or its document isn't a sticker.
     pub model: Option<UniqueGiftAttribute>,
-    /// Symbol attribute. `None` if Telegram sends none.
+    /// Symbol of the gift. `None` if Telegram sends none or its document isn't a sticker.
     pub symbol: Option<UniqueGiftAttribute>,
-    /// Backdrop attribute. `None` if Telegram sends none.
+    /// Backdrop of the gift.
     pub backdrop: Option<UniqueGiftBackdrop>,
     /// Whether only Premium users can send the gift.
     pub is_premium: bool,
     /// Whether the gift was burned.
     pub is_burned: bool,
-    /// Chat that released the gift. `None` if Telegram sends none.
+    /// Chat that released the gift.
     pub publisher_chat: Option<Chat>,
-    /// Chat that owns the gift. `None` if Telegram sends none.
+    /// Chat that owns the gift.
     pub owner: Option<Chat>,
-    /// Name of the owner. `None` if Telegram sends none.
+    /// Name of the owner.
     pub owner_name: Option<String>,
-    /// TON address of the owner. `None` if Telegram sends none.
+    /// TON address of the owner.
     pub owner_address: Option<String>,
-    /// TON address of the gift. `None` if Telegram sends none.
+    /// TON address of the gift.
     pub gift_address: Option<String>,
-    /// Chat that hosts the gift. `None` if Telegram sends none.
+    /// Chat that hosts the gift.
     pub host: Option<Chat>,
     /// Whether the gift was made by crafting.
     pub is_crafted: bool,
@@ -110,24 +110,24 @@ pub struct UniqueGift {
     pub minimum_offer_star_count: Option<i32>,
     /// Id of the chat using the gift as its theme. `None` if none does.
     pub used_theme_chat_id: Option<i64>,
-    /// Chance of crafting this gift, in parts per thousand. `None` if Telegram sends none.
+    /// Chance of crafting this gift, in parts per thousand.
     pub craft_probability_per_mille: Option<i32>,
-    /// Estimated value of the gift. `None` if Telegram sends none.
+    /// Estimated value of the gift, in `value_currency`.
     pub value_amount: Option<i64>,
     /// Currency of `value_amount`.
     pub value_currency: Option<String>,
-    /// Estimated value of the gift in US dollars. `None` if Telegram sends none.
+    /// Estimated value of the gift in US dollars, as Telegram sends it.
     pub value_usd_amount: Option<i64>,
-    /// Details of the gift as first sent. `None` if Telegram sends none.
+    /// Details of the gift as first sent.
     pub original_details: Option<UpgradedGiftOriginalDetails>,
-    /// Resale price. `None` if the gift is not for sale.
+    /// Resale price. `None` if the gift isn't listed for sale.
     pub resale_parameters: Option<GiftResaleParameters>,
 }
 
 /// A model or symbol of a unique gift.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UniqueGiftAttribute {
-    /// Attribute name.
+    /// Name of the attribute.
     pub name: String,
     /// Sticker that shows the attribute.
     pub sticker: Sticker,
@@ -138,7 +138,7 @@ pub struct UniqueGiftAttribute {
 /// The backdrop of a unique gift.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UniqueGiftBackdrop {
-    /// Backdrop name.
+    /// Name of the backdrop.
     pub name: String,
     /// Color at the center, as an RGB integer.
     pub center_color: i32,
@@ -239,12 +239,12 @@ impl UniqueGift {
         }
     }
 
-    /// Whether a purchase offer can be sent: it requires an owner, and a gift that accepts offers.
+    /// Returns `true` if the gift has a known owner and takes purchase offers.
     pub fn can_send_purchase_offer(&self) -> bool {
         self.owner.is_some() && self.minimum_offer_star_count.is_some()
     }
 
-    /// The public link to the gift.
+    /// Returns the gift's public `t.me/nft/<name>` link.
     pub fn link(&self) -> String {
         format!("https://t.me/nft/{}", self.name)
     }

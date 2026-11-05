@@ -5,15 +5,15 @@ use crate::types::User;
 /// A Toncoin transfer sent through the Telegram wallet.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TonWalletTransfer {
-    /// The sender, or the chat's user when the message doesn't say.
+    /// The message's sender, or the chat's user when the message has no sender. `None` if that peer isn't a user.
     pub sender: Option<User>,
     /// Id of the transaction, as shown on a block explorer.
     pub transaction_id: String,
     /// Wallet address of the other party.
     pub peer_address: String,
-    /// In nanotons.
+    /// Amount in nanotons.
     pub amount: i64,
-    /// Comment attached to the transfer. `None` if there's none.
+    /// Comment attached to the transfer.
     pub comment: Option<String>,
     /// `true` if `comment` is encrypted.
     pub is_comment_encrypted: bool,
@@ -40,7 +40,7 @@ impl TonWalletTransfer {
         }
     }
 
-    /// The transaction on a block explorer.
+    /// Returns the transaction's page on tonviewer.com.
     pub fn link(&self) -> String {
         format!("https://tonviewer.com/transaction/{}", self.transaction_id)
     }

@@ -18,7 +18,7 @@ pub struct Voice {
     pub date: i32,
     /// Length in seconds. `0` if Telegram sent no audio attributes.
     pub duration: i32,
-    /// Raw waveform bytes as Telegram sends them. `None` if the sender's client didn't record one.
+    /// Raw waveform bytes as Telegram sends them. `None` if Telegram sends no waveform.
     pub waveform: Option<Vec<u8>>,
     pub(crate) location: FileLocation,
 }

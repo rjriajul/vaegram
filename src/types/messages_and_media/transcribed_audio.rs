@@ -5,7 +5,7 @@ use crate::raw::base;
 pub struct TranscribedAudio {
     /// Id of the transcription.
     pub transcription_id: i64,
-    /// The transcribed text. It can still be partial while `pending` is `true`.
+    /// The transcribed text. It can be partial while `pending` is `true`.
     pub text: String,
     /// `true` while Telegram is still transcribing.
     pub pending: bool,

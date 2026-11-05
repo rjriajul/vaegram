@@ -24,7 +24,7 @@ pub struct Video {
     pub height: i32,
     /// Length in seconds. `0` if Telegram sent no video attributes.
     pub duration: i32,
-    /// The video can be played while it downloads.
+    /// `true` if the video can be played while it downloads.
     pub supports_streaming: bool,
     /// Smaller copies of the file's preview.
     pub thumbs: Vec<Thumbnail>,

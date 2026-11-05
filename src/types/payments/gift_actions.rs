@@ -24,7 +24,7 @@ impl Gift {
 }
 
 impl UniqueGift {
-    /// Shows this gift as the account's emoji status; the account must own it.
+    /// Shows this gift as the account's emoji status. The account must own it.
     pub fn wear<'a>(&self, client: &'a Client) -> SetEmojiStatus<'a> {
         client.set_emoji_status(None).collectible_id(self.id)
     }
@@ -111,7 +111,7 @@ impl OwnedGiftUnique {
         client.hide_gift(owned_id(&self.owned_gift_id)?).await
     }
 
-    /// Transfers this gift; without an `owned_gift_id` it goes by the gift's name.
+    /// Transfers this gift. Without an `owned_gift_id`, the request names the gift by its slug.
     pub fn transfer<'a>(&self, client: &'a Client, to: impl Into<PeerRef>) -> TransferGift<'a> {
         client.transfer_gift(self.owned_gift_id.clone().unwrap_or_else(|| self.gift.name.clone()), to)
     }
@@ -152,7 +152,7 @@ impl UniqueGiftInfo {
         client.hide_gift(owned_id(&self.owned_gift_id)?).await
     }
 
-    /// Transfers this gift; without an `owned_gift_id` it goes by the gift's name.
+    /// Transfers this gift. Without an `owned_gift_id`, the request names the gift by its slug.
     pub fn transfer<'a>(&self, client: &'a Client, to: impl Into<PeerRef>) -> TransferGift<'a> {
         client.transfer_gift(self.owned_gift_id.clone().unwrap_or_else(|| self.gift.name.clone()), to)
     }

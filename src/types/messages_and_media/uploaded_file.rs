@@ -1,11 +1,11 @@
 use crate::raw::base;
 
 /// A file uploaded with [`upload_file`](crate::Client::upload_file) or
-/// [`upload_stream`](crate::Client::upload_stream); pass `&file` to any media sender.
+/// [`upload_stream`](crate::Client::upload_stream). Pass `&file` to any media sender.
 ///
 /// Telegram keeps the parts "between several minutes and several hours"
 /// (<https://core.telegram.org/api/files#uploading-files>), then a send fails with `Error::Rpc`
-/// (`FILE_PART_…_MISSING`). Send it soon; for longer reuse, resend the sent message's media.
+/// (`FILE_PART_…_MISSING`). Send it soon. For longer reuse, resend the sent message's media.
 #[cfg_attr(
     not(feature = "unstable-raw"),
     doc = r#"
