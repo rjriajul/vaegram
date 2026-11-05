@@ -3,15 +3,25 @@ use crate::raw::base;
 /// Why a chat is reported, for [`Client::report_chat`](crate::Client::report_chat).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReportReason {
+    /// Spam.
     Spam,
+    /// Violence.
     Violence,
+    /// Pornography.
     Pornography,
+    /// Child abuse.
     ChildAbuse,
+    /// Any reason not listed here.
     Other,
+    /// Copyright infringement.
     Copyright,
+    /// A location-based group that has nothing to do with its location.
     GeoIrrelevant,
+    /// An account or chat that impersonates someone else.
     Fake,
+    /// Illegal drugs.
     IllegalDrugs,
+    /// Personal details shared without consent.
     PersonalDetails,
 }
 

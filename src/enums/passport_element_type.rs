@@ -1,19 +1,33 @@
 use crate::raw::base;
 
+/// A kind of Telegram Passport data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PassportElementType {
+    /// Personal details such as name and birth date.
     PersonalDetails,
+    /// A passport.
     Passport,
+    /// A driver's license.
     DriverLicense,
+    /// An identity card.
     IdentityCard,
+    /// An internal passport.
     InternalPassport,
+    /// A residential address.
     Address,
+    /// A utility bill.
     UtilityBill,
+    /// A bank statement.
     BankStatement,
+    /// A rental agreement.
     RentalAgreement,
+    /// The registration page of a passport.
     PassportRegistration,
+    /// A temporary registration certificate.
     TemporaryRegistration,
+    /// A phone number.
     PhoneNumber,
+    /// An email address.
     Email,
 }
 

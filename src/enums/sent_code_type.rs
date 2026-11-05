@@ -2,19 +2,31 @@ use std::fmt;
 
 use crate::raw::base;
 
+/// How Telegram delivered the login code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SentCodeType {
+    /// A message in another Telegram app where the account is logged in.
     App,
+    /// A text message.
     Sms,
+    /// A phone call that reads the code out.
     Call,
+    /// A flash call. The code is the last digits of the calling number.
     FlashCall,
+    /// A missed call. The code is the last digits of the calling number.
     MissedCall,
+    /// An email.
     Email,
+    /// A text message sent through Fragment.
     FragmentSms,
+    /// A text message sent through Firebase.
     FirebaseSms,
+    /// A text message whose code is a word.
     SmsWord,
+    /// A text message whose code is a phrase.
     SmsPhrase,
+    /// Telegram asks for a login email, and the account has none yet. It has to be set up in an official app first.
     SetUpEmailRequired,
 }
 
