@@ -1,29 +1,50 @@
 use crate::raw::{base, types};
 
+/// A device or app that is logged in to the account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveSession {
+    /// Telegram's identifier for the session. It is the authorization hash.
     pub id: i64,
+    /// Device model the app reported when it logged in.
     pub device_model: String,
+    /// Platform the app reported, for example `Android`.
     pub platform: String,
+    /// Operating system version the app reported.
     pub system_version: String,
+    /// The `api_id` the session logged in with.
     pub api_id: i32,
+    /// Name of the app the session logged in with.
     pub application_name: String,
+    /// Version of the app the session logged in with.
     pub application_version: String,
+    /// Unix time of the login.
     pub log_in_date: i32,
+    /// Unix time of the session's last activity.
     pub last_active_date: i32,
+    /// IP address Telegram saw the session use.
     pub ip_address: String,
+    /// Region and country, joined as `Region, Country`. Holds whichever one Telegram sent if the other is empty.
     pub location: String,
+    /// The session making this request.
     pub is_current: bool,
+    /// The app is an official Telegram app.
     pub is_official_application: bool,
+    /// The session still has to enter the two-step verification password to finish logging in.
     pub is_password_pending: bool,
+    /// The login is new and the account owner hasn't confirmed it.
     pub is_unconfirmed: bool,
+    /// The session accepts secret chat requests.
     pub can_accept_secret_chats: bool,
+    /// The session accepts incoming calls.
     pub can_accept_calls: bool,
 }
 
+/// The account's logged-in sessions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveSessions {
+    /// Days of inactivity after which Telegram ends a session on its own.
     pub inactive_session_ttl_days: i32,
+    /// All sessions, including the current one.
     pub active_sessions: Vec<ActiveSession>,
 }
 

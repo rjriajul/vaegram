@@ -1,13 +1,20 @@
 use crate::raw::{base, types};
 
+/// Which members `get_chat_members` lists. Basic groups ignore the filter.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum ChatMembersFilter {
+    /// All members whose name matches the query. An empty query matches everyone.
     #[default]
     Search,
+    /// Banned members whose name matches the query.
     Banned,
+    /// Restricted members whose name matches the query.
     Restricted,
+    /// Bots.
     Bots,
+    /// Recently active members.
     Recent,
+    /// Admins.
     Administrators,
 }
 

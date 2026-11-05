@@ -1,16 +1,24 @@
 use crate::raw::base;
 
+/// A JSON value as Telegram sends it, for example in the app config.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Json {
+    /// `null`.
     Null,
+    /// `true` or `false`.
     Bool(bool),
+    /// Any number. Telegram sends numbers as `f64`, so integers keep full precision only up to 2^53.
     Number(f64),
+    /// A string.
     String(String),
+    /// An array of values.
     Array(Vec<Json>),
+    /// An object as key and value pairs in the order Telegram sent them.
     Object(Vec<(String, Json)>),
 }
 
 impl Json {
+    /// Returns the value of the first field named `key`. `None` if `self` is not an object or has no such field.
     pub fn get(&self, key: &str) -> Option<&Json> {
         match self {
             Json::Object(fields) => fields.iter().find(|(k, _)| k == key).map(|(_, v)| v),
@@ -18,6 +26,7 @@ impl Json {
         }
     }
 
+    /// Returns the boolean. `None` for any other variant.
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Json::Bool(b) => Some(*b),
@@ -25,6 +34,7 @@ impl Json {
         }
     }
 
+    /// Returns the number. `None` for any other variant.
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Json::Number(n) => Some(*n),
@@ -32,7 +42,7 @@ impl Json {
         }
     }
 
-    /// `None` for fractions and for numbers outside `i64`.
+    /// Returns the number as an integer. `None` for fractions, for numbers outside `i64` and for other variants.
     pub fn as_i64(&self) -> Option<i64> {
         // 2^63 is exactly representable, so it bounds the range from above; `as` would saturate it to `i64::MAX`.
         let limit = -(i64::MIN as f64);
@@ -42,6 +52,7 @@ impl Json {
         }
     }
 
+    /// Returns the string. `None` for any other variant.
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Json::String(s) => Some(s),
@@ -49,6 +60,7 @@ impl Json {
         }
     }
 
+    /// Returns the array items. `None` for any other variant.
     pub fn as_array(&self) -> Option<&[Json]> {
         match self {
             Json::Array(items) => Some(items),
@@ -56,6 +68,7 @@ impl Json {
         }
     }
 
+    /// Returns the object's key and value pairs. `None` for any other variant.
     pub fn as_object(&self) -> Option<&[(String, Json)]> {
         match self {
             Json::Object(fields) => Some(fields),

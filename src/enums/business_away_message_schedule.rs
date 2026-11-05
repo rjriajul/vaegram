@@ -1,10 +1,19 @@
 use crate::raw::{base, types};
 
+/// When a business account sends its away message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BusinessAwayMessageSchedule {
+    /// At all times.
     Always,
+    /// Outside the account's configured work hours.
     OutsideWorkHours,
-    Custom { start_date: i32, end_date: i32 },
+    /// Only between two dates.
+    Custom {
+        /// Unix time when sending starts.
+        start_date: i32,
+        /// Unix time when sending ends.
+        end_date: i32,
+    },
 }
 
 impl BusinessAwayMessageSchedule {

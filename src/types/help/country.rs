@@ -1,18 +1,28 @@
 use crate::raw::base;
 
+/// A country in Telegram's list of phone number countries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Country {
+    /// Two-letter ISO 3166-1 code.
     pub iso2: String,
+    /// Country name in English.
     pub default_name: String,
+    /// Name in the language Telegram was asked for. `None` if Telegram sent no localized name.
     pub name: Option<String>,
+    /// Telegram marks the country as hidden.
     pub hidden: bool,
+    /// Dialing codes of the country.
     pub country_codes: Vec<CountryCode>,
 }
 
+/// A dialing code of a [`Country`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CountryCode {
+    /// The code without a leading plus, for example `1`.
     pub country_code: String,
+    /// Number prefixes that follow the code. Empty if Telegram sent none.
     pub prefixes: Vec<String>,
+    /// Formatting patterns for the number, with `X` standing for a digit. Empty if Telegram sent none.
     pub patterns: Vec<String>,
 }
 

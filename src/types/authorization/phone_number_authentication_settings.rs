@@ -5,20 +5,31 @@ use crate::raw::{base, types};
 /// Firebase delivery of the code, for official apps' use.
 #[derive(Clone, PartialEq, Eq)]
 pub enum FirebaseAuthenticationSettings {
+    /// Android device.
     Android,
-    Ios { device_token: String, is_app_sandbox: bool },
+    /// iOS device.
+    Ios {
+        /// Push token of the device.
+        device_token: String,
+        /// The app uses the sandbox push environment.
+        is_app_sandbox: bool,
+    },
 }
 
 /// How Telegram may deliver a phone number code. The default asks for nothing special.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct PhoneNumberAuthenticationSettings {
+    /// Telegram may deliver the code as a flash call.
     pub allow_flash_call: bool,
+    /// Telegram may deliver the code as a missed call.
     pub allow_missed_call: bool,
     /// The number is the one this device is already using.
     pub is_current_phone_number: bool,
     /// The device has a SIM card but it can't be checked whether its number matches.
     pub has_unknown_phone_number: bool,
+    /// Telegram may append an app hash to the SMS so Android's SMS Retriever API can read the code.
     pub allow_sms_retriever_api: bool,
+    /// Lets Telegram deliver the code through Firebase. `None` turns Firebase delivery off.
     pub firebase_authentication_settings: Option<FirebaseAuthenticationSettings>,
     /// Tokens (up to 20) received in previously logged out sessions.
     pub authentication_tokens: Vec<Vec<u8>>,

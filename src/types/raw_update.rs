@@ -49,12 +49,12 @@ impl RawUpdate {
         self.update.constructor_id()
     }
 
-    /// Ascending.
+    /// Ids of the users that came with the update, in ascending order.
     pub fn user_ids(&self) -> impl Iterator<Item = i64> + use<> {
         sorted(self.entities.users.keys())
     }
 
-    /// Bot API style ids, ascending.
+    /// Ids of the chats that came with the update, in ascending order, in the format `Chat::id` uses.
     pub fn chat_ids(&self) -> impl Iterator<Item = i64> + use<> {
         sorted(self.entities.chats.keys())
     }
@@ -98,16 +98,17 @@ impl RawUpdate {
 /// Experimental: these may change or go away in any release.
 #[cfg(feature = "unstable-raw")]
 impl RawUpdate {
+    /// The update as the TL object Telegram sent.
     pub fn raw(&self) -> &base::Update {
         &self.update
     }
 
-    /// In id order.
+    /// The TL users that came with the update, in id order.
     pub fn raw_users(&self) -> impl Iterator<Item = &base::User> {
         self.user_ids().map(|id| &self.entities.users[&id])
     }
 
-    /// In id order.
+    /// The TL chats that came with the update, in id order.
     pub fn raw_chats(&self) -> impl Iterator<Item = &base::Chat> {
         self.chat_ids().map(|id| &self.entities.chats[&id])
     }

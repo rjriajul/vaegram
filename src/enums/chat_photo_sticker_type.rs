@@ -4,5 +4,6 @@
 pub enum ChatPhotoStickerType {
     /// A regular or mask sticker, from a sticker set.
     RegularOrMask,
+    /// A custom emoji.
     CustomEmoji,
 }

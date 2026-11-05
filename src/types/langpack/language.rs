@@ -1,17 +1,29 @@
 use crate::raw::base;
 
+/// A language Telegram offers a language pack for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Language {
+    /// Name in English.
     pub name: String,
+    /// Name in the language itself.
     pub native_name: String,
+    /// Language code of the pack.
     pub lang_code: String,
+    /// Code of the language this pack builds on. `None` if it is a base language.
     pub base_lang_code: Option<String>,
+    /// Code of the plural rules the language uses.
     pub plural_code: String,
+    /// Number of strings in the pack.
     pub strings_count: i32,
+    /// Number of strings that have a translation.
     pub translated_count: i32,
+    /// Link to the translation platform page for the language.
     pub translations_url: String,
+    /// The pack is an official one.
     pub official: bool,
+    /// The language is written right to left.
     pub rtl: bool,
+    /// The pack is a beta.
     pub beta: bool,
 }
 
