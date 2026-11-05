@@ -43,6 +43,11 @@ pub struct ClientBuilder {
     test_mode: bool,
     ipv6: bool,
     pfs: bool,
+    #[cfg(feature = "dns-config")]
+    dns_fallback: bool,
+    // Stands in for the fetched DNS config.
+    #[cfg(all(test, feature = "dns-config"))]
+    dns_config: Option<crate::connection::DnsConfig>,
     login: Login,
     parse_mode: ParseMode,
     link_preview_options: Option<LinkPreviewOptions>,
@@ -175,6 +180,18 @@ impl ClientBuilder {
     #[cfg(feature = "websocket")]
     pub fn websocket(mut self) -> Self {
         self.options.websocket = true;
+        self
+    }
+
+    /// When neither the saved address nor the built-in one of the account's data center answers, fetches the
+    /// config Telegram publishes in DNS (over HTTPS, from Google's resolver and then Cloudflare's), checks its
+    /// signature and expiry, and tries the plain addresses it lists for that data center. The fetch and those
+    /// addresses go out directly, so with a proxy or a connection factory set the fallback stays off rather than
+    /// leak a direct connection; in WebSocket mode the addresses don't apply either, since the WebSocket hosts are
+    /// fixed. Off by default.
+    #[cfg(feature = "dns-config")]
+    pub fn dns_fallback(mut self) -> Self {
+        self.dns_fallback = true;
         self
     }
 
@@ -499,10 +516,25 @@ impl ClientBuilder {
         let saved = auth_key.map(|key| (key, salt));
         let try_addr = |addr| connect(dc(addr), saved, self.api_id, &self.options, events.clone(), self.pfs);
         // A saved address comes from help.getConfig and can go stale.
-        let (session, updates, dc_options) = match (try_addr(first).await, built_in) {
-            (Err(_), Some(built_in)) if built_in != first && pinned.is_none() => try_addr(built_in).await?,
-            (result, _) => result?,
+        let result = match (try_addr(first).await, built_in) {
+            (Err(_), Some(built_in)) if built_in != first && pinned.is_none() => try_addr(built_in).await,
+            (result, _) => result,
         };
+        #[cfg(feature = "dns-config")]
+        let result = match result {
+            Err(error) if self.dns_fallback && pinned.is_none() && self.dials_directly() => {
+                let mut result = Err(error);
+                for addr in self.dns_addresses(dc_id, test_mode).await {
+                    result = try_addr(addr).await;
+                    if result.is_ok() {
+                        break;
+                    }
+                }
+                result
+            }
+            result => result,
+        };
+        let (session, updates, dc_options) = result?;
         let mut inner = Inner::new(session, updates, store);
         inner.peers.get_mut().unwrap_or_else(PoisonError::into_inner).load(warm);
         inner.api_id = self.api_id;
@@ -544,6 +576,25 @@ impl ClientBuilder {
         }
         client.save().await?;
         Ok((client, self.login))
+    }
+
+    /// Whether connections go straight to a data center's address: not through a proxy, a connection factory or
+    /// the fixed WebSocket hosts.
+    #[cfg(feature = "dns-config")]
+    fn dials_directly(&self) -> bool {
+        self.options.proxy.is_none() && self.options.connection_factory.is_none() && !self.options.uses_websocket()
+    }
+
+    /// The unexpired plain addresses of data center `dc_id` in Telegram's DNS config; none if it can't be had.
+    #[cfg(feature = "dns-config")]
+    async fn dns_addresses(&self, dc_id: i32, test_mode: bool) -> Vec<SocketAddr> {
+        use crate::connection::DnsConfig;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        #[cfg(test)]
+        if let Some(config) = &self.dns_config {
+            return config.plain_addresses(dc_id, now);
+        }
+        DnsConfig::fetch(test_mode).await.map(|config| config.plain_addresses(dc_id, now)).unwrap_or_default()
     }
 }
 
@@ -752,6 +803,10 @@ impl Client {
             test_mode: false,
             ipv6: false,
             pfs: false,
+            #[cfg(feature = "dns-config")]
+            dns_fallback: false,
+            #[cfg(all(test, feature = "dns-config"))]
+            dns_config: None,
             login: Login::default(),
             parse_mode: ParseMode::Disabled,
             link_preview_options: None,
@@ -1094,6 +1149,69 @@ mod tests {
             let refused = Client::builder("limits", 1, "hash").in_memory().rate_limits(limits).connect().await;
             assert!(matches!(refused, Err(Error::InvalidArgument(_))));
         }
+    }
+
+    // The account's DC (99) has no built-in address and its saved one refuses, so only the DNS config's address,
+    // the test DC's, can open. With `factory`, every dial goes through a connection factory that records and refuses
+    // it. Returns the outcome and what the factory saw.
+    #[cfg(feature = "dns-config")]
+    async fn open_via_dns(expires: i32, factory: bool) -> (Result<Client, Error>, Vec<std::net::SocketAddr>) {
+        use std::net::SocketAddr;
+
+        use crate::connection::{AccessPointRule, DnsConfig, IpPort};
+        let dc = TestDc::start([5; 256], false).await;
+        let SocketAddr::V4(real) = dc.dc(99).addr else { panic!("the test DC isn't on IPv4") };
+        let saved = SessionData {
+            dc_id: 99,
+            test_mode: false,
+            addr: Some("0.0.0.0:1".parse().unwrap()),
+            api_id: 1,
+            auth_key: [5; 256],
+            user_id: 0,
+            is_bot: false,
+        };
+        let session = crate::storage::session_string::export(&saved);
+        let mut builder = Client::builder("dns", 1, "hash").session_string(session).dns_fallback();
+        let dialed = Arc::new(std::sync::Mutex::new(Vec::new()));
+        if factory {
+            let seen = dialed.clone();
+            builder = builder.connection_factory(move |addr: SocketAddr| {
+                seen.lock().unwrap().push(addr);
+                async { Err::<tokio::net::TcpStream, _>(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)) }
+            });
+        }
+        let rule = AccessPointRule {
+            phone_prefix_rules: String::new(),
+            dc_id: 99,
+            ips: vec![IpPort { addr: real, secret: None }],
+        };
+        builder.dns_config = Some(DnsConfig { date: 0, expires, rules: vec![rule] });
+        let client = builder.connect().await;
+        let dialed = dialed.lock().unwrap().clone();
+        (client, dialed)
+    }
+
+    #[cfg(feature = "dns-config")]
+    #[tokio::test]
+    async fn fallback_tries_dns_addresses_after_both_fail() {
+        let (client, _) = open_via_dns(i32::MAX, false).await;
+        // DC 99 has no built-in address and its saved one refuses, so the DNS config's address is what opened.
+        assert_eq!(client.unwrap().session().dc_id(), 99);
+    }
+
+    #[cfg(feature = "dns-config")]
+    #[tokio::test]
+    async fn an_expired_dns_config_is_ignored() {
+        let (client, _) = open_via_dns(1, false).await;
+        assert!(client.is_err());
+    }
+
+    #[cfg(feature = "dns-config")]
+    #[tokio::test]
+    async fn a_connection_factory_turns_the_fallback_off() {
+        let (client, dialed) = open_via_dns(i32::MAX, true).await;
+        assert!(client.is_err());
+        assert_eq!(dialed, ["0.0.0.0:1".parse::<std::net::SocketAddr>().unwrap()]);
     }
 
     #[tokio::test]
