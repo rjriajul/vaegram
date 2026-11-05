@@ -2,6 +2,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::functions;
 
+/// Request built by [`Client::answer_pre_checkout_query`]. Awaiting it returns whether Telegram accepted the answer.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct AnswerPreCheckoutQuery<'a> {
     client: &'a Client,
@@ -17,6 +18,7 @@ impl Client {
 }
 
 impl AnswerPreCheckoutQuery<'_> {
+    /// Rejects the checkout and shows `message` to the user. Without it the checkout is approved.
     pub fn error(mut self, message: impl Into<String>) -> Self {
         self.error = Some(message.into());
         self

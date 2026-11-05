@@ -4,6 +4,7 @@ use crate::methods::messages::{SendOptions, send_builder};
 use crate::raw::{base, types};
 use crate::types::{Message, PeerRef};
 
+/// Request built by [`Client::send_game`]. Awaiting it returns the sent [`Message`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendGame<'a> {
     client: &'a Client,

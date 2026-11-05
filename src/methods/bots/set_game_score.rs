@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
+/// Request built by [`Client::set_game_score`]. Awaiting it returns the edited [`Message`], or `None`.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetGameScore<'a> {
     client: &'a Client,
@@ -36,6 +37,7 @@ impl Client {
 }
 
 impl SetGameScore<'_> {
+    /// Sets the score even if it doesn't beat the user's current one, so it can go down.
     pub fn force(mut self) -> Self {
         self.force = true;
         self

@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::ConnectedBot;
 
 impl Client {
+    /// Returns the bots connected to the account's business profile.
     pub async fn get_connected_bots(&self) -> Result<Vec<ConnectedBot>> {
         let base::account::ConnectedBots::ConnectedBots(b) =
             self.invoke(&functions::account::GetConnectedBots {}).await?;

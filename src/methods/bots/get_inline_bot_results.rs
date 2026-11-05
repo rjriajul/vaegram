@@ -4,6 +4,7 @@ use crate::methods::messages::geo_point;
 use crate::raw::{base, functions};
 use crate::types::{InlineBotResults, PeerRef};
 
+/// Request built by [`Client::get_inline_bot_results`]. Awaiting it returns the bot's [`InlineBotResults`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GetInlineBotResults<'a> {
     client: &'a Client,
@@ -15,6 +16,8 @@ pub struct GetInlineBotResults<'a> {
 }
 
 impl Client {
+    /// Sends an inline query to a bot as if you typed `@bot query` in a chat.
+    /// Awaiting the request returns the bot's [`InlineBotResults`].
     pub fn get_inline_bot_results(
         &self,
         bot_id: impl Into<PeerRef>,
@@ -38,11 +41,13 @@ impl GetInlineBotResults<'_> {
         self
     }
 
+    /// Offset taken from the previous results, to fetch the next page.
     pub fn offset(mut self, offset: impl Into<String>) -> Self {
         self.offset = offset.into();
         self
     }
 
+    /// Sends your location with the query, for bots that ask for it.
     pub fn location(mut self, latitude: f64, longitude: f64) -> Self {
         self.location = Some((latitude, longitude));
         self

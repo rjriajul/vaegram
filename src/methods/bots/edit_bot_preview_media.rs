@@ -4,6 +4,8 @@ use crate::raw::functions;
 use crate::types::{BotPreviewMedia, InputMedia, PeerRef};
 
 impl Client {
+    /// Replaces one preview media of a bot you own with a new photo or video.
+    /// Returns the new [`BotPreviewMedia`].
     pub async fn edit_bot_preview_media(
         &self,
         bot_id: impl Into<PeerRef>,

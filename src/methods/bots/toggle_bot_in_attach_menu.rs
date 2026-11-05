@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
+/// Request built by [`Client::toggle_bot_in_attach_menu`]. Awaiting it returns whether Telegram accepted the change.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct ToggleBotInAttachMenu<'a> {
     client: &'a Client,
@@ -12,12 +13,14 @@ pub struct ToggleBotInAttachMenu<'a> {
 }
 
 impl Client {
+    /// Adds a bot to the attachment menu, or removes it if `enabled` is false.
     pub fn toggle_bot_in_attach_menu(&self, bot_id: impl Into<PeerRef>, enabled: bool) -> ToggleBotInAttachMenu<'_> {
         ToggleBotInAttachMenu { client: self, bot_id: bot_id.into(), enabled, write_allowed: false }
     }
 }
 
 impl ToggleBotInAttachMenu<'_> {
+    /// Lets the bot send messages to the user.
     pub fn write_allowed(mut self) -> Self {
         self.write_allowed = true;
         self

@@ -4,6 +4,8 @@ use crate::raw::functions;
 use crate::types::{BotPreviewMedia, PeerRef};
 
 impl Client {
+    /// Deletes preview media of a bot you own.
+    /// Fails with `Error::InvalidArgument` if `previews` is empty.
     pub async fn delete_bot_preview_media(
         &self,
         bot_id: impl Into<PeerRef>,

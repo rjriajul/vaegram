@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::BusinessRecipients;
 
+/// Request built by [`Client::set_business_away_message`]. Awaiting it returns whether Telegram accepted the message.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetBusinessAwayMessage<'a> {
     client: &'a Client,
@@ -14,6 +15,8 @@ pub struct SetBusinessAwayMessage<'a> {
 }
 
 impl Client {
+    /// Sets the away message to the quick reply shortcut `shortcut_id`, sent to the given recipients.
+    /// It is sent at all times unless [`schedule`](SetBusinessAwayMessage::schedule) narrows it.
     pub fn set_business_away_message<'a>(
         &'a self,
         shortcut_id: i32,
@@ -30,11 +33,13 @@ impl Client {
 }
 
 impl SetBusinessAwayMessage<'_> {
+    /// When the away message is active. Defaults to `BusinessAwayMessageSchedule::Always`.
     pub fn schedule(mut self, schedule: BusinessAwayMessageSchedule) -> Self {
         self.schedule = schedule;
         self
     }
 
+    /// Sends the away message only while the account is offline.
     pub fn offline_only(mut self) -> Self {
         self.offline_only = true;
         self

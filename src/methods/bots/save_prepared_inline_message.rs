@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::{InlineQueryResult, PeerRef, PreparedInlineMessage};
 
+/// Request built by [`Client::save_prepared_inline_message`]. Awaiting it returns the [`PreparedInlineMessage`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SavePreparedInlineMessage<'a> {
     client: &'a Client,
@@ -24,22 +25,26 @@ impl Client {
 }
 
 impl SavePreparedInlineMessage<'_> {
+    /// Lets the message be shared in private chats with users.
     pub fn allow_user_chats(mut self) -> Self {
         self.peer_types.push(base::InlineQueryPeerType::InlineQueryPeerTypePM);
         self
     }
 
+    /// Lets the message be shared in private chats with bots.
     pub fn allow_bot_chats(mut self) -> Self {
         self.peer_types.push(base::InlineQueryPeerType::InlineQueryPeerTypeBotPM);
         self
     }
 
+    /// Lets the message be shared in groups and supergroups.
     pub fn allow_group_chats(mut self) -> Self {
         self.peer_types.push(base::InlineQueryPeerType::InlineQueryPeerTypeChat);
         self.peer_types.push(base::InlineQueryPeerType::InlineQueryPeerTypeMegagroup);
         self
     }
 
+    /// Lets the message be shared in channels.
     pub fn allow_channel_chats(mut self) -> Self {
         self.peer_types.push(base::InlineQueryPeerType::InlineQueryPeerTypeBroadcast);
         self

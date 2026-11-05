@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::methods::messages::{SendOptions, send_builder};
 use crate::types::{InputInvoice, Message, PeerRef};
 
+/// Request built by [`Client::send_invoice`]. Awaiting it returns the sent [`Message`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendInvoice<'a> {
     client: &'a Client,

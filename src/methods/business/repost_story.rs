@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::{PeerRef, Story};
 
+/// Request built by [`Client::repost_story`]. Awaiting it returns the new [`Story`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct RepostStory<'a> {
     client: &'a Client,
@@ -37,11 +38,13 @@ impl Client {
 }
 
 impl RepostStory<'_> {
+    /// Keeps the story on the account's profile after it expires.
     pub fn post_to_chat_page(mut self) -> Self {
         self.post_to_chat_page = true;
         self
     }
 
+    /// Stops viewers from forwarding or saving the story.
     pub fn protect_content(mut self) -> Self {
         self.protect_content = true;
         self

@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef, ReplyParameters};
 
+/// Request built by [`Client::send_inline_bot_result`]. Awaiting it returns the sent [`Message`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendInlineBotResult<'a> {
     client: &'a Client,
@@ -16,6 +17,8 @@ pub struct SendInlineBotResult<'a> {
 }
 
 impl Client {
+    /// Sends a result picked from [`get_inline_bot_results`](Client::get_inline_bot_results) to a chat.
+    /// `query_id` comes from those results and `result_id` from the picked entry.
     pub fn send_inline_bot_result(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -35,16 +38,19 @@ impl Client {
 }
 
 impl SendInlineBotResult<'_> {
+    /// Sends the message as a reply.
     pub fn reply_to(mut self, reply: impl Into<ReplyParameters>) -> Self {
         self.reply_to = Some(reply.into());
         self
     }
 
+    /// Sends the message silently.
     pub fn disable_notification(mut self) -> Self {
         self.disable_notification = true;
         self
     }
 
+    /// Hides the "via @bot" label on the sent message.
     pub fn hide_via(mut self) -> Self {
         self.hide_via = true;
         self

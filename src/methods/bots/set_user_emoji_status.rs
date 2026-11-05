@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
+/// Request built by [`Client::set_user_emoji_status`]. Awaiting it returns whether Telegram accepted the status.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetUserEmojiStatus<'a> {
     client: &'a Client,
@@ -19,11 +20,13 @@ impl Client {
 }
 
 impl SetUserEmojiStatus<'_> {
+    /// Custom emoji to use as the status.
     pub fn custom_emoji_id(mut self, custom_emoji_id: i64) -> Self {
         self.custom_emoji_id = Some(custom_emoji_id);
         self
     }
 
+    /// Unix time at which the status expires.
     pub fn expiration_date(mut self, date: i32) -> Self {
         self.expiration_date = Some(date);
         self

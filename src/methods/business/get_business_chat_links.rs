@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::BusinessChatLink;
 
 impl Client {
+    /// Returns the business chat links of the account.
     pub async fn get_business_chat_links(&self) -> Result<Vec<BusinessChatLink>> {
         let base::account::BusinessChatLinks::BusinessChatLinks(l) =
             self.invoke(&functions::account::GetBusinessChatLinks {}).await?;

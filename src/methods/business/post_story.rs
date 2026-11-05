@@ -6,6 +6,7 @@ use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions};
 use crate::types::{InputStoryContent, Story, StoryArea};
 
+/// Request built by [`Client::post_story`]. Awaiting it returns the posted [`Story`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct PostStory<'a> {
     client: &'a Client,
@@ -48,21 +49,25 @@ impl Client {
 }
 
 impl PostStory<'_> {
+    /// Text shown under the story, parsed with the request's parse mode.
     pub fn caption(mut self, caption: impl Into<String>) -> Self {
         self.caption = caption.into();
         self
     }
 
+    /// Interactive areas placed on the story.
     pub fn areas(mut self, areas: impl IntoIterator<Item = StoryArea>) -> Self {
         self.areas = areas.into_iter().collect();
         self
     }
 
+    /// Keeps the story on the account's profile after it expires.
     pub fn post_to_chat_page(mut self) -> Self {
         self.post_to_chat_page = true;
         self
     }
 
+    /// Stops viewers from forwarding or saving the story.
     pub fn protect_content(mut self) -> Self {
         self.protect_content = true;
         self

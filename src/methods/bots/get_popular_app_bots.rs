@@ -4,6 +4,7 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions, types};
 use crate::types::User;
 
+/// Paged list of popular bots with a Mini App. Call [`next`](GetPopularAppBots::next) until it returns `None`.
 #[must_use = "call .next() to fetch bots"]
 pub struct GetPopularAppBots<'a> {
     client: &'a Client,
@@ -11,17 +12,20 @@ pub struct GetPopularAppBots<'a> {
 }
 
 impl Client {
+    /// Lists bots with a Mini App, most popular first. Fetches pages of 100 from Telegram as needed.
     pub fn get_popular_app_bots(&self) -> GetPopularAppBots<'_> {
         GetPopularAppBots { client: self, pages: OffsetPages::new(100) }
     }
 }
 
 impl GetPopularAppBots<'_> {
+    /// Stops after this many bots in total.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next bot, fetching another page when the current one runs out. `None` at the end.
     pub async fn next(&mut self) -> Result<Option<User>> {
         loop {
             if let Some(bot) = self.pages.pop() {

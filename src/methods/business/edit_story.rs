@@ -5,6 +5,7 @@ use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions};
 use crate::types::{InputStoryContent, Story, StoryArea};
 
+/// Request built by [`Client::edit_story`]. Awaiting it returns the edited [`Story`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct EditStory<'a> {
     client: &'a Client,
@@ -37,11 +38,13 @@ impl Client {
 }
 
 impl EditStory<'_> {
+    /// Text shown under the story, parsed with the request's parse mode.
     pub fn caption(mut self, caption: impl Into<String>) -> Self {
         self.caption = caption.into();
         self
     }
 
+    /// Interactive areas placed on the story.
     pub fn areas(mut self, areas: impl IntoIterator<Item = StoryArea>) -> Self {
         self.areas = areas.into_iter().collect();
         self

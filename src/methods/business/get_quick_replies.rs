@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::QuickReply;
 
 impl Client {
+    /// Returns the account's quick reply shortcuts.
     pub async fn get_quick_replies(&self) -> Result<Vec<QuickReply>> {
         match self.invoke(&functions::messages::GetQuickReplies { hash: 0 }).await? {
             base::messages::QuickReplies::QuickReplies(q) => {

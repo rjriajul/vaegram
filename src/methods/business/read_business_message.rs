@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Marks a chat as read up to `message_id` for the business account behind a connection.
     pub async fn read_business_message(
         &self,
         business_connection_id: &str,

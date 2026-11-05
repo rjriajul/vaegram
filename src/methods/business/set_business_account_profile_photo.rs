@@ -3,6 +3,7 @@ use crate::methods::users::SetProfilePhoto;
 use crate::types::Upload;
 
 impl Client {
+    /// Sets the profile photo of the business account behind a connection. Returns a [`SetProfilePhoto`] request.
     pub fn set_business_account_profile_photo<'a>(
         &'a self,
         business_connection_id: &'a str,

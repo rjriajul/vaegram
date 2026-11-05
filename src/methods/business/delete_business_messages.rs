@@ -3,6 +3,8 @@ use crate::errors::{Error, Result};
 use crate::raw::functions;
 
 impl Client {
+    /// Deletes messages in a chat of a business connection, for both sides.
+    /// Takes 1 to 100 ids, otherwise it fails with `Error::InvalidArgument`.
     pub async fn delete_business_messages(&self, business_connection_id: &str, message_ids: &[i32]) -> Result<()> {
         if !(1..=100).contains(&message_ids.len()) {
             return Err(Error::InvalidArgument("deletes take 1 to 100 message ids"));
