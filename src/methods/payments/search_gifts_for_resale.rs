@@ -5,6 +5,7 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{UniqueGift, UpgradedGiftAttributeId};
 
+/// Listing of unique gifts for sale, built by [`Client::search_gifts_for_resale`]. Read it with `next`.
 #[must_use = "a search does nothing until `next` is called"]
 pub struct SearchGiftsForResale<'a> {
     client: &'a Client,
@@ -13,6 +14,7 @@ pub struct SearchGiftsForResale<'a> {
 }
 
 impl Client {
+    /// Searches the resale market for unique gifts upgraded from the gift with this `gift_id`.
     pub fn search_gifts_for_resale(&self, gift_id: i64) -> SearchGiftsForResale<'_> {
         let request = functions::payments::GetResaleStarGifts {
             sort_by_price: false,
@@ -30,16 +32,19 @@ impl Client {
 }
 
 impl SearchGiftsForResale<'_> {
+    /// Orders the results by price.
     pub fn sort_by_price(mut self) -> Self {
         self.request.sort_by_price = true;
         self
     }
 
+    /// Orders the results by gift number.
     pub fn sort_by_number(mut self) -> Self {
         self.request.sort_by_num = true;
         self
     }
 
+    /// Leaves out gifts that can only be bought with Toncoin.
     pub fn stars_only(mut self) -> Self {
         self.request.stars_only = true;
         self
@@ -58,11 +63,13 @@ impl SearchGiftsForResale<'_> {
         self
     }
 
+    /// Stops after this many gifts in total.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next gift, loading another page when needed, or `None` when the listing is exhausted.
     pub async fn next(&mut self) -> Result<Option<UniqueGift>> {
         loop {
             if let Some(gift) = self.pages.pop() {

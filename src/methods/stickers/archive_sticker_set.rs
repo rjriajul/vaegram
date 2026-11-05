@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::utils::input_sticker_set;
 
 impl Client {
+    /// Moves an installed sticker set, found by its `name`, to the archive.
     pub async fn archive_sticker_set(&self, name: &str) -> Result<()> {
         self.toggle_sticker_set_archived(name, true).await
     }

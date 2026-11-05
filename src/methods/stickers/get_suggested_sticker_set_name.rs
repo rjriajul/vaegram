@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 
 impl Client {
+    /// Asks Telegram for a short name that fits a sticker set `title`.
     pub async fn get_suggested_sticker_set_name(&self, title: &str) -> Result<String> {
         let request = functions::stickers::SuggestShortName { title: title.into() };
         let base::stickers::SuggestedShortName::SuggestedShortName(name) = self.invoke(&request).await?;

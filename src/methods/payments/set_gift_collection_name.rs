@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::{GiftCollection, PeerRef};
 
 impl Client {
+    /// Renames a gift collection and returns it.
     pub async fn set_gift_collection_name(
         &self,
         owner_id: impl Into<PeerRef>,

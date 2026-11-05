@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::Sticker;
 
 impl Client {
+    /// Adds a sticker to the account's recent stickers.
     pub async fn add_recent_sticker(&self, sticker: &Sticker) -> Result<()> {
         let id = sticker.input_document();
         let request = functions::messages::SaveRecentSticker { attached: false, id, unsave: false };

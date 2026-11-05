@@ -13,13 +13,17 @@ pub struct ValidateOrderInfo<'a> {
 }
 
 impl Client {
+    /// Starts validating the contact and shipping details for the invoice of `form`.
+    ///
+    /// Awaiting returns a [`ValidatedOrderInfo`] with the id for `SendPaymentForm::order_info_id`
+    /// and the shipping options.
     pub fn validate_order_info(&self, form: &PaymentForm, info: OrderInfo) -> ValidateOrderInfo<'_> {
         ValidateOrderInfo { client: self, invoice: form.invoice.clone(), info, save: false }
     }
 }
 
 impl ValidateOrderInfo<'_> {
-    /// Remembers the details for the next order; [`get_saved_order_info`](Client::get_saved_order_info) reads them.
+    /// Remembers the details for the next order. [`get_saved_order_info`](Client::get_saved_order_info) reads them.
     pub fn save(mut self) -> Self {
         self.save = true;
         self

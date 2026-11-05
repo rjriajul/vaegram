@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::StickerSet;
 
+/// Request built by [`Client::get_owned_sticker_sets`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GetOwnedStickerSets<'a> {
     client: &'a Client,
@@ -10,6 +11,9 @@ pub struct GetOwnedStickerSets<'a> {
 }
 
 impl Client {
+    /// Lists the sticker sets the account created, 100 to a page.
+    ///
+    /// Pass the id of the last set to [`GetOwnedStickerSets::offset_id`] for the next page.
     pub fn get_owned_sticker_sets(&self) -> GetOwnedStickerSets<'_> {
         GetOwnedStickerSets { client: self, request: functions::messages::GetMyStickers { offset_id: 0, limit: 100 } }
     }
@@ -22,6 +26,7 @@ impl GetOwnedStickerSets<'_> {
         self
     }
 
+    /// Caps how many sets one page holds. The default is 100.
     pub fn limit(mut self, limit: i32) -> Self {
         self.request.limit = limit;
         self

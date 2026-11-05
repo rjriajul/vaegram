@@ -4,7 +4,9 @@ use crate::raw::{base, functions};
 use crate::types::{InvoiceRef, PaymentForm};
 
 impl Client {
-    /// Reads the price of an invoice; nothing is paid until the form goes to [`Client::send_payment_form`].
+    /// Reads the price of an invoice.
+    ///
+    /// Nothing is paid until the form goes to [`Client::send_payment_form`].
     pub async fn get_payment_form(&self, invoice: InvoiceRef) -> Result<PaymentForm> {
         let invoice = invoice.write(self).await?;
         self.payment_form(invoice).await

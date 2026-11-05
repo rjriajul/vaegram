@@ -3,8 +3,10 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::types::{InputCredentials, PaymentForm, PaymentResult, StarAmount};
 
-/// Pays a form: a Stars (or Toncoin) form as it is (it takes no credentials, order info, shipping or tip), a card form with [`credentials`](SendPaymentForm::credentials).
-/// A timed-out payment may have gone through: check the balance before retrying.
+/// Pays a form. A Stars or Toncoin form is paid as it is and takes no credentials, order info, shipping or tip.
+/// A card form needs [`credentials`](SendPaymentForm::credentials).
+///
+/// A timed-out payment may have gone through, so check the balance before retrying.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPaymentForm<'a> {
     client: &'a Client,
@@ -16,6 +18,9 @@ pub struct SendPaymentForm<'a> {
 }
 
 impl Client {
+    /// Starts paying a [`PaymentForm`].
+    ///
+    /// Awaiting returns a [`PaymentResult`].
     pub fn send_payment_form(&self, form: PaymentForm) -> SendPaymentForm<'_> {
         SendPaymentForm {
             client: self,
@@ -64,6 +69,7 @@ impl SendPaymentForm<'_> {
         self
     }
 
+    /// The shipping option chosen from the ones `validate_order_info` returned.
     pub fn shipping_option_id(mut self, id: impl Into<String>) -> Self {
         self.shipping_option_id = Some(id.into());
         self

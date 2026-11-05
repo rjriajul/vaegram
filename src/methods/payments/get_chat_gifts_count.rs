@@ -3,6 +3,9 @@ use crate::errors::Result;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Counts the gifts on a user's or channel's profile.
+    ///
+    /// Fetches a single-gift page and reads its `total_count`.
     pub async fn get_chat_gifts_count(&self, chat_id: impl Into<PeerRef>) -> Result<i32> {
         Ok(self.get_chat_gifts(chat_id).limit(1).await?.total_count)
     }

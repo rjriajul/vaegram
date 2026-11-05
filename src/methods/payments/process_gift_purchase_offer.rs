@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 
 impl Client {
-    /// Accepts or declines the purchase offer in message `message_id`; accepting sells the gift.
+    /// Accepts or declines the purchase offer in message `message_id`. Accepting sells the gift.
     pub async fn process_gift_purchase_offer(&self, message_id: i32, accept: bool) -> Result<()> {
         let request = functions::payments::ResolveStarGiftOffer { decline: !accept, offer_msg_id: message_id };
         self.invoke(&request).await?;

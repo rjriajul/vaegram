@@ -3,12 +3,14 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::Sticker;
 
+/// Request built by [`Client::search_stickers`].
 pub struct SearchStickers<'a> {
     client: &'a Client,
     request: functions::messages::SearchStickers,
 }
 
 impl Client {
+    /// Searches stickers by a text query, 50 to a page.
     pub fn search_stickers(&self, query: impl Into<String>) -> SearchStickers<'_> {
         let request = functions::messages::SearchStickers {
             emojis: false,
@@ -24,27 +26,31 @@ impl Client {
 }
 
 impl SearchStickers<'_> {
+    /// Searches custom emoji instead of stickers.
     pub fn custom_emoji(mut self) -> Self {
         self.request.emojis = true;
         self
     }
 
+    /// Narrows the results to stickers for this emoji.
     pub fn emoji(mut self, emoji: impl Into<String>) -> Self {
         self.request.emoticon = emoji.into();
         self
     }
 
+    /// Limits the search to these language codes.
     pub fn lang_codes(mut self, lang_codes: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.request.lang_code = lang_codes.into_iter().map(Into::into).collect();
         self
     }
 
-    /// Skips this many results; pass the number already fetched to get the next page.
+    /// Skips this many results. Pass the number already fetched to get the next page.
     pub fn offset(mut self, offset: i32) -> Self {
         self.request.offset = offset;
         self
     }
 
+    /// Caps how many stickers one page holds. The default is 50.
     pub fn limit(mut self, limit: i32) -> Self {
         self.request.limit = limit;
         self

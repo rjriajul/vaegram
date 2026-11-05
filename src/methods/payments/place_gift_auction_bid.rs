@@ -5,6 +5,7 @@ use crate::methods::messages::caption_setters;
 use crate::raw::{base, types};
 use crate::types::PeerRef;
 
+/// Request built by [`Client::place_gift_auction_bid`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct PlaceGiftAuctionBid<'a> {
     client: &'a Client,
@@ -17,8 +18,9 @@ pub struct PlaceGiftAuctionBid<'a> {
 }
 
 impl Client {
-    /// Bids `star_count` Stars in a gift's auction for the user or, with `.recipient()`, for someone else; nothing
-    /// is paid above `star_count`.
+    /// Bids `star_count` Stars in a gift's auction for the user or, with `.recipient()`, for someone else.
+    ///
+    /// Nothing is paid above `star_count`. Fails with `InvalidArgument` if `star_count` is not positive.
     pub fn place_gift_auction_bid(&self, gift_id: i64, star_count: i64) -> PlaceGiftAuctionBid<'_> {
         PlaceGiftAuctionBid {
             client: self,
@@ -33,16 +35,19 @@ impl Client {
 }
 
 impl PlaceGiftAuctionBid<'_> {
+    /// Bids for this chat instead of the current account.
     pub fn recipient(mut self, chat_id: impl Into<PeerRef>) -> Self {
         self.recipient = Some(chat_id.into());
         self
     }
 
+    /// Adds a message that the recipient sees with the gift.
     pub fn text(mut self, text: impl Into<String>) -> Self {
         self.text = Some(text.into());
         self
     }
 
+    /// Hides the bidder's name.
     pub fn private(mut self) -> Self {
         self.private = true;
         self

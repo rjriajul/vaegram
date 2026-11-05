@@ -5,6 +5,7 @@ use crate::raw::{base, functions, types};
 use crate::types::GiftAuctionState;
 
 impl Client {
+    /// Reads the current state of the auction for the gift with this `gift_id`.
     pub async fn get_gift_auction_state(&self, gift_id: i64) -> Result<GiftAuctionState> {
         let auction = base::InputStarGiftAuction::InputStarGiftAuction(types::InputStarGiftAuction { gift_id });
         let request = functions::payments::GetStarGiftAuctionState { auction, version: 0 };

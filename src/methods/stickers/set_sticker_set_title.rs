@@ -5,6 +5,7 @@ use crate::types::StickerSet;
 use crate::utils::input_sticker_set;
 
 impl Client {
+    /// Renames a sticker set, found by its `name`, and returns the updated set.
     pub async fn set_sticker_set_title(&self, name: &str, title: impl Into<String>) -> Result<StickerSet> {
         let (stickerset, title) = (input_sticker_set(name), title.into());
         let request = functions::stickers::RenameStickerSet { stickerset, title };

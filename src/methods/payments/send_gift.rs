@@ -5,6 +5,7 @@ use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
+/// Request built by [`Client::send_gift`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendGift<'a> {
     client: &'a Client,
@@ -17,6 +18,9 @@ pub struct SendGift<'a> {
 }
 
 impl Client {
+    /// Buys a gift from the gift shop and sends it to a chat, paying in Stars.
+    ///
+    /// `gift_id` is an id from [`Client::get_available_gifts`].
     pub fn send_gift(&self, chat_id: impl Into<PeerRef>, gift_id: i64) -> SendGift<'_> {
         SendGift {
             client: self,
@@ -58,16 +62,19 @@ impl Client {
 }
 
 impl SendGift<'_> {
+    /// Adds a message that the recipient sees with the gift.
     pub fn text(mut self, text: impl Into<String>) -> Self {
         self.text = Some(text.into());
         self
     }
 
+    /// Pays for the upgrade to a unique gift up front, so the recipient can upgrade it for free.
     pub fn pay_for_upgrade(mut self) -> Self {
         self.pay_for_upgrade = true;
         self
     }
 
+    /// Hides the sender's name from everyone but the recipient.
     pub fn private(mut self) -> Self {
         self.private = true;
         self

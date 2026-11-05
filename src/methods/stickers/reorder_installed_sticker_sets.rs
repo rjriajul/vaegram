@@ -4,6 +4,9 @@ use crate::errors::{Error, Result};
 use crate::raw::functions;
 
 impl Client {
+    /// Sets the order of the installed sticker sets of one `sticker_type`.
+    ///
+    /// `sticker_set_ids` lists set ids in the new order. Fails with `InvalidArgument` if it is empty.
     pub async fn reorder_installed_sticker_sets(
         &self,
         sticker_type: StickerType,

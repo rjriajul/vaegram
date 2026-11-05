@@ -4,8 +4,11 @@ use crate::raw::{base, types};
 use crate::types::{PeerRef, StarAmount};
 
 impl Client {
-    /// `gift` is the gift's name or its `t.me/nft/<name>` link; nothing is paid above `price`, in Stars or, when
-    /// `price.ton` is set, in nanotons of Toncoin.
+    /// Buys a resold unique gift and gives it to `new_owner_chat_id`.
+    ///
+    /// `gift` is the gift's name or its `t.me/nft/<name>` link. Nothing is paid above `price`, in Stars or, when
+    /// `price.ton` is set, in nanotons of Toncoin. Fails with `InvalidArgument` if the price is not positive or
+    /// the listed price is above `price`.
     pub async fn send_resold_gift(
         &self,
         gift: &str,

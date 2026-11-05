@@ -2,6 +2,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
 
+/// Request built by [`Client::upgrade_gift`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct UpgradeGift<'a> {
     client: &'a Client,
@@ -12,6 +13,9 @@ pub struct UpgradeGift<'a> {
 }
 
 impl Client {
+    /// Upgrades a received gift to a unique gift.
+    ///
+    /// `owned_gift_id` is the saved gift id or the unique gift slug.
     pub fn upgrade_gift(&self, owned_gift_id: impl Into<String>) -> UpgradeGift<'_> {
         UpgradeGift {
             client: self,
@@ -24,17 +28,19 @@ impl Client {
 }
 
 impl UpgradeGift<'_> {
+    /// Keeps the original sender, text and date on the upgraded gift.
     pub fn keep_original_details(mut self) -> Self {
         self.keep_original_details = true;
         self
     }
 
-    /// Pays the upgrade price in Stars; needed unless the sender prepaid the upgrade.
+    /// Pays the upgrade price in Stars. Needed unless the sender prepaid the upgrade.
     pub fn pay_for_upgrade(mut self) -> Self {
         self.pay_for_upgrade = true;
         self
     }
 
+    /// Upgrades the gift of the business account behind this connection.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.connection_id = Some(id.into());
         self

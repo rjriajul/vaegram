@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::GiftUpgradePreview;
 
 impl Client {
+    /// Shows what upgrading the gift with this `gift_id` can turn it into.
     pub async fn get_gift_upgrade_preview(&self, gift_id: i64) -> Result<GiftUpgradePreview> {
         let request = functions::payments::GetStarGiftUpgradePreview { gift_id };
         Ok(GiftUpgradePreview::parse(&self.invoke(&request).await?))

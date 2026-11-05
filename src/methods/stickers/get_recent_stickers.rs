@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::Sticker;
 
+/// Request built by [`Client::get_recent_stickers`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GetRecentStickers<'a> {
     client: &'a Client,
@@ -10,6 +11,7 @@ pub struct GetRecentStickers<'a> {
 }
 
 impl Client {
+    /// Lists the stickers the account used recently.
     pub fn get_recent_stickers(&self) -> GetRecentStickers<'_> {
         GetRecentStickers { client: self, attached: false }
     }

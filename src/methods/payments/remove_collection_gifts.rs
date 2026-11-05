@@ -4,6 +4,9 @@ use crate::raw::functions;
 use crate::types::{GiftCollection, PeerRef};
 
 impl Client {
+    /// Takes gifts out of a gift collection and returns the updated [`GiftCollection`].
+    ///
+    /// The gifts stay on the profile. Fails with `InvalidArgument` if `owned_gift_ids` is empty.
     pub async fn remove_collection_gifts(
         &self,
         owner_id: impl Into<PeerRef>,

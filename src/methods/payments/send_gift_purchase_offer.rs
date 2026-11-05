@@ -6,6 +6,7 @@ use crate::errors::{Error, Result};
 use crate::raw::functions;
 use crate::types::{PeerRef, StarAmount};
 
+/// Request built by [`Client::send_gift_purchase_offer`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendGiftPurchaseOffer<'a> {
     client: &'a Client,
@@ -17,8 +18,9 @@ pub struct SendGiftPurchaseOffer<'a> {
 }
 
 impl Client {
-    /// Offers `price` for an upgraded gift owned by `owner_id`, open for `duration` seconds; the Stars are charged if
-    /// the owner accepts. `gift` is the gift's name or its `t.me/nft/<name>` link.
+    /// Offers `price` for an upgraded gift owned by `owner_id`, open for `duration` seconds.
+    ///
+    /// The Stars are charged if the owner accepts. `gift` is the gift's name or its `t.me/nft/<name>` link.
     pub fn send_gift_purchase_offer<'a>(
         &'a self,
         owner_id: impl Into<PeerRef>,

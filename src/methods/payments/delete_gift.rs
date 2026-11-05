@@ -11,6 +11,9 @@ pub struct DeleteGift<'a> {
 }
 
 impl Client {
+    /// Deletes a received gift. Fails with `InvalidArgument` if `owned_gift_id` is empty.
+    ///
+    /// `owned_gift_id` is the saved gift id or the unique gift slug.
     pub fn delete_gift(&self, owned_gift_id: impl Into<String>) -> DeleteGift<'_> {
         DeleteGift { client: self, owned_gift_id: owned_gift_id.into(), connection_id: None }
     }

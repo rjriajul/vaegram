@@ -36,11 +36,13 @@ impl Client {
 }
 
 impl CreateNewStickerSet<'_> {
+    /// Makes the set a mask or custom emoji set. The default is [`StickerType::Regular`].
     pub fn sticker_type(mut self, sticker_type: StickerType) -> Self {
         self.sticker_type = sticker_type;
         self
     }
 
+    /// Lets clients repaint the stickers in the text color.
     pub fn needs_repainting(mut self) -> Self {
         self.needs_repainting = true;
         self
