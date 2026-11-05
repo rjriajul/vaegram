@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::Folder;
 
 impl Client {
+    /// Returns the account's folders.
     pub async fn get_folders(&self) -> Result<Vec<Folder>> {
         let base::messages::DialogFilters::DialogFilters(f) =
             self.invoke(&functions::messages::GetDialogFilters {}).await?;

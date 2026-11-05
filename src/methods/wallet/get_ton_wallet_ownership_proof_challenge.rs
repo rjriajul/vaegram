@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::TonWalletOwnershipProofChallenge;
 
 impl Client {
+    /// Returns the challenge to sign to prove ownership of a TON wallet.
     pub async fn get_ton_wallet_ownership_proof_challenge(&self) -> Result<TonWalletOwnershipProofChallenge> {
         Ok(TonWalletOwnershipProofChallenge::parse(self.invoke(&functions::wallet::GetProofChallenge {}).await?))
     }

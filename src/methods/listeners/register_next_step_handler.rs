@@ -8,6 +8,7 @@ use crate::handlers::{Callback, HandlerId, Listenable, Registered, callback};
 use crate::types::Message;
 
 #[must_use = "a listener does nothing until it is awaited"]
+/// Request built by [`Client::register_next_step_handler`].
 pub struct RegisterNextStepHandler<'a, T = Message> {
     client: &'a Client,
     spec: Spec<T>,

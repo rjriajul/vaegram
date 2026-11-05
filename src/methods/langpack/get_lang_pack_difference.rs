@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::LangPackDifference;
 
 impl Client {
+    /// Returns the strings of a language pack that changed since `from_version`.
     pub async fn get_lang_pack_difference(
         &self,
         lang_pack: impl Into<String>,

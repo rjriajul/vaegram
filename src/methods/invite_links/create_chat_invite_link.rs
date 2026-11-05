@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::{ChatInviteLink, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::create_chat_invite_link`].
 pub struct CreateChatInviteLink<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -15,6 +16,10 @@ pub struct CreateChatInviteLink<'a> {
 }
 
 impl Client {
+    /// Creates an additional invite link for the chat.
+    ///
+    /// Awaiting it returns the [`ChatInviteLink`]. The primary link stays as it is, see
+    /// [`export_chat_invite_link`](Client::export_chat_invite_link).
     pub fn create_chat_invite_link(&self, chat_id: impl Into<PeerRef>) -> CreateChatInviteLink<'_> {
         CreateChatInviteLink {
             client: self,
@@ -28,16 +33,19 @@ impl Client {
 }
 
 impl CreateChatInviteLink<'_> {
+    /// Title of the link, shown to admins only.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
     }
 
+    /// Unix time after which the link stops working. Without it the link doesn't expire.
     pub fn expire_date(mut self, date: i32) -> Self {
         self.expire_date = Some(date);
         self
     }
 
+    /// How many users can join through the link. Without it the number is unlimited.
     pub fn member_limit(mut self, limit: i32) -> Self {
         self.member_limit = Some(limit);
         self

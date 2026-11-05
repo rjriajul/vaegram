@@ -15,6 +15,7 @@ pub(super) async fn password_check(
 }
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::replace_ton_wallet`].
 pub struct ReplaceTonWallet<'a> {
     client: &'a Client,
     proof: TonWalletOwnershipProof,

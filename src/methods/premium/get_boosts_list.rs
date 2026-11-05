@@ -6,6 +6,7 @@ use crate::raw::{base, functions};
 use crate::types::{ChatBoost, PeerRef};
 
 #[must_use = "call .next() to fetch boosts"]
+/// Boosts of a chat, fetched page by page with [`next`](GetBoostsList::next).
 pub struct GetBoostsList<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -14,22 +15,28 @@ pub struct GetBoostsList<'a> {
 }
 
 impl Client {
+    /// Lists the boosts of the chat.
+    ///
+    /// Call [`next`](GetBoostsList::next) to get each [`ChatBoost`].
     pub fn get_boosts_list(&self, chat_id: impl Into<PeerRef>) -> GetBoostsList<'_> {
         GetBoostsList { client: self, chat_id: chat_id.into(), gifts: false, pages: OffsetPages::new(100) }
     }
 }
 
 impl GetBoostsList<'_> {
+    /// Lists only boosts that came from gift codes and giveaways.
     pub fn gifts(mut self) -> Self {
         self.gifts = true;
         self
     }
 
+    /// Stops after this many boosts.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next boost, or `None` when there are no more.
     pub async fn next(&mut self) -> Result<Option<ChatBoost>> {
         loop {
             if let Some(boost) = self.pages.pop() {

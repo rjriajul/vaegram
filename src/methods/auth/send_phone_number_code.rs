@@ -7,6 +7,7 @@ use crate::raw::{RemoteCall, base, functions};
 use crate::types::{PhoneNumberAuthenticationSettings, SentCode};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::send_phone_number_code`].
 pub struct SendPhoneNumberCode<'a> {
     client: &'a Client,
     phone_number: String,
@@ -35,6 +36,7 @@ impl SendPhoneNumberCode<'_> {
         self
     }
 
+    /// Options for how Telegram delivers the code.
     pub fn settings(mut self, settings: PhoneNumberAuthenticationSettings) -> Self {
         self.settings = settings;
         self

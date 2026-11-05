@@ -12,6 +12,10 @@ use crate::session::{RateCategory, Session};
 const MAX_MIGRATIONS: usize = 3;
 
 impl Client {
+    /// Sends a raw request and returns its decoded answer.
+    ///
+    /// Uses the client's `request_timeout`. The request waits on the rate limiter and follows the retry policy, see
+    /// [`invoke_with_timeout`](Client::invoke_with_timeout).
     pub async fn invoke<R: RemoteCall>(&self, request: &R) -> Result<R::Return> {
         self.invoke_with_timeout(request, self.session().options().request_timeout).await
     }

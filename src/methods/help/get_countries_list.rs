@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::Country;
 
 impl Client {
+    /// Returns the countries with their phone codes, named in `lang_code`.
     pub async fn get_countries_list(&self, lang_code: impl Into<String>) -> Result<Vec<Country>> {
         let request = functions::help::GetCountriesList { lang_code: lang_code.into(), hash: 0 };
         match self.invoke(&request).await? {

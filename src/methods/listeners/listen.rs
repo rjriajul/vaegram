@@ -8,6 +8,7 @@ use crate::handlers::Listenable;
 use crate::types::Message;
 
 #[must_use = "a listener does nothing until it is awaited"]
+/// Request built by [`Client::listen`]. Awaiting it waits for the update.
 pub struct Listen<'a, T = Message> {
     pub(super) client: &'a Client,
     pub(super) spec: Spec<T>,

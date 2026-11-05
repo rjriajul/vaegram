@@ -5,6 +5,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{ChatInviteLink, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::create_chat_subscription_invite_link`].
 pub struct CreateChatSubscriptionInviteLink<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -33,6 +34,7 @@ impl Client {
 }
 
 impl CreateChatSubscriptionInviteLink<'_> {
+    /// Title of the link, shown to admins only.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self

@@ -7,6 +7,9 @@ use crate::handlers::{HandlerRef, UpdateKind, callback};
 use crate::types::BotSubscriptionUpdated;
 
 impl Client {
+    /// Registers a handler for updates to a user's subscription to the bot that pass `filter`.
+    ///
+    /// Returns a `HandlerRef` to set the group, make the handler stop later groups, or get its id.
     pub fn on_bot_subscription_updated<F, Fut, T>(&self, filter: Filter<BotSubscriptionUpdated>, f: F) -> HandlerRef<'_>
     where
         F: Fn(BotSubscriptionUpdated) -> Fut + Send + Sync + 'static,

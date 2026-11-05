@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Returns how many users joined through the invite link.
     pub async fn get_chat_invite_link_joiners_count(
         &self,
         chat_id: impl Into<PeerRef>,

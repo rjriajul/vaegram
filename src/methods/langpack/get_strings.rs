@@ -4,6 +4,9 @@ use crate::raw::functions;
 use crate::types::LangPackString;
 
 impl Client {
+    /// Returns the language pack strings for the given `keys`.
+    ///
+    /// An empty `keys` fails with `Error::InvalidArgument`.
     pub async fn get_strings(
         &self,
         lang_pack: impl Into<String>,

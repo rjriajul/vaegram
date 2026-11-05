@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::TermsOfService;
 
 impl Client {
+    /// Returns the terms of service Telegram wants accepted. `None` if there is nothing new.
     pub async fn get_terms_of_service_update(&self) -> Result<Option<TermsOfService>> {
         let update = self.invoke(&functions::help::GetTermsOfServiceUpdate {}).await?;
         let base::help::TermsOfServiceUpdate::TermsOfServiceUpdate(u) = update else { return Ok(None) };

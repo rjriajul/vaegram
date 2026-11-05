@@ -4,6 +4,10 @@ use crate::raw::functions;
 use crate::types::User;
 
 impl Client {
+    /// Creates an account for a number that has none, then signs in.
+    ///
+    /// Pass the `phone_code_hash` of the login code, after [`sign_in`](Client::sign_in) failed with
+    /// `Error::SignUpRequired`.
     pub async fn sign_up(
         &self,
         phone_number: &str,

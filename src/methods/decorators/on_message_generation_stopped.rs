@@ -7,6 +7,9 @@ use crate::handlers::{HandlerRef, UpdateKind, callback};
 use crate::types::MessageGenerationStopped;
 
 impl Client {
+    /// Registers a handler for stopped message generation that pass `filter`.
+    ///
+    /// Returns a `HandlerRef` to set the group, make the handler stop later groups, or get its id.
     pub fn on_message_generation_stopped<F, Fut, T>(
         &self,
         filter: Filter<MessageGenerationStopped>,

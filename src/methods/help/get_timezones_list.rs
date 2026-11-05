@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::Timezone;
 
 impl Client {
+    /// Returns the timezones Telegram knows, each with its offset from UTC in seconds.
     pub async fn get_timezones_list(&self) -> Result<Vec<Timezone>> {
         let list = match self.invoke(&functions::help::GetTimezonesList { hash: 0 }).await? {
             base::help::TimezonesList::TimezonesList(list) => list,

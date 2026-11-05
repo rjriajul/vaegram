@@ -3,6 +3,9 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 
 impl Client {
+    /// Signs in as a bot with a token from @BotFather.
+    ///
+    /// Follows a migration to another data center and saves the session.
     pub async fn sign_in_bot(&self, token: &str) -> Result<base::User> {
         let request = functions::auth::ImportBotAuthorization {
             flags: 0,

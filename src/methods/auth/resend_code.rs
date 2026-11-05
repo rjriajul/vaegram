@@ -5,6 +5,8 @@ use crate::raw::functions;
 use crate::types::SentCode;
 
 impl Client {
+    /// Asks Telegram to send the code for `phone_number` again.
+    ///
     /// Use the `phone_code_hash` it returns from then on.
     pub async fn resend_code(&self, phone_number: &str, phone_code_hash: &str) -> Result<SentCode> {
         let request = functions::auth::ResendCode {

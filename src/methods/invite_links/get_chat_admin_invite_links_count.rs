@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Returns how many active links, or revoked ones if `revoked` is set, the admin created in the chat.
     pub async fn get_chat_admin_invite_links_count(
         &self,
         chat_id: impl Into<PeerRef>,

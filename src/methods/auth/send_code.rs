@@ -5,6 +5,10 @@ use crate::raw::base;
 use crate::types::SentCode;
 
 impl Client {
+    /// Sends a login code to `phone_number`.
+    ///
+    /// Returns the [`SentCode`] holding the `phone_code_hash` that [`sign_in`](Client::sign_in) needs. Fails with
+    /// `Error::Unexpected` if Telegram logs in without a code or asks for a payment first.
     pub async fn send_code(&self, phone_number: &str) -> Result<SentCode> {
         self.send_phone_number_code(phone_number).await
     }

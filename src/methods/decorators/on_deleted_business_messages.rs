@@ -7,6 +7,9 @@ use crate::handlers::{HandlerRef, UpdateKind, callback};
 use crate::types::DeletedBusinessMessages;
 
 impl Client {
+    /// Registers a handler for messages deleted through a business connection that pass `filter`.
+    ///
+    /// Returns a `HandlerRef` to set the group, make the handler stop later groups, or get its id.
     pub fn on_deleted_business_messages<F, Fut, T>(
         &self,
         filter: Filter<DeletedBusinessMessages>,

@@ -6,6 +6,7 @@ use crate::raw::{base, functions};
 use crate::utils::compute_password_check;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::change_cloud_password`].
 pub struct ChangeCloudPassword<'a> {
     client: &'a Client,
     current: String,
@@ -14,6 +15,9 @@ pub struct ChangeCloudPassword<'a> {
 }
 
 impl Client {
+    /// Replaces the cloud password with `new_password`, given the current one.
+    ///
+    /// Awaiting it returns whether Telegram accepted the change.
     pub fn change_cloud_password(
         &self,
         current_password: impl Into<String>,
@@ -24,6 +28,7 @@ impl Client {
 }
 
 impl ChangeCloudPassword<'_> {
+    /// Hint shown to whoever has to enter the new password.
     pub fn hint(mut self, hint: impl Into<String>) -> Self {
         self.hint = Some(hint.into());
         self

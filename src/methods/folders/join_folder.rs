@@ -5,6 +5,7 @@ use crate::raw::functions;
 use super::check_folder_invite_link::slug;
 
 impl Client {
+    /// Joins a shared folder from its invite link, along with every chat it adds.
     pub async fn join_folder(&self, invite_link: &str) -> Result<()> {
         let slug = slug(invite_link)?.to_owned();
         let info = self.check_folder_invite_link(invite_link).await?;

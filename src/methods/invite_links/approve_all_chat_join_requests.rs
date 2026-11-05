@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Approves every pending join request of the chat, or only those made through `invite_link`.
     pub async fn approve_all_chat_join_requests(
         &self,
         chat_id: impl Into<PeerRef>,

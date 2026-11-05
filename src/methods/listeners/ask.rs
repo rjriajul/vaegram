@@ -8,6 +8,7 @@ use crate::methods::SendMessage;
 use crate::types::{Message, PeerRef, Text};
 
 #[must_use = "a listener does nothing until it is awaited"]
+/// Request built by [`Client::ask`].
 pub struct Ask<'a> {
     prompt: SendMessage<'a>,
     listen: Listen<'a, Message>,

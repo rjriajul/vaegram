@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Declines every pending join request of the chat, or only those made through `invite_link`.
     pub async fn decline_all_chat_join_requests(
         &self,
         chat_id: impl Into<PeerRef>,

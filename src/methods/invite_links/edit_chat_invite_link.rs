@@ -16,6 +16,9 @@ pub struct EditChatInviteLink<'a> {
 }
 
 impl Client {
+    /// Edits an invite link of the chat.
+    ///
+    /// Awaiting it returns the updated [`ChatInviteLink`].
     pub fn edit_chat_invite_link(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -34,6 +37,7 @@ impl Client {
 }
 
 impl EditChatInviteLink<'_> {
+    /// New title of the link.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
@@ -51,6 +55,7 @@ impl EditChatInviteLink<'_> {
         self
     }
 
+    /// Whether users joining through the link need approval.
     pub fn creates_join_request(mut self, creates_join_request: bool) -> Self {
         self.creates_join_request = Some(creates_join_request);
         self

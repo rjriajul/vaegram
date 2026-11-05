@@ -13,7 +13,8 @@ pub struct RecoverGaps<'a> {
 
 impl Client {
     /// Needs `run` to be taking updates. Resolves to how many messages and then how many other updates came back;
-    /// they reach handlers as usual. The counts include whatever else was already due at that moment. A failed difference is reported as `ClientEvent::DifferenceFailed`, not here.
+    /// they reach handlers as usual. The counts include whatever else was already due at that moment. A failed
+    /// difference is reported as `ClientEvent::DifferenceFailed`, not here.
     pub fn recover_gaps(&self) -> RecoverGaps<'_> {
         RecoverGaps { client: self, chat_ids: None }
     }

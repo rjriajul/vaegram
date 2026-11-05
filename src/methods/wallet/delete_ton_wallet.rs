@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::TonWalletState;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::delete_ton_wallet`].
 pub struct DeleteTonWallet<'a> {
     client: &'a Client,
     password: Option<String>,

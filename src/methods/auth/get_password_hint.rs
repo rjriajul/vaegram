@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 
 impl Client {
+    /// Returns the hint of the cloud password. `None` if there is no password or it has no hint.
     pub async fn get_password_hint(&self) -> Result<Option<String>> {
         let base::account::Password::Password(p) = self.invoke(&functions::account::GetPassword {}).await?;
         Ok(p.hint.filter(|h| !h.is_empty()))

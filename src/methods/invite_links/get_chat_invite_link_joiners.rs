@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::{ChatJoiner, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::get_chat_invite_link_joiners`].
 pub struct GetChatInviteLinkJoiners<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -25,6 +26,7 @@ impl Client {
 }
 
 impl GetChatInviteLinkJoiners<'_> {
+    /// Stops after this many joiners.
     pub fn limit(mut self, limit: usize) -> Self {
         self.limit = limit;
         self
