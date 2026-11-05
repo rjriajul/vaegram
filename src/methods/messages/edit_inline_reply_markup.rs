@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::{InlineKeyboardMarkup, InlineMessageId};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::edit_inline_reply_markup`]. Await it to get Telegram's `bool` answer.
 pub struct EditInlineReplyMarkup<'a> {
     client: &'a Client,
     inline_message_id: InlineMessageId,

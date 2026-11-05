@@ -3,6 +3,10 @@ use crate::methods::EditEphemeralMessage;
 use crate::types::{MessageText, PeerRef, Text};
 
 impl Client {
+    /// Replaces the caption of an ephemeral message that `receiver_user_id` sees.
+    ///
+    /// Awaiting the [`EditEphemeralMessage`] returns the edited
+    /// [`EphemeralMessage`](crate::types::EphemeralMessage).
     pub fn edit_ephemeral_message_caption(
         &self,
         chat_id: impl Into<PeerRef>,

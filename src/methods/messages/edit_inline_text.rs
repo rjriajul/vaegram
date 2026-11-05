@@ -6,6 +6,7 @@ use crate::raw::{RemoteCall, functions};
 use crate::types::{InlineMessageId, LinkPreviewOptions, MessageText, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::edit_inline_text`]. Await it to get Telegram's `bool` answer.
 pub struct EditInlineText<'a> {
     client: &'a Client,
     inline_message_id: InlineMessageId,
@@ -20,6 +21,11 @@ pub struct EditInlineText<'a> {
 }
 
 impl Client {
+    /// Replaces the text of an inline message.
+    ///
+    /// The text is parsed with the client's default parse mode unless [`html`](EditInlineText::html),
+    /// [`markdown`](EditInlineText::markdown) or [`parse_mode`](EditInlineText::parse_mode) is set. The client's link
+    /// preview default applies unless [`link_preview_options`](EditInlineText::link_preview_options) is set.
     pub fn edit_inline_text(
         &self,
         inline_message_id: InlineMessageId,
@@ -57,6 +63,7 @@ impl Client {
 }
 
 impl EditInlineText<'_> {
+    /// Attaches a reply markup to the edited message.
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
         self
@@ -68,13 +75,13 @@ impl EditInlineText<'_> {
         self
     }
 
-    /// For captions of photos, videos and animations.
+    /// Shows the caption above the media, or the link preview above the text.
     pub fn show_caption_above_media(mut self) -> Self {
         self.show_caption_above_media = true;
         self
     }
 
-    /// Which link to preview, how, and whether to show it above the text. Replaces the client default.
+    /// Picks the link to preview, how to show it and whether it goes above the text, in place of the client default.
     pub fn link_preview_options(mut self, options: LinkPreviewOptions) -> Self {
         self.link_preview_options = Some(options);
         self

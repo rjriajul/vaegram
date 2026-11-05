@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Deletes every welcome message of the chat and returns Telegram's answer.
     pub async fn delete_all_welcome_messages(&self, chat_id: impl Into<PeerRef>) -> Result<bool> {
         let request = functions::ephemeral::DeleteAllWelcomeMessages { peer: self.resolve_peer(chat_id).await? };
         self.invoke(&request).await

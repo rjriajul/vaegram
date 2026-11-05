@@ -3,6 +3,10 @@ use crate::methods::EditEphemeralMessage;
 use crate::types::{InputMedia, PeerRef};
 
 impl Client {
+    /// Replaces the media of an ephemeral message that `receiver_user_id` sees.
+    ///
+    /// The caption in `media` is sent with it. Awaiting the [`EditEphemeralMessage`] returns the edited
+    /// [`EphemeralMessage`](crate::types::EphemeralMessage).
     pub fn edit_ephemeral_message_media<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,

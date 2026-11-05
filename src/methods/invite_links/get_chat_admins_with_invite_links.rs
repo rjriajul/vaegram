@@ -5,7 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::{ChatAdminWithInviteLinks, PeerRef};
 
 impl Client {
-    /// Returns the admins of the chat who created invite links, with how many.
+    /// Returns the admins of the chat who created invite links, with their link counts.
     pub async fn get_chat_admins_with_invite_links(
         &self,
         chat_id: impl Into<PeerRef>,

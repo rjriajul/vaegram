@@ -4,6 +4,9 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Deletes scheduled messages before they are sent.
+    ///
+    /// An empty `message_ids` returns `Error::InvalidArgument` without sending anything.
     pub async fn delete_scheduled_messages(&self, chat_id: impl Into<PeerRef>, message_ids: &[i32]) -> Result<()> {
         if message_ids.is_empty() {
             return Err(Error::InvalidArgument("delete_scheduled_messages needs at least one message id"));

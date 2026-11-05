@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{InlineMessageId, InputMedia, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::edit_inline_media`]. Await it to get Telegram's `bool` answer.
 pub struct EditInlineMedia<'a> {
     client: &'a Client,
     inline_message_id: InlineMessageId,
@@ -15,8 +16,9 @@ pub struct EditInlineMedia<'a> {
 impl Client {
     /// Replaces the media of an inline message.
     ///
-    /// Only files already on Telegram: an upload would first need a chat to store it in, as in the Bot API.
-    /// Awaiting a media that needs an upload returns `Error::InvalidArgument`. The media's caption is sent with it.
+    /// Takes only files already on Telegram, since an upload needs a chat to store it in. Media that needs an
+    /// upload makes awaiting return `Error::InvalidArgument`. The caption in `media` is sent with it, and awaiting
+    /// returns Telegram's `bool` answer.
     pub fn edit_inline_media<'a>(
         &'a self,
         inline_message_id: InlineMessageId,
@@ -27,6 +29,7 @@ impl Client {
 }
 
 impl EditInlineMedia<'_> {
+    /// Attaches a reply markup to the edited message.
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
         self

@@ -4,6 +4,9 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Deletes every message in Saved Messages that was saved from `chat_id`.
+    ///
+    /// Telegram deletes in batches, so the call repeats the request until nothing is left.
     pub async fn delete_saved_history(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
         let request = functions::messages::DeleteSavedHistory {
             parent_peer: None,

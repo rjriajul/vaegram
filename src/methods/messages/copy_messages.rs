@@ -6,6 +6,7 @@ use crate::raw::base;
 use crate::types::PeerRef;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::copy_messages`]. Await it to get the ids of the copies.
 pub struct CopyMessages<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -18,9 +19,15 @@ pub struct CopyMessages<'a> {
 impl Client {
     /// Copies `message_ids` to `chat_id` without links to the originals.
     ///
-    /// Takes 1 to 100 ids, otherwise it returns `Error::InvalidArgument`. Returns the ids of the new messages.
-    /// An `Err(Error::Unexpected(..))` means the reply held no update list, so the copies may already have been
-    /// made: check the destination chat before sending again.
+    /// Takes 1 to 100 ids, otherwise it returns `Error::InvalidArgument`. Returns the ids of the copies in request
+    /// order, leaving out any copy Telegram didn't report. `Error::Unexpected` means the reply held no update list,
+    /// so the copies may already exist: check the destination chat before sending again.
+    ///
+    /// ```no_run
+    /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
+    /// let ids = client.copy_messages("me", -1001234567890_i64, &[10, 11]).await?;
+    /// # Ok(()) }
+    /// ```
     pub fn copy_messages<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,
@@ -39,6 +46,7 @@ impl Client {
 }
 
 impl CopyMessages<'_> {
+    /// Drops the captions of copied media.
     pub fn remove_caption(mut self) -> Self {
         self.remove_caption = true;
         self

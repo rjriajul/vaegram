@@ -4,6 +4,9 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Deletes an ephemeral message that `receiver_user_id` sees in the chat.
+    ///
+    /// Returns Telegram's answer.
     pub async fn delete_ephemeral_message(
         &self,
         chat_id: impl Into<PeerRef>,

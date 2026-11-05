@@ -34,7 +34,7 @@ impl Client {
 }
 
 impl CreateChatSubscriptionInviteLink<'_> {
-    /// Title of the link, shown to admins only.
+    /// Gives the link a title that only admins see.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self

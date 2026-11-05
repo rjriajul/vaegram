@@ -55,7 +55,7 @@ impl EditChatInviteLink<'_> {
         self
     }
 
-    /// Whether users joining through the link need approval.
+    /// Makes users joining through the link wait for admin approval, or with `false` lets them in directly.
     pub fn creates_join_request(mut self, creates_join_request: bool) -> Self {
         self.creates_join_request = Some(creates_join_request);
         self

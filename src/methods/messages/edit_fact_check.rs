@@ -6,6 +6,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{Message, PeerRef, Text};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::edit_fact_check`]. Await it to get the edited [`Message`].
 pub struct EditFactCheck<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -17,9 +18,9 @@ pub struct EditFactCheck<'a> {
 impl Client {
     /// Sets the fact check shown under a message.
     ///
-    /// Only accounts Telegram made fact-checkers may call this. The text is parsed with
-    /// [`html`](EditFactCheck::html), [`markdown`](EditFactCheck::markdown) or
-    /// [`parse_mode`](EditFactCheck::parse_mode) if set. Returns the edited [`Message`].
+    /// Only accounts Telegram made fact-checkers may call this. The text is trimmed and parsed with the client's
+    /// default parse mode unless [`html`](EditFactCheck::html), [`markdown`](EditFactCheck::markdown) or
+    /// [`parse_mode`](EditFactCheck::parse_mode) is set. Returns the edited [`Message`].
     pub fn edit_fact_check(
         &self,
         chat_id: impl Into<PeerRef>,

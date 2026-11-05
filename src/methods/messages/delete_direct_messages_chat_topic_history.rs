@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::delete_direct_messages_chat_topic_history`]. Await it to delete.
 pub struct DeleteDirectMessagesChatTopicHistory<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -41,13 +42,13 @@ impl DeleteDirectMessagesChatTopicHistory<'_> {
         self
     }
 
-    /// Deletes only messages sent at or after this unix time.
+    /// Deletes only messages sent after this Unix time.
     pub fn min_date(mut self, date: i32) -> Self {
         self.min_date = Some(date);
         self
     }
 
-    /// Deletes only messages sent at or before this unix time.
+    /// Deletes only messages sent before this Unix time.
     pub fn max_date(mut self, date: i32) -> Self {
         self.max_date = Some(date);
         self
