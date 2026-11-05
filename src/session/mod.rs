@@ -291,6 +291,21 @@ impl Session {
         (Session::local(requests), sent)
     }
 
+    /// A session that takes requests and never answers them.
+    #[cfg(test)]
+    pub(crate) fn silent() -> (Session, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
+        let (bodies, sent) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Some(request) = rx.recv().await {
+                let _ = bodies.send(request.body);
+                held.push(request.answer);
+            }
+        });
+        (Session::local(requests), sent)
+    }
+
     /// A connection for file parts only. The server keeps initConnection's client info with the auth key
     /// (https://core.telegram.org/api/invoking#saving-client-info), so an authorized key needs no second one,
     /// unless `pfs` puts it under a temporary key.
