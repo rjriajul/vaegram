@@ -85,38 +85,43 @@ impl Framing {
 
     /// Frames the payload in `buf[Self::ROOM..]` in place and returns where the frame starts.
     pub fn frame(&mut self, buf: &mut Vec<u8>) -> usize {
-        let len = buf.len() - Self::ROOM;
+        self.frame_after(buf, 0)
+    }
+
+    /// Like [`Framing::frame`], with `skip` more bytes in front of the room, kept free for a layer below.
+    pub(crate) fn frame_after(&mut self, buf: &mut Vec<u8>, skip: usize) -> usize {
+        let len = buf.len() - skip - Self::ROOM;
         match self.transport {
             Transport::Abridged => {
                 debug_assert!(len % 4 == 0 && len / 4 <= 0xff_ffff);
                 let words = len / 4;
                 if words < 0x7f {
-                    buf[7] = words as u8;
-                    7
+                    buf[skip + 7] = words as u8;
+                    skip + 7
                 } else {
-                    buf[4] = 0x7f;
-                    buf[5..8].copy_from_slice(&(words as u32).to_le_bytes()[..3]);
-                    4
+                    buf[skip + 4] = 0x7f;
+                    buf[skip + 5..skip + 8].copy_from_slice(&(words as u32).to_le_bytes()[..3]);
+                    skip + 4
                 }
             }
             Transport::Intermediate => {
-                buf[4..8].copy_from_slice(&(len as u32).to_le_bytes());
-                4
+                buf[skip + 4..skip + 8].copy_from_slice(&(len as u32).to_le_bytes());
+                skip + 4
             }
             Transport::PaddedIntermediate => {
                 let noise: [u8; 16] = random();
                 let pad = (noise[0] & 15) as usize;
                 buf.extend_from_slice(&noise[1..1 + pad]);
-                buf[4..8].copy_from_slice(&((len + pad) as u32).to_le_bytes());
-                4
+                buf[skip + 4..skip + 8].copy_from_slice(&((len + pad) as u32).to_le_bytes());
+                skip + 4
             }
             Transport::Full => {
-                buf[..4].copy_from_slice(&(len as u32 + FULL_OVERHEAD as u32).to_le_bytes());
-                buf[4..8].copy_from_slice(&self.sent.to_le_bytes());
+                buf[skip..skip + 4].copy_from_slice(&(len as u32 + FULL_OVERHEAD as u32).to_le_bytes());
+                buf[skip + 4..skip + 8].copy_from_slice(&self.sent.to_le_bytes());
                 self.sent = self.sent.wrapping_add(1);
-                let crc = crc32fast::hash(buf);
+                let crc = crc32fast::hash(&buf[skip..]);
                 buf.extend_from_slice(&crc.to_le_bytes());
-                0
+                skip
             }
         }
     }

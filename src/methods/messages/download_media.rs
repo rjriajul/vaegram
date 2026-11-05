@@ -178,8 +178,8 @@ impl<'a> DownloadMedia<'a> {
         let workers = chunk_count(size).map_or(1, |_| workers(parts, CHUNK as u64, budget));
         let mut request = functions::upload::GetFile {
             precise: false,
-            // A CDN connection can't carry the takeout wrapper.
-            cdn_supported: client.1.is_none(),
+            // A CDN connection can't carry the takeout wrapper, and CDNs have no WebSocket endpoint.
+            cdn_supported: client.1.is_none() && !client.0.options.uses_websocket(),
             location: location.location,
             offset: window.first_offset(),
             limit: CHUNK,
@@ -820,6 +820,15 @@ mod tests {
 
     fn drain(rx: &mut mpsc::UnboundedReceiver<Vec<u8>>) -> Vec<Vec<u8>> {
         std::iter::from_fn(|| rx.try_recv().ok()).collect()
+    }
+
+    #[cfg(feature = "websocket")]
+    #[tokio::test]
+    async fn websocket_turns_off_cdn() {
+        let (mut client, mut rx) = Client::scripted(vec![file(b"hi".into())]);
+        Arc::get_mut(&mut client.0).unwrap().options.websocket = true;
+        let (result, _) = download(&client, Some(2), None).await;
+        assert_eq!((result, drain(&mut rx)), (Ok(b"hi".to_vec()), vec![get_file(b"old", 0, false).to_bytes()]));
     }
 
     #[tokio::test]

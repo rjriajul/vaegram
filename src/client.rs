@@ -167,6 +167,15 @@ impl ClientBuilder {
         self
     }
 
+    /// Connects over WebSocket on TLS to `*.web.telegram.org:443`, obfuscated, instead of plain TCP: for networks
+    /// that only let HTTPS out. Downloads then skip CDNs, which have no WebSocket endpoint. It can't be combined
+    /// with an MTProxy or the full transport; `connect` refuses those.
+    #[cfg(feature = "websocket")]
+    pub fn websocket(mut self) -> Self {
+        self.options.websocket = true;
+        self
+    }
+
     /// Opens every connection's byte stream, transfers and CDNs included, instead of a TCP connect, for example to
     /// bind a local address with `tokio::net::TcpSocket`. See
     /// [`ConnectionFactory`](crate::connection::ConnectionFactory).
