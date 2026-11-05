@@ -12,7 +12,7 @@ pub struct SearchStickerSets<'a> {
 }
 
 impl Client {
-    /// Searches sticker sets by title or name.
+    /// Searches sticker sets matching `query`.
     pub fn search_sticker_sets(&self, query: impl Into<String>) -> SearchStickerSets<'_> {
         SearchStickerSets { client: self, query: query.into(), custom_emoji: false, exclude_featured: false }
     }

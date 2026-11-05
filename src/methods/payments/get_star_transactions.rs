@@ -17,7 +17,7 @@ pub struct GetStarTransactions<'a> {
 }
 
 impl Client {
-    /// Lists Star transactions of the account, 100 to a page.
+    /// Lists the account's Star transactions, newest first, 100 to a page.
     ///
     /// Awaiting returns a page of [`StarTransactions`]. Pass its `next_offset` to [`GetStarTransactions::offset`].
     pub fn get_star_transactions(&self) -> GetStarTransactions<'_> {
@@ -34,7 +34,7 @@ impl Client {
 }
 
 impl GetStarTransactions<'_> {
-    /// A channel or bot the account owns instead of the account itself.
+    /// Lists the transactions of a channel or bot the account owns instead of its own.
     pub fn chat(mut self, chat_id: impl Into<PeerRef>) -> Self {
         self.chat_id = Some(chat_id.into());
         self

@@ -11,7 +11,7 @@ pub struct GetArchivedStickerSets<'a> {
 }
 
 impl Client {
-    /// Lists the archived sticker sets of one type, 100 to a page.
+    /// Lists the archived sticker sets of one `sticker_type`, 100 to a page.
     ///
     /// Awaiting returns the sets as [`StickerSet`]s. Pass the id of the last one to
     /// [`GetArchivedStickerSets::offset_id`] for the next page.

@@ -16,8 +16,8 @@ pub struct TransferGift<'a> {
 impl Client {
     /// Transfers an upgraded gift to another owner.
     ///
-    /// `owned_gift_id` is the saved gift id or the unique gift slug. Use [`TransferGift::pay_for_transfer`] when
-    /// Telegram charges a fee.
+    /// `owned_gift_id` is the `owned_gift_id` of an owned gift, or a unique gift's slug. Set
+    /// [`TransferGift::pay_for_transfer`] when the gift has a transfer fee.
     pub fn transfer_gift(
         &self,
         owned_gift_id: impl Into<String>,

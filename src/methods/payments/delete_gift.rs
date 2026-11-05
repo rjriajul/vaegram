@@ -2,7 +2,7 @@ use crate::Client;
 use crate::errors::{Error, Result};
 use crate::raw::functions;
 
-/// The gift is gone for good, with no Stars in return.
+/// Request built by [`Client::delete_gift`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct DeleteGift<'a> {
     client: &'a Client,
@@ -11,9 +11,10 @@ pub struct DeleteGift<'a> {
 }
 
 impl Client {
-    /// Deletes a received gift. Fails with `InvalidArgument` if `owned_gift_id` is empty.
+    /// Deletes a received gift for good, with no Stars in return.
     ///
-    /// `owned_gift_id` is the saved gift id or the unique gift slug.
+    /// `owned_gift_id` is the `owned_gift_id` of an owned gift, or a unique gift's slug. Fails with
+    /// `InvalidArgument` if it is empty.
     pub fn delete_gift(&self, owned_gift_id: impl Into<String>) -> DeleteGift<'_> {
         DeleteGift { client: self, owned_gift_id: owned_gift_id.into(), connection_id: None }
     }

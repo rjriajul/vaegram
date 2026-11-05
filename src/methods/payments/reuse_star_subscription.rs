@@ -3,7 +3,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 
 impl Client {
-    /// Restores access a lapsed Star subscription already paid for, without paying again.
+    /// Restores access to a lapsed Star subscription already paid for, without paying again.
     ///
     /// Fails with `InvalidArgument` if `subscription_id` is empty.
     pub async fn reuse_star_subscription(&self, subscription_id: &str) -> Result<()> {

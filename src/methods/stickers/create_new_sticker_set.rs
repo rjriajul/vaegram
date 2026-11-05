@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{InputSticker, PeerRef, StickerSet};
 
+/// Request built by [`Client::create_new_sticker_set`].
 pub struct CreateNewStickerSet<'a> {
     client: &'a Client,
     user: PeerRef,

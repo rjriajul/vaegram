@@ -15,7 +15,7 @@ pub struct GetBoostsList<'a> {
 }
 
 impl Client {
-    /// Lists the boosts of the chat.
+    /// Lists the boosts a chat received.
     ///
     /// Call [`next`](GetBoostsList::next) to get each [`ChatBoost`].
     pub fn get_boosts_list(&self, chat_id: impl Into<PeerRef>) -> GetBoostsList<'_> {

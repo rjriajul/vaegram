@@ -5,7 +5,9 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{UniqueGift, UpgradedGiftAttributeId};
 
-/// Listing of unique gifts for sale, built by [`Client::search_gifts_for_resale`]. Read it with `next`.
+/// Listing of unique gifts for sale, built by [`Client::search_gifts_for_resale`].
+///
+/// Read it with [`next`](SearchGiftsForResale::next).
 #[must_use = "a search does nothing until `next` is called"]
 pub struct SearchGiftsForResale<'a> {
     client: &'a Client,
@@ -44,20 +46,20 @@ impl SearchGiftsForResale<'_> {
         self
     }
 
-    /// Leaves out gifts that can only be bought with Toncoin.
+    /// Lists only gifts that can be bought with Stars.
     pub fn stars_only(mut self) -> Self {
         self.request.stars_only = true;
         self
     }
 
-    /// Only gifts with all of these models, symbols and backdrops.
+    /// Lists only gifts with these models, symbols and backdrops.
     pub fn attributes(mut self, attributes: impl IntoIterator<Item = UpgradedGiftAttributeId>) -> Self {
         let attributes: Vec<_> = attributes.into_iter().map(UpgradedGiftAttributeId::write).collect();
         self.request.attributes = if attributes.is_empty() { None } else { Some(attributes) };
         self
     }
 
-    /// Only gifts that can go into a craft.
+    /// Lists only gifts that can be used for crafting.
     pub fn for_crafting(mut self) -> Self {
         self.request.for_craft = true;
         self

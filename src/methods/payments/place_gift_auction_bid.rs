@@ -18,9 +18,11 @@ pub struct PlaceGiftAuctionBid<'a> {
 }
 
 impl Client {
-    /// Bids `star_count` Stars in a gift's auction for the user or, with `.recipient()`, for someone else.
+    /// Bids `star_count` Stars in the auction for the gift with this `gift_id`.
     ///
-    /// Nothing is paid above `star_count`. Fails with `InvalidArgument` if `star_count` is not positive.
+    /// The bid is for the current account unless [`recipient`](PlaceGiftAuctionBid::recipient) is set. Nothing is
+    /// paid above `star_count`: fails with `InvalidArgument` if `star_count` is not positive or the payment form
+    /// asks for more.
     pub fn place_gift_auction_bid(&self, gift_id: i64, star_count: i64) -> PlaceGiftAuctionBid<'_> {
         PlaceGiftAuctionBid {
             client: self,

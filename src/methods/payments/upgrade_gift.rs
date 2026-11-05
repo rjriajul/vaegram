@@ -15,7 +15,7 @@ pub struct UpgradeGift<'a> {
 impl Client {
     /// Upgrades a received gift to a unique gift.
     ///
-    /// `owned_gift_id` is the saved gift id or the unique gift slug.
+    /// `owned_gift_id` is the `owned_gift_id` of an owned gift, or a unique gift's slug.
     pub fn upgrade_gift(&self, owned_gift_id: impl Into<String>) -> UpgradeGift<'_> {
         UpgradeGift {
             client: self,

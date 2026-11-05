@@ -15,7 +15,9 @@ pub struct GetCallMembers<'a> {
 }
 
 impl Client {
-    /// Lists the members of the group's or channel's active video chat; without one the list is empty.
+    /// Lists the members of the active video chat in a group or channel.
+    ///
+    /// The list is empty when no video chat is running. Call [`next`](GetCallMembers::next) for each member.
     pub fn get_call_members(&self, chat_id: impl Into<PeerRef>) -> GetCallMembers<'_> {
         GetCallMembers { client: self, chat_id: chat_id.into(), call: None, pages: OffsetPages::new(100) }
     }
