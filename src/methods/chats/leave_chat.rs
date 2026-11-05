@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Leaves a basic group, supergroup or channel.
     pub async fn leave_chat(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
         match self.resolve_chat(&chat_id.into()).await? {
             ChatPeer::Group(chat_id) => {

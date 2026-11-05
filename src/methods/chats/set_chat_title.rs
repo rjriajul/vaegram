@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Renames a basic group, supergroup or channel.
     pub async fn set_chat_title(&self, chat_id: impl Into<PeerRef>, title: impl Into<String>) -> Result<()> {
         let title = title.into();
         match self.resolve_chat(&chat_id.into()).await? {

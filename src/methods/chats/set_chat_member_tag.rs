@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Sets the tag shown next to a member's name in a group. An empty `tag` removes it.
     pub async fn set_chat_member_tag(
         &self,
         chat_id: impl Into<PeerRef>,

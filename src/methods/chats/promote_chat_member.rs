@@ -5,6 +5,8 @@ use crate::raw::functions;
 use crate::types::{ChatPrivileges, PeerRef};
 
 impl Client {
+    /// Sets the administrator privileges of a member.
+    ///
     /// In basic groups any privilege makes the user a full admin, and `ChatPrivileges::default()` demotes.
     pub async fn promote_chat_member(
         &self,

@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::{ChatPermissions, PeerRef};
 
+/// Request built by [`Client::restrict_chat_member`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct RestrictChatMember<'a> {
     client: &'a Client,
@@ -13,6 +14,8 @@ pub struct RestrictChatMember<'a> {
 }
 
 impl Client {
+    /// Limits what a member can do in a supergroup.
+    ///
     /// Supergroups only. Pass `ChatPermissions::default()` to mute the user.
     pub fn restrict_chat_member(
         &self,
@@ -31,6 +34,7 @@ impl Client {
 }
 
 impl RestrictChatMember<'_> {
+    /// Unix time when the restriction ends. The default 0 never lifts it.
     pub fn until_date(mut self, until_date: i32) -> Self {
         self.until_date = until_date;
         self

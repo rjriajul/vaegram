@@ -14,6 +14,7 @@ pub struct GetMessagePublicForwards<'a> {
 }
 
 impl Client {
+    /// Starts reading the public reposts of a channel message, 100 per request.
     pub fn get_message_public_forwards(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -24,11 +25,13 @@ impl Client {
 }
 
 impl GetMessagePublicForwards<'_> {
+    /// Stops after this many reposts in total. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next repost, or `None` once the list or the limit is exhausted.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         loop {
             if let Some(message) = self.pages.pop() {

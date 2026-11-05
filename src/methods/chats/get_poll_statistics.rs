@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::{PeerRef, PollStatistics};
 
 impl Client {
+    /// Returns the statistics of a poll message.
     pub async fn get_poll_statistics(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> Result<PollStatistics> {
         let peer = self.resolve_peer(chat_id).await?;
         let request = functions::stats::GetPollStats { dark: false, peer, msg_id: message_id };

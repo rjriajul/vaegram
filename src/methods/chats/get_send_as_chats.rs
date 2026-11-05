@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::{Chat, PeerRef};
 
 impl Client {
+    /// Returns the chats you can send messages as in a chat, such as your own channels.
     pub async fn get_send_as_chats(&self, chat_id: impl Into<PeerRef>) -> Result<Vec<Chat>> {
         let peer = self.resolve_peer(chat_id).await?;
         let request = functions::channels::GetSendAs { for_paid_reactions: false, for_live_stories: false, peer };

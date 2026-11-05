@@ -4,6 +4,10 @@ use crate::raw::functions;
 use crate::types::StatisticalGraph;
 
 impl Client {
+    /// Loads a graph whose data Telegram sends lazily.
+    ///
+    /// `token` comes from a `StatisticalGraph::Async` or a `zoom_token`. An empty one fails with `InvalidArgument`.
+    /// `x` is the value to zoom in on, or `None` for the unzoomed graph.
     pub async fn get_statistical_graph(&self, token: impl Into<String>, x: Option<i64>) -> Result<StatisticalGraph> {
         let token = token.into();
         if token.is_empty() {

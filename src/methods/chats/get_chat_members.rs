@@ -8,6 +8,7 @@ use crate::types::{ChatMember, PeerRef};
 
 const PARTICIPANTS_LIMIT: usize = 200;
 
+/// Request built by [`Client::get_chat_members`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GetChatMembers<'a> {
     client: &'a Client,
@@ -18,7 +19,16 @@ pub struct GetChatMembers<'a> {
 }
 
 impl Client {
-    /// Basic groups ignore `query` and `filter`.
+    /// Returns the members of a chat.
+    ///
+    /// Awaiting returns a `Vec` of [`ChatMember`](crate::types::ChatMember). Channels are read 200 at a time until
+    /// `limit` or the end of the list. Basic groups ignore `query` and `filter`.
+    ///
+    /// ```no_run
+    /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
+    /// let members = client.get_chat_members(-1001234567890).limit(50).await?;
+    /// # Ok(()) }
+    /// ```
     pub fn get_chat_members(&self, chat_id: impl Into<PeerRef>) -> GetChatMembers<'_> {
         GetChatMembers {
             client: self,
@@ -43,16 +53,19 @@ impl Client {
 }
 
 impl GetChatMembers<'_> {
+    /// Only returns channel members whose name matches this text.
     pub fn query(mut self, query: impl Into<String>) -> Self {
         self.query = query.into();
         self
     }
 
+    /// Selects which participants of a channel to list.
     pub fn filter(mut self, filter: ChatMembersFilter) -> Self {
         self.filter = filter;
         self
     }
 
+    /// Returns at most this many members. The default returns all of them.
     pub fn limit(mut self, limit: usize) -> Self {
         self.limit = limit;
         self

@@ -6,6 +6,16 @@ use crate::types::{Chat, ChatFullInfo, Community, PeerRef, User};
 use crate::utils::get_peer;
 
 impl Client {
+    /// Returns the full `Chat` for a user, group or channel.
+    ///
+    /// Besides the basics it fills the bio, invite link, member count and `full_info`, which cost one more request
+    /// than the chat objects that come with updates.
+    ///
+    /// ```no_run
+    /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
+    /// let chat = client.get_chat("me").await?;
+    /// # Ok(()) }
+    /// ```
     pub async fn get_chat(&self, chat_id: impl Into<PeerRef>) -> Result<Chat> {
         let chat_id = self.peer_id(chat_id.into()).await?;
         if chat_id > 0 {

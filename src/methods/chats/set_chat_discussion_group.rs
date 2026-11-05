@@ -4,6 +4,8 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Links a discussion group to a channel.
+    ///
     /// `None` unlinks the channel's discussion group.
     pub async fn set_chat_discussion_group(
         &self,

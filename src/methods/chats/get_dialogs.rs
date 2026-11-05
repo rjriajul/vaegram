@@ -5,6 +5,9 @@ use crate::raw::{base, functions};
 use crate::types::Dialog;
 use crate::utils::get_peer_id;
 
+/// Dialog list, read one dialog at a time with [`next`](GetDialogs::next).
+///
+/// Call `next` until it returns `None`.
 pub struct GetDialogs<'a> {
     client: &'a Client,
     folder_id: Option<i32>,
@@ -14,17 +17,20 @@ pub struct GetDialogs<'a> {
 }
 
 impl Client {
+    /// Starts reading your dialogs from the main chat list.
     pub fn get_dialogs(&self) -> GetDialogs<'_> {
         GetDialogs { client: self, folder_id: None, total: None, pages: DialogPages::new() }
     }
 }
 
 impl GetDialogs<'_> {
+    /// Stops after this many dialogs in total. The default reads the whole list.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Reads the folder with this id instead of the main list. Folder 1 is the archive.
     pub fn chat_list(mut self, folder_id: i32) -> Self {
         self.folder_id = Some(folder_id);
         self
@@ -43,6 +49,7 @@ impl GetDialogs<'_> {
         Ok(total)
     }
 
+    /// Returns the next dialog, or `None` once the list or the limit is exhausted.
     pub async fn next(&mut self) -> Result<Option<Dialog>> {
         loop {
             if let Some(dialog) = self.pages.pop() {

@@ -4,6 +4,7 @@ use crate::methods::advanced::ChatPeer;
 use crate::raw::{base, functions};
 use crate::types::{ChatPermissions, PeerRef};
 
+/// Request built by [`Client::ban_chat_member`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct BanChatMember<'a> {
     client: &'a Client,

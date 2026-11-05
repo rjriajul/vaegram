@@ -2,6 +2,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
 
+/// Request built by [`Client::set_upgraded_gift_colors`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetUpgradedGiftColors<'a> {
     client: &'a Client,

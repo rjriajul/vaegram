@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Replaces the description of a group or channel.
     pub async fn set_chat_description(
         &self,
         chat_id: impl Into<PeerRef>,

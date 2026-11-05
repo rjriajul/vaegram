@@ -2,6 +2,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::types::PeerRef;
 
+/// Request built by [`Client::mute_chat`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct MuteChat<'a> {
     client: &'a Client,
@@ -10,6 +11,7 @@ pub struct MuteChat<'a> {
 }
 
 impl Client {
+    /// Mutes notifications from a chat, forever unless [`mute_until`](MuteChat::mute_until) is set.
     pub fn mute_chat(&self, chat_id: impl Into<PeerRef>) -> MuteChat<'_> {
         MuteChat { client: self, chat_id: chat_id.into(), until: i32::MAX }
     }

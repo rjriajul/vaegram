@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Pins a forum topic to the top of the topic list.
     pub async fn pin_forum_topic(&self, chat_id: impl Into<PeerRef>, topic_id: i32) -> Result<()> {
         self.toggle_forum_topic_pin(chat_id, topic_id, true).await
     }

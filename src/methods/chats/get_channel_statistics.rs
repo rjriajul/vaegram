@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::{ChannelStatistics, PeerRef};
 
 impl Client {
+    /// Returns the statistics Telegram keeps for a broadcast channel.
     pub async fn get_channel_statistics(&self, chat_id: impl Into<PeerRef>) -> Result<ChannelStatistics> {
         let channel = self.resolve_channel(&chat_id.into()).await?;
         let stats = self.invoke(&functions::stats::GetBroadcastStats { dark: false, channel }).await?;

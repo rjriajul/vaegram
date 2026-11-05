@@ -5,6 +5,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::types::{Chat, ForumTopic, PeerRef};
 
+/// Request built by [`Client::create_forum_topic`].
 pub struct CreateForumTopic<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -14,6 +15,9 @@ pub struct CreateForumTopic<'a> {
 }
 
 impl Client {
+    /// Creates a topic in a forum supergroup.
+    ///
+    /// Awaiting returns the new `ForumTopic`, taken from the service message in Telegram's reply.
     pub fn create_forum_topic(&self, chat_id: impl Into<PeerRef>, title: impl Into<String>) -> CreateForumTopic<'_> {
         CreateForumTopic {
             client: self,

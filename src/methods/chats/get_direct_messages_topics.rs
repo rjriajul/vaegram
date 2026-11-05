@@ -25,6 +25,7 @@ impl Client {
 }
 
 impl GetDirectMessagesTopics<'_> {
+    /// Stops after this many topics in total. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
@@ -36,6 +37,7 @@ impl GetDirectMessagesTopics<'_> {
         self
     }
 
+    /// Returns the next topic, or `None` once the list or the limit is exhausted.
     pub async fn next(&mut self) -> Result<Option<DirectMessagesChatTopic>> {
         loop {
             if let Some(topic) = self.pages.pop() {

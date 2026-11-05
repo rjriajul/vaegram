@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::ProfileAccentColor;
 
 impl Client {
+    /// Returns the accent colors a profile can use.
     pub async fn get_peer_profile_colors(&self) -> Result<Vec<ProfileAccentColor>> {
         match self.invoke(&functions::help::GetPeerProfileColors { hash: 0 }).await? {
             base::help::PeerColors::PeerColors(c) => Ok(c.colors.into_iter().map(ProfileAccentColor::parse).collect()),

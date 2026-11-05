@@ -5,6 +5,7 @@ use crate::methods::pages::DialogPages;
 use crate::raw::{base, functions, types};
 use crate::types::{ForumTopic, PeerRef};
 
+/// Topics of a forum, read one at a time with [`next`](GetForumTopics::next).
 pub struct GetForumTopics<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -13,17 +14,20 @@ pub struct GetForumTopics<'a> {
 }
 
 impl Client {
+    /// Starts reading the topics of a forum supergroup.
     pub fn get_forum_topics(&self, chat_id: impl Into<PeerRef>) -> GetForumTopics<'_> {
         GetForumTopics { client: self, chat_id: chat_id.into(), offset_topic: 0, pages: DialogPages::new() }
     }
 }
 
 impl GetForumTopics<'_> {
+    /// Stops after this many topics in total. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next topic, or `None` once the list or the limit is exhausted.
     pub async fn next(&mut self) -> Result<Option<ForumTopic>> {
         loop {
             if let Some(topic) = self.pages.pop() {

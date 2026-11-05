@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::AccentColor;
 
 impl Client {
+    /// Returns the accent colors a chat name and reply can use.
     pub async fn get_peer_colors(&self) -> Result<Vec<AccentColor>> {
         match self.invoke(&functions::help::GetPeerColors { hash: 0 }).await? {
             base::help::PeerColors::PeerColors(c) => Ok(c.colors.into_iter().map(AccentColor::parse).collect()),
