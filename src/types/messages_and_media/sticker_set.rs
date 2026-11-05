@@ -42,12 +42,16 @@ impl StickerSet {
             (_, true) => StickerType::CustomEmoji,
             _ => StickerType::Regular,
         };
+        let mut stickers: Vec<Sticker> = documents.iter().filter_map(Sticker::parse).collect();
+        for sticker in &mut stickers {
+            sticker.set_name = Some(set.short_name.clone());
+        }
         StickerSet {
             id: set.id,
             name: set.short_name.clone(),
             title: set.title.clone(),
             sticker_type,
-            stickers: documents.iter().filter_map(Sticker::parse).collect(),
+            stickers,
             thumbnail: thumbnail(set),
         }
     }
@@ -123,6 +127,7 @@ mod tests {
         assert_eq!((cats.id, cats.name.as_str(), cats.title.as_str()), (10, "cats_by_bot", "Cats"));
         assert_eq!(cats.sticker_type, StickerType::Regular);
         assert_eq!(cats.stickers.iter().map(|s| s.id).collect::<Vec<_>>(), [1, 3]);
+        assert!(cats.stickers.iter().all(|s| s.set_name.as_deref() == Some("cats_by_bot")));
         let thumbnail = cats.thumbnail.unwrap();
         assert_eq!((thumbnail.dc_id, thumbnail.file_size), (Some(4), Some(900)));
         let base::InputFileLocation::InputStickerSetThumb(thumb) = thumbnail.location else {
