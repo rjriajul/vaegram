@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::AvailableEffect;
 
 impl Client {
+    /// Returns the message effects Telegram offers.
     pub async fn get_available_effects(&self) -> Result<Vec<AvailableEffect>> {
         match self.invoke(&functions::messages::GetAvailableEffects { hash: 0 }).await? {
             base::messages::AvailableEffects::AvailableEffects(e) => {

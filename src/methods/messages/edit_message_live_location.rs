@@ -5,6 +5,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{Message, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::edit_message_live_location`]. Await it to get the edited [`Message`].
 pub struct EditMessageLiveLocation<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -20,6 +21,7 @@ pub struct EditMessageLiveLocation<'a> {
 }
 
 impl Client {
+    /// Moves the live location in `message_id` to the new coordinates and returns the edited [`Message`].
     pub fn edit_message_live_location(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -44,31 +46,37 @@ impl Client {
 }
 
 impl EditMessageLiveLocation<'_> {
+    /// Radius of uncertainty of the location, in meters.
     pub fn horizontal_accuracy(mut self, meters: i32) -> Self {
         self.horizontal_accuracy = Some(meters);
         self
     }
 
+    /// Direction of movement, in degrees.
     pub fn heading(mut self, degrees: i32) -> Self {
         self.heading = Some(degrees);
         self
     }
 
+    /// Distance in meters at which members get an alert when another member comes within it.
     pub fn proximity_alert_radius(mut self, meters: i32) -> Self {
         self.proximity_alert_radius = Some(meters);
         self
     }
 
+    /// New live period, in seconds, counted from now.
     pub fn live_period(mut self, seconds: i32) -> Self {
         self.live_period = Some(seconds);
         self
     }
 
+    /// Attaches an inline keyboard to the message.
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
         self
     }
 
+    /// Edits on behalf of this business connection.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.business_connection_id = Some(id.into());
         self

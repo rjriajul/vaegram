@@ -4,6 +4,9 @@ use crate::types::{Message, PeerRef};
 use crate::utils::get_channel_id;
 
 impl Client {
+    /// Returns the message a `t.me` link points to, or `None` if it no longer exists.
+    ///
+    /// Returns `Error::InvalidArgument` if `link` is not a message link.
     pub async fn get_message_by_link(&self, link: &str) -> Result<Option<Message>> {
         let (chat, message_id) = parse_link(link).ok_or(Error::InvalidArgument("not a t.me message link"))?;
         Ok(self.get_messages(chat, &[message_id]).await?.pop().flatten())

@@ -5,6 +5,7 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{PeerReaction, PeerRef, ReactionType};
 
+/// Pages through who reacted to a message. Call [`next`](GetMessageReactionsList::next) for each reaction.
 pub struct GetMessageReactionsList<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -14,6 +15,7 @@ pub struct GetMessageReactionsList<'a> {
 }
 
 impl Client {
+    /// Walks the reactions to `message_id` in `chat_id`.
     pub fn get_message_reactions_list(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -25,16 +27,19 @@ impl Client {
 }
 
 impl GetMessageReactionsList<'_> {
+    /// Only reactions of this type.
     pub fn reaction(mut self, reaction: impl Into<ReactionType>) -> Self {
         self.reaction = Some(reaction.into());
         self
     }
 
+    /// Stops after this many reactions.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next reaction, or `None` when there are no more.
     pub async fn next(&mut self) -> Result<Option<PeerReaction>> {
         loop {
             if let Some(reaction) = self.pages.pop() {

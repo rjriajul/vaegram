@@ -12,7 +12,7 @@ pub struct EditInlineReplyMarkup<'a> {
 }
 
 impl Client {
-    /// `None` removes the keyboard.
+    /// Replaces the inline keyboard of an inline message. `None` removes the keyboard.
     pub fn edit_inline_reply_markup(
         &self,
         inline_message_id: InlineMessageId,

@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::{InputMedia, Message, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::edit_message_media`]. Await it to get the edited [`Message`].
 pub struct EditMessageMedia<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -15,6 +16,7 @@ pub struct EditMessageMedia<'a> {
 }
 
 impl Client {
+    /// Replaces the media of `message_id`, with the caption taken from `media`, and returns the edited [`Message`].
     pub fn edit_message_media<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,
@@ -33,11 +35,13 @@ impl Client {
 }
 
 impl EditMessageMedia<'_> {
+    /// Attaches an inline keyboard to the message.
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
         self
     }
 
+    /// Edits on behalf of this business connection.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.business_connection_id = Some(id.into());
         self

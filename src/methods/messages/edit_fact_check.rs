@@ -15,7 +15,11 @@ pub struct EditFactCheck<'a> {
 }
 
 impl Client {
-    /// Only accounts Telegram made fact-checkers may call this.
+    /// Sets the fact check shown under a message.
+    ///
+    /// Only accounts Telegram made fact-checkers may call this. The text is parsed with
+    /// [`html`](EditFactCheck::html), [`markdown`](EditFactCheck::markdown) or
+    /// [`parse_mode`](EditFactCheck::parse_mode) if set. Returns the edited [`Message`].
     pub fn edit_fact_check(
         &self,
         chat_id: impl Into<PeerRef>,

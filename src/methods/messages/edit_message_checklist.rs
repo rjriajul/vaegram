@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::{InputChecklist, Message, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::edit_message_checklist`]. Await it to get the edited [`Message`].
 pub struct EditMessageChecklist<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -15,7 +16,9 @@ pub struct EditMessageChecklist<'a> {
 }
 
 impl Client {
-    /// Replaces the whole checklist; `InputChecklist::from(checklist)` keeps the formatting of an existing one.
+    /// Replaces the checklist in `message_id` and returns the edited [`Message`].
+    ///
+    /// The whole checklist is replaced. `InputChecklist::from(checklist)` keeps the formatting of an existing one.
     pub fn edit_message_checklist(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -34,11 +37,13 @@ impl Client {
 }
 
 impl EditMessageChecklist<'_> {
+    /// Attaches an inline keyboard to the message.
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
         self
     }
 
+    /// Edits on behalf of this business connection.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.business_connection_id = Some(id.into());
         self

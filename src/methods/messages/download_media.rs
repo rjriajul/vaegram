@@ -86,6 +86,7 @@ pub struct DownloadMedia<'a> {
     limit: Option<u64>,
 }
 
+/// Chunks of a download, in file order. Get one from [`DownloadMedia::stream`].
 #[must_use = "a stream does nothing until `next()` is awaited"]
 pub struct MediaStream<'a> {
     download: Option<Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>>,
@@ -93,7 +94,12 @@ pub struct MediaStream<'a> {
 }
 
 impl Client {
+    /// Downloads a file from Telegram.
+    ///
     /// `media` is a read type such as [`Photo`](crate::types::Photo), a [`FileLocation`] or a `file_id` string.
+    /// Awaiting the request returns the whole file as bytes. A file id that doesn't parse fails the request before
+    /// anything is sent. If the file reference has expired and the file came from a message or story, the download
+    /// reads that message or story again once and retries.
     pub fn download_media(&self, media: impl TryInto<FileLocation, Error: Into<Error>>) -> DownloadMedia<'_> {
         DownloadMedia::new(self, media.try_into().map_err(Into::into), None)
     }
@@ -274,6 +280,7 @@ impl Master<'_> {
 }
 
 impl MediaStream<'_> {
+    /// Returns the next chunk, `None` at the end of the file, or the error that stopped the download.
     pub async fn next(&mut self) -> Option<Result<Vec<u8>>> {
         poll_fn(|cx| {
             if let Some(download) = &mut self.download {

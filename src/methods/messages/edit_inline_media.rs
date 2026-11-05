@@ -13,7 +13,10 @@ pub struct EditInlineMedia<'a> {
 }
 
 impl Client {
+    /// Replaces the media of an inline message.
+    ///
     /// Only files already on Telegram: an upload would first need a chat to store it in, as in the Bot API.
+    /// Awaiting a media that needs an upload returns `Error::InvalidArgument`. The media's caption is sent with it.
     pub fn edit_inline_media<'a>(
         &'a self,
         inline_message_id: InlineMessageId,

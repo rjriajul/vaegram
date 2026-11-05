@@ -62,7 +62,7 @@ impl EditInlineText<'_> {
         self
     }
 
-    /// Sends the text without a link preview (Pyrogram's `disable_web_page_preview`).
+    /// Sends the text without a link preview.
     pub fn disable_web_page_preview(mut self) -> Self {
         self.no_webpage = true;
         self

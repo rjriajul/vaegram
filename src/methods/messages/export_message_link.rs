@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::export_message_link`]. Await it to get the link as a `String`.
 pub struct ExportMessageLink<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -20,11 +21,13 @@ impl Client {
 }
 
 impl ExportMessageLink<'_> {
+    /// Links to the whole album instead of the single message.
     pub fn grouped(mut self) -> Self {
         self.grouped = true;
         self
     }
 
+    /// Links to the message within its comment thread.
     pub fn thread(mut self) -> Self {
         self.thread = true;
         self

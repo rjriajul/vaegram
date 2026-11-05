@@ -16,6 +16,9 @@ pub struct CopyMessages<'a> {
 }
 
 impl Client {
+    /// Copies `message_ids` to `chat_id` without links to the originals.
+    ///
+    /// Takes 1 to 100 ids, otherwise it returns `Error::InvalidArgument`. Returns the ids of the new messages.
     /// An `Err(Error::Unexpected(..))` means the reply held no update list, so the copies may already have been
     /// made: check the destination chat before sending again.
     pub fn copy_messages<'a>(

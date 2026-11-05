@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::{InlineKeyboardMarkup, Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::edit_message_reply_markup`]. Await it to get the edited [`Message`].
 pub struct EditMessageReplyMarkup<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -14,6 +15,7 @@ pub struct EditMessageReplyMarkup<'a> {
 }
 
 impl Client {
+    /// Replaces the inline keyboard of `message_id` and returns the edited [`Message`]. `None` removes the keyboard.
     pub fn edit_message_reply_markup(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -31,6 +33,7 @@ impl Client {
 }
 
 impl EditMessageReplyMarkup<'_> {
+    /// Edits on behalf of this business connection.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.business_connection_id = Some(id.into());
         self

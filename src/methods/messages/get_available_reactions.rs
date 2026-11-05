@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::AvailableReaction;
 
 impl Client {
+    /// Returns the reactions Telegram offers.
     pub async fn get_available_reactions(&self) -> Result<Vec<AvailableReaction>> {
         match self.invoke(&functions::messages::GetAvailableReactions { hash: 0 }).await? {
             base::messages::AvailableReactions::AvailableReactions(r) => {

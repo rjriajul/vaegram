@@ -5,6 +5,7 @@ use crate::errors::{Error, Result};
 use crate::types::{Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::forward_media_group`]. Await it to get the forwarded [`Message`]s.
 pub struct ForwardMediaGroup<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -42,6 +43,7 @@ impl ForwardMediaGroup<'_> {
         self
     }
 
+    /// Leaves out the captions of the forwarded media.
     pub fn hide_captions(mut self) -> Self {
         self.hide_captions = true;
         self

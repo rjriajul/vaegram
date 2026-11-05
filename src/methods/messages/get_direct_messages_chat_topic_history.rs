@@ -19,16 +19,19 @@ impl Client {
 }
 
 impl GetDirectMessagesChatTopicHistory<'_> {
+    /// Stops after this many messages.
     pub fn limit(mut self, limit: usize) -> Self {
         self.0 = self.0.limit(limit);
         self
     }
 
+    /// Starts at this message id, leaving out newer messages.
     pub fn offset_id(mut self, message_id: i32) -> Self {
         self.0 = self.0.offset_id(message_id);
         self
     }
 
+    /// Starts at this Unix time.
     pub fn offset_date(mut self, date: i32) -> Self {
         self.0 = self.0.offset_date(date);
         self
@@ -46,6 +49,7 @@ impl GetDirectMessagesChatTopicHistory<'_> {
         self
     }
 
+    /// Returns the next message, or `None` at the end of the topic.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         self.0.next().await
     }

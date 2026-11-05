@@ -14,7 +14,10 @@ pub struct DeleteDirectMessagesChatTopicHistory<'a> {
 }
 
 impl Client {
-    /// `chat_id` is the direct messages chat; `topic_id` is the id of the user writing to it.
+    /// Deletes the history of one topic in a direct messages chat.
+    ///
+    /// `chat_id` is the direct messages chat and `topic_id` is the id of the user writing to it. Telegram deletes in
+    /// batches, so awaiting repeats the request until nothing is left.
     pub fn delete_direct_messages_chat_topic_history(
         &self,
         chat_id: impl Into<PeerRef>,

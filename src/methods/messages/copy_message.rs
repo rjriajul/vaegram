@@ -7,6 +7,7 @@ use crate::types::messages_and_media::{input_document_of, input_photo_of};
 use crate::types::{Message, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request to copy a message. Await it to get the new [`Message`].
 pub struct CopyMessage<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -18,6 +19,9 @@ pub struct CopyMessage<'a> {
 }
 
 impl Client {
+    /// Copies a message to `chat_id` without a link to the original.
+    ///
+    /// Returns the copy as a [`Message`].
     pub fn copy_message(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -37,6 +41,7 @@ impl Client {
 }
 
 impl CopyMessage<'_> {
+    /// Replaces the caption of the copied media. Ignored when the source has no media.
     pub fn caption(mut self, caption: impl Into<String>) -> Self {
         self.caption = Some(caption.into());
         self

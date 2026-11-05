@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request to approve a suggested post. Await it to send.
 pub struct ApproveSuggestedPost<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -12,6 +13,9 @@ pub struct ApproveSuggestedPost<'a> {
 }
 
 impl Client {
+    /// Approves the suggested post in `message_id`.
+    ///
+    /// The post is published right away unless [`send_date`](ApproveSuggestedPost::send_date) is set.
     pub fn approve_suggested_post(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> ApproveSuggestedPost<'_> {
         ApproveSuggestedPost { client: self, chat_id: chat_id.into(), message_id, send_date: None }
     }
