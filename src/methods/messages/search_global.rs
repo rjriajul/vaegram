@@ -5,6 +5,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::Message;
 
+/// Messages found by [`Client::search_global`]. Call [`next`](SearchGlobal::next) until it returns `None`.
 #[must_use = "call .next() to fetch messages"]
 pub struct SearchGlobal<'a> {
     client: &'a Client,
@@ -19,6 +20,9 @@ pub struct SearchGlobal<'a> {
 }
 
 impl Client {
+    /// Searches the messages of all chats for a text, newest first.
+    ///
+    /// Set [`filter`](SearchGlobal::filter) to look for one kind of message only.
     pub fn search_global(&self, query: impl Into<String>) -> SearchGlobal<'_> {
         SearchGlobal {
             client: self,
@@ -35,36 +39,43 @@ impl Client {
 }
 
 impl SearchGlobal<'_> {
+    /// Only messages of this kind.
     pub fn filter(mut self, filter: MessagesFilter) -> Self {
         self.filter = filter;
         self
     }
 
+    /// Stops after this many messages. Without it the search runs to the oldest match.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Only messages from channels.
     pub fn broadcasts_only(mut self) -> Self {
         self.broadcasts_only = true;
         self
     }
 
+    /// Only messages from groups and supergroups.
     pub fn groups_only(mut self) -> Self {
         self.groups_only = true;
         self
     }
 
+    /// Only messages from private chats.
     pub fn users_only(mut self) -> Self {
         self.users_only = true;
         self
     }
 
+    /// Lower bound on the send date, as a Unix time.
     pub fn min_date(mut self, date: i32) -> Self {
         self.min_date = date;
         self
     }
 
+    /// Upper bound on the send date, as a Unix time.
     pub fn max_date(mut self, date: i32) -> Self {
         self.max_date = date;
         self
@@ -82,6 +93,7 @@ impl SearchGlobal<'_> {
         Ok(total)
     }
 
+    /// Returns the next match, fetching a page when the buffered one is used up. `None` after the last match.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         loop {
             if let Some(message) = self.pages.pop(self.client) {

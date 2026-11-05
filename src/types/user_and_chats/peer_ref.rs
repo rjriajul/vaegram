@@ -1,11 +1,22 @@
 use crate::types::{Chat, Message, User};
 use crate::utils::get_channel_id;
 
+/// A way to name a chat or user.
+///
+/// Converts from ids, usernames, `t.me` links and a [`Chat`], [`User`] or [`Message`] (its chat), so most
+/// methods that take a chat accept any of them.
+/// `&str` input is trimmed and read as follows: a number is an [`Id`](PeerRef::Id), `me` or `self` is
+/// [`Me`](PeerRef::Me), a `t.me` link or `tg:` link is resolved to a username, invite hash or channel id,
+/// and anything else is a username, with a leading `@` dropped and a leading `+` read as an invite hash.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PeerRef {
+    /// A numeric id. Users are positive, basic groups negative, channels `-100` followed by the channel id.
     Id(i64),
+    /// The current account.
     Me,
+    /// A public username, without the `@`.
     Username(Box<str>),
+    /// The hash of an invite link, without the `+` or the `joinchat/` prefix.
     Invite(Box<str>),
 }
 
@@ -98,7 +109,7 @@ impl PeerRef {
     }
 }
 
-/// Schemes and hosts are case-insensitive; the rest of a link isn't.
+/// Schemes and hosts are case-insensitive, but the rest of a link isn't.
 fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     let (head, rest) = (s.get(..prefix.len())?, s.get(prefix.len()..)?);
     head.eq_ignore_ascii_case(prefix).then_some(rest)

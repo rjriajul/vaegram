@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Returns how many replies `message_id` has.
     pub async fn get_discussion_replies_count(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> Result<i32> {
         let request = functions::messages::GetReplies {
             peer: self.resolve_peer(chat_id).await?,

@@ -1,10 +1,13 @@
 use crate::raw::base;
 use crate::types::FormattedText;
 
+/// Text produced by Telegram's AI compose feature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComposedText {
+    /// The text Telegram composed.
     pub text: FormattedText,
     /// The changes against the input, marked with `DiffInsert`, `DiffReplace` and `DiffDelete` entities.
+    /// `None` if Telegram sends no diff.
     pub diff: Option<FormattedText>,
 }
 

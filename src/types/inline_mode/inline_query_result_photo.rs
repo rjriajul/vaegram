@@ -1,5 +1,6 @@
 use super::inline_query_result::{Parts, WebFile, setters};
 
+/// A JPEG photo at a URL.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultPhoto {
     parts: Parts,
@@ -7,6 +8,7 @@ pub struct InlineQueryResultPhoto {
 }
 
 impl InlineQueryResultPhoto {
+    /// Creates a result for the photo at `photo_url`, previewed by the image at `thumbnail_url`.
     pub fn new(photo_url: impl Into<String>, thumbnail_url: impl Into<String>) -> Self {
         let parts = Parts { thumbnail_url: Some(thumbnail_url.into()), ..Parts::new() };
         InlineQueryResultPhoto { parts, file: WebFile::new(photo_url.into(), "image/jpeg") }

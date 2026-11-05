@@ -6,6 +6,7 @@ use crate::raw::{base, types};
 use crate::types::messages_and_media::PollMedia;
 use crate::types::{InputPollMedia, InputPollOption, Message, PeerRef};
 
+/// Request built by [`Client::send_poll`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPoll<'a> {
     client: &'a Client,
@@ -19,6 +20,10 @@ pub struct SendPoll<'a> {
 }
 
 impl Client {
+    /// Sends a poll.
+    ///
+    /// A poll takes 1 to 12 options, and any other count fails with `Error::InvalidArgument`.
+    /// Awaiting the request returns the sent [`Message`].
     pub fn send_poll<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,
@@ -49,48 +54,56 @@ impl Client {
 }
 
 impl<'a> SendPoll<'a> {
-    /// Shows who voted; polls are anonymous by default.
+    /// Shows who voted. Polls are anonymous by default.
     pub fn public_voters(mut self) -> Self {
         self.poll.public_voters = true;
         self
     }
 
+    /// Lets voters pick more than one option.
     pub fn allows_multiple_answers(mut self) -> Self {
         self.poll.multiple_choice = true;
         self
     }
 
+    /// Makes the poll a quiz with `correct_option_ids` as the correct answers.
     pub fn quiz(mut self, correct_option_ids: impl IntoIterator<Item = i32>) -> Self {
         self.poll.quiz = true;
         self.correct_answers = Some(correct_option_ids.into_iter().collect());
         self
     }
 
+    /// Text shown after a wrong answer in a quiz.
     pub fn explanation(mut self, text: impl Into<String>) -> Self {
         self.explanation = Some(text.into());
         self
     }
 
+    /// Parse mode for the explanation. Without it the client's default parse mode applies.
     pub fn explanation_parse_mode(mut self, mode: ParseMode) -> Self {
         self.explanation_parse_mode = Some(mode);
         self
     }
 
+    /// Closes the poll this many seconds after it is sent.
     pub fn open_period(mut self, seconds: i32) -> Self {
         self.poll.close_period = Some(seconds);
         self
     }
 
+    /// Closes the poll at this Unix timestamp.
     pub fn close_date(mut self, unix_time: i32) -> Self {
         self.poll.close_date = Some(unix_time);
         self
     }
 
+    /// Sends the poll already closed.
     pub fn is_closed(mut self) -> Self {
         self.poll.closed = true;
         self
     }
 
+    /// Lets only subscribers vote.
     pub fn members_only(mut self) -> Self {
         self.poll.subscribers_only = true;
         self
@@ -102,16 +115,19 @@ impl<'a> SendPoll<'a> {
         self
     }
 
+    /// Limits the poll to users from these countries, given as two-letter ISO codes.
     pub fn country_codes(mut self, codes: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.poll.countries_iso2 = Some(codes.into_iter().map(Into::into).collect());
         self
     }
 
+    /// Attaches media to the poll description.
     pub fn description_media(mut self, media: impl Into<InputPollMedia<'a>>) -> Self {
         self.poll_media.description = Some(media.into());
         self
     }
 
+    /// Attaches media to the quiz explanation.
     pub fn explanation_media(mut self, media: impl Into<InputPollMedia<'a>>) -> Self {
         self.poll_media.explanation = Some(media.into());
         self

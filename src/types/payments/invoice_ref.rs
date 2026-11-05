@@ -6,7 +6,9 @@ use crate::types::PeerRef;
 /// An invoice sent in a message, or one behind a slug, a `t.me/$<slug>` or a `t.me/invoice/<slug>` link.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InvoiceRef {
+    /// An invoice in a message.
     Message { chat_id: PeerRef, message_id: i32 },
+    /// A bare slug or a link to one. Paying fails with `Error::InvalidArgument` if the link has no slug.
     Link(String),
 }
 

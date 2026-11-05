@@ -3,16 +3,26 @@ use crate::enums::MessageEntityType;
 use crate::raw::base;
 use crate::types::User;
 
+/// A formatted span of message text, such as bold text, a link or a mention.
+///
 /// Offsets and lengths are in UTF-16 code units.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageEntity {
+    /// What the entity is, such as bold text or a link.
     pub kind: MessageEntityType,
+    /// Start of the entity in the text, in UTF-16 code units.
     pub offset: i32,
+    /// Length of the entity, in UTF-16 code units.
     pub length: i32,
+    /// Target of a text link. `None` for other kinds.
     pub url: Option<String>,
+    /// The mentioned user of a text mention. `None` for other kinds.
     pub user: Option<User>,
+    /// Programming language of a pre-formatted block. `None` if the block has none or the entity is another kind.
     pub language: Option<String>,
+    /// Id of the custom emoji. `None` for other kinds.
     pub custom_emoji_id: Option<i64>,
+    /// Unix time shown by a date-time entity. `None` for other kinds.
     pub unix_time: Option<i32>,
     /// For [`MessageEntityType::DateTime`], in the Bot API's `r|w?[dD]?[tT]?` syntax.
     pub date_time_format: Option<String>,

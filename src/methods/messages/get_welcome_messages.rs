@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::{EphemeralMessage, PeerRef};
 
 impl Client {
+    /// Returns the welcome messages of a chat as [`EphemeralMessage`]s. Empty if there are none.
     pub async fn get_welcome_messages(&self, chat_id: impl Into<PeerRef>) -> Result<Vec<EphemeralMessage>> {
         let request = functions::ephemeral::GetWelcomeMessages { peer: self.resolve_peer(chat_id).await?, hash: 0 };
         Ok(match self.invoke(&request).await? {

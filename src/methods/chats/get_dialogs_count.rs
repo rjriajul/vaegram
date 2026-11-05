@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::Dialog;
 
 impl Client {
+    /// Returns how many dialogs the main list holds, or the archive if `archived` is true.
     pub async fn get_dialogs_count(&self, archived: bool) -> Result<i32> {
         let request = functions::messages::GetDialogs {
             exclude_pinned: false,

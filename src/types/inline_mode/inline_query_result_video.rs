@@ -8,6 +8,7 @@ pub struct InlineQueryResultVideo {
 }
 
 impl InlineQueryResultVideo {
+    /// Creates a result for the video at `video_url`, previewed by the image at `thumbnail_url`.
     pub fn new(video_url: impl Into<String>, thumbnail_url: impl Into<String>, title: impl Into<String>) -> Self {
         let parts = Parts { thumbnail_url: Some(thumbnail_url.into()), title: Some(title.into()), ..Parts::new() };
         InlineQueryResultVideo { parts, file: WebFile::new(video_url.into(), "video/mp4") }

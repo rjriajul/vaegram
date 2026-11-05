@@ -1,18 +1,28 @@
 use crate::raw::{base, types};
 
+/// What Telegram currently offers for Premium.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PremiumPromo {
+    /// Status line describing the offer, as Telegram words it.
     pub status_text: String,
+    /// Subscription periods on offer.
     pub options: Vec<PremiumSubscriptionOption>,
 }
 
+/// One Premium subscription period and its price.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PremiumSubscriptionOption {
+    /// Length of the subscription in months.
     pub months: i32,
+    /// Three-letter ISO 4217 currency code of `amount`.
     pub currency: String,
+    /// Price in the smallest unit of `currency`.
     pub amount: i64,
+    /// Link to the bot that sells this option.
     pub bot_url: String,
+    /// `true` for the subscription you have now.
     pub is_current: bool,
+    /// This option can be bought as an upgrade of your current subscription.
     pub can_purchase_upgrade: bool,
 }
 

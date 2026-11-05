@@ -6,6 +6,10 @@ use crate::raw::{base, functions, types};
 use crate::types::Chat;
 
 impl Client {
+    /// Returns the chats you use most in a category, best rated first.
+    ///
+    /// Fails with `Error::InvalidArgument` if `limit` is below 1. The result is empty if you turned off chat
+    /// suggestions.
     pub async fn get_top_chats(&self, category: TopChatCategory, limit: i32) -> Result<Vec<Chat>> {
         use TopChatCategory as C;
         if limit < 1 {

@@ -4,6 +4,7 @@ use crate::errors::{Error, Result};
 use crate::raw::functions;
 use crate::types::Message;
 
+/// Public channel posts found by [`Client::search_posts`]. Call [`next`](SearchPosts::next) until it returns `None`.
 #[must_use = "call .next() to fetch messages"]
 pub struct SearchPosts<'a> {
     client: &'a Client,
@@ -14,18 +15,23 @@ pub struct SearchPosts<'a> {
 }
 
 impl Client {
-    /// Telegram allows a few free searches a day; after that each one costs Stars.
+    /// Searches the posts of public channels by [`query`](SearchPosts::query) or [`hashtag`](SearchPosts::hashtag).
+    ///
+    /// Telegram allows a few free searches a day. After that each one costs Stars, up to the cap set with
+    /// [`allow_paid_stars`](SearchPosts::allow_paid_stars).
     pub fn search_posts(&self) -> SearchPosts<'_> {
         SearchPosts { client: self, query: None, hashtag: None, allow_paid_stars: None, pages: Pages::by_rate() }
     }
 }
 
 impl SearchPosts<'_> {
+    /// Searches for this text. Set either this or a hashtag, not both.
     pub fn query(mut self, query: impl Into<String>) -> Self {
         self.query = Some(query.into());
         self
     }
 
+    /// Searches for this hashtag, with or without its `#`. Set either this or a query, not both.
     pub fn hashtag(mut self, hashtag: impl Into<String>) -> Self {
         let mut hashtag = hashtag.into();
         // Telegram takes the hashtag without its `#`.
@@ -36,16 +42,21 @@ impl SearchPosts<'_> {
         self
     }
 
+    /// Stops after this many posts. Without it the search runs to the oldest match.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// The most Stars the search may cost once the free searches are used up.
     pub fn allow_paid_stars(mut self, stars: i64) -> Self {
         self.allow_paid_stars = Some(stars);
         self
     }
 
+    /// Returns the next post, fetching a page when the buffered one is used up. `None` after the last post.
+    ///
+    /// Fails with `Error::InvalidArgument` unless exactly one of query and hashtag is set.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         if self.query.is_some() == self.hashtag.is_some() {
             return Err(Error::InvalidArgument("search_posts takes either a query or a hashtag"));

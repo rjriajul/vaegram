@@ -5,6 +5,9 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Reports a chat to Telegram moderators with a reason and a free-form message.
+    ///
+    /// Returns the `bool` Telegram sends back.
     pub async fn report_chat(&self, chat_id: impl Into<PeerRef>, reason: ReportReason, message: &str) -> Result<bool> {
         let peer = self.resolve_peer(chat_id).await?;
         let request = functions::account::ReportPeer { peer, reason: reason.write(), message: message.into() };

@@ -10,6 +10,7 @@ use crate::types::PeerRef;
 
 const REPEAT_DELAY: Duration = Duration::from_secs(4);
 
+/// Request built by [`Client::send_chat_action`]. Awaiting it sends the action once.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendChatAction<'a> {
     client: &'a Client,
@@ -28,7 +29,7 @@ pub struct RepeatChatAction<'a> {
 }
 
 /// Keeps a chat action showing. The background task holds a clone of the client, which stays alive until the handle
-/// is stopped or dropped. Stopping doesn't clear the indicator at once; send [`ChatAction::Cancel`] for that.
+/// is stopped or dropped. Stopping doesn't clear the indicator at once. Send [`ChatAction::Cancel`] for that.
 #[derive(Debug)]
 #[must_use = "dropping the handle stops the action"]
 pub struct ChatActionHandle {
@@ -36,18 +37,22 @@ pub struct ChatActionHandle {
 }
 
 impl Client {
+    /// Shows an action such as typing or uploading in a chat for about 5 seconds.
+    ///
+    /// Call [`repeat`](SendChatAction::repeat) to keep it showing.
     pub fn send_chat_action(&self, chat_id: impl Into<PeerRef>, action: ChatAction) -> SendChatAction<'_> {
         SendChatAction { client: self, chat_id: chat_id.into(), action, business_connection_id: None, top_msg_id: None }
     }
 }
 
 impl<'a> SendChatAction<'a> {
+    /// Sends the action through this business connection.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.business_connection_id = Some(id.into());
         self
     }
 
-    /// Shows the action in this topic of a forum, or thread of a chat; a repeating action keeps it.
+    /// Shows the action in this forum topic or thread. A repeating action keeps it.
     pub fn message_thread_id(mut self, id: i32) -> Self {
         self.top_msg_id = Some(id);
         self
@@ -63,7 +68,7 @@ impl<'a> SendChatAction<'a> {
         Ok(())
     }
 
-    /// Sends the action once; returns the request and the business connection it went through.
+    /// Sends the action once and returns the request and the business connection it went through.
     async fn request(self) -> Result<(functions::messages::SetTyping, Option<String>)> {
         let peer = self.client.resolve_peer(self.chat_id).await?;
         let request = functions::messages::SetTyping { peer, top_msg_id: self.top_msg_id, action: self.action.write() };
@@ -73,7 +78,7 @@ impl<'a> SendChatAction<'a> {
 }
 
 impl RepeatChatAction<'_> {
-    /// The time between two sends; it must not be zero.
+    /// Changes the time between two sends from the default 4 seconds. Zero fails with `Error::InvalidArgument`.
     pub fn repeat_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self

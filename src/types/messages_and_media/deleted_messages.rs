@@ -3,10 +3,14 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::Chat;
 
+/// Messages deleted from a chat.
+///
 /// `chat` is set only for channels and supergroups; Telegram sends bare ids for the rest.
 #[derive(Debug, Clone)]
 pub struct DeletedMessages {
+    /// The chat, for channels and supergroups. `None` otherwise.
     pub chat: Option<Chat>,
+    /// Ids of the deleted messages.
     pub message_ids: Vec<i32>,
     client: Client,
 }
@@ -26,6 +30,7 @@ impl DeletedMessages {
         DeletedMessages { chat, message_ids: raw.messages, client: client.clone() }
     }
 
+    /// Returns the client that received the update.
     pub fn client(&self) -> &Client {
         &self.client
     }

@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
+/// Request built by [`Client::verify_chat`]. Awaiting it returns whether Telegram accepted the verification.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct VerifyChat<'a> {
     client: &'a Client,
@@ -11,6 +12,7 @@ pub struct VerifyChat<'a> {
 }
 
 impl Client {
+    /// Verifies a chat on behalf of your organization.
     pub fn verify_chat(&self, chat_id: impl Into<PeerRef>) -> VerifyChat<'_> {
         VerifyChat { client: self, chat_id: chat_id.into(), custom_description: None }
     }

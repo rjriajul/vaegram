@@ -8,6 +8,7 @@ pub struct InlineQueryResultDocument {
 }
 
 impl InlineQueryResultDocument {
+    /// Creates a result for the file at `document_url`, a ZIP file until `mime_type` says otherwise.
     pub fn new(document_url: impl Into<String>, title: impl Into<String>) -> Self {
         let parts = Parts { title: Some(title.into()), ..Parts::new() };
         InlineQueryResultDocument { parts, file: WebFile::new(document_url.into(), "application/zip") }

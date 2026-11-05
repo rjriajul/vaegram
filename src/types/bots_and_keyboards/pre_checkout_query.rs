@@ -6,14 +6,24 @@ use crate::errors::Result;
 use crate::raw::types;
 use crate::types::{OrderInfo, User};
 
+/// A buyer's final confirmation before paying an invoice. Answer it with [`approve`](Self::approve) or
+/// [`decline`](Self::decline).
 #[derive(Clone)]
 pub struct PreCheckoutQuery {
+    /// Id of the query, used to answer it.
     pub id: i64,
+    /// The user paying.
     pub from_user: User,
+    /// Currency code of the invoice.
     pub currency: String,
+    /// Total price in the smallest unit of `currency`.
     pub total_amount: i64,
+    /// The payload the bot set on the invoice.
     pub invoice_payload: String,
+    /// Id of the [`ShippingOption`](crate::types::ShippingOption) the user chose. `None` if there was none to
+    /// choose.
     pub shipping_option_id: Option<String>,
+    /// Details the user gave at checkout. `None` if the invoice asked for none.
     pub order_info: Option<OrderInfo>,
     client: Client,
 }
@@ -36,14 +46,19 @@ impl PreCheckoutQuery {
         }
     }
 
+    /// The client that received the query.
     pub fn client(&self) -> &Client {
         &self.client
     }
 
+    /// Confirms the payment can go ahead.
+    ///
+    /// Telegram cancels the payment unless the query is answered within 10 seconds.
     pub async fn approve(&self) -> Result<()> {
         self.client.answer_pre_checkout_query(self.id).await.map(drop)
     }
 
+    /// Rejects the payment and shows `reason` to the user.
     pub async fn decline(&self, reason: impl Into<String>) -> Result<()> {
         self.client.answer_pre_checkout_query(self.id).error(reason).await.map(drop)
     }

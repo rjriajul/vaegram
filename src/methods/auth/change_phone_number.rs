@@ -4,6 +4,10 @@ use crate::raw::functions;
 use crate::types::User;
 
 impl Client {
+    /// Changes the account's phone number to the one a code was sent to.
+    ///
+    /// Get `phone_code_hash` from [`send_phone_number_code`](Client::send_phone_number_code) with
+    /// `PhoneNumberCodeType::Change`. Returns the updated [`User`].
     pub async fn change_phone_number(
         &self,
         phone_number: &str,

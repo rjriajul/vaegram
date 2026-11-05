@@ -5,6 +5,7 @@ use crate::types::StickerSet;
 
 const OLD_FEATURED_LIMIT: i32 = 100;
 
+/// Request built by [`Client::get_featured_sticker_sets`].
 pub struct GetFeaturedStickerSets<'a> {
     client: &'a Client,
     custom_emoji: bool,
@@ -13,12 +14,20 @@ pub struct GetFeaturedStickerSets<'a> {
 }
 
 impl Client {
+    /// Lists the sticker sets Telegram currently features.
+    ///
+    /// Setting [`offset`](GetFeaturedStickerSets::offset) or [`limit`](GetFeaturedStickerSets::limit) lists the
+    /// older featured sets instead.
     pub fn get_featured_sticker_sets(&self) -> GetFeaturedStickerSets<'_> {
         GetFeaturedStickerSets { client: self, custom_emoji: false, offset: None, limit: None }
     }
 }
 
 impl GetFeaturedStickerSets<'_> {
+    /// Lists custom emoji sets instead of sticker sets.
+    ///
+    /// Fails with `Error::InvalidArgument` when combined with [`offset`](GetFeaturedStickerSets::offset) or
+    /// [`limit`](GetFeaturedStickerSets::limit), because older featured sets are only listed for stickers.
     pub fn custom_emoji(mut self) -> Self {
         self.custom_emoji = true;
         self
@@ -30,7 +39,7 @@ impl GetFeaturedStickerSets<'_> {
         self
     }
 
-    /// How many older featured sets to get (100 unless set); like `offset`, it asks for the older sets.
+    /// Caps how many older featured sets to get, 100 unless set. Like `offset`, it switches to the older sets.
     pub fn limit(mut self, limit: i32) -> Self {
         self.limit = Some(limit);
         self

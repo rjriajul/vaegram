@@ -4,6 +4,9 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Returns whether a username is free to take.
+    ///
+    /// Pass `"me"` as `chat_id` to check a username for your own account. Any other `chat_id` must be a channel.
     pub async fn check_username(&self, chat_id: impl Into<PeerRef>, username: impl Into<String>) -> Result<bool> {
         let chat = chat_id.into();
         let username = username.into();

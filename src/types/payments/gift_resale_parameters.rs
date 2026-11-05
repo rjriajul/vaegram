@@ -3,10 +3,11 @@ use crate::raw::base;
 /// The price a unique gift is listed at.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GiftResaleParameters {
-    /// The price in Stars; `None` when the seller takes only Toncoin.
+    /// The price in Stars. `None` when the seller takes only Toncoin.
     pub star_count: Option<i64>,
     /// The price in nanotons (1 TON = 10^9), when the seller accepts Toncoin.
     pub toncoin_nano_count: Option<i64>,
+    /// `true` when the seller accepts Toncoin only, so `star_count` is `None`.
     pub is_toncoin_only: bool,
 }
 

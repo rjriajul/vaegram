@@ -7,14 +7,22 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::{Chat, User};
 
+/// A user's request to join a chat that approves new members.
 #[derive(Clone)]
 pub struct ChatJoinRequest {
+    /// The chat the user wants to join.
     pub chat: Chat,
+    /// The user who sent the request.
     pub from_user: User,
+    /// Id of the requesting user's private chat. Equal to `from_user.id`.
     pub user_chat_id: i64,
+    /// Unix time of the request.
     pub date: i32,
+    /// The user's bio. `None` if it is empty.
     pub bio: Option<String>,
+    /// The invite link used. `None` for a public join-request link.
     pub invite_link: Option<String>,
+    /// Query id the chat's guard bot answers the request with. `None` if no guard bot handles it.
     pub query_id: Option<i64>,
     client: Client,
 }
@@ -40,10 +48,13 @@ impl ChatJoinRequest {
         }
     }
 
+    /// The client that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }
 
+    /// Approves the request.
+    ///
     /// A request with a `query_id` went to the chat's guard bot, which answers it with `bots.setJoinChatResults`.
     pub async fn approve(&self) -> Result<()> {
         match self.query_id {
@@ -52,6 +63,7 @@ impl ChatJoinRequest {
         }
     }
 
+    /// Declines the request.
     pub async fn decline(&self) -> Result<()> {
         match self.query_id {
             Some(id) => self.client.answer_chat_join_request_query(id, ChatJoinRequestResult::Decline).await.map(drop),

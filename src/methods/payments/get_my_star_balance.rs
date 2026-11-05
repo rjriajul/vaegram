@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::StarAmount;
 
 impl Client {
+    /// Returns the Star balance of the current account.
     pub async fn get_my_star_balance(&self) -> Result<StarAmount> {
         let request = functions::payments::GetStarsStatus { ton: false, peer: base::InputPeer::InputPeerSelf };
         let base::payments::StarsStatus::StarsStatus(status) = self.invoke(&request).await?;

@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{PeerRef, User};
 
+/// Request built by [`Client::create_bot`]. Awaiting it returns the new bot as a [`User`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct CreateBot<'a> {
     client: &'a Client,
@@ -13,6 +14,9 @@ pub struct CreateBot<'a> {
 }
 
 impl Client {
+    /// Creates a bot owned by the account, managed by the bot `manager_bot_id`.
+    ///
+    /// Awaiting the request returns the new bot as a [`User`].
     pub fn create_bot(
         &self,
         manager_bot_id: impl Into<PeerRef>,
@@ -30,6 +34,7 @@ impl Client {
 }
 
 impl CreateBot<'_> {
+    /// Marks the request as coming from a deep link.
     pub fn via_link(mut self) -> Self {
         self.via_link = true;
         self

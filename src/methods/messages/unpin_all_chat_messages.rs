@@ -6,6 +6,7 @@ use crate::types::PeerRef;
 use crate::utils::{CHANNEL_OFFSET, channel_id_of};
 
 impl Client {
+    /// Unpins every pinned message in a chat.
     pub async fn unpin_all_chat_messages(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
         self.unpin_all(chat_id.into(), None).await
     }

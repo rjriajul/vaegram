@@ -7,6 +7,7 @@ use crate::types::{ChatJoiner, PeerRef};
 const IMPORTERS_LIMIT: usize = 100;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::get_chat_join_requests`].
 pub struct GetChatJoinRequests<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -22,11 +23,13 @@ impl Client {
 }
 
 impl GetChatJoinRequests<'_> {
+    /// Only returns requests matching this text.
     pub fn query(mut self, query: impl Into<String>) -> Self {
         self.query = Some(query.into());
         self
     }
 
+    /// Stops after this many requests.
     pub fn limit(mut self, limit: usize) -> Self {
         self.limit = limit;
         self

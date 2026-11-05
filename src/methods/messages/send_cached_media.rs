@@ -6,6 +6,7 @@ use crate::raw::base;
 use crate::types::messages_and_media::{Source, media_setters};
 use crate::types::{FileSource, InputMedia, Message, PeerRef, Text};
 
+/// Request built by [`Client::send_cached_media`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendCachedMedia<'a> {
     client: &'a Client,
@@ -20,6 +21,9 @@ pub struct SendCachedMedia<'a> {
 
 impl Client {
     /// Sends a file already on Telegram by its file id, as a photo or a document depending on what the id names.
+    ///
+    /// Awaiting the request returns the sent [`Message`]. A malformed file id fails with `Error::InvalidArgument`
+    /// before any request is sent.
     pub fn send_cached_media(&self, chat_id: impl Into<PeerRef>, file_id: impl Into<String>) -> SendCachedMedia<'_> {
         SendCachedMedia {
             client: self,

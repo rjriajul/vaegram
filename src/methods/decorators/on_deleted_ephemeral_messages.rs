@@ -7,6 +7,9 @@ use crate::handlers::{HandlerRef, UpdateKind, callback};
 use crate::types::DeletedEphemeralMessages;
 
 impl Client {
+    /// Registers a handler for deleted ephemeral messages that pass `filter`.
+    ///
+    /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_deleted_ephemeral_messages<F, Fut, T>(
         &self,
         filter: Filter<DeletedEphemeralMessages>,

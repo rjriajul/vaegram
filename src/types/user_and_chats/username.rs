@@ -3,8 +3,9 @@ use crate::raw::base;
 /// One of the usernames of a user, bot or channel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Username {
+    /// The username, without the `@`.
     pub username: String,
-    /// The one username that can be changed; the others are collectible.
+    /// The username the owner set and can change, as opposed to a collectible one.
     pub editable: bool,
     /// Shown on the profile and resolvable.
     pub active: bool,

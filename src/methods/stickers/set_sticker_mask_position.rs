@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::{MaskPosition, Sticker, StickerSet};
 
 impl Client {
+    /// Changes where a mask sticker sits on a face and returns the updated set.
     pub async fn set_sticker_mask_position(&self, sticker: &Sticker, position: MaskPosition) -> Result<StickerSet> {
         let request = functions::stickers::ChangeSticker {
             sticker: sticker.input_document(),

@@ -6,6 +6,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{ComposedText, Text};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::compose_text_with_ai`]. Awaiting it returns a [`ComposedText`].
 pub struct ComposeTextWithAi<'a> {
     client: &'a Client,
     text: Text,
@@ -38,16 +39,19 @@ impl<'a> ComposeTextWithAi<'a> {
 }
 
 impl ComposeTextWithAi<'_> {
+    /// Translates the text into this language.
     pub fn to_language_code(mut self, language_code: impl Into<String>) -> Self {
         self.to_language_code = Some(language_code.into());
         self
     }
 
+    /// Rewrites the text in this tone.
     pub fn tone(mut self, tone: impl Into<String>) -> Self {
         self.tone = Some(tone.into());
         self
     }
 
+    /// Adds emojis to the text.
     pub fn add_emojis(mut self) -> Self {
         self.emojify = true;
         self

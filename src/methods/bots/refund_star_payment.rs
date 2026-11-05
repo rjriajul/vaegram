@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Refunds a Stars payment made to the bot, found by its payment charge id.
     pub async fn refund_star_payment(
         &self,
         user_id: impl Into<PeerRef>,

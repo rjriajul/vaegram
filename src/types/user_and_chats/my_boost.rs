@@ -2,12 +2,18 @@ use crate::dispatcher::Entities;
 use crate::raw::types;
 use crate::types::Chat;
 
+/// One of the account's boost slots and the chat it currently boosts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MyBoost {
+    /// Number of the boost slot.
     pub slot: i32,
+    /// The boosted chat. `None` while the slot is unused.
     pub chat: Option<Chat>,
+    /// Unix time the boost was applied.
     pub date: i32,
+    /// Unix time the boost expires.
     pub expire_date: i32,
+    /// Unix time the slot can be moved to another chat. `None` if there is no cooldown.
     pub cooldown_until_date: Option<i32>,
 }
 

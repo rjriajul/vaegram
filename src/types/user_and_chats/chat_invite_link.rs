@@ -4,21 +4,34 @@ use crate::errors::{Error, Result};
 use crate::raw::base;
 use crate::types::User;
 
+/// An invite link of a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatInviteLink {
+    /// The link, such as `https://t.me/+abc`.
     pub invite_link: String,
+    /// The administrator who created the link.
     pub creator: User,
+    /// Unix time the link was created.
     pub date: i32,
+    /// `true` if joining through the link needs an administrator's approval.
     pub creates_join_request: bool,
+    /// `true` for the chat's permanent primary link.
     pub is_primary: bool,
+    /// `true` once the link has been revoked.
     pub is_revoked: bool,
+    /// Name given to the link. `None` if the link is unnamed.
     pub name: Option<String>,
+    /// Unix time the link expires. `None` if it never does.
     pub expire_date: Option<i32>,
+    /// Number of users who can join with the link. `None` if unlimited.
     pub member_limit: Option<i32>,
+    /// Number of users who joined with the link.
     pub member_count: Option<i32>,
+    /// Number of join requests still waiting for approval.
     pub pending_join_request_count: Option<i32>,
-    /// Seconds a subscription lasts before it renews.
+    /// Seconds a subscription lasts before it renews. `None` for links that aren't paid subscriptions.
     pub subscription_period: Option<i32>,
+    /// Stars charged per subscription period. `None` for links that aren't paid subscriptions.
     pub subscription_price: Option<i64>,
 }
 

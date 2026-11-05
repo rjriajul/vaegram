@@ -1,24 +1,41 @@
 use crate::raw::base;
 use crate::utils::get_channel_id;
 
+/// The state of a giveaway, as seen by the current user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GiveawayInfo {
+    /// The giveaway hasn't finished yet.
     Ongoing {
+        /// When the giveaway started, as a Unix timestamp.
         start_date: i32,
+        /// `true` if the current user is taking part.
         is_participating: bool,
+        /// `true` while the winners are being picked.
         is_preparing_results: bool,
+        /// When the user joined the channel. `None` unless they joined too early to qualify.
         joined_too_early_date: Option<i32>,
+        /// Chat id of the channel whose admin status keeps the user out. `None` unless that's the reason.
         admin_disallowed_chat_id: Option<i64>,
+        /// Country that keeps the user out of the giveaway. `None` unless that's the reason.
         disallowed_country: Option<String>,
     },
+    /// The giveaway has ended, with winners picked or prizes refunded.
     Finished {
+        /// When the giveaway started, as a Unix timestamp.
         start_date: i32,
+        /// When the giveaway ended, as a Unix timestamp.
         finish_date: i32,
+        /// `true` if the current user won.
         is_winner: bool,
+        /// `true` if the giveaway was cancelled and its prizes refunded.
         is_refunded: bool,
+        /// Slug of the current user's gift code. `None` unless they won a Premium prize.
         gift_code_slug: Option<String>,
+        /// Stars the current user won. `None` unless they won a Star giveaway.
         prize_star_count: Option<i64>,
+        /// How many winners were picked.
         winner_count: i32,
+        /// How many winners have activated their gift codes.
         activated_count: Option<i32>,
     },
 }

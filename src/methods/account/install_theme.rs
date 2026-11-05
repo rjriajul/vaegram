@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::{THEME_FORMAT, Theme};
 
+/// Request built by [`Client::install_theme`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct InstallTheme<'a> {
     client: &'a Client,
@@ -13,17 +14,20 @@ pub struct InstallTheme<'a> {
 }
 
 impl Client {
+    /// Installs a theme on the account. Awaiting the request returns whether Telegram accepted it.
     pub fn install_theme(&self, theme: &Theme) -> InstallTheme<'_> {
         InstallTheme { client: self, theme: theme.write(), dark: false, base_theme: None }
     }
 }
 
 impl InstallTheme<'_> {
+    /// Installs the theme for dark mode.
     pub fn dark(mut self) -> Self {
         self.dark = true;
         self
     }
 
+    /// Sets the built-in theme the installed one builds on.
     pub fn base_theme(mut self, base_theme: BaseTheme) -> Self {
         self.base_theme = Some(base_theme);
         self

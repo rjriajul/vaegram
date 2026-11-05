@@ -7,6 +7,7 @@ use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions};
 use crate::types::{InputStoryContent, PeerRef, Story, StoryArea};
 
+/// Request built by [`Client::send_story`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendStory<'a> {
     client: &'a Client,
@@ -26,6 +27,9 @@ pub struct SendStory<'a> {
 }
 
 impl Client {
+    /// Posts a story to a chat and returns the new [`Story`].
+    ///
+    /// Awaiting it uploads the media first, then publishes the story.
     pub fn send_story<'a>(&'a self, chat_id: impl Into<PeerRef>, media: InputStoryContent<'a>) -> SendStory<'a> {
         SendStory {
             client: self,
@@ -47,38 +51,47 @@ impl Client {
 }
 
 impl SendStory<'_> {
+    /// Adds a caption, parsed with the builder's parse mode.
     pub fn caption(mut self, caption: impl Into<String>) -> Self {
         self.caption = caption.into();
         self
     }
 
+    /// Chooses who can see the story.
     pub fn privacy(mut self, privacy: StoriesPrivacyRules) -> Self {
         self.privacy = privacy;
         self
     }
 
-    /// 6, 12, 24 or 48 hours with Premium; otherwise Telegram only accepts 24 hours.
+    /// Keeps the story up for this many seconds.
+    ///
+    /// Premium accounts can pick 6, 12, 24 or 48 hours. Without Premium, Telegram accepts only 24 hours.
     pub fn period(mut self, seconds: i32) -> Self {
         self.period = Some(seconds);
         self
     }
 
+    /// Pins the story to the chat's profile.
     pub fn pinned(mut self) -> Self {
         self.pinned = true;
         self
     }
 
+    /// Attaches interactive areas to the story, such as locations or reactions.
     pub fn media_areas(mut self, areas: impl IntoIterator<Item = StoryArea>) -> Self {
         self.areas = areas.into_iter().collect();
         self
     }
 
+    /// Stops viewers from forwarding or saving the story.
     pub fn protect_content(mut self) -> Self {
         self.protect_content = true;
         self
     }
 
-    /// The file id of an audio file to play with the story.
+    /// Plays the audio file with this file id along with the story.
+    ///
+    /// Fails with `Error::InvalidArgument` if the file id doesn't name a document.
     pub fn music(mut self, file_id: impl Into<String>) -> Self {
         self.music = Some(file_id.into());
         self

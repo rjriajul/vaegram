@@ -6,6 +6,7 @@ use crate::types::PeerRef;
 use crate::utils::CHANNEL_OFFSET;
 
 impl Client {
+    /// Marks the messages of a chat up to and including `max_id` as read.
     pub async fn read_chat_history(&self, chat_id: impl Into<PeerRef>, max_id: i32) -> Result<()> {
         let chat_id = self.peer_id(chat_id.into()).await?;
         if chat_id <= -CHANNEL_OFFSET {

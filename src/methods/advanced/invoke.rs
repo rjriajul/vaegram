@@ -12,10 +12,16 @@ use crate::session::{RateCategory, Session};
 const MAX_MIGRATIONS: usize = 3;
 
 impl Client {
+    /// Sends a raw request and returns its decoded answer.
+    ///
+    /// Uses the client's `request_timeout`. The request waits on the rate limiter and follows the retry policy
+    /// described at [`invoke_with_timeout`](Client::invoke_with_timeout).
     pub async fn invoke<R: RemoteCall>(&self, request: &R) -> Result<R::Return> {
         self.invoke_with_timeout(request, self.session().options().request_timeout).await
     }
 
+    /// Sends a raw request and gives up on it after `timeout`.
+    ///
     /// A request that times out is forgotten: the server is asked not to send its answer, and the connection
     /// carries on. After a failure the client's retry policy decides whether the request goes out again, each try
     /// with the full `timeout`: by default FLOOD_WAITs up to a minute are slept off, five times, and the next
@@ -74,7 +80,7 @@ impl Client {
     }
 
     /// Sends `request` to data center `dc_id` under this login, which is exported there the first time. The home
-    /// DC takes a plain `invoke`; an unknown one fails with `Error::InvalidDc` before anything is sent. Updates in
+    /// DC takes a plain `invoke`. An unknown one fails with `Error::InvalidDc` before anything is sent. Updates in
     /// the answer aren't dispatched. Calls in flight end with `Error::Disconnected` on `stop_transmission` or
     /// `disconnect`, which close the connections they share with file transfers.
     pub async fn invoke_in_dc<R: RemoteCall>(&self, dc_id: i32, request: &R) -> Result<R::Return> {

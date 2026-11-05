@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Approves the pending request of `user_id` to join the chat.
     pub async fn approve_chat_join_request(
         &self,
         chat_id: impl Into<PeerRef>,

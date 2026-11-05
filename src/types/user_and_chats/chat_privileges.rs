@@ -1,24 +1,43 @@
 use crate::raw::{base, types};
 
+/// What an administrator may do. `Default` grants nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ChatPrivileges {
+    /// Whether the admin's messages show the chat as sender instead of their name.
     pub is_anonymous: bool,
+    /// Whether the admin can access the admin log, statistics and other chat management tools.
     pub can_manage_chat: bool,
+    /// Whether the admin can delete other members' messages.
     pub can_delete_messages: bool,
+    /// Whether the admin can start and manage video chats.
     pub can_manage_video_chats: bool,
+    /// Whether the admin can ban and restrict members.
     pub can_restrict_members: bool,
+    /// Whether the admin can add other administrators.
     pub can_promote_members: bool,
+    /// Whether the admin can change the chat title, photo and other settings.
     pub can_change_info: bool,
+    /// Whether the admin can add members and manage invite links.
     pub can_invite_users: bool,
+    /// Whether the admin can post stories on behalf of the chat.
     pub can_post_stories: bool,
+    /// Whether the admin can edit stories the chat's other admins posted.
     pub can_edit_stories: bool,
+    /// Whether the admin can delete stories the chat's other admins posted.
     pub can_delete_stories: bool,
+    /// Whether the admin can post messages in a channel.
     pub can_post_messages: bool,
+    /// Whether the admin can edit other members' messages in a channel.
     pub can_edit_messages: bool,
+    /// Whether the admin can pin messages.
     pub can_pin_messages: bool,
+    /// Whether the admin can create, edit and close forum topics.
     pub can_manage_topics: bool,
+    /// Whether the admin can manage the channel's direct messages.
     pub can_manage_direct_messages: bool,
+    /// Whether the admin can edit members' tags.
     pub can_manage_tags: bool,
+    /// Whether the admin can send welcome messages.
     pub can_send_welcome_messages: bool,
 }
 

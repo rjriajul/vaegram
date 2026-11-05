@@ -2,6 +2,7 @@ use crate::Client;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 
+/// Request built by [`Client::set_emoji_status`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetEmojiStatus<'a> {
     client: &'a Client,
@@ -11,19 +12,24 @@ pub struct SetEmojiStatus<'a> {
 }
 
 impl Client {
+    /// Sets your emoji status to a custom emoji, or clears it when `custom_emoji_id` is `None`.
+    ///
+    /// Awaiting it returns whether Telegram accepted the change. For a collectible status, pass `None` here and
+    /// use [`collectible_id`](SetEmojiStatus::collectible_id). Setting both fails with `Error::InvalidArgument`.
     pub fn set_emoji_status(&self, custom_emoji_id: Option<i64>) -> SetEmojiStatus<'_> {
         SetEmojiStatus { client: self, custom_emoji_id, collectible_id: None, until: None }
     }
 }
 
 impl SetEmojiStatus<'_> {
+    /// Makes the status expire at this Unix timestamp.
     pub fn until(mut self, date: i32) -> Self {
         self.until = Some(date);
         self
     }
 
-    /// Shows an owned unique gift as the status instead of a custom emoji: pass [`UniqueGift::id`] here and `None`
-    /// to `set_emoji_status`.
+    /// Shows an owned unique gift as the status instead of a custom emoji. Pass [`UniqueGift::id`] here and
+    /// `None` to `set_emoji_status`.
     ///
     /// [`UniqueGift::id`]: crate::types::UniqueGift::id
     pub fn collectible_id(mut self, collectible_id: i64) -> Self {

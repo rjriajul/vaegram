@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Returns how many messages the chat has.
     pub async fn get_chat_history_count(&self, chat_id: impl Into<PeerRef>) -> Result<i32> {
         let request = functions::messages::GetHistory {
             peer: self.resolve_peer(chat_id).await?,

@@ -4,6 +4,7 @@ use crate::methods::messages::{SendOptions, send_builder};
 use crate::raw::{base, types};
 use crate::types::{Message, PeerRef};
 
+/// Request built by [`Client::send_game`]. Awaiting it returns the sent [`Message`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendGame<'a> {
     client: &'a Client,
@@ -13,6 +14,8 @@ pub struct SendGame<'a> {
 }
 
 impl Client {
+    /// Sends a game by its short name.
+    ///
     /// Without a reply markup Telegram adds a Play button.
     pub fn send_game(&self, chat_id: impl Into<PeerRef>, game_short_name: impl Into<String>) -> SendGame<'_> {
         SendGame {

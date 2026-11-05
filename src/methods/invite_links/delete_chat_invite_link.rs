@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Deletes an invite link of the chat.
     pub async fn delete_chat_invite_link(
         &self,
         chat_id: impl Into<PeerRef>,

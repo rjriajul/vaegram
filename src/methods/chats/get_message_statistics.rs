@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{MessageStatistics, PeerRef};
 
 impl Client {
+    /// Returns the view and reaction graphs of a channel message.
     pub async fn get_message_statistics(
         &self,
         chat_id: impl Into<PeerRef>,

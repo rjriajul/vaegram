@@ -2,6 +2,10 @@ use crate::enums::{MediaKind, ParseMode};
 use crate::types::messages_and_media::Source;
 use crate::types::{FileSource, MaskPosition, Text, Upload};
 
+/// A file to send, with its kind and the options that kind takes.
+///
+/// Create one with a constructor such as [`photo`](InputMedia::photo) and pass it to a send or edit method.
+/// The setters below apply only to the kinds that use them, and the others ignore them.
 #[derive(Debug, Clone)]
 pub struct InputMedia<'a> {
     pub(crate) kind: MediaKind,
@@ -57,38 +61,47 @@ impl<'a> InputMedia<'a> {
         }
     }
 
+    /// Creates a photo.
     pub fn photo(photo: impl Into<FileSource<'a>>) -> Self {
         Self::new(MediaKind::Photo, photo)
     }
 
+    /// Creates a live photo: a still `photo` with the `video` that plays when it's held.
     pub fn live_photo(photo: impl Into<FileSource<'a>>, video: impl Into<FileSource<'a>>) -> Self {
         InputMedia { video: Some(video.into()), ..Self::new(MediaKind::LivePhoto, photo) }
     }
 
+    /// Creates a video.
     pub fn video(video: impl Into<FileSource<'a>>) -> Self {
         Self::new(MediaKind::Video, video)
     }
 
+    /// Creates a GIF or a silent looping video.
     pub fn animation(animation: impl Into<FileSource<'a>>) -> Self {
         Self::new(MediaKind::Animation, animation)
     }
 
+    /// Creates an audio file, shown in the music player.
     pub fn audio(audio: impl Into<FileSource<'a>>) -> Self {
         Self::new(MediaKind::Audio, audio)
     }
 
+    /// Creates a voice note.
     pub fn voice(voice: impl Into<FileSource<'a>>) -> Self {
         Self::new(MediaKind::Voice, voice)
     }
 
+    /// Creates a file sent as a document.
     pub fn document(document: impl Into<FileSource<'a>>) -> Self {
         Self::new(MediaKind::Document, document)
     }
 
+    /// Creates a round video message.
     pub fn video_note(video_note: impl Into<FileSource<'a>>) -> Self {
         Self::new(MediaKind::VideoNote, video_note)
     }
 
+    /// Creates a sticker.
     pub fn sticker(sticker: impl Into<FileSource<'a>>) -> Self {
         Self::new(MediaKind::Sticker, sticker)
     }
@@ -108,6 +121,7 @@ macro_rules! media_setters {
     };
     (@caption $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Adds a caption to the media.
             pub fn caption(mut self, caption: impl Into<$crate::types::Text>) -> Self {
                 self$(.$m)?.caption = caption.into();
                 self
@@ -118,7 +132,7 @@ macro_rules! media_setters {
     };
     (@thumb $builder:ident $(. $m:ident)?) => {
         impl<'a> $builder<'a> {
-            /// A JPEG of at most 320×320 and 200 KB; Telegram ignores anything bigger.
+            /// Uploads a JPEG thumbnail of at most 320×320 and 200 KB. Telegram ignores a bigger one.
             pub fn thumb(mut self, thumb: impl Into<$crate::types::Upload<'a>>) -> Self {
                 self$(.$m)?.thumb = Some(thumb.into());
                 self
@@ -127,6 +141,7 @@ macro_rules! media_setters {
     };
     (@cover $builder:ident $(. $m:ident)?) => {
         impl<'a> $builder<'a> {
+            /// Shows this image as the video's cover.
             pub fn cover(mut self, cover: impl Into<$crate::types::FileSource<'a>>) -> Self {
                 self$(.$m)?.cover = Some(cover.into());
                 self
@@ -135,6 +150,7 @@ macro_rules! media_setters {
     };
     (@has_spoiler $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Hides the media behind a spoiler until the user taps it.
             pub fn has_spoiler(mut self) -> Self {
                 self$(.$m)?.spoiler = true;
                 self
@@ -143,6 +159,7 @@ macro_rules! media_setters {
     };
     (@show_caption_above_media $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Puts the caption above the media instead of below it.
             pub fn show_caption_above_media(mut self) -> Self {
                 self$(.$m)?.show_caption_above_media = true;
                 self
@@ -151,6 +168,7 @@ macro_rules! media_setters {
     };
     (@supports_streaming $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Marks the video as suitable for streaming while it downloads.
             pub fn supports_streaming(mut self) -> Self {
                 self$(.$m)?.supports_streaming = true;
                 self
@@ -159,6 +177,7 @@ macro_rules! media_setters {
     };
     (@duration $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Tells Telegram the media's duration, in seconds.
             pub fn duration(mut self, seconds: i32) -> Self {
                 self$(.$m)?.duration = seconds;
                 self
@@ -167,6 +186,7 @@ macro_rules! media_setters {
     };
     (@start_timestamp $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Starts the video's playback at this second.
             pub fn start_timestamp(mut self, seconds: i32) -> Self {
                 self$(.$m)?.start_timestamp = Some(seconds);
                 self
@@ -175,6 +195,7 @@ macro_rules! media_setters {
     };
     (@width $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Tells Telegram the media's width, in pixels.
             pub fn width(mut self, width: i32) -> Self {
                 self$(.$m)?.width = width;
                 self
@@ -183,6 +204,7 @@ macro_rules! media_setters {
     };
     (@height $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Tells Telegram the media's height, in pixels.
             pub fn height(mut self, height: i32) -> Self {
                 self$(.$m)?.height = height;
                 self
@@ -191,6 +213,7 @@ macro_rules! media_setters {
     };
     (@length $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Tells Telegram a video note's diameter, in pixels, as both its width and its height.
             pub fn length(mut self, length: i32) -> Self {
                 (self$(.$m)?.width, self$(.$m)?.height) = (length, length);
                 self
@@ -199,6 +222,7 @@ macro_rules! media_setters {
     };
     (@performer $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Shows this performer for the audio in the music player.
             pub fn performer(mut self, performer: impl Into<String>) -> Self {
                 self$(.$m)?.performer = Some(performer.into());
                 self
@@ -207,6 +231,7 @@ macro_rules! media_setters {
     };
     (@title $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Shows this title for the audio in the music player.
             pub fn title(mut self, title: impl Into<String>) -> Self {
                 self$(.$m)?.title = Some(title.into());
                 self
@@ -215,6 +240,7 @@ macro_rules! media_setters {
     };
     (@emoji $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Ties the sticker to this emoji.
             pub fn emoji(mut self, emoji: impl Into<String>) -> Self {
                 self$(.$m)?.emoji = emoji.into();
                 self
@@ -232,8 +258,8 @@ macro_rules! media_setters {
     };
     (@file_name $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
-            /// The name Telegram shows for an uploaded file, instead of the path's or bytes' own; it also picks the
-            /// MIME type. Ignored for a file id or a URL.
+            /// Names an uploaded file, instead of the path's or bytes' own name. The name also picks the MIME
+            /// type. Ignored for a file id or a URL.
             pub fn file_name(mut self, name: impl Into<String>) -> Self {
                 self$(.$m)?.file_name = Some(name.into());
                 self
@@ -242,8 +268,8 @@ macro_rules! media_setters {
     };
     (@mask_position $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
-            /// Where a sticker sits on a face, which makes it a mask. Ignored unless the media is a sticker being
-            /// uploaded: a file id, a URL or any other kind of media sends no mask.
+            /// Places a sticker on a face, which makes it a mask. Ignored unless the media is a sticker being
+            /// uploaded. A file id, a URL or any other kind of media sends no mask.
             pub fn mask_position(mut self, position: $crate::types::MaskPosition) -> Self {
                 self$(.$m)?.mask_position = Some(position);
                 self
@@ -252,6 +278,7 @@ macro_rules! media_setters {
     };
     (@progress $builder:ident $(. $m:ident)?) => {
         impl<'a> $builder<'a> {
+            /// Calls `progress` with the bytes uploaded so far and the total as the file uploads.
             pub fn progress(mut self, progress: impl FnMut(u64, u64) + Send + 'a) -> Self {
                 self.progress = Some(Box::new(progress));
                 self

@@ -6,8 +6,11 @@ use crate::types::{StarAmount, UniqueGift};
 /// An offer to buy the receiver's upgraded gift.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpgradedGiftPurchaseOffer {
+    /// The upgraded gift the offer is for.
     pub gift: UniqueGift,
+    /// Whether the offer is pending, accepted or rejected.
     pub state: GiftPurchaseOfferState,
+    /// The price offered.
     pub price: StarAmount,
     /// Unix time the offer runs out.
     pub expiration_date: i32,
@@ -16,8 +19,11 @@ pub struct UpgradedGiftPurchaseOffer {
 /// An offer to buy an upgraded gift, turned down or left to run out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpgradedGiftPurchaseOfferRejected {
+    /// The upgraded gift the offer was for.
     pub gift: UniqueGift,
+    /// The price that was offered.
     pub price: StarAmount,
+    /// `true` if the offer ran out, `false` if it was turned down.
     pub was_expired: bool,
 }
 

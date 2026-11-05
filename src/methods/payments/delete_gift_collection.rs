@@ -4,7 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
-    /// Deletes the collection only; its gifts stay on the profile.
+    /// Deletes the collection only. Its gifts stay on the profile.
     pub async fn delete_gift_collection(&self, owner_id: impl Into<PeerRef>, collection_id: i32) -> Result<()> {
         let peer = self.resolve_peer(owner_id).await?;
         self.invoke(&functions::payments::DeleteStarGiftCollection { peer, collection_id }).await?;

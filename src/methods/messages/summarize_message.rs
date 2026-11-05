@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{FormattedText, PeerRef};
 
+/// Request built by [`Client::summarize_message`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SummarizeMessage<'a> {
     client: &'a Client,
@@ -13,17 +14,22 @@ pub struct SummarizeMessage<'a> {
 }
 
 impl Client {
+    /// Asks Telegram to summarize the text of a message.
+    ///
+    /// Awaiting the request returns the summary as [`FormattedText`].
     pub fn summarize_message(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> SummarizeMessage<'_> {
         SummarizeMessage { client: self, chat_id: chat_id.into(), message_id, to_language_code: None, tone: None }
     }
 }
 
 impl SummarizeMessage<'_> {
+    /// Language of the summary, as a language code such as `"es"`.
     pub fn to_language_code(mut self, language_code: impl Into<String>) -> Self {
         self.to_language_code = Some(language_code.into());
         self
     }
 
+    /// Tone of the summary.
     pub fn tone(mut self, tone: impl Into<String>) -> Self {
         self.tone = Some(tone.into());
         self

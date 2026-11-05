@@ -7,6 +7,7 @@ use crate::types::Chat;
 use super::create_folder_invite_link::chatlist;
 
 impl Client {
+    /// Returns the chats added to a shared folder that the account hasn't joined yet.
     pub async fn get_folder_updates(&self, folder_id: i32) -> Result<Vec<Chat>> {
         let request = functions::chatlists::GetChatlistUpdates { chatlist: chatlist(folder_id) };
         let base::chatlists::ChatlistUpdates::ChatlistUpdates(u) = self.invoke(&request).await?;

@@ -18,26 +18,46 @@ use crate::types::{
 };
 use crate::utils::{get_peer, get_peer_id};
 
+/// A message in a chat, with its sender, content and metadata.
+///
+/// Media messages keep their text in `caption` and leave `text` empty. A link preview doesn't count as media.
+/// The methods on this type, such as
+/// [`reply`](Message::reply) and [`edit_text`](Message::edit_text), act on this message in its own chat.
 #[derive(Debug, Clone)]
 pub struct Message {
+    /// Id of the message, unique within `chat`.
     pub id: i32,
+    /// The chat the message belongs to.
     pub chat: Chat,
+    /// The sending user. `None` for channel posts and for messages sent on behalf of a chat.
     pub from_user: Option<User>,
+    /// The chat the message was sent on behalf of. `None` when a user sent it as themselves.
     pub sender_chat: Option<Chat>,
+    /// When the message was sent, as a Unix timestamp.
     pub date: i32,
     /// A rich message without plain text gets its blocks' text here, so text filters and commands still match.
     pub text: String,
+    /// The message was sent by the account this client is logged in as.
     pub outgoing: bool,
+    /// When the message was last edited, as a Unix timestamp. `None` if it never was.
     pub edit_date: Option<i32>,
+    /// Formatting entities of `text`.
     pub entities: Option<Vec<MessageEntity>>,
+    /// The text of a media message. `None` for a text message, or if the sender wrote no caption.
     pub caption: Option<String>,
+    /// Formatting entities of `caption`.
     pub caption_entities: Option<Vec<MessageEntity>>,
+    /// The attached media. `None` for a text message and for media of a kind [`Media`] doesn't cover.
     pub media: Option<Media>,
     /// The link preview of a text message; `media` stays `None` and the text stays in `text`.
     pub web_page: Option<WebPage>,
+    /// The structured content of a rich message. `None` for other messages.
     pub rich_message: Option<RichMessage>,
+    /// How the link preview is shown. `None` if the message has no link preview.
     pub link_preview_options: Option<LinkPreviewOptions>,
+    /// Id of the message this one replies to. `None` if it's not a reply in this chat.
     pub reply_to_message_id: Option<i32>,
+    /// The checklist task this message replies to.
     pub reply_to_checklist_task_id: Option<i32>,
     /// The story this message replies to.
     pub reply_to_story_id: Option<i32>,
@@ -45,19 +65,34 @@ pub struct Message {
     pub reply_to_story_user_id: Option<i64>,
     /// The poll option this message replies to, the same bytes as [`PollOption::data`](crate::types::PollOption).
     pub reply_to_poll_option_id: Option<Vec<u8>>,
+    /// Id of the forum topic or reply thread the message is in. `None` outside of one, and outside forums for a
+    /// direct reply to the thread's first message.
     pub message_thread_id: Option<i32>,
+    /// The message is in a forum topic.
     pub is_topic_message: bool,
+    /// The part of the replied message that this one quotes. `None` if the reply quotes nothing.
     pub quote: Option<TextQuote>,
+    /// Details of a reply to a message in another chat. `None` for other messages.
     pub external_reply: Option<Box<ExternalReplyInfo>>,
+    /// Where a forwarded message came from. `None` if it isn't a forward.
     pub forward_origin: Option<MessageOrigin>,
+    /// The message is a channel post that Telegram copied into the channel's linked discussion group.
     pub is_automatic_forward: bool,
+    /// The inline bot the message was sent through.
     pub via_bot: Option<User>,
+    /// Shared by the messages of one album. `None` if the message isn't part of an album.
     pub media_group_id: Option<i64>,
+    /// Signature of the post's author, in channels that sign posts.
     pub author_signature: Option<String>,
+    /// How many boosts the sender gave the group.
     pub sender_boost_count: Option<i32>,
+    /// The message can't be forwarded or saved.
     pub has_protected_content: bool,
+    /// What happened, for a service message. `None` for an ordinary message.
     pub service: Option<ServiceAction>,
+    /// Id of the business connection the message came through. `None` outside of business chats.
     pub business_connection_id: Option<String>,
+    /// The direct messages topic the message is in. `None` outside of a channel's direct messages.
     pub direct_messages_topic: Option<DirectMessagesTopic>,
     /// `None` when nobody has reacted, or the message comes from a request that leaves reactions out.
     pub reactions: Option<MessageReactions>,
@@ -67,12 +102,15 @@ pub struct Message {
     pub unread_media: bool,
     /// Sent without a notification sound.
     pub silent: bool,
+    /// The message is a post in a channel.
     pub channel_post: bool,
     /// Sent by the server at a time the sender had scheduled.
     pub from_scheduled: bool,
     /// The edit is hidden from the chat, so the message shows no "edited" mark.
     pub edit_hidden: bool,
+    /// The message is pinned.
     pub pinned: bool,
+    /// The caption is shown above the media instead of below it.
     pub show_caption_above_media: bool,
     /// Sent by a business bot or an away message while the account was offline.
     pub from_offline: bool,
@@ -86,7 +124,9 @@ pub struct Message {
     pub guest_bot_caller_user: Option<User>,
     /// The chat whose guest bot request produced this message.
     pub guest_bot_caller_chat: Option<Chat>,
+    /// How many times the message was viewed. `None` if Telegram doesn't count views for it.
     pub views: Option<i32>,
+    /// How many times the message was forwarded. `None` if Telegram doesn't count forwards for it.
     pub forwards: Option<i32>,
     /// The message effect shown when it arrives.
     pub effect_id: Option<i64>,
@@ -102,6 +142,7 @@ pub struct Message {
     pub chat_join_type: Option<ChatJoinType>,
     /// Why the message is hidden on some platforms; empty when it isn't.
     pub restriction_reason: Vec<RestrictionReason>,
+    /// The fact check attached to the message, if any.
     pub fact_check: Option<FactCheck>,
     /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`] and leaves its text in
     /// `message`.
@@ -436,6 +477,7 @@ impl Message {
         self.business_connection_id = Some(connection_id);
     }
 
+    /// The reply markup attached to the message. `None` if it has none.
     pub fn reply_markup(&self) -> Option<ReplyMarkup> {
         ReplyMarkup::parse(self.raw.reply_markup.as_ref()?)
     }
@@ -445,6 +487,7 @@ impl Message {
         self.raw.paid_suggested_post_stars || self.raw.paid_suggested_post_ton
     }
 
+    /// Details of the suggested post this message is. `None` for other messages.
     pub fn suggested_post_info(&self) -> Option<SuggestedPostInfo> {
         self.raw.suggested_post.as_ref().map(SuggestedPostInfo::parse)
     }
@@ -455,19 +498,42 @@ impl Message {
         request
     }
 
+    /// Edits the text of this message.
+    ///
+    /// Awaiting the request returns the edited [`Message`]. A message that came through a business connection is
+    /// edited through that connection.
+    ///
+    /// ```no_run
+    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// let edited = message.edit_text("Updated").await?;
+    /// # Ok(()) }
+    /// ```
     pub fn edit_text(&self, text: impl Into<MessageText>) -> EditMessageText<'_> {
         self.on_behalf(self.client.edit_message_text(self.chat.id, self.id, text))
     }
 
+    /// Edits the caption of this media message.
+    ///
+    /// Telegram stores a caption as the message text, so this is the same request as
+    /// [`edit_text`](Message::edit_text).
     pub fn edit_caption(&self, caption: impl Into<String>) -> EditMessageText<'_> {
         self.edit_text(caption.into())
     }
 
-    /// `None` removes the keyboard.
+    /// Replaces the inline keyboard of this message. `None` removes the keyboard.
     pub fn edit_reply_markup(&self, reply_markup: Option<InlineKeyboardMarkup>) -> EditMessageReplyMarkup<'_> {
         self.on_behalf(self.client.edit_message_reply_markup(self.chat.id, self.id, reply_markup))
     }
 
+    /// Deletes this message.
+    ///
+    /// A message that arrived through a business connection is deleted through that connection.
+    ///
+    /// ```no_run
+    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// message.delete().await?;
+    /// # Ok(()) }
+    /// ```
     pub async fn delete(&self) -> Result<()> {
         match &self.business_connection_id {
             Some(id) => self.client.delete_business_messages(id, &[self.id]).await,
@@ -475,32 +541,64 @@ impl Message {
         }
     }
 
+    /// Forwards this message to another chat.
+    ///
+    /// Awaiting the request returns the forwarded messages as a `Vec` of [`Message`].
+    ///
+    /// ```no_run
+    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// let forwarded = message.forward("me").await?;
+    /// # Ok(()) }
+    /// ```
     pub fn forward(&self, chat_id: impl Into<PeerRef>) -> ForwardMessages<'_> {
         self.client.forward_messages(chat_id, self.chat.id, std::slice::from_ref(&self.id))
     }
 
+    /// Copies this message to another chat, without a link to the original.
+    ///
+    /// Awaiting the request returns the new [`Message`].
+    ///
+    /// ```no_run
+    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// let copy = message.copy("me").await?;
+    /// # Ok(()) }
+    /// ```
     pub fn copy(&self, chat_id: impl Into<PeerRef>) -> CopyMessage<'_> {
         self.client.copy_message(chat_id, self.chat.id, self.id)
     }
 
+    /// Pins this message in its chat.
     pub fn pin(&self) -> PinChatMessage<'_> {
         self.on_behalf(self.client.pin_chat_message(self.chat.id, self.id))
     }
 
+    /// Unpins this message in its chat.
     pub fn unpin(&self) -> UnpinChatMessage<'_> {
         self.on_behalf(self.client.unpin_chat_message(self.chat.id, self.id))
     }
 
     // Business bot rights don't cover reactions, so the bot reacts as itself.
+    /// Adds a reaction to this message. On a business message the bot reacts as itself, not as the business account.
     pub fn react(&self, reaction: impl Into<ReactionType>) -> SendReaction<'_> {
         self.client.send_reaction(self.chat.id, self.id).reaction(reaction)
     }
 
+    /// The [`Client`] that received this message.
     pub fn client(&self) -> &Client {
         &self.client
     }
 
-    /// Fails at `.await` for media without a file (contact, location, venue, dice, poll).
+    /// Downloads the file of this message's media.
+    ///
+    /// Awaiting the request returns the file as bytes. It fails with `Error::InvalidArgument` unless the media is a
+    /// photo, live photo, document, animation, audio, video, video note, voice note or sticker. The returned
+    /// [`DownloadMedia`] has the same setters as [`Client::download_media`].
+    ///
+    /// ```no_run
+    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// let bytes = message.download().await?;
+    /// # Ok(()) }
+    /// ```
     pub fn download(&self) -> DownloadMedia<'_> {
         let location = self.media.as_ref().and_then(Media::file_location).cloned();
         let location = location.ok_or(Error::InvalidArgument("this message has no photo or document to download"));
@@ -510,6 +608,7 @@ impl Message {
         DownloadMedia::new(&self.client, location, source)
     }
 
+    /// The photo or document is hidden behind a spoiler.
     pub fn has_media_spoiler(&self) -> bool {
         match &self.raw.media {
             Some(base::MessageMedia::MessageMediaPhoto(m)) => m.spoiler,
@@ -518,6 +617,9 @@ impl Message {
         }
     }
 
+    /// How many seconds the photo or document stays available after it's opened.
+    ///
+    /// `None` if it doesn't self-destruct, and for other media.
     pub fn ttl_seconds(&self) -> Option<i32> {
         match &self.raw.media {
             Some(base::MessageMedia::MessageMediaPhoto(m)) => m.ttl_seconds,
@@ -526,6 +628,7 @@ impl Message {
         }
     }
 
+    /// Marks the contents of this message, such as a voice note, as played.
     pub async fn read_contents(&self) -> Result<()> {
         self.client.read_message_contents(self.chat.id, &[self.id]).await
     }
@@ -543,6 +646,7 @@ impl Message {
         self.formatted().to_html()
     }
 
+    /// The text or caption as Markdown.
     pub fn markdown_text(&self) -> String {
         self.formatted().to_markdown()
     }
@@ -551,10 +655,16 @@ impl Message {
         Text::from_raw(&self.raw.message, self.raw.entities.as_deref().unwrap_or_default())
     }
 
+    /// Parses a command starting with `/` from the text or caption.
+    ///
+    /// Returns `None` if there is no command, or if it names another bot, as in `/start@other_bot`.
     pub fn command(&self) -> Option<Command<'_>> {
         self.command_with("/")
     }
 
+    /// Parses a command from the text or caption, with any character of `prefixes` starting it.
+    ///
+    /// Returns `None` if there is no command, or if it names another bot.
     pub fn command_with(&self, prefixes: &str) -> Option<Command<'_>> {
         let command = Command::parse(self.caption.as_deref().unwrap_or(&self.text), prefixes)?;
         (command.bot.is_none() || command.is_for(self.client.0.me.lock().unwrap().username.as_deref()))
@@ -590,6 +700,16 @@ impl Message {
         Ok(self.client.get_messages(self.chat.id, &[self.id]).await?.pop().flatten())
     }
 
+    /// Sends `text` to this chat as a reply to this message.
+    ///
+    /// Awaiting the request returns the sent [`Message`]. It is [`answer`](Message::answer) with a reply to this
+    /// message added.
+    ///
+    /// ```no_run
+    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// let sent = message.reply("Got it").await?;
+    /// # Ok(()) }
+    /// ```
     pub fn reply(&self, text: impl Into<Text>) -> SendMessage<'_> {
         self.answer(text).reply_to(self.id)
     }
@@ -599,6 +719,9 @@ impl Message {
         self.route(self.client.send_message(self.chat.id, text))
     }
 
+    /// Sends an album to this chat as a reply to this message.
+    ///
+    /// Awaiting the request returns the sent messages.
     pub fn reply_media_group<'a>(&'a self, media: impl IntoIterator<Item = InputMedia<'a>>) -> SendMediaGroup<'a> {
         self.answer_media_group(media).reply_to(self.id)
     }

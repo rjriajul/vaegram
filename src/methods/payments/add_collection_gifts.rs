@@ -4,6 +4,10 @@ use crate::raw::functions;
 use crate::types::{GiftCollection, PeerRef};
 
 impl Client {
+    /// Adds gifts to a gift collection and returns the updated [`GiftCollection`].
+    ///
+    /// `owned_gift_ids` are `owned_gift_id` values of [`OwnedGift`](crate::types::OwnedGift)s or unique gift slugs.
+    /// An empty list fails with `Error::InvalidArgument`.
     pub async fn add_collection_gifts(
         &self,
         owner_id: impl Into<PeerRef>,

@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::{ChatInviteLink, PeerRef};
 
 impl Client {
+    /// Returns one invite link of the chat with its usage details.
     pub async fn get_chat_invite_link(
         &self,
         chat_id: impl Into<PeerRef>,

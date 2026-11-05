@@ -4,6 +4,7 @@ use crate::types::{CallbackQuery, PeerRef};
 
 impl Client {
     /// Waits for the next button press in `chat_id`: `listen::<CallbackQuery>().chat(chat_id)`, with the same rules.
+    ///
     /// Pin it to one keyboard with `message_id`. Presses on inline messages have no chat, so they never match here.
     pub fn wait_for_callback_query(&self, chat_id: impl Into<PeerRef>) -> Listen<'_, CallbackQuery> {
         self.listen().chat(chat_id)

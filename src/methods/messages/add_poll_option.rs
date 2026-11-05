@@ -5,6 +5,9 @@ use crate::raw::{base, functions, types};
 use crate::types::{InputPollOption, PeerRef};
 
 impl Client {
+    /// Adds an option to a poll in `message_id`.
+    ///
+    /// Media in the option is uploaded first.
     pub async fn add_poll_option<'a>(
         &self,
         chat_id: impl Into<PeerRef>,

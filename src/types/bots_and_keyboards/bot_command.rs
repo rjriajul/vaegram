@@ -1,13 +1,17 @@
 use crate::raw::{base, types};
 
+/// A command a bot lists in its command menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BotCommand {
+    /// The command, as the user types it after `/`.
     pub command: String,
+    /// What the command does, as shown in the menu.
     pub description: String,
     pub is_ephemeral: bool,
 }
 
 impl BotCommand {
+    /// Creates a command that is not ephemeral.
     pub fn new(command: impl Into<String>, description: impl Into<String>) -> BotCommand {
         BotCommand { command: command.into(), description: description.into(), is_ephemeral: false }
     }

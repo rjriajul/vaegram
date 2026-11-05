@@ -2,9 +2,12 @@ use crate::Client;
 use crate::raw::base;
 use crate::types::BotPreviewMedia;
 
+/// The preview media of a bot's profile page.
 #[derive(Debug, Clone)]
 pub struct BotPreviewInfo {
+    /// The preview items.
     pub media: Vec<BotPreviewMedia>,
+    /// Language codes the bot has previews for.
     pub lang_codes: Vec<String>,
 }
 

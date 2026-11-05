@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{CallbackAnswer, PeerRef};
 use crate::utils::compute_password_check;
 
+/// Request built by [`Client::request_callback_answer`]. Awaiting it returns the bot's [`CallbackAnswer`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct RequestCallbackAnswer<'a> {
     client: &'a Client,
@@ -14,6 +15,9 @@ pub struct RequestCallbackAnswer<'a> {
 }
 
 impl Client {
+    /// Presses an inline keyboard button as the user and waits for the bot's answer.
+    ///
+    /// `data` is the button's callback data. Awaiting the request returns the bot's [`CallbackAnswer`].
     pub fn request_callback_answer(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -31,13 +35,13 @@ impl Client {
 }
 
 impl RequestCallbackAnswer<'_> {
-    /// Presses the "play" button of a game message instead; `data` is ignored.
+    /// Presses the "play" button of a game message instead. `data` is ignored.
     pub fn game(mut self) -> Self {
         self.data = None;
         self
     }
 
-    /// Your 2FA password, for buttons that ask for it (like transferring a bot).
+    /// Sends the account's 2FA password, for buttons that ask for it (like transferring a bot).
     pub fn password(mut self, password: impl Into<String>) -> Self {
         self.password = Some(password.into());
         self

@@ -4,6 +4,7 @@ use crate::session::transfer::Report;
 use crate::types::messages_and_media::media_setters;
 use crate::types::{FileSource, InputMedia, PeerRef};
 
+/// Request built by [`Client::send_photo`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPhoto<'a> {
     client: &'a Client,
@@ -14,6 +15,9 @@ pub struct SendPhoto<'a> {
 }
 
 impl Client {
+    /// Sends a photo.
+    ///
+    /// Awaiting the request uploads the file if needed and returns the sent [`crate::types::Message`].
     pub fn send_photo<'a>(&'a self, chat_id: impl Into<PeerRef>, photo: impl Into<FileSource<'a>>) -> SendPhoto<'a> {
         let media = InputMedia::photo(photo);
         SendPhoto { client: self, chat_id: chat_id.into(), media, options: SendOptions::default(), progress: None }

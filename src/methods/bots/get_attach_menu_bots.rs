@@ -5,6 +5,7 @@ use crate::raw::{base, functions, types};
 use crate::types::AttachMenuBot;
 
 impl Client {
+    /// Returns the bots in the account's attachment menu.
     pub async fn get_attach_menu_bots(&self) -> Result<Vec<AttachMenuBot>> {
         let request = functions::messages::GetAttachMenuBots { hash: 0 };
         let base::AttachMenuBots::AttachMenuBots(found) = self.invoke(&request).await? else {

@@ -22,41 +22,70 @@ use crate::types::{LabeledPrice, OrderInfo, PaymentOption, SavedCredentials, Use
 /// ```
 #[derive(Clone, PartialEq)]
 pub struct PaymentForm {
+    /// Form id. [`Client::send_payment_form`] sends it back to pay this form.
     pub id: i64,
+    /// Which kind of payment this is, derived from the form and its invoice.
     pub kind: PaymentFormType,
+    /// The bot that sent the invoice. `None` for a Star gift form.
     pub bot: Option<User>,
+    /// The invoice title. `None` for a Star gift form.
     pub title: Option<String>,
+    /// The invoice description. `None` for a Star gift form.
     pub description: Option<String>,
+    /// URL of the invoice photo. `None` if the invoice has no photo, and always for a Star gift form.
     pub photo_url: Option<String>,
+    /// Currency code of the prices.
     pub currency: String,
+    /// Labeled price parts that make up the total.
     pub prices: Vec<LabeledPrice>,
+    /// Sum of `prices` in the currency's smallest units. Saturates instead of overflowing.
     pub total_amount: i64,
-    /// Seconds between charges: paying this form starts a subscription.
+    /// Seconds between charges. Set only when paying this form starts a subscription.
     pub subscription_period: Option<i32>,
+    /// Whether the invoice is in test mode, so no real money is charged.
     pub is_test: bool,
-    /// The payment provider's account; only card forms have one.
+    /// The payment provider's account. Only card forms have one.
     pub payment_provider: Option<User>,
-    /// The provider's payment page; card forms only.
+    /// The provider's payment page. Only card forms have one.
     pub url: Option<String>,
+    /// Name of the provider for paying in-app with [`native_params`](Self::native_params). Only card forms can
+    /// have one.
     pub native_provider: Option<String>,
     /// The provider's JSON parameters for paying in-app.
     pub native_params: Option<String>,
+    /// Other ways to pay a card form, each a title and a URL. Empty for Star forms.
     pub additional_payment_options: Vec<PaymentOption>,
+    /// Cards the provider remembers for this account. Empty for Star forms.
     pub saved_credentials: Vec<SavedCredentials>,
+    /// Order info saved by an earlier payment. `None` if nothing is saved, and always for Star forms.
     pub saved_order_info: Option<OrderInfo>,
+    /// Whether the provider can remember a new card.
+    ///
+    /// See [`InputCredentials::allow_save`](crate::types::InputCredentials::allow_save).
     pub can_save_credentials: bool,
     /// Paying with saved credentials needs a 2FA password, and this account has none.
     pub need_password: bool,
+    /// Whether the invoice asks for the payer's name.
     pub is_name_requested: bool,
+    /// Whether the invoice asks for the payer's phone number.
     pub is_phone_requested: bool,
+    /// Whether the invoice asks for the payer's email address.
     pub is_email_requested: bool,
+    /// Whether the invoice asks for a shipping address.
     pub is_shipping_address_requested: bool,
+    /// Whether the final price depends on the shipping method.
     pub is_flexible: bool,
+    /// Whether the phone number goes to the provider.
     pub is_phone_to_provider: bool,
+    /// Whether the email address goes to the provider.
     pub is_email_to_provider: bool,
+    /// Whether the invoice is for recurring payments.
     pub is_recurring: bool,
+    /// Largest tip the payer can add, in the currency's smallest units. `None` if the invoice has no tips.
     pub max_tip_amount: Option<i64>,
+    /// Tip amounts offered as shortcuts, in the currency's smallest units.
     pub suggested_tip_amounts: Vec<i64>,
+    /// URL of the terms of service the payer agrees to. `None` if there are none.
     pub terms_url: Option<String>,
     pub(crate) invoice: base::InputInvoice,
 }

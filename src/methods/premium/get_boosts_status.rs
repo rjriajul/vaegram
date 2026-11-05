@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{BoostsStatus, PeerRef};
 
 impl Client {
+    /// Returns the boost level of the chat and the boosts needed for the next level.
     pub async fn get_boosts_status(&self, chat_id: impl Into<PeerRef>) -> Result<BoostsStatus> {
         let peer = self.resolve_peer(chat_id).await?;
         let base::premium::BoostsStatus::BoostsStatus(status) =

@@ -5,7 +5,9 @@ use crate::raw::{base, functions};
 use crate::types::{ForumTopic, PeerRef};
 
 impl Client {
-    /// Deleted topics are left out.
+    /// Returns the forum topics with the given ids.
+    ///
+    /// Fails with `Error::InvalidArgument` if `topic_ids` is empty. Deleted topics are left out.
     pub async fn get_forum_topics_by_id(
         &self,
         chat_id: impl Into<PeerRef>,

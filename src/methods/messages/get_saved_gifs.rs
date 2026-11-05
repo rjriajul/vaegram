@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{Animation, Media};
 
 impl Client {
+    /// Returns the GIFs saved to your account. Saved documents that aren't animations are left out.
     pub async fn get_saved_gifs(&self) -> Result<Vec<Animation>> {
         let gifs = match self.invoke(&functions::messages::GetSavedGifs { hash: 0 }).await? {
             base::messages::SavedGifs::SavedGifs(s) => s.gifs,

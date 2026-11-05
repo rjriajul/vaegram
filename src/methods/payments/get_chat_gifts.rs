@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::{OwnedGift, OwnedGifts, PeerRef};
 
+/// Request built by [`Client::get_chat_gifts`] and [`Client::get_business_account_gifts`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GetChatGifts<'a> {
     client: &'a Client,
@@ -13,6 +14,9 @@ pub struct GetChatGifts<'a> {
 }
 
 impl Client {
+    /// Lists the gifts on a chat's profile, 100 to a page.
+    ///
+    /// Awaiting returns an [`OwnedGifts`] page. Pass its `next_offset` to [`GetChatGifts::offset`] for the next one.
     pub fn get_chat_gifts(&self, chat_id: impl Into<PeerRef>) -> GetChatGifts<'_> {
         GetChatGifts::new(self, Some(chat_id.into()), None)
     }
@@ -38,46 +42,55 @@ impl<'a> GetChatGifts<'a> {
         GetChatGifts { client, chat_id, connection_id, request }
     }
 
+    /// Leaves out gifts that are hidden from the profile.
     pub fn exclude_unsaved(mut self) -> Self {
         self.request.exclude_unsaved = true;
         self
     }
 
+    /// Leaves out gifts that are shown on the profile.
     pub fn exclude_saved(mut self) -> Self {
         self.request.exclude_saved = true;
         self
     }
 
+    /// Leaves out gifts that have no limited supply.
     pub fn exclude_unlimited(mut self) -> Self {
         self.request.exclude_unlimited = true;
         self
     }
 
+    /// Leaves out limited gifts that can still be upgraded.
     pub fn exclude_limited_upgradable(mut self) -> Self {
         self.request.exclude_upgradable = true;
         self
     }
 
+    /// Leaves out limited gifts that can't be upgraded.
     pub fn exclude_limited_non_upgradable(mut self) -> Self {
         self.request.exclude_unupgradable = true;
         self
     }
 
+    /// Leaves out unique gifts, the ones that were already upgraded.
     pub fn exclude_unique(mut self) -> Self {
         self.request.exclude_unique = true;
         self
     }
 
+    /// Orders gifts by their value.
     pub fn sort_by_price(mut self) -> Self {
         self.request.sort_by_value = true;
         self
     }
 
+    /// Continues from the `next_offset` of a previous page.
     pub fn offset(mut self, offset: impl Into<String>) -> Self {
         self.request.offset = offset.into();
         self
     }
 
+    /// Caps how many gifts one page holds. The default is 100.
     pub fn limit(mut self, limit: i32) -> Self {
         self.request.limit = limit;
         self

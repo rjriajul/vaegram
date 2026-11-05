@@ -6,26 +6,46 @@ use crate::raw::{base, types};
 use crate::types::MessageEntity;
 use crate::utils::get_channel_id;
 
+/// A chat folder.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Folder {
+    /// Id of the folder, as the `Client` folder methods take it.
     pub id: i32,
+    /// Title shown on the folder's tab.
     pub title: String,
+    /// Entities in `title`, such as custom emoji.
     pub title_entities: Vec<MessageEntity>,
+    /// Whether custom emoji in the title stay still.
     pub no_title_animation: bool,
+    /// The emoji shown as the folder's icon.
     pub emoji: Option<String>,
+    /// Index of the folder's tag color. `None` for no color.
     pub color: Option<i32>,
+    /// Ids of the chats pinned at the top of the folder.
     pub pinned_chats: Vec<i64>,
+    /// Ids of the chats that always belong to the folder.
     pub included_chats: Vec<i64>,
+    /// Ids of the chats that never belong to the folder.
     pub excluded_chats: Vec<i64>,
+    /// Whether the folder includes chats with contacts.
     pub contacts: bool,
+    /// Whether the folder includes chats with users who aren't contacts.
     pub non_contacts: bool,
+    /// Whether the folder includes groups.
     pub groups: bool,
+    /// Whether the folder includes channels.
     pub channels: bool,
+    /// Whether the folder includes chats with bots.
     pub bots: bool,
+    /// Whether the folder leaves out muted chats.
     pub exclude_muted: bool,
+    /// Whether the folder leaves out chats with no unread messages.
     pub exclude_read: bool,
+    /// Whether the folder leaves out archived chats.
     pub exclude_archived: bool,
-    /// Shared through an invite link. Telegram ignores exclusions and chat type flags on these.
+    /// Whether the folder is shared through an invite link.
+    ///
+    /// A shared folder keeps only its pinned and included chats. Saving it drops the exclusions and chat type flags.
     pub is_shareable: bool,
 }
 

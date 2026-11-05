@@ -7,6 +7,9 @@ use crate::handlers::{HandlerRef, UpdateKind, callback};
 use crate::types::ManagedBotUpdated;
 
 impl Client {
+    /// Registers a handler for updates to managed bots that pass `filter`.
+    ///
+    /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_managed_bot<F, Fut, T>(&self, filter: Filter<ManagedBotUpdated>, f: F) -> HandlerRef<'_>
     where
         F: Fn(ManagedBotUpdated) -> Fut + Send + Sync + 'static,

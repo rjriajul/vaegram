@@ -1,89 +1,170 @@
 use crate::enums::ChatType;
 use crate::raw::base;
 
+/// What a service message reports, such as a member joining or a pinned message.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum ServiceKind {
+    /// Members were added, or joined by invite link or join request.
     NewChatMembers = 1,
+    /// A member left or was removed.
     LeftChatMember,
+    /// The chat title changed.
     NewChatTitle,
+    /// The chat photo changed.
     NewChatPhoto,
+    /// The chat photo was removed.
     DeleteChatPhoto,
+    /// A basic group was created.
     GroupChatCreated,
+    /// A supergroup was created.
     SupergroupChatCreated,
+    /// A channel was created. Also reported for a supergroup when the chat's type isn't known.
     ChannelChatCreated,
+    /// The group was upgraded to a supergroup.
     MigrateToChatId,
+    /// The supergroup was created from a basic group.
     MigrateFromChatId,
+    /// A message was pinned.
     PinnedMessage,
+    /// The auto-delete timer changed.
     AutoDeleteTimerChanged,
+    /// A video chat was scheduled.
     VideoChatScheduled,
+    /// A video chat started.
     VideoChatStarted,
+    /// A video chat ended.
     VideoChatEnded,
+    /// Participants were invited to a video chat.
     VideoChatParticipantsInvited,
+    /// A bot was allowed to write to the user.
     WriteAccessAllowed,
+    /// The user logged in to a website through a bot.
     ConnectedWebsite,
+    /// The user shared users with a bot.
     UsersShared,
+    /// The user shared a chat with a bot.
     ChatShared,
+    /// A proximity alert for a shared live location fired.
     ProximityAlertTriggered,
+    /// A forum topic was created.
     ForumTopicCreated,
+    /// A forum topic was edited.
     ForumTopicEdited,
+    /// A forum topic was closed.
     ForumTopicClosed,
+    /// A forum topic was reopened.
     ForumTopicReopened,
+    /// The General forum topic was hidden.
     GeneralForumTopicHidden,
+    /// The General forum topic was shown again.
     GeneralForumTopicUnhidden,
+    /// Checklist tasks were marked done or undone.
     ChecklistTasksDone,
+    /// Tasks were added to a checklist.
     ChecklistTasksAdded,
+    /// A chat was added to a community.
     CommunityChatAdded,
+    /// A chat was removed from a community.
     CommunityChatRemoved,
+    /// A user joined the chat through a community.
     CommunityChatJoined,
+    /// A gift was sent.
     Gift,
+    /// A unique gift was sent or upgraded.
     UniqueGift,
+    /// A managed bot was created.
     ManagedBotCreated,
+    /// A payment to a bot succeeded.
     SuccessfulPayment,
+    /// A payment was refunded.
     RefundedPayment,
+    /// A suggested post was approved.
     SuggestedPostApproved,
+    /// A suggested post couldn't be approved because the balance was too low.
     SuggestedPostApprovalFailed,
+    /// A suggested post was declined.
     SuggestedPostDeclined,
+    /// A suggested post was paid for.
     SuggestedPostPaid,
+    /// A suggested post was refunded.
     SuggestedPostRefunded,
+    /// A user boosted the chat.
     BoostAdded,
+    /// A user set a new high score in a game.
     GameHighScore,
+    /// A Mini App sent data to a bot.
     WebAppData,
+    /// The chat owner left and a new owner is pending.
     ChatOwnerLeft,
+    /// The chat owner changed.
     ChatOwnerChanged,
+    /// A contact joined Telegram.
     ContactRegistered,
+    /// A custom service message.
     CustomAction,
+    /// A Premium gift code was sent.
     PremiumGiftCode,
+    /// Telegram Premium was gifted.
     GiftedPremium,
+    /// Stars were gifted.
     GiftedStars,
+    /// Toncoin was gifted.
     GiftedGrams,
+    /// A giveaway was created.
     GiveawayCreated,
+    /// A giveaway finished and its winners were chosen.
     GiveawayCompleted,
+    /// A giveaway prize of Stars was awarded.
     GiveawayPrizeStars,
+    /// The chat history was cleared.
     HistoryCleared,
+    /// A phone call started.
     PhoneCallStarted,
+    /// A phone call ended. Its service message has a discard reason.
     PhoneCallEnded,
+    /// A conference call.
     ConferenceCall,
+    /// A screenshot of the chat was taken.
     ScreenshotTaken,
+    /// An offer to buy an upgraded gift was made.
     UpgradedGiftPurchaseOffer,
+    /// An offer to buy an upgraded gift was declined.
     UpgradedGiftPurchaseOfferRejected,
+    /// Protection of the chat's content was switched on or off.
     ChatHasProtectedContentToggled,
+    /// A user asked to switch off protection of the chat's content.
     ChatHasProtectedContentDisableRequested,
+    /// The chat theme changed.
     ChatSetTheme,
+    /// The chat background changed.
     ChatBackgroundSet,
+    /// A user suggested a profile photo.
     SuggestProfilePhoto,
+    /// A user suggested a birthday.
     SuggestBirthday,
+    /// Paid messages were refunded.
     PaidMessagesRefunded,
+    /// The price per message changed in a chat that isn't known to be a channel.
     PaidMessagePriceChanged,
+    /// The price of direct messages changed in a channel.
     DirectMessagePriceChanged,
+    /// An option was added to a poll.
     PollOptionAdded,
+    /// An option was removed from a poll.
     PollOptionDeleted,
+    /// The user sent Telegram Passport data to a bot.
     PassportDataSent,
+    /// A bot received Telegram Passport data.
     PassportDataReceived,
+    /// A TON wallet transfer was made.
     TonWalletTransfer,
+    /// A TON Connect request was made.
     TonConnectRequest,
+    /// A token that lets a user message without paying was used.
     NoPaidMessagesTokenUsed,
+    /// A service message this library has no kind for.
     Unknown,
 }
 

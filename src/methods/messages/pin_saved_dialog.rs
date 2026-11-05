@@ -4,6 +4,7 @@ use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Pins a dialog of Saved Messages to the top.
     pub async fn pin_saved_dialog(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
         self.toggle_saved_dialog_pin(chat_id, true).await
     }

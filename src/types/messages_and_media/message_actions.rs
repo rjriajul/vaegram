@@ -11,14 +11,17 @@ use crate::types::{
 use crate::utils::channel_id_of;
 
 impl Message {
+    /// Replaces the media of this message. Goes through the business connection if the message arrived on one.
     pub fn edit_media<'a>(&'a self, media: InputMedia<'a>) -> EditMessageMedia<'a> {
         self.on_behalf(self.client().edit_message_media(self.chat.id, self.id, media))
     }
 
+    /// Moves the live location in this message. Goes through the business connection if the message arrived on one.
     pub fn edit_live_location(&self, latitude: f64, longitude: f64) -> EditMessageLiveLocation<'_> {
         self.on_behalf(self.client().edit_message_live_location(self.chat.id, self.id, latitude, longitude))
     }
 
+    /// Ends the live location in this message. Goes through the business connection if the message arrived on one.
     pub fn stop_live_location(&self) -> StopMessageLiveLocation<'_> {
         self.on_behalf(self.client().stop_message_live_location(self.chat.id, self.id))
     }
@@ -33,6 +36,7 @@ impl Message {
         self.client().vote_poll(self.chat.id, self.id, options).await
     }
 
+    /// Withdraws the account's vote from the poll in this message.
     pub async fn retract_vote(&self) -> Result<()> {
         self.client().retract_vote(self.chat.id, self.id).await
     }
@@ -58,10 +62,12 @@ impl Message {
         self.client().process_gift_purchase_offer(self.id, true).await
     }
 
+    /// Rejects the gift purchase offer in this message.
     pub async fn reject_gift_purchase_offer(&self) -> Result<()> {
         self.client().process_gift_purchase_offer(self.id, false).await
     }
 
+    /// Asks Telegram for a summary of this message's text. Awaiting it returns the summary as `FormattedText`.
     pub fn summarize(&self) -> SummarizeMessage<'_> {
         self.client().summarize_message(self.chat.id, self.id)
     }
@@ -112,15 +118,17 @@ impl Message {
 }
 
 impl EphemeralMessage {
+    /// Replaces the caption of this ephemeral message.
     pub fn edit_caption(&self, caption: impl Into<Text>) -> EditEphemeralMessage<'_> {
         self.client().edit_ephemeral_message_caption(self.chat.id, self.receiver_user.id, self.id, caption)
     }
 
+    /// Replaces the media of this ephemeral message.
     pub fn edit_media<'a>(&'a self, media: InputMedia<'a>) -> EditEphemeralMessage<'a> {
         self.client().edit_ephemeral_message_media(self.chat.id, self.receiver_user.id, self.id, media)
     }
 
-    /// `None` removes the keyboard.
+    /// Replaces the inline keyboard of this ephemeral message. `None` removes the keyboard.
     pub fn edit_reply_markup(&self, reply_markup: Option<InlineKeyboardMarkup>) -> EditEphemeralMessage<'_> {
         let edit = self.client().edit_ephemeral_message_reply_markup(self.chat.id, self.receiver_user.id, self.id);
         match reply_markup {

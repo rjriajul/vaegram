@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::StickerSet;
 
 impl Client {
+    /// Lists the sticker sets the account has installed, of one `sticker_type`.
     pub async fn get_installed_sticker_sets(&self, sticker_type: StickerType) -> Result<Vec<StickerSet>> {
         let all = match sticker_type {
             StickerType::Regular => self.invoke(&functions::messages::GetAllStickers { hash: 0 }).await?,

@@ -3,12 +3,15 @@ use crate::raw::base;
 /// A user's rating, earned with Stars spent on gifts and paid content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UserRating {
+    /// Current level.
     pub level: i32,
+    /// The user is at the top level, so `next_level_rating` is `None`.
     pub is_maximum_level_reached: bool,
+    /// Rating the user has now.
     pub rating: i64,
     /// The rating where the current level starts.
     pub current_level_rating: i64,
-    /// The rating where the next level starts; `None` at the top level.
+    /// The rating where the next level starts. `None` at the top level.
     pub next_level_rating: Option<i64>,
 }
 

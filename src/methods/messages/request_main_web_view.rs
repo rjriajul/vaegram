@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{PeerRef, WebView};
 
+/// A request to open a bot's main mini app. Awaiting it returns the [`WebView`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct RequestMainWebView<'a> {
     client: &'a Client,
@@ -13,6 +14,7 @@ pub struct RequestMainWebView<'a> {
 }
 
 impl Client {
+    /// Opens the main mini app of a bot from a chat. Returns the [`WebView`] to load.
     pub fn request_main_web_view(
         &self,
         chat_id: impl Into<PeerRef>,

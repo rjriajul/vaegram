@@ -7,10 +7,15 @@ use crate::parser;
 use crate::raw::{base, types};
 use crate::types::{Document, Photo};
 
+/// The rich content of a message: a list of blocks plus the photos and documents they use.
+///
+/// Read the content with [`blocks`](RichMessage::blocks) or flatten it with [`text`](RichMessage::text).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RichMessage {
+    /// Whether the message is laid out right to left.
     pub rtl: bool,
-    /// Telegram sent only part of the message; `messages.getRichMessage` returns all of it.
+    /// Whether Telegram sent only part of the message.
+    /// [`Client::get_rich_message`](crate::Client::get_rich_message) fetches all of it.
     pub part: bool,
     pub(crate) raw: Box<types::RichMessage>,
 }
@@ -37,13 +42,14 @@ impl RichMessage {
         }
     }
 
-    /// The top-level blocks, each able to read its own kind and the photos and documents of this message.
+    /// Returns the top-level blocks, each able to read its kind and this message's files.
     pub fn blocks(&self) -> Vec<RichBlock> {
         let source = Arc::new(Resolved { photos: self.raw.photos.clone(), documents: self.raw.documents.clone() });
         let files = Files { source: Some(source), ..Files::default() };
         self.raw.blocks.iter().map(|block| RichBlock { block: block.clone(), files: files.clone() }).collect()
     }
 
+    /// Looks up a photo of this message by id. `None` if the message doesn't carry it.
     pub fn photo(&self, id: i64) -> Option<Photo> {
         let photo = self.raw.photos.iter().find(|p| match p {
             base::Photo::Photo(p) => p.id == id,
@@ -52,6 +58,7 @@ impl RichMessage {
         photo.and_then(Photo::parse)
     }
 
+    /// Looks up a document of this message by id. `None` if the message doesn't carry it.
     pub fn document(&self, id: i64) -> Option<Document> {
         let document = self.raw.documents.iter().find(|d| match d {
             base::Document::Document(d) => d.id == id,
@@ -60,6 +67,10 @@ impl RichMessage {
         document.and_then(Document::parse)
     }
 
+    /// Returns the message as plain text without formatting.
+    ///
+    /// Each piece of text, including captions and text in nested blocks, goes on its own line. Empty pieces are
+    /// skipped.
     pub fn text(&self) -> String {
         RichMessage::plain_text(&self.raw)
     }

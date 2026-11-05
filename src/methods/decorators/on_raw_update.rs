@@ -7,6 +7,9 @@ use crate::handlers::{BoxFuture, HandlerRef, RawCallback, UpdateKind};
 use crate::types::RawUpdate;
 
 impl Client {
+    /// Registers a handler that receives every update as a [`RawUpdate`], with no filter.
+    ///
+    /// Raw handlers always run and ignore the handler group. Returns a [`HandlerRef`] that gives the id for removal.
     pub fn on_raw_update<F, Fut, T>(&self, callback: F) -> HandlerRef<'_>
     where
         F: Fn(Client, RawUpdate) -> Fut + Send + Sync + 'static,

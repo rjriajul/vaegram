@@ -5,7 +5,9 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{Message, PeerRef};
 
-/// Public reposts of a message. Reposts to stories are left out: they are not messages.
+/// Public reposts of a channel message, read one at a time with [`next`](GetMessagePublicForwards::next).
+///
+/// Reposts to stories are left out because they are not messages.
 pub struct GetMessagePublicForwards<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -14,6 +16,7 @@ pub struct GetMessagePublicForwards<'a> {
 }
 
 impl Client {
+    /// Starts reading the public reposts of a channel message, 100 per request.
     pub fn get_message_public_forwards(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -24,11 +27,13 @@ impl Client {
 }
 
 impl GetMessagePublicForwards<'_> {
+    /// Stops after this many reposts in total. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next repost, or `None` once the list or the limit is exhausted.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         loop {
             if let Some(message) = self.pages.pop() {

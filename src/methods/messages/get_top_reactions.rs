@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::ReactionType;
 
 impl Client {
+    /// Returns the reactions Telegram lists as top reactions, up to `limit`.
     pub async fn get_top_reactions(&self, limit: i32) -> Result<Vec<ReactionType>> {
         match self.invoke(&functions::messages::GetTopReactions { limit, hash: 0 }).await? {
             base::messages::Reactions::Reactions(r) => Ok(r.reactions.iter().filter_map(ReactionType::parse).collect()),

@@ -5,12 +5,15 @@ use crate::types::Chat;
 /// Telegram Stars won in a giveaway.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GiveawayPrizeStars {
+    /// How many Stars the prize contains.
     pub star_count: i64,
+    /// Id of the payment transaction.
     pub transaction_id: String,
     /// The chat that ran the giveaway.
     pub boosted_chat: Chat,
+    /// Id of the message that announced the giveaway, in `boosted_chat`.
     pub giveaway_message_id: i32,
-    /// A prize nobody claimed, returned to the chat.
+    /// `true` if nobody claimed the prize and it went back to the chat.
     pub is_unclaimed: bool,
 }
 

@@ -14,6 +14,7 @@ pub struct ToggleNoPaidMessagesException<'a> {
 }
 
 impl Client {
+    /// Lets a user message you without paying, or takes the exception back with `require_payment`.
     pub fn toggle_no_paid_messages_exception(&self, user_id: impl Into<PeerRef>) -> ToggleNoPaidMessagesException<'_> {
         ToggleNoPaidMessagesException {
             client: self,

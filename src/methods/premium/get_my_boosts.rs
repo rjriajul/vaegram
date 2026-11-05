@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::MyBoost;
 
 impl Client {
+    /// Returns the boost slots of the account and the chats they are applied to.
     pub async fn get_my_boosts(&self) -> Result<Vec<MyBoost>> {
         let boosts = self.invoke(&functions::premium::GetMyBoosts {}).await?;
         Ok(my_boosts(self, boosts))

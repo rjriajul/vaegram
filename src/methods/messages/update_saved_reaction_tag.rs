@@ -4,6 +4,9 @@ use crate::raw::functions;
 use crate::types::ReactionType;
 
 impl Client {
+    /// Sets the title of a saved messages tag.
+    ///
+    /// An empty `title` removes the title.
     pub async fn update_saved_reaction_tag(
         &self,
         reaction: impl Into<ReactionType>,

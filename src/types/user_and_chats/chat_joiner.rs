@@ -2,10 +2,14 @@ use crate::dispatcher::Entities;
 use crate::raw::types;
 use crate::types::User;
 
+/// A user who joined a chat through an invite link.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatJoiner {
+    /// The user who joined.
     pub user: User,
+    /// Unix time the user joined.
     pub date: i32,
+    /// The user's bio. `None` if Telegram didn't send one.
     pub bio: Option<String>,
 }
 

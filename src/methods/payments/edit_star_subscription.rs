@@ -3,7 +3,9 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 
 impl Client {
-    /// Cancels a Star subscription's renewals, or turns them back on; nothing is charged right away.
+    /// Cancels a Star subscription's renewals, or turns them back on.
+    ///
+    /// Nothing is charged right away. Fails with `Error::InvalidArgument` if `subscription_id` is empty.
     pub async fn edit_star_subscription(&self, subscription_id: &str, is_canceled: bool) -> Result<()> {
         if subscription_id.is_empty() {
             return Err(Error::InvalidArgument("subscription_id is empty"));

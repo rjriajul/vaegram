@@ -5,6 +5,9 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{UniqueGift, UpgradedGiftAttributeId};
 
+/// Listing of unique gifts for sale, built by [`Client::search_gifts_for_resale`].
+///
+/// Read it with [`next`](SearchGiftsForResale::next).
 #[must_use = "a search does nothing until `next` is called"]
 pub struct SearchGiftsForResale<'a> {
     client: &'a Client,
@@ -13,6 +16,7 @@ pub struct SearchGiftsForResale<'a> {
 }
 
 impl Client {
+    /// Searches the resale market for unique gifts upgraded from the gift with this `gift_id`.
     pub fn search_gifts_for_resale(&self, gift_id: i64) -> SearchGiftsForResale<'_> {
         let request = functions::payments::GetResaleStarGifts {
             sort_by_price: false,
@@ -30,39 +34,44 @@ impl Client {
 }
 
 impl SearchGiftsForResale<'_> {
+    /// Orders the results by price.
     pub fn sort_by_price(mut self) -> Self {
         self.request.sort_by_price = true;
         self
     }
 
+    /// Orders the results by gift number.
     pub fn sort_by_number(mut self) -> Self {
         self.request.sort_by_num = true;
         self
     }
 
+    /// Lists only gifts that can be bought with Stars.
     pub fn stars_only(mut self) -> Self {
         self.request.stars_only = true;
         self
     }
 
-    /// Only gifts with all of these models, symbols and backdrops.
+    /// Lists only gifts with these models, symbols and backdrops.
     pub fn attributes(mut self, attributes: impl IntoIterator<Item = UpgradedGiftAttributeId>) -> Self {
         let attributes: Vec<_> = attributes.into_iter().map(UpgradedGiftAttributeId::write).collect();
         self.request.attributes = if attributes.is_empty() { None } else { Some(attributes) };
         self
     }
 
-    /// Only gifts that can go into a craft.
+    /// Lists only gifts that can be used for crafting.
     pub fn for_crafting(mut self) -> Self {
         self.request.for_craft = true;
         self
     }
 
+    /// Stops after this many gifts in total.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next gift, loading another page when needed, or `None` at the end.
     pub async fn next(&mut self) -> Result<Option<UniqueGift>> {
         loop {
             if let Some(gift) = self.pages.pop() {

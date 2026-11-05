@@ -3,8 +3,13 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::types::{InputCredentials, PaymentForm, PaymentResult, StarAmount};
 
-/// Pays a form: a Stars (or Toncoin) form as it is (it takes no credentials, order info, shipping or tip), a card form with [`credentials`](SendPaymentForm::credentials).
-/// A timed-out payment may have gone through: check the balance before retrying.
+/// Request built by [`Client::send_payment_form`].
+///
+/// A Stars or Toncoin form takes no credentials, order info, shipping or tip, and setting any of them fails with
+/// `Error::InvalidArgument`. A card form fails with `Error::InvalidArgument` without
+/// [`credentials`](SendPaymentForm::credentials).
+///
+/// A timed-out payment may have gone through, so check the balance before retrying.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendPaymentForm<'a> {
     client: &'a Client,
@@ -16,6 +21,9 @@ pub struct SendPaymentForm<'a> {
 }
 
 impl Client {
+    /// Pays a [`PaymentForm`] from [`Client::get_payment_form`].
+    ///
+    /// Awaiting returns a [`PaymentResult`], which holds a URL when the provider asks for verification.
     pub fn send_payment_form(&self, form: PaymentForm) -> SendPaymentForm<'_> {
         SendPaymentForm {
             client: self,
@@ -58,12 +66,14 @@ impl SendPaymentForm<'_> {
         self
     }
 
-    /// The id [`validate_order_info`](Client::validate_order_info) returned.
+    /// Attaches the order details checked by [`validate_order_info`](Client::validate_order_info), by the id
+    /// it returned.
     pub fn order_info_id(mut self, id: impl Into<String>) -> Self {
         self.order_info_id = Some(id.into());
         self
     }
 
+    /// Picks one of the shipping options [`validate_order_info`](Client::validate_order_info) returned.
     pub fn shipping_option_id(mut self, id: impl Into<String>) -> Self {
         self.shipping_option_id = Some(id.into());
         self

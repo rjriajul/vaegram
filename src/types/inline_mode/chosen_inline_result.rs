@@ -8,11 +8,15 @@ use crate::types::{InlineMessageId, Location, User};
 /// An inline result the user picked; arrives only with inline feedback enabled in @BotFather.
 #[derive(Clone)]
 pub struct ChosenInlineResult {
+    /// Id of the chosen result, as set on the [`InlineQueryResult`](crate::types::InlineQueryResult).
     pub result_id: String,
+    /// The user who picked the result.
     pub from_user: User,
+    /// Location of the user. `None` if Telegram doesn't send one.
     pub location: Option<Location>,
     /// Set only when the message has an inline keyboard, so it can be edited later.
     pub inline_message_id: Option<InlineMessageId>,
+    /// The inline query text that produced the result.
     pub query: String,
     client: Client,
 }
@@ -29,6 +33,7 @@ impl ChosenInlineResult {
         }
     }
 
+    /// Returns the client this update arrived on.
     pub fn client(&self) -> &Client {
         &self.client
     }

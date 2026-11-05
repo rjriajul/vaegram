@@ -1,11 +1,17 @@
 use crate::raw::{base, types};
 
+/// The kinds of gifts an account accepts. A field is `true` when that kind is accepted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AcceptedGiftTypes {
+    /// Gifts with unlimited supply.
     pub unlimited_gifts: bool,
+    /// Gifts with limited supply.
     pub limited_gifts: bool,
+    /// Unique gifts, such as upgraded or transferred ones.
     pub unique_gifts: bool,
+    /// Gifted Telegram Premium subscriptions.
     pub premium_subscription: bool,
+    /// Gifts sent by channels.
     pub gifts_from_channels: bool,
 }
 

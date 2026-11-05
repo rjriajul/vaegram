@@ -14,19 +14,22 @@ pub struct SetShareTheme<'a> {
 }
 
 impl Client {
+    /// Changes the share card theme of a chat. Awaiting it with no option set restores the default theme.
+    ///
+    /// Fails with `Error::InvalidArgument` if [`gift`](SetShareTheme::gift) is combined with a backdrop or emojis.
     pub fn set_share_theme(&self, chat_id: impl Into<PeerRef>) -> SetShareTheme<'_> {
         SetShareTheme { client: self, chat_id: chat_id.into(), backdrop_id: None, emojis: None, gift: None }
     }
 }
 
 impl SetShareTheme<'_> {
-    /// An id from [`get_share_theme_backdrops`](Client::get_share_theme_backdrops).
+    /// Uses the backdrop with this id, taken from [`get_share_theme_backdrops`](Client::get_share_theme_backdrops).
     pub fn backdrop_id(mut self, backdrop_id: i32) -> Self {
         self.backdrop_id = Some(backdrop_id);
         self
     }
 
-    /// An empty list leaves the emojis unset.
+    /// Shows these emojis on the share card. An empty list leaves the emojis unset.
     pub fn emojis(mut self, emojis: impl IntoIterator<Item = ReactionType>) -> Self {
         let emojis: Vec<_> = emojis.into_iter().collect();
         self.emojis = if emojis.is_empty() { None } else { Some(emojis) };

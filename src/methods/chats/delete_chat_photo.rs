@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Removes the photo of a basic group, supergroup or channel.
     pub async fn delete_chat_photo(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
         let chat = self.resolve_chat(&chat_id.into()).await?;
         self.edit_chat_photo(chat, base::InputChatPhoto::InputChatPhotoEmpty).await

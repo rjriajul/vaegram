@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::{GameHighScore, InlineMessageId, PeerRef};
 
 impl Client {
+    /// Returns the top scores of an inline-mode game, plus `user_id` and their neighbours.
     pub async fn get_inline_game_high_scores(
         &self,
         inline_message_id: &InlineMessageId,

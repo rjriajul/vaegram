@@ -1,14 +1,23 @@
 use crate::raw::base;
 
+/// A tab on a profile page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProfileTab {
+    /// Posts.
     Posts,
+    /// Gifts.
     Gifts,
+    /// Photos and videos.
     Media,
+    /// Files.
     Files,
+    /// Music.
     Music,
+    /// Voice messages.
     Voice,
+    /// Shared links.
     Links,
+    /// GIFs.
     Gifs,
 }
 

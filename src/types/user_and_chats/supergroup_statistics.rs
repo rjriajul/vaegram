@@ -3,45 +3,75 @@ use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::types::{StatisticalGraph, StatisticalValue, User};
 
+/// Statistics for a supergroup.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SupergroupStatistics {
+    /// Unix time the covered period starts.
     pub min_date: i32,
+    /// Unix time the covered period ends.
     pub max_date: i32,
+    /// Number of members.
     pub members: StatisticalValue,
+    /// Number of messages sent.
     pub messages: StatisticalValue,
+    /// Number of members who viewed messages.
     pub viewers: StatisticalValue,
+    /// Number of members who sent messages.
     pub posters: StatisticalValue,
+    /// Member growth.
     pub growth_graph: StatisticalGraph,
+    /// Members who joined and left.
     pub members_graph: StatisticalGraph,
+    /// New members by where they joined from.
     pub new_members_by_source_graph: StatisticalGraph,
+    /// Members by language.
     pub languages_graph: StatisticalGraph,
+    /// Messages over time.
     pub messages_graph: StatisticalGraph,
+    /// Admin actions over time.
     pub actions_graph: StatisticalGraph,
+    /// Activity by hour of the day.
     pub top_hours_graph: StatisticalGraph,
+    /// Activity by day of the week.
     pub weekdays_graph: StatisticalGraph,
+    /// Members who sent the most messages.
     pub top_posters: Vec<TopPoster>,
+    /// Admins who took the most actions.
     pub top_admins: Vec<TopAdmin>,
+    /// Members who invited the most people.
     pub top_inviters: Vec<TopInviter>,
 }
 
+/// A member ranked by messages sent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TopPoster {
+    /// The member.
     pub user: User,
+    /// Messages they sent in the period.
     pub messages: i32,
+    /// Average length of their messages, in characters.
     pub avg_chars: i32,
 }
 
+/// An admin ranked by actions taken.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TopAdmin {
+    /// The admin.
     pub user: User,
+    /// Messages deleted.
     pub deleted: i32,
+    /// Members kicked.
     pub kicked: i32,
+    /// Members banned.
     pub banned: i32,
 }
 
+/// A member ranked by invitations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TopInviter {
+    /// The member who sent the invitations.
     pub user: User,
+    /// People invited.
     pub invitations: i32,
 }
 

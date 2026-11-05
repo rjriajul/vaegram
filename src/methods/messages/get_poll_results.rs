@@ -5,6 +5,10 @@ use crate::raw::{base, functions, types};
 use crate::types::{PeerRef, Poll};
 
 impl Client {
+    /// Fetches the current vote counts of the poll in a message.
+    ///
+    /// Falls back to reading the message when Telegram's answer doesn't carry the poll.
+    /// Fails with `Error::InvalidArgument` if the message has no poll.
     pub async fn get_poll_results(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> Result<Poll> {
         let (chat_id, peer) = self.resolve(&chat_id.into()).await?;
         let request = functions::messages::GetPollResults { peer, msg_id: message_id, poll_hash: 0 };

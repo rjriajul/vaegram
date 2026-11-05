@@ -1,18 +1,27 @@
 use crate::raw::{base, types};
 use crate::types::Location;
 
+/// A named place on the map, such as a restaurant.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Venue {
+    /// Where the venue is.
     pub location: Location,
+    /// Name of the venue.
     pub title: String,
+    /// Street address of the venue.
     pub address: String,
+    /// Foursquare id of the place. `None` unless Foursquare is the provider.
     pub foursquare_id: Option<String>,
+    /// Foursquare category of the place.
     pub foursquare_type: Option<String>,
+    /// Google Places id of the place. `None` unless Google Places is the provider.
     pub google_place_id: Option<String>,
+    /// Google Places category of the place.
     pub google_place_type: Option<String>,
 }
 
 impl Venue {
+    /// Creates a venue at the given coordinates with no provider ids.
     pub fn new(latitude: f64, longitude: f64, title: impl Into<String>, address: impl Into<String>) -> Self {
         Venue {
             location: Location::new(latitude, longitude),

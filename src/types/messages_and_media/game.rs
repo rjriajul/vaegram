@@ -1,13 +1,20 @@
 use crate::raw::base;
 use crate::types::{Animation, Media, Photo};
 
+/// A game attached to a message.
 #[derive(Debug, Clone)]
 pub struct Game {
+    /// Telegram's id of the game.
     pub id: i64,
+    /// Short name that identifies the game to its bot.
     pub short_name: String,
+    /// Title of the game.
     pub title: String,
+    /// Description of the game.
     pub description: String,
+    /// Photo of the game. `None` if the game has no photo.
     pub photo: Option<Photo>,
+    /// Animation of the game. `None` if the game has no document or it isn't an animation.
     pub animation: Option<Animation>,
 }
 

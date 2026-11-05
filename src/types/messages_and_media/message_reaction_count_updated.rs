@@ -5,11 +5,16 @@ use crate::dispatcher::Entities;
 use crate::raw::types;
 use crate::types::{Chat, ReactionCount};
 
+/// An update to the reaction counts of a message.
 #[derive(Clone)]
 pub struct MessageReactionCountUpdated {
+    /// The chat the message is in.
     pub chat: Chat,
+    /// Id of the message that was reacted to.
     pub message_id: i32,
+    /// Unix time of the change.
     pub date: i32,
+    /// The reactions the message has now, with their counts.
     pub reactions: Vec<ReactionCount>,
     client: Client,
 }
@@ -29,6 +34,7 @@ impl MessageReactionCountUpdated {
         }
     }
 
+    /// The [`Client`] that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }

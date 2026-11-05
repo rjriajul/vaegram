@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
+/// Pages through polls with unseen votes. Call [`next`](GetUnreadPollVotes::next) until it returns `None`.
 #[must_use = "call .next() to fetch messages"]
 pub struct GetUnreadPollVotes<'a> {
     client: &'a Client,
@@ -13,13 +14,14 @@ pub struct GetUnreadPollVotes<'a> {
 }
 
 impl Client {
-    /// Your polls in a chat with votes you haven't seen, newest first.
+    /// Walks your polls in a chat that have votes you haven't seen, newest first.
     pub fn get_unread_poll_votes(&self, chat_id: impl Into<PeerRef>) -> GetUnreadPollVotes<'_> {
         GetUnreadPollVotes { client: self, chat_id: chat_id.into(), top_msg_id: None, pages: Pages::new() }
     }
 }
 
 impl GetUnreadPollVotes<'_> {
+    /// Stops after this many messages. Without it the walk runs to the last message.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
@@ -31,6 +33,7 @@ impl GetUnreadPollVotes<'_> {
         self
     }
 
+    /// Returns the next message, fetching a page when the buffered one is used up. `None` after the last.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         loop {
             if let Some(message) = self.pages.pop(self.client) {

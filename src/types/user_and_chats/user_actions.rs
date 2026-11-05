@@ -3,10 +3,9 @@ use crate::errors::Result;
 use crate::methods::{BlockUser, UnblockUser};
 use crate::types::{Chat, Text, User};
 
-/// Shortcuts for the `Client` methods that take this user: each one forwards to its method with the user's id and
-/// gives back what the method gives back.
+/// Name helpers, and shortcuts that call the `Client` method of the same name with the user's id.
 impl User {
-    /// The first and last name, joined.
+    /// Returns the first and last name joined by a space, or the first name alone.
     pub fn full_name(&self) -> String {
         match &self.last_name {
             Some(last) => format!("{} {last}", self.first_name),
@@ -14,27 +13,32 @@ impl User {
         }
     }
 
-    /// The full name as a mention of this user.
+    /// Returns [`full_name`](User::full_name) as a text mention of this user.
     pub fn mention(&self) -> Text {
         Text::new().mention(self.full_name(), self.id)
     }
 
+    /// Moves the chat with this user to the archive.
     pub async fn archive(&self, client: &Client) -> Result<()> {
         client.archive_chats([self.id]).await
     }
 
+    /// Moves the chat with this user out of the archive.
     pub async fn unarchive(&self, client: &Client) -> Result<()> {
         client.unarchive_chats([self.id]).await
     }
 
+    /// Blocks this user. Awaiting the returned [`BlockUser`] sends the request.
     pub fn block<'a>(&self, client: &'a Client) -> BlockUser<'a> {
         client.block_user(self.id)
     }
 
+    /// Unblocks this user. Awaiting the returned [`UnblockUser`] sends the request.
     pub fn unblock<'a>(&self, client: &'a Client) -> UnblockUser<'a> {
         client.unblock_user(self.id)
     }
 
+    /// Returns the chats you share with this user.
     pub async fn get_common_chats(&self, client: &Client) -> Result<Vec<Chat>> {
         client.get_common_chats(self.id).await
     }

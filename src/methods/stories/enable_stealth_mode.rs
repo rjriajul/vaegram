@@ -3,6 +3,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::types::StoriesStealthMode;
 
+/// Request built by [`Client::enable_stealth_mode`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct EnableStealthMode<'a> {
     client: &'a Client,
@@ -11,18 +12,23 @@ pub struct EnableStealthMode<'a> {
 }
 
 impl Client {
-    /// Premium only; the hidden periods come from the server's `stories_stealth_*_period` config.
+    /// Turns on story stealth mode and returns the new [`StoriesStealthMode`].
+    ///
+    /// Premium only. The hidden periods come from the server's `stories_stealth_*_period` config. Fails with
+    /// `Unexpected` if Telegram sends no stealth mode back.
     pub fn enable_stealth_mode(&self) -> EnableStealthMode<'_> {
         EnableStealthMode { client: self, past: false, future: false }
     }
 }
 
 impl EnableStealthMode<'_> {
+    /// Hides the stories you viewed in the recent past from their authors.
     pub fn past(mut self) -> Self {
         self.past = true;
         self
     }
 
+    /// Hides the stories you view in the coming period from their authors.
     pub fn future(mut self) -> Self {
         self.future = true;
         self

@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::{PeerRef, Photo, UserProfilePhotos};
 
+/// Request built by [`Client::get_chat_photos`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GetChatPhotos<'a> {
     client: &'a Client,
@@ -12,18 +13,23 @@ pub struct GetChatPhotos<'a> {
 }
 
 impl Client {
-    /// A user's profile photos, newest first: up to 100 per call, skipping `offset` of them.
+    /// Fetches a user's profile photos, newest first.
+    ///
+    /// Awaiting it returns a [`UserProfilePhotos`] with the total count and up to
+    /// [`limit`](GetChatPhotos::limit) photos, 100 by default.
     pub fn get_chat_photos(&self, user_id: impl Into<PeerRef>) -> GetChatPhotos<'_> {
         GetChatPhotos { client: self, user_id: user_id.into(), offset: 0, limit: 100 }
     }
 }
 
 impl GetChatPhotos<'_> {
+    /// Skips this many photos from the newest.
     pub fn offset(mut self, offset: i32) -> Self {
         self.offset = offset;
         self
     }
 
+    /// Caps how many photos one call returns. Defaults to 100.
     pub fn limit(mut self, limit: i32) -> Self {
         self.limit = limit;
         self

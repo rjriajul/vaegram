@@ -4,6 +4,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{FolderInviteLink, PeerRef};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::create_folder_invite_link`].
 pub struct CreateFolderInviteLink<'a> {
     client: &'a Client,
     folder_id: i32,
@@ -12,6 +13,9 @@ pub struct CreateFolderInviteLink<'a> {
 }
 
 impl Client {
+    /// Creates an invite link that shares `chat_ids` of the folder.
+    ///
+    /// Awaiting it returns the [`FolderInviteLink`]. An empty `chat_ids` fails with `Error::InvalidArgument`.
     pub fn create_folder_invite_link(
         &self,
         folder_id: i32,
@@ -23,6 +27,7 @@ impl Client {
 }
 
 impl CreateFolderInviteLink<'_> {
+    /// Gives the link a title. Empty by default.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

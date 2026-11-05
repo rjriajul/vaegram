@@ -8,7 +8,9 @@ use super::get_saved_history::GetSavedHistory;
 pub struct GetDirectMessagesChatTopicHistory<'a>(GetSavedHistory<'a>);
 
 impl Client {
-    /// `chat_id` is the direct messages chat; `topic_id` is the id of the user writing to it.
+    /// Walks the messages of one topic of the direct messages chat `chat_id`, newest first.
+    ///
+    /// `topic_id` is the id of the user writing to the chat.
     pub fn get_direct_messages_chat_topic_history(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -19,16 +21,19 @@ impl Client {
 }
 
 impl GetDirectMessagesChatTopicHistory<'_> {
+    /// Stops after this many messages.
     pub fn limit(mut self, limit: usize) -> Self {
         self.0 = self.0.limit(limit);
         self
     }
 
+    /// Starts below this message id, so the walk skips it and anything newer.
     pub fn offset_id(mut self, message_id: i32) -> Self {
         self.0 = self.0.offset_id(message_id);
         self
     }
 
+    /// Starts at messages older than this Unix time.
     pub fn offset_date(mut self, date: i32) -> Self {
         self.0 = self.0.offset_date(date);
         self
@@ -46,6 +51,7 @@ impl GetDirectMessagesChatTopicHistory<'_> {
         self
     }
 
+    /// Returns the next message, or `None` at the end of the topic.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         self.0.next().await
     }

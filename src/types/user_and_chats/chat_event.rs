@@ -4,48 +4,88 @@ use crate::raw::base;
 use crate::types::{ChatMember, ChatPermissions, Message, Photo, User};
 use crate::utils::get_channel_id;
 
+/// An entry in a chat's admin log.
 #[derive(Debug, Clone)]
 pub struct ChatEvent {
+    /// Id of the log entry, unique within the chat's log.
     pub id: i64,
+    /// Unix time the action happened.
     pub date: i32,
+    /// The user who did the action.
     pub user: User,
+    /// The action that was done.
     pub action: ChatEventAction,
 }
 
+/// What an admin log entry records.
+///
+/// Actions vaegram doesn't map, and entries whose message fails to parse, come as [`ChatEventAction::Unknown`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum ChatEventAction {
+    /// The chat title changed.
     TitleChanged { old: String, new: String },
+    /// The chat description changed.
     DescriptionChanged { old: String, new: String },
+    /// The chat's public username changed.
     UsernameChanged { old: String, new: String },
+    /// The chat photo changed. `None` means no photo.
     PhotoChanged { old: Option<Photo>, new: Option<Photo> },
+    /// The linked discussion chat changed. `None` means no linked chat.
     LinkedChatChanged { old: Option<i64>, new: Option<i64> },
+    /// The slow mode delay changed, in seconds.
     SlowModeChanged { old: i32, new: i32 },
+    /// The auto-delete timer for messages changed, in seconds.
     HistoryTtlChanged { old: i32, new: i32 },
+    /// The default permissions of members changed.
     ChatPermissionsChanged { old: ChatPermissions, new: ChatPermissions },
+    /// Inviting users was turned on or off. Holds the new setting.
     InvitesEnabled(bool),
+    /// Author signatures on posts were turned on or off. Holds the new setting.
     SignaturesEnabled(bool),
+    /// Hiding old history from new members was turned on or off. Holds the new setting.
     HistoryHidden(bool),
+    /// Protection against forwarding and saving was turned on or off. Holds the new setting.
     ContentProtected(bool),
+    /// Forum topics were turned on or off. Holds the new setting.
     ForumTopicsEnabled(bool),
+    /// A message was pinned.
     MessagePinned(Message),
+    /// A message was unpinned.
     MessageUnpinned(Message),
+    /// A message was edited.
     MessageEdited { old: Box<Message>, new: Box<Message> },
+    /// A message was deleted. Holds the message as it was.
     MessageDeleted(Message),
+    /// A message was sent.
     MessageSent(Message),
+    /// A poll was stopped. Holds the poll message.
     PollStopped(Message),
+    /// A user joined the chat.
     MemberJoined,
+    /// A user left the chat.
     MemberLeft,
+    /// A user joined through an invite link. The link is empty for a public join-request link.
     MemberJoinedByLink { invite_link: String, via_chatlist: bool },
+    /// A user joined after a join request was approved.
     MemberJoinedByRequest { invite_link: String, approved_by: User },
+    /// A user was added to the chat.
     MemberInvited(ChatMember),
+    /// A member was banned, unbanned or restricted, or their restrictions changed.
     MemberPermissionsChanged { old: ChatMember, new: ChatMember },
+    /// A member was promoted, demoted, or their administrator rights changed.
     AdministratorPrivilegesChanged { old: ChatMember, new: ChatMember },
+    /// An invite link was edited.
     InviteLinkEdited { old: String, new: String },
+    /// An invite link was revoked.
     InviteLinkRevoked(String),
+    /// An invite link was deleted.
     InviteLinkDeleted(String),
+    /// A video chat was started.
     VideoChatStarted,
+    /// A video chat was ended.
     VideoChatEnded,
+    /// An action vaegram doesn't map, or one whose message failed to parse.
     Unknown,
 }
 

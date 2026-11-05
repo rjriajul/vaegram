@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Picks the tab a profile opens on, for your own profile or a channel's.
     pub async fn set_main_profile_tab(&self, chat_id: impl Into<PeerRef>, tab: ProfileTab) -> Result<()> {
         let chat = chat_id.into();
         let tab = tab.write();

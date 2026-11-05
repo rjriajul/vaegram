@@ -7,10 +7,13 @@ use crate::types::Chat;
 pub struct PaidReactor {
     /// Who sent the Stars; `None` when they reacted anonymously.
     pub sender: Option<Chat>,
+    /// Stars this sender has spent on the message.
     pub star_count: i32,
+    /// The sender is among the top senders.
     pub is_top: bool,
     /// The current account sent them.
     pub is_me: bool,
+    /// The sender chose to react anonymously.
     pub is_anonymous: bool,
 }
 

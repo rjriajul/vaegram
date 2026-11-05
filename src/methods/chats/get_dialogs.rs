@@ -5,6 +5,9 @@ use crate::raw::{base, functions};
 use crate::types::Dialog;
 use crate::utils::get_peer_id;
 
+/// Dialog list, read one dialog at a time with [`next`](GetDialogs::next).
+///
+/// Call `next` until it returns `None`.
 pub struct GetDialogs<'a> {
     client: &'a Client,
     folder_id: Option<i32>,
@@ -14,24 +17,30 @@ pub struct GetDialogs<'a> {
 }
 
 impl Client {
+    /// Starts reading your dialogs from the main chat list.
     pub fn get_dialogs(&self) -> GetDialogs<'_> {
         GetDialogs { client: self, folder_id: None, total: None, pages: DialogPages::new() }
     }
 }
 
 impl GetDialogs<'_> {
+    /// Stops after this many dialogs in total. The default reads the whole list.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Reads the archive (`1`) instead of the main list (`0`). Chat folder ids from [`Client::get_folders`] don't
+    /// work here.
     pub fn chat_list(mut self, folder_id: i32) -> Self {
         self.folder_id = Some(folder_id);
         self
     }
 
-    /// How many dialogs there are in the list, whatever `limit` says: the count Telegram gave with the last page,
-    /// or, before any page, from one request for a single dialog. Either way it's asked for once.
+    /// Returns how many dialogs the list holds, ignoring `limit`.
+    ///
+    /// Before the first page this sends one request for a single dialog. After that it returns the count from the
+    /// last page read without a request.
     pub async fn total(&mut self) -> Result<i32> {
         if let Some(total) = self.total {
             return Ok(total);
@@ -43,6 +52,7 @@ impl GetDialogs<'_> {
         Ok(total)
     }
 
+    /// Returns the next dialog, or `None` once the list or the limit is exhausted.
     pub async fn next(&mut self) -> Result<Option<Dialog>> {
         loop {
             if let Some(dialog) = self.pages.pop() {
@@ -63,7 +73,7 @@ impl GetDialogs<'_> {
         }
     }
 
-    /// `paged` continues from the last page; without it the request starts at the top of the list.
+    /// `paged` continues from the last page. Without it the request starts at the top of the list.
     fn request(&self, limit: i32, paged: bool) -> functions::messages::GetDialogs {
         let (offset_date, offset_id, offset_peer) = if paged {
             (self.pages.offset_date, self.pages.offset_id, self.pages.offset_peer.clone())

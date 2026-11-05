@@ -5,6 +5,9 @@ use crate::raw::{base, functions};
 use crate::types::BusinessConnection;
 
 impl Client {
+    /// Returns a business connection by id.
+    ///
+    /// Fails with `Error::Unexpected` if Telegram's answer holds no connection.
     pub async fn get_business_connection(&self, business_connection_id: &str) -> Result<BusinessConnection> {
         let request = functions::account::GetBotBusinessConnection { connection_id: business_connection_id.into() };
         let (updates, users, chats) = match self.invoke(&request).await? {

@@ -5,6 +5,7 @@ use crate::methods::messages::caption_setters;
 use crate::raw::functions;
 use crate::types::{PeerRef, Story};
 
+/// Request built by [`Client::edit_story_caption`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct EditStoryCaption<'a> {
     client: &'a Client,

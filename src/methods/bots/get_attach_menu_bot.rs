@@ -5,6 +5,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{AttachMenuBot, PeerRef};
 
 impl Client {
+    /// Returns the attachment menu entry of a bot.
     pub async fn get_attach_menu_bot(&self, bot_id: impl Into<PeerRef>) -> Result<AttachMenuBot> {
         let request = functions::messages::GetAttachMenuBot { bot: self.resolve_user(&bot_id.into()).await? };
         let base::AttachMenuBotsBot::AttachMenuBotsBot(found) = self.invoke(&request).await?;

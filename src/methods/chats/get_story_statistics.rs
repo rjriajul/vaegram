@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{MessageStatistics, PeerRef};
 
 impl Client {
+    /// Returns the view and reaction graphs of a story.
     pub async fn get_story_statistics(&self, chat_id: impl Into<PeerRef>, story_id: i32) -> Result<MessageStatistics> {
         let peer = self.resolve_peer(chat_id).await?;
         let base::stats::StoryStats::StoryStats(s) =

@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 
 impl Client {
+    /// Sets the name of the business account behind a connection. An empty `last_name` clears the last name.
     pub async fn set_business_account_name(
         &self,
         business_connection_id: &str,

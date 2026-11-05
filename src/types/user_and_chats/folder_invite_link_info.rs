@@ -3,14 +3,20 @@ use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::types::{Chat, MessageEntity};
 
+/// What a folder invite link shows before it is used.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FolderInviteLinkInfo {
+    /// Id of the folder, when the account already joined it. `None` otherwise.
     pub folder_id: Option<i32>,
-    /// `None` once joined: Telegram doesn't send the title of a list the account already has.
+    /// Title of the folder. `None` once the account has joined it, since Telegram doesn't send it then.
     pub title: Option<String>,
+    /// Entities in `title`, such as custom emoji.
     pub title_entities: Vec<MessageEntity>,
+    /// The emoji shown as the folder's icon. `None` once joined.
     pub emoji: Option<String>,
+    /// The chats the account hasn't joined yet.
     pub missing_chats: Vec<Chat>,
+    /// The chats the account has already joined. Empty before joining.
     pub added_chats: Vec<Chat>,
 }
 

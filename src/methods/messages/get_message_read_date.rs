@@ -4,6 +4,9 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Returns the Unix time the other side read an outgoing message.
+    ///
+    /// `None` when Telegram answers `MESSAGE_NOT_READ_YET`.
     pub async fn get_message_read_date(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> Result<Option<i32>> {
         let request =
             functions::messages::GetOutboxReadDate { peer: self.resolve_peer(chat_id).await?, msg_id: message_id };

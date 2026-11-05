@@ -4,10 +4,13 @@ use crate::raw::{base, types};
 use crate::types::{Document, Photo};
 use crate::utils::CHANNEL_OFFSET;
 
+/// Where Telegram stores a file, as needed to download it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileLocation {
     pub(crate) location: base::InputFileLocation,
+    /// Data center that stores the file. `None` if unknown.
     pub dc_id: Option<i32>,
+    /// Size in bytes. `None` if unknown.
     pub file_size: Option<i64>,
 }
 

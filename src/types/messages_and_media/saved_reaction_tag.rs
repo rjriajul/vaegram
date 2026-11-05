@@ -1,10 +1,14 @@
 use crate::raw::base;
 use crate::types::ReactionType;
 
+/// A reaction the account saved as a tag for its messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedReactionTag {
+    /// The reaction used as the tag.
     pub reaction: ReactionType,
+    /// The name given to the tag, if any.
     pub title: Option<String>,
+    /// Number of messages with the tag.
     pub count: i32,
 }
 

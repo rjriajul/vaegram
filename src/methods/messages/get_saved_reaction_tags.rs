@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::SavedReactionTag;
 
 impl Client {
+    /// Returns your tags for Saved Messages, one per tagged reaction.
     pub async fn get_saved_reaction_tags(&self) -> Result<Vec<SavedReactionTag>> {
         match self.invoke(&functions::messages::GetSavedReactionTags { peer: None, hash: 0 }).await? {
             base::messages::SavedReactionTags::SavedReactionTags(t) => {

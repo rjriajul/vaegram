@@ -5,6 +5,9 @@ use crate::raw::{base, functions};
 use crate::types::Story;
 
 impl Client {
+    /// Returns the active stories of every chat you follow, fetching all pages.
+    ///
+    /// With `hidden` set, returns the stories of chats you moved to the hidden list instead of the main one.
     pub async fn get_all_stories(&self, hidden: bool) -> Result<Vec<Story>> {
         let mut stories = Vec::new();
         let mut state = None;

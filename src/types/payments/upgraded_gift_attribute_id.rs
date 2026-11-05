@@ -7,6 +7,7 @@ pub enum UpgradedGiftAttributeId {
     Model(i64),
     /// The sticker id of a symbol.
     Symbol(i64),
+    /// The id of a backdrop.
     Backdrop(i32),
 }
 

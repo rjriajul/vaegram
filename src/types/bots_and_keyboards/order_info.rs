@@ -1,11 +1,16 @@
 use crate::raw::{base, types};
 use crate::types::ShippingAddress;
 
+/// Contact and delivery details the buyer filled in during checkout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrderInfo {
+    /// The buyer's name. `None` if not provided.
     pub name: Option<String>,
+    /// The buyer's phone number. `None` if not provided.
     pub phone_number: Option<String>,
+    /// The buyer's email address. `None` if not provided.
     pub email: Option<String>,
+    /// Where to deliver. `None` if not provided.
     pub shipping_address: Option<ShippingAddress>,
 }
 

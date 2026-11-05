@@ -5,6 +5,7 @@ use crate::types::{Message, PeerRef};
 
 use super::pages::Pages;
 
+/// Messages of Saved Messages from one source chat. Call [`next`](GetSavedHistory::next) until it returns `None`.
 pub struct GetSavedHistory<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -17,6 +18,7 @@ pub struct GetSavedHistory<'a> {
 }
 
 impl Client {
+    /// Reads the messages of Saved Messages that came from a chat, newest first.
     pub fn get_saved_history(&self, chat_id: impl Into<PeerRef>) -> GetSavedHistory<'_> {
         GetSavedHistory {
             client: self,
@@ -45,21 +47,25 @@ impl<'a> GetSavedHistory<'a> {
         self
     }
 
+    /// Stops after this many messages. Without it the walk runs to the last message.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Starts below this message id, so the walk skips it and anything newer.
     pub fn offset_id(mut self, message_id: i32) -> Self {
         self.pages.offset_id = message_id;
         self
     }
 
+    /// Starts at messages older than this Unix time.
     pub fn offset_date(mut self, date: i32) -> Self {
         self.offset_date = date;
         self
     }
 
+    /// Returns the next message, fetching a page when the buffered one is used up. `None` after the last.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         loop {
             if let Some(message) = self.pages.pop(self.client) {

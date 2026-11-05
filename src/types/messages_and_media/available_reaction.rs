@@ -1,10 +1,15 @@
 use crate::raw::base;
 
+/// An emoji reaction that Telegram offers for messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AvailableReaction {
+    /// The reaction's emoji.
     pub emoji: String,
+    /// Name of the reaction.
     pub title: String,
+    /// `true` if only Premium users can use the reaction.
     pub premium: bool,
+    /// `true` if the reaction can no longer be added to messages.
     pub inactive: bool,
 }
 

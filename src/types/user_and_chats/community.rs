@@ -4,19 +4,26 @@ use crate::raw::base;
 use crate::types::{ChatPhoto, CommunityAdministratorRights, CommunityPermissions};
 use crate::utils::get_channel_id;
 
-/// A community; every field after `name` is empty for a community the account has never seen.
+/// A community the account knows of.
+///
+/// Only `id` is set for a community the account has never seen.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Community {
+    /// Bot API style id. Communities share the `-100` prefix of channels.
     pub id: i64,
+    /// The community's title. Empty for a community the account has never seen.
     pub name: String,
-    /// The account can open the community; `false` when Telegram sent only its name.
+    /// Whether the account can open the community. `false` when Telegram sent only its name.
     pub have_access: bool,
+    /// The community photo. `None` if it has none or `have_access` is `false`.
     pub photo: Option<ChatPhoto>,
+    /// Unix time Telegram sends with the community. `None` for banned or unseen communities.
     pub date: Option<i32>,
+    /// The account's status in the community. `None` if unseen or sent without the account's own flags.
     pub status: Option<CommunityMemberStatus>,
-    /// Your rights as an administrator.
+    /// The account's administrator rights. `None` if it isn't an administrator or `status` is `None`.
     pub administrator_rights: Option<CommunityAdministratorRights>,
-    /// The default rights of members.
+    /// Default permissions of members. `None` if Telegram didn't send them.
     pub permissions: Option<CommunityPermissions>,
 }
 

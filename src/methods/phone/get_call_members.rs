@@ -6,6 +6,7 @@ use crate::raw::{base, functions};
 use crate::types::{GroupCallMember, PeerRef};
 
 #[must_use = "call .next() to fetch call members"]
+/// Members of a video chat, fetched page by page with [`next`](GetCallMembers::next).
 pub struct GetCallMembers<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -14,18 +15,22 @@ pub struct GetCallMembers<'a> {
 }
 
 impl Client {
-    /// Lists the members of the group's or channel's active video chat; without one the list is empty.
+    /// Lists the members of the active video chat in a group or channel.
+    ///
+    /// The list is empty when no video chat is running. Call [`next`](GetCallMembers::next) for each member.
     pub fn get_call_members(&self, chat_id: impl Into<PeerRef>) -> GetCallMembers<'_> {
         GetCallMembers { client: self, chat_id: chat_id.into(), call: None, pages: OffsetPages::new(100) }
     }
 }
 
 impl GetCallMembers<'_> {
+    /// Stops after this many members.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next member, or `None` when there are no more.
     pub async fn next(&mut self) -> Result<Option<GroupCallMember>> {
         loop {
             if let Some(member) = self.pages.pop() {

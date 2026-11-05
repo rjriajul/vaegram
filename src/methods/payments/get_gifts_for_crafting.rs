@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{OwnedGifts, PeerRef};
 
+/// Request built by [`Client::get_gifts_for_crafting`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GetGiftsForCrafting<'a> {
     client: &'a Client,
@@ -19,11 +20,13 @@ impl Client {
 }
 
 impl GetGiftsForCrafting<'_> {
+    /// Continues from the `next_offset` of a previous page.
     pub fn offset(mut self, offset: impl Into<String>) -> Self {
         self.request.offset = offset.into();
         self
     }
 
+    /// Caps how many gifts one page holds. The default is 100.
     pub fn limit(mut self, limit: i32) -> Self {
         self.request.limit = limit;
         self

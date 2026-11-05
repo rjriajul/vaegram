@@ -1,15 +1,25 @@
 use crate::raw::{base, types};
 
+/// The boost level of a chat and the progress toward the next one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoostsStatus {
+    /// The chat's current boost level.
     pub level: i32,
+    /// Total boosts the chat has now.
     pub boosts: i32,
+    /// Total boosts the current level started at.
     pub current_level_boosts: i32,
+    /// Total boosts the next level starts at. `None` at the maximum level.
     pub next_level_boosts: Option<i32>,
+    /// Boosts that came from gift codes and giveaways. `0` if Telegram omits the count.
     pub gift_boosts: i32,
+    /// Approximate number of Premium users among the chat's subscribers. Only admins get it.
     pub premium_members: Option<i32>,
+    /// Link people open to boost the chat.
     pub boost_url: String,
+    /// `true` if you boost the chat yourself.
     pub my_boost: bool,
+    /// Your boost slots assigned to this chat.
     pub my_boost_slots: Vec<i32>,
 }
 

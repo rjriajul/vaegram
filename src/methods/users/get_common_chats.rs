@@ -6,6 +6,7 @@ use crate::types::{Chat, PeerRef};
 use crate::utils::{get_chat_id, get_peer};
 
 impl Client {
+    /// Returns up to 100 groups and channels you share with a user.
     pub async fn get_common_chats(&self, user_id: impl Into<PeerRef>) -> Result<Vec<Chat>> {
         let user_id = self.resolve_user(&user_id.into()).await?;
         let request = functions::messages::GetCommonChats { user_id, max_id: 0, limit: 100 };

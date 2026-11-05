@@ -1,15 +1,23 @@
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 
+/// The weekly opening hours of a business account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BusinessOpeningHours {
+    /// Id of the time zone the hours are in. Setting the hours fails with `Error::InvalidArgument` if it's empty.
     pub time_zone_name: String,
+    /// Open intervals as `(start, end)` in minutes from Monday 00:00.
     pub opening_hours: Vec<(i32, i32)>,
-    /// Read from Telegram; ignored when setting the hours.
+    /// `true` if the business is open now. Ignored when setting the hours.
     pub is_open_now: bool,
 }
 
 impl BusinessOpeningHours {
+    /// Creates opening hours with `is_open_now` set to `false`.
+    ///
+    /// Intervals are checked when the hours are set. Each one must start within the week, end after it starts,
+    /// last at most a week and end no later than 8 days after Monday 00:00. Otherwise setting them fails with
+    /// `Error::InvalidArgument`.
     pub fn new(time_zone_name: impl Into<String>, opening_hours: impl IntoIterator<Item = (i32, i32)>) -> Self {
         let (time_zone_name, opening_hours) = (time_zone_name.into(), opening_hours.into_iter().collect());
         BusinessOpeningHours { time_zone_name, opening_hours, is_open_now: false }
@@ -27,7 +35,7 @@ impl BusinessOpeningHours {
         }
     }
 
-    /// Minutes count from Monday 00:00; an interval may run past Sunday into the next week, up to 8*24*60.
+    /// Minutes count from Monday 00:00. An interval may run past Sunday into the next week, up to 8*24*60.
     pub(crate) fn write(&self) -> Result<base::BusinessWorkHours> {
         const WEEK: i32 = 7 * 24 * 60;
         if self.time_zone_name.is_empty() {

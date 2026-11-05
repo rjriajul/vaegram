@@ -6,6 +6,7 @@ use crate::raw::{base, functions};
 use crate::types::{EphemeralMessage, InputMedia, MessageText, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by the `edit_ephemeral_message_*` methods. Awaiting it returns the edited [`EphemeralMessage`].
 pub struct EditEphemeralMessage<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -19,6 +20,9 @@ pub struct EditEphemeralMessage<'a> {
 }
 
 impl Client {
+    /// Replaces the text of an ephemeral message that `receiver_user_id` sees.
+    ///
+    /// Awaiting the request returns the edited [`EphemeralMessage`].
     pub fn edit_ephemeral_message_text(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -55,11 +59,13 @@ impl<'a> EditEphemeralMessage<'a> {
         self
     }
 
+    /// Shows the caption above the media instead of below it.
     pub fn show_caption_above_media(mut self) -> Self {
         self.invert_media = true;
         self
     }
 
+    /// Attaches a reply markup to the edited message.
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
         self

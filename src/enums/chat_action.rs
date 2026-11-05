@@ -1,22 +1,39 @@
 use crate::raw::{base, types};
 
+/// An activity shown to other members of a chat, such as "typing...". Upload actions are sent with progress 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChatAction {
+    /// Typing a text message.
     Typing,
+    /// Uploading a photo.
     UploadPhoto,
+    /// Recording a video.
     RecordVideo,
+    /// Uploading a video.
     UploadVideo,
+    /// Recording a voice message.
     RecordAudio,
+    /// Uploading a voice message.
     UploadAudio,
+    /// Uploading a file.
     UploadDocument,
+    /// Choosing a location to send.
     FindLocation,
+    /// Recording a video note.
     RecordVideoNote,
+    /// Uploading a video note.
     UploadVideoNote,
+    /// Playing a game.
     Playing,
+    /// Choosing a contact to send.
     ChooseContact,
+    /// Choosing a sticker to send.
     ChooseSticker,
+    /// Speaking in a group call.
     Speaking,
+    /// Importing a chat history.
     ImportHistory,
+    /// Clears the action that was showing.
     Cancel,
 }
 

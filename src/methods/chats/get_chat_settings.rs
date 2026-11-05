@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::{ChatSettings, PeerRef};
 
 impl Client {
+    /// Returns a chat's peer settings, such as whether you can report it as spam.
     pub async fn get_chat_settings(&self, chat_id: impl Into<PeerRef>) -> Result<ChatSettings> {
         let peer = self.resolve_peer(chat_id).await?;
         let base::messages::PeerSettings::PeerSettings(reply) =

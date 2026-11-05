@@ -8,8 +8,11 @@ use crate::types::{ClickResult, Message, Text};
 /// Which keyboard button to press: `0` (counting row by row), `(row, column)` or its text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonRef<'a> {
+    /// Zero-based position counting buttons row by row.
     Index(usize),
+    /// Zero-based row and column.
     Position(usize, usize),
+    /// The button whose label equals this text exactly.
     Text(&'a str),
 }
 
@@ -31,6 +34,7 @@ impl<'a> From<&'a str> for ButtonRef<'a> {
     }
 }
 
+/// Request built by [`Message::click`]. Awaiting it returns the [`ClickResult`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct Click<'a> {
     message: &'a Message,
@@ -39,12 +43,19 @@ pub struct Click<'a> {
 }
 
 impl Message {
+    /// Presses a button of this message's inline or reply keyboard.
+    ///
+    /// Callback and game buttons ask the bot for an answer. URL, web view, copy, switch-inline and
+    /// user-profile buttons return their payload without a request. A plain reply keyboard button sends its
+    /// label as a message. Awaiting fails with [`Error::InvalidArgument`] if the message has no such button
+    /// or the button can't be pressed from a client.
     pub fn click<'a>(&'a self, button: impl Into<ButtonRef<'a>>) -> Click<'a> {
         Click { message: self, button: button.into(), password: None }
     }
 }
 
 impl Click<'_> {
+    /// Supplies the account's two-step verification password for callback buttons that ask for it.
     pub fn password(mut self, password: impl Into<String>) -> Self {
         self.password = Some(password.into());
         self

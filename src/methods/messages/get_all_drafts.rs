@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::{Chat, Draft};
 
 impl Client {
+    /// Returns every draft of the account with its chat. Drafts in direct messages chats are left out.
     pub async fn get_all_drafts(&self) -> Result<Vec<(Chat, Draft)>> {
         let (updates, users, chats) = match self.invoke(&functions::messages::GetAllDrafts {}).await? {
             base::Updates::Updates(u) => (u.updates, u.users, u.chats),

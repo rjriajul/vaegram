@@ -11,104 +11,179 @@ use crate::types::{
 /// The caption of a media block, a collage or a slideshow.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RichBlockCaption {
+    /// The caption text. Empty when only a credit is set.
     pub text: RichText,
-    /// Who or what the block is credited to.
+    /// Who or what the block is credited to. `None` when the caption has no credit.
     pub credit: Option<RichText>,
 }
 
 /// What a block of a received rich message is.
 ///
 /// A media block keeps its kind when the message doesn't carry its file (as in a message you just sent): the file is
-/// `None`. `Unsupported` is only for the legacy page blocks that have no friendly form.
+/// `None`. `Unsupported` is for the legacy page blocks that have no friendly form, unreadable maps and maps built with
+/// [`RichBlock::map`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum RichBlockKind {
+    /// A paragraph of text.
     Paragraph(RichText),
-    /// `level` is 1 (largest) to 6.
+    /// A heading.
     Heading {
+        /// Heading level, from 1 for the largest to 6.
         level: u8,
+        /// Text of the heading.
         text: RichText,
     },
+    /// A preformatted code block. `language` is empty when the block names none.
     Preformatted {
+        /// The code text.
         text: RichText,
+        /// Language name, empty when none is given.
         language: String,
     },
+    /// A footer line.
     Footer(RichText),
+    /// A horizontal divider.
     Divider,
+    /// A math block holding the formula source.
     Math(String),
+    /// A named anchor holding the anchor name.
     Anchor(String),
+    /// A thinking block.
     Thinking(RichText),
+    /// A bulleted or numbered list.
     List(Vec<RichListItem>),
+    /// A quote made of blocks. A plain text quote is read as one paragraph block. `credit` is `None` when the
+    /// quote has no attribution.
     BlockQuote {
+        /// Blocks inside the quote.
         blocks: Vec<RichBlock>,
+        /// Attribution of the quote.
         credit: Option<RichText>,
     },
+    /// A text quote that stays collapsed until the reader expands it. `credit` is `None` when the quote has no
+    /// attribution.
     ExpandableBlockQuote {
+        /// Text of the quote.
         text: RichText,
+        /// Attribution of the quote.
         credit: Option<RichText>,
     },
+    /// A highlighted excerpt. `credit` is `None` when it has no attribution.
     PullQuote {
+        /// Text of the excerpt.
         text: RichText,
+        /// Attribution of the excerpt.
         credit: Option<RichText>,
     },
+    /// A collage of media blocks. `caption` is `None` when it has neither text nor credit.
     Collage {
+        /// Media blocks in the collage.
         blocks: Vec<RichBlock>,
+        /// Caption of the collage.
         caption: Option<RichBlockCaption>,
     },
+    /// A slideshow of media blocks. `caption` is `None` when it has neither text nor credit.
     Slideshow {
+        /// Media blocks in the slideshow.
         blocks: Vec<RichBlock>,
+        /// Caption of the slideshow.
         caption: Option<RichBlockCaption>,
     },
+    /// A table. `title` is `None` when the table has none, and rows without cells are dropped.
     Table {
+        /// Title above the table.
         title: Option<RichText>,
+        /// Rows of cells, in order.
         rows: Vec<Vec<RichTableCell>>,
+        /// Whether the table draws borders.
         is_bordered: bool,
+        /// Whether alternate rows are shaded.
         is_striped: bool,
+        /// Whether the table uses tighter spacing.
         is_compact: bool,
     },
+    /// A collapsible section with a `summary` line.
     Details {
+        /// Line that stays visible when the section is collapsed.
         summary: RichText,
+        /// Blocks inside the section.
         blocks: Vec<RichBlock>,
+        /// Whether the section is shown expanded.
         is_open: bool,
     },
+    /// A map. A map whose coordinates can't be read, or a map built with [`RichBlock::map`], is
+    /// [`Unsupported`](RichBlockKind::Unsupported) instead.
     Map {
+        /// Center of the map.
         location: Location,
+        /// Zoom level of the map.
         zoom: i32,
+        /// Width of the map frame.
         width: i32,
+        /// Height of the map frame.
         height: i32,
+        /// Caption of the map.
         caption: Option<RichBlockCaption>,
     },
+    /// A row of buttons. `align` is `None` when the row sets no alignment.
     Buttons {
+        /// Buttons in the row.
         buttons: Vec<RichButton>,
+        /// Alignment of the row.
         align: Option<Align>,
     },
+    /// A photo. `photo` is `None` when the message doesn't carry the file.
     Photo {
+        /// The photo file.
         photo: Option<Photo>,
+        /// Whether the photo is hidden behind a spoiler.
         has_spoiler: bool,
+        /// Caption of the photo.
         caption: Option<RichBlockCaption>,
     },
+    /// A video. `video` is `None` when the message doesn't carry the file.
     Video {
+        /// The video file.
         video: Option<Video>,
+        /// Whether the video is hidden behind a spoiler.
         has_spoiler: bool,
+        /// Caption of the video.
         caption: Option<RichBlockCaption>,
     },
+    /// An animation. Without the file, a video block that autoplays and loops is read as this, with `animation`
+    /// set to `None`.
     Animation {
+        /// The animation file.
         animation: Option<Animation>,
+        /// Whether the animation is hidden behind a spoiler.
         has_spoiler: bool,
+        /// Caption of the animation.
         caption: Option<RichBlockCaption>,
     },
+    /// An audio file. `audio` is `None` when the message doesn't carry the file.
     Audio {
+        /// The audio file.
         audio: Option<Audio>,
+        /// Caption of the audio file.
         caption: Option<RichBlockCaption>,
     },
+    /// A voice note, read from a video or audio block whose file is a voice note.
     VoiceNote {
+        /// The voice note file.
         voice_note: Voice,
+        /// Caption of the voice note.
         caption: Option<RichBlockCaption>,
     },
+    /// A document. `document` is `None` when the message doesn't carry the file.
     Document {
+        /// The document file.
         document: Option<Document>,
+        /// Caption of the document.
         caption: Option<RichBlockCaption>,
     },
+    /// A legacy page block with no friendly form, a map whose coordinates can't be read, or a map built with
+    /// [`RichBlock::map`].
     Unsupported,
 }
 
@@ -128,6 +203,7 @@ fn caption(caption: &base::PageCaption) -> Option<RichBlockCaption> {
 }
 
 impl RichBlock {
+    /// Reads the block into a [`RichBlockKind`]. Media is resolved from the message the block came from.
     pub fn kind(&self) -> RichBlockKind {
         use base::PageBlock as B;
         let blocks = |items: &[base::PageBlock]| items.iter().map(|b| self.child(b)).collect::<Vec<_>>();
@@ -371,58 +447,65 @@ fn ordered_label(num: i32, kind: &str) -> String {
 }
 
 impl RichListItem {
-    /// The label shown before the item: a bullet, or the item's number or letter. Empty for an item you built.
+    /// Returns the label shown before the item: a bullet, or the item's number or letter. Empty for an item you
+    /// built.
     pub fn label(&self) -> &str {
         &self.label
     }
 
+    /// Returns the blocks that make up the item.
     pub fn content(&self) -> &[RichBlock] {
         &self.blocks
     }
 
+    /// Returns `true` if the item shows a checkbox.
     pub fn has_checkbox(&self) -> bool {
         self.checkbox
     }
 
+    /// Returns `true` if the item's checkbox is ticked.
     pub fn is_checked(&self) -> bool {
         self.checked
     }
 
-    /// For an ordered list, the number of the item.
+    /// Returns the item's number in an ordered list. `None` for a bulleted list or an item you built.
     pub fn value(&self) -> Option<i32> {
         self.value
     }
 
-    /// For an ordered list, how the numbers are written: `"1"`, `"a"`, `"A"`, `"i"` or `"I"`.
+    /// Returns how an ordered list writes its numbers: `"1"`, `"a"`, `"A"`, `"i"` or `"I"`. `None` for a
+    /// bulleted list or an item you built.
     pub fn numbering(&self) -> Option<&str> {
         self.numbering.as_deref()
     }
 }
 
 impl RichTableCell {
-    /// `None` for an invisible cell.
+    /// Returns the cell text. `None` when the cell has no text.
     pub fn text(&self) -> Option<RichText> {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         c.text.as_ref().map(text)
     }
 
+    /// Returns `true` for a header cell.
     pub fn is_header(&self) -> bool {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         c.header
     }
 
-    /// How many columns the cell spans, at least 1.
+    /// Returns how many columns the cell spans, at least 1.
     pub fn column_span(&self) -> i32 {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         c.colspan.unwrap_or(1).max(1)
     }
 
-    /// How many rows the cell spans, at least 1.
+    /// Returns how many rows the cell spans, at least 1.
     pub fn row_span(&self) -> i32 {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         c.rowspan.unwrap_or(1).max(1)
     }
 
+    /// Returns the horizontal alignment of the cell text, [`Align::Left`] unless set otherwise.
     pub fn horizontal_alignment(&self) -> Align {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         if c.align_center {
@@ -434,6 +517,7 @@ impl RichTableCell {
         }
     }
 
+    /// Returns the vertical alignment of the cell text, [`VAlign::Top`] unless set otherwise.
     pub fn vertical_alignment(&self) -> VAlign {
         let base::PageTableCell::PageTableCell(c) = &self.0;
         if c.valign_middle {
@@ -452,15 +536,18 @@ impl RichButton {
         RichButton { text: text(&b.text).text(), kind: b.r#type.clone(), style: read_style(b.style.as_ref()) }
     }
 
+    /// Returns the button label.
     pub fn text(&self) -> &str {
         &self.text
     }
 
+    /// Returns the button's color style, [`RichButtonStyle::Default`] when none is set.
     pub fn button_style(&self) -> RichButtonStyle {
         self.style
     }
 
-    /// What the button does. `None` only for a button whose data can't be read: a callback whose data isn't UTF-8.
+    /// Returns what the button does. `None` for a button the keyboard parser can't read, such as a callback
+    /// whose data isn't UTF-8.
     pub fn action(&self) -> Option<InlineKeyboardButton> {
         button_action(&self.kind, &self.text)
     }

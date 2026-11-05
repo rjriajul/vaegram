@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::{Media, PeerRef, UserProfileAudios};
 
+/// Request built by [`Client::get_user_profile_audios`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GetUserProfileAudios<'a> {
     client: &'a Client,
@@ -12,17 +13,23 @@ pub struct GetUserProfileAudios<'a> {
 }
 
 impl Client {
+    /// Fetches the audios a user saved to their profile.
+    ///
+    /// Awaiting it returns a [`UserProfileAudios`] with the total count and up to
+    /// [`limit`](GetUserProfileAudios::limit) audios, 100 by default.
     pub fn get_user_profile_audios(&self, user_id: impl Into<PeerRef>) -> GetUserProfileAudios<'_> {
         GetUserProfileAudios { client: self, user_id: user_id.into(), offset: 0, limit: 100 }
     }
 }
 
 impl GetUserProfileAudios<'_> {
+    /// Skips this many audios from the start of the list.
     pub fn offset(mut self, offset: i32) -> Self {
         self.offset = offset;
         self
     }
 
+    /// Caps how many audios one call returns. Defaults to 100.
     pub fn limit(mut self, limit: i32) -> Self {
         self.limit = limit;
         self

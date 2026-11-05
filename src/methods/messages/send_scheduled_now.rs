@@ -4,6 +4,9 @@ use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
 impl Client {
+    /// Sends scheduled messages right away.
+    ///
+    /// An empty `message_ids` fails with `Error::InvalidArgument`. Returns the messages Telegram reports back.
     pub async fn send_scheduled_now(&self, chat_id: impl Into<PeerRef>, message_ids: &[i32]) -> Result<Vec<Message>> {
         if message_ids.is_empty() {
             return Err(Error::InvalidArgument("send_scheduled_now needs at least one message id"));

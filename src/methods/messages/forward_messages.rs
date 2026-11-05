@@ -6,6 +6,7 @@ use crate::raw::{base, functions};
 use crate::types::{Message, PeerRef, SuggestedPostParameters};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::forward_messages`]. Awaiting it returns the forwarded [`Message`]s.
 pub struct ForwardMessages<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -15,6 +16,9 @@ pub struct ForwardMessages<'a> {
 }
 
 impl Client {
+    /// Forwards `message_ids` from `from_chat_id` to `chat_id`.
+    ///
+    /// Takes 1 to 100 ids, otherwise it returns `Error::InvalidArgument`. Returns the forwarded [`Message`]s.
     pub fn forward_messages<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,

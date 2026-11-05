@@ -10,7 +10,9 @@ use crate::types::{Chat, ChatMember, ChatPermissions, ChatPrivileges, FailedToAd
 /// Shortcuts for the `Client` methods that take this chat: each one forwards to its method with the chat's id and
 /// gives back what the method gives back.
 impl Chat {
-    /// The name of a user or bot chat, or the title of a group or channel.
+    /// Returns a user's or bot's first and last name, or a group's or channel's title.
+    ///
+    /// `None` if the chat carries no name.
     pub fn full_name(&self) -> Option<String> {
         match self.kind {
             ChatType::Private | ChatType::Bot => match (self.first_name.as_deref(), self.last_name.as_deref()) {
@@ -37,38 +39,47 @@ impl Chat {
         client.ask(self.id, text)
     }
 
+    /// Moves this chat to the archive with [`Client::archive_chats`].
     pub async fn archive(&self, client: &Client) -> Result<()> {
         client.archive_chats([self.id]).await
     }
 
+    /// Moves this chat out of the archive with [`Client::unarchive_chats`].
     pub async fn unarchive(&self, client: &Client) -> Result<()> {
         client.unarchive_chats([self.id]).await
     }
 
+    /// Renames this group or channel with [`Client::set_chat_title`].
     pub async fn set_title(&self, client: &Client, title: impl Into<String>) -> Result<()> {
         client.set_chat_title(self.id, title).await
     }
 
+    /// Changes the description of this group or channel with [`Client::set_chat_description`].
     pub async fn set_description(&self, client: &Client, description: impl Into<String>) -> Result<()> {
         client.set_chat_description(self.id, description).await
     }
 
+    /// Changes the photo of this group or channel with [`Client::set_chat_photo`].
     pub fn set_photo<'a>(&self, client: &'a Client, photo: impl Into<Upload<'a>>) -> SetChatPhoto<'a> {
         client.set_chat_photo(self.id, photo)
     }
 
+    /// Sets the auto-delete timer of this chat with [`Client::set_chat_ttl`].
     pub async fn set_ttl(&self, client: &Client, ttl_seconds: i32) -> Result<()> {
         client.set_chat_ttl(self.id, ttl_seconds).await
     }
 
+    /// Bans a user from this chat with [`Client::ban_chat_member`].
     pub fn ban_member<'a>(&self, client: &'a Client, user_id: impl Into<PeerRef>) -> BanChatMember<'a> {
         client.ban_chat_member(self.id, user_id)
     }
 
+    /// Lifts the ban on a user with [`Client::unban_chat_member`].
     pub async fn unban_member(&self, client: &Client, user_id: impl Into<PeerRef>) -> Result<()> {
         client.unban_chat_member(self.id, user_id).await
     }
 
+    /// Limits what a user may do in this chat with [`Client::restrict_chat_member`].
     pub fn restrict_member<'a>(
         &self,
         client: &'a Client,
@@ -78,6 +89,7 @@ impl Chat {
         client.restrict_chat_member(self.id, user_id, permissions)
     }
 
+    /// Gives a user admin rights in this chat with [`Client::promote_chat_member`].
     pub async fn promote_member(
         &self,
         client: &Client,
@@ -87,26 +99,32 @@ impl Chat {
         client.promote_chat_member(self.id, user_id, privileges).await
     }
 
+    /// Joins this chat with [`Client::join_chat`] and returns the joined [`Chat`].
     pub async fn join(&self, client: &Client) -> Result<Chat> {
         client.join_chat(self.id).await
     }
 
+    /// Leaves this chat with [`Client::leave_chat`].
     pub async fn leave(&self, client: &Client) -> Result<()> {
         client.leave_chat(self.id).await
     }
 
+    /// Returns a new primary invite link for this chat, from [`Client::export_chat_invite_link`].
     pub async fn export_invite_link(&self, client: &Client) -> Result<String> {
         client.export_chat_invite_link(self.id).await
     }
 
+    /// Fetches one member of this chat with [`Client::get_chat_member`].
     pub async fn get_member(&self, client: &Client, user_id: impl Into<PeerRef>) -> Result<ChatMember> {
         client.get_chat_member(self.id, user_id).await
     }
 
+    /// Lists the members of this chat with [`Client::get_chat_members`].
     pub fn get_members<'a>(&self, client: &'a Client) -> GetChatMembers<'a> {
         client.get_chat_members(self.id)
     }
 
+    /// Adds users to this chat with [`Client::add_chat_members`]. Returns the users that couldn't be added.
     pub async fn add_members(
         &self,
         client: &Client,
@@ -116,22 +134,27 @@ impl Chat {
         client.add_chat_members(self.id, user_ids, forward_limit).await
     }
 
+    /// Marks this chat as unread with [`Client::mark_chat_unread`].
     pub async fn mark_unread(&self, client: &Client) -> Result<()> {
         client.mark_chat_unread(self.id).await
     }
 
+    /// Turns forwarding and saving restrictions on or off with [`Client::set_chat_protected_content`].
     pub async fn set_protected_content(&self, client: &Client, enabled: bool) -> Result<()> {
         client.set_chat_protected_content(self.id, enabled).await
     }
 
+    /// Unpins every message in this chat with [`Client::unpin_all_chat_messages`].
     pub async fn unpin_all_messages(&self, client: &Client) -> Result<()> {
         client.unpin_all_chat_messages(self.id).await
     }
 
+    /// Mutes this chat with [`Client::mute_chat`].
     pub fn mute<'a>(&self, client: &'a Client) -> MuteChat<'a> {
         client.mute_chat(self.id)
     }
 
+    /// Unmutes this chat with [`Client::unmute_chat`].
     pub async fn unmute(&self, client: &Client) -> Result<bool> {
         client.unmute_chat(self.id).await
     }

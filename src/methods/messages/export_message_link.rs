@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::export_message_link`]. Awaiting it returns the link as a `String`.
 pub struct ExportMessageLink<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -13,18 +14,22 @@ pub struct ExportMessageLink<'a> {
 }
 
 impl Client {
-    /// A `t.me` link to a message in a channel or supergroup; other chats have no message links.
+    /// Exports a `t.me` link to a message in a channel or supergroup.
+    ///
+    /// Other chats have no message links, so they fail with `Error::InvalidArgument`.
     pub fn export_message_link(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> ExportMessageLink<'_> {
         ExportMessageLink { client: self, chat_id: chat_id.into(), message_id, grouped: false, thread: false }
     }
 }
 
 impl ExportMessageLink<'_> {
+    /// Links to the whole album instead of the single message.
     pub fn grouped(mut self) -> Self {
         self.grouped = true;
         self
     }
 
+    /// Links to the message within its comment thread.
     pub fn thread(mut self) -> Self {
         self.thread = true;
         self

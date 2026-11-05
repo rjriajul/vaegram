@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 use crate::utils::CHANNEL_OFFSET;
 
+/// Request built by [`Client::delete_chat_history`]. Awaiting it returns `()`.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct DeleteChatHistory<'a> {
     client: &'a Client,
@@ -14,22 +15,28 @@ pub struct DeleteChatHistory<'a> {
 }
 
 impl Client {
+    /// Deletes the message history of a chat.
+    ///
+    /// Without options it deletes every message, only for you.
     pub fn delete_chat_history(&self, chat_id: impl Into<PeerRef>) -> DeleteChatHistory<'_> {
         DeleteChatHistory { client: self, chat_id: chat_id.into(), max_id: 0, revoke: false, just_clear: false }
     }
 }
 
 impl DeleteChatHistory<'_> {
+    /// Deletes only messages with an id up to `max_id`. The default 0 deletes everything.
     pub fn max_id(mut self, max_id: i32) -> Self {
         self.max_id = max_id;
         self
     }
 
+    /// Deletes the messages for the other participants too.
     pub fn revoke(mut self) -> Self {
         self.revoke = true;
         self
     }
 
+    /// Clears the messages but keeps the chat in your chat list. Ignored for channels and supergroups.
     pub fn just_clear(mut self) -> Self {
         self.just_clear = true;
         self

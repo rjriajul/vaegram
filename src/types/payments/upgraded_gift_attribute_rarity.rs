@@ -6,9 +6,13 @@ use crate::raw::base;
 pub enum UpgradedGiftAttributeRarity {
     /// The attribute shows up in this many of every thousand gifts.
     PerMille(i32),
+    /// The lowest named tier.
     Uncommon,
+    /// The named tier above [`Uncommon`](Self::Uncommon).
     Rare,
+    /// The named tier above [`Rare`](Self::Rare).
     Epic,
+    /// The highest named tier.
     Legendary,
 }
 
@@ -25,7 +29,7 @@ impl UpgradedGiftAttributeRarity {
         }
     }
 
-    /// The share out of 1000, or `None` for the named tiers.
+    /// Returns the share out of 1000, or `None` for the named tiers.
     pub fn per_mille(self) -> Option<i32> {
         match self {
             UpgradedGiftAttributeRarity::PerMille(n) => Some(n),

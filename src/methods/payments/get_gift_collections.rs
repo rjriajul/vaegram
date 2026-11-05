@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{GiftCollection, PeerRef};
 
 impl Client {
+    /// Lists the gift collections on a user's or channel's profile.
     pub async fn get_gift_collections(&self, owner_id: impl Into<PeerRef>) -> Result<Vec<GiftCollection>> {
         let peer = self.resolve_peer(owner_id).await?;
         Ok(match self.invoke(&functions::payments::GetStarGiftCollections { peer, hash: 0 }).await? {

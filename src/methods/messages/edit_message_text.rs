@@ -6,6 +6,7 @@ use crate::raw::{base, functions};
 use crate::types::{LinkPreviewOptions, Message, MessageText, PeerRef, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::edit_message_text`]. Awaiting it returns the edited [`Message`].
 pub struct EditMessageText<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -22,6 +23,7 @@ pub struct EditMessageText<'a> {
 }
 
 impl Client {
+    /// Replaces the text of `message_id` and returns the edited [`Message`].
     pub fn edit_message_text(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -46,11 +48,13 @@ impl Client {
 }
 
 impl EditMessageText<'_> {
+    /// Attaches an inline keyboard to the message.
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
         self
     }
 
+    /// Edits on behalf of this business connection.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.business_connection_id = Some(id.into());
         self
@@ -62,12 +66,13 @@ impl EditMessageText<'_> {
         self
     }
 
+    /// Edits a scheduled message and moves it to this Unix time.
     pub fn schedule_date(mut self, date: i32) -> Self {
         self.schedule_date = Some(date);
         self
     }
 
-    /// Sends the text without a link preview (Pyrogram's `disable_web_page_preview`).
+    /// Sends the text without a link preview.
     pub fn disable_web_page_preview(mut self) -> Self {
         self.no_webpage = true;
         self

@@ -4,6 +4,7 @@ use crate::session::transfer::Report;
 use crate::types::messages_and_media::media_setters;
 use crate::types::{FileSource, InputMedia, PeerRef};
 
+/// Request built by [`Client::send_voice`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendVoice<'a> {
     client: &'a Client,
@@ -14,6 +15,9 @@ pub struct SendVoice<'a> {
 }
 
 impl Client {
+    /// Sends a voice note.
+    ///
+    /// Awaiting the request uploads the file if needed and returns the sent [`crate::types::Message`].
     pub fn send_voice<'a>(&'a self, chat_id: impl Into<PeerRef>, voice: impl Into<FileSource<'a>>) -> SendVoice<'a> {
         let media = InputMedia::voice(voice);
         SendVoice { client: self, chat_id: chat_id.into(), media, options: SendOptions::default(), progress: None }

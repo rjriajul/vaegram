@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
 #[must_use = "call .next() to fetch messages"]
+/// Pages through the messages of a chat. Call [`next`](GetChatHistory::next) for each message.
 pub struct GetChatHistory<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -17,6 +18,7 @@ pub struct GetChatHistory<'a> {
 }
 
 impl Client {
+    /// Walks the history of `chat_id`, newest message first unless [`reverse`](GetChatHistory::reverse) is set.
     pub fn get_chat_history(&self, chat_id: impl Into<PeerRef>) -> GetChatHistory<'_> {
         GetChatHistory {
             client: self,
@@ -32,16 +34,19 @@ impl Client {
 }
 
 impl GetChatHistory<'_> {
+    /// Stops after this many messages.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Starts below this message id, so the walk skips it and anything newer. With `reverse` it starts at this id.
     pub fn offset_id(mut self, message_id: i32) -> Self {
         self.pages.offset_id = message_id;
         self
     }
 
+    /// Starts at messages older than this Unix time instead of the newest message.
     pub fn offset_date(mut self, unix_time: i32) -> Self {
         self.offset_date = unix_time;
         self
@@ -96,6 +101,7 @@ impl GetChatHistory<'_> {
         Ok(total)
     }
 
+    /// Returns the next message, or `None` at the end of the history.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         loop {
             if let Some(message) = self.pages.pop(self.client) {

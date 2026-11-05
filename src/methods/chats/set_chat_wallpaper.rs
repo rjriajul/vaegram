@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::{ChatBackground, PeerRef};
 
+/// Request built by [`Client::set_chat_wallpaper`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetChatWallpaper<'a> {
     client: &'a Client,
@@ -13,6 +14,7 @@ pub struct SetChatWallpaper<'a> {
 }
 
 impl Client {
+    /// Sets the wallpaper of a chat from a [`ChatBackground`].
     pub fn set_chat_wallpaper(&self, chat_id: impl Into<PeerRef>, wallpaper: &ChatBackground) -> SetChatWallpaper<'_> {
         let (settings, wallpaper) = (wallpaper.write_settings(), wallpaper.write());
         SetChatWallpaper { client: self, chat_id: chat_id.into(), wallpaper, settings, for_both: false }
@@ -20,6 +22,7 @@ impl Client {
 }
 
 impl SetChatWallpaper<'_> {
+    /// Applies the wallpaper for the other user in the chat too.
     pub fn for_both(mut self) -> Self {
         self.for_both = true;
         self

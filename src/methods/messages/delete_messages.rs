@@ -6,6 +6,16 @@ use crate::types::PeerRef;
 use crate::utils::{CHANNEL_OFFSET, channel_id_of};
 
 impl Client {
+    /// Deletes messages for everyone.
+    ///
+    /// Takes 1 to 100 ids, otherwise it returns `Error::InvalidArgument`. The deleted messages are also dropped
+    /// from the client's message cache.
+    ///
+    /// ```no_run
+    /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
+    /// client.delete_messages(-1001234567890, &[10, 11]).await?;
+    /// # Ok(()) }
+    /// ```
     pub async fn delete_messages(&self, chat_id: impl Into<PeerRef>, message_ids: &[i32]) -> Result<()> {
         if !(1..=100).contains(&message_ids.len()) {
             return Err(Error::InvalidArgument("deletes take 1 to 100 message ids"));

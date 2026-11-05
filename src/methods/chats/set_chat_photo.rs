@@ -4,6 +4,7 @@ use crate::methods::users::uploaded;
 use crate::raw::{base, types};
 use crate::types::{PeerRef, Upload};
 
+/// Request built by [`Client::set_chat_photo`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetChatPhoto<'a> {
     client: &'a Client,
@@ -14,18 +15,20 @@ pub struct SetChatPhoto<'a> {
 }
 
 impl Client {
+    /// Uploads `photo` and sets it as the photo of a basic group, supergroup or channel.
     pub fn set_chat_photo<'a>(&'a self, chat_id: impl Into<PeerRef>, photo: impl Into<Upload<'a>>) -> SetChatPhoto<'a> {
         SetChatPhoto { client: self, chat_id: chat_id.into(), file: photo.into(), video: false, video_start_ts: None }
     }
 }
 
 impl SetChatPhoto<'_> {
+    /// Uploads the file as a video instead of a still photo.
     pub fn video(mut self) -> Self {
         self.video = true;
         self
     }
 
-    /// Second of the video to use as the static preview; implies `.video()`.
+    /// Uses the frame at this second of the video as the static preview. Implies [`video`](SetChatPhoto::video).
     pub fn video_start_ts(mut self, seconds: f64) -> Self {
         self.video = true;
         self.video_start_ts = Some(seconds);

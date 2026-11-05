@@ -5,6 +5,7 @@ use crate::types::PeerRef;
 use crate::utils::input_sticker_set;
 
 impl Client {
+    /// Sets the group sticker set of a supergroup by the set's short name.
     pub async fn set_chat_sticker_set(&self, chat_id: impl Into<PeerRef>, name: &str) -> Result<()> {
         self.set_chat_stickers(&chat_id.into(), input_sticker_set(name)).await
     }

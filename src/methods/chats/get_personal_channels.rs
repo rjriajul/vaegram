@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::Chat;
 
 impl Client {
+    /// Returns the channels that can be set as your personal channel.
     pub async fn get_personal_channels(&self) -> Result<Vec<Chat>> {
         let request = functions::channels::GetAdminedPublicChannels {
             by_location: false,

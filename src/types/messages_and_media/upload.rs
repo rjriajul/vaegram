@@ -54,17 +54,30 @@ const MIME_TYPES: &[(&str, &str)] = &[
     ("js", "text/javascript"),
 ];
 
+/// A file to upload: a path on disk or bytes in memory.
+///
+/// A `&str`, `&Path` or `&PathBuf` converts to [`Upload::Path`]. The MIME type is guessed from the file name's
+/// extension and falls back to `application/octet-stream`.
 #[derive(Clone, Copy, Debug)]
 pub enum Upload<'a> {
+    /// A file read from disk. Its name is the last path component.
     Path(&'a Path),
-    Bytes { name: &'a str, data: &'a [u8] },
+    /// Bytes already in memory, sent under the given file name.
+    Bytes {
+        /// File name shown to recipients. Its extension decides the MIME type.
+        name: &'a str,
+        /// The file contents.
+        data: &'a [u8],
+    },
 }
 
 impl<'a> Upload<'a> {
+    /// Wraps in-memory bytes as an upload named `name`.
     pub fn bytes(name: &'a str, data: &'a [u8]) -> Self {
         Upload::Bytes { name, data }
     }
 
+    /// The file name sent to Telegram. A path without a usable file name gives `"file"`.
     pub fn name(&self) -> &'a str {
         match self {
             Upload::Path(path) => path.file_name().and_then(|n| n.to_str()).unwrap_or("file"),

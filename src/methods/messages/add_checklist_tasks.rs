@@ -6,6 +6,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{PeerRef, Text};
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::add_checklist_tasks`].
 pub struct AddChecklistTasks<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -15,6 +16,10 @@ pub struct AddChecklistTasks<'a> {
 }
 
 impl Client {
+    /// Appends tasks to the checklist in `message_id`.
+    ///
+    /// Add tasks with [`task`](AddChecklistTasks::task). Awaiting with no tasks returns `Error::InvalidArgument`
+    /// and sends nothing.
     pub fn add_checklist_tasks(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> AddChecklistTasks<'_> {
         AddChecklistTasks { client: self, chat_id: chat_id.into(), message_id, tasks: Vec::new(), parse_mode: None }
     }

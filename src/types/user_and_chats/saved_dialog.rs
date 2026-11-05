@@ -4,10 +4,14 @@ use crate::raw::base;
 use crate::types::{Chat, DirectMessagesChatTopic, Message};
 use crate::utils::get_peer_id;
 
+/// A chat that has messages saved in Saved Messages.
 #[derive(Debug, Clone)]
 pub struct SavedDialog {
+    /// The chat the saved messages came from.
     pub chat: Chat,
+    /// The latest saved message from the chat. `None` if the page did not include it.
     pub top_message: Option<Message>,
+    /// The dialog is pinned in Saved Messages.
     pub is_pinned: bool,
 }
 

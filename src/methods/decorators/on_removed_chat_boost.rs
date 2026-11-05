@@ -7,6 +7,9 @@ use crate::handlers::{HandlerRef, UpdateKind, callback};
 use crate::types::ChatBoostRemoved;
 
 impl Client {
+    /// Registers a handler for boosts removed from a chat that pass `filter`.
+    ///
+    /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_removed_chat_boost<F, Fut, T>(&self, filter: Filter<ChatBoostRemoved>, f: F) -> HandlerRef<'_>
     where
         F: Fn(ChatBoostRemoved) -> Fut + Send + Sync + 'static,

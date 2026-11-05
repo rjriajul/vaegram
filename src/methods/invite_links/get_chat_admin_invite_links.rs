@@ -7,6 +7,7 @@ use crate::types::{ChatInviteLink, PeerRef};
 const LINKS_LIMIT: usize = 100;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::get_chat_admin_invite_links`].
 pub struct GetChatAdminInviteLinks<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -34,6 +35,7 @@ impl GetChatAdminInviteLinks<'_> {
         self
     }
 
+    /// Stops after this many links.
     pub fn limit(mut self, limit: usize) -> Self {
         self.limit = limit;
         self

@@ -7,6 +7,7 @@ use crate::methods::messages::caption_setters;
 use crate::raw::functions;
 use crate::types::{BusinessChatLink, Text};
 
+/// Request built by [`Client::edit_business_chat_link`]. Awaiting it returns the updated [`BusinessChatLink`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct EditBusinessChatLink<'a> {
     client: &'a Client,
@@ -17,12 +18,16 @@ pub struct EditBusinessChatLink<'a> {
 }
 
 impl Client {
+    /// Replaces the prefilled text and title of a business chat link, found by its slug.
+    ///
+    /// Awaiting fails with `Error::InvalidArgument` if `slug` is empty.
     pub fn edit_business_chat_link(&self, slug: impl Into<String>, text: impl Into<Text>) -> EditBusinessChatLink<'_> {
         EditBusinessChatLink { client: self, slug: slug.into(), text: text.into(), parse_mode: None, title: None }
     }
 }
 
 impl EditBusinessChatLink<'_> {
+    /// Names the link in the account's list of links. Without it the title is cleared.
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
         self

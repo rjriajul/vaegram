@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::{PeerRef, User};
 
 impl Client {
+    /// Returns the bots Telegram recommends as similar to a bot.
     pub async fn get_similar_bots(&self, bot_id: impl Into<PeerRef>) -> Result<Vec<User>> {
         let request = functions::bots::GetBotRecommendations { bot: self.resolve_user(&bot_id.into()).await? };
         let users = match self.invoke(&request).await? {

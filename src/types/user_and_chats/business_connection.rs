@@ -3,12 +3,18 @@ use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::types::{BusinessBotRights, User};
 
+/// A bot's connection to a business account.
 #[derive(Debug, Clone)]
 pub struct BusinessConnection {
+    /// Id of the connection, as business updates and requests carry it.
     pub id: String,
+    /// The business account.
     pub user: User,
+    /// Unix time the connection was made.
     pub date: i32,
+    /// What the bot may do in the account. All `false` if Telegram sent no rights.
     pub rights: BusinessBotRights,
+    /// `false` once the account has disabled the connection.
     pub is_enabled: bool,
     /// The data center of the connected account.
     pub dc_id: i32,
@@ -29,6 +35,7 @@ impl BusinessConnection {
         }
     }
 
+    /// Returns the client that received this connection.
     pub fn client(&self) -> &Client {
         &self.client
     }

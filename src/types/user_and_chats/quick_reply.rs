@@ -1,10 +1,15 @@
 use crate::raw::{base, types};
 
+/// A saved quick reply shortcut of a business account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuickReply {
+    /// Id that identifies the shortcut in quick reply requests.
     pub shortcut_id: i32,
+    /// Name of the shortcut.
     pub shortcut: String,
+    /// Id of the latest message in the shortcut.
     pub top_message: i32,
+    /// Number of messages in the reply.
     pub count: i32,
 }
 

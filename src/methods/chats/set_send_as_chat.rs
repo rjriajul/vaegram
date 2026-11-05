@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Sets the chat you send as by default in a chat. See [`Client::get_send_as_chats`].
     pub async fn set_send_as_chat(
         &self,
         chat_id: impl Into<PeerRef>,

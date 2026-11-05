@@ -2,24 +2,39 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::Chat;
 
+/// A sponsored chat or public service announcement Telegram promotes in the chat list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromoData {
+    /// The promoted chat. `None` if Telegram sent no peer.
     pub chat: Option<Chat>,
+    /// Set when the promoted chat is the sponsor of the proxy the client connects through.
     pub proxy: bool,
+    /// Kind of public service announcement. `None` if the promotion isn't one.
     pub psa_type: Option<String>,
+    /// Text of the public service announcement.
     pub psa_message: Option<String>,
+    /// Unix time when the data should be fetched again.
     pub expires: i32,
+    /// Ids of suggestions Telegram wants the app to show.
     pub pending_suggestions: Vec<String>,
+    /// Ids of suggestions the user already dismissed.
     pub dismissed_suggestions: Vec<String>,
+    /// A suggestion that carries its own title, description and link.
     pub custom_pending_suggestion: Option<PendingSuggestion>,
 }
 
-/// Title and description arrive as formatted text; only the plain text is kept.
+/// A suggestion with its own title, description and link.
+///
+/// Title and description arrive as formatted text. Only the plain text is kept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingSuggestion {
+    /// Id of the suggestion.
     pub suggestion: String,
+    /// Plain-text title.
     pub title: String,
+    /// Plain-text description.
     pub description: String,
+    /// Link the suggestion opens.
     pub url: String,
 }
 

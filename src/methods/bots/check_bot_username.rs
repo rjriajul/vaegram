@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 
 impl Client {
+    /// Returns whether a username is free for a new bot.
     pub async fn check_bot_username(&self, username: impl Into<String>) -> Result<bool> {
         self.invoke(&functions::bots::CheckUsername { additional: false, username: username.into() }).await
     }

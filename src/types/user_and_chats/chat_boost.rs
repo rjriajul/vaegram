@@ -3,44 +3,66 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::{Chat, User};
 
+/// A boost applied to a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatBoost {
+    /// Telegram's id for the boost.
     pub boost_id: String,
+    /// Unix time the boost was applied.
     pub add_date: i32,
+    /// Unix time the boost expires.
     pub expiration_date: i32,
+    /// Where the boost came from.
     pub source: ChatBoostSource,
 }
 
+/// Where a [`ChatBoost`] came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ChatBoostSource {
+    /// A boost from a user with Telegram Premium.
     Premium {
+        /// The booster.
         user: User,
     },
+    /// A boost from a Premium gift code.
     GiftCode {
+        /// The user who received the gift code.
         user: User,
     },
-    /// A giveaway created by the chat; `user` is the winner, unless the prize went unclaimed.
+    /// A boost won in a giveaway the chat ran.
     Giveaway {
+        /// Id of the giveaway message in the chat. `0` if Telegram omits it.
         giveaway_message_id: i32,
+        /// The winner. `None` if the prize went unclaimed.
         user: Option<User>,
+        /// Stars awarded to the winner. `None` for giveaways that don't award Stars.
         prize_star_count: Option<i64>,
+        /// `true` if nobody claimed the prize.
         is_unclaimed: bool,
     },
 }
 
+/// A boost of a chat was added or changed.
 #[derive(Debug, Clone)]
 pub struct ChatBoostUpdated {
+    /// The boosted chat.
     pub chat: Chat,
+    /// The boost as it is now.
     pub boost: ChatBoost,
     client: Client,
 }
 
+/// A boost of a chat was removed.
 #[derive(Debug, Clone)]
 pub struct ChatBoostRemoved {
+    /// The chat that lost the boost.
     pub chat: Chat,
+    /// Id of the removed boost, matching [`ChatBoost::boost_id`].
     pub boost_id: String,
+    /// Unix time the boost was removed.
     pub remove_date: i32,
+    /// Where the removed boost came from.
     pub source: ChatBoostSource,
     client: Client,
 }
@@ -67,6 +89,7 @@ impl ChatBoost {
 }
 
 impl ChatBoostSource {
+    /// Returns the booster. `None` for a giveaway whose prize went unclaimed.
     pub fn user(&self) -> Option<&User> {
         match self {
             ChatBoostSource::Premium { user } | ChatBoostSource::GiftCode { user } => Some(user),
@@ -76,12 +99,14 @@ impl ChatBoostSource {
 }
 
 impl ChatBoostUpdated {
+    /// Returns the client that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }
 }
 
 impl ChatBoostRemoved {
+    /// Returns the client that received this update.
     pub fn client(&self) -> &Client {
         &self.client
     }

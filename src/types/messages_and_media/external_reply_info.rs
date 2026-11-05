@@ -3,12 +3,18 @@ use crate::dispatcher::Entities;
 use crate::raw::types;
 use crate::types::{Chat, LinkPreviewOptions, Media, MessageOrigin};
 
+/// The message a reply points to when that message is in another chat.
 #[derive(Debug, Clone)]
 pub struct ExternalReplyInfo {
+    /// Where the replied-to message came from.
     pub origin: MessageOrigin,
+    /// The chat the replied-to message is in. `None` if Telegram didn't send it.
     pub chat: Option<Chat>,
+    /// Id of the replied-to message in `chat`. `None` if `chat` is `None`.
     pub message_id: Option<i32>,
+    /// Media of the replied-to message. `None` if it has none.
     pub media: Option<Media>,
+    /// Link preview of the replied-to message. `None` if it has none.
     pub link_preview_options: Option<LinkPreviewOptions>,
 }
 

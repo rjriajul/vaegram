@@ -3,6 +3,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::types::{InputChecklist, Message, PeerRef};
 
+/// Request built by [`Client::send_checklist`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendChecklist<'a> {
     client: &'a Client,
@@ -12,8 +13,12 @@ pub struct SendChecklist<'a> {
 }
 
 impl Client {
+    /// Sends a checklist.
+    ///
     /// Bots can send checklists only on behalf of a business account, see
     /// [`SendChecklist::business_connection_id`].
+    ///
+    /// Awaiting the request returns the sent [`Message`].
     pub fn send_checklist(&self, chat_id: impl Into<PeerRef>, checklist: InputChecklist) -> SendChecklist<'_> {
         SendChecklist { client: self, chat_id: chat_id.into(), checklist, options: SendOptions::default() }
     }

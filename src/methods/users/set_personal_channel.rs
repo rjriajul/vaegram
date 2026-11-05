@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Shows a channel on your profile. Passing `None` removes it.
     pub async fn set_personal_channel(&self, chat_id: Option<PeerRef>) -> Result<bool> {
         let channel = match chat_id {
             Some(chat_id) => self.resolve_channel(&chat_id).await?,

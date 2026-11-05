@@ -2,6 +2,9 @@ use crate::types::InputMessageContent;
 
 use super::inline_query_result::{Parts, setters};
 
+/// A venue.
+///
+/// When picked, sends the venue unless [`input_message_content`](Self::input_message_content) is set.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultVenue {
     parts: Parts,
@@ -14,6 +17,7 @@ pub struct InlineQueryResultVenue {
 }
 
 impl InlineQueryResultVenue {
+    /// Creates a venue result with the given coordinates, name and address.
     pub fn new(latitude: f64, longitude: f64, title: impl Into<String>, address: impl Into<String>) -> Self {
         InlineQueryResultVenue {
             parts: Parts { title: Some(title.into()), ..Parts::new() },
@@ -26,11 +30,13 @@ impl InlineQueryResultVenue {
         }
     }
 
+    /// Identifies the venue on Foursquare, replacing any Google Places id.
     pub fn foursquare(mut self, foursquare_id: impl Into<String>, foursquare_type: impl Into<String>) -> Self {
         (self.provider, self.venue_id, self.venue_type) = ("foursquare", foursquare_id.into(), foursquare_type.into());
         self
     }
 
+    /// Identifies the venue on Google Places, replacing any Foursquare id.
     pub fn google_place(mut self, google_place_id: impl Into<String>, google_place_type: impl Into<String>) -> Self {
         (self.provider, self.venue_id, self.venue_type) = ("gplaces", google_place_id.into(), google_place_type.into());
         self

@@ -10,18 +10,25 @@ pub struct GiveawayWinners {
     pub chat: Chat,
     /// The message that announced the giveaway, in `chat`.
     pub giveaway_message_id: i32,
+    /// When the winners were picked, as a Unix timestamp.
     pub winners_selection_date: i32,
+    /// How many winners were picked in total.
     pub winner_count: i32,
-    /// The winners Telegram lists; it may be fewer than `winner_count`.
+    /// The winners Telegram lists. There can be fewer than `winner_count`.
     pub winners: Vec<User>,
-    /// How many other channels users had to join.
+    /// How many other channels users had to join. `None` if there were none.
     pub additional_chat_count: Option<i32>,
+    /// Stars split between the winners. `None` unless it was a Star giveaway.
     pub prize_star_count: Option<i64>,
+    /// Months of Premium each winner gets. `None` unless it was a Premium giveaway.
     pub premium_subscription_month_count: Option<i32>,
+    /// How many prizes nobody claimed.
     pub unclaimed_prize_count: i32,
+    /// `true` if only users who joined after the giveaway started could win.
     pub only_new_members: bool,
-    /// The giveaway was cancelled and its prizes refunded.
+    /// `true` if the giveaway was cancelled and its prizes refunded.
     pub was_refunded: bool,
+    /// Extra prize text from the organizers. `None` if there is none.
     pub prize_description: Option<String>,
 }
 

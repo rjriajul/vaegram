@@ -4,6 +4,9 @@ use crate::raw::{base, functions};
 use crate::types::{Chat, FailedToAddMember, PeerRef};
 
 impl Client {
+    /// Creates a basic group with the given users.
+    ///
+    /// Returns the new [`Chat`] and the users Telegram could not add, as [`FailedToAddMember`].
     pub async fn create_group(
         &self,
         title: impl Into<String>,

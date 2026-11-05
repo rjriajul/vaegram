@@ -6,6 +6,7 @@ use crate::errors::{Error, Result};
 use crate::raw::functions;
 use crate::types::{PeerRef, StarAmount};
 
+/// Request built by [`Client::send_gift_purchase_offer`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendGiftPurchaseOffer<'a> {
     client: &'a Client,
@@ -17,8 +18,9 @@ pub struct SendGiftPurchaseOffer<'a> {
 }
 
 impl Client {
-    /// Offers `price` for an upgraded gift owned by `owner_id`, open for `duration` seconds; the Stars are charged if
-    /// the owner accepts. `gift` is the gift's name or its `t.me/nft/<name>` link.
+    /// Offers `price` for an upgraded gift owned by `owner_id`, open for `duration` seconds.
+    ///
+    /// The Stars are charged if the owner accepts. `gift` is the gift's name or its `t.me/nft/<name>` link.
     pub fn send_gift_purchase_offer<'a>(
         &'a self,
         owner_id: impl Into<PeerRef>,
@@ -38,7 +40,8 @@ impl Client {
 }
 
 impl SendGiftPurchaseOffer<'_> {
-    /// The most Stars to pay if the owner charges for messages.
+    /// Pays up to this many Stars if the owner charges for messages. Fails with `Error::InvalidArgument` unless
+    /// positive.
     pub fn paid_message_star_count(mut self, star_count: i64) -> Self {
         self.paid_message_star_count = Some(star_count);
         self

@@ -4,7 +4,9 @@ use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
 impl Client {
-    /// `chat_id` is the direct messages chat; `topic_id` is the id of the user writing to it.
+    /// Sets or clears the unread mark on a direct-messages topic.
+    ///
+    /// `chat_id` is the direct messages chat. `topic_id` is the id of the user writing to it.
     pub async fn set_direct_messages_chat_topic_is_marked_as_unread(
         &self,
         chat_id: impl Into<PeerRef>,

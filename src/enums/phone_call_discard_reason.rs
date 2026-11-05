@@ -3,11 +3,15 @@ use crate::raw::base;
 /// Why a private call ended.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PhoneCallDiscardReason {
+    /// Nobody answered.
     Missed,
+    /// The connection dropped.
     Disconnected,
+    /// A participant hung up.
     HungUp,
+    /// The callee was busy.
     Busy,
-    /// The call moved to a conference call; holds that call's invite slug.
+    /// The call moved to a conference call. Holds that call's invite slug.
     MigrateConferenceCall(String),
 }
 

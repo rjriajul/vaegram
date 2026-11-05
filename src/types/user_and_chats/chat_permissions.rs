@@ -3,25 +3,42 @@ use crate::raw::{base, types};
 /// What a member without admin rights may do. `Default` allows nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ChatPermissions {
+    /// Whether members can send plain text messages.
     pub can_send_messages: bool,
+    /// Whether members can send music files.
     pub can_send_audios: bool,
+    /// Whether members can send general files.
     pub can_send_documents: bool,
+    /// Whether members can send photos.
     pub can_send_photos: bool,
+    /// Whether members can send videos.
     pub can_send_videos: bool,
+    /// Whether members can send round video messages.
     pub can_send_video_notes: bool,
+    /// Whether members can send voice messages.
     pub can_send_voice_notes: bool,
+    /// Whether members can send polls.
     pub can_send_polls: bool,
+    /// Whether members can send stickers, GIFs and games, and use inline bots.
     pub can_send_other_messages: bool,
+    /// Whether members can embed link previews in messages.
     pub can_add_web_page_previews: bool,
+    /// Whether members can react to messages.
     pub can_react_to_messages: bool,
+    /// Whether members can edit their own member tag (their rank).
     pub can_edit_tag: bool,
+    /// Whether members can change the chat title, photo and other settings.
     pub can_change_info: bool,
+    /// Whether members can add new members or create invite links.
     pub can_invite_users: bool,
+    /// Whether members can pin messages.
     pub can_pin_messages: bool,
+    /// Whether members can create and edit forum topics.
     pub can_manage_topics: bool,
 }
 
 impl ChatPermissions {
+    /// Every permission granted.
     pub const ALL: ChatPermissions = ChatPermissions {
         can_send_messages: true,
         can_send_audios: true,

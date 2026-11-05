@@ -5,6 +5,7 @@ use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
 #[must_use = "call .next() to fetch messages"]
+/// Pages through the replies to a message, newest first. Call [`next`](GetDiscussionReplies::next) for each reply.
 pub struct GetDiscussionReplies<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -13,17 +14,20 @@ pub struct GetDiscussionReplies<'a> {
 }
 
 impl Client {
+    /// Walks the replies to `message_id` in `chat_id`.
     pub fn get_discussion_replies(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> GetDiscussionReplies<'_> {
         GetDiscussionReplies { client: self, chat_id: chat_id.into(), message_id, pages: Pages::new() }
     }
 }
 
 impl GetDiscussionReplies<'_> {
+    /// Stops after this many replies.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next reply, or `None` when there are no more.
     pub async fn next(&mut self) -> Result<Option<Message>> {
         loop {
             if let Some(message) = self.pages.pop(self.client) {

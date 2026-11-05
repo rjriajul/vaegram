@@ -4,6 +4,9 @@ use crate::raw::functions;
 use crate::types::User;
 
 impl Client {
+    /// Signs in with the code mailed by [`send_recovery_code`](Client::send_recovery_code).
+    ///
+    /// Removes the cloud password, since no new one is set. Saves the session and returns the signed-in [`User`].
     pub async fn recover_password(&self, recovery_code: &str) -> Result<User> {
         let request = functions::auth::RecoverPassword { code: recovery_code.into(), new_settings: None };
         let auth = self.invoke(&request).await?;

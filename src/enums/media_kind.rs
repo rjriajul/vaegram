@@ -6,28 +6,51 @@ use crate::types::{LivePhoto, Photo};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum MediaKind {
+    /// A photo.
     Photo = 1,
+    /// A video.
     Video,
+    /// An animation, such as a GIF.
     Animation,
+    /// An audio file, such as music.
     Audio,
+    /// A voice note.
     Voice,
+    /// A round video message.
     VideoNote,
+    /// A file that is none of the other kinds.
     Document,
+    /// A sticker.
     Sticker,
+    /// A live photo.
     LivePhoto,
+    /// A shared contact.
     Contact,
+    /// A location, live or not.
     Location,
+    /// A venue.
     Venue,
+    /// A dice or other animated emoji that lands on a random result.
     Dice,
+    /// A poll.
     Poll,
+    /// A game.
     Game,
+    /// An invoice.
     Invoice,
+    /// A checklist.
     Checklist,
+    /// A forwarded story.
     Story,
+    /// A giveaway announcement.
     Giveaway,
+    /// The winners of a giveaway.
     GiveawayWinners,
+    /// Paid media.
     PaidMedia,
+    /// A web page preview.
     WebPage,
+    /// Media of a kind this library doesn't know.
     Unknown,
 }
 
@@ -64,7 +87,7 @@ impl MediaKind {
         })
     }
 
-    /// `video` is the message's own video flag; a document outside a message has none.
+    /// `video` is the message's own video flag. A document outside a message has none.
     pub(crate) fn of_document(document: Option<&base::Document>, video: bool) -> MediaKind {
         use base::DocumentAttribute as A;
         let attributes = match document {

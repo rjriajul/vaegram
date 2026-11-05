@@ -5,22 +5,28 @@ use crate::utils::expand_inline_bytes;
 /// A smaller copy of a photo or of a file's preview. Download it by passing its `file_id` to `download_media`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Thumbnail {
+    /// Identifier to pass to `download_media`.
     pub file_id: String,
     /// Differs per size, unlike the file's own `file_unique_id`.
     pub file_unique_id: String,
+    /// Width in pixels.
     pub width: i32,
+    /// Height in pixels.
     pub height: i32,
+    /// Size of the thumbnail file in bytes.
     pub file_size: i64,
 }
 
 /// A few hundred bytes of JPEG data without its header, sent along with media that isn't downloaded yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StrippedThumbnail {
+    /// The stripped JPEG bytes. Use [`StrippedThumbnail::to_jpeg`] for a viewable image.
     pub data: Vec<u8>,
 }
 
 impl StrippedThumbnail {
-    /// The thumbnail as a complete JPEG. Empty when `data` isn't a stripped thumbnail.
+    /// Rebuilds the complete JPEG from the stripped data. Returns an empty `Vec` if `data` isn't a stripped
+    /// thumbnail.
     pub fn to_jpeg(&self) -> Vec<u8> {
         expand_inline_bytes(&self.data).unwrap_or_default()
     }

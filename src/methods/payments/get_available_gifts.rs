@@ -5,6 +5,9 @@ use crate::raw::{base, functions};
 use crate::types::Gift;
 
 impl Client {
+    /// Lists the gifts in the gift shop, including sold-out ones (see [`Gift::is_sold_out`]).
+    ///
+    /// Unique gifts are left out. A gift that doesn't parse is skipped.
     pub async fn get_available_gifts(&self) -> Result<Vec<Gift>> {
         let gifts = self.invoke(&functions::payments::GetStarGifts { hash: 0 }).await?;
         let base::payments::StarGifts::StarGifts(gifts) = gifts else {

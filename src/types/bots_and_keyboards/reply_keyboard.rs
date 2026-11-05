@@ -3,32 +3,45 @@ use crate::types::{
     ButtonStyle, KeyboardButtonPollType, KeyboardButtonRequestChat, KeyboardButtonRequestUsers, WebAppInfo,
 };
 
+/// A custom keyboard that replaces the user's regular keyboard.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReplyKeyboardMarkup {
+    /// Buttons, one inner `Vec` per row.
     pub rows: Vec<Vec<KeyboardButton>>,
+    /// Fits the keyboard to its buttons instead of the default height.
+    /// [`new`](ReplyKeyboardMarkup::new) turns it on.
     pub resize: bool,
+    /// Hides the keyboard after one button press.
     pub one_time: bool,
+    /// Keeps the keyboard shown when the regular keyboard is hidden.
     pub persistent: bool,
+    /// Shows the keyboard only to some users in a group.
     pub selective: bool,
+    /// Also forces the user to reply, as [`ForceReply`] does.
     pub force_reply: bool,
+    /// Hint shown in the input field while the keyboard is up.
     pub placeholder: Option<String>,
 }
 
 impl ReplyKeyboardMarkup {
+    /// Creates a keyboard from rows of buttons, with `resize` on.
     pub fn new(rows: impl IntoIterator<Item = Vec<KeyboardButton>>) -> Self {
         ReplyKeyboardMarkup { rows: rows.into_iter().collect(), resize: true, ..Default::default() }
     }
 
+    /// Hides the keyboard after one button press.
     pub fn one_time(mut self) -> Self {
         self.one_time = true;
         self
     }
 
+    /// Shows `text` in the input field while the keyboard is up.
     pub fn placeholder(mut self, text: impl Into<String>) -> Self {
         self.placeholder = Some(text.into());
         self
     }
 
+    /// Also forces the user to reply, as [`ForceReply`] does.
     pub fn force_reply(mut self) -> Self {
         self.force_reply = true;
         self
@@ -60,21 +73,30 @@ impl ReplyKeyboardMarkup {
 /// `web_app`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyboardButton {
+    /// Label of the button. Sent as a plain message when pressed, unless a request field is set.
     pub text: String,
+    /// Sends the user's phone number when pressed.
     pub request_contact: bool,
+    /// Sends the user's current location when pressed.
     pub request_location: bool,
+    /// Asks the user to create a bot managed by this bot.
     pub request_managed_bot: Option<KeyboardButtonRequestManagedBot>,
+    /// Asks the user to pick users to share with the bot.
     pub request_users: Option<KeyboardButtonRequestUsers>,
+    /// Asks the user to pick a chat to share with the bot.
     pub request_chat: Option<KeyboardButtonRequestChat>,
+    /// Asks the user to create a poll of the given type.
     pub request_poll: Option<KeyboardButtonPollType>,
     /// Opens a mini app.
     pub web_app: Option<WebAppInfo>,
+    /// Color of the button.
     pub style: ButtonStyle,
     /// A custom emoji shown before the text.
     pub icon_custom_emoji_id: Option<i64>,
 }
 
 impl KeyboardButton {
+    /// Creates a plain text button.
     pub fn new(text: impl Into<String>) -> Self {
         KeyboardButton {
             text: text.into(),
@@ -90,41 +112,49 @@ impl KeyboardButton {
         }
     }
 
+    /// Makes the button send the user's phone number when pressed.
     pub fn request_contact(mut self) -> Self {
         self.request_contact = true;
         self
     }
 
+    /// Makes the button send the user's current location when pressed.
     pub fn request_location(mut self) -> Self {
         self.request_location = true;
         self
     }
 
+    /// Makes the button ask the user to create a managed bot.
     pub fn request_managed_bot(mut self, request: KeyboardButtonRequestManagedBot) -> Self {
         self.request_managed_bot = Some(request);
         self
     }
 
+    /// Makes the button ask the user to pick users to share.
     pub fn request_users(mut self, request: KeyboardButtonRequestUsers) -> Self {
         self.request_users = Some(request);
         self
     }
 
+    /// Makes the button ask the user to pick a chat to share.
     pub fn request_chat(mut self, request: KeyboardButtonRequestChat) -> Self {
         self.request_chat = Some(request);
         self
     }
 
+    /// Makes the button ask the user to create a poll.
     pub fn request_poll(mut self, request: KeyboardButtonPollType) -> Self {
         self.request_poll = Some(request);
         self
     }
 
+    /// Makes the button open a mini app.
     pub fn web_app(mut self, web_app: WebAppInfo) -> Self {
         self.web_app = Some(web_app);
         self
     }
 
+    /// Colors the button.
     pub fn style(mut self, style: ButtonStyle) -> Self {
         self.style = style;
         self
@@ -162,24 +192,31 @@ impl KeyboardButton {
     }
 }
 
-/// Request for the user to create a bot managed by this bot; the result arrives as `ServiceAction::ManagedBotCreated`.
+/// Request for the user to create a bot managed by this bot. The result arrives as
+/// `ServiceAction::ManagedBotCreated`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyboardButtonRequestManagedBot {
+    /// Id echoed back in the result, to tell requests apart.
     pub request_id: i32,
+    /// Name proposed for the new bot. `None` leaves the choice to the user.
     pub suggested_name: Option<String>,
+    /// Username proposed for the new bot. `None` leaves the choice to the user.
     pub suggested_username: Option<String>,
 }
 
 impl KeyboardButtonRequestManagedBot {
+    /// Creates a request with the given id and no suggestions.
     pub fn new(request_id: i32) -> Self {
         KeyboardButtonRequestManagedBot { request_id, ..Default::default() }
     }
 
+    /// Proposes a name for the new bot.
     pub fn suggested_name(mut self, name: impl Into<String>) -> Self {
         self.suggested_name = Some(name.into());
         self
     }
 
+    /// Proposes a username for the new bot.
     pub fn suggested_username(mut self, username: impl Into<String>) -> Self {
         self.suggested_username = Some(username.into());
         self
@@ -202,8 +239,10 @@ impl KeyboardButtonRequestManagedBot {
     }
 }
 
+/// Removes the custom keyboard and brings back the regular one.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ReplyKeyboardRemove {
+    /// Removes the keyboard only for some users in a group.
     pub selective: bool,
 }
 
@@ -213,9 +252,12 @@ impl ReplyKeyboardRemove {
     }
 }
 
+/// Makes the user's client open a reply to the message.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ForceReply {
+    /// Applies only to some users in a group.
     pub selective: bool,
+    /// Hint shown in the input field while the reply is pending.
     pub placeholder: Option<String>,
 }
 

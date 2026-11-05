@@ -6,6 +6,7 @@ use crate::raw::{base, types};
 use crate::types::PeerRef;
 use crate::utils::input_user;
 
+/// Request built by [`Client::gift_premium_subscription`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct GiftPremiumSubscription<'a> {
     client: &'a Client,
@@ -16,6 +17,9 @@ pub struct GiftPremiumSubscription<'a> {
 }
 
 impl Client {
+    /// Gifts Premium for `month_count` months to a user, paid in Stars.
+    ///
+    /// Fails with `Error::InvalidArgument` if `user_id` is not a user.
     pub fn gift_premium_subscription(
         &self,
         user_id: impl Into<PeerRef>,
@@ -26,6 +30,7 @@ impl Client {
 }
 
 impl GiftPremiumSubscription<'_> {
+    /// Adds a message that the recipient sees with the gift.
     pub fn text(mut self, text: impl Into<String>) -> Self {
         self.text = Some(text.into());
         self

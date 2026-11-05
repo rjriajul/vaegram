@@ -5,6 +5,9 @@ use crate::types::PeerRef;
 use crate::utils::compute_password_check;
 
 impl Client {
+    /// Hands a chat you own to another user.
+    ///
+    /// `password` is your two-step verification password, which Telegram requires for the transfer.
     pub async fn transfer_chat_ownership(
         &self,
         chat_id: impl Into<PeerRef>,

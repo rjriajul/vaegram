@@ -1,13 +1,16 @@
 use crate::enums::MaskPointType;
 use crate::raw::{base, types};
 
+/// Where a mask sticker sits on a face.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MaskPosition {
+    /// The part of the face the mask is placed relative to.
     pub point: MaskPointType,
     /// Shift to the right, in mask widths scaled to the face.
     pub x_shift: f64,
     /// Shift down, in mask heights scaled to the face.
     pub y_shift: f64,
+    /// Mask scaling coefficient. `2.0` makes the mask twice as big.
     pub scale: f64,
 }
 

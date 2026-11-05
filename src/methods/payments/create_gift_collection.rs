@@ -4,6 +4,9 @@ use crate::raw::functions;
 use crate::types::{GiftCollection, PeerRef};
 
 impl Client {
+    /// Creates a gift collection on a profile and returns it.
+    ///
+    /// `owned_gift_ids` are `owned_gift_id` values of [`OwnedGift`](crate::types::OwnedGift)s or unique gift slugs.
     pub async fn create_gift_collection(
         &self,
         owner_id: impl Into<PeerRef>,

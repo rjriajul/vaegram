@@ -6,6 +6,7 @@ use crate::raw::{base, functions, types};
 use crate::utils::known_algo;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::enable_cloud_password`].
 pub struct EnableCloudPassword<'a> {
     client: &'a Client,
     password: String,
@@ -14,12 +15,16 @@ pub struct EnableCloudPassword<'a> {
 }
 
 impl Client {
+    /// Sets a cloud password on an account that has none.
+    ///
+    /// Fails with `Error::InvalidArgument` if the account already has one or `password` is empty.
     pub fn enable_cloud_password(&self, password: impl Into<String>) -> EnableCloudPassword<'_> {
         EnableCloudPassword { client: self, password: password.into(), hint: None, email: None }
     }
 }
 
 impl EnableCloudPassword<'_> {
+    /// Hint shown to whoever has to enter the password.
     pub fn hint(mut self, hint: impl Into<String>) -> Self {
         self.hint = Some(hint.into());
         self

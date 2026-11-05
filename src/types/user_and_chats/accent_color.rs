@@ -1,26 +1,48 @@
 use crate::raw::base;
 
+/// An accent color for names and reply quotes that Telegram offers for selection.
+///
+/// Each color list is empty when Telegram sent no palette for that theme.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccentColor {
+    /// Telegram's id for the color.
     pub id: i32,
+    /// `true` if Telegram marks the color as hidden.
     pub is_hidden: bool,
+    /// Colors for the light theme.
     pub colors: Vec<i32>,
+    /// Colors for the dark theme.
     pub dark_colors: Vec<i32>,
+    /// Minimum boost level a channel needs to use the color. `None` if Telegram sets no minimum.
     pub channel_min_level: Option<i32>,
+    /// Minimum boost level a group needs to use the color, if Telegram sets one.
     pub group_min_level: Option<i32>,
 }
 
+/// An accent color for profile pages that Telegram offers for selection.
+///
+/// Each color list is empty when Telegram sent no palette for that theme.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileAccentColor {
+    /// Telegram's id for the color.
     pub id: i32,
+    /// `true` if Telegram marks the color as hidden.
     pub is_hidden: bool,
+    /// Palette colors for the light theme.
     pub palette_colors: Vec<i32>,
+    /// Background colors for the light theme.
     pub background_colors: Vec<i32>,
+    /// Story ring colors for the light theme.
     pub story_colors: Vec<i32>,
+    /// Palette colors for the dark theme.
     pub dark_palette_colors: Vec<i32>,
+    /// Background colors for the dark theme.
     pub dark_background_colors: Vec<i32>,
+    /// Story ring colors for the dark theme.
     pub dark_story_colors: Vec<i32>,
+    /// Minimum boost level a channel needs to use the color. `None` if Telegram sets no minimum.
     pub channel_min_level: Option<i32>,
+    /// Minimum boost level a group needs to use the color, if Telegram sets one.
     pub group_min_level: Option<i32>,
 }
 

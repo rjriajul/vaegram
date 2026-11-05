@@ -1,25 +1,44 @@
 use crate::raw::{base, types};
 
+/// Restricts a message search to one kind of content. The default is [`Empty`](Self::Empty).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum MessagesFilter {
+    /// No filter. Every message matches.
     #[default]
     Empty,
+    /// Photos.
     Photo,
+    /// Videos.
     Video,
+    /// Photos and videos.
     PhotoVideo,
+    /// Documents sent as files.
     Document,
+    /// Messages that contain a link.
     Url,
+    /// Animations (GIFs).
     Animation,
+    /// Voice notes.
     VoiceNote,
+    /// Video notes (round videos).
     VideoNote,
+    /// Both video notes and voice notes.
     AudioVideoNote,
+    /// Music files.
     Audio,
+    /// Service messages about a chat photo change.
     ChatPhoto,
+    /// Phone call service messages, missed or not.
     PhoneCall,
+    /// Messages that mention the current account.
     Mention,
+    /// Messages that contain a location.
     Location,
+    /// Messages that contain a shared contact.
     Contact,
+    /// Pinned messages.
     Pinned,
+    /// Polls.
     Poll,
 }
 

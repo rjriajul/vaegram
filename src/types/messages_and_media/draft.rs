@@ -2,12 +2,18 @@ use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::types::MessageEntity;
 
+/// A message draft saved in a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Draft {
+    /// Draft text, without formatting.
     pub text: String,
+    /// Formatting of the text. `None` if it has none.
     pub entities: Option<Vec<MessageEntity>>,
+    /// Id of the message the draft replies to. `None` if it isn't a reply to a message.
     pub reply_to_message_id: Option<i32>,
+    /// Forum topic the draft belongs to. `None` outside topics.
     pub topic_id: Option<i32>,
+    /// When the draft was last saved, as a Unix timestamp.
     pub date: i32,
 }
 

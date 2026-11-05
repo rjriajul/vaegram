@@ -8,6 +8,7 @@ use crate::handlers::Listenable;
 use crate::types::Message;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::stop_listening`].
 pub struct StopListening<'a, T = Message> {
     client: &'a Client,
     spec: Spec<T>,

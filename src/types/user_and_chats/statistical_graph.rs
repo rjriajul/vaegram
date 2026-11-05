@@ -1,15 +1,23 @@
 use crate::raw::base;
 
+/// A chart from the statistics pages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatisticalGraph {
+    /// The chart data as JSON, as Telegram sends it. `zoom_token` loads a zoomed view when set.
     Data { json: String, zoom_token: Option<String> },
+    /// The chart is not ready. Load it with this token through
+    /// [`Client::get_statistical_graph`](crate::Client::get_statistical_graph).
     Async { token: String },
+    /// Telegram could not build the chart. `message` is its error text.
     Error { message: String },
 }
 
+/// A statistic with its value in the previous period.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct StatisticalValue {
+    /// The value in the current period.
     pub value: f64,
+    /// The value in the previous period.
     pub previous_value: f64,
 }
 

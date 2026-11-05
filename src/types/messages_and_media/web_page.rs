@@ -4,23 +4,35 @@ use crate::types::{Media, Photo};
 /// A link preview shown under a text message.
 #[derive(Debug, Clone)]
 pub struct WebPage {
+    /// Telegram's id for the page.
     pub id: i64,
+    /// The previewed url.
     pub url: String,
     /// The url without the scheme, as shown in the preview.
     pub display_url: String,
     /// The page type, such as `article`, `photo` or `video`.
     pub kind: Option<String>,
+    /// Name of the site, such as a publisher or service.
     pub site_name: Option<String>,
+    /// Title of the page.
     pub title: Option<String>,
+    /// Short description of the page.
     pub description: Option<String>,
+    /// Preview photo of the page.
     pub photo: Option<Photo>,
     /// The page's main document: a video, audio, animation, sticker or file.
     pub media: Option<Media>,
+    /// Url of an embeddable player for the page.
     pub embed_url: Option<String>,
+    /// Type of the embed, as Telegram reports it.
     pub embed_type: Option<String>,
+    /// Width of the embed in pixels.
     pub embed_width: Option<i32>,
+    /// Height of the embed in pixels.
     pub embed_height: Option<i32>,
+    /// Length in seconds of the page's video or audio.
     pub duration: Option<i32>,
+    /// Author of the page's content.
     pub author: Option<String>,
     /// The preview can show its media large.
     pub has_large_media: bool,

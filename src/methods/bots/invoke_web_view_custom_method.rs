@@ -4,6 +4,9 @@ use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Calls a custom method of a bot's Mini App with JSON `params`. Returns the JSON string the bot answers with.
+    ///
+    /// Fails with `Error::InvalidArgument` if `method` is empty.
     pub async fn invoke_web_view_custom_method(
         &self,
         bot_id: impl Into<PeerRef>,

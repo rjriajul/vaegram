@@ -1,17 +1,28 @@
 use crate::raw::types;
 use crate::types::{Document, FileLocation, Thumbnail};
 
+/// A GIF or silent MPEG-4 clip that clients play in a loop.
 #[derive(Debug, Clone)]
 pub struct Animation {
+    /// Encoded identifier for sending or downloading the file again.
     pub file_id: String,
+    /// Id that stays the same for this file everywhere. It can't be used to download.
     pub file_unique_id: String,
+    /// Telegram's id of the document.
     pub id: i64,
+    /// Original file name. `None` if the file has no filename attribute.
     pub file_name: Option<String>,
+    /// MIME type reported by Telegram.
     pub mime_type: String,
+    /// Size in bytes.
     pub file_size: i64,
+    /// When the file was uploaded, as a Unix timestamp.
     pub date: i32,
+    /// Width in pixels. 0 if Telegram sent no size.
     pub width: i32,
+    /// Height in pixels. 0 if Telegram sent no size.
     pub height: i32,
+    /// Length in seconds. 0 if Telegram sent no video attribute.
     pub duration: i32,
     /// Smaller copies of the file's preview.
     pub thumbs: Vec<Thumbnail>,

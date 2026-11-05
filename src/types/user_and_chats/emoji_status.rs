@@ -1,18 +1,27 @@
 use crate::raw::base;
 
+/// The emoji shown next to a user's name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmojiStatus {
+    /// Id of the custom emoji.
     pub custom_emoji_id: i64,
+    /// Unix time the status expires. `None` when it doesn't.
     pub until: Option<i32>,
-    /// Set when the status is a unique gift; `name` is its slug from `t.me/nft/<name>`.
+    /// Id of the unique gift when the status is one. `None` for a plain emoji status, as are all fields below.
     pub collectible_id: Option<i64>,
+    /// Slug of the unique gift, as in `t.me/nft/<name>`.
     pub name: Option<String>,
-    /// The unique gift's title, backdrop pattern and colors; set only with `collectible_id`.
+    /// Title of the unique gift.
     pub title: Option<String>,
+    /// Id of the custom emoji that makes up the backdrop pattern.
     pub pattern_custom_emoji_id: Option<i64>,
+    /// Color at the center of the backdrop.
     pub center_color: Option<i32>,
+    /// Color at the edge of the backdrop.
     pub edge_color: Option<i32>,
+    /// Color of the backdrop pattern.
     pub pattern_color: Option<i32>,
+    /// Color of the text on the backdrop.
     pub text_color: Option<i32>,
 }
 

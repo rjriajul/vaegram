@@ -6,6 +6,16 @@ use crate::types::{Chat, ChatFullInfo, Community, PeerRef, User};
 use crate::utils::get_peer;
 
 impl Client {
+    /// Returns the full [`Chat`] for a user, group or channel.
+    ///
+    /// Unlike the chats that come with updates, the result has `full_info` set, plus the bio for users and the
+    /// description, invite link and member count for groups and channels when Telegram has them.
+    ///
+    /// ```no_run
+    /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
+    /// let chat = client.get_chat("me").await?;
+    /// # Ok(()) }
+    /// ```
     pub async fn get_chat(&self, chat_id: impl Into<PeerRef>) -> Result<Chat> {
         let chat_id = self.peer_id(chat_id.into()).await?;
         if chat_id > 0 {

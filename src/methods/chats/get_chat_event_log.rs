@@ -6,6 +6,9 @@ use crate::types::{ChatEvent, ChatEventFilter, PeerRef};
 
 const PAGE_SIZE: usize = 100;
 
+/// Admin log of a channel or supergroup, read one event at a time with [`next`](GetChatEventLog::next).
+///
+/// Events come newest first and are fetched in pages of 100.
 pub struct GetChatEventLog<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -20,6 +23,7 @@ pub struct GetChatEventLog<'a> {
 }
 
 impl Client {
+    /// Starts reading the admin log of a channel or supergroup.
     pub fn get_chat_event_log(&self, chat_id: impl Into<PeerRef>) -> GetChatEventLog<'_> {
         GetChatEventLog {
             client: self,
@@ -37,31 +41,37 @@ impl Client {
 }
 
 impl GetChatEventLog<'_> {
+    /// Only returns events that match this search text.
     pub fn query(mut self, query: impl Into<String>) -> Self {
         self.query = query.into();
         self
     }
 
+    /// Only returns the kinds of events the filter selects.
     pub fn filter(mut self, filter: ChatEventFilter) -> Self {
         self.filter = filter;
         self
     }
 
+    /// Only returns events caused by these administrators.
     pub fn user_ids(mut self, user_ids: impl IntoIterator<Item = impl Into<PeerRef>>) -> Self {
         self.user_ids = user_ids.into_iter().map(Into::into).collect();
         self
     }
 
+    /// Starts after this event id and returns only older events.
     pub fn offset_id(mut self, event_id: i64) -> Self {
         self.max_id = event_id;
         self
     }
 
+    /// Stops after this many events in total. The default reads the whole log.
     pub fn limit(mut self, limit: usize) -> Self {
         self.remaining = limit;
         self
     }
 
+    /// Returns the next event, or `None` once the log or the limit is exhausted.
     pub async fn next(&mut self) -> Result<Option<ChatEvent>> {
         while self.remaining > 0 {
             if let Some(event) = self.buffer.next() {

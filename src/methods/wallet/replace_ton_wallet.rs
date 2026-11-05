@@ -15,6 +15,7 @@ pub(super) async fn password_check(
 }
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::replace_ton_wallet`].
 pub struct ReplaceTonWallet<'a> {
     client: &'a Client,
     proof: TonWalletOwnershipProof,
@@ -23,19 +24,22 @@ pub struct ReplaceTonWallet<'a> {
 }
 
 impl Client {
-    /// Swaps the account's wallet for one you hold the key to. Irreversible: the old wallet is detached.
+    /// Swaps the account's wallet for one you hold the key to.
+    ///
+    /// Returns the new [`TonWalletState`]. The old wallet is detached.
     pub fn replace_ton_wallet(&self, proof: TonWalletOwnershipProof) -> ReplaceTonWallet<'_> {
         ReplaceTonWallet { client: self, proof, password: None, anchor_public_key: None }
     }
 }
 
 impl ReplaceTonWallet<'_> {
-    /// The cloud password, for accounts that have one.
+    /// Confirms the change with the account's cloud password.
     pub fn password(mut self, password: impl Into<String>) -> Self {
         self.password = Some(password.into());
         self
     }
 
+    /// Sends this key as the imported wallet's `anchor_public_key`, next to the ownership proof.
     pub fn anchor_public_key(mut self, key: impl Into<Vec<u8>>) -> Self {
         self.anchor_public_key = Some(key.into());
         self

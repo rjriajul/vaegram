@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
+/// Request built by [`Client::update_chat_notifications`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct UpdateChatNotifications<'a> {
     client: &'a Client,
@@ -11,6 +12,9 @@ pub struct UpdateChatNotifications<'a> {
 }
 
 impl Client {
+    /// Changes the notification settings of a chat.
+    ///
+    /// Only the settings set on the builder change. Awaiting returns the `bool` Telegram sends back.
     pub fn update_chat_notifications(&self, chat_id: impl Into<PeerRef>) -> UpdateChatNotifications<'_> {
         let settings = types::InputPeerNotifySettings {
             show_previews: None,
@@ -26,26 +30,31 @@ impl Client {
 }
 
 impl UpdateChatNotifications<'_> {
+    /// Mutes the chat until this unix time. `0` unmutes it.
     pub fn mute_until(mut self, date: i32) -> Self {
         self.settings.mute_until = Some(date);
         self
     }
 
+    /// Delivers the chat's notifications without sound.
     pub fn silent(mut self, silent: bool) -> Self {
         self.settings.silent = Some(silent);
         self
     }
 
+    /// Shows message text in the chat's notifications.
     pub fn show_previews(mut self, show: bool) -> Self {
         self.settings.show_previews = Some(show);
         self
     }
 
+    /// Mutes notifications for the chat's stories.
     pub fn stories_muted(mut self, muted: bool) -> Self {
         self.settings.stories_muted = Some(muted);
         self
     }
 
+    /// Hides the sender in notifications for the chat's stories.
     pub fn stories_hide_sender(mut self, hide: bool) -> Self {
         self.settings.stories_hide_sender = Some(hide);
         self

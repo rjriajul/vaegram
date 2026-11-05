@@ -1,11 +1,17 @@
 use crate::raw::types;
 
+/// A shared phone contact.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Contact {
+    /// The contact's phone number.
     pub phone_number: String,
+    /// The contact's first name.
     pub first_name: String,
+    /// The contact's last name. `None` if empty.
     pub last_name: Option<String>,
+    /// Telegram id of the contact. `None` if the number isn't linked to an account.
     pub user_id: Option<i64>,
+    /// The contact as a vCard. `None` if empty.
     pub vcard: Option<String>,
 }
 

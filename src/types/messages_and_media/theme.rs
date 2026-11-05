@@ -5,27 +5,44 @@ use crate::types::ChatBackground;
 // Only themes made from a file depend on the format; settings-based cloud themes look the same everywhere.
 pub(crate) const THEME_FORMAT: &str = "android";
 
+/// A cloud theme.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
+    /// Telegram's id of the theme.
     pub id: i64,
+    /// Short name used in the theme's `t.me/addtheme/<slug>` link.
     pub slug: String,
+    /// Display title of the theme.
     pub title: String,
+    /// Emoji the theme is tied to. `None` if it has none.
     pub emoji: Option<String>,
+    /// `true` if this account created the theme.
     pub is_creator: bool,
+    /// `true` if the theme is a default one.
     pub is_default: bool,
+    /// `true` if the theme is meant for a single chat.
     pub is_for_chat: bool,
+    /// Number of installs. 0 if Telegram sends no count.
     pub installs_count: i32,
+    /// One entry per base theme the theme supports.
     pub settings: Vec<ThemeSettings>,
     pub(crate) access_hash: i64,
 }
 
+/// Colors and wallpaper of a theme on top of a base theme.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThemeSettings {
+    /// The built-in theme these settings modify.
     pub base_theme: BaseTheme,
+    /// Accent color of the interface.
     pub accent_color: i32,
+    /// Accent color of outgoing messages. `None` uses `accent_color`.
     pub outbox_accent_color: Option<i32>,
+    /// Colors of the message bubbles. Several colors make a gradient.
     pub message_colors: Vec<i32>,
+    /// `true` if the gradient in `message_colors` is animated.
     pub message_colors_animated: bool,
+    /// Chat wallpaper. `None` if the theme sets none.
     pub wallpaper: Option<ChatBackground>,
 }
 
@@ -53,6 +70,7 @@ impl Theme {
 }
 
 impl ThemeSettings {
+    /// Creates settings over `base_theme` with the given accent color and no other options.
     pub fn new(base_theme: BaseTheme, accent_color: i32) -> Self {
         ThemeSettings {
             base_theme,
@@ -64,21 +82,25 @@ impl ThemeSettings {
         }
     }
 
+    /// Gives outgoing messages their own accent color instead of `accent_color`.
     pub fn outbox_accent_color(mut self, color: i32) -> Self {
         self.outbox_accent_color = Some(color);
         self
     }
 
+    /// Colors the message bubbles. More than one color makes a gradient.
     pub fn message_colors(mut self, colors: impl IntoIterator<Item = i32>) -> Self {
         self.message_colors = colors.into_iter().collect();
         self
     }
 
+    /// Animates the message bubble gradient.
     pub fn message_colors_animated(mut self) -> Self {
         self.message_colors_animated = true;
         self
     }
 
+    /// Adds a chat wallpaper to the theme.
     pub fn wallpaper(mut self, wallpaper: ChatBackground) -> Self {
         self.wallpaper = Some(wallpaper);
         self

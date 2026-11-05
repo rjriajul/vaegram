@@ -2,15 +2,22 @@ use crate::dispatcher::Entities;
 use crate::raw::types;
 use crate::types::{Chat, User};
 
+/// What Telegram reports about a Premium gift code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckedGiftCode {
+    /// When the code was created, as a Unix timestamp.
     pub date: i32,
+    /// Days of Premium the code grants.
     pub days: i32,
+    /// `true` if the code was a giveaway prize.
     pub via_giveaway: bool,
+    /// The chat that issued the code. `None` if Telegram sent no sender.
     pub from_chat: Option<Chat>,
+    /// Id of the giveaway message. `None` if the code isn't from a giveaway.
     pub giveaway_message_id: Option<i32>,
-    /// `None` for an unclaimed giveaway prize: anyone holding the link can apply it.
+    /// The user the code was given to. `None` if Telegram names no recipient.
     pub to_user: Option<User>,
+    /// When the code was applied, as a Unix timestamp. `None` if it is unused.
     pub used_date: Option<i32>,
 }
 

@@ -1,15 +1,18 @@
 use crate::file_id::{FileId, FileType, ThumbnailSource, thumbnail_unique_id};
 use crate::raw::{base, types};
 
-/// The video of an animated chat photo. Pass its file id to `download_media`.
+/// The video of an animated chat photo. Pass `file_id` to `download_media` to fetch it.
 #[derive(Debug, Clone)]
 pub struct AnimatedChatPhoto {
     /// The width and height of the square video.
     pub length: i32,
+    /// File id that `download_media` accepts.
     pub file_id: String,
+    /// Id that stays the same across sessions and clients. It can't be used to download the video.
     pub file_unique_id: String,
+    /// Size of the video in bytes.
     pub file_size: i64,
-    /// The second of the video used as the still photo.
+    /// Second of the video used as the still photo. `None` if Telegram doesn't set one.
     pub main_frame_timestamp: Option<f64>,
 }
 
@@ -27,7 +30,7 @@ impl PartialEq for AnimatedChatPhoto {
 impl Eq for AnimatedChatPhoto {}
 
 impl AnimatedChatPhoto {
-    /// Built from the largest video of the full photo; `None` when it has none.
+    /// Built from the largest video of the full photo. `None` when it has none.
     pub(crate) fn parse(photo: &types::Photo) -> Option<AnimatedChatPhoto> {
         let video = photo
             .video_sizes

@@ -44,27 +44,27 @@ pub struct RawUpdate {
 }
 
 impl RawUpdate {
-    /// The TL constructor id of the update, e.g. `0x1f2b0afd` for `updateNewMessage`.
+    /// Returns the TL constructor id of the update, such as `0x1f2b0afd` for `updateNewMessage`.
     pub fn constructor_id(&self) -> u32 {
         self.update.constructor_id()
     }
 
-    /// Ascending.
+    /// Returns the ids of the users that came with the update, in ascending order.
     pub fn user_ids(&self) -> impl Iterator<Item = i64> + use<> {
         sorted(self.entities.users.keys())
     }
 
-    /// Bot API style ids, ascending.
+    /// Returns the ids of the update's chats in ascending order, in `Chat::id` format.
     pub fn chat_ids(&self) -> impl Iterator<Item = i64> + use<> {
         sorted(self.entities.chats.keys())
     }
 
-    /// `None` when the user didn't come with this update.
+    /// Returns the user with this id from the update's batch. `None` when the user didn't come with it.
     pub fn user(&self, id: i64) -> Option<User> {
         self.entities.users.contains_key(&id).then(|| User::parse(id, &self.entities))
     }
 
-    /// `None` when the chat didn't come with this update.
+    /// Returns the chat with this id from the update's batch. `None` when the chat didn't come with it.
     pub fn chat(&self, id: i64) -> Option<Chat> {
         self.entities.chats.contains_key(&id).then(|| Chat::parse(&get_peer(id), &self.entities, false))
     }
@@ -98,16 +98,17 @@ impl RawUpdate {
 /// Experimental: these may change or go away in any release.
 #[cfg(feature = "unstable-raw")]
 impl RawUpdate {
+    /// Returns the update as the TL object Telegram sent.
     pub fn raw(&self) -> &base::Update {
         &self.update
     }
 
-    /// In id order.
+    /// Returns the TL users that came with the update, in id order.
     pub fn raw_users(&self) -> impl Iterator<Item = &base::User> {
         self.user_ids().map(|id| &self.entities.users[&id])
     }
 
-    /// In id order.
+    /// Returns the TL chats that came with the update, in id order.
     pub fn raw_chats(&self) -> impl Iterator<Item = &base::Chat> {
         self.chat_ids().map(|id| &self.entities.chats[&id])
     }

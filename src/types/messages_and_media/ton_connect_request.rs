@@ -3,13 +3,19 @@ use crate::raw::types;
 /// A request to connect a TON wallet to a mini app, as the service message shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TonConnectRequest {
+    /// Telegram's id of the connection session.
     pub session_id: i64,
     /// Unix time after which the request lapses.
     pub expiration_date: i32,
+    /// `true` if the user accepted the request.
     pub is_accepted: bool,
+    /// `true` if the user declined the request.
     pub is_declined: bool,
+    /// Name of the app asking to connect.
     pub dapp_name: Option<String>,
+    /// Topic of the connection request.
     pub topic: Option<String>,
+    /// Id for tracing the request.
     pub trace_id: Option<String>,
 }
 

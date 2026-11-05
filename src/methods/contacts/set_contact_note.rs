@@ -5,6 +5,7 @@ use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions, types};
 use crate::types::{PeerRef, Text};
 
+/// Request built by [`Client::set_contact_note`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetContactNote<'a> {
     client: &'a Client,
@@ -14,6 +15,10 @@ pub struct SetContactNote<'a> {
 }
 
 impl Client {
+    /// Sets the private note you keep on a contact.
+    ///
+    /// The note is parsed with the client's default parse mode unless [`html`](SetContactNote::html),
+    /// [`markdown`](SetContactNote::markdown) or [`parse_mode`](SetContactNote::parse_mode) is set.
     /// Empty text clears the note.
     pub fn set_contact_note(&self, user_id: impl Into<PeerRef>, note: impl Into<Text>) -> SetContactNote<'_> {
         SetContactNote { client: self, user_id: user_id.into(), note: note.into(), parse_mode: None }

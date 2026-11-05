@@ -6,10 +6,15 @@ use crate::raw::base;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum NextCodeType {
+    /// A text message.
     Sms,
+    /// A phone call that reads the code out.
     Call,
+    /// A flash call. The code is the last digits of the calling number.
     FlashCall,
+    /// A missed call. The code is the last digits of the calling number.
     MissedCall,
+    /// A text message sent through Fragment.
     FragmentSms,
 }
 

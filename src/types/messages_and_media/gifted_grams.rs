@@ -3,8 +3,9 @@ use crate::raw::types;
 /// Toncoin gifted by the message's sender.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GiftedGrams {
-    /// In nanotons.
+    /// Amount of Toncoin, in nanotons.
     pub ton_amount: i64,
+    /// Id of the blockchain transaction. `None` if Telegram sent none.
     pub transaction_id: Option<String>,
 }
 

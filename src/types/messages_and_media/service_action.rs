@@ -11,138 +11,230 @@ use crate::types::{
 };
 use crate::utils::{get_channel_id, get_peer_id};
 
+/// What a service message reports, such as a member joining or a message being pinned.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub enum ServiceAction {
+    /// Users who joined or were added. A join by link or request lists the sender alone.
     NewChatMembers(Vec<User>),
+    /// A user left or was removed.
     LeftChatMember(User),
+    /// The chat's new title.
     NewChatTitle(String),
+    /// The chat's new photo.
     NewChatPhoto(Box<Photo>),
+    /// The chat's photo was removed.
     DeleteChatPhoto,
+    /// A basic group was created.
     GroupChatCreated,
+    /// A supergroup was created.
     SupergroupChatCreated,
+    /// A channel was created.
     ChannelChatCreated,
+    /// The group was upgraded to the supergroup with this chat id.
     MigrateToChatId(i64),
+    /// The supergroup was upgraded from the group with this chat id.
     MigrateFromChatId(i64),
+    /// A message was pinned. Holds the id of the pinned message.
     PinnedMessage(i32),
-    /// In seconds; 0 turns auto-deletion off.
+    /// The auto-delete timer changed. Holds the new period in seconds, 0 when auto-deletion is off.
     AutoDeleteTimerChanged(i32),
+    /// A video chat was scheduled.
     VideoChatScheduled {
+        /// When it is due to start, as a Unix timestamp.
         start_date: i32,
     },
+    /// A video chat started.
     VideoChatStarted,
+    /// A video chat ended.
     VideoChatEnded {
-        /// In seconds.
+        /// How long the video chat lasted, in seconds.
         duration: i32,
     },
+    /// Users were invited to the video chat.
     VideoChatParticipantsInvited(Vec<User>),
+    /// The user allowed the bot to write to them.
     WriteAccessAllowed(WriteAccessAllowed),
     /// The domain the user logged in to with Telegram Login.
     ConnectedWebsite(String),
+    /// Users the sender picked for a request button.
     UsersShared(UsersShared),
+    /// A chat the sender picked for a request button.
     ChatShared(Box<ChatShared>),
+    /// A proximity alert fired.
     ProximityAlertTriggered(Box<ProximityAlertTriggered>),
+    /// The chat was added to this community.
     CommunityChatAdded(Community),
+    /// The chat was removed from its community.
     CommunityChatRemoved,
+    /// Someone joined the chat through this community.
     CommunityChatJoined(Community),
+    /// A managed bot was created. Holds the bot.
     ManagedBotCreated(User),
+    /// A suggested post was approved.
     SuggestedPostApproved(SuggestedPostApproved),
+    /// Approving a suggested post failed.
     SuggestedPostApprovalFailed(SuggestedPostApprovalFailed),
+    /// A suggested post was declined.
     SuggestedPostDeclined(SuggestedPostDeclined),
+    /// The payment for a suggested post went through.
     SuggestedPostPaid(SuggestedPostPaid),
+    /// The payment for a suggested post was refunded.
     SuggestedPostRefunded(SuggestedPostRefunded),
+    /// A forum topic was created.
     ForumTopicCreated(ForumTopicCreated),
+    /// A forum topic's title or icon was changed.
     ForumTopicEdited(ForumTopicEdited),
+    /// A forum topic was closed.
     ForumTopicClosed,
+    /// A forum topic was reopened.
     ForumTopicReopened,
+    /// The General forum topic was hidden.
     GeneralForumTopicHidden,
+    /// The General forum topic was shown again.
     GeneralForumTopicUnhidden,
+    /// A gift was sent.
     Gift(Box<GiftInfo>),
+    /// A unique gift was received, upgraded or transferred.
     UniqueGift(Box<UniqueGiftInfo>),
+    /// An invoice was paid.
     SuccessfulPayment(Box<SuccessfulPayment>),
+    /// A payment was refunded.
     RefundedPayment(Box<RefundedPayment>),
+    /// Checklist tasks were marked done or not done.
     ChecklistTasksDone(ChecklistTasksDone),
+    /// Tasks were added to a checklist.
     ChecklistTasksAdded(ChecklistTasksAdded),
+    /// A player set a new score in a game.
     GameHighScore {
+        /// Id of the game the score was set in.
         game_id: i64,
+        /// The player's new score.
         score: i32,
     },
+    /// The sender boosted the chat. Holds how many boosts they applied.
     BoostAdded(i32),
+    /// Data a web app sent through its button.
     WebAppData(Box<WebAppData>),
-    /// The owner left; ownership passes to this user once the transfer completes.
+    /// The owner left the chat. This user becomes the owner once the transfer completes.
     ChatOwnerLeft(User),
+    /// Ownership of the chat passed to this user.
     ChatOwnerChanged(User),
+    /// A contact joined Telegram.
     ContactRegistered,
+    /// A service message with custom text. Holds the text.
     CustomAction(String),
+    /// A Telegram Premium gift code was sent.
     PremiumGiftCode(Box<PremiumGiftCode>),
+    /// Telegram Premium was gifted.
     GiftedPremium(Box<GiftedPremium>),
+    /// Telegram Stars were gifted.
     GiftedStars(Box<GiftedStars>),
+    /// Toncoin was gifted.
     GiftedGrams(Box<GiftedGrams>),
+    /// A giveaway was started.
     GiveawayCreated {
-        /// Set for a giveaway of Telegram Stars.
+        /// Stars to split among the winners. `None` unless the giveaway is of Telegram Stars.
         prize_star_count: Option<i64>,
     },
-    /// The giveaway message is the reply target.
+    /// A giveaway ended. The giveaway message is the reply target.
     GiveawayCompleted {
+        /// Number of winners.
         winner_count: i32,
+        /// Number of prizes nobody claimed.
         unclaimed_prize_count: i32,
+        /// Whether the prizes are Telegram Stars.
         is_star_giveaway: bool,
     },
+    /// Stars won in a giveaway.
     GiveawayPrizeStars(Box<GiveawayPrizeStars>),
+    /// The chat history was cleared.
     HistoryCleared,
+    /// A phone call started.
     PhoneCallStarted {
+        /// Id of the call.
         id: i64,
+        /// `true` for a video call.
         is_video: bool,
     },
+    /// A phone call ended.
     PhoneCallEnded(Box<PhoneCallEnded>),
+    /// A conference call took place.
     ConferenceCall {
+        /// Id of the call.
         id: i64,
+        /// Whether the call was missed.
         is_missed: bool,
+        /// Whether the call is still going.
         is_active: bool,
+        /// `true` for a video call.
         is_video: bool,
-        /// In seconds.
+        /// How long the call lasted, in seconds.
         duration: Option<i32>,
     },
+    /// A screenshot of the chat was taken.
     ScreenshotTaken,
+    /// Someone offered to buy an upgraded gift.
     UpgradedGiftPurchaseOffer(Box<UpgradedGiftPurchaseOffer>),
+    /// An offer to buy an upgraded gift was rejected.
     UpgradedGiftPurchaseOfferRejected(Box<UpgradedGiftPurchaseOfferRejected>),
+    /// Protected content was turned on or off in the chat.
     ChatHasProtectedContentToggled {
+        /// Whether content was protected before.
         old_has_protected_content: bool,
+        /// Whether content is protected now.
         new_has_protected_content: bool,
     },
     /// A request to turn off protected content in a private chat.
     ChatHasProtectedContentDisableRequested {
+        /// Whether the request has expired.
         is_expired: bool,
     },
+    /// The chat's theme was changed.
     ChatSetTheme(Box<ChatTheme>),
+    /// The chat's background was changed.
     ChatBackgroundSet {
+        /// The new background.
         background: Box<ChatBackground>,
-        /// The background was already in use.
+        /// `true` if the sender applied a background the other user had sent earlier.
         is_same: bool,
-        /// Set for both users of a private chat.
+        /// `true` if the background was set for both users of the private chat.
         is_for_both: bool,
     },
+    /// The sender suggests this photo as the recipient's profile photo.
     SuggestProfilePhoto(Box<Photo>),
+    /// The sender suggests this birthday for the recipient's profile.
     SuggestBirthday(Birthday),
+    /// Paid messages were refunded.
     PaidMessagesRefunded {
+        /// Number of messages refunded.
         message_count: i32,
+        /// Total Stars refunded.
         star_count: i64,
     },
+    /// The price of a message to this chat changed.
     PaidMessagePriceChanged {
+        /// Stars a message now costs.
         paid_message_star_count: i64,
     },
+    /// The price of direct messages to the channel changed.
     DirectMessagePriceChanged {
+        /// Whether direct messages to the channel are allowed.
         is_enabled: bool,
+        /// Stars a direct message now costs.
         paid_message_star_count: i64,
     },
-    /// The poll is the reply target.
+    /// An option was added to a poll. Holds the new option. The poll is the reply target.
     PollOptionAdded(Box<PollOption>),
-    /// The poll is the reply target.
+    /// An option was removed from a poll. Holds the removed option. The poll is the reply target.
     PollOptionDeleted(Box<PollOption>),
+    /// The user sent Telegram Passport data to a bot.
     PassportDataSent,
-    /// The data stays encrypted.
+    /// The bot received Telegram Passport data. The data stays encrypted.
     PassportDataReceived,
+    /// Toncoin was transferred through a TON wallet.
     TonWalletTransfer(Box<TonWalletTransfer>),
+    /// A TON Connect request.
     TonConnectRequest(Box<TonConnectRequest>),
     /// Someone used a no-paid-messages token to write without paying.
     NoPaidMessagesTokenUsed,

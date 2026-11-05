@@ -6,6 +6,7 @@ use crate::types::PeerRef;
 // The General topic of every forum has this fixed id.
 pub(crate) const GENERAL_TOPIC_ID: i32 = 1;
 
+/// Request built by [`Client::edit_forum_topic`].
 pub struct EditForumTopic<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -17,6 +18,7 @@ pub struct EditForumTopic<'a> {
 }
 
 impl Client {
+    /// Edits a forum topic. Only the fields set on the builder change.
     pub fn edit_forum_topic(&self, chat_id: impl Into<PeerRef>, topic_id: i32) -> EditForumTopic<'_> {
         let chat_id = chat_id.into();
         EditForumTopic { client: self, chat_id, topic_id, title: None, icon_emoji_id: None, closed: None, hidden: None }
@@ -24,12 +26,13 @@ impl Client {
 }
 
 impl EditForumTopic<'_> {
+    /// Renames the topic.
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
         self
     }
 
-    /// 0 removes the icon.
+    /// Changes the topic icon to this custom emoji. Passing 0 removes the icon.
     pub fn icon_emoji_id(mut self, custom_emoji_id: i64) -> Self {
         self.icon_emoji_id = Some(custom_emoji_id);
         self

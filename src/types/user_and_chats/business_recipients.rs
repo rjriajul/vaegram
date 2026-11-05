@@ -2,14 +2,23 @@ use crate::Client;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 
+/// Which chats a business feature applies to.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BusinessRecipients {
+    /// Includes chats that already exist.
     pub existing_chats: bool,
+    /// Includes chats that are new.
     pub new_chats: bool,
+    /// Includes chats with contacts.
     pub contacts: bool,
+    /// Includes chats with people who aren't contacts.
     pub non_contacts: bool,
+    /// Treats the flags above and `users` as chats to leave out instead of chats to include.
     pub exclude_selected: bool,
+    /// Ids of users picked one by one.
     pub users: Vec<i64>,
+    /// Ids of users a connected bot skips. Setting greeting and away messages fails with `Error::InvalidArgument` if
+    /// it isn't empty.
     pub exclude_users: Vec<i64>,
 }
 

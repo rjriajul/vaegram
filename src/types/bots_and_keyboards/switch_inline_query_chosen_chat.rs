@@ -3,33 +3,43 @@ use crate::raw::{base, types};
 /// Opens a chat picker and puts the bot's username and `query` into the input field of the chosen chat.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SwitchInlineQueryChosenChat {
+    /// Text put into the input field after the bot's username.
     pub query: String,
+    /// Lets the user pick private chats with users.
     pub allow_user_chats: bool,
+    /// Lets the user pick private chats with bots.
     pub allow_bot_chats: bool,
+    /// Lets the user pick groups and supergroups.
     pub allow_group_chats: bool,
+    /// Lets the user pick channels.
     pub allow_channel_chats: bool,
 }
 
 impl SwitchInlineQueryChosenChat {
+    /// Creates a picker with every chat type off. Turn types on with the `allow_*` methods.
     pub fn new(query: impl Into<String>) -> Self {
         SwitchInlineQueryChosenChat { query: query.into(), ..Default::default() }
     }
 
+    /// Lets the user pick private chats with users.
     pub fn allow_user_chats(mut self) -> Self {
         self.allow_user_chats = true;
         self
     }
 
+    /// Lets the user pick private chats with bots.
     pub fn allow_bot_chats(mut self) -> Self {
         self.allow_bot_chats = true;
         self
     }
 
+    /// Lets the user pick groups and supergroups.
     pub fn allow_group_chats(mut self) -> Self {
         self.allow_group_chats = true;
         self
     }
 
+    /// Lets the user pick channels.
     pub fn allow_channel_chats(mut self) -> Self {
         self.allow_channel_chats = true;
         self

@@ -4,6 +4,7 @@ use crate::errors::{Error, Result};
 use crate::raw::functions;
 use crate::types::{PeerRef, ReplyParameters, WebView, WebViewSession};
 
+/// A request to open a mini app in a chat. Awaiting it returns the [`WebViewSession`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct RequestWebView<'a> {
     client: &'a Client,
@@ -18,6 +19,11 @@ pub struct RequestWebView<'a> {
 }
 
 impl Client {
+    /// Opens a bot's mini app in a chat.
+    ///
+    /// Returns a [`WebViewSession`] holding the [`WebView`]. Fails with `Error::Unexpected` if Telegram sends no
+    /// query id.
+    ///
     /// While it stays open, call [`WebViewSession::prolong`] every 60 seconds.
     pub fn request_web_view(&self, chat_id: impl Into<PeerRef>, bot_id: impl Into<PeerRef>) -> RequestWebView<'_> {
         RequestWebView {
@@ -35,26 +41,31 @@ impl Client {
 }
 
 impl RequestWebView<'_> {
+    /// URL to open instead of the bot's default one.
     pub fn url(mut self, url: impl Into<String>) -> Self {
         self.url = Some(url.into());
         self
     }
 
+    /// Tells Telegram the app is opened from the bot's menu button.
     pub fn from_bot_menu(mut self) -> Self {
         self.from_bot_menu = true;
         self
     }
 
+    /// Posts the message the bot sends for you when the app closes without a notification.
     pub fn disable_notification(mut self) -> Self {
         self.disable_notification = true;
         self
     }
 
+    /// Makes the bot's message, sent for you when the app closes, reply to this message.
     pub fn reply_to(mut self, reply: impl Into<ReplyParameters>) -> Self {
         self.reply_to = Some(reply.into());
         self
     }
 
+    /// Posts the closing message as this peer instead of as you.
     pub fn send_as(mut self, chat_id: impl Into<PeerRef>) -> Self {
         self.send_as = Some(chat_id.into());
         self

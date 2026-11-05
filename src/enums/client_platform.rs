@@ -2,17 +2,26 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ClientPlatform {
+    /// Reported as `android`.
     Android,
+    /// Reported as `ios`.
     Ios,
+    /// Reported as `wp`.
     Wp,
+    /// Reported as `bb`.
     Bb,
+    /// Reported as `desktop`.
     Desktop,
+    /// Reported as `web`.
     Web,
+    /// Reported as `ubp`.
     Ubp,
+    /// Reported as `other`.
     Other,
 }
 
 impl ClientPlatform {
+    /// Returns the lowercase name sent to web apps, for example `android`.
     pub fn as_str(self) -> &'static str {
         match self {
             ClientPlatform::Android => "android",

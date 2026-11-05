@@ -5,12 +5,19 @@ use crate::types::{FileLocation, Thumbnail};
 /// A general file: anything that isn't a video, audio, voice, animation, video note or sticker.
 #[derive(Clone, Debug)]
 pub struct Document {
+    /// Id for downloading or resending the file. It can change between sessions and accounts.
     pub file_id: String,
+    /// Id that stays the same for this file everywhere. It can't be used to download.
     pub file_unique_id: String,
+    /// Telegram's document id.
     pub id: i64,
+    /// Original file name. `None` if the file has no filename attribute.
     pub file_name: Option<String>,
+    /// MIME type of the file, such as `application/pdf`.
     pub mime_type: String,
+    /// Size of the file in bytes.
     pub file_size: i64,
+    /// Unix time the file was uploaded.
     pub date: i32,
     /// Smaller copies of the file's preview.
     pub thumbs: Vec<Thumbnail>,

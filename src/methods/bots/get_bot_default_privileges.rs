@@ -4,6 +4,9 @@ use crate::raw::{base, functions};
 use crate::types::ChatPrivileges;
 
 impl Client {
+    /// Returns the administrator privileges this bot asks for when added to a group.
+    ///
+    /// With `for_channels`, returns the ones for channels instead. `None` if none are set.
     pub async fn get_bot_default_privileges(&self, for_channels: bool) -> Result<Option<ChatPrivileges>> {
         let request = functions::users::GetFullUser { id: base::InputUser::InputUserSelf };
         let base::users::UserFull::UserFull(full) = self.invoke(&request).await?;

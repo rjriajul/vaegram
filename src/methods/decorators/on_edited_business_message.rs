@@ -7,6 +7,9 @@ use crate::handlers::{HandlerRef, UpdateKind, callback};
 use crate::types::Message;
 
 impl Client {
+    /// Registers a handler for edited messages received through a business connection that pass `filter`.
+    ///
+    /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_edited_business_message<F, Fut, T>(&self, filter: Filter<Message>, f: F) -> HandlerRef<'_>
     where
         F: Fn(Message) -> Fut + Send + Sync + 'static,

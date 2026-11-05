@@ -3,30 +3,49 @@ use crate::enums::PollType;
 use crate::raw::base;
 use crate::types::MessageEntity;
 
+/// A poll or quiz.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Poll {
+    /// Telegram's id of the poll.
     pub id: i64,
+    /// The question, as plain text.
     pub question: String,
+    /// Formatting of the question. `None` if it has none.
     pub question_entities: Option<Vec<MessageEntity>>,
+    /// The answer options, in order.
     pub options: Vec<PollOption>,
+    /// Number of people who voted. 0 if Telegram sent no count.
     pub total_voter_count: i32,
+    /// The poll no longer takes votes.
     pub is_closed: bool,
+    /// Voters are hidden.
     pub is_anonymous: bool,
+    /// Whether this is a regular poll or a quiz.
     pub kind: PollType,
+    /// A voter may pick more than one option.
     pub allows_multiple_answers: bool,
     /// Index into [`Poll::options`] of the right answer of a quiz, once the client may see it.
     pub correct_option_id: Option<usize>,
+    /// Explanation of a quiz's right answer. `None` if there is none or the account can't see it yet.
     pub explanation: Option<String>,
+    /// Formatting of the explanation. `None` if it has none.
     pub explanation_entities: Option<Vec<MessageEntity>>,
+    /// Seconds the poll stays open after it was sent. `None` if not set.
     pub open_period: Option<i32>,
+    /// Unix time the poll closes. `None` if not set.
     pub close_date: Option<i32>,
 }
 
+/// One answer option of a [`Poll`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PollOption {
+    /// The option text, as plain text.
     pub text: String,
+    /// Formatting of the option text. `None` if it has none.
     pub text_entities: Option<Vec<MessageEntity>>,
+    /// Number of people who picked this option. 0 if Telegram sent no count.
     pub voter_count: i32,
+    /// Telegram's identifier for the option. Empty for an option built locally rather than received.
     pub data: Vec<u8>,
 }
 

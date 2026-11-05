@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::User;
 
 impl Client {
+    /// Returns the bots the account owns.
     pub async fn get_owned_bots(&self) -> Result<Vec<User>> {
         Ok(User::parse_all(self, self.invoke(&functions::bots::GetAdminedBots {}).await?))
     }

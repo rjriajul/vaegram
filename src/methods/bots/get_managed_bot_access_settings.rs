@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::BotAccessSettings;
 
 impl Client {
+    /// Returns who can use a bot you manage.
     pub async fn get_managed_bot_access_settings(&self, bot_id: i64) -> Result<BotAccessSettings> {
         let bot = self.resolve_user(&bot_id.into()).await?;
         let raw = self.invoke(&functions::bots::GetAccessSettings { bot }).await?;

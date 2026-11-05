@@ -3,9 +3,12 @@ use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::types::User;
 
+/// Who may use a bot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BotAccessSettings {
+    /// Access to the bot is restricted.
     pub is_access_restricted: bool,
+    /// Users added to the bot's access list. Empty if Telegram sent none.
     pub added_users: Vec<User>,
 }
 

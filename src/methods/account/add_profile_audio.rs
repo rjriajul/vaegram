@@ -5,6 +5,10 @@ use crate::raw::{base, functions};
 use crate::types::InputMedia;
 
 impl Client {
+    /// Adds an audio file to the music on your profile.
+    ///
+    /// Fails with `Error::InvalidArgument` unless `media` is an audio file to upload or one already on Telegram. A new
+    /// file is uploaded first, then saved to the profile.
     pub async fn add_profile_audio(&self, media: &InputMedia<'_>) -> Result<()> {
         if media.kind != MediaKind::Audio {
             return Err(Error::InvalidArgument("profile music is an audio file"));

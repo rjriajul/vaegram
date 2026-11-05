@@ -6,25 +6,37 @@ use crate::raw::{base, types};
 use crate::types::messages_and_media::{input_document, input_photo};
 use crate::types::{Document, Photo};
 
+/// The content of a rich message to send, written as HTML, Markdown or a list of [`RichBlock`]s.
+///
+/// Every form carries a media list, the `rtl` flag and the `no_autolink` flag, which
+/// [`media`](InputRichMessage::media), [`rtl`](InputRichMessage::rtl) and
+/// [`no_autolink`](InputRichMessage::no_autolink) set.
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputRichMessage {
+    /// HTML source, which refers to files added with [`media`](InputRichMessage::media) by their id.
     Html { html: String, media: Vec<InputRichMessageMedia>, rtl: bool, no_autolink: bool },
+    /// Markdown source, which refers to files added with [`media`](InputRichMessage::media) by their id.
     Markdown { markdown: String, media: Vec<InputRichMessageMedia>, rtl: bool, no_autolink: bool },
+    /// Blocks built in code. Users mentioned in their text are resolved when the message is sent.
     Blocks { blocks: Vec<RichBlock>, media: Vec<InputRichMessageMedia>, rtl: bool, no_autolink: bool },
 }
 
+/// A photo or document that HTML or Markdown content refers to by id, or that blocks include.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputRichMessageMedia(base::InputRichFile);
 
 impl InputRichMessage {
+    /// Creates content from HTML source.
     pub fn html(html: impl Into<String>) -> Self {
         InputRichMessage::Html { html: html.into(), media: Vec::new(), rtl: false, no_autolink: false }
     }
 
+    /// Creates content from Markdown source.
     pub fn markdown(markdown: impl Into<String>) -> Self {
         InputRichMessage::Markdown { markdown: markdown.into(), media: Vec::new(), rtl: false, no_autolink: false }
     }
 
+    /// Creates content from blocks. Files that media blocks show are attached automatically.
     pub fn blocks(blocks: impl IntoIterator<Item = RichBlock>) -> Self {
         InputRichMessage::Blocks {
             blocks: blocks.into_iter().collect(),
@@ -34,6 +46,7 @@ impl InputRichMessage {
         }
     }
 
+    /// Lays the message out right to left.
     pub fn rtl(mut self) -> Self {
         match &mut self {
             InputRichMessage::Html { rtl, .. }
@@ -43,6 +56,7 @@ impl InputRichMessage {
         self
     }
 
+    /// Turns off automatic linking in the message.
     pub fn no_autolink(mut self) -> Self {
         match &mut self {
             InputRichMessage::Html { no_autolink, .. }
@@ -52,7 +66,10 @@ impl InputRichMessage {
         self
     }
 
-    /// Blocks reference files by numeric id, so the string id is dropped for them.
+    /// Attaches one file to the message.
+    ///
+    /// HTML and Markdown content refer to the file by the string id given to the media. Blocks reference files by
+    /// numeric id, so the string id is dropped for them.
     pub fn media(mut self, media: InputRichMessageMedia) -> Self {
         match &mut self {
             InputRichMessage::Html { media: list, .. }
@@ -115,6 +132,7 @@ impl InputRichMessage {
 }
 
 impl InputRichMessageMedia {
+    /// Wraps an existing [`Photo`] that the content refers to as `id`.
     pub fn photo(id: impl Into<String>, photo: &Photo) -> Self {
         let photo = input_photo(&photo.location);
         InputRichMessageMedia(base::InputRichFile::InputRichFilePhoto(Box::new(types::InputRichFilePhoto {
@@ -123,6 +141,7 @@ impl InputRichMessageMedia {
         })))
     }
 
+    /// Wraps an existing [`Document`] that the content refers to as `id`.
     pub fn document(id: impl Into<String>, document: &Document) -> Self {
         let document = input_document(&document.location);
         InputRichMessageMedia(base::InputRichFile::InputRichFileDocument(Box::new(types::InputRichFileDocument {

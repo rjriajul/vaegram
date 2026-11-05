@@ -4,6 +4,7 @@ use crate::methods::advanced::ChatPeer;
 use crate::raw::{base, functions};
 use crate::types::{ChatPermissions, PeerRef};
 
+/// Request built by [`Client::ban_chat_member`]. Awaiting it returns `()`.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct BanChatMember<'a> {
     client: &'a Client,
@@ -13,14 +14,16 @@ pub struct BanChatMember<'a> {
 }
 
 impl Client {
-    /// Basic groups only remove the user; a ban with `until_date` needs a supergroup or channel.
+    /// Bans a user or chat from a group, supergroup or channel.
+    ///
+    /// A basic group only removes the user and ignores `until_date`.
     pub fn ban_chat_member(&self, chat_id: impl Into<PeerRef>, user_id: impl Into<PeerRef>) -> BanChatMember<'_> {
         BanChatMember { client: self, chat_id: chat_id.into(), user_id: user_id.into(), until_date: 0 }
     }
 }
 
 impl BanChatMember<'_> {
-    /// Unix time when the ban ends; 0 or less than 30 seconds away bans forever.
+    /// Ends the ban at this Unix time. 0, or a time less than 30 seconds or more than 366 days away, bans forever.
     pub fn until_date(mut self, until_date: i32) -> Self {
         self.until_date = until_date;
         self

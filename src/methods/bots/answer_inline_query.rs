@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::{InlineQueryResult, InlineQueryResultsButton};
 
+/// Request built by [`Client::answer_inline_query`]. Awaiting it returns whether Telegram accepted the results.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct AnswerInlineQuery<'a> {
     client: &'a Client,
@@ -16,6 +17,10 @@ pub struct AnswerInlineQuery<'a> {
 }
 
 impl Client {
+    /// Answers an inline query with a list of results.
+    ///
+    /// Telegram caches the results for 300 seconds unless [`cache_time`](AnswerInlineQuery::cache_time) says
+    /// otherwise.
     pub fn answer_inline_query<R: Into<InlineQueryResult>>(
         &self,
         query_id: i64,
@@ -35,26 +40,31 @@ impl Client {
 }
 
 impl AnswerInlineQuery<'_> {
+    /// How long, in seconds, Telegram may cache the results. Defaults to 300.
     pub fn cache_time(mut self, seconds: i32) -> Self {
         self.cache_time = seconds;
         self
     }
 
+    /// Caches the results only for the user who sent the query, not for everyone.
     pub fn personal(mut self) -> Self {
         self.personal = true;
         self
     }
 
+    /// Shows the results as a gallery instead of a list.
     pub fn gallery(mut self) -> Self {
         self.gallery = true;
         self
     }
 
+    /// Sets the offset the client sends back in the next query to load more results.
     pub fn next_offset(mut self, offset: impl Into<String>) -> Self {
         self.next_offset = Some(offset.into());
         self
     }
 
+    /// Shows a button above the results that opens the bot's chat or a Mini App.
     pub fn button(mut self, button: InlineQueryResultsButton) -> Self {
         self.button = Some(button);
         self

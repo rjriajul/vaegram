@@ -7,6 +7,15 @@ use crate::raw::{base, functions};
 use crate::types::{ChatMember, PeerRef};
 
 impl Client {
+    /// Returns one member of a chat.
+    ///
+    /// A user who is not in the chat comes back with the `Left` status instead of an error.
+    ///
+    /// ```no_run
+    /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
+    /// let member = client.get_chat_member(-1001234567890, 42).await?;
+    /// # Ok(()) }
+    /// ```
     pub async fn get_chat_member(
         &self,
         chat_id: impl Into<PeerRef>,

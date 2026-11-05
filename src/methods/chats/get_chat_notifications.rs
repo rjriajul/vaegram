@@ -4,6 +4,7 @@ use crate::raw::{base, functions, types};
 use crate::types::{ChatNotifications, PeerRef};
 
 impl Client {
+    /// Returns the notification settings you have for a chat.
     pub async fn get_chat_notifications(&self, chat_id: impl Into<PeerRef>) -> Result<ChatNotifications> {
         let peer = base::InputNotifyPeer::InputNotifyPeer(Box::new(types::InputNotifyPeer {
             peer: self.resolve_peer(chat_id).await?,

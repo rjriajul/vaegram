@@ -6,6 +6,7 @@ use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions, types};
 use crate::types::{BusinessChatLink, Text};
 
+/// Request built by [`Client::create_business_chat_link`]. Awaiting it returns the new [`BusinessChatLink`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct CreateBusinessChatLink<'a> {
     client: &'a Client,
@@ -15,6 +16,9 @@ pub struct CreateBusinessChatLink<'a> {
 }
 
 impl Client {
+    /// Creates a link that opens a chat with the business account with `text` prefilled.
+    ///
+    /// Awaiting the request returns the new [`BusinessChatLink`].
     pub fn create_business_chat_link(&self, text: impl Into<Text>) -> CreateBusinessChatLink<'_> {
         CreateBusinessChatLink { client: self, text: text.into(), parse_mode: None, title: None }
     }
@@ -40,6 +44,7 @@ pub(super) fn check_slug(slug: &str) -> Result<()> {
 }
 
 impl CreateBusinessChatLink<'_> {
+    /// Names the link in the account's list of links.
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
         self

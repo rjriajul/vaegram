@@ -6,6 +6,7 @@ use crate::utils::get_peer_id;
 use super::create_folder_invite_link::chatlist;
 
 #[must_use = "a request does nothing until it is awaited"]
+/// Request built by [`Client::leave_folder`].
 pub struct LeaveFolder<'a> {
     client: &'a Client,
     folder_id: i32,
@@ -13,12 +14,16 @@ pub struct LeaveFolder<'a> {
 }
 
 impl Client {
+    /// Leaves a shared folder.
+    ///
+    /// Awaiting removes the folder. The chats stay joined unless [`leave_chats`](LeaveFolder::leave_chats) is set.
     pub fn leave_folder(&self, folder_id: i32) -> LeaveFolder<'_> {
         LeaveFolder { client: self, folder_id, leave_chats: false }
     }
 }
 
 impl LeaveFolder<'_> {
+    /// Also leaves the chats Telegram suggests leaving along with the folder.
     pub fn leave_chats(mut self) -> Self {
         self.leave_chats = true;
         self

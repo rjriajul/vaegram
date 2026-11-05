@@ -4,23 +4,27 @@ use crate::methods::pages::DialogPages;
 use crate::raw::functions;
 use crate::types::SavedDialog;
 
+/// The dialogs of Saved Messages. Call [`next`](GetSavedDialogs::next) until it returns `None`.
 pub struct GetSavedDialogs<'a> {
     client: &'a Client,
     pages: DialogPages<SavedDialog>,
 }
 
 impl Client {
+    /// Lists the dialogs Saved Messages is split into, one per original chat or sender.
     pub fn get_saved_dialogs(&self) -> GetSavedDialogs<'_> {
         GetSavedDialogs { client: self, pages: DialogPages::new() }
     }
 }
 
 impl GetSavedDialogs<'_> {
+    /// Stops after this many dialogs. Without it the walk runs to the last dialog.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
     }
 
+    /// Returns the next dialog, fetching a page when the buffered one is used up. `None` after the last.
     pub async fn next(&mut self) -> Result<Option<SavedDialog>> {
         loop {
             if let Some(dialog) = self.pages.pop() {

@@ -28,11 +28,13 @@ macro_rules! send_builder {
         send_builder!($builder, $crate::types::Message);
 
         impl $builder<'_> {
+            /// Attaches an inline keyboard or a reply keyboard, or removes or forces a reply.
             pub fn reply_markup(mut self, markup: impl Into<$crate::types::ReplyMarkup>) -> Self {
                 self.options.reply_markup = Some(markup.into());
                 self
             }
 
+            /// Sends on behalf of the business account behind this connection id.
             pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
                 self.options.business_connection_id = Some(id.into());
                 self
@@ -47,26 +49,31 @@ macro_rules! send_builder {
     };
     ($builder:ident, $output:ty) => {
         impl $builder<'_> {
+            /// Replies to a message, optionally one in another chat or with a quote.
             pub fn reply_to(mut self, reply: impl Into<$crate::types::ReplyParameters>) -> Self {
                 self.options.reply_to = Some(reply.into());
                 self
             }
 
+            /// Sends into a forum topic. The General topic (id 1) is sent as no topic.
             pub fn message_thread_id(mut self, thread_id: i32) -> Self {
                 self.options.message_thread_id = Some(thread_id);
                 self
             }
 
+            /// Sends into the direct-messages topic that belongs to this user.
             pub fn direct_messages_topic_id(mut self, user_id: impl Into<$crate::types::PeerRef>) -> Self {
                 self.options.direct_messages_topic_id = Some(user_id.into());
                 self
             }
 
+            /// Sends the message silently, so recipients get no notification sound.
             pub fn disable_notification(mut self) -> Self {
                 self.options.disable_notification = true;
                 self
             }
 
+            /// Stops recipients from forwarding or saving the message.
             pub fn protect_content(mut self) -> Self {
                 self.options.protect_content = true;
                 self
@@ -78,21 +85,25 @@ macro_rules! send_builder {
                 self
             }
 
+            /// Stars to pay for the message, for chats that charge for incoming messages.
             pub fn paid_message_star_count(mut self, stars: i64) -> Self {
                 self.options.paid_message_star_count = Some(stars);
                 self
             }
 
+            /// Plays the message effect with this id when the message arrives.
             pub fn message_effect_id(mut self, effect_id: i64) -> Self {
                 self.options.message_effect_id = Some(effect_id);
                 self
             }
 
+            /// Sends the message as a suggested post, with the price and time in `parameters`.
             pub fn suggested_post_parameters(mut self, parameters: $crate::types::SuggestedPostParameters) -> Self {
                 self.options.suggested_post_parameters = Some(parameters);
                 self
             }
 
+            /// Schedules the message for this Unix timestamp instead of sending it now.
             pub fn schedule_date(mut self, date: i32) -> Self {
                 self.options.schedule_date = Some(date);
                 self
@@ -118,14 +129,17 @@ pub(crate) trait Routable {
 macro_rules! caption_setters {
     ($builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
+            /// Parses the text or caption as HTML.
             pub fn html(self) -> Self {
                 self.parse_mode($crate::enums::ParseMode::Html)
             }
 
+            /// Parses the text or caption as Markdown.
             pub fn markdown(self) -> Self {
                 self.parse_mode($crate::enums::ParseMode::Markdown)
             }
 
+            /// Sets how the text or caption is parsed. Without it the client's default parse mode applies.
             pub fn parse_mode(mut self, mode: $crate::enums::ParseMode) -> Self {
                 self$(.$m)?.parse_mode = Some(mode);
                 self

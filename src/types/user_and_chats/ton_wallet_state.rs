@@ -1,17 +1,25 @@
 use crate::Client;
 use crate::raw::base;
 
-/// The state of this account's TON wallet. Telegram sends an empty state while it's still creating the wallet or
-/// when there is none, so the address, key and balance are optional.
+/// The state of this account's TON wallet.
+///
+/// Telegram sends an empty state while it's still creating the wallet or when there is none. In an empty
+/// state the address, key and balance are `None` and every flag except `is_being_created` is `false`.
 #[derive(Debug, Clone)]
 pub struct TonWalletState {
+    /// The wallet address. `None` in an empty state.
     pub wallet_address: Option<String>,
+    /// The wallet public key. `None` in an empty state.
     pub public_key: Option<Vec<u8>>,
-    /// The balance in nanoton.
+    /// The balance in nanotons. `None` in an empty state.
     pub gram_amount: Option<i64>,
+    /// Telegram is still creating the wallet. Set only in an empty state.
     pub is_being_created: bool,
+    /// The wallet backup is on.
     pub is_backup_enabled: bool,
+    /// The wallet backup can be turned on.
     pub can_enable_backup: bool,
+    /// The wallet's recovery phrase can be exported.
     pub can_export_phrase: bool,
     client: Client,
 }
@@ -42,6 +50,7 @@ impl TonWalletState {
         }
     }
 
+    /// The client that fetched this state.
     pub fn client(&self) -> &Client {
         &self.client
     }

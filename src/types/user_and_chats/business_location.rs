@@ -4,7 +4,9 @@ use crate::types::Location;
 /// The address of a business account, with a map point when it set one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BusinessLocation {
+    /// Street address as the owner wrote it.
     pub address: String,
+    /// Map point of the address. `None` if the owner set none.
     pub location: Option<Location>,
 }
 

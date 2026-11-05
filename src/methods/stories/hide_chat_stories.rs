@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
+    /// Moves a chat's stories to the hidden list. [`Client::show_chat_stories`] reverses it.
     pub async fn hide_chat_stories(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
         let peer = self.resolve_peer(chat_id).await?;
         self.invoke(&functions::stories::TogglePeerStoriesHidden { peer, hidden: true }).await?;

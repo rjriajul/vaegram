@@ -3,23 +3,34 @@ use crate::dispatcher::Entities;
 use crate::raw::{base, types};
 use crate::types::{LivePhoto, Media, Photo, StrippedThumbnail, Video};
 
+/// Media a message sells for Stars.
 #[derive(Debug, Clone)]
 pub struct PaidMediaInfo {
+    /// Price in Stars.
     pub star_count: i64,
+    /// The media items. Kinds this crate has no variant for are left out.
     pub paid_media: Vec<PaidMedia>,
 }
 
+/// One item of paid media.
 #[derive(Debug, Clone)]
 pub enum PaidMedia {
     /// Until it is bought, only the size and a video's length are shown.
     Preview {
+        /// Width in pixels, if Telegram sent it.
         width: Option<i32>,
+        /// Height in pixels, if Telegram sent it.
         height: Option<i32>,
+        /// Length of a video in seconds. `None` for photos.
         duration: Option<i32>,
+        /// A blurred preview, if Telegram sent one.
         thumbnail: Option<StrippedThumbnail>,
     },
+    /// A bought photo.
     Photo(Photo),
+    /// A bought video.
     Video(Video),
+    /// A bought live photo.
     LivePhoto(LivePhoto),
 }
 

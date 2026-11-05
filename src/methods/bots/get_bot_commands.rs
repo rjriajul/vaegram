@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::{BotCommand, BotCommandScope};
 
 impl Client {
+    /// Returns this bot's commands for a scope and language. An empty `language_code` targets the default.
     pub async fn get_bot_commands(&self, scope: BotCommandScope, language_code: &str) -> Result<Vec<BotCommand>> {
         let request =
             functions::bots::GetBotCommands { scope: scope.write(self).await?, lang_code: language_code.to_owned() };

@@ -6,6 +6,7 @@ use crate::types::{Chat, PeerRef};
 use crate::utils::{get_chat_id, get_peer};
 
 impl Client {
+    /// Returns channels similar to the given channel.
     pub async fn get_similar_channels(&self, chat_id: impl Into<PeerRef>) -> Result<Vec<Chat>> {
         let channel = Some(self.resolve_channel(&chat_id.into()).await?);
         let found = self.invoke(&functions::channels::GetChannelRecommendations { channel }).await?;

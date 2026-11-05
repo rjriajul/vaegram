@@ -8,42 +8,62 @@ use crate::types::{
 };
 use crate::utils::{get_channel_id, get_peer};
 
-/// What only the full profile of a chat tells; `get_chat` fills it. Each group of fields says which chats have it.
+/// Details from the full profile of a chat, which only `get_chat` fetches.
+///
+/// Users and bots, basic groups, and supergroups and channels each fill a different set of fields. Fields a
+/// chat kind doesn't have stay `None` or `false`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatFullInfo {
     // Every chat.
+    /// Id of the latest pinned message. `None` if nothing is pinned.
     pub pinned_message_id: Option<i32>,
+    /// Id of the chat folder the chat is in. `None` if it isn't in one.
     pub folder_id: Option<i32>,
     /// The background of this chat for you.
     pub chat_background: Option<ChatBackground>,
-    /// Your background in this chat replaces the one the other side set.
+    /// `true` if your background in this private chat replaces the one the other side set.
     pub is_wallpaper_overridden: bool,
+    /// Seconds after which new messages are deleted. `None` if auto-delete is off.
     pub message_auto_delete_time: Option<i32>,
-    /// The emoji of the chat theme.
+    /// The emoji of the chat theme. `None` if no theme is set or a user's theme comes from a unique gift.
     pub theme: Option<String>,
-    /// The theme of this chat's share card; `None` on the default one.
+    /// The theme of this chat's share card. `None` for the default one.
     pub share_theme: Option<ShareTheme>,
+    /// `true` if the chat has scheduled messages.
     pub can_schedule_messages: bool,
+    /// `true` if automatic translation is turned off for the chat.
     pub is_translations_disabled: bool,
 
     // Users, bots and channels.
+    /// `true` if you blocked this chat.
     pub is_blocked: bool,
+    /// `true` if there are pinned stories to show.
     pub is_pinned_stories_available: bool,
+    /// `true` if you can see the revenue statistics.
     pub can_view_revenue: bool,
+    /// Number of gifts shown on the profile.
     pub gift_count: Option<i32>,
+    /// The tab the profile opens on.
     pub main_profile_tab: Option<ProfileTab>,
+    /// The verification badge a bot gave the chat.
     pub bot_verification: Option<BotVerification>,
 
     // Groups and channels.
-    /// The primary invite link, for admins.
+    /// The primary invite link. Only admins get it.
     pub invite_link: Option<String>,
+    /// Number of join requests waiting for approval.
     pub join_requests_count: Option<i32>,
-    /// `None` when not sent; a default value when no reactions are allowed.
+    /// Reactions members can use. Holds no reactions, with `all_are_enabled` `false`, when reactions are off.
     pub available_reactions: Option<ChatReactions>,
+    /// Most reactions one user can put on a message.
     pub reactions_limit: Option<i32>,
+    /// `true` if you can set a public username for the chat.
     pub can_set_username: bool,
+    /// `true` if the chat shows welcome messages to new members.
     pub has_welcome_messages: bool,
+    /// Number of administrators.
     pub admins_count: Option<i32>,
+    /// Number of users removed from the chat.
     pub kicked_count: Option<i32>,
 
     // Supergroups and channels.
@@ -51,49 +71,73 @@ pub struct ChatFullInfo {
     pub linked_chat: Option<Chat>,
     /// Who your messages are sent as by default.
     pub send_as_chat: Option<Chat>,
+    /// Seconds a member has to wait between messages. `None` if slow mode is off.
     pub slow_mode_delay: Option<i32>,
+    /// Unix time you can send again under slow mode.
     pub slowmode_next_send_date: Option<i32>,
+    /// Short name of the group's sticker set.
     pub sticker_set_name: Option<String>,
+    /// Short name of the group's custom emoji set.
     pub custom_emoji_sticker_set_name: Option<String>,
+    /// Number of banned users.
     pub banned_count: Option<i32>,
+    /// Number of boosts you applied to the chat.
     pub boosts_applied: Option<i32>,
     /// How many boosts lift the restrictions on you.
     pub unrestrict_boost_count: Option<i32>,
-    /// The basic group this supergroup was upgraded from.
+    /// Id of the basic group this supergroup was upgraded from.
     pub migrated_from_chat_id: Option<i64>,
+    /// Id of the last message in the basic group before the upgrade.
     pub migrated_from_max_message_id: Option<i32>,
+    /// `true` if you can list the members.
     pub can_view_participants: bool,
+    /// `true` if you can set the group's sticker set.
     pub can_set_sticker_set: bool,
-    /// New members see the messages sent before they joined.
+    /// `true` if new members see the messages sent before they joined.
     pub has_visible_history: bool,
+    /// `true` if you can see the chat's statistics.
     pub can_view_stats: bool,
     /// Where the group is, for location-based groups.
     pub location: Option<ChatLocation>,
+    /// `true` if you can set the group's location.
     pub can_set_location: bool,
     /// Messages up to this id were left out of the history available to you.
     pub available_min_id: Option<i32>,
     /// The data center that holds the statistics of the chat.
     pub stats_dc_id: Option<i32>,
+    /// `true` if you can delete the channel.
     pub can_delete_channel: bool,
+    /// `true` if aggressive anti-spam is on.
     pub has_aggressive_anti_spam_enabled: bool,
+    /// `true` if the member list is hidden.
     pub is_members_hidden: bool,
+    /// `true` if you view the forum as a single message list instead of topics.
     pub view_forum_as_messages: bool,
+    /// `true` if sponsored messages are turned off in the chat.
     pub is_ads_restricted: bool,
+    /// `true` if you can send paid media to the channel.
     pub can_send_paid_media: bool,
+    /// `true` if you can see the Stars revenue.
     pub can_view_stars_revenue: bool,
+    /// `true` if paid reactions are enabled.
     pub is_paid_reactions_available: bool,
+    /// `true` if gifts can be sent to the chat.
     pub can_send_gift: bool,
+    /// `true` if the chat accepts paid messages.
     pub is_paid_messages_available: bool,
 
     // Users and bots.
+    /// The user's birthday. `None` if hidden or not set.
     pub birthday: Option<Birthday>,
+    /// The channel the user shows on their profile.
     pub personal_channel: Option<Chat>,
     /// The latest post of the personal channel.
     pub personal_channel_message_id: Option<i32>,
-    /// The photo you set for this contact; only you see it.
+    /// The photo you set for this contact. Only you see it.
     pub personal_photo: Option<ChatPhoto>,
     /// The photo shown to those who may not see the main one.
     pub public_photo: Option<ChatPhoto>,
+    /// Number of groups you share with the user. Set for every user.
     pub common_chats_count: Option<i32>,
     /// The name shown on forwards when the user hides their account.
     pub private_forward_name: Option<String>,
@@ -101,32 +145,49 @@ pub struct ChatFullInfo {
     pub chat_admin_rights: Option<ChatPrivileges>,
     /// The rights a bot asks for when added to channels.
     pub channel_admin_rights: Option<ChatPrivileges>,
+    /// The business account's intro.
     pub business_intro: Option<BusinessIntro>,
+    /// The business account's location.
     pub business_location: Option<BusinessLocation>,
+    /// The business account's opening hours.
     pub business_opening_hours: Option<BusinessOpeningHours>,
+    /// The business account's automatic greeting.
     pub business_greeting_message: Option<BusinessGreetingMessage>,
+    /// The business account's automatic away reply.
     pub business_away_message: Option<BusinessAwayMessage>,
+    /// The user's Stars rating.
     pub rating: Option<UserRating>,
     /// Your rating once pending changes apply, at `pending_rating_date`.
     pub pending_rating: Option<UserRating>,
+    /// Unix time `pending_rating` applies.
     pub pending_rating_date: Option<i32>,
+    /// The kinds of gifts the user accepts.
     pub accepted_gift_types: Option<AcceptedGiftTypes>,
     /// Your private note about this contact.
     pub note: Option<FormattedText>,
+    /// `true` if you can call the user.
     pub is_phone_calls_available: bool,
+    /// `true` if the user's privacy settings keep you from calling them.
     pub is_phone_calls_private: bool,
+    /// `true` if you can video call the user.
     pub is_video_calls_available: bool,
+    /// `true` if you can pin messages in the private chat.
     pub can_pin_message: bool,
+    /// `false` if the user doesn't accept voice and video messages.
     pub can_send_voice_messages: bool,
-    /// The user can't see your stories.
+    /// `true` if the user can't see your stories.
     pub is_blocked_my_stories_from: bool,
-    /// Messaging this user needs Premium.
+    /// `true` if messaging this user needs Telegram Premium.
     pub is_contact_require_premium: bool,
+    /// `false` if the user hides when they read messages.
     pub is_read_dates_available: bool,
+    /// `true` if you turned sponsored messages back on. Only set on your own profile.
     pub is_ads_enabled: bool,
+    /// `true` if the bot may manage the user's emoji status.
     pub bot_can_manage_emoji_status: bool,
+    /// `true` if the user shows a gift button in the message input field.
     pub display_gifts_button: bool,
-    /// The user's app is not an official or verified one.
+    /// `true` if the user's app is not an official or verified one.
     pub uses_unofficial_app: bool,
 }
 

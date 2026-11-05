@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{PeerRef, ReactionType};
 
+/// Request built by [`Client::send_reaction`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendReaction<'a> {
     client: &'a Client,
@@ -13,18 +14,22 @@ pub struct SendReaction<'a> {
 }
 
 impl Client {
-    /// Sets the reactions of the current account on a message; awaiting it without any reaction removes them.
+    /// Sets the current account's reactions on a message.
+    ///
+    /// Awaiting the request without adding any reaction removes the existing ones.
     pub fn send_reaction(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> SendReaction<'_> {
         SendReaction { client: self, chat_id: chat_id.into(), message_id, reactions: Vec::new(), big: false }
     }
 }
 
 impl SendReaction<'_> {
+    /// Adds a reaction. Call it again for more.
     pub fn reaction(mut self, reaction: impl Into<ReactionType>) -> Self {
         self.reactions.push(reaction.into());
         self
     }
 
+    /// Plays the big reaction animation.
     pub fn big(mut self) -> Self {
         self.big = true;
         self

@@ -8,6 +8,7 @@ use crate::types::{
     Animation, Audio, Document, LivePhoto, Photo, Sticker, Upload, UploadedFile, Video, VideoNote, Voice,
 };
 
+/// Where a file to send comes from: a local path, an upload, a stored file id or a URL.
 #[derive(Debug, Clone)]
 pub struct FileSource<'a>(pub(crate) Source<'a>);
 
@@ -22,8 +23,11 @@ pub(crate) enum Source<'a> {
 }
 
 impl FileSource<'_> {
-    /// Only a malformed id, a web id or one that can only be downloaded fails here, as `InvalidArgument`; a stale id
-    /// or one from another bot fails when Telegram answers, as `Error::Rpc`.
+    /// Sends a file Telegram already stores, by its file id.
+    ///
+    /// A malformed id, a web id or an id that can only be downloaded, such as a thumbnail or chat photo, fails
+    /// here with [`Error::InvalidArgument`]. A stale id or one from another bot fails only when Telegram answers,
+    /// as [`Error::Rpc`].
     pub fn file_id(file_id: &str) -> Result<Self> {
         let id = FileId::decode(file_id).map_err(Error::InvalidArgument)?;
         if matches!(id.file_type, FileType::Thumbnail | FileType::ChatPhoto) {
@@ -39,9 +43,11 @@ impl FileSource<'_> {
         })
     }
 
-    /// Telegram downloads the file. Only an empty or non-HTTP(S) URL fails here, as `InvalidArgument`; a URL
-    /// Telegram can't fetch fails when it answers, as `Error::Rpc`. A URL carries no attributes (duration, title,
-    /// thumbnail), so only photos and plain documents can use one; other senders fail with `InvalidArgument`.
+    /// Sends a file that Telegram downloads from an HTTP or HTTPS URL.
+    ///
+    /// Only an empty or non-HTTP(S) URL fails here, with [`Error::InvalidArgument`]. A URL Telegram can't fetch
+    /// fails when it answers, as [`Error::Rpc`]. A URL carries no attributes such as duration, title or thumbnail,
+    /// so only photos and plain documents can use one. Other senders fail with `Error::InvalidArgument`.
     pub fn url(url: impl Into<String>) -> Result<Self> {
         let url = url.into();
         let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"));

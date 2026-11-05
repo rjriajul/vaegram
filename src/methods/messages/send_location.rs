@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::types::{Message, PeerRef};
 
+/// Request built by [`Client::send_location`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendLocation<'a> {
     client: &'a Client,
@@ -16,6 +17,9 @@ pub struct SendLocation<'a> {
 }
 
 impl Client {
+    /// Sends a point on the map.
+    ///
+    /// Awaiting the request returns the sent [`Message`].
     pub fn send_location(&self, chat_id: impl Into<PeerRef>, latitude: f64, longitude: f64) -> SendLocation<'_> {
         SendLocation {
             client: self,
@@ -30,23 +34,27 @@ impl Client {
 }
 
 impl SendLocation<'_> {
+    /// Accuracy radius of the location in meters.
     pub fn horizontal_accuracy(mut self, meters: i32) -> Self {
         self.point.accuracy_radius = Some(meters);
         self
     }
 
-    /// Seconds the location stays live; `i32::MAX` keeps it live until stopped.
+    /// Makes the location live for this many seconds, until stopped if `i32::MAX`.
+    ///
+    /// Without it a static location is sent.
     pub fn live_period(mut self, seconds: i32) -> Self {
         self.live_period = Some(seconds);
         self
     }
 
-    /// Live locations only, like `proximity_alert_radius`.
+    /// Direction of travel in degrees. Only used for live locations.
     pub fn heading(mut self, degrees: i32) -> Self {
         self.heading = Some(degrees);
         self
     }
 
+    /// Distance in meters at which Telegram alerts about nearby users. Only used for live locations.
     pub fn proximity_alert_radius(mut self, meters: i32) -> Self {
         self.proximity_alert_radius = Some(meters);
         self

@@ -5,6 +5,9 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 
 impl Client {
+    /// Counts the messages of all chats that match a text and a kind of message.
+    ///
+    /// Pass [`MessagesFilter::Empty`] to count any kind.
     pub async fn search_global_count(&self, query: impl Into<String>, filter: MessagesFilter) -> Result<i32> {
         let request = functions::messages::SearchGlobal {
             broadcasts_only: false,

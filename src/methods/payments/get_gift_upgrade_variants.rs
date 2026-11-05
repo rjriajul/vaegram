@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::GiftUpgradeVariants;
 
 impl Client {
+    /// Lists the models, backdrops and symbols an upgrade of gift `gift_id` can pick.
     pub async fn get_gift_upgrade_variants(&self, gift_id: i64) -> Result<GiftUpgradeVariants> {
         let request = functions::payments::GetStarGiftUpgradeAttributes { gift_id };
         let base::payments::StarGiftUpgradeAttributes::StarGiftUpgradeAttributes(reply) = self.invoke(&request).await?;

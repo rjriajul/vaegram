@@ -2,6 +2,9 @@ use crate::types::InputMessageContent;
 
 use super::inline_query_result::{Parts, setters};
 
+/// A location on a map.
+///
+/// When picked, sends the location unless [`input_message_content`](Self::input_message_content) is set.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineQueryResultLocation {
     parts: Parts,
@@ -14,6 +17,7 @@ pub struct InlineQueryResultLocation {
 }
 
 impl InlineQueryResultLocation {
+    /// Creates a location result titled `title`.
     pub fn new(latitude: f64, longitude: f64, title: impl Into<String>) -> Self {
         InlineQueryResultLocation {
             parts: Parts { title: Some(title.into()), ..Parts::new() },
@@ -26,21 +30,25 @@ impl InlineQueryResultLocation {
         }
     }
 
+    /// Radius of uncertainty of the location, in meters.
     pub fn horizontal_accuracy(mut self, meters: i32) -> Self {
         self.horizontal_accuracy = Some(meters);
         self
     }
 
+    /// Makes the sent location live for this many seconds.
     pub fn live_period(mut self, seconds: i32) -> Self {
         self.live_period = Some(seconds);
         self
     }
 
+    /// Direction the user is moving, in degrees.
     pub fn heading(mut self, degrees: i32) -> Self {
         self.heading = Some(degrees);
         self
     }
 
+    /// Distance in meters at which a live location triggers a proximity alert.
     pub fn proximity_alert_radius(mut self, meters: i32) -> Self {
         self.proximity_alert_radius = Some(meters);
         self

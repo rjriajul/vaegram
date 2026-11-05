@@ -4,6 +4,7 @@ use crate::methods::messages::{SendOptions, send_builder};
 use crate::raw::{base, types};
 use crate::types::{Message, PeerRef};
 
+/// Request built by [`Client::forward_story`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct ForwardStory<'a> {
     client: &'a Client,
@@ -14,6 +15,7 @@ pub struct ForwardStory<'a> {
 }
 
 impl Client {
+    /// Sends a story from `from_chat_id` to `chat_id` as a message and returns the sent [`Message`].
     pub fn forward_story(
         &self,
         chat_id: impl Into<PeerRef>,

@@ -4,6 +4,7 @@ use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
 impl Client {
+    /// Sets the chat theme by its emoji. An empty `emoji` removes the theme.
     pub async fn set_chat_theme(&self, chat_id: impl Into<PeerRef>, emoji: impl Into<String>) -> Result<()> {
         let emoticon = emoji.into();
         let theme = if emoticon.is_empty() {

@@ -4,6 +4,7 @@ use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
 impl Client {
+    /// Returns the messages scheduled to be sent in a chat. Each has `scheduled` set.
     pub async fn get_scheduled_messages(&self, chat_id: impl Into<PeerRef>) -> Result<Vec<Message>> {
         let peer = self.resolve_peer(chat_id).await?;
         let found = self.invoke(&functions::messages::GetScheduledHistory { peer, hash: 0 }).await?;

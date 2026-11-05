@@ -3,19 +3,32 @@ use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::utils::get_channel_id;
 
+/// One rule of a privacy setting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PrivacyRule {
+    /// Everyone is allowed.
     AllowAll,
+    /// Your contacts are allowed.
     AllowContacts,
+    /// Your close friends are allowed.
     AllowCloseFriends,
+    /// Premium users are allowed.
     AllowPremium,
+    /// Bots are allowed.
     AllowBots,
+    /// The listed users are allowed.
     AllowUsers(Vec<i64>),
+    /// Members of the listed chats are allowed. Chat ids are signed, as in [`Chat::id`](crate::types::Chat::id).
     AllowChatMembers(Vec<i64>),
+    /// Everyone is denied.
     DisallowAll,
+    /// Your contacts are denied.
     DisallowContacts,
+    /// Bots are denied.
     DisallowBots,
+    /// The listed users are denied.
     DisallowUsers(Vec<i64>),
+    /// Members of the listed chats are denied. Chat ids are signed, as in [`Chat::id`](crate::types::Chat::id).
     DisallowChatMembers(Vec<i64>),
 }
 

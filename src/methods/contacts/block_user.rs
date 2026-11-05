@@ -4,6 +4,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
+/// Request built by [`Client::block_user`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct BlockUser<'a> {
     client: &'a Client,
@@ -12,13 +13,14 @@ pub struct BlockUser<'a> {
 }
 
 impl Client {
+    /// Blocks a user on [`BlockList::Main`] unless [`block_list`](BlockUser::block_list) picks another.
     pub fn block_user(&self, user_id: impl Into<PeerRef>) -> BlockUser<'_> {
         BlockUser { client: self, user_id: user_id.into(), list: BlockList::Main }
     }
 }
 
 impl BlockUser<'_> {
-    /// Chooses the block list; the default is the main one.
+    /// Chooses the block list. Defaults to [`BlockList::Main`].
     pub fn block_list(mut self, list: BlockList) -> Self {
         self.list = list;
         self

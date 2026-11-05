@@ -1,13 +1,21 @@
 use crate::raw::base;
 
-/// A backdrop a chat's share theme can use; see [`Client::get_share_theme_backdrops`](crate::Client::get_share_theme_backdrops).
+/// A backdrop a chat's share theme can use.
+///
+/// Fetched with [`Client::get_share_theme_backdrops`](crate::Client::get_share_theme_backdrops).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShareThemeBackdrop {
+    /// Id to pass to [`SetShareTheme::backdrop_id`](crate::methods::SetShareTheme::backdrop_id).
     pub id: i32,
+    /// Name of the backdrop.
     pub name: String,
+    /// Color at the center of the gradient.
     pub center_color: i32,
+    /// Color at the edge of the gradient.
     pub edge_color: i32,
+    /// Color of the pattern drawn over the gradient.
     pub pattern_color: i32,
+    /// Color of the text drawn on the backdrop.
     pub text_color: i32,
 }
 

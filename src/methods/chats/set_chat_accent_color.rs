@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
+/// Request built by [`Client::set_chat_accent_color`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetChatAccentColor<'a> {
     client: &'a Client,
@@ -13,6 +14,10 @@ pub struct SetChatAccentColor<'a> {
 }
 
 impl Client {
+    /// Sets the accent color of the name and replies of your account or a channel.
+    ///
+    /// `None` resets the color.
+    /// [`background_custom_emoji_id`](SetChatAccentColor::background_custom_emoji_id) adds an emoji pattern.
     pub fn set_chat_accent_color(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -29,6 +34,7 @@ impl Client {
 }
 
 impl SetChatAccentColor<'_> {
+    /// Draws this custom emoji as a pattern behind the name.
     pub fn background_custom_emoji_id(mut self, custom_emoji_id: i64) -> Self {
         self.background_custom_emoji_id = Some(custom_emoji_id);
         self

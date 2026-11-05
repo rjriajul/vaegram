@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::{OrderInfo, PaymentForm, ShippingOption, ValidatedOrderInfo};
 
-/// Asks the provider whether the order's contact and shipping details are good, and what shipping costs.
+/// Request built by [`Client::validate_order_info`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct ValidateOrderInfo<'a> {
     client: &'a Client,
@@ -13,13 +13,17 @@ pub struct ValidateOrderInfo<'a> {
 }
 
 impl Client {
+    /// Asks the payment provider to check the contact and shipping details for `form`.
+    ///
+    /// Awaiting returns a [`ValidatedOrderInfo`] with the id for
+    /// [`SendPaymentForm::order_info_id`](crate::methods::SendPaymentForm::order_info_id) and the shipping options.
     pub fn validate_order_info(&self, form: &PaymentForm, info: OrderInfo) -> ValidateOrderInfo<'_> {
         ValidateOrderInfo { client: self, invoice: form.invoice.clone(), info, save: false }
     }
 }
 
 impl ValidateOrderInfo<'_> {
-    /// Remembers the details for the next order; [`get_saved_order_info`](Client::get_saved_order_info) reads them.
+    /// Remembers the details for the next order. [`get_saved_order_info`](Client::get_saved_order_info) reads them.
     pub fn save(mut self) -> Self {
         self.save = true;
         self

@@ -3,6 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
+/// Request built by [`Client::transfer_gift`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct TransferGift<'a> {
     client: &'a Client,
@@ -13,6 +14,10 @@ pub struct TransferGift<'a> {
 }
 
 impl Client {
+    /// Transfers an upgraded gift to another owner.
+    ///
+    /// `owned_gift_id` is the `owned_gift_id` of an owned gift, or a unique gift's slug. Set
+    /// [`TransferGift::pay_for_transfer`] when the gift has a transfer fee.
     pub fn transfer_gift(
         &self,
         owned_gift_id: impl Into<String>,
@@ -29,12 +34,13 @@ impl Client {
 }
 
 impl TransferGift<'_> {
-    /// Pays the transfer fee in Stars; needed when the gift's transfer_star_count is set.
+    /// Pays the transfer fee in Stars. Needed when the gift's `transfer_star_count` is set.
     pub fn pay_for_transfer(mut self) -> Self {
         self.pay_for_transfer = true;
         self
     }
 
+    /// Transfers the gift of the business account behind this connection.
     pub fn business_connection_id(mut self, id: impl Into<String>) -> Self {
         self.connection_id = Some(id.into());
         self
