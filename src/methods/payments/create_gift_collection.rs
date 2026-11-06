@@ -66,7 +66,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn rpc_errors_come_back_unchanged() {
         let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "COLLECTIONS_TOO_MANY")))]);
-        let result = client.create_gift_collection("me", "Best", [""; 0]).await;
+        let result = client.create_gift_collection("me", "Best", Vec::<&str>::new()).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "COLLECTIONS_TOO_MANY"), "{result:?}");
     }
 }

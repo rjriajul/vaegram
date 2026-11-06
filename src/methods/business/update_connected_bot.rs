@@ -19,7 +19,7 @@ impl Client {
             || recipients.non_contacts
             || !recipients.users.is_empty())
         {
-            return Err(Error::InvalidArgument("a connected bot needs at least one kind of recipient"));
+            return Err(Error::InvalidArgument("update_connected_bot needs at least one kind of recipient"));
         }
         let (bot, recipients) = (self.resolve_user(&bot_id.into()).await?, recipients.write_bot(self).await?);
         let rights = Some(rights.write());

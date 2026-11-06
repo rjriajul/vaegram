@@ -6,7 +6,7 @@ use crate::types::PeerRef;
 impl Client {
     /// Pins these owned gifts to the top of a profile, replacing the pinned ones.
     ///
-    /// An empty list, such as `[""; 0]`, unpins all of them.
+    /// Pass an empty list, such as `Vec::<&str>::new()`, to unpin all of them.
     pub async fn set_pinned_gifts(
         &self,
         chat_id: impl Into<PeerRef>,

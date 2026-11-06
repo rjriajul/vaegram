@@ -17,7 +17,7 @@ impl Story {
 
     /// Replaces the story's media. Awaiting it returns the edited [`Story`].
     ///
-    /// The caption and media areas stay as they were unless set on the returned [`EditStoryMedia`].
+    /// The caption, media areas and music stay as they were unless set on the returned [`EditStoryMedia`].
     pub fn edit_media<'a>(&'a self, media: InputStoryContent<'a>) -> EditStoryMedia<'a> {
         self.client().edit_story_media(self.chat.id, self.id, media)
     }
