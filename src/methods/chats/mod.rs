@@ -970,7 +970,7 @@ mod forum_topic_tests {
             is_pinned: true,
             is_hidden: true,
             creator: Some(crate::types::Chat::parse(&get_peer(USER), &Default::default(), false)),
-            is_my: false,
+            is_mine: false,
             is_short: false,
             unread_poll_vote_count: 0,
         };

@@ -148,7 +148,7 @@ struct Card {
     saved_credentials: Vec<SavedCredentials>,
     saved_order_info: Option<OrderInfo>,
     can_save_credentials: bool,
-    need_password: bool,
+    needs_password: bool,
 }
 
 impl PaymentForm {
@@ -162,7 +162,7 @@ impl PaymentForm {
             saved_credentials: Vec::new(),
             saved_order_info: None,
             can_save_credentials: false,
-            need_password: false,
+            needs_password: false,
         };
         let (id, bot, title, description, photo_url, terms) = match raw {
             base::payments::PaymentForm::PaymentForm(f) => {
@@ -193,7 +193,7 @@ impl PaymentForm {
                         .collect(),
                     saved_order_info: f.saved_info.as_ref().map(OrderInfo::parse),
                     can_save_credentials: f.can_save_credentials,
-                    need_password: f.password_missing,
+                    needs_password: f.password_missing,
                 };
                 (
                     f.form_id,
@@ -253,7 +253,7 @@ impl PaymentForm {
             saved_credentials: card.saved_credentials,
             saved_order_info: card.saved_order_info,
             can_save_credentials: card.can_save_credentials,
-            needs_password: card.need_password,
+            needs_password: card.needs_password,
             is_name_requested: terms.name_requested,
             is_phone_requested: terms.phone_requested,
             is_email_requested: terms.email_requested,

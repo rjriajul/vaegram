@@ -68,7 +68,7 @@ pub mod client;
     doc = r#"
 The connection itself is experimental and needs the `unstable-raw` feature:
 
-```compile_fail
+```compile_fail,E0603
 fn f(_: vaegram::connection::Connection) {}
 ```
 "#
@@ -100,7 +100,7 @@ pub mod raw;
     doc = r#"
 The session itself is experimental and needs the `unstable-raw` feature:
 
-```compile_fail
+```compile_fail,E0603
 fn f(_: vaegram::session::Session) {}
 ```
 "#

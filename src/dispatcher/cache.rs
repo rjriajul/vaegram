@@ -377,7 +377,7 @@ mod tests {
             is_pinned: false,
             is_hidden: false,
             creator: None,
-            is_my: false,
+            is_mine: false,
             is_short: false,
             unread_poll_vote_count: 0,
         }

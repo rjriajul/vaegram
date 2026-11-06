@@ -35,13 +35,13 @@ impl Client {
         }
     }
 
-    /// Pays a Stars (or, when `cap.ton`, Toncoin) form unless it costs more than `cap`.
+    /// Pays a Stars (or, when `cap.is_ton`, Toncoin) form unless it costs more than `cap`.
     pub(crate) async fn pay_form_up_to(&self, invoice: base::InputInvoice, cap: StarAmount) -> Result<()> {
         if cap.amount <= 0 {
             return Err(Error::InvalidArgument("star_count must be positive"));
         }
         let form = self.payment_form(invoice).await?;
-        if form.currency != if cap.ton { "TON" } else { "XTR" } {
+        if form.currency != if cap.is_ton { "TON" } else { "XTR" } {
             return Err(Error::Unexpected("the payment form is not priced in the capped currency"));
         }
         // The price can change between the caller's look and checkout.
@@ -463,7 +463,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn ton_cap_pays_a_ton_form() {
-        let ton = StarAmount::new(5).ton(true);
+        let ton = StarAmount::new(5).is_ton(true);
         let (first, mut sent) = client(vec![gift_form("TON", 5), paid()]);
         first.pay_form_up_to(slug(), ton).await.unwrap();
         let [get, pay] = payment(slug());

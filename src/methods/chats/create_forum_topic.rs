@@ -95,7 +95,7 @@ fn created_topic(update: base::Update, entities: &Entities) -> Option<ForumTopic
         is_pinned: false,
         is_hidden: false,
         creator: from_id.map(|peer| Chat::parse(&peer, entities, false)),
-        is_my: true,
+        is_mine: true,
         is_short: false,
         unread_poll_vote_count: 0,
     })
@@ -140,7 +140,7 @@ mod tests {
         let entities = Entities::default();
         let topic = created_topic(base::Update::UpdateNewChannelMessage(Box::new(update)), &entities).unwrap();
         assert_eq!((topic.id, topic.top_message_id, topic.is_name_implicit), (77, 77, true));
-        assert_eq!((topic.is_my, topic.is_short, topic.unread_poll_vote_count), (true, false, 0));
+        assert_eq!((topic.is_mine, topic.is_short, topic.unread_poll_vote_count), (true, false, 0));
         assert_eq!(topic.creator, Some(Chat::parse(&get_peer(7), &entities, false)));
 
         let other = base::Update::UpdateNewChannelMessage(Box::new(types::UpdateNewChannelMessage {

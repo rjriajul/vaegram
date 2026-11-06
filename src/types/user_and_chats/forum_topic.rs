@@ -35,7 +35,7 @@ pub struct ForumTopic {
     /// The user or channel that opened the topic.
     pub creator: Option<Chat>,
     /// Whether the account opened the topic.
-    pub is_my: bool,
+    pub is_mine: bool,
     /// Whether Telegram sent reduced info, with counters and read state unset.
     ///
     /// `get_forum_topics_by_id` returns the full topic.
@@ -63,7 +63,7 @@ impl ForumTopic {
             is_pinned: t.pinned,
             is_hidden: t.hidden,
             creator: Some(Chat::parse(&t.from_id, entities, false)),
-            is_my: t.my,
+            is_mine: t.my,
             is_short: t.short,
             unread_poll_vote_count: t.unread_poll_votes_count,
         })
@@ -124,7 +124,7 @@ mod tests {
         for peer in [get_peer(7), get_peer(get_channel_id(8))] {
             let parsed = ForumTopic::parse(topic(peer.clone()), &entities).unwrap();
             assert_eq!(parsed.creator, Some(Chat::parse(&peer, &entities, false)));
-            assert_eq!((parsed.is_my, parsed.is_short, parsed.unread_poll_vote_count), (true, true, 3));
+            assert_eq!((parsed.is_mine, parsed.is_short, parsed.unread_poll_vote_count), (true, true, 3));
         }
         let channel = ForumTopic::parse(topic(get_peer(get_channel_id(8))), &entities).unwrap();
         assert_eq!(channel.creator.map(|c| c.id), Some(get_channel_id(8)));

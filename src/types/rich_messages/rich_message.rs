@@ -109,7 +109,7 @@ mod tests {
             RichBlock::details("more", [RichBlock::divider(), RichBlock::math("x^2")]).open(),
             RichBlock::pullquote("q").credit("me"),
         ];
-        let input = InputRichMessage::blocks(built.clone()).rtl(true);
+        let input = InputRichMessage::blocks(built.clone()).is_rtl(true);
         let raw = input.write(&Client::offline()).await.unwrap();
         let (_, rich) = RichMessage::sent(raw);
         let rich = rich.expect("block content comes back as blocks");

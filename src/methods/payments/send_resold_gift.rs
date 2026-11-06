@@ -7,7 +7,7 @@ impl Client {
     /// Buys a resold unique gift and gives it to `new_owner_chat_id`.
     ///
     /// `gift` is the gift's name or its `t.me/nft/<name>` link. Nothing is paid above `price`, in Stars or, when
-    /// `price.ton` is set, in nanotons of Toncoin. Fails with `Error::InvalidArgument` if `gift` has no name, `price`
+    /// `price.is_ton` is set, in nanotons of Toncoin. Fails with `Error::InvalidArgument` if `gift` has no name, `price`
     /// is not positive or the listed price is above `price`, and with `Error::Unexpected` if the listing is in the
     /// other currency.
     pub async fn send_resold_gift(
@@ -21,7 +21,7 @@ impl Client {
             return Err(Error::InvalidArgument("the price must be positive"));
         }
         let invoice = base::InputInvoice::InputInvoiceStarGiftResale(Box::new(types::InputInvoiceStarGiftResale {
-            ton: price.ton,
+            ton: price.is_ton,
             show_name: false,
             slug: slug.into(),
             to_id: self.resolve_peer(new_owner_chat_id).await?,
@@ -139,7 +139,7 @@ mod tests {
             updates: base::Updates::UpdatesTooLong,
         }));
         let (paying, mut sent) = client(vec![star_gift_form_in("TON", 5), paid.to_bytes()]);
-        let price = StarAmount::new(5).ton(true);
+        let price = StarAmount::new(5).is_ton(true);
         paying.send_resold_gift("NekoHelmet-9215", 5, price).await.unwrap();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 5, access_hash: 6 }));
         let invoice = base::InputInvoice::InputInvoiceStarGiftResale(Box::new(types::InputInvoiceStarGiftResale {
