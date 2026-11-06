@@ -73,7 +73,7 @@ where
     }
 }
 
-/// Lets a factory that is already shared be passed on as it is.
+/// Lets a factory that is already shared be passed in.
 impl<T: ConnectionFactory + ?Sized> ConnectionFactory for Arc<T> {
     fn connect(&self, addr: SocketAddr) -> Connecting<'_> {
         (**self).connect(addr)
@@ -745,7 +745,7 @@ mod tests {
         let refuse = |_: SocketAddr| async {
             Err::<tokio::io::DuplexStream, _>(io::Error::new(io::ErrorKind::ConnectionRefused, "no route"))
         };
-        // An already shared factory is passed on as it is.
+        // An already shared factory can be passed in.
         let shared: Arc<dyn ConnectionFactory> = Arc::new(refuse);
         let result = Connection::connect(&dc, &Options::new().connection_factory(Arc::clone(&shared))).await;
         assert!(matches!(&result, Err(Error::Io(e)) if e.kind() == io::ErrorKind::ConnectionRefused));

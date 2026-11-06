@@ -52,7 +52,7 @@ impl From<&Chat> for PeerRef {
     }
 }
 
-// `Message::chat` and `Message::sender_chat` are shared, so `&message.chat` is an `&Arc<Chat>`.
+// Takes a message's shared chats: `&message.chat` is an `&Arc<Chat>`.
 impl From<&Arc<Chat>> for PeerRef {
     fn from(chat: &Arc<Chat>) -> PeerRef {
         PeerRef::Id(chat.id)
