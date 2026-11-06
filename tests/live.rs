@@ -690,7 +690,7 @@ async fn user_creates_and_manages_a_supergroup() {
     assert_eq!(group.kind, vaegram::enums::ChatType::Supergroup);
     user.set_slow_mode(group.id, Some(10)).await.unwrap();
     user.set_chat_protected_content(group.id, true).await.unwrap();
-    user.toggle_forum_topics(group.id, true, false).await.unwrap();
+    user.toggle_forum_topics(group.id, true, false, false).await.unwrap();
     assert!(!user.get_send_as_chats(group.id).await.unwrap().is_empty());
     user.delete_chat_history(group.id).revoke().await.unwrap();
     user.delete_supergroup(group.id).await.unwrap();
@@ -1018,7 +1018,7 @@ async fn user_reads_app_config_and_languages() {
 async fn user_lists_and_pins_forum_topics() {
     let Some(user) = user_client().await else { return };
     let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
-    user.toggle_forum_topics(group.id, true, false).await.unwrap();
+    user.toggle_forum_topics(group.id, true, false, false).await.unwrap();
     let first = user.create_forum_topic(group.id, "first").await.unwrap();
     let second = user.create_forum_topic(group.id, "second").await.unwrap();
 
@@ -1154,7 +1154,7 @@ async fn user_changes_supergroup_settings() {
     user.delete_user_history(group.id, "me").await.unwrap();
     assert!(user.get_messages(group.id, &[first, second]).await.unwrap().iter().all(Option::is_none));
 
-    user.toggle_forum_topics(group.id, true, false).await.unwrap();
+    user.toggle_forum_topics(group.id, true, false, false).await.unwrap();
     user.toggle_view_forum_as_messages(group.id, true).await.unwrap();
     assert!(channel_full(&user, group.id).await.view_forum_as_messages);
     user.delete_supergroup(group.id).await.unwrap();

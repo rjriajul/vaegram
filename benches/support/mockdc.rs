@@ -167,6 +167,7 @@ pub fn user(id: i64, is_self: bool) -> base::User {
         bot_can_manage_bots: false,
         bot_guestchat: false,
         bot_guard: false,
+        bot_forum_sidebar: false,
         id,
         access_hash: Some(id * 7),
         first_name: Some(if is_self { "Bench Bot" } else { "Sender" }.into()),
