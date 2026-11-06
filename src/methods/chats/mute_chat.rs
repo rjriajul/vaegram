@@ -12,8 +12,6 @@ pub struct MuteChat<'a> {
 
 impl Client {
     /// Mutes notifications from a chat, forever unless [`mute_until`](MuteChat::mute_until) is set.
-    ///
-    /// Awaiting returns the `bool` Telegram sends back.
     pub fn mute_chat(&self, chat_id: impl Into<PeerRef>) -> MuteChat<'_> {
         MuteChat { client: self, chat_id: chat_id.into(), until: i32::MAX }
     }
@@ -26,12 +24,12 @@ impl MuteChat<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         self.client.update_chat_notifications(self.chat_id).mute_until(self.until).await
     }
 }
 
-into_future!(MuteChat, bool);
+into_future!(MuteChat, ());
 
 #[cfg(test)]
 mod tests {

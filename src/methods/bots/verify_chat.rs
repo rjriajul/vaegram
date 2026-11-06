@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
-/// Request built by [`Client::verify_chat`]. Awaiting it returns whether Telegram accepted the verification.
+/// Request built by [`Client::verify_chat`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct VerifyChat<'a> {
     client: &'a Client,
@@ -22,7 +22,7 @@ impl Client {
         chat_id: PeerRef,
         enabled: bool,
         custom_description: Option<String>,
-    ) -> Result<bool> {
+    ) -> Result<()> {
         let custom_description = custom_description.map(|text| {
             base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities: Vec::new() }))
         });
@@ -32,7 +32,8 @@ impl Client {
             peer: self.resolve_peer(chat_id).await?,
             custom_description,
         };
-        self.invoke(&request).await
+        self.invoke(&request).await?;
+        Ok(())
     }
 }
 
@@ -43,9 +44,9 @@ impl VerifyChat<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         self.client.set_custom_verification(self.chat_id, true, self.custom_description).await
     }
 }
 
-into_future!(VerifyChat, bool);
+into_future!(VerifyChat, ());

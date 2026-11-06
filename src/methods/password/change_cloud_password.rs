@@ -34,14 +34,15 @@ impl ChangeCloudPassword<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let base::account::Password::Password(p) = self.client.invoke(&functions::account::GetPassword {}).await?;
         let request = functions::account::UpdatePasswordSettings {
             password: compute_password_check(&p, &self.current)?,
             new_settings: new_settings(&p, &self.new, self.hint, None, &random())?,
         };
-        self.client.invoke(&request).await
+        self.client.invoke(&request).await?;
+        Ok(())
     }
 }
 
-into_future!(ChangeCloudPassword, bool);
+into_future!(ChangeCloudPassword, ());

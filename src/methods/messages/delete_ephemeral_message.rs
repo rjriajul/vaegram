@@ -10,12 +10,13 @@ impl Client {
         chat_id: impl Into<PeerRef>,
         receiver_user_id: impl Into<PeerRef>,
         ephemeral_message_id: i32,
-    ) -> Result<bool> {
+    ) -> Result<()> {
         let request = functions::ephemeral::DeleteMessage {
             peer: Some(self.resolve(&chat_id.into()).await?.1),
             receiver_id: self.resolve_user(&receiver_user_id.into()).await?,
             id: ephemeral_message_id,
         };
-        self.invoke(&request).await
+        self.invoke(&request).await?;
+        Ok(())
     }
 }

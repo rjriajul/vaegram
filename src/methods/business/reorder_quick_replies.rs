@@ -6,11 +6,12 @@ impl Client {
     /// Sets the order of the quick reply shortcuts to `shortcut_ids`.
     ///
     /// Fails with `Error::InvalidArgument` if `shortcut_ids` is empty.
-    pub async fn reorder_quick_replies(&self, shortcut_ids: impl IntoIterator<Item = i32>) -> Result<bool> {
+    pub async fn reorder_quick_replies(&self, shortcut_ids: impl IntoIterator<Item = i32>) -> Result<()> {
         let order: Vec<i32> = shortcut_ids.into_iter().collect();
         if order.is_empty() {
             return Err(Error::InvalidArgument("reorder_quick_replies takes at least one shortcut id"));
         }
-        self.invoke(&functions::messages::ReorderQuickReplies { order }).await
+        self.invoke(&functions::messages::ReorderQuickReplies { order }).await?;
+        Ok(())
     }
 }

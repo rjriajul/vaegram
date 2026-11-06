@@ -67,7 +67,6 @@ impl Client {
     /// Streams a partial message to the user while it is being generated.
     ///
     /// Sending again with the same `draft_id` updates the draft. Empty text is allowed.
-    /// Awaiting the request returns the `bool` that `messages.setTyping` answers with.
     pub fn send_message_draft(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -85,7 +84,7 @@ impl Client {
 }
 
 impl SendMessageDraft<'_> {
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let client = self.client;
         let options = self.options;
         let peer = client.resolve_peer(self.chat_id).await?;
@@ -105,12 +104,13 @@ impl SendMessageDraft<'_> {
             }
         };
         let request = functions::messages::SetTyping { peer, top_msg_id: options.message_thread_id, action };
-        client.invoke(&request).await
+        client.invoke(&request).await?;
+        Ok(())
     }
 }
 
 draft_setters!(SendMessageDraft);
-into_future!(SendMessageDraft, bool);
+into_future!(SendMessageDraft, ());
 
 #[cfg(test)]
 mod tests {

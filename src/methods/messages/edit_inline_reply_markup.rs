@@ -4,7 +4,7 @@ use crate::raw::functions;
 use crate::types::{InlineKeyboardMarkup, InlineMessageId};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::edit_inline_reply_markup`]. Awaiting it returns Telegram's `bool` answer.
+/// Request built by [`Client::edit_inline_reply_markup`].
 pub struct EditInlineReplyMarkup<'a> {
     client: &'a Client,
     inline_message_id: InlineMessageId,
@@ -30,7 +30,7 @@ impl EditInlineReplyMarkup<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let dc_id = self.inline_message_id.dc_id();
         let request = functions::messages::EditInlineBotMessage {
             no_webpage: false,
@@ -42,8 +42,9 @@ impl EditInlineReplyMarkup<'_> {
             entities: None,
             rich_message: None,
         };
-        self.client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await
+        self.client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await?;
+        Ok(())
     }
 }
 
-into_future!(EditInlineReplyMarkup, bool);
+into_future!(EditInlineReplyMarkup, ());

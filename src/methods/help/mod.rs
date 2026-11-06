@@ -73,7 +73,7 @@ mod tests {
         let promo = client.get_promo_data().await.unwrap().unwrap();
         let chat = promo.chat.unwrap();
         assert_eq!((chat.id, promo.proxy), (-1_000_000_000_005, true));
-        assert!(client.hide_promo_data(&chat).await.unwrap());
+        client.hide_promo_data(&chat).await.unwrap();
 
         assert_eq!(sent.recv().await.unwrap(), functions::help::GetPromoData {}.to_bytes());
         let peer = types::InputPeerChannel { channel_id: 5, access_hash: 9 };

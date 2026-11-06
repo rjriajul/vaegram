@@ -12,13 +12,14 @@ impl Client {
         bot_id: impl Into<PeerRef>,
         lang_code: &str,
         previews: &[BotPreviewMedia],
-    ) -> Result<bool> {
+    ) -> Result<()> {
         if previews.is_empty() {
             return Err(Error::InvalidArgument("delete_bot_preview_media takes at least one preview"));
         }
         let media = previews.iter().map(BotPreviewMedia::input).collect::<Result<_>>()?;
         let bot = self.resolve_user(&bot_id.into()).await?;
-        self.invoke(&functions::bots::DeletePreviewMedia { bot, lang_code: lang_code.into(), media }).await
+        self.invoke(&functions::bots::DeletePreviewMedia { bot, lang_code: lang_code.into(), media }).await?;
+        Ok(())
     }
 }
 

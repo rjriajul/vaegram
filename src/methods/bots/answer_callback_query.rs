@@ -2,7 +2,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::functions;
 
-/// Request built by [`Client::answer_callback_query`]. Awaiting it returns whether Telegram accepted the answer.
+/// Request built by [`Client::answer_callback_query`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct AnswerCallbackQuery<'a> {
     client: &'a Client,
@@ -15,8 +15,6 @@ pub struct AnswerCallbackQuery<'a> {
 
 impl Client {
     /// Answers a callback query from an inline keyboard button.
-    ///
-    /// Awaiting the request returns whether Telegram accepted the answer.
     ///
     /// ```no_run
     /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
@@ -54,7 +52,7 @@ impl AnswerCallbackQuery<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let request = functions::messages::SetBotCallbackAnswer {
             alert: self.alert,
             query_id: self.query_id,
@@ -62,8 +60,9 @@ impl AnswerCallbackQuery<'_> {
             url: self.url,
             cache_time: self.cache_time,
         };
-        self.client.invoke(&request).await
+        self.client.invoke(&request).await?;
+        Ok(())
     }
 }
 
-into_future!(AnswerCallbackQuery, bool);
+into_future!(AnswerCallbackQuery, ());

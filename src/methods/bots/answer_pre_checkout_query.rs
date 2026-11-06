@@ -2,7 +2,7 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::functions;
 
-/// Request built by [`Client::answer_pre_checkout_query`]. Awaiting it returns whether Telegram accepted the answer.
+/// Request built by [`Client::answer_pre_checkout_query`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct AnswerPreCheckoutQuery<'a> {
     client: &'a Client,
@@ -24,14 +24,15 @@ impl AnswerPreCheckoutQuery<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let request = functions::messages::SetBotPrecheckoutResults {
             success: self.error.is_none(),
             query_id: self.query_id,
             error: self.error,
         };
-        self.client.invoke(&request).await
+        self.client.invoke(&request).await?;
+        Ok(())
     }
 }
 
-into_future!(AnswerPreCheckoutQuery, bool);
+into_future!(AnswerPreCheckoutQuery, ());

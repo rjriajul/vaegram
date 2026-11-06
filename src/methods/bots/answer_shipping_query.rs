@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::ShippingOption;
 
-/// Request built by [`Client::answer_shipping_query`]. Awaiting it returns whether Telegram accepted the answer.
+/// Request built by [`Client::answer_shipping_query`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct AnswerShippingQuery<'a> {
     client: &'a Client,
@@ -35,14 +35,15 @@ impl AnswerShippingQuery<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let request = functions::messages::SetBotShippingResults {
             query_id: self.query_id,
             error: self.error,
             shipping_options: self.shipping_options.map(|o| o.into_iter().map(ShippingOption::write).collect()),
         };
-        self.client.invoke(&request).await
+        self.client.invoke(&request).await?;
+        Ok(())
     }
 }
 
-into_future!(AnswerShippingQuery, bool);
+into_future!(AnswerShippingQuery, ());

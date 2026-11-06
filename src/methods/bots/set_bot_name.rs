@@ -4,7 +4,7 @@ use crate::raw::functions;
 
 impl Client {
     /// Sets the bot's name for a language. An empty `language_code` sets the default.
-    pub async fn set_bot_name(&self, name: &str, language_code: &str) -> Result<bool> {
+    pub async fn set_bot_name(&self, name: &str, language_code: &str) -> Result<()> {
         let request = functions::bots::SetBotInfo {
             bot: None,
             lang_code: language_code.into(),
@@ -12,6 +12,7 @@ impl Client {
             about: None,
             description: None,
         };
-        self.invoke(&request).await
+        self.invoke(&request).await?;
+        Ok(())
     }
 }

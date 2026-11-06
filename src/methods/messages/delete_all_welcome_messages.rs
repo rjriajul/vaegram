@@ -5,9 +5,10 @@ use crate::types::PeerRef;
 
 impl Client {
     /// Deletes every welcome message of the chat.
-    pub async fn delete_all_welcome_messages(&self, chat_id: impl Into<PeerRef>) -> Result<bool> {
+    pub async fn delete_all_welcome_messages(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
         let request = functions::ephemeral::DeleteAllWelcomeMessages { peer: self.resolve_peer(chat_id).await? };
-        self.invoke(&request).await
+        self.invoke(&request).await?;
+        Ok(())
     }
 }
 
@@ -19,9 +20,9 @@ mod tests {
     use crate::raw::{Serializable, base, types};
 
     #[tokio::test]
-    async fn returns_telegrams_answer() {
+    async fn sends_the_chat() {
         let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes())]);
-        assert!(client.delete_all_welcome_messages(-5_i64).await.unwrap());
+        client.delete_all_welcome_messages(-5_i64).await.unwrap();
         let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
         assert_eq!(rx.try_recv().unwrap(), DeleteAllWelcomeMessages { peer }.to_bytes());
     }

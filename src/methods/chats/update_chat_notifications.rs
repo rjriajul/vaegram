@@ -14,7 +14,7 @@ pub struct UpdateChatNotifications<'a> {
 impl Client {
     /// Changes the notification settings of a chat.
     ///
-    /// Only the settings set on the builder change. Awaiting returns the `bool` Telegram sends back.
+    /// Only the settings set on the builder change.
     pub fn update_chat_notifications(&self, chat_id: impl Into<PeerRef>) -> UpdateChatNotifications<'_> {
         let settings = types::InputPeerNotifySettings {
             show_previews: None,
@@ -60,13 +60,14 @@ impl UpdateChatNotifications<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let peer = base::InputNotifyPeer::InputNotifyPeer(Box::new(types::InputNotifyPeer {
             peer: self.client.resolve_peer(self.chat_id).await?,
         }));
         let settings = base::InputPeerNotifySettings::InputPeerNotifySettings(Box::new(self.settings));
-        self.client.invoke(&functions::account::UpdateNotifySettings { peer, settings }).await
+        self.client.invoke(&functions::account::UpdateNotifySettings { peer, settings }).await?;
+        Ok(())
     }
 }
 
-into_future!(UpdateChatNotifications, bool);
+into_future!(UpdateChatNotifications, ());

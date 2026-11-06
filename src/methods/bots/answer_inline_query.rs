@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::{InlineQueryResult, InlineQueryResultsButton};
 
-/// Request built by [`Client::answer_inline_query`]. Awaiting it returns whether Telegram accepted the results.
+/// Request built by [`Client::answer_inline_query`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct AnswerInlineQuery<'a> {
     client: &'a Client,
@@ -70,7 +70,7 @@ impl AnswerInlineQuery<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let mut results = Vec::with_capacity(self.results.len());
         for r in self.results {
             results.push(r.write(self.client).await?);
@@ -96,8 +96,9 @@ impl AnswerInlineQuery<'_> {
             switch_pm,
             switch_webview,
         };
-        self.client.invoke(&request).await
+        self.client.invoke(&request).await?;
+        Ok(())
     }
 }
 
-into_future!(AnswerInlineQuery, bool);
+into_future!(AnswerInlineQuery, ());

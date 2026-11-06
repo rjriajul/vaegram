@@ -112,8 +112,8 @@ impl EphemeralMessage {
         self.client.edit_ephemeral_message_text(self.chat.id, self.receiver_user.id, self.id, text)
     }
 
-    /// Deletes the message for its receiver. Returns the `bool` Telegram answers with.
-    pub async fn delete(&self) -> Result<bool> {
+    /// Deletes the message for its receiver.
+    pub async fn delete(&self) -> Result<()> {
         self.client.delete_ephemeral_message(self.chat.id, self.receiver_user.id, self.id).await
     }
 

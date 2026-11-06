@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
-/// Request built by [`Client::toggle_bot_in_attach_menu`]. Awaiting it returns whether Telegram accepted the change.
+/// Request built by [`Client::toggle_bot_in_attach_menu`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct ToggleBotInAttachMenu<'a> {
     client: &'a Client,
@@ -26,14 +26,15 @@ impl ToggleBotInAttachMenu<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let request = functions::messages::ToggleBotInAttachMenu {
             write_allowed: self.write_allowed,
             bot: self.client.resolve_user(&self.bot_id).await?,
             enabled: self.enabled,
         };
-        self.client.invoke(&request).await
+        self.client.invoke(&request).await?;
+        Ok(())
     }
 }
 
-into_future!(ToggleBotInAttachMenu, bool);
+into_future!(ToggleBotInAttachMenu, ());

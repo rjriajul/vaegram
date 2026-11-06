@@ -36,7 +36,7 @@ impl EnableCloudPassword<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let base::account::Password::Password(p) = self.client.invoke(&functions::account::GetPassword {}).await?;
         if p.has_password {
             return Err(Error::InvalidArgument("this account already has a password"));
@@ -45,11 +45,12 @@ impl EnableCloudPassword<'_> {
             password: base::InputCheckPasswordSRP::InputCheckPasswordEmpty,
             new_settings: new_settings(&p, &self.password, self.hint, self.email, &random())?,
         };
-        self.client.invoke(&request).await
+        self.client.invoke(&request).await?;
+        Ok(())
     }
 }
 
-into_future!(EnableCloudPassword, bool);
+into_future!(EnableCloudPassword, ());
 
 type Algo = types::PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow;
 
