@@ -36,7 +36,7 @@ impl DeleteBotPreviewMedia<'_> {
 
     async fn send(self) -> Result<()> {
         if self.previews.is_empty() {
-            return Err(Error::InvalidArgument("delete_bot_preview_media takes at least one preview"));
+            return Err(Error::InvalidArgument("delete_bot_preview_media needs at least one preview"));
         }
         let media = self.previews.iter().map(BotPreviewMedia::input).collect::<Result<_>>()?;
         let bot = self.client.resolve_user(&self.bot_id).await?;

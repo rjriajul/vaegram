@@ -11,7 +11,7 @@ impl Client {
     /// position fails with `Error::InvalidArgument`.
     pub async fn vote_poll(&self, chat_id: impl Into<PeerRef>, message_id: i32, options: &[usize]) -> Result<()> {
         if options.is_empty() {
-            return Err(Error::InvalidArgument("a vote takes at least one option; retract_vote takes a vote back"));
+            return Err(Error::InvalidArgument("vote_poll needs at least one option; retract_vote takes a vote back"));
         }
         let chat_id = self.peer_id(chat_id.into()).await?;
         let options = self.poll_option_ids(chat_id, message_id, options).await?;

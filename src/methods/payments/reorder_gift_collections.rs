@@ -9,7 +9,7 @@ impl Client {
     /// Fails with `Error::InvalidArgument` if `collection_ids` is empty.
     pub async fn reorder_gift_collections(&self, owner_id: impl Into<PeerRef>, collection_ids: &[i32]) -> Result<()> {
         if collection_ids.is_empty() {
-            return Err(Error::InvalidArgument("collection_ids is empty"));
+            return Err(Error::InvalidArgument("reorder_gift_collections needs at least one collection id"));
         }
         let peer = self.resolve_peer(owner_id).await?;
         let request = functions::payments::ReorderStarGiftCollections { peer, order: collection_ids.to_vec() };

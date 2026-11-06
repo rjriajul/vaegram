@@ -17,3 +17,5 @@ mod sign_in_bot;
 mod sign_in_qrcode;
 mod sign_up;
 mod verify_phone_number;
+
+pub use send_phone_number_code::SendPhoneNumberCode;

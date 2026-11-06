@@ -6,8 +6,12 @@ use crate::types::PeerRef;
 impl Client {
     /// Pins these owned gifts to the top of a profile, replacing the pinned ones.
     ///
-    /// An empty list unpins all of them.
-    pub async fn set_pinned_gifts(&self, chat_id: impl Into<PeerRef>, owned_gift_ids: &[&str]) -> Result<()> {
+    /// Pass an empty list, such as `Vec::<&str>::new()`, to unpin all of them.
+    pub async fn set_pinned_gifts(
+        &self,
+        chat_id: impl Into<PeerRef>,
+        owned_gift_ids: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<()> {
         let stargift = self.input_saved_gifts(owned_gift_ids).await?;
         let peer = self.resolve_peer(chat_id).await?;
         self.invoke(&functions::payments::ToggleStarGiftsPinnedToTop { peer, stargift }).await?;

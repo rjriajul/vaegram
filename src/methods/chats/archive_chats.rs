@@ -13,7 +13,7 @@ impl Client {
 
     pub(crate) async fn move_to_folder(&self, chat_ids: Vec<PeerRef>, folder_id: i32) -> Result<()> {
         if chat_ids.is_empty() {
-            return Err(Error::InvalidArgument("archiving and unarchiving take at least one chat"));
+            return Err(Error::InvalidArgument("archiving or unarchiving needs at least one chat"));
         }
         let mut folder_peers = Vec::with_capacity(chat_ids.len());
         for chat_id in chat_ids {

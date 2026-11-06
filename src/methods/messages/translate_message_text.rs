@@ -15,7 +15,7 @@ impl Client {
         to_language_code: impl Into<String>,
     ) -> Result<Vec<TranslatedText>> {
         if message_ids.is_empty() {
-            return Err(Error::InvalidArgument("translate_message_text takes at least one message id"));
+            return Err(Error::InvalidArgument("translate_message_text needs at least one message id"));
         }
         let request = functions::messages::TranslateText {
             peer: Some(self.resolve_peer(chat_id).await?),

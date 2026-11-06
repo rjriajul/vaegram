@@ -36,7 +36,7 @@ impl CreateTheme<'_> {
     async fn send(self) -> Result<Theme> {
         // No theme file is ever sent, so the settings are the whole theme.
         if self.settings.is_empty() {
-            return Err(Error::InvalidArgument("a theme needs at least one ThemeSettings"));
+            return Err(Error::InvalidArgument("create_theme needs at least one ThemeSettings"));
         }
         let request = functions::account::CreateTheme {
             slug: self.slug,

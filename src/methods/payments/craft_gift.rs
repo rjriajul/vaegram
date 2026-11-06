@@ -5,11 +5,14 @@ use crate::types::{CraftGiftResult, Message, ServiceAction};
 
 impl Client {
     /// Crafts an upgraded gift from these owned gifts, which are used up whether or not it works.
-    pub async fn craft_gift(&self, owned_gift_ids: &[&str]) -> Result<CraftGiftResult> {
-        if owned_gift_ids.is_empty() {
-            return Err(Error::InvalidArgument("owned_gift_ids is empty"));
-        }
+    pub async fn craft_gift(
+        &self,
+        owned_gift_ids: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<CraftGiftResult> {
         let stargift = self.input_saved_gifts(owned_gift_ids).await?;
+        if stargift.is_empty() {
+            return Err(Error::InvalidArgument("craft_gift needs at least one owned gift id"));
+        }
         let updates = self.invoke(&functions::payments::CraftStarGift { stargift }).await?;
         if craft_failed(&updates) {
             return Ok(CraftGiftResult::Failed);
@@ -152,7 +155,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn no_gifts_is_refused_without_a_request() {
         let (client, mut sent) = Client::scripted(Vec::new());
-        assert!(matches!(client.craft_gift(&[]).await, Err(Error::InvalidArgument(_))));
+        assert!(matches!(client.craft_gift(Vec::<String>::new()).await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
     }
 }
