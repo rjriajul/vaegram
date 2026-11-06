@@ -90,8 +90,9 @@ pub enum Error {
     Rpc(RpcError),
     /// A network or file error: the connection failed, a socket timed out, a file couldn't be read or written.
     Io(std::io::Error),
-    /// The server refused the connection with this transport error code, made positive: 404 means it doesn't know
-    /// the auth key, so the stored login no longer works.
+    /// The server refused the connection with this transport error code, made positive. 404 usually means the data
+    /// center doesn't know the auth key; on the main connection that's the stored login. It's also sent for a
+    /// malformed packet. See <https://core.telegram.org/mtproto/mtproto-transports#transport-errors>.
     Transport(i32),
     /// Telegram's answer couldn't be read as the TL type expected.
     Deserialize(raw::Error),
@@ -101,15 +102,16 @@ pub enum Error {
     /// sequence codes (16, 17, 32, 33) are fixed and resent instead, so they never get here. See
     /// <https://core.telegram.org/mtproto/service_messages_about_messages>.
     BadMessage(i32),
-    /// The connection was closed for good, by the client or because every handle to it was dropped, so the
-    /// request has no answer.
+    /// The connection the call needed was closed before an answer came: by `disconnect` or `stop_transmission`,
+    /// because its session ended or every handle to it was dropped, or `run` stopped while a `recover_gaps` waited.
     Disconnected,
-    /// The request got no answer within its timeout; it was abandoned.
+    /// The request got no answer within its timeout and was abandoned. `DnsConfig::fetch` (`dns-config` feature)
+    /// also returns it when a DNS resolver doesn't answer in time.
     Timeout,
     /// No address is known for this data center id.
     InvalidDc(i32),
-    /// The chat or user with this id (Bot API style) isn't known to this account: it's neither in storage nor
-    /// found by asking Telegram, typically because the account has never seen it.
+    /// The chat or user with this id (Bot API style) can't be used: it's neither in storage nor found by asking
+    /// Telegram, or the call needs a user and the id names a group or channel.
     PeerNotFound(i64),
     /// An invite link to a private chat this account hasn't joined; join it first.
     ChatNotJoined,

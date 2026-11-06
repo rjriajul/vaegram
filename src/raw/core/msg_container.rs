@@ -5,9 +5,9 @@ pub const ID: u32 = 0x73f1f8dc;
 
 /// One message in a container, its body borrowed from the container.
 pub struct Message<'a> {
-    /// The message's id.
+    /// The inner message's own msg_id, the one acks and `rpc_result` refer to.
     pub msg_id: i64,
-    /// The message's sequence number.
+    /// The inner message's seq_no: odd for a content-related message, which needs an ack, even otherwise.
     pub seq_no: i32,
     /// The message's TL bytes.
     pub body: &'a [u8],

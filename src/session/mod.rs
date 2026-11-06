@@ -396,7 +396,8 @@ impl Session {
         Known { key: self.auth_key, salt: self.salt(), made: self.key_made }
     }
 
-    /// The data center this session is connected to.
+    /// The data center this session is connected to. It never changes: moving to another data center takes a new
+    /// session.
     pub fn dc_id(&self) -> i32 {
         self.dc_id
     }

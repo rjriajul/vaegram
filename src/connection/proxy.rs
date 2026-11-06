@@ -18,7 +18,7 @@ use crate::utils::{base64_decode, base64_encode};
 pub enum Proxy {
     /// SOCKS5 (RFC 1928). The data center is asked for by IP address, so the proxy resolves no names.
     Socks5 {
-        /// The proxy's host name or IP address.
+        /// The proxy's host name or IP address; a name is resolved by the system when connecting.
         host: String,
         /// The proxy's port.
         port: u16,
@@ -27,7 +27,7 @@ pub enum Proxy {
     },
     /// IPv4 data centers only.
     Socks4 {
-        /// The proxy's host name or IP address.
+        /// The proxy's host name or IP address; a name is resolved by the system when connecting.
         host: String,
         /// The proxy's port.
         port: u16,
@@ -35,7 +35,7 @@ pub enum Proxy {
     /// HTTP CONNECT. The proxy is spoken to in plain HTTP, not HTTPS, so `auth` (Basic, the only kind) crosses
     /// the network readable.
     Http {
-        /// The proxy's host name or IP address.
+        /// The proxy's host name or IP address; a name is resolved by the system when connecting.
         host: String,
         /// The proxy's port.
         port: u16,
@@ -45,7 +45,7 @@ pub enum Proxy {
     /// Telegram's own MTProxy. It reads the data center from the obfuscation header, so the connection is always
     /// obfuscated and the full transport can't be used.
     MtProxy {
-        /// The proxy's host name or IP address.
+        /// The proxy's host name or IP address; a name is resolved by the system when connecting.
         host: String,
         /// The proxy's port.
         port: u16,

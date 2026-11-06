@@ -56,11 +56,12 @@ pub struct DnsConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AccessPointRule {
-    /// The phone number prefixes this rule is for, as Telegram writes them; empty for every number.
+    /// Which phone numbers the rule is for: comma-separated `+prefix` rules that include numbers starting with
+    /// the prefix and `-prefix` rules that exclude them; empty for every number.
     pub phone_prefix_rules: String,
     /// The data center these addresses belong to.
     pub dc_id: i32,
-    /// The data center's addresses.
+    /// The data center's addresses; one with a [`secret`](IpPort::secret) takes only obfuscation keyed with it.
     pub ips: Vec<IpPort>,
 }
 

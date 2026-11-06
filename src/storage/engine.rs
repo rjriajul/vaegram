@@ -201,7 +201,7 @@ pub struct StoredState {
 }
 
 impl StoredState {
-    /// A state from its parts.
+    /// The state of account `owner` (0 before login): its salt and, once known, where updates resume.
     pub fn new(owner: i64, salt: Salt, update: Option<UpdateState>) -> StoredState {
         StoredState { owner, salt, update }
     }

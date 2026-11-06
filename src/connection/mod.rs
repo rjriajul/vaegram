@@ -288,7 +288,8 @@ impl Default for Device {
 }
 
 /// One transport connection to a data center, framed and obfuscated as its [`Options`] say. It carries MTProto
-/// packets without encrypting them: that's the [`Session`](crate::session::Session) above it, which opens its own.
+/// packets without MTProto encryption, which the [`Session`](crate::session::Session) above it adds; each session
+/// opens its own connections rather than taking one.
 pub struct Connection {
     reader: Reader,
     writer: Writer,
@@ -296,8 +297,9 @@ pub struct Connection {
 
 impl Connection {
     /// Opens the stream, through the proxy or connection factory when set, and sends the transport's opening
-    /// bytes. Fails with `Error::InvalidArgument` for the full transport with obfuscation or an MTProxy, and with an
-    /// I/O `TimedOut` error after 10 seconds (90 through a web proxy).
+    /// bytes. Fails with `Error::InvalidArgument` for the full transport with obfuscation or an MTProxy, or for
+    /// WebSocket with an MTProxy or the full transport, and with an I/O `TimedOut` error after 10 seconds (90
+    /// through a web proxy).
     pub async fn connect(dc: &Dc, options: &Options) -> Result<Self> {
         let addr = dc.addr;
         let via = if options.proxy.is_some() { " through the proxy" } else { "" };

@@ -822,7 +822,8 @@ impl Drop for Inner {
 }
 
 impl Client {
-    /// Starts a client named `name`, whose session file is `<name>.session` unless another storage is chosen.
+    /// Begins building a client named `name`, whose session file is `<name>.session` unless another storage is
+    /// chosen; nothing connects until `start` or `connect`.
     /// `api_id` and `api_hash` come from <https://my.telegram.org>.
     pub fn builder(name: impl Into<String>, api_id: i32, api_hash: impl Into<String>) -> ClientBuilder {
         ClientBuilder {
