@@ -10,7 +10,7 @@ use crate::utils::get_channel_id;
 /// `&str` input is trimmed and read as follows: a number is an [`Id`](PeerRef::Id), `me` or `self` is
 /// [`Me`](PeerRef::Me), a `t.me` link or `tg:` link is resolved to a username, invite hash or channel id,
 /// and anything else is a username, with a leading `@` dropped and a leading `+` read as an invite hash.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum PeerRef {
     /// A numeric id. Users are positive, basic groups negative, channels `-100` followed by the channel id.

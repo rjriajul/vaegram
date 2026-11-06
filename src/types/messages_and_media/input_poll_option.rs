@@ -1,6 +1,7 @@
 use crate::types::{InputPollMedia, Text};
 
 /// An answer option of a poll to send. A plain `&str`, `String` or [`Text`] converts into one without media.
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct InputPollOption<'a> {
     /// The option's text. Telegram currently accepts only custom emoji entities here; a plain string is parsed with
@@ -17,6 +18,7 @@ impl<'a> InputPollOption<'a> {
     }
 
     /// Attaches media to the option.
+    #[must_use]
     pub fn media(mut self, media: impl Into<InputPollMedia<'a>>) -> Self {
         self.media = Some(media.into());
         self

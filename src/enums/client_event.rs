@@ -1,10 +1,14 @@
+use std::sync::Arc;
+
 use super::SkipReason;
 use crate::errors::Error;
 use crate::handlers::HandlerError;
 
 /// Something the client noticed that no request returns: reconnects, dropped packets, updates it couldn't parse
 /// or deliver, failed handlers and storage calls. Receive them with [`Client::on_event`](crate::Client::on_event).
-#[derive(Debug)]
+///
+/// Errors are behind an [`Arc`], so an event clones cheaply, for example to send it to several channels.
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum ClientEvent {
     /// A connection to `dc` came back after `attempt` tries. When it's the main connection, updates missed
@@ -42,20 +46,20 @@ pub enum ClientEvent {
     #[non_exhaustive]
     HandlerFailed {
         /// The error, with the route it came from and the chat of the update.
-        error: HandlerError,
+        error: Arc<HandlerError>,
     },
     /// Fetching missed updates (`updates.getDifference` or `updates.getChannelDifference`) failed. Updates it gave
     /// up on, if any, follow as [`UpdatesSkipped`](Self::UpdatesSkipped).
     #[non_exhaustive]
     DifferenceFailed {
         /// The error the fetch returned.
-        error: Error,
+        error: Arc<Error>,
     },
     /// Writing to the file given to `ClientBuilder::record` failed; the message is missing from the recording.
     #[non_exhaustive]
     RecordingFailed {
         /// The I/O error from the recording file.
-        error: std::io::Error,
+        error: Arc<std::io::Error>,
     },
     /// A call to the storage engine failed and `error` says which. The client carries on: a lookup falls back to
     /// asking Telegram, and a save that failed is tried again with the next one. This can fire on the engine's own
@@ -63,7 +67,7 @@ pub enum ClientEvent {
     #[non_exhaustive]
     StorageFailed {
         /// The engine's error; its message names the call that failed.
-        error: std::io::Error,
+        error: Arc<std::io::Error>,
     },
     /// The handlers fell behind and `count` batches of updates didn't fit in the queue. Updates that move pts or
     /// qts are fetched again; `unrecoverable` of the batches also held others (callback queries, typing, ...) that

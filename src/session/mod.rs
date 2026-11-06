@@ -1040,7 +1040,7 @@ impl Runner {
 
     fn handle_message(&mut self, msg_id: i64, seq_no: i32, body: &[u8]) {
         if let Some(Err(error)) = self.options.record.as_ref().map(|r| r.record(false, msg_id, body)) {
-            self.events.emit(ClientEvent::RecordingFailed { error });
+            self.events.emit(ClientEvent::RecordingFailed { error: Arc::new(error) });
         }
         if seq_no % 2 == 1 {
             self.acks.push(msg_id);

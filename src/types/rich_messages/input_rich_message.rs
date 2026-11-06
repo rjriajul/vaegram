@@ -75,6 +75,7 @@ impl InputRichMessage {
     }
 
     /// Sets whether the message is laid out right to left; `true` lays it out right to left.
+    #[must_use]
     pub fn is_rtl(mut self, is_rtl: bool) -> Self {
         match &mut self {
             InputRichMessage::Html { is_rtl: field, .. }
@@ -85,6 +86,7 @@ impl InputRichMessage {
     }
 
     /// Sets whether automatic linking is off in the message; `true` turns it off.
+    #[must_use]
     pub fn no_autolink(mut self, no_autolink: bool) -> Self {
         match &mut self {
             InputRichMessage::Html { no_autolink: field, .. }
@@ -98,6 +100,7 @@ impl InputRichMessage {
     ///
     /// HTML and Markdown content refer to the file by the string id given to the media. Blocks reference files by
     /// numeric id, so the string id is dropped for them.
+    #[must_use]
     pub fn media(mut self, media: InputRichMessageMedia) -> Self {
         match &mut self {
             InputRichMessage::Html { media: list, .. }

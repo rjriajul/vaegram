@@ -2,7 +2,7 @@ use crate::raw::types;
 use crate::types::{Document, FileLocation, Thumbnail};
 
 /// A round video message.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VideoNote {
     /// Id for downloading or resending the file. It can change between sessions and accounts.
     pub file_id: String,

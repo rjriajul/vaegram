@@ -216,7 +216,7 @@ impl Dispatcher {
 
     fn report(&self, result: Result<()>) {
         if let Err(error) = result {
-            self.client.0.events.emit(ClientEvent::DifferenceFailed { error });
+            self.client.0.events.emit(ClientEvent::DifferenceFailed { error: Arc::new(error) });
         }
     }
 
@@ -278,7 +278,10 @@ mod tests {
         d.report(Ok(()));
         d.report(Err(Error::Disconnected));
         let got: Vec<ClientEvent> = events.try_iter().collect();
-        assert!(matches!(got[..], [ClientEvent::DifferenceFailed { error: Error::Disconnected }]), "{got:?}");
+        assert!(
+            matches!(&got[..], [ClientEvent::DifferenceFailed { error }] if matches!(**error, Error::Disconnected)),
+            "{got:?}"
+        );
     }
 
     #[tokio::test]

@@ -31,12 +31,14 @@ impl InlineQueryResultVenue {
     }
 
     /// Identifies the venue on Foursquare, replacing any Google Places id.
+    #[must_use]
     pub fn foursquare(mut self, foursquare_id: impl Into<String>, foursquare_type: impl Into<String>) -> Self {
         (self.provider, self.venue_id, self.venue_type) = ("foursquare", foursquare_id.into(), foursquare_type.into());
         self
     }
 
     /// Identifies the venue on Google Places, replacing any Foursquare id.
+    #[must_use]
     pub fn google_place(mut self, google_place_id: impl Into<String>, google_place_type: impl Into<String>) -> Self {
         (self.provider, self.venue_id, self.venue_type) = ("gplaces", google_place_id.into(), google_place_type.into());
         self

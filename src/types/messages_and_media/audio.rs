@@ -2,7 +2,7 @@ use crate::raw::types;
 use crate::types::{Document, FileLocation, Thumbnail};
 
 /// An audio file shown as music, as opposed to a voice note.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Audio {
     /// Encoded identifier for sending or downloading the file again.
     pub file_id: String,

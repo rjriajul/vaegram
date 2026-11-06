@@ -100,7 +100,7 @@ pub(crate) async fn run_hook(client: Client, kind: UpdateKind, hook: Callback<Cl
 async fn report(on_error: Option<ErrorCallback>, events: Arc<Events>, error: HandlerError) {
     match on_error {
         Some(on_error) => on_error(error).await,
-        None => events.warn(ClientEvent::HandlerFailed { error }),
+        None => events.warn(ClientEvent::HandlerFailed { error: Arc::new(error) }),
     }
 }
 
@@ -154,7 +154,7 @@ mod tests {
             }
         };
         let failed = HandlerError { kind: UpdateKind::Raw, chat_id: None, error: Error::Unexpected("boom") };
-        assert_eq!(format!("{event:?}"), format!("{:?}", ClientEvent::HandlerFailed { error: failed }));
+        assert_eq!(format!("{event:?}"), format!("{:?}", ClientEvent::HandlerFailed { error: Arc::new(failed) }));
 
         let (handled, mut taken) = tokio::sync::mpsc::unbounded_channel();
         let on_error = move |e: HandlerError| -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> {

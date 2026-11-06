@@ -39,6 +39,7 @@ impl ReplyParameters {
     }
 
     /// Replies to a message in this chat instead of the one the reply goes to.
+    #[must_use]
     pub fn chat_id(mut self, chat_id: impl Into<PeerRef>) -> Self {
         self.chat_id = Some(chat_id.into());
         self
@@ -48,24 +49,28 @@ impl ReplyParameters {
     ///
     /// The quote is parsed with the client's default parse mode unless
     /// [`quote_parse_mode`](Self::quote_parse_mode) is set, then trimmed.
+    #[must_use]
     pub fn quote(mut self, quote: impl Into<Text>) -> Self {
         self.quote = Some(quote.into());
         self
     }
 
     /// Parses the quote with `mode` instead of the client's default parse mode.
+    #[must_use]
     pub fn quote_parse_mode(mut self, mode: ParseMode) -> Self {
         self.quote_parse_mode = Some(mode);
         self
     }
 
     /// Gives the offset of the quote in the replied message's text, in UTF-16 code units.
+    #[must_use]
     pub fn quote_position(mut self, offset: i32) -> Self {
         self.quote_position = Some(offset);
         self
     }
 
     /// Replies to task `task_id` of a checklist message.
+    #[must_use]
     pub fn checklist_task_id(mut self, task_id: i32) -> Self {
         self.checklist_task_id = Some(task_id);
         self

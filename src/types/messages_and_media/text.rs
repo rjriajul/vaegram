@@ -59,57 +59,68 @@ impl Text {
     }
 
     /// Appends `text` without adding formatting. Entities already on `text` are kept.
+    #[must_use]
     pub fn plain(mut self, text: impl Into<Text>) -> Self {
         self.append(text.into());
         self
     }
 
     /// Appends `text` in bold.
+    #[must_use]
     pub fn bold(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Bold, text)
     }
 
     /// Appends `text` in italics.
+    #[must_use]
     pub fn italic(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Italic, text)
     }
 
     /// Appends underlined `text`.
+    #[must_use]
     pub fn underline(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Underline, text)
     }
 
     /// Appends struck-through `text`.
+    #[must_use]
     pub fn strike(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Strike, text)
     }
 
     /// Appends `text` hidden behind a spoiler.
+    #[must_use]
     pub fn spoiler(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Spoiler, text)
     }
 
     /// Appends `text` as inline monospace code.
+    #[must_use]
     pub fn code(self, text: impl Into<Text>) -> Self {
         self.wrap(Kind::Code, text)
     }
 
     /// Appends `text` as a preformatted block. `language` names the syntax for highlighting.
+    #[must_use]
     pub fn pre(self, text: impl Into<Text>, language: impl Into<String>) -> Self {
         self.wrap(Kind::Pre(language.into()), text)
     }
 
     /// Appends `text` as a link to `url`.
+    #[must_use]
     pub fn link(self, text: impl Into<Text>, url: impl Into<String>) -> Self {
         self.wrap(Kind::Link(url.into()), text)
     }
 
     /// Appends `text` as a mention of the user with `user_id`.
+    #[must_use]
     pub fn mention(self, text: impl Into<Text>, user_id: i64) -> Self {
         self.wrap(Kind::Mention(user_id), text)
     }
 
     /// Appends a custom emoji. `emoji` is the placeholder text, `document_id` the custom emoji's id.
+    #[must_use]
     pub fn custom_emoji(self, emoji: impl Into<Text>, document_id: i64) -> Self {
         self.wrap(Kind::CustomEmoji(document_id), emoji)
     }
@@ -118,11 +129,13 @@ impl Text {
     ///
     /// `unix_time` is the moment to show. Each letter of `format` turns on one style: `r` relative, `t` short time,
     /// `T` long time, `d` short date, `D` long date and `w` day of the week. Other letters are ignored.
+    #[must_use]
     pub fn date_time(self, text: impl Into<Text>, unix_time: i32, format: &str) -> Self {
         self.wrap(Kind::date_time(unix_time, format), text)
     }
 
     /// Appends `text` as a block quote, collapsed behind an expand button if `expandable` is `true`.
+    #[must_use]
     pub fn blockquote(self, text: impl Into<Text>, expandable: bool) -> Self {
         self.wrap(Kind::Blockquote(expandable), text)
     }

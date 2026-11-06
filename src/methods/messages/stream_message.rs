@@ -27,6 +27,7 @@ pub struct StreamMessage<'a> {
 }
 
 /// A running stream of drafts. Dropping it aborts the stream, and [`finish`](MessageStream::finish) ends it.
+#[must_use = "dropping the stream aborts it"]
 pub struct MessageStream {
     shared: Arc<StreamShared>,
     task: Option<JoinHandle<Result<Vec<Message>>>>,

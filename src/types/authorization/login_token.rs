@@ -1,7 +1,7 @@
 use crate::types::User;
 
 /// Result of a QR code login attempt.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum LoginToken {
     /// Login isn't finished yet.

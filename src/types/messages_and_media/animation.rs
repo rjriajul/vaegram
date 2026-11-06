@@ -2,7 +2,7 @@ use crate::raw::types;
 use crate::types::{Document, FileLocation, Thumbnail};
 
 /// A GIF or silent MPEG-4 clip that clients play in a loop.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Animation {
     /// Encoded identifier for sending or downloading the file again.
     pub file_id: String,

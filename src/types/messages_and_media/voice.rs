@@ -2,7 +2,7 @@ use crate::raw::types;
 use crate::types::{Document, FileLocation};
 
 /// A voice message.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Voice {
     /// Id for downloading or resending the file. It can change between sessions and accounts.
     pub file_id: String,

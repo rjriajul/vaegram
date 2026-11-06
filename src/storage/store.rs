@@ -104,7 +104,8 @@ impl Store {
     pub(crate) async fn open(&self) -> io::Result<()> {
         // Before it opens, so what the engine finds while opening is reported too.
         let events = self.events.clone();
-        self.engine.set_reporter(Arc::new(move |error| events.warn(ClientEvent::StorageFailed { error })));
+        self.engine
+            .set_reporter(Arc::new(move |error| events.warn(ClientEvent::StorageFailed { error: Arc::new(error) })));
         self.call(|e| async move { e.open().await }).await
     }
 

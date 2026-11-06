@@ -1,7 +1,7 @@
 use crate::types::Chat;
 
 /// A group or channel found near a location, with its distance in meters.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct NearbyChat {
     /// The group or channel.

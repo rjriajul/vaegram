@@ -8,8 +8,10 @@ use crate::types::{InputMedia, Location, PeerRef, Venue};
 /// Media attached to a poll, its explanation or one of its options.
 ///
 /// Build one from an [`InputMedia`], a [`Location`], a [`Venue`], or with [`link`](InputPollMedia::link).
+#[derive(Debug, Clone)]
 pub struct InputPollMedia<'a>(Kind<'a>);
 
+#[derive(Debug, Clone)]
 enum Kind<'a> {
     File(Box<InputMedia<'a>>),
     Ready(base::InputMedia),

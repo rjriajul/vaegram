@@ -203,12 +203,14 @@ impl InlineKeyboardButton {
     }
 
     /// Changes the button's color.
+    #[must_use]
     pub fn style(mut self, style: ButtonStyle) -> Self {
         self.style = style;
         self
     }
 
     /// Shows the custom emoji `id` before the text, as the Bot API's `icon_custom_emoji_id`.
+    #[must_use]
     pub fn icon_custom_emoji_id(mut self, id: i64) -> Self {
         self.icon_custom_emoji_id = Some(id);
         self

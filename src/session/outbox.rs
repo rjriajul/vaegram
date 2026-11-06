@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::{ClientEvent, Pending, Runner, constructor_id};
 use crate::crypto::mtproto;
 use crate::errors::Result;
@@ -55,7 +57,7 @@ impl Runner {
                 r.record(true, msg_id, body)
             };
             if let Err(error) = written {
-                self.events.emit(ClientEvent::RecordingFailed { error });
+                self.events.emit(ClientEvent::RecordingFailed { error: Arc::new(error) });
             }
         }
         mtproto::header(&mut buf[at..], salt, &self.session_id, msg_id, seq_no);

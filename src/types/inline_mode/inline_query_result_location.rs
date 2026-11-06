@@ -31,24 +31,28 @@ impl InlineQueryResultLocation {
     }
 
     /// Radius of uncertainty of the location, in meters.
+    #[must_use]
     pub fn horizontal_accuracy(mut self, meters: i32) -> Self {
         self.horizontal_accuracy = Some(meters);
         self
     }
 
     /// Makes the sent location live for this many seconds.
+    #[must_use]
     pub fn live_period(mut self, seconds: i32) -> Self {
         self.live_period = Some(seconds);
         self
     }
 
     /// Direction the user is moving, in degrees.
+    #[must_use]
     pub fn heading(mut self, degrees: i32) -> Self {
         self.heading = Some(degrees);
         self
     }
 
     /// Distance in meters at which a live location triggers a proximity alert.
+    #[must_use]
     pub fn proximity_alert_radius(mut self, meters: i32) -> Self {
         self.proximity_alert_radius = Some(meters);
         self

@@ -3,7 +3,7 @@ use crate::raw::base;
 use crate::types::{FileLocation, Thumbnail};
 
 /// A general file: anything that isn't a video, audio, voice, animation, video note or sticker.
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Document {
     /// Id for downloading or resending the file. It can change between sessions and accounts.
     pub file_id: String,

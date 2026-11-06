@@ -4,10 +4,10 @@
 //! friendly API of methods, handlers and filters on top.
 //!
 //! ```no_run
-//! use vaegram::{Client, filters};
+//! use vaegram::prelude::*;
 //!
 //! #[tokio::main]
-//! async fn main() -> vaegram::Result<()> {
+//! async fn main() -> Result<()> {
 //!     let app = Client::builder("my_bot", 12345, "0123456789abcdef0123456789abcdef")
 //!         .bot_token("123456:ABC-DEF")
 //!         .start()
@@ -25,7 +25,8 @@
 //! The `api_id` and `api_hash` come from <https://my.telegram.org>. Without `.bot_token(..)`, `start` asks on stdin
 //! for a phone number, the login code and the two-step verification password. The first run writes
 //! `my_bot.session`, and later runs log in from it: see [`ClientBuilder`] for other storage and settings. Anything
-//! without a friendly method can be called with [`Client::invoke`] and the TL types in [`raw`].
+//! without a friendly method can be called with [`Client::invoke`] and the TL types in [`raw`]. The [`prelude`]
+//! brings in the client, filters, and the types and enums most bots use, with one `use`.
 //!
 //! # Cargo features
 //!
@@ -92,6 +93,14 @@ pub mod methods;
 #[cfg(any(feature = "metrics", feature = "opentelemetry"))]
 pub mod observe;
 pub(crate) mod parser;
+/// The items most bots and user clients use, to bring in with `use vaegram::prelude::*;`: [`Client`] and
+/// [`ClientBuilder`], [`Result`] and [`Error`], the [`filters`] module and [`Filter`](filters::Filter), the update
+/// types ([`Message`](types::Message), [`CallbackQuery`](types::CallbackQuery),
+/// [`InlineQuery`](types::InlineQuery)), [`Text`](types::Text) and [`ParseMode`](enums::ParseMode), peers
+/// ([`PeerRef`](types::PeerRef), [`User`](types::User), [`Chat`](types::Chat), [`ChatType`](enums::ChatType)),
+/// [`InputMedia`](types::InputMedia), [`ReplyParameters`](types::ReplyParameters) and the keyboards. [`Result`]
+/// keeps a second parameter for the error, so `Result<T, E>` still works with it in scope.
+pub mod prelude;
 /// Every type and function of Telegram's API, generated from the TL schema, for [`Client::invoke`].
 pub mod raw;
 /// The encrypted MTProto session: requests, retries, rate limits, observers and replaying recordings.

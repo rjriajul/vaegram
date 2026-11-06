@@ -22,18 +22,21 @@ impl LoginUrl {
     }
 
     /// Replaces the button's text in forwarded messages.
+    #[must_use]
     pub fn forward_text(mut self, text: impl Into<String>) -> Self {
         self.forward_text = Some(text.into());
         self
     }
 
     /// Names the bot whose login the user authorizes, instead of the sending bot.
+    #[must_use]
     pub fn bot_username(mut self, username: impl Into<String>) -> Self {
         self.bot_username = Some(username.into());
         self
     }
 
     /// Sets whether the user is asked to let the bot write to them; `true` asks.
+    #[must_use]
     pub fn request_write_access(mut self, request_write_access: bool) -> Self {
         self.request_write_access = request_write_access;
         self

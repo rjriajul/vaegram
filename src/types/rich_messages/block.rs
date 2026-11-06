@@ -367,6 +367,7 @@ impl RichBlock {
 
     /// Titles a table, or captions a photo, video, audio, document, collage, slideshow or map. Other blocks
     /// ignore it.
+    #[must_use]
     pub fn caption(mut self, text: impl Into<RichText>) -> Self {
         if let base::PageBlock::PageBlockTable(b) = &mut self.block {
             b.title = self::text(text);
@@ -377,6 +378,7 @@ impl RichBlock {
     }
 
     /// Credits a quote, pullquote or a block that takes a caption. Other blocks ignore it.
+    #[must_use]
     pub fn credit(mut self, text: impl Into<RichText>) -> Self {
         use base::PageBlock as B;
         let text = self::text(text);
@@ -394,6 +396,7 @@ impl RichBlock {
     }
 
     /// Hides a photo or video behind a spoiler. Other blocks ignore it.
+    #[must_use]
     pub fn spoiler(mut self) -> Self {
         match &mut self.block {
             base::PageBlock::PageBlockPhoto(b) => b.spoiler = true,
@@ -404,6 +407,7 @@ impl RichBlock {
     }
 
     /// Shows a details block expanded. Other blocks ignore it.
+    #[must_use]
     pub fn open(mut self) -> Self {
         if let base::PageBlock::PageBlockDetails(b) = &mut self.block {
             b.open = true;
@@ -412,6 +416,7 @@ impl RichBlock {
     }
 
     /// Draws borders around table cells. Other blocks ignore it.
+    #[must_use]
     pub fn bordered(mut self) -> Self {
         if let base::PageBlock::PageBlockTable(b) = &mut self.block {
             b.bordered = true;
@@ -420,6 +425,7 @@ impl RichBlock {
     }
 
     /// Shades alternate table rows. Other blocks ignore it.
+    #[must_use]
     pub fn striped(mut self) -> Self {
         if let base::PageBlock::PageBlockTable(b) = &mut self.block {
             b.striped = true;
@@ -428,6 +434,7 @@ impl RichBlock {
     }
 
     /// Tightens table cell spacing. Other blocks ignore it.
+    #[must_use]
     pub fn compact(mut self) -> Self {
         if let base::PageBlock::PageBlockTable(b) = &mut self.block {
             b.compact = true;
@@ -436,6 +443,7 @@ impl RichBlock {
     }
 
     /// Aligns the buttons of a row. Other blocks ignore it.
+    #[must_use]
     pub fn align(mut self, align: Align) -> Self {
         if let base::PageBlock::PageBlockButtonRow(b) = &mut self.block {
             (b.align_left, b.align_center, b.align_right) =
@@ -485,6 +493,7 @@ impl RichTableCell {
     }
 
     /// Marks the cell as a header cell.
+    #[must_use]
     pub fn header(mut self) -> Self {
         let base::PageTableCell::PageTableCell(c) = &mut self.0;
         c.header = true;
@@ -492,6 +501,7 @@ impl RichTableCell {
     }
 
     /// Aligns the cell text horizontally.
+    #[must_use]
     pub fn align(mut self, align: Align) -> Self {
         let base::PageTableCell::PageTableCell(c) = &mut self.0;
         (c.align_center, c.align_right) = (align == Align::Center, align == Align::Right);
@@ -499,6 +509,7 @@ impl RichTableCell {
     }
 
     /// Aligns the cell text vertically.
+    #[must_use]
     pub fn valign(mut self, valign: VAlign) -> Self {
         let base::PageTableCell::PageTableCell(c) = &mut self.0;
         (c.valign_middle, c.valign_bottom) = (valign == VAlign::Middle, valign == VAlign::Bottom);
@@ -506,6 +517,7 @@ impl RichTableCell {
     }
 
     /// Makes the cell span `columns` columns.
+    #[must_use]
     pub fn colspan(mut self, columns: i32) -> Self {
         let base::PageTableCell::PageTableCell(c) = &mut self.0;
         c.colspan = Some(columns);
@@ -513,6 +525,7 @@ impl RichTableCell {
     }
 
     /// Makes the cell span `rows` rows.
+    #[must_use]
     pub fn rowspan(mut self, rows: i32) -> Self {
         let base::PageTableCell::PageTableCell(c) = &mut self.0;
         c.rowspan = Some(rows);
@@ -531,6 +544,7 @@ impl RichButton {
     }
 
     /// Changes the button's color style. [`RichButtonStyle::Default`] sends no style.
+    #[must_use]
     pub fn style(mut self, style: RichButtonStyle) -> Self {
         self.style = style;
         self

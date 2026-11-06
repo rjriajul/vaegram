@@ -16,21 +16,25 @@ impl RichText {
     }
 
     /// Highlights the text.
+    #[must_use]
     pub fn marked(self) -> Self {
         RichText(base::RichText::TextMarked(Box::new(types::TextMarked { text: self.0 })))
     }
 
     /// Wraps the text as a subscript.
+    #[must_use]
     pub fn sub(self) -> Self {
         RichText(base::RichText::TextSubscript(Box::new(types::TextSubscript { text: self.0 })))
     }
 
     /// Wraps the text as a superscript.
+    #[must_use]
     pub fn sup(self) -> Self {
         RichText(base::RichText::TextSuperscript(Box::new(types::TextSuperscript { text: self.0 })))
     }
 
     /// Makes the text an anchor that links can point to by `name`. Empty text makes a bare anchor point.
+    #[must_use]
     pub fn anchor(self, name: impl Into<String>) -> Self {
         RichText(base::RichText::TextAnchor(Box::new(types::TextAnchor { text: self.0, name: name.into() })))
     }

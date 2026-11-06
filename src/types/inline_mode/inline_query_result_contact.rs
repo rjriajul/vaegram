@@ -27,12 +27,14 @@ impl InlineQueryResultContact {
     }
 
     /// Adds a last name to the contact and to its title in the results list.
+    #[must_use]
     pub fn last_name(mut self, last_name: impl Into<String>) -> Self {
         self.last_name = last_name.into();
         self
     }
 
     /// Attaches extra contact data as a vCard.
+    #[must_use]
     pub fn vcard(mut self, vcard: impl Into<String>) -> Self {
         self.vcard = vcard.into();
         self
