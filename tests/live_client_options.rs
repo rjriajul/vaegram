@@ -68,8 +68,8 @@ async fn compose_runs_a_bot_and_a_user() {
 async fn counts_match_the_lists() {
     let Some(builder) = user_builder() else { return };
     let client = builder.connect().await.unwrap();
-    let photos = client.get_chat_photos("me").await.unwrap().total_count;
+    let photos = client.get_chat_photos("me").await.unwrap().len() as i32;
     assert_eq!(client.get_chat_photos_count("me").await.unwrap(), photos);
-    let audios = client.get_user_profile_audios("me").await.unwrap().total_count;
+    let audios = client.get_user_profile_audios("me").await.unwrap().len() as i32;
     assert_eq!(client.get_chat_audios_count("me").await.unwrap(), audios);
 }

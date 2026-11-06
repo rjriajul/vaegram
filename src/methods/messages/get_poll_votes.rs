@@ -5,7 +5,9 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{PeerRef, PollVote};
 
-/// Pages through the votes of a poll. Call [`next`](GetPollVotes::next) until it returns `None`.
+/// Votes of a poll. Awaiting it collects the votes into a `Vec`, up to [`limit`](GetPollVotes::limit);
+/// [`next`](GetPollVotes::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetPollVotes<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -60,3 +62,5 @@ impl GetPollVotes<'_> {
         }
     }
 }
+
+pager!(GetPollVotes, PollVote);

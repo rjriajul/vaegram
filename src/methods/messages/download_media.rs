@@ -282,18 +282,18 @@ impl Master<'_> {
 
 impl MediaStream<'_> {
     /// Returns the next chunk, `None` at the end, or the error that stopped the download.
-    pub async fn next(&mut self) -> Option<Result<Vec<u8>>> {
+    pub async fn next(&mut self) -> Result<Option<Vec<u8>>> {
         poll_fn(|cx| {
             if let Some(download) = &mut self.download {
                 if let Poll::Ready(done) = download.as_mut().poll(cx) {
                     self.download = None;
                     if let Err(e) = done {
                         while self.chunks.try_recv().is_ok() {}
-                        return Poll::Ready(Some(Err(e)));
+                        return Poll::Ready(Err(e));
                     }
                 }
             }
-            self.chunks.poll_recv(cx).map(|chunk| chunk.map(Ok))
+            self.chunks.poll_recv(cx).map(Ok)
         })
         .await
     }
@@ -666,16 +666,15 @@ mod tests {
         };
         let mut stream = MediaStream { download: Some(Box::pin(download)), chunks };
         let mut got = Vec::new();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.unwrap();
+        while let Some(chunk) = stream.next().await.unwrap() {
             got.push((chunk[0], chunk.len()));
         }
         assert_eq!(got, [(0, c), (1, c), (2, c), (3, 7)]);
 
         let failing = Box::pin(async { Err::<(), _>(Error::Timeout) });
         let mut failed = MediaStream { download: Some(failing), chunks: mpsc::channel(1).1 };
-        assert!(matches!(failed.next().await, Some(Err(Error::Timeout))));
-        assert!(failed.next().await.is_none());
+        assert!(matches!(failed.next().await, Err(Error::Timeout)));
+        assert_eq!(failed.next().await.unwrap(), None);
     }
 
     fn get_file(reference: &[u8], offset: i64, cdn_supported: bool) -> functions::upload::GetFile {
@@ -1103,8 +1102,8 @@ mod tests {
         let (client, _rx) = Client::scripted(vec![file(whole[c..2 * c].to_vec()), file(whole[2 * c..].to_vec())]);
         let mut stream = client.download_media(located(&client, Some(3 * c as i64))).offset(c as u64 + 10).stream();
         let mut got = Vec::new();
-        while let Some(piece) = stream.next().await {
-            got.push(piece.unwrap());
+        while let Some(piece) = stream.next().await.unwrap() {
+            got.push(piece);
         }
         assert_eq!(got, [whole[c + 10..2 * c].to_vec(), whole[2 * c..].to_vec()]);
     }
@@ -1125,7 +1124,7 @@ mod tests {
     async fn an_offset_past_the_known_end_sends_nothing() {
         let (client, mut rx) = Client::recording();
         assert_eq!(client.download_media(location(Some(5))).offset(5).await.unwrap(), b"");
-        assert!(client.download_media(location(Some(5))).offset(9).stream().next().await.is_none());
+        assert_eq!(client.download_media(location(Some(5))).offset(9).stream().next().await.unwrap(), None);
         // No file Telegram stores reaches this chunk, whatever size it gives.
         assert_eq!(client.download_media(location(None)).offset(u64::MAX).await.unwrap(), b"");
         assert!(drain(&mut rx).is_empty());
@@ -1252,7 +1251,7 @@ mod tests {
         one_download_at_a_time(&mut client);
         let slots = client.0.transmissions.as_ref().unwrap().downloads.clone();
         let mut stream = client.download_media(located(&client, Some(2 * c as i64))).stream();
-        assert!(stream.next().await.unwrap().is_ok());
+        assert!(stream.next().await.unwrap().is_some());
         assert_eq!(slots.available_permits(), 0, "the stream isn't done, so it keeps its slot");
         drop(stream);
         assert_eq!(slots.available_permits(), 1);

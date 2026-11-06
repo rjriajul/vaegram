@@ -177,23 +177,23 @@ async fn user_adds_moves_and_removes_profile_music() {
     };
     let Some(user) = user_client().await else { return };
     let before = user.get_user_profile_audios("me").await.unwrap();
-    let known: Vec<i64> = before.audios.iter().map(|a| a.id).collect();
+    let known: Vec<i64> = before.iter().map(|a| a.id).collect();
 
     for title in ["vaegram one", "vaegram two"] {
         user.add_profile_audio(&InputMedia::audio(path.as_str()).title(title)).await.unwrap();
     }
     let added = user.get_user_profile_audios("me").await.unwrap();
-    let new: Vec<_> = added.audios.into_iter().filter(|a| !known.contains(&a.id)).collect();
+    let new: Vec<_> = added.into_iter().filter(|a| !known.contains(&a.id)).collect();
     assert_eq!(new.len(), 2, "{new:?}");
 
     user.set_profile_audio_position(&new[0], Some(&new[1])).await.unwrap();
     let moved = user.get_user_profile_audios("me").await.unwrap();
-    let order: Vec<i64> = moved.audios.iter().map(|a| a.id).filter(|id| new.iter().any(|n| n.id == *id)).collect();
+    let order: Vec<i64> = moved.iter().map(|a| a.id).filter(|id| new.iter().any(|n| n.id == *id)).collect();
     user.set_profile_audio_position(&new[0], None).await.unwrap();
     for song in &new {
         user.remove_profile_audio(song).await.unwrap();
     }
     let after = user.get_user_profile_audios("me").await.unwrap();
     assert_eq!(order, [new[1].id, new[0].id]);
-    assert_eq!(after.total_count, before.total_count);
+    assert_eq!(after.len(), before.len());
 }

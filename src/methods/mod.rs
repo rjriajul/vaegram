@@ -11,6 +11,26 @@ macro_rules! into_future {
     };
 }
 
+/// Makes a pager awaitable: awaiting reads `next` until it returns `None` and collects what it yielded.
+macro_rules! pager {
+    ($pager:ident, $item:ty) => {
+        impl<'a> ::std::future::IntoFuture for $pager<'a> {
+            type Output = $crate::Result<Vec<$item>>;
+            type IntoFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Self::Output> + Send + 'a>>;
+
+            fn into_future(mut self) -> Self::IntoFuture {
+                Box::pin(async move {
+                    let mut items = Vec::new();
+                    while let Some(item) = self.next().await? {
+                        items.push(item);
+                    }
+                    Ok(items)
+                })
+            }
+        }
+    };
+}
+
 pub(crate) trait OnBehalf {
     fn business_connection(&mut self) -> &mut Option<String>;
 }

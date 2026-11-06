@@ -75,18 +75,6 @@ pub struct OwnedGiftUnique {
     pub drop_original_details_star_count: Option<i64>,
 }
 
-/// One page of a profile's gifts.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct OwnedGifts {
-    /// How many gifts the profile has in all.
-    pub total_count: i32,
-    /// The gifts on this page.
-    pub gifts: Vec<OwnedGift>,
-    /// Offset to pass for the next page. `None` on the last page.
-    pub next_offset: Option<String>,
-}
-
 impl OwnedGift {
     pub(crate) fn parse(raw: &types::SavedStarGift, owner_id: i64, entities: &Entities) -> Option<OwnedGift> {
         let owned_gift_id = owned_gift_id(owner_id, raw.msg_id, raw.saved_id);

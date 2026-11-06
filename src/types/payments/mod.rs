@@ -38,7 +38,7 @@ pub use gift_upgrade_preview::{GiftUpgradePreview, GiftUpgradePrice};
 pub use gift_upgrade_variants::GiftUpgradeVariants;
 pub use input_credentials::InputCredentials;
 pub use invoice_ref::InvoiceRef;
-pub use owned_gift::{OwnedGift, OwnedGiftRegular, OwnedGiftUnique, OwnedGifts};
+pub use owned_gift::{OwnedGift, OwnedGiftRegular, OwnedGiftUnique};
 pub use payment_form::PaymentForm;
 pub use payment_option::PaymentOption;
 pub use payment_result::PaymentResult;

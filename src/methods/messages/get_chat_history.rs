@@ -4,8 +4,9 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
-#[must_use = "call .next() to fetch messages"]
-/// Pages through the messages of a chat. Call [`next`](GetChatHistory::next) for each message.
+/// Messages of a chat. Awaiting it collects the messages into a `Vec`, up to [`limit`](GetChatHistory::limit);
+/// [`next`](GetChatHistory::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetChatHistory<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -34,7 +35,7 @@ impl Client {
 }
 
 impl GetChatHistory<'_> {
-    /// Stops after this many messages.
+    /// Stops after this many messages. The default reads the whole history.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
@@ -149,6 +150,8 @@ impl GetChatHistory<'_> {
         if self.max_id > 0 { self.max_id.saturating_add(1) } else { 0 }
     }
 }
+
+pager!(GetChatHistory, Message);
 
 #[cfg(test)]
 mod tests {

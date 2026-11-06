@@ -5,7 +5,9 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{PeerRef, StoryViewer};
 
-/// Viewers of a story, fetched 100 at a time. Call `next` until it returns `None`.
+/// Viewers of a story, fetched 100 at a time. Awaiting it collects the viewers into a `Vec`, up to
+/// [`limit`](GetStoryViewers::limit); [`next`](GetStoryViewers::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetStoryViewers<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -21,7 +23,7 @@ impl Client {
 }
 
 impl GetStoryViewers<'_> {
-    /// Stops after this many viewers in total.
+    /// Stops after this many viewers in total. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
@@ -54,3 +56,5 @@ impl GetStoryViewers<'_> {
         }
     }
 }
+
+pager!(GetStoryViewers, StoryViewer);

@@ -5,7 +5,9 @@ use crate::methods::pages::DialogPages;
 use crate::raw::{base, functions, types};
 use crate::types::{ForumTopic, PeerRef};
 
-/// Topics of a forum, read one at a time with [`next`](GetForumTopics::next).
+/// Topics of a forum. Awaiting it collects the topics into a `Vec`, up to [`limit`](GetForumTopics::limit);
+/// [`next`](GetForumTopics::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetForumTopics<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -56,6 +58,8 @@ impl GetForumTopics<'_> {
         }
     }
 }
+
+pager!(GetForumTopics, ForumTopic);
 
 // A deleted topic has no date or top message to continue from, so the cursor comes from the last one that exists.
 fn cursor(page: &types::messages::ForumTopics) -> Option<(i32, i32, i32)> {

@@ -5,7 +5,7 @@ use crate::types::PeerRef;
 impl Client {
     /// How many audios a user has saved to their profile.
     pub async fn get_chat_audios_count(&self, chat_id: impl Into<PeerRef>) -> Result<i32> {
-        Ok(self.get_user_profile_audios(chat_id).limit(1).await?.total_count)
+        self.get_user_profile_audios(chat_id).limit(1).total().await
     }
 }
 

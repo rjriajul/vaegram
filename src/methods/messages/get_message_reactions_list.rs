@@ -5,7 +5,9 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{PeerReaction, PeerRef, ReactionType};
 
-/// Pages through who reacted to a message. Call [`next`](GetMessageReactionsList::next) for each reaction.
+/// Who reacted to a message. Awaiting it collects the reactions into a `Vec`, up to
+/// [`limit`](GetMessageReactionsList::limit); [`next`](GetMessageReactionsList::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetMessageReactionsList<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -33,7 +35,7 @@ impl GetMessageReactionsList<'_> {
         self
     }
 
-    /// Stops after this many reactions.
+    /// Stops after this many reactions. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
@@ -61,3 +63,5 @@ impl GetMessageReactionsList<'_> {
         }
     }
 }
+
+pager!(GetMessageReactionsList, PeerReaction);

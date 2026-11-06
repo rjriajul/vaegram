@@ -5,8 +5,9 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{GroupCallMember, PeerRef};
 
-#[must_use = "call .next() to fetch call members"]
-/// Members of a video chat, fetched page by page with [`next`](GetCallMembers::next).
+/// Members of a video chat. Awaiting it collects the members into a `Vec`, up to [`limit`](GetCallMembers::limit);
+/// [`next`](GetCallMembers::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetCallMembers<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -24,7 +25,7 @@ impl Client {
 }
 
 impl GetCallMembers<'_> {
-    /// Stops after this many members.
+    /// Stops after this many members. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
@@ -67,6 +68,8 @@ impl GetCallMembers<'_> {
         }
     }
 }
+
+pager!(GetCallMembers, GroupCallMember);
 
 #[cfg(test)]
 mod tests {

@@ -6,9 +6,11 @@ use crate::types::{ChatEvent, ChatEventFilter, PeerRef};
 
 const PAGE_SIZE: usize = 100;
 
-/// Admin log of a channel or supergroup, read one event at a time with [`next`](GetChatEventLog::next).
+/// Admin log of a channel or supergroup. Awaiting it collects the events into a `Vec`, up to
+/// [`limit`](GetChatEventLog::limit); [`next`](GetChatEventLog::next) reads them one at a time.
 ///
 /// Events come newest first and are fetched in pages of 100.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetChatEventLog<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -116,3 +118,5 @@ impl GetChatEventLog<'_> {
         })
     }
 }
+
+pager!(GetChatEventLog, ChatEvent);

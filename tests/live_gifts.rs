@@ -5,7 +5,7 @@ mod support;
 
 use vaegram::Client;
 use vaegram::raw::{base, functions, types};
-use vaegram::types::{GiftAuctionState, GiftAuctionStatus, InvoiceRef, OwnedGift, OwnedGifts};
+use vaegram::types::{GiftAuctionState, GiftAuctionStatus, InvoiceRef, OwnedGift};
 
 async fn user() -> Option<Client> {
     Some(support::Kit::from_env().await?.user.client)
@@ -64,7 +64,7 @@ async fn user_reads_stars_and_gift_counts() {
     let Some(user) = user().await else { return };
     user.get_ton_balance().await.unwrap();
     let count = user.get_chat_gifts_count("me").await.unwrap();
-    assert_eq!(count, user.get_chat_gifts("me").limit(1).await.unwrap().total_count);
+    assert_eq!(count, user.get_chat_gifts("me").await.unwrap().len() as i32);
 
     let gifts = user.get_available_gifts().await.unwrap();
     let Some(gift) = gifts.iter().find(|g| g.upgrade_star_count.is_some()) else {
@@ -111,13 +111,13 @@ async fn user_cancels_and_restores_a_star_subscription() {
     }
 }
 
-fn owned_gift_ids(gifts: &OwnedGifts) -> Vec<String> {
+fn owned_gift_ids(gifts: &[OwnedGift]) -> Vec<String> {
     let id = |g: &OwnedGift| match g {
         OwnedGift::Regular(g) => g.owned_gift_id.clone(),
         OwnedGift::Unique(g) => g.owned_gift_id.clone(),
         _ => None,
     };
-    gifts.gifts.iter().filter_map(id).collect()
+    gifts.iter().filter_map(id).collect()
 }
 
 #[tokio::test]

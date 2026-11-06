@@ -5,9 +5,9 @@ use crate::raw::{base, functions};
 use crate::types::Dialog;
 use crate::utils::get_peer_id;
 
-/// Dialog list, read one dialog at a time with [`next`](GetDialogs::next).
-///
-/// Call `next` until it returns `None`.
+/// Dialog list. Awaiting it collects the dialogs into a `Vec`, up to [`limit`](GetDialogs::limit);
+/// [`next`](GetDialogs::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetDialogs<'a> {
     client: &'a Client,
     folder_id: Option<i32>,
@@ -91,6 +91,8 @@ impl GetDialogs<'_> {
         }
     }
 }
+
+pager!(GetDialogs, Dialog);
 
 // Read the raw page: the archive folder entry is dropped while parsing but still fills the limit, and a chat whose
 // last message is a service message vaegram doesn't parse still marks where the page ends.

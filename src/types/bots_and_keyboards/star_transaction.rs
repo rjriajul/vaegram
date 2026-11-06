@@ -30,13 +30,3 @@ impl StarTransaction {
         }
     }
 }
-
-/// A page of Stars transactions.
-#[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
-pub struct StarTransactions {
-    /// The transactions on this page.
-    pub transactions: Vec<StarTransaction>,
-    /// Offset that fetches the next page. `None` on the last page.
-    pub next_offset: Option<String>,
-}

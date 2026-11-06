@@ -6,8 +6,9 @@ use crate::utils::get_peer;
 
 const PAGE_SIZE: usize = 100;
 
-/// Archived or pinned stories of a chat, fetched 100 at a time. Call `next` until it returns `None`.
-#[must_use = "call .next() to fetch stories"]
+/// Archived or pinned stories of a chat, fetched 100 at a time. Awaiting it collects the stories into a `Vec`, up to
+/// [`limit`](StoryPages::limit); [`next`](StoryPages::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct StoryPages<'a> {
     client: &'a Client,
     chat: PeerRef,
@@ -33,7 +34,7 @@ impl<'a> StoryPages<'a> {
         StoryPages { client, chat, archive, offset_id: 0, remaining: usize::MAX, buffer, done: false }
     }
 
-    /// Stops after this many stories in total.
+    /// Stops after this many stories in total. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
         self.remaining = limit;
         self
@@ -89,6 +90,8 @@ impl<'a> StoryPages<'a> {
         self.buffer = stories.into_iter();
     }
 }
+
+pager!(StoryPages, Story);
 
 #[cfg(test)]
 mod tests {

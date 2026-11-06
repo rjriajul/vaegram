@@ -3,7 +3,10 @@ use std::fs;
 use std::path::Path;
 
 /// Macros that implement `IntoFuture` for the type named as their first argument.
-const BUILDER_MACROS: [&str; 3] = ["into_future!(", "send_builder!(", "send_media!("];
+const BUILDER_MACROS: [&str; 4] = ["into_future!(", "send_builder!(", "send_media!(", "pager!("];
+
+/// Types with a `next` that are not pagers: a chunk stream, whose file `DownloadMedia` already collects when awaited.
+const STREAMS: [&str; 1] = ["MediaStream"];
 
 fn sources(dir: &Path, files: &mut Vec<String>) {
     for entry in fs::read_dir(dir).unwrap() {
@@ -48,6 +51,23 @@ fn declarations(source: &str, types: &mut BTreeMap<String, bool>) {
     }
 }
 
+/// Every type with an inherent `pub async fn next(&mut self)`: the pagers, plus `STREAMS`.
+fn pagers(source: &str, names: &mut BTreeSet<String>) {
+    let mut current = None;
+    for line in source.lines() {
+        if let Some(rest) = line.strip_prefix("impl") {
+            // `impl Name<'_> {` or `impl<'a> Name<'a> {`; trait impls have no inherent `next`.
+            let rest = match rest.strip_prefix('<') {
+                Some(generics) => generics.split_once('>').map_or("", |(_, rest)| rest),
+                None => rest,
+            };
+            current = (!rest.contains(" for ")).then(|| ident(rest));
+        } else if line.trim_start().starts_with("pub async fn next(&mut self)") {
+            names.extend(current.map(str::to_owned));
+        }
+    }
+}
+
 #[test]
 fn every_request_builder_is_must_use() {
     let mut files = Vec::new();
@@ -63,4 +83,19 @@ fn every_request_builder_is_must_use() {
     let missing: Vec<_> = names.iter().filter(|n| types.get(*n) == Some(&false)).collect();
     assert!(undeclared.is_empty(), "request builders whose declaration the scan can't find: {undeclared:?}");
     assert!(missing.is_empty(), "request builders without #[must_use]: {missing:?}");
+}
+
+#[test]
+fn every_pager_is_awaitable() {
+    let mut files = Vec::new();
+    sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+    let (mut awaitable, mut pager_types) = (BTreeSet::new(), BTreeSet::new());
+    for source in &files {
+        builders(source, &mut awaitable);
+        pagers(source, &mut pager_types);
+    }
+    assert!(pager_types.len() > 30, "found only {} pagers", pager_types.len());
+    let not_awaitable: Vec<_> =
+        pager_types.iter().filter(|p| !awaitable.contains(*p) && !STREAMS.contains(&p.as_str())).collect();
+    assert!(not_awaitable.is_empty(), "pagers that can't be awaited: {not_awaitable:?}");
 }

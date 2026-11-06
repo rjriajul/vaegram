@@ -1,118 +1,115 @@
-use super::get_chat_gifts::owned_gifts;
+use super::get_chat_gifts::push_gifts;
 use crate::Client;
 use crate::errors::Result;
-use crate::methods::pages::wire_limit;
+use crate::methods::pages::OffsetPages;
 use crate::raw::functions;
-use crate::types::{OwnedGifts, PeerRef};
+use crate::types::{OwnedGift, PeerRef};
 
-/// Request built by [`Client::get_gifts_for_crafting`].
-#[must_use = "a request does nothing until it is awaited"]
+/// Gifts that can go into crafting, built by [`Client::get_gifts_for_crafting`].
+///
+/// Awaiting it collects the gifts into a `Vec`, up to [`limit`](GetGiftsForCrafting::limit);
+/// [`next`](GetGiftsForCrafting::next) reads them one at a time. Gifts are fetched 100 to a page.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetGiftsForCrafting<'a> {
     client: &'a Client,
-    request: functions::payments::GetCraftStarGifts,
+    gift_id: i64,
+    owner_id: Option<i64>,
+    total: Option<i32>,
+    pages: OffsetPages<OwnedGift>,
 }
 
 impl Client {
     /// Lists the user's gifts that can go into crafting an upgraded `gift_id` gift.
     pub fn get_gifts_for_crafting(&self, gift_id: i64) -> GetGiftsForCrafting<'_> {
-        let request = functions::payments::GetCraftStarGifts { gift_id, offset: String::new(), limit: 100 };
-        GetGiftsForCrafting { client: self, request }
+        GetGiftsForCrafting { client: self, gift_id, owner_id: None, total: None, pages: OffsetPages::new(100) }
     }
 }
 
 impl GetGiftsForCrafting<'_> {
-    /// Continues from the `next_offset` of a previous page.
+    /// Starts at this offset token, which Telegram hands out with each page, instead of the first gift.
     pub fn offset(mut self, offset: impl Into<String>) -> Self {
-        self.request.offset = offset.into();
+        self.pages.set_offset(offset.into());
         self
     }
 
-    /// Caps how many gifts one page holds. The default is 100.
+    /// Stops after this many gifts in total. The default reads the whole list.
     pub fn limit(mut self, limit: usize) -> Self {
-        self.request.limit = wire_limit(limit);
+        self.pages.remaining = limit;
         self
     }
 
-    async fn send(self) -> Result<OwnedGifts> {
+    /// Returns how many gifts can go into crafting in all, ignoring `limit` and `offset`.
+    ///
+    /// Before the first page this reads one, which `next` then returns from without another request.
+    pub async fn total(&mut self) -> Result<i32> {
+        if self.total.is_none() {
+            self.fetch(self.pages.limit().unwrap_or(1)).await?;
+        }
+        Ok(self.total.unwrap_or(0))
+    }
+
+    /// Returns the next gift, or `None` once the list or the limit is exhausted.
+    pub async fn next(&mut self) -> Result<Option<OwnedGift>> {
+        loop {
+            if let Some(gift) = self.pages.pop() {
+                return Ok(Some(gift));
+            }
+            let Some(limit) = self.pages.limit() else { return Ok(None) };
+            self.fetch(limit).await?;
+        }
+    }
+
+    async fn fetch(&mut self, limit: i32) -> Result<()> {
         let client = self.client;
-        let (owner_id, _) = client.resolve(&PeerRef::Me).await?;
-        let page = client.invoke(&self.request).await?;
-        Ok(owned_gifts(client, page, owner_id))
+        let owner_id = match self.owner_id {
+            Some(id) => id,
+            None => client.resolve(&PeerRef::Me).await?.0,
+        };
+        self.owner_id = Some(owner_id);
+        let offset = self.pages.next_offset().unwrap_or_default().into();
+        let request = functions::payments::GetCraftStarGifts { gift_id: self.gift_id, offset, limit };
+        let page = client.invoke(&request).await?;
+        self.total = Some(push_gifts(client, &mut self.pages, page, owner_id));
+        Ok(())
     }
 }
 
-into_future!(GetGiftsForCrafting, OwnedGifts);
+pager!(GetGiftsForCrafting, OwnedGift);
 
 #[cfg(test)]
 mod tests {
-    use super::super::craft_gift::tests::unique;
-    use super::super::get_chat_gifts::tests::empty_page;
+    use super::super::get_chat_gifts::tests::{empty_page, ids, page};
     use crate::Client;
-    use crate::raw::{Serializable, base, functions, types};
-    use crate::types::OwnedGift;
+    use crate::raw::{Serializable, functions};
 
     fn request(offset: &str, limit: i32) -> Vec<u8> {
         functions::payments::GetCraftStarGifts { gift_id: 1, offset: offset.into(), limit }.to_bytes()
     }
 
-    fn page_of_one() -> Vec<u8> {
-        let saved = types::SavedStarGift {
-            name_hidden: false,
-            unsaved: false,
-            refunded: false,
-            can_upgrade: false,
-            pinned_to_top: false,
-            upgrade_separate: false,
-            from_id: None,
-            date: 1,
-            gift: unique(),
-            message: None,
-            msg_id: Some(9),
-            saved_id: None,
-            convert_stars: None,
-            upgrade_stars: None,
-            can_export_at: None,
-            transfer_stars: None,
-            can_transfer_at: None,
-            can_resell_at: None,
-            collection_id: None,
-            prepaid_upgrade_hash: None,
-            drop_original_details_stars: None,
-            gift_num: None,
-            can_craft_at: None,
-        };
-        let page = types::payments::SavedStarGifts {
-            count: 1,
-            chat_notifications_enabled: None,
-            gifts: vec![base::SavedStarGift::SavedStarGift(Box::new(saved))],
-            next_offset: Some("next".into()),
-            chats: Vec::new(),
-            users: Vec::new(),
-        };
-        base::payments::SavedStarGifts::SavedStarGifts(Box::new(page)).to_bytes()
-    }
-
     #[tokio::test]
-    async fn lists_the_gifts_for_crafting() {
-        let (client, mut sent) = Client::scripted(vec![Ok(page_of_one())]);
-        let page = client.get_gifts_for_crafting(1).await.unwrap();
+    async fn reads_the_gifts_across_pages() {
+        let (client, mut sent) = Client::scripted(vec![Ok(page(2, 1, Some("next"))), Ok(page(2, 1, None))]);
+        let gifts = client.get_gifts_for_crafting(1).await.unwrap();
+        assert_eq!(ids(&gifts), ["10", "10"]);
         assert_eq!(sent.try_recv().unwrap(), request("", 100));
-        assert_eq!((page.total_count, page.next_offset.as_deref()), (1, Some("next")));
-        let [OwnedGift::Unique(gift)] = &page.gifts[..] else { panic!("expected one upgraded gift") };
-        assert_eq!(gift.owned_gift_id.as_deref(), Some("9"));
+        assert_eq!(sent.try_recv().unwrap(), request("next", 100));
+        assert!(sent.try_recv().is_err());
     }
 
     #[tokio::test]
     async fn pages_with_offset_and_limit() {
         let (client, mut sent) = Client::scripted(vec![Ok(empty_page())]);
-        client.get_gifts_for_crafting(1).offset("x").limit(10).await.unwrap();
+        let mut gifts = client.get_gifts_for_crafting(1).offset("x").limit(10);
+        assert_eq!(gifts.next().await.unwrap(), None);
+        assert_eq!(gifts.total().await.unwrap(), 0);
         assert_eq!(sent.try_recv().unwrap(), request("x", 10));
+        assert!(sent.try_recv().is_err());
     }
 
     #[tokio::test]
-    async fn a_limit_past_i32_max_saturates() {
+    async fn a_zero_limit_sends_nothing() {
         let (client, mut sent) = Client::recording();
-        let _ = client.get_gifts_for_crafting(1).limit(usize::MAX).await;
-        assert_eq!(sent.try_recv().unwrap(), request("", i32::MAX));
+        assert!(client.get_gifts_for_crafting(1).limit(0).await.unwrap().is_empty());
+        assert!(sent.try_recv().is_err());
     }
 }

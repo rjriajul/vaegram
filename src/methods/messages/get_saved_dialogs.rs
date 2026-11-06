@@ -4,7 +4,9 @@ use crate::methods::pages::DialogPages;
 use crate::raw::functions;
 use crate::types::SavedDialog;
 
-/// The dialogs of Saved Messages. Call [`next`](GetSavedDialogs::next) until it returns `None`.
+/// The dialogs of Saved Messages. Awaiting it collects the dialogs into a `Vec`, up to
+/// [`limit`](GetSavedDialogs::limit); [`next`](GetSavedDialogs::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetSavedDialogs<'a> {
     client: &'a Client,
     pages: DialogPages<SavedDialog>,
@@ -45,3 +47,5 @@ impl GetSavedDialogs<'_> {
         }
     }
 }
+
+pager!(GetSavedDialogs, SavedDialog);

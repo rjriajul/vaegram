@@ -36,7 +36,7 @@ async fn mute_until_reads_back() {
 async fn stories_block_list_round_trip() {
     let (Some(user), Some(target)) = (user().await, env_id("VAEGRAM_BLOCK_TEST_USER")) else { return };
     user.block_user(target).block_list(BlockList::Stories).await.unwrap();
-    let blocked = user.get_blocked_message_senders(0, 100).block_list(BlockList::Stories).await;
+    let blocked = user.get_blocked_message_senders().block_list(BlockList::Stories).await;
     user.unblock_user(target).block_list(BlockList::Stories).await.unwrap();
     assert!(blocked.unwrap().iter().any(|chat| chat.id == target));
 }

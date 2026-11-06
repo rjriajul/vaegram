@@ -5,7 +5,9 @@ use crate::types::{Message, PeerRef};
 
 use super::pages::Pages;
 
-/// Messages of Saved Messages from one source chat. Call [`next`](GetSavedHistory::next) until it returns `None`.
+/// Messages of Saved Messages from one source chat. Awaiting it collects the messages into a `Vec`, up to
+/// [`limit`](GetSavedHistory::limit); [`next`](GetSavedHistory::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetSavedHistory<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -93,6 +95,8 @@ impl<'a> GetSavedHistory<'a> {
         }
     }
 }
+
+pager!(GetSavedHistory, Message);
 
 #[cfg(test)]
 mod tests {

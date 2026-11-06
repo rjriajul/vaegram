@@ -4,8 +4,9 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
-#[must_use = "call .next() to fetch messages"]
-/// Pages through the replies to a message, newest first. Call [`next`](GetDiscussionReplies::next) for each reply.
+/// Replies to a message, newest first. Awaiting it collects the replies into a `Vec`, up to
+/// [`limit`](GetDiscussionReplies::limit); [`next`](GetDiscussionReplies::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetDiscussionReplies<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -21,7 +22,7 @@ impl Client {
 }
 
 impl GetDiscussionReplies<'_> {
-    /// Stops after this many replies.
+    /// Stops after this many replies. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
@@ -53,3 +54,5 @@ impl GetDiscussionReplies<'_> {
         }
     }
 }
+
+pager!(GetDiscussionReplies, Message);

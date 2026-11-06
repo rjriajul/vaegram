@@ -7,8 +7,9 @@ use crate::types::{UniqueGift, UpgradedGiftAttributeId};
 
 /// Listing of unique gifts for sale, built by [`Client::search_gifts_for_resale`].
 ///
-/// Read it with [`next`](SearchGiftsForResale::next).
-#[must_use = "a search does nothing until `next` is called"]
+/// Awaiting it collects the gifts into a `Vec`, up to [`limit`](SearchGiftsForResale::limit);
+/// [`next`](SearchGiftsForResale::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct SearchGiftsForResale<'a> {
     client: &'a Client,
     request: functions::payments::GetResaleStarGifts,
@@ -65,7 +66,7 @@ impl SearchGiftsForResale<'_> {
         self
     }
 
-    /// Stops after this many gifts in total.
+    /// Stops after this many gifts in total. The default reads every match.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
@@ -95,6 +96,8 @@ impl SearchGiftsForResale<'_> {
         }
     }
 }
+
+pager!(SearchGiftsForResale, UniqueGift);
 
 #[cfg(test)]
 mod tests {

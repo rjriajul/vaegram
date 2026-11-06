@@ -4,8 +4,9 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
-/// Pages through messages with unseen reactions. Call [`next`](GetUnreadReactions::next) until it returns `None`.
-#[must_use = "call .next() to fetch messages"]
+/// Messages with unseen reactions. Awaiting it collects the messages into a `Vec`, up to
+/// [`limit`](GetUnreadReactions::limit); [`next`](GetUnreadReactions::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetUnreadReactions<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -57,6 +58,8 @@ impl GetUnreadReactions<'_> {
         }
     }
 }
+
+pager!(GetUnreadReactions, Message);
 
 #[cfg(test)]
 mod tests {
