@@ -32,14 +32,22 @@ where
     })
 }
 
+/// An `Err` a handler or lifecycle hook returned, as [`Client::on_error`] receives it, or
+/// [`ClientEvent::HandlerFailed`](crate::enums::ClientEvent::HandlerFailed) when that isn't set.
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct HandlerError {
+    /// The route of the handler that failed: [`UpdateKind::Raw`] for raw handlers, `Start`, `Stop`, `Connect` or
+    /// `Disconnect` for the hooks.
     pub kind: UpdateKind,
+    /// Bot-API style id of the update's chat. `None` for raw handlers, the hooks and updates without a chat.
     pub chat_id: Option<i64>,
+    /// The error the handler returned.
     pub error: Error,
 }
 
+/// A handler just registered by a `Client::on_*` method: set its group, make it stop later groups, or take its
+/// [`HandlerId`]. It borrows the client; dropping it keeps the handler registered.
 #[derive(Clone, Copy)]
 pub struct HandlerRef<'a> {
     client: &'a Client,

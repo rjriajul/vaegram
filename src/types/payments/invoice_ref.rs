@@ -8,7 +8,12 @@ use crate::types::PeerRef;
 #[non_exhaustive]
 pub enum InvoiceRef {
     /// An invoice in a message.
-    Message { chat_id: PeerRef, message_id: i32 },
+    Message {
+        /// The chat the invoice message is in.
+        chat_id: PeerRef,
+        /// Id of the message holding the invoice.
+        message_id: i32,
+    },
     /// A bare slug or a link to one. Paying fails with `Error::InvalidArgument` if the link has no slug.
     Link(String),
 }

@@ -25,21 +25,61 @@ pub struct ChatEvent {
 #[non_exhaustive]
 pub enum ChatEventAction {
     /// The chat title changed.
-    TitleChanged { old: String, new: String },
+    TitleChanged {
+        /// The title before.
+        old: String,
+        /// The title after.
+        new: String,
+    },
     /// The chat description changed.
-    DescriptionChanged { old: String, new: String },
+    DescriptionChanged {
+        /// The description before; empty if there was none.
+        old: String,
+        /// The description after; empty if it was removed.
+        new: String,
+    },
     /// The chat's public username changed.
-    UsernameChanged { old: String, new: String },
+    UsernameChanged {
+        /// The username before, without `@`; empty if the chat had none.
+        old: String,
+        /// The username after, without `@`; empty if it was removed.
+        new: String,
+    },
     /// The chat photo changed. `None` means no photo.
-    PhotoChanged { old: Option<Photo>, new: Option<Photo> },
+    PhotoChanged {
+        /// The photo before.
+        old: Option<Photo>,
+        /// The photo after.
+        new: Option<Photo>,
+    },
     /// The linked discussion chat changed. `None` means no linked chat.
-    LinkedChatChanged { old: Option<i64>, new: Option<i64> },
+    LinkedChatChanged {
+        /// Bot-API id (`-100…`) of the chat linked before.
+        old: Option<i64>,
+        /// Bot-API id (`-100…`) of the chat linked after.
+        new: Option<i64>,
+    },
     /// The slow mode delay changed, in seconds.
-    SlowModeChanged { old: i32, new: i32 },
+    SlowModeChanged {
+        /// The delay before; 0 means slow mode was off.
+        old: i32,
+        /// The delay after; 0 means slow mode is off.
+        new: i32,
+    },
     /// The auto-delete timer for messages changed, in seconds.
-    HistoryTtlChanged { old: i32, new: i32 },
+    HistoryTtlChanged {
+        /// The timer before; 0 means it was off.
+        old: i32,
+        /// The timer after; 0 means it is off.
+        new: i32,
+    },
     /// The default permissions of members changed.
-    ChatPermissionsChanged { old: ChatPermissions, new: ChatPermissions },
+    ChatPermissionsChanged {
+        /// The permissions before.
+        old: ChatPermissions,
+        /// The permissions after.
+        new: ChatPermissions,
+    },
     /// Inviting users was turned on or off. Holds the new setting.
     InvitesEnabled(bool),
     /// Author signatures on posts were turned on or off. Holds the new setting.
@@ -55,7 +95,12 @@ pub enum ChatEventAction {
     /// A message was unpinned.
     MessageUnpinned(Message),
     /// A message was edited.
-    MessageEdited { old: Box<Message>, new: Box<Message> },
+    MessageEdited {
+        /// The message before the edit.
+        old: Box<Message>,
+        /// The message after the edit.
+        new: Box<Message>,
+    },
     /// A message was deleted. Holds the message as it was.
     MessageDeleted(Message),
     /// A message was sent.
@@ -67,17 +112,42 @@ pub enum ChatEventAction {
     /// A user left the chat.
     MemberLeft,
     /// A user joined through an invite link. The link is empty for a public join-request link.
-    MemberJoinedByLink { invite_link: String, via_chatlist: bool },
+    MemberJoinedByLink {
+        /// The link used; empty for a public join-request link.
+        invite_link: String,
+        /// The link was opened as part of a chat folder link.
+        via_chatlist: bool,
+    },
     /// A user joined after a join request was approved.
-    MemberJoinedByRequest { invite_link: String, approved_by: User },
+    MemberJoinedByRequest {
+        /// The link the request came through; empty for a public join-request link.
+        invite_link: String,
+        /// The admin who approved the request.
+        approved_by: User,
+    },
     /// A user was added to the chat.
     MemberInvited(ChatMember),
     /// A member was banned, unbanned or restricted, or their restrictions changed.
-    MemberPermissionsChanged { old: ChatMember, new: ChatMember },
+    MemberPermissionsChanged {
+        /// The member before the change.
+        old: ChatMember,
+        /// The member after the change.
+        new: ChatMember,
+    },
     /// A member was promoted, demoted, or their administrator rights changed.
-    AdministratorPrivilegesChanged { old: ChatMember, new: ChatMember },
+    AdministratorPrivilegesChanged {
+        /// The member before the change.
+        old: ChatMember,
+        /// The member after the change.
+        new: ChatMember,
+    },
     /// An invite link was edited.
-    InviteLinkEdited { old: String, new: String },
+    InviteLinkEdited {
+        /// The link before the edit.
+        old: String,
+        /// The link after the edit.
+        new: String,
+    },
     /// An invite link was revoked.
     InviteLinkRevoked(String),
     /// An invite link was deleted.

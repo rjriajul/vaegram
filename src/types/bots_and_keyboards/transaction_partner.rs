@@ -61,8 +61,13 @@ pub struct AffiliateInfo {
 pub enum RevenueWithdrawalState {
     /// The withdrawal is still in progress.
     Pending,
-    /// The withdrawal finished. `date` is a Unix timestamp and `url` points to the transaction.
-    Succeeded { date: i32, url: String },
+    /// The withdrawal finished.
+    Succeeded {
+        /// Unix time the withdrawal completed.
+        date: i32,
+        /// Link to the withdrawal's transaction.
+        url: String,
+    },
     /// The withdrawal failed.
     Failed,
 }

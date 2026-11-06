@@ -11,32 +11,55 @@ use crate::types::{InputInvoice, InputRichMessage, Text};
 pub enum InputMessageContent {
     /// A text message.
     Text {
+        /// The message text. Text made straight from a string is parsed with `parse_mode`; a built or parsed
+        /// [`Text`] is sent as it is.
         text: Text,
+        /// How to parse `text`. `None` uses the client's default parse mode.
         parse_mode: Option<ParseMode>,
+        /// Sends no link preview; `preview_url` is then ignored.
         no_webpage: bool,
+        /// Shows the link preview above the text instead of below it.
         invert_media: bool,
+        /// The link to preview instead of the first one in the text. If Telegram can't build its preview, the
+        /// message is sent without one. `None` previews the first link.
         preview_url: Option<String>,
+        /// Asks for a large preview image. Only applies with `preview_url`.
         prefer_large_media: bool,
+        /// Asks for a small preview image. Only applies with `preview_url`.
         prefer_small_media: bool,
     },
     /// A location.
     Location {
+        /// Latitude in degrees.
         latitude: f64,
+        /// Longitude in degrees.
         longitude: f64,
+        /// Radius of uncertainty in meters, 0 to 1500. `None` if unknown.
         horizontal_accuracy: Option<i32>,
+        /// For a live location, how long it can be updated, in seconds: 60 to 86400, or `0x7FFFFFFF` for no end.
+        /// `None` sends a static location.
         live_period: Option<i32>,
+        /// For a live location, the direction the user is moving in degrees, 1 to 360. `None` if unknown.
         heading: Option<i32>,
+        /// For a live location, the distance in meters, 1 to 100000, within which other members are alerted that
+        /// the user is approaching. `None` for no alerts.
         proximity_alert_radius: Option<i32>,
     },
     /// A venue.
     Venue {
+        /// Latitude in degrees.
         latitude: f64,
+        /// Longitude in degrees.
         longitude: f64,
+        /// Name of the venue.
         title: String,
+        /// Address of the venue.
         address: String,
         /// `foursquare` or `gplaces`, matching `venue_id` and `venue_type`.
         provider: String,
+        /// The venue's id in `provider`'s database. Empty if not set.
         venue_id: String,
+        /// The venue's type in `provider`'s terms, such as a Foursquare category. Empty if not set.
         venue_type: String,
     },
     /// A contact.

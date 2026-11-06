@@ -15,11 +15,38 @@ use crate::types::{Document, Photo};
 #[non_exhaustive]
 pub enum InputRichMessage {
     /// HTML source, which refers to files added with [`media`](InputRichMessage::media) by their id.
-    Html { html: String, media: Vec<InputRichMessageMedia>, rtl: bool, no_autolink: bool },
+    Html {
+        /// The HTML source.
+        html: String,
+        /// Files the source refers to by id, in the order they were attached. Empty sends none.
+        media: Vec<InputRichMessageMedia>,
+        /// Lays the message out right to left.
+        rtl: bool,
+        /// Turns Telegram's automatic linking off in the message.
+        no_autolink: bool,
+    },
     /// Markdown source, which refers to files added with [`media`](InputRichMessage::media) by their id.
-    Markdown { markdown: String, media: Vec<InputRichMessageMedia>, rtl: bool, no_autolink: bool },
+    Markdown {
+        /// The Markdown source.
+        markdown: String,
+        /// Files the source refers to by id, in the order they were attached. Empty sends none.
+        media: Vec<InputRichMessageMedia>,
+        /// Lays the message out right to left.
+        rtl: bool,
+        /// Turns Telegram's automatic linking off in the message.
+        no_autolink: bool,
+    },
     /// Blocks built in code. Users mentioned in their text are resolved when the message is sent.
-    Blocks { blocks: Vec<RichBlock>, media: Vec<InputRichMessageMedia>, rtl: bool, no_autolink: bool },
+    Blocks {
+        /// The blocks, in display order.
+        blocks: Vec<RichBlock>,
+        /// Files sent along with the ones the blocks show. Their string ids are dropped.
+        media: Vec<InputRichMessageMedia>,
+        /// Lays the message out right to left.
+        rtl: bool,
+        /// Turns Telegram's automatic linking off in the message.
+        no_autolink: bool,
+    },
 }
 
 /// A photo or document that HTML or Markdown content refers to by id, or that blocks include.

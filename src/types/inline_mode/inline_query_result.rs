@@ -17,14 +17,14 @@ use crate::types::{
 use super::input_message_content::{web_document, web_photo};
 
 macro_rules! results {
-    ($($variant:ident($result:ident) => $kind:literal,)*) => {
+    ($($(#[$doc:meta])* $variant:ident($result:ident) => $kind:literal,)*) => {
         /// One result offered in an answer to an inline query.
         ///
         /// Each variant wraps the `InlineQueryResult*` type of the same name, and each of those converts with `Into`.
         #[derive(Debug, Clone, PartialEq)]
         #[non_exhaustive]
         pub enum InlineQueryResult {
-            $($variant($result),)*
+            $($(#[$doc])* $variant($result),)*
         }
 
         $(impl From<$result> for InlineQueryResult {
@@ -44,25 +44,46 @@ macro_rules! results {
 }
 
 results! {
+    /// A link or other text content, listed by its title: [`InlineQueryResultArticle`].
     Article(InlineQueryResultArticle) => "article",
+    /// A JPEG photo at a URL: [`InlineQueryResultPhoto`].
     Photo(InlineQueryResultPhoto) => "photo",
+    /// A GIF file at a URL: [`InlineQueryResultGif`].
     Gif(InlineQueryResultGif) => "gif",
+    /// A GIF given as an MP4 video at a URL: [`InlineQueryResultMpeg4Gif`].
     Mpeg4Gif(InlineQueryResultMpeg4Gif) => "gif",
+    /// An MP4 video or a page with an embedded player, at a URL: [`InlineQueryResultVideo`].
     Video(InlineQueryResultVideo) => "video",
+    /// An MP3 file at a URL: [`InlineQueryResultAudio`].
     Audio(InlineQueryResultAudio) => "audio",
+    /// A voice recording in an OGG file at a URL: [`InlineQueryResultVoice`].
     Voice(InlineQueryResultVoice) => "voice",
+    /// A ZIP or PDF file at a URL: [`InlineQueryResultDocument`].
     Document(InlineQueryResultDocument) => "file",
+    /// A location on a map: [`InlineQueryResultLocation`].
     Location(InlineQueryResultLocation) => "geo",
+    /// A venue: [`InlineQueryResultVenue`].
     Venue(InlineQueryResultVenue) => "venue",
+    /// A contact: [`InlineQueryResultContact`].
     Contact(InlineQueryResultContact) => "contact",
+    /// A game registered with @BotFather: [`InlineQueryResultGame`].
     Game(InlineQueryResultGame) => "game",
+    /// A photo already on Telegram's servers: [`InlineQueryResultCachedPhoto`].
     CachedPhoto(InlineQueryResultCachedPhoto) => "photo",
+    /// An animation already on Telegram's servers, sent as a GIF: [`InlineQueryResultCachedGif`].
     CachedGif(InlineQueryResultCachedGif) => "gif",
+    /// An animation already on Telegram's servers, sent as an MPEG-4 animation:
+    /// [`InlineQueryResultCachedMpeg4Gif`].
     CachedMpeg4Gif(InlineQueryResultCachedMpeg4Gif) => "gif",
+    /// A sticker already on Telegram's servers: [`InlineQueryResultCachedSticker`].
     CachedSticker(InlineQueryResultCachedSticker) => "sticker",
+    /// A document already on Telegram's servers: [`InlineQueryResultCachedDocument`].
     CachedDocument(InlineQueryResultCachedDocument) => "file",
+    /// A video already on Telegram's servers: [`InlineQueryResultCachedVideo`].
     CachedVideo(InlineQueryResultCachedVideo) => "video",
+    /// A voice note already on Telegram's servers: [`InlineQueryResultCachedVoice`].
     CachedVoice(InlineQueryResultCachedVoice) => "voice",
+    /// An audio file already on Telegram's servers: [`InlineQueryResultCachedAudio`].
     CachedAudio(InlineQueryResultCachedAudio) => "audio",
 }
 

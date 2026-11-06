@@ -6,23 +6,88 @@ use crate::raw::{base, types};
 #[non_exhaustive]
 pub enum PassportElementError {
     /// A problem in one field of the element's data.
-    DataField { kind: PassportElementType, field_name: String, data_hash: Vec<u8>, message: String },
+    DataField {
+        /// The Passport section that has the error.
+        kind: PassportElementType,
+        /// Name of the data field that has the error.
+        field_name: String,
+        /// Hash of the field's encrypted data, from the Passport credentials.
+        data_hash: Vec<u8>,
+        /// The error message shown to the user.
+        message: String,
+    },
     /// A problem with the front side of a document.
-    FrontSide { kind: PassportElementType, file_hash: Vec<u8>, message: String },
+    FrontSide {
+        /// The Passport section that has the error.
+        kind: PassportElementType,
+        /// Hash of the encrypted file with the front side.
+        file_hash: Vec<u8>,
+        /// The error message shown to the user.
+        message: String,
+    },
     /// A problem with the reverse side of a document.
-    ReverseSide { kind: PassportElementType, file_hash: Vec<u8>, message: String },
+    ReverseSide {
+        /// The Passport section that has the error.
+        kind: PassportElementType,
+        /// Hash of the encrypted file with the reverse side.
+        file_hash: Vec<u8>,
+        /// The error message shown to the user.
+        message: String,
+    },
     /// A problem with the selfie of the user holding the document.
-    Selfie { kind: PassportElementType, file_hash: Vec<u8>, message: String },
+    Selfie {
+        /// The Passport section that has the error.
+        kind: PassportElementType,
+        /// Hash of the encrypted file with the selfie.
+        file_hash: Vec<u8>,
+        /// The error message shown to the user.
+        message: String,
+    },
     /// A problem with one uploaded file of the element.
-    File { kind: PassportElementType, file_hash: Vec<u8>, message: String },
+    File {
+        /// The Passport section that has the error.
+        kind: PassportElementType,
+        /// Hash of the encrypted file.
+        file_hash: Vec<u8>,
+        /// The error message shown to the user.
+        message: String,
+    },
     /// A problem with a list of uploaded files.
-    Files { kind: PassportElementType, file_hashes: Vec<Vec<u8>>, message: String },
+    Files {
+        /// The Passport section that has the error.
+        kind: PassportElementType,
+        /// Hashes of the encrypted files.
+        file_hashes: Vec<Vec<u8>>,
+        /// The error message shown to the user.
+        message: String,
+    },
     /// A problem with one translation of the document.
-    TranslationFile { kind: PassportElementType, file_hash: Vec<u8>, message: String },
+    TranslationFile {
+        /// The Passport section that has the error.
+        kind: PassportElementType,
+        /// Hash of the encrypted translation file.
+        file_hash: Vec<u8>,
+        /// The error message shown to the user.
+        message: String,
+    },
     /// A problem with a list of translation files.
-    TranslationFiles { kind: PassportElementType, file_hashes: Vec<Vec<u8>>, message: String },
+    TranslationFiles {
+        /// The Passport section that has the error.
+        kind: PassportElementType,
+        /// Hashes of the encrypted translation files.
+        file_hashes: Vec<Vec<u8>>,
+        /// The error message shown to the user.
+        message: String,
+    },
     /// A problem with the element as a whole.
-    Unspecified { kind: PassportElementType, element_hash: Vec<u8>, message: String },
+    Unspecified {
+        /// The Passport section that has the error.
+        kind: PassportElementType,
+        /// Hash of the whole element.
+        element_hash: Vec<u8>,
+        /// The error message shown to the user.
+        message: String,
+    },
 }
 
 impl PassportElementError {

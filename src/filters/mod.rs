@@ -17,6 +17,8 @@ pub use subjects::{HasChat, HasData, HasMedia, HasSender, HasText, Subject};
 use crate::enums::{ChatType, MediaKind, ServiceKind};
 use crate::types::Message;
 
+/// A test a `T` update passes or fails, given to a `Client::on_*` registration. Combine filters with `&`, `|` and
+/// `!`. Built-in filters are decided before the update is parsed; a [`create`] closure needs the parsed update.
 pub struct Filter<T = Message>(Pred<T>);
 
 impl<T> Clone for Filter<T> {
@@ -26,6 +28,7 @@ impl<T> Clone for Filter<T> {
 }
 
 impl<T: Subject + Inspect> Filter<T> {
+    /// Tests `item` outside a handler, the way dispatch would, against the account the client knows itself as.
     pub fn check(&self, item: &T) -> bool {
         let me = item.client().0.me.lock().unwrap().clone();
         self.eval(&item.facts(&me), item)
@@ -104,6 +107,7 @@ impl From<Vec<i64>> for Ids {
 /// Command names for `command`: `"start"` or `["ban", "kick"]`. `command` and `command_with` match them without
 /// case, in any script; `command_case_sensitive` needs the exact case.
 pub trait CommandNames {
+    /// The names, in the form a command filter keeps them.
     fn names(self) -> Box<[Box<str>]>;
 }
 
@@ -137,6 +141,7 @@ impl CommandNames for Vec<String> {
     }
 }
 
+/// Passes every update; for a handler that wants them all.
 pub fn all<T: Subject>() -> Filter<T> {
     Filter(Pred::All)
 }
@@ -160,6 +165,7 @@ pub fn text<T: HasText>() -> Filter<T> {
     flags(facts::TEXT)
 }
 
+/// Text that captions media. A link preview isn't media here: text with one is [`text`].
 pub fn caption<T: HasMedia>() -> Filter<T> {
     flags(facts::CAPTION)
 }
@@ -169,6 +175,11 @@ pub fn command<T: HasText>(names: impl CommandNames) -> Filter<T> {
     command_with("/", names)
 }
 
+/// Like [`command`], but any character of `prefixes` starts a command: `"/!"` takes `/start` and `!start`.
+///
+/// # Panics
+///
+/// If `prefixes` is empty.
 pub fn command_with<T: HasText>(prefixes: &str, names: impl CommandNames) -> Filter<T> {
     command_filter(prefixes, names, false)
 }
@@ -183,10 +194,12 @@ fn command_filter<T: HasText>(prefixes: &str, names: impl CommandNames, case_sen
     Filter(Pred::Commands { prefixes: prefixes.into(), names: names.names(), case_sensitive })
 }
 
+/// Text, caption or inline query that starts with `prefix`, compared case-sensitively.
 pub fn text_starts_with<T: HasText>(prefix: &str) -> Filter<T> {
     Filter(Pred::TextPrefix(prefix.into()))
 }
 
+/// Any media except a link preview, including media of a kind vaegram doesn't know.
 pub fn media<T: HasMedia>() -> Filter<T> {
     Filter(Pred::Media(!(1 << MediaKind::WebPage as u8)))
 }
@@ -201,15 +214,50 @@ macro_rules! media_filters {
 }
 
 media_filters! {
-    photo => Photo, video => Video, animation => Animation, audio => Audio, voice => Voice, video_note => VideoNote,
-    document => Document, sticker => Sticker, live_photo => LivePhoto, contact => Contact, location => Location,
-    venue => Venue, dice => Dice, poll => Poll, game => Game, invoice => Invoice, checklist => Checklist,
+    /// A photo.
+    photo => Photo,
+    /// A video; animations and round video notes don't count.
+    video => Video,
+    /// An animation, such as a GIF.
+    animation => Animation,
+    /// An audio file, such as music; voice notes don't count.
+    audio => Audio,
+    /// A voice note.
+    voice => Voice,
+    /// A round video message.
+    video_note => VideoNote,
+    /// A file that is none of the other media kinds.
+    document => Document,
+    /// A sticker.
+    sticker => Sticker,
+    /// A live photo.
+    live_photo => LivePhoto,
+    /// A shared contact.
+    contact => Contact,
+    /// A location, live or not; a venue doesn't count.
+    location => Location,
+    /// A venue: a location with a title and address.
+    venue => Venue,
+    /// A dice or another animated emoji that lands on a random result.
+    dice => Dice,
+    /// A poll.
+    poll => Poll,
+    /// A game.
+    game => Game,
+    /// An invoice.
+    invoice => Invoice,
+    /// A checklist.
+    checklist => Checklist,
+    /// A forwarded story.
     story => Story,
     /// A giveaway announcement only; its results are `giveaway_winners`.
     giveaway => Giveaway,
     /// The results of a giveaway only; the announcement is `giveaway`.
     giveaway_winners => GiveawayWinners,
-    paid_media => PaidMedia, web_page => WebPage,
+    /// Media bought with Stars.
+    paid_media => PaidMedia,
+    /// A link preview with no other media; [`media`] leaves these out.
+    web_page => WebPage,
 }
 
 macro_rules! flag_filters {
@@ -222,20 +270,30 @@ macro_rules! flag_filters {
 }
 
 flag_filters! {
+    /// A reply to another message. Pointing only at a forum topic's root, or a pin's header, doesn't count.
     reply: HasMedia => REPLY,
+    /// Forwarded from another chat or user.
     forwarded: HasMedia => FORWARDED,
+    /// Sent through an inline bot.
     via_bot: HasMedia => VIA_BOT,
+    /// Mentions this account, as Telegram's `mentioned` flag says.
     mentioned: HasMedia => MENTIONED,
     /// Sent by the server at a time the sender had scheduled.
     from_scheduled: HasMedia => FROM_SCHEDULED,
     /// Not sent yet: it waits for its date, as `get_scheduled_messages` returns it. Messages that reach handlers are
     /// never in this state, so this only tells apart the parsed messages you fetched yourself.
     scheduled: HasMedia => SCHEDULED,
+    /// Protected content: it can't be forwarded or saved.
     protected: HasMedia => PROTECTED,
+    /// Part of an album.
     media_group: HasMedia => MEDIA_GROUP,
+    /// A service message, such as a member joining or a pin. Narrow it with [`service_kind`].
     service: HasMedia => SERVICE,
+    /// Sent by this account. Updates that aren't messages never are.
     outgoing: HasChat => OUTGOING,
+    /// Sent or done by this account.
     me: HasSender => SENDER_ME,
+    /// Sent or done by a bot.
     bot: HasSender => SENDER_BOT,
     /// Sent by a chat rather than a user: a channel post, an anonymous admin, or a chat reacting or voting.
     sender_chat: HasSender => SENDER_CHAT,
@@ -263,16 +321,19 @@ flag_filters! {
     admin: HasChat => ADMIN,
 }
 
+/// Not sent by this account: the exact opposite of [`outgoing`].
 pub fn incoming<T: HasChat>() -> Filter<T> {
     Filter(Pred::Flags { set: 0, clear: facts::OUTGOING })
 }
 
+/// In the forum topic whose root message is `id`, including the message that created it.
 pub fn topic<T: HasMedia>(id: i32) -> Filter<T> {
     flags(facts::TOPIC) & Filter(Pred::Thread(id))
 }
 
 const _: () = assert!(ServiceKind::Unknown as u32 <= 127);
 
+/// A service message of one of `kinds`.
 pub fn service_kind<T: HasMedia>(kinds: impl IntoIterator<Item = ServiceKind>) -> Filter<T> {
     Filter(Pred::Service(kinds.into_iter().fold(0u128, |mask, k| mask | 1 << k as u8)))
 }
@@ -346,6 +407,7 @@ pub fn gift_offer_rejected<T: HasMedia>() -> Filter<T> {
         | service_kind([ServiceKind::UpgradedGiftPurchaseOfferRejected])
 }
 
+/// Private chats, with people or bots; [`direct`] leaves bots out.
 pub fn private<T: HasChat>() -> Filter<T> {
     chat_kinds(&[ChatType::Private, ChatType::Bot])
 }
@@ -355,30 +417,39 @@ pub fn direct<T: HasChat>() -> Filter<T> {
     chat_kinds(&[ChatType::Private])
 }
 
+/// Basic groups and supergroups.
 pub fn group<T: HasChat>() -> Filter<T> {
     chat_kinds(&[ChatType::Group, ChatType::Supergroup])
 }
 
+/// Supergroups only, forums included; basic groups don't count.
 pub fn supergroup<T: HasChat>() -> Filter<T> {
     chat_kinds(&[ChatType::Supergroup])
 }
 
+/// Broadcast channels; supergroups don't count.
 pub fn channel<T: HasChat>() -> Filter<T> {
     chat_kinds(&[ChatType::Channel])
 }
 
+/// In one of these chats, by Bot-API id: positive for users, negative for basic groups, `-100…` for channels and
+/// supergroups.
 pub fn chat<T: HasChat>(ids: impl Into<Ids>) -> Filter<T> {
     Filter(Pred::Chats(ids.into().0))
 }
 
+/// Sent or done by one of these users. A chat acting as itself, such as a channel or an anonymous admin, matches
+/// its Bot-API chat id.
 pub fn user<T: HasSender>(ids: impl Into<Ids>) -> Filter<T> {
     Filter(Pred::Users(ids.into().0))
 }
 
+/// Callback data equal to `value`, byte for byte.
 pub fn data<T: HasData>(value: impl AsRef<[u8]>) -> Filter<T> {
     Filter(Pred::Data(value.as_ref().into()))
 }
 
+/// Callback data that starts with `prefix`.
 pub fn data_prefix<T: HasData>(prefix: impl AsRef<[u8]>) -> Filter<T> {
     Filter(Pred::DataPrefix(prefix.as_ref().into()))
 }
