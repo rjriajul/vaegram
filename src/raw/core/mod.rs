@@ -1,5 +1,6 @@
 //! The TL runtime under the generated types: the traits that write and read them, the error a read fails with,
 //! and the two MTProto wrappers a session unpacks itself.
+#![warn(missing_docs)]
 
 /// `gzip_packed`, the wrapper Telegram compresses big answers in.
 pub mod gzip_packed;

@@ -43,6 +43,8 @@
 //! - Transports over TLS: `websocket` (`ClientBuilder::websocket`), `dns-config` (`ClientBuilder::dns_fallback`
 //!   to Telegram's DNS config) and `web-proxy` (`Proxy::Web`, an MTProxy behind an HTTPS relay).
 
+#![warn(missing_docs)]
+
 /// [`Client`] and its [`ClientBuilder`].
 pub mod client;
 /// The transport under a session: framing, obfuscation, proxies, and the connection settings in
