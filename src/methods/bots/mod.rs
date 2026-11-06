@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn managed_bots_take_any_peer_and_open_access_by_default() {
+    async fn managed_bots_take_any_peer() {
         let (client, mut rx) = recording();
         let rx = &mut rx;
         let bot = || input_user(BOT);
@@ -310,9 +310,9 @@ mod tests {
         let body = sent(rx, client.get_managed_bot_access_settings(BOT)).await;
         assert_eq!(body, functions::bots::GetAccessSettings { bot: bot() }.to_bytes());
 
-        let body = sent(rx, client.set_managed_bot_access_settings(BOT)).await;
-        let open = functions::bots::EditAccessSettings { restricted: false, bot: bot(), add_users: None };
-        assert_eq!(body, open.to_bytes());
+        let body = sent(rx, client.set_managed_bot_access_settings(BOT).allow_everyone()).await;
+        let everyone = functions::bots::EditAccessSettings { restricted: false, bot: bot(), add_users: None };
+        assert_eq!(body, everyone.to_bytes());
         let body = sent(rx, client.set_managed_bot_access_settings(BOT).restrict_to([USER])).await;
         let restricted = functions::bots::EditAccessSettings {
             restricted: true,
@@ -320,10 +320,18 @@ mod tests {
             add_users: Some(vec![input_user(USER)]),
         };
         assert_eq!(body, restricted.to_bytes());
-        let body = sent(rx, client.set_managed_bot_access_settings(BOT).restrict_to(std::iter::empty::<i64>())).await;
+        let body = sent(rx, client.set_managed_bot_access_settings(BOT).restrict_to_owner()).await;
         let owner_only =
             functions::bots::EditAccessSettings { restricted: true, bot: bot(), add_users: Some(Vec::new()) };
         assert_eq!(body, owner_only.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn access_settings_with_no_mode_are_refused_without_a_request() {
+        let (client, mut rx) = recording();
+        let unset = client.set_managed_bot_access_settings(BOT).await;
+        assert!(matches!(unset, Err(crate::errors::Error::InvalidArgument(_))));
+        assert!(rx.try_recv().is_err());
     }
 
     #[tokio::test]

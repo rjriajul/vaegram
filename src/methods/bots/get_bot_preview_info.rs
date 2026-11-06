@@ -15,7 +15,8 @@ impl Client {
     /// Returns your bot's default preview media, shown in languages without previews of their own, and the
     /// languages that have previews.
     ///
-    /// [`language_code`](GetBotPreviewInfo::language_code) returns one language's previews instead.
+    /// [`language_code`](GetBotPreviewInfo::language_code) returns one language's previews instead. For a bot you
+    /// don't own, Telegram returns only the previews for the current account's language and no `lang_codes`.
     pub fn get_bot_preview_info(&self, bot_id: impl Into<PeerRef>) -> GetBotPreviewInfo<'_> {
         GetBotPreviewInfo { client: self, bot_id: bot_id.into(), language_code: String::new() }
     }

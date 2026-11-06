@@ -1,5 +1,5 @@
 use crate::Client;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::PeerRef;
@@ -9,30 +9,59 @@ use crate::types::PeerRef;
 pub struct SetManagedBotAccessSettings<'a> {
     client: &'a Client,
     bot_id: PeerRef,
-    restricted_to: Option<Vec<PeerRef>>,
+    access: Option<Access>,
+}
+
+/// Who may use the bot.
+enum Access {
+    Everyone,
+    /// The owner and these users; empty for the owner alone.
+    Only(Vec<PeerRef>),
 }
 
 impl Client {
-    /// Lets everyone use a bot you manage.
+    /// Sets who can use a bot you manage.
     ///
-    /// [`restrict_to`](SetManagedBotAccessSettings::restrict_to) limits it to chosen users instead.
+    /// Pick exactly one of [`allow_everyone`](SetManagedBotAccessSettings::allow_everyone),
+    /// [`restrict_to`](SetManagedBotAccessSettings::restrict_to) and
+    /// [`restrict_to_owner`](SetManagedBotAccessSettings::restrict_to_owner); the last one called wins. Awaiting the
+    /// request with none of them fails with `Error::InvalidArgument` before anything is sent.
     pub fn set_managed_bot_access_settings(&self, bot_id: impl Into<PeerRef>) -> SetManagedBotAccessSettings<'_> {
-        SetManagedBotAccessSettings { client: self, bot_id: bot_id.into(), restricted_to: None }
+        SetManagedBotAccessSettings { client: self, bot_id: bot_id.into(), access: None }
     }
 }
 
 impl SetManagedBotAccessSettings<'_> {
-    /// Restricts access to the bot: besides its owner, only these users may use it.
-    pub fn restrict_to(mut self, user_ids: impl IntoIterator<Item = impl Into<PeerRef>>) -> Self {
-        self.restricted_to = Some(user_ids.into_iter().map(Into::into).collect());
+    /// Lets everyone use the bot.
+    pub fn allow_everyone(mut self) -> Self {
+        self.access = Some(Access::Everyone);
+        self
+    }
+
+    /// Restricts the bot to its owner and these users, at most 10 besides the owner.
+    ///
+    /// The list replaces the current one: users left out lose access.
+    pub fn restrict_to(mut self, users: impl IntoIterator<Item = impl Into<PeerRef>>) -> Self {
+        self.access = Some(Access::Only(users.into_iter().map(Into::into).collect()));
+        self
+    }
+
+    /// Restricts the bot to its owner alone, removing every other user from its access list.
+    pub fn restrict_to_owner(mut self) -> Self {
+        self.access = Some(Access::Only(Vec::new()));
         self
     }
 
     async fn send(self) -> Result<()> {
+        let Some(access) = self.access else {
+            return Err(Error::InvalidArgument(
+                "set_managed_bot_access_settings needs allow_everyone, restrict_to or restrict_to_owner",
+            ));
+        };
         let bot = self.client.resolve_user(&self.bot_id).await?;
-        let add_users = match self.restricted_to {
-            Some(users) => Some(self.client.resolve_users(users).await?),
-            None => None,
+        let add_users = match access {
+            Access::Only(users) => Some(self.client.resolve_users(users).await?),
+            Access::Everyone => None,
         };
         let request = functions::bots::EditAccessSettings { restricted: add_users.is_some(), bot, add_users };
         accepted(self.client.invoke(&request).await?)

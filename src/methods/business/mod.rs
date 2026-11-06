@@ -206,8 +206,11 @@ mod tests {
     async fn gift_settings_change_only_what_is_set() {
         let current = privacy(true, None);
         let no_unique = AcceptedGiftTypes::new().unique_gifts(false);
-        let cases =
-            [(Some(false), None, privacy(false, None)), (None, Some(no_unique), privacy(true, Some(no_unique)))];
+        let cases = [
+            (Some(false), None, privacy(false, None)),
+            (None, Some(no_unique), privacy(true, Some(no_unique))),
+            (Some(false), Some(no_unique), privacy(false, Some(no_unique))),
+        ];
         for (show_gift_button, accepted, settings) in cases {
             let (client, mut rx) = Client::scripted(vec![Ok(current.to_bytes())]);
             let mut request = client.set_business_account_gift_settings("c");
