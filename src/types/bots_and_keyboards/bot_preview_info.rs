@@ -4,6 +4,7 @@ use crate::types::BotPreviewMedia;
 
 /// The preview media of a bot's profile page.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct BotPreviewInfo {
     /// The preview items.
     pub media: Vec<BotPreviewMedia>,

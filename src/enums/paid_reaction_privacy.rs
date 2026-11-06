@@ -3,6 +3,7 @@ use crate::types::PeerRef;
 
 /// How a paid reaction is shown in the top reactors of a message.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum PaidReactionPrivacy {
     /// Shown under the account's own name and photo.
     Default,

@@ -4,6 +4,7 @@ use crate::raw::{base, types};
 ///
 /// A field is `true` when the right is granted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BusinessBotRights {
     /// Send messages in the chats it handles.
     pub can_reply: bool,

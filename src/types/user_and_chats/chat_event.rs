@@ -6,6 +6,7 @@ use crate::utils::get_channel_id;
 
 /// An entry in a chat's admin log.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ChatEvent {
     /// Id of the log entry, unique within the chat's log.
     pub id: i64,
@@ -86,13 +87,18 @@ pub enum ChatEventAction {
     /// A video chat was ended.
     VideoChatEnded,
     /// An action vaegram doesn't map, or one whose message failed to parse.
-    Unknown,
+    #[non_exhaustive]
+    Unknown {
+        /// TL constructor id of the admin log action, for logging.
+        constructor_id: u32,
+    },
 }
 
 impl ChatEvent {
     pub(crate) fn parse(client: &Client, raw: base::ChannelAdminLogEvent, entities: &Entities) -> ChatEvent {
         let base::ChannelAdminLogEvent::ChannelAdminLogEvent(raw) = raw;
-        let action = ChatEventAction::parse(client, &raw.action, entities).unwrap_or(ChatEventAction::Unknown);
+        let action = ChatEventAction::parse(client, &raw.action, entities)
+            .unwrap_or(ChatEventAction::Unknown { constructor_id: raw.action.constructor_id() });
         ChatEvent { id: raw.id, date: raw.date, user: User::parse(raw.user_id, entities), action }
     }
 }
@@ -232,7 +238,7 @@ mod tests {
             ChatEventAction::MemberPermissionsChanged { new, .. } if new.user.id == 9
         ));
         assert!(matches!(event(A::ChannelAdminLogEventActionParticipantJoin), ChatEventAction::MemberJoined));
-        assert!(matches!(event(anti_spam), ChatEventAction::Unknown));
-        assert!(matches!(event(deleted), ChatEventAction::Unknown));
+        assert!(matches!(event(anti_spam), ChatEventAction::Unknown { constructor_id: 0x64f3_6dfc }));
+        assert!(matches!(event(deleted), ChatEventAction::Unknown { constructor_id: 0x42e0_47bb }));
     }
 }

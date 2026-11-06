@@ -4,6 +4,7 @@ use crate::types::{StarAmount, TransactionPartner};
 
 /// One Stars transaction.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct StarTransaction {
     /// Telegram's id for the transaction.
     pub id: String,
@@ -32,6 +33,7 @@ impl StarTransaction {
 
 /// A page of Stars transactions.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct StarTransactions {
     /// The transactions on this page.
     pub transactions: Vec<StarTransaction>,

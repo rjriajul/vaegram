@@ -1,5 +1,6 @@
 /// Where an offer to buy someone's upgraded gift stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum GiftPurchaseOfferState {
     /// Neither accepted nor declined yet.
     Pending,

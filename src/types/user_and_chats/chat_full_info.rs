@@ -13,6 +13,7 @@ use crate::utils::{get_channel_id, get_peer};
 /// Users and bots, basic groups, and supergroups and channels each fill a different set of fields. Fields a
 /// chat kind doesn't have stay `None` or `false`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChatFullInfo {
     // Every chat.
     /// Id of the latest pinned message. `None` if nothing is pinned.

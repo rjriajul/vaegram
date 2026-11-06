@@ -22,6 +22,7 @@ pub struct Checklist {
 
 /// One task of a [`Checklist`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChecklistTask {
     /// Id of the task, unique within its checklist.
     pub id: i32,

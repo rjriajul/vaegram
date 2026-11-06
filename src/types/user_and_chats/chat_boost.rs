@@ -5,6 +5,7 @@ use crate::types::{Chat, User};
 
 /// A boost applied to a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChatBoost {
     /// Telegram's id for the boost.
     pub boost_id: String,

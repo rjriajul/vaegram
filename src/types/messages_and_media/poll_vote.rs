@@ -3,6 +3,7 @@ use crate::utils::get_peer_id;
 
 /// One voter's choice in a poll.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PollVote {
     /// Id of the user or chat that voted.
     pub voter_id: i64,

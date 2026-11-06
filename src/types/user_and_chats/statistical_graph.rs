@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A chart from the statistics pages.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum StatisticalGraph {
     /// The chart data as JSON, as Telegram sends it. `zoom_token` loads a zoomed view when set.
     Data { json: String, zoom_token: Option<String> },
@@ -14,6 +15,7 @@ pub enum StatisticalGraph {
 
 /// A statistic with its value in the previous period.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[non_exhaustive]
 pub struct StatisticalValue {
     /// The value in the current period.
     pub value: f64,

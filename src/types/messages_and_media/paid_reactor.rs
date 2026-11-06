@@ -4,6 +4,7 @@ use crate::types::Chat;
 
 /// One of the top senders of paid (Star) reactions on a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PaidReactor {
     /// Who sent the Stars; `None` when they reacted anonymously.
     pub sender: Option<Chat>,

@@ -216,6 +216,7 @@ impl Story {
 
 /// A user who viewed a story.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct StoryViewer {
     /// The user who viewed the story.
     pub user: User,

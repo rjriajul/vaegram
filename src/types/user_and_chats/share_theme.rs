@@ -5,6 +5,7 @@ use crate::types::{ReactionType, UniqueGift};
 /// The theme a chat's share card uses. A chat on the default theme has none.
 /// Only [`Client::get_chat`](crate::Client::get_chat) fills it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ShareTheme {
     /// Id of a [`ShareThemeBackdrop`](crate::types::ShareThemeBackdrop). `None` for a theme made from a gift
     /// or an emoji theme without a backdrop.

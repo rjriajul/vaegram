@@ -2,6 +2,7 @@
 ///
 /// A mini app can share it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PreparedInlineMessage {
     /// Id of the prepared message.
     pub id: String,

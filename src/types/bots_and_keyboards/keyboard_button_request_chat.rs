@@ -3,6 +3,7 @@ use crate::types::ChatPrivileges;
 
 /// Asks the user to pick a group or channel. It arrives as `ServiceAction::ChatShared` carrying `request_id`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct KeyboardButtonRequestChat {
     /// Identifies the request in the [`ChatShared`](crate::types::ChatShared) that comes back.
     pub request_id: i32,

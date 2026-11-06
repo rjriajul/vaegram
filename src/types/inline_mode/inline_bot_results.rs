@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// One page of results returned by a bot for an inline query.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct InlineBotResults {
     /// Id of the query these results answer.
     pub query_id: i64,
@@ -15,6 +16,7 @@ pub struct InlineBotResults {
 
 /// A single result in [`InlineBotResults`], reduced to its listing fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct InlineBotResult {
     /// Id of the result, as the bot set it.
     pub id: String,

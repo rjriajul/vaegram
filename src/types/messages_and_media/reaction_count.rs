@@ -3,6 +3,7 @@ use crate::types::ReactionType;
 
 /// How many times one reaction was used on a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ReactionCount {
     /// The reaction being counted.
     pub kind: ReactionType,

@@ -5,6 +5,7 @@ use crate::types::User;
 
 /// Who may use a bot.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BotAccessSettings {
     /// Access to the bot is restricted.
     pub is_access_restricted: bool,

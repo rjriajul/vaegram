@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// Asks the user to pick users. They arrive as `ServiceAction::UsersShared` carrying `request_id`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct KeyboardButtonRequestUsers {
     /// Identifies the request in the `ServiceAction::UsersShared` that comes back.
     pub request_id: i32,

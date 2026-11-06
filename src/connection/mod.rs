@@ -87,6 +87,7 @@ impl std::fmt::Debug for dyn ConnectionFactory {
 }
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Options {
     pub transport: Transport,
     pub obfuscated: bool,

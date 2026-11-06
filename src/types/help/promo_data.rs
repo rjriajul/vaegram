@@ -4,6 +4,7 @@ use crate::types::Chat;
 
 /// A sponsored chat or public service announcement Telegram promotes in the chat list.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PromoData {
     /// The promoted chat. `None` if Telegram sent no peer.
     pub chat: Option<Chat>,
@@ -27,6 +28,7 @@ pub struct PromoData {
 ///
 /// Title and description arrive as formatted text. Only the plain text is kept.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PendingSuggestion {
     /// Id of the suggestion.
     pub suggestion: String,

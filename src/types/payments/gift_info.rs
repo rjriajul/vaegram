@@ -7,6 +7,7 @@ use crate::utils::get_peer_id;
 
 /// A regular gift sent or received in a chat, taken from a service message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GiftInfo {
     /// The gift.
     pub gift: Gift,
@@ -55,6 +56,7 @@ pub struct GiftInfo {
 
 /// A unique gift sent, received or changed, taken from a service message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct UniqueGiftInfo {
     /// The unique gift.
     pub gift: UniqueGift,

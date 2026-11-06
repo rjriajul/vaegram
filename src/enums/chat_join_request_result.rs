@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// How a bot answers a chat join request query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ChatJoinRequestResult {
     /// Lets the user in.
     Approve,

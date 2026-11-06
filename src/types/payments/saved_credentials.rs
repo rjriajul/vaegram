@@ -2,6 +2,7 @@
 ///
 /// Pay with it through [`InputCredentials::saved`](crate::types::InputCredentials::saved).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SavedCredentials {
     /// Id to pass as `saved_credentials_id` to `InputCredentials::saved`.
     pub id: String,

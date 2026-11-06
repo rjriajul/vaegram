@@ -1,5 +1,6 @@
 /// A contact to import by phone number.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct InputPhoneContact {
     /// The phone number, in international format.
     pub phone_number: String,

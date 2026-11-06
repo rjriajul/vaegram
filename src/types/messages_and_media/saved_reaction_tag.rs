@@ -3,6 +3,7 @@ use crate::types::ReactionType;
 
 /// A reaction the account saved as a tag for its messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SavedReactionTag {
     /// The reaction used as the tag.
     pub reaction: ReactionType,

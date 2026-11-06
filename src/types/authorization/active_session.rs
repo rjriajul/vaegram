@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// A device or app that is logged in to the account.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ActiveSession {
     /// Authorization hash that identifies the session. Pass it to `terminate_session` to log the session out.
     pub id: i64,
@@ -41,6 +42,7 @@ pub struct ActiveSession {
 
 /// The account's logged-in sessions.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ActiveSessions {
     /// Days of inactivity after which Telegram ends a session on its own.
     pub inactive_session_ttl_days: i32,

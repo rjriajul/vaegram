@@ -7,6 +7,7 @@ use crate::types::{Gift, MessageEntity, UniqueGift, User};
 
 /// A gift on a user's or channel's profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum OwnedGift {
     /// A gift that isn't upgraded.
     Regular(Box<OwnedGiftRegular>),
@@ -16,6 +17,7 @@ pub enum OwnedGift {
 
 /// A gift on a profile that hasn't been upgraded.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct OwnedGiftRegular {
     /// The gift.
     pub gift: Gift,
@@ -51,6 +53,7 @@ pub struct OwnedGiftRegular {
 
 /// A unique gift on a profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct OwnedGiftUnique {
     /// The gift.
     pub gift: UniqueGift,
@@ -74,6 +77,7 @@ pub struct OwnedGiftUnique {
 
 /// One page of a profile's gifts.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct OwnedGifts {
     /// How many gifts the profile has in all.
     pub total_count: i32,

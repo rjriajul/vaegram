@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// What an upgraded gift is worth; prices are in the smallest units of `currency`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct UpgradedGiftValueInfo {
     /// Currency code of the prices.
     pub currency: String,

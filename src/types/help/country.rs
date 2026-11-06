@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A country in Telegram's list of phone number countries.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Country {
     /// Two-letter ISO 3166-1 code.
     pub iso2: String,
@@ -17,6 +18,7 @@ pub struct Country {
 
 /// A dialing code of a [`Country`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CountryCode {
     /// The code without a leading plus, for example `1`.
     pub country_code: String,

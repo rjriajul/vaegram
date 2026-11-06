@@ -2,6 +2,7 @@ use crate::raw::types;
 
 /// A shared phone contact.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Contact {
     /// The contact's phone number.
     pub phone_number: String,

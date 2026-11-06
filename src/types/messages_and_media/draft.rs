@@ -4,6 +4,7 @@ use crate::types::MessageEntity;
 
 /// A message draft saved in a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Draft {
     /// Draft text, without formatting.
     pub text: String,

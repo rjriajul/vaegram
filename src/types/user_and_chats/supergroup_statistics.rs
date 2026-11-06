@@ -5,6 +5,7 @@ use crate::types::{StatisticalGraph, StatisticalValue, User};
 
 /// Statistics for a supergroup.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct SupergroupStatistics {
     /// Unix time the covered period starts.
     pub min_date: i32,
@@ -44,6 +45,7 @@ pub struct SupergroupStatistics {
 
 /// A member ranked by messages sent.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TopPoster {
     /// The member.
     pub user: User,
@@ -55,6 +57,7 @@ pub struct TopPoster {
 
 /// An admin ranked by actions taken.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TopAdmin {
     /// The admin.
     pub user: User,
@@ -68,6 +71,7 @@ pub struct TopAdmin {
 
 /// A member ranked by invitations.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TopInviter {
     /// The member who sent the invitations.
     pub user: User,

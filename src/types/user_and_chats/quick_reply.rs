@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// A saved quick reply shortcut of a business account.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct QuickReply {
     /// Id that identifies the shortcut in quick reply requests.
     pub shortcut_id: i32,

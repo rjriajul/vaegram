@@ -5,6 +5,7 @@ use crate::types::PeerRef;
 
 /// Where a set of bot commands applies.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BotCommandScope {
     /// Used when no narrower scope matches.
     Default,

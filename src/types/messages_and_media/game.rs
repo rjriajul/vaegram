@@ -3,6 +3,7 @@ use crate::types::{Animation, Media, Photo};
 
 /// A game attached to a message.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Game {
     /// Telegram's id of the game.
     pub id: i64,

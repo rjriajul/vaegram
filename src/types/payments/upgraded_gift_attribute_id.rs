@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// One model, symbol or backdrop to filter resale listings by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum UpgradedGiftAttributeId {
     /// The sticker id of a model.
     Model(i64),

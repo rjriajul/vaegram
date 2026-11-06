@@ -1,5 +1,6 @@
 /// A button shown above the results of an inline query.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InlineQueryResultsButton {
     /// Opens a private chat with the bot, sending `/start start_parameter`.
     Start {

@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// A delivery address entered by the buyer.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ShippingAddress {
     /// Two-letter ISO 3166-1 country code.
     pub country_code: String,

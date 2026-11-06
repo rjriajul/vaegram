@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// The strings of a language pack that changed between two versions.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LangPackDifference {
     /// Language code of the pack.
     pub lang_code: String,
@@ -15,6 +16,7 @@ pub struct LangPackDifference {
 
 /// A string of a language pack.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LangPackString {
     /// A string with a single form.
     Plain {

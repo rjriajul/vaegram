@@ -5,6 +5,7 @@ use crate::types::{
 
 /// A custom keyboard that replaces the user's regular keyboard.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ReplyKeyboardMarkup {
     /// Buttons, one inner `Vec` per row.
     pub rows: Vec<Vec<KeyboardButton>>,
@@ -108,6 +109,7 @@ impl ReplyKeyboardMarkup {
 /// `request_contact`, `request_location`, `request_managed_bot`, `request_users`, `request_chat`, `request_poll`,
 /// `web_app`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct KeyboardButton {
     /// Label of the button. Sent as a plain message when pressed, unless a request field is set.
     pub text: String,
@@ -231,6 +233,7 @@ impl KeyboardButton {
 /// Request for the user to create a bot managed by this bot. The result arrives as
 /// `ServiceAction::ManagedBotCreated`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct KeyboardButtonRequestManagedBot {
     /// Id echoed back in the result, to tell requests apart.
     pub request_id: i32,
@@ -277,6 +280,7 @@ impl KeyboardButtonRequestManagedBot {
 
 /// Removes the custom keyboard and brings back the regular one.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ReplyKeyboardRemove {
     /// Removes the keyboard only for some users in a group.
     pub selective: bool,
@@ -302,6 +306,7 @@ impl ReplyKeyboardRemove {
 
 /// Makes the user's client open a reply to the message.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ForceReply {
     /// Applies only to some users in a group.
     pub selective: bool,

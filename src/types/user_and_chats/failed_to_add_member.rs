@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A user who wasn't added to a chat, and whether Premium would have changed that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FailedToAddMember {
     /// Id of the user who wasn't added.
     pub user_id: i64,

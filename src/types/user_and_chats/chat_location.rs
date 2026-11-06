@@ -3,6 +3,7 @@ use crate::types::Location;
 
 /// Where a location-based group is, with its address.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ChatLocation {
     /// The point on the map.
     pub location: Location,

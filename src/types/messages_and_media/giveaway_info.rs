@@ -3,6 +3,7 @@ use crate::utils::get_channel_id;
 
 /// The state of a giveaway, as seen by the current user.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum GiveawayInfo {
     /// The giveaway hasn't finished yet.
     Ongoing {

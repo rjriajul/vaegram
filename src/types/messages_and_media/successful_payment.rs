@@ -3,6 +3,7 @@ use crate::types::OrderInfo;
 
 /// A payment that went through, received by the bot or account that issued the invoice.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SuccessfulPayment {
     /// Three-letter currency code of the invoice, or `XTR` for Stars.
     pub currency: String,

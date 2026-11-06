@@ -3,6 +3,7 @@ use crate::types::GiftUpgradeVariants;
 
 /// What upgrading a gift can give, and what it costs now and later.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GiftUpgradePreview {
     /// The models, symbols and backdrops the upgrade can pick from.
     pub variants: GiftUpgradeVariants,
@@ -14,6 +15,7 @@ pub struct GiftUpgradePreview {
 
 /// The upgrade price from `date` on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GiftUpgradePrice {
     /// Unix time the price starts to apply.
     pub date: i32,

@@ -7,6 +7,7 @@ use crate::types::{ClickResult, Message, Text};
 
 /// Which keyboard button to press: `0` (counting row by row), `(row, column)` or its text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ButtonRef<'a> {
     /// Zero-based position counting buttons row by row.
     Index(usize),

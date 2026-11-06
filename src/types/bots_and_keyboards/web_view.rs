@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 
 /// A mini app opened for the user.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct WebView {
     /// URL to load in the web view.
     pub url: String,

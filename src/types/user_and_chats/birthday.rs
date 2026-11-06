@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A user's birthday, with the year only when they show it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Birthday {
     /// Day of the month.
     pub day: i32,

@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// State of the account's stories stealth mode, which hides views of other people's stories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct StoriesStealthMode {
     /// Unix time when stealth mode ends. `None` if it isn't active.
     pub active_until_date: Option<i32>,

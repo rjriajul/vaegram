@@ -4,6 +4,7 @@ use crate::types::User;
 
 /// What Telegram suggests doing with a chat, and what it knows about the other side.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChatSettings {
     /// Whether the chat can be reported as spam.
     pub can_report_spam: bool,

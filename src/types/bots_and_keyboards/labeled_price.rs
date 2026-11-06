@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// One line item of an invoice.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LabeledPrice {
     /// What the line is for, shown to the buyer.
     pub label: String,

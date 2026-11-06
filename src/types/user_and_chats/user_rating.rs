@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A user's rating, earned with Stars spent on gifts and paid content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct UserRating {
     /// Current level.
     pub level: i32,

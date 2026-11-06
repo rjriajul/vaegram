@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A bot's name and descriptions in one language.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BotInfo {
     /// The bot's name.
     pub name: String,

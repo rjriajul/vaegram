@@ -4,6 +4,7 @@ use crate::raw::base;
 ///
 /// Each color list is empty when Telegram sent no palette for that theme.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AccentColor {
     /// Telegram's id for the color.
     pub id: i32,
@@ -23,6 +24,7 @@ pub struct AccentColor {
 ///
 /// Each color list is empty when Telegram sent no palette for that theme.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ProfileAccentColor {
     /// Telegram's id for the color.
     pub id: i32,

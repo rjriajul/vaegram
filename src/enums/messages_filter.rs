@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// Restricts a message search to one kind of content. The default is [`Empty`](Self::Empty).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum MessagesFilter {
     /// No filter. Every message matches.
     #[default]

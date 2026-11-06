@@ -1,6 +1,7 @@
 use crate::types::InputPollMedia;
 
 /// An answer option of a poll to send. A plain `&str` or `String` converts into one without media.
+#[non_exhaustive]
 pub struct InputPollOption<'a> {
     /// The option's text.
     pub text: String,

@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 
 /// The video of an animated chat photo. Pass `file_id` to `download_media` to fetch it.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AnimatedChatPhoto {
     /// The width and height of the square video.
     pub length: i32,

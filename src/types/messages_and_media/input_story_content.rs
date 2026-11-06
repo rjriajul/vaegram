@@ -5,6 +5,7 @@ use crate::types::Upload;
 
 /// What a story shows: a 1080×1920 photo, or a 720×1280 MPEG4 video of up to 60 seconds.
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub enum InputStoryContent<'a> {
     /// A photo story.
     Photo(Upload<'a>),

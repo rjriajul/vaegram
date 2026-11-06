@@ -33,6 +33,7 @@ pub struct CallbackQuery {
 
 /// Where the pressed button lives.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum CallbackOrigin {
     /// A regular message in a chat.
     Message {
@@ -269,6 +270,7 @@ impl fmt::Debug for CallbackQuery {
 
 /// A text edit of the message behind a [`CallbackQuery`]. Awaiting it sends the edit and returns `()`.
 #[must_use = "a request does nothing until it is awaited"]
+#[non_exhaustive]
 pub enum EditCallbackMessageText<'a> {
     /// Edit of a regular message.
     Message(EditMessageText<'a>),

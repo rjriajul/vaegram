@@ -4,6 +4,7 @@ use crate::types::User;
 
 /// One entry of a game's high score table.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GameHighScore {
     /// Place in the table.
     pub position: i32,

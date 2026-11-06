@@ -4,6 +4,7 @@ use crate::types::MessageEntity;
 
 /// Text together with its formatting entities.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FormattedText {
     /// The plain text.
     pub text: String,

@@ -7,6 +7,7 @@ use crate::types::{FileSource, Media};
 
 /// One photo or video in a bot's profile preview.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct BotPreviewMedia {
     /// When the preview was added, as a Unix timestamp.
     pub date: i32,
