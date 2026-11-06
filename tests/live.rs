@@ -10,8 +10,7 @@ use vaegram::enums::{
     TopChatCategory,
 };
 use vaegram::raw::{Serializable, base, functions, types};
-use vaegram::session::Session;
-use vaegram::session::internals::data_center;
+use vaegram::session::{Dc, Session};
 use vaegram::storage::{FileStorage, Storage};
 use vaegram::types::{
     ButtonStyle, FileSource, Folder, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
@@ -24,7 +23,7 @@ use vaegram::{Client, filters};
 #[tokio::test]
 #[ignore = "connects to Telegram"]
 async fn creates_auth_key_and_pings() {
-    let dc = data_center::find(&[], 2, false, false).unwrap();
+    let dc = Dc::production(2).unwrap();
     let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 42 }).await.unwrap();
     assert_eq!(pong.ping_id, 42);
@@ -33,7 +32,7 @@ async fn creates_auth_key_and_pings() {
 #[tokio::test]
 #[ignore = "connects to Telegram's test servers"]
 async fn creates_auth_key_on_test_server() {
-    let dc = data_center::find(&[], 2, true, false).unwrap();
+    let dc = Dc::test_server(2).unwrap();
     let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
     assert_eq!(pong.ping_id, 7);
@@ -42,7 +41,7 @@ async fn creates_auth_key_on_test_server() {
 #[tokio::test]
 #[ignore = "connects to Telegram's test servers"]
 async fn binds_temp_key_on_test_server() {
-    let dc = data_center::find(&[], 2, true, false).unwrap();
+    let dc = Dc::test_server(2).unwrap();
     let init = Some(functions::help::GetNearestDc {}.to_bytes());
     let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), init).await.unwrap();
     // Requests wait for auth.bindTempAuthKey to succeed, so an answer means it did.
@@ -53,7 +52,7 @@ async fn binds_temp_key_on_test_server() {
 #[tokio::test]
 #[ignore = "connects to Telegram"]
 async fn handshakes_over_every_transport() {
-    let dc = data_center::find(&[], 2, false, false).unwrap();
+    let dc = Dc::production(2).unwrap();
     for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
         for obfuscated in [false, true] {
             let options = Options::new().transport(transport).obfuscated(obfuscated);
@@ -67,7 +66,7 @@ async fn handshakes_over_every_transport() {
 #[tokio::test]
 #[ignore = "connects through VAEGRAM_SOCKS5 (host:port[:user:pass]) and VAEGRAM_MTPROXY (host:port:secret)"]
 async fn handshakes_through_proxies() {
-    let dc = data_center::find(&[], 2, false, false).unwrap();
+    let dc = Dc::production(2).unwrap();
     let mut proxies = Vec::new();
     if let Ok(s) = std::env::var("VAEGRAM_SOCKS5") {
         let parts: Vec<&str> = s.split(':').collect();
@@ -109,8 +108,8 @@ async fn bot_sends_and_edits_messages() {
             .await
             .unwrap();
 
-    let base::User::User(me) = app.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
-    assert!(me.bot);
+    let me = app.get_me().await.unwrap();
+    assert!(me.is_bot);
 
     let chat_id = env("VAEGRAM_CHAT_ID").parse().unwrap();
     let hello = app.send_message(chat_id, "hello from vaegram").await.unwrap();
@@ -160,7 +159,7 @@ async fn bot_sends_and_edits_messages() {
         .start()
         .await
         .unwrap();
-    let base::User::User(me_again) = again.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me_again = again.get_me().await.unwrap();
     assert_eq!(me_again.id, me.id);
 }
 
@@ -365,7 +364,7 @@ async fn bot_manages_a_sticker_set() {
             .await
             .unwrap();
     let (owner, file) = (owner.parse::<i64>().unwrap(), file.as_str());
-    let base::User::User(me) = app.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = app.get_me().await.unwrap();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
     let name = format!("vaegram_{now}_by_{}", me.username.expect("bots have a username"));
 
@@ -423,8 +422,8 @@ async fn user_account_talks_to_bot() {
     let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
     let (api_id, api_hash): (i32, String) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
     let user = Client::builder(session, api_id, api_hash.clone()).connect().await.unwrap();
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
-    assert!(!me.bot);
+    let me = user.get_me().await.unwrap();
+    assert!(!me.is_bot);
 
     let saved = user.send_message(me.id, "**saved** by vaegram").markdown().await.unwrap();
     assert_eq!((saved.chat.id, saved.text(), entities(&saved)), (me.id, "saved by vaegram", 1));
@@ -437,11 +436,11 @@ async fn user_account_talks_to_bot() {
         .connect()
         .await
         .unwrap();
-    let base::User::User(me_again) = again.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me_again = again.get_me().await.unwrap();
     assert_eq!(me_again.id, me.id);
 
     let bot = Client::builder("target/vaegram-live-bot-chat", api_id, api_hash).bot_token(token).start().await.unwrap();
-    let base::User::User(bot_me) = bot.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let bot_me = bot.get_me().await.unwrap();
     let bot_id = user.resolve_username(bot_me.username.as_deref().unwrap()).await.unwrap();
     assert_eq!(bot_id, bot_me.id);
 
@@ -650,7 +649,7 @@ async fn account_settings_round_trip() {
         .connect()
         .await
         .unwrap();
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
 
     // Every call writes back what it read, so the account is left as it was.
     let days = user.get_account_ttl().await.unwrap();
@@ -668,7 +667,7 @@ async fn account_settings_round_trip() {
     let notify = user.get_chat_notifications(me.id).await.unwrap();
     assert!(user.update_chat_notifications(me.id).mute_until(notify.mute_until.unwrap_or(0)).await.unwrap());
 
-    let first_name = me.first_name.unwrap_or_default();
+    let first_name = me.first_name;
     assert_eq!(user.update_profile().first_name(first_name.as_str()).await.unwrap().first_name, first_name);
     assert!(user.update_status(false).await.unwrap());
 }
@@ -708,7 +707,7 @@ async fn user_lists_dialogs_and_contacts() {
         .connect()
         .await
         .unwrap();
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
 
     let mut dialogs = user.get_dialogs().limit(150);
     let mut seen = Vec::new();
@@ -731,7 +730,7 @@ async fn user_lists_dialogs_and_contacts() {
     assert_eq!(contacts.len() as i32, user.get_contacts_count().await.unwrap());
     user.search_contacts("telegram", 5).await.unwrap();
     user.get_blocked_message_senders(0, 10).await.unwrap();
-    if let Some(phone) = &me.phone {
+    if let Some(phone) = &me.phone_number {
         assert_eq!(user.resolve_phone(phone).await.unwrap(), me.id);
     }
 
@@ -766,7 +765,7 @@ async fn user_posts_and_edits_a_story() {
         return;
     };
     let Some(user) = user_client().await else { return };
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
     let story = user
         .send_story(me.id, InputStoryContent::photo(photo.as_str()))
         .caption("<b>vaegram</b>")
@@ -793,7 +792,7 @@ async fn user_posts_and_edits_a_story() {
 #[ignore = "uses a logged-in user session"]
 async fn user_manages_folders() {
     let Some(user) = user_client().await else { return };
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
     let folder = Folder::new("vaegram").included_chats([me.id]);
     let mut folder = user.create_folder(folder).await.unwrap();
     assert!(user.get_folders().await.unwrap().iter().any(|f| f.id == folder.id && f.title == "vaegram"));
@@ -863,7 +862,7 @@ async fn user_uses_inline_bot() {
         .connect()
         .await
         .unwrap();
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
     let gif = user.resolve_username("gif").await.unwrap();
 
     let results = user.get_inline_bot_results(gif, "cat").await.unwrap();
@@ -1078,7 +1077,7 @@ async fn user_adds_and_deletes_poll_options() {
 #[ignore = "creates and deletes a supergroup with a logged-in user session"]
 async fn user_manages_invite_links() {
     let Some(user) = user_client().await else { return };
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
     let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
     let link = user.create_chat_invite_link(group.id).name("t").await.unwrap().invite_link;
 
@@ -1211,7 +1210,7 @@ async fn user_links_a_discussion_group() {
     let info = channel_info(&user, channel.id).await;
     assert!(info.broadcast_messages_allowed);
     let monoforum = info.linked_monoforum_id.map(get_channel_id).expect("no direct messages chat");
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
     // Nobody has written to the new direct messages chat yet.
     assert!(user.get_direct_messages_topics_by_id(monoforum, &[me.id]).await.unwrap().is_empty());
     user.set_chat_direct_messages_group(channel.id, false, 0).await.unwrap();

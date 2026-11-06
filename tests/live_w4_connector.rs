@@ -4,13 +4,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use vaegram::connection::Options;
 use vaegram::raw::{base, functions};
-use vaegram::session::Session;
-use vaegram::session::internals::data_center;
+use vaegram::session::{Dc, Session};
 
 #[tokio::test]
 #[ignore = "connects to Telegram"]
 async fn connector_dials_production() {
-    let dc = data_center::find(&[], 2, false, false).unwrap();
+    let dc = Dc::production(2).unwrap();
     let dials = Arc::new(AtomicUsize::new(0));
     let counted = dials.clone();
     let factory = move |addr: SocketAddr| {

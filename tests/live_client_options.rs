@@ -4,7 +4,6 @@ mod support;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
-use vaegram::raw::base;
 use vaegram::{Client, ClientBuilder, filters};
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -26,7 +25,7 @@ fn user_builder() -> Option<ClientBuilder> {
 async fn a_tz_offset_client_connects() {
     let Some(builder) = user_builder() else { return };
     let client = builder.tz_offset(3600).lang_pack("tdesktop").connect().await.unwrap();
-    assert!(matches!(client.get_me().await.unwrap(), base::User::User(_)));
+    assert!(client.get_me().await.unwrap().is_self);
 }
 
 #[tokio::test]
@@ -55,7 +54,7 @@ async fn compose_runs_a_bot_and_a_user() {
         async move { Client::compose(&clients).await }
     });
 
-    let base::User::User(me) = bot.get_me().await.unwrap() else { panic!("the bot has no user") };
+    let me = bot.get_me().await.unwrap();
     let bot_id = user.resolve_username(&me.username.unwrap()).await.unwrap();
     user.send_message(bot_id, "ping").await.unwrap();
     assert_eq!(tokio::time::timeout(WAIT, replies.recv()).await.unwrap(), Some(bot_id));

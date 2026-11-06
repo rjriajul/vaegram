@@ -56,7 +56,7 @@ mod tests {
 
         let location =
             types::InputPhotoFileLocation { id: 5, access_hash: 6, file_reference: vec![7], thumb_size: "x".into() };
-        let location = FileLocation::from(base::InputFileLocation::InputPhotoFileLocation(Box::new(location)));
+        let location = FileLocation::from_raw(base::InputFileLocation::InputPhotoFileLocation(Box::new(location)));
         let (file_id, file_unique_id) = (String::new(), String::new());
         let photo = Photo {
             file_id,

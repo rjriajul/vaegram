@@ -6,8 +6,7 @@ use std::time::Duration;
 use vaegram::Client;
 use vaegram::connection::Options;
 use vaegram::raw::{base, functions};
-use vaegram::session::Session;
-use vaegram::session::internals::data_center;
+use vaegram::session::{Dc, Session};
 use vaegram::types::Upload;
 
 fn websocket() -> Options {
@@ -17,7 +16,7 @@ fn websocket() -> Options {
 #[tokio::test]
 #[ignore = "connects to Telegram over WebSocket"]
 async fn websocket_gets_config() {
-    let dc = data_center::find(&[], 2, false, false).unwrap();
+    let dc = Dc::production(2).unwrap();
     let (session, _updates) = Session::connect(dc, None, &websocket(), Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 3 }).await.unwrap();
     assert_eq!(pong.ping_id, 3);
@@ -26,7 +25,7 @@ async fn websocket_gets_config() {
 #[tokio::test]
 #[ignore = "connects to Telegram over WebSocket and waits five minutes"]
 async fn websocket_survives_5_min_idle() {
-    let dc = data_center::find(&[], 4, false, false).unwrap();
+    let dc = Dc::production(4).unwrap();
     let (session, _updates) = Session::connect(dc, None, &websocket(), Arc::default(), None).await.unwrap();
     tokio::time::sleep(Duration::from_secs(5 * 60)).await;
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 5 }).await.unwrap();

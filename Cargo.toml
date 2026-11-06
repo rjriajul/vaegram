@@ -42,7 +42,8 @@ webpki-roots = { version = "1", optional = true }
 [features]
 # `ToJson` for every TL type and function; off by default to keep the generated code small.
 json = []
-# TL objects behind `RawUpdate` (`raw()`, `raw_users()`, `raw_chats()`) and `Incoming::into_updates()`.
+# TL objects behind `RawUpdate` (`raw()`, `raw_users()`, `raw_chats()`), `Incoming::into_updates()` and
+# `UploadedFile::into_raw()`.
 # Experimental: may change or go away in any release.
 unstable-raw = []
 # Storage engines.

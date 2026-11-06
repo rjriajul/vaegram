@@ -15,6 +15,10 @@ pub(crate) enum ChatPeer {
 }
 
 impl Client {
+    /// Returns the TL peer for a chat id, username or invite link, with its access hash, for the raw requests sent
+    /// with [`invoke`](Client::invoke).
+    ///
+    /// Together with `invoke` this is the raw escape hatch: the friendly API never needs it.
     pub async fn resolve_peer(&self, chat_id: impl Into<PeerRef>) -> Result<base::InputPeer> {
         Ok(self.resolve(&chat_id.into()).await?.1)
     }

@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
-use vaegram::raw::base;
 use vaegram::types::Media;
 use vaegram::{Client, filters};
 
@@ -20,7 +19,7 @@ fn credentials() -> Option<(String, String, i32, String)> {
 }
 
 async fn bot_id(bot: &Client, user: &Client) -> i64 {
-    let base::User::User(me) = bot.get_me().await.unwrap() else { panic!("the bot has no user") };
+    let me = bot.get_me().await.unwrap();
     user.resolve_username(&me.username.unwrap()).await.unwrap()
 }
 

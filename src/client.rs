@@ -572,7 +572,7 @@ impl ClientBuilder {
         let client = Client(Arc::new(inner), None);
         let imported = self.session_string.as_deref().is_some_and(session_string::is_import);
         if imported && user_id == 0 {
-            match client.get_me().await {
+            match client.get_me_raw().await {
                 Ok(me) => client.set_me(&me),
                 // The key isn't signed in: `start` logs in as for a fresh session.
                 Err(Error::Rpc(e)) if e.code == 401 => {}
@@ -911,7 +911,7 @@ impl Client {
         if let Some(premium) = known {
             return Ok(premium);
         }
-        let me = self.get_me().await?;
+        let me = self.get_me_raw().await?;
         self.set_me(&me);
         Ok(matches!(me, base::User::User(u) if u.premium))
     }

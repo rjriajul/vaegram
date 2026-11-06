@@ -1,5 +1,4 @@
 use vaegram::Client;
-use vaegram::raw::base;
 
 async fn user_client() -> Option<Client> {
     let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
@@ -12,7 +11,7 @@ async fn user_client() -> Option<Client> {
 }
 
 async fn my_id(client: &Client) -> i64 {
-    let base::User::User(me) = client.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = client.get_me().await.unwrap();
     me.id
 }
 

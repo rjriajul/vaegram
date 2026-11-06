@@ -67,7 +67,6 @@ async fn test_account_logs_in_with_a_resent_code() {
     match client.send_phone_number_code(&new_phone).kind(vaegram::enums::PhoneNumberCodeType::Change).await {
         Ok(code) => {
             let user = client.change_phone_number(&new_phone, &code.phone_code_hash, "22222").await.unwrap();
-            let base::User::User(me) = me else { panic!("no account") };
             assert_eq!(user.id, me.id);
         }
         // The account was created a moment ago, and Telegram holds number changes back for about a day.
@@ -88,7 +87,7 @@ async fn user_session_is_authorized() {
 #[ignore = "uses a logged-in user session; creates and deletes a channel"]
 async fn user_checks_usernames_and_lists_owned_bots() {
     let Some(user) = user_client().await else { return };
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("no account") };
+    let me = user.get_me().await.unwrap();
     if let Some(own) = me.username {
         // Telegram's answer for the account's own name isn't documented; only a crash would be wrong.
         let result = user.check_username("me", own).await;
@@ -114,7 +113,7 @@ async fn user_creates_a_managed_bot() {
         return;
     }
     let Some(kit) = support::Kit::from_env().await else { return };
-    let base::User::User(manager) = kit.bot.get_me().await.unwrap() else { panic!("the bot has no user") };
+    let manager = kit.bot.get_me().await.unwrap();
     let name = manager.username.expect("the kit's bot has no username");
     let manager = kit.user.client.get_users([format!("@{name}")]).await.unwrap().remove(0);
     if !manager.can_manage_bots {

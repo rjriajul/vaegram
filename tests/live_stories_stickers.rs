@@ -24,7 +24,7 @@ async fn user_checks_forwards_and_copies_a_story() {
         return;
     };
     let Some(user) = user_client().await else { return };
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
     assert!(user.can_post_stories(me.id).await.unwrap() > 0);
 
     let only_me = StoriesPrivacyRules::SelectedUsers(vec![me.id]);
@@ -73,7 +73,7 @@ async fn bot_stores_and_deletes_a_welcome_message() {
     let chat_id: i64 = chat_id.parse().unwrap();
     let Some(kit) = support::Kit::from_env().await else { return };
     let (user, bot) = (&kit.user.client, &kit.bot);
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
 
     let base::InputPeer::InputPeerUser(receiver) = bot.resolve_peer(me.id).await.unwrap() else {
         panic!("the bot can't address the kit user")

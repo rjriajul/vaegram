@@ -4,7 +4,6 @@ mod support;
 
 use vaegram::Client;
 use vaegram::connection::Transport;
-use vaegram::raw::base;
 
 fn env(key: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| panic!("set {key}"))
@@ -22,5 +21,5 @@ async fn full_transport_gets_me() {
         .connect()
         .await
         .unwrap();
-    assert!(matches!(client.get_me().await.unwrap(), base::User::User(_)));
+    assert!(client.get_me().await.unwrap().is_self);
 }

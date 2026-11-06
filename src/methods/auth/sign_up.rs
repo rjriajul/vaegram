@@ -23,7 +23,7 @@ impl Client {
             last_name: last_name.into(),
         };
         let auth = self.invoke(&request).await?;
-        self.authorized_user(auth).await
+        self.authorized(auth).await
     }
 }
 

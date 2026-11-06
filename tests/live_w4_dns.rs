@@ -6,8 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use vaegram::connection::{DnsConfig, Options};
 use vaegram::raw::{base, functions};
-use vaegram::session::Session;
-use vaegram::session::internals::data_center::Dc;
+use vaegram::session::{Dc, Session};
 
 fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64

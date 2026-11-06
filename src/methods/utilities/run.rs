@@ -24,7 +24,7 @@ impl Client {
     /// start hook.
     pub(super) async fn prepare(&self) -> Result<Dispatcher> {
         self.require_updates()?;
-        self.set_me(&self.get_me().await?);
+        self.set_me(&self.get_me_raw().await?);
         let saved = self.0.state.lock().unwrap().take().filter(|_| self.0.catch_up);
         let dispatcher = match saved {
             Some(state) => Dispatcher::resume(self.clone(), state),

@@ -1,7 +1,5 @@
 //! TL and session micro-benchmarks in plain std: `cargo bench --bench tl`.
 
-#[path = "support/seal.rs"]
-mod seal;
 #[path = "support/timing.rs"]
 mod timing;
 
@@ -10,9 +8,8 @@ use std::io::{Read, Write};
 
 use timing::bench;
 use vaegram::connection::{Connection, Options};
-use vaegram::crypto::mtproto;
 use vaegram::raw::{Deserializable, Identifiable, Serializable, base, functions, types};
-use vaegram::session::internals::data_center::Dc;
+use vaegram::session::Dc;
 use vaegram::storage::{SessionData, session_string};
 
 const VECTOR: u32 = 0x1cb5c415;
@@ -177,32 +174,11 @@ fn main() {
         black_box(Vec::<u8>::from_bytes(black_box(&part_bytes[16..])).unwrap());
     });
 
-    let auth_key = [7u8; 256];
-    let auth_key_id = [1u8; 8];
-    let session_id = [2u8; 8];
-    let mut packet = Vec::new();
-    for (name, body) in [("ping", ping.to_bytes()), ("512K part", part_bytes)] {
-        bench(&format!("mtproto seal {name}"), || {
-            packet.clear();
-            packet.resize(mtproto::HEADER, 0);
-            packet.extend_from_slice(black_box(&body));
-            mtproto::header(&mut packet, 0, &session_id, 1 << 32, 1);
-            mtproto::seal(&mut packet, 0, &auth_key, &auth_key_id);
-        });
-        // Each round copies the ciphertext back in, since opening decrypts it in place.
-        let sealed = seal::seal(&auth_key, &auth_key_id, &session_id, (1 << 32) + 1, 1, &body);
-        bench(&format!("mtproto open {name}"), || {
-            packet.clear();
-            packet.extend_from_slice(black_box(&sealed));
-            black_box(mtproto::open(&mut packet, &auth_key, &auth_key_id, &session_id).unwrap());
-        });
-    }
-
     for size in [256, 64 << 10] {
         recv_loopback(size);
     }
 
-    let mut session = SessionData::new(2, auth_key);
+    let mut session = SessionData::new(2, [7u8; 256]);
     (session.api_id, session.user_id, session.is_bot) = (12345, 777000, true);
     bench("session string export", || {
         black_box(session_string::export(black_box(&session)));

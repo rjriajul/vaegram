@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use tokio::sync::mpsc;
-use vaegram::raw::base;
 use vaegram::types::{Message, Text};
 use vaegram::{Client, Error, Result, filters};
 
@@ -48,7 +47,7 @@ impl Kit {
 impl User {
     /// Sends `text` to `bot` in private and waits up to 30 s for the bot's next message there.
     pub async fn send_and_wait_reply(&self, bot: &Client, text: impl Into<Text>) -> Result<Message> {
-        let base::User::User(me) = bot.get_me().await? else { return Err(Error::Unexpected("the bot has no user")) };
+        let me = bot.get_me().await?;
         let username = me.username.ok_or(Error::Unexpected("the bot has no username"))?;
         let bot_id = self.client.resolve_username(&username).await?;
         let mut received = self.received.lock().await;

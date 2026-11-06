@@ -64,10 +64,17 @@ mod tests {
     #[test]
     fn splits_a_real_pq() {
         assert_eq!(factorize(0x17ED48941A08F981), Some((0x494C553B, 0x53911073)));
+        assert_eq!(factorize(15), Some((3, 5)));
     }
 
     #[test]
     fn gives_up_on_a_large_prime() {
         assert_eq!(factorize(18_446_744_073_709_551_557), None);
+        assert_eq!(factorize(1_000_000_007), None);
+    }
+
+    #[test]
+    fn dh_prime_is_2048_bits() {
+        assert_eq!(dh_prime().bits(), 2048);
     }
 }
