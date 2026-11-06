@@ -2,11 +2,15 @@ use std::io::Read;
 
 use super::{Deserializable, Error};
 
+/// The constructor id of `gzip_packed`.
 pub const ID: u32 = 0x3072cfa1;
 
 /// Cap on the unpacked size, so a tiny packet can't make us allocate gigabytes.
 const MAX_UNPACKED: u64 = 32 << 20;
 
+/// The TL bytes inside a whole `gzip_packed` object, read from after its constructor id (which isn't checked).
+/// Output stops at 32 MiB, so a bigger payload comes back cut short. Fails with [`Error::InvalidGzip`] when the
+/// data doesn't decompress.
 pub fn unpack(body: &[u8]) -> Result<Vec<u8>, Error> {
     let mut buf = body.get(4..).ok_or(Error::UnexpectedEof)?;
     let packed = Vec::<u8>::deserialize(&mut buf)?;

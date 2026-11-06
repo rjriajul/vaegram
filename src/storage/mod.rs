@@ -57,10 +57,15 @@ use crate::crypto::random;
 /// Where updates resume after a restart: the account's pts, qts, date and seq, and each channel's pts.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UpdateState {
+    /// The account's pts: the position in its message event sequence (messages and their changes).
     pub pts: i32,
+    /// The account's qts: the position in its secondary sequence (secret chat and some bot updates).
     pub qts: i32,
+    /// The date of the last update, in Unix seconds, as `updates.getDifference` takes it.
     pub date: i32,
+    /// The seq of the last update container applied.
     pub seq: i32,
+    /// Each channel's pts, keyed by channel id as Telegram gives it (not `-100…`).
     pub channels: HashMap<i64, i32>,
 }
 
@@ -82,12 +87,19 @@ impl UpdateState {
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct SessionData {
+    /// The data center the auth key belongs to.
     pub dc_id: i32,
+    /// Whether the login is on Telegram's test servers.
     pub test_mode: bool,
+    /// The data center's address when it was saved; `None` uses the built-in address for `dc_id`.
     pub addr: Option<SocketAddr>,
+    /// The api id the login was made with; 0 when unknown.
     pub api_id: i32,
+    /// The permanent auth key: whoever has it is logged in as the account.
     pub auth_key: [u8; 256],
+    /// The logged-in account's user id; 0 before login.
     pub user_id: i64,
+    /// Whether the account is a bot.
     pub is_bot: bool,
 }
 

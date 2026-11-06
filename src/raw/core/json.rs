@@ -10,9 +10,12 @@
 
 use std::fmt::Write;
 
+/// Writes a TL value as JSON in the shape the [module](self) describes.
 pub trait ToJson {
+    /// Appends the value's JSON to `out`.
     fn to_json(&self, out: &mut String);
 
+    /// The value's JSON as a new string.
     fn json(&self) -> String {
         let mut out = String::new();
         self.to_json(&mut out);

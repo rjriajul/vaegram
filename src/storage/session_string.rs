@@ -26,6 +26,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use super::SessionData;
 use crate::utils::{base64url_decode, base64url_encode};
 
+/// What every session string `export` writes starts with.
 pub const PREFIX: &str = "VAE_";
 const WZ_PREFIX: &str = "WZ_";
 const ADDRESS_FIRST_PREFIX: &str = "1";
@@ -62,6 +63,8 @@ const MALFORMED: &str = "session string has a malformed field";
 const NOT_BASE64: &str = "session string has characters outside base64url";
 const UNKNOWN: &str = "not a session string this version can read";
 
+/// `s` as a session string: `VAE_` and generation 1, the only form vaegram writes. It holds the auth key, so it is
+/// the login itself.
 pub fn export(s: &SessionData) -> String {
     let mut b = encode_fields(s);
     b.extend_from_slice(&crc32fast::hash(&b).to_le_bytes());
@@ -96,6 +99,8 @@ fn field(b: &mut Vec<u8>, tag: u8, value: &[u8]) {
     b.extend_from_slice(value);
 }
 
+/// Reads a session string in any form the [module](self) lists; whitespace anywhere is ignored. Fails with a
+/// message to show the user when the string is damaged, from an older or newer vaegram, or not a session string.
 pub fn parse(s: &str) -> Result<SessionData, &'static str> {
     let s: String = s.chars().filter(|c| !c.is_whitespace()).take(MAX_ENCODED + 1).collect();
     if s.len() > MAX_ENCODED {

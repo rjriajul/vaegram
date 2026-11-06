@@ -10,6 +10,9 @@ use crate::raw::{base, types};
 type Listener = Arc<dyn Fn(ClientEvent) + Send + Sync>;
 type LinkListener = Arc<dyn Fn(bool) + Send + Sync>;
 
+/// Where sessions report what happens below the requests (reconnects, dropped packets or updates, failed storage
+/// calls) for `Client::on_event`. The sessions of one client share one. A new one has no listener, so warnings go
+/// to stderr as one line each until one is set.
 #[derive(Default)]
 pub struct Events {
     listener: RwLock<Option<Listener>>,

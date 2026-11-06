@@ -15,10 +15,12 @@ pub struct RecvBuf {
 }
 
 impl RecvBuf {
+    /// Appends received bytes after the unread ones.
     pub fn extend_from_slice(&mut self, bytes: &[u8]) {
         self.make_room().extend_from_slice(bytes);
     }
 
+    /// The bytes received but not yet taken as a packet.
     pub fn unread(&self) -> &[u8] {
         &self.data[self.start..]
     }
@@ -45,6 +47,7 @@ impl RecvBuf {
 pub enum Transport {
     /// One-byte length prefix for packets under 508 bytes, four bytes above that.
     Abridged,
+    /// A four-byte length prefix before every packet. The default.
     #[default]
     Intermediate,
     /// Intermediate with random padding per packet; required by `dd` MTProxy secrets.
@@ -79,6 +82,7 @@ impl Framing {
     /// Free bytes [`Framing::frame`] needs in front of the payload.
     pub const ROOM: usize = 8;
 
+    /// Fresh framing for a new connection: packet counters at zero.
     pub fn new(transport: Transport) -> Framing {
         Framing { transport, sent: 0, received: 0 }
     }

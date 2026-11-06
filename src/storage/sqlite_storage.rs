@@ -124,10 +124,13 @@ pub struct SqliteStorage {
 }
 
 impl SqliteStorage {
+    /// A store over the database at `path`, taken as given (no extension is added). Nothing is opened or created
+    /// until the client opens the engine.
     pub fn new(path: impl Into<PathBuf>) -> SqliteStorage {
         SqliteStorage { path: path.into(), conn: Mutex::new(None) }
     }
 
+    /// The database file, as given to [`new`](Self::new).
     pub fn path(&self) -> &Path {
         &self.path
     }

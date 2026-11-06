@@ -58,6 +58,7 @@ pub type Connecting<'a> = Pin<Box<dyn Future<Output = io::Result<Box<dyn Stream>
 /// handshake then runs over the stream). A closure `Fn(SocketAddr) -> impl Future<Output = io::Result<impl Stream>>`
 /// is one. Transfer and CDN connections use it too.
 pub trait ConnectionFactory: Send + Sync {
+    /// Opens a stream to `addr`. An error fails that connection attempt like a refused TCP connect.
     fn connect(&self, addr: SocketAddr) -> Connecting<'_>;
 }
 
@@ -86,14 +87,21 @@ impl std::fmt::Debug for dyn ConnectionFactory {
     }
 }
 
+/// How a session connects and talks to Telegram: transport, proxy, timeouts, retries and the device it reports.
+/// [`ClientBuilder`](crate::ClientBuilder) fills one from its settings; the setters here build one directly.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Options {
+    /// The framing of packets on the wire; [`Transport::Intermediate`] by default.
     pub transport: Transport,
+    /// Hides the transport from DPI with an obfuscation header; off by default. MTProxy connections are always
+    /// obfuscated, and the full transport can't be.
     pub obfuscated: bool,
+    /// The proxy every connection goes through; `None` connects directly.
     pub proxy: Option<Proxy>,
     /// Opens every connection's stream instead of a TCP connect; see [`ConnectionFactory`].
     pub connection_factory: Option<Arc<dyn ConnectionFactory>>,
+    /// How long a request waits for its answer before it fails with `Error::Timeout`; 30 seconds by default.
     pub request_timeout: Duration,
     /// Asked after every failed request whether to send it again, and after how long. The default sleeps off
     /// FLOOD_WAITs of up to a minute, five times per request.
@@ -104,8 +112,11 @@ pub struct Options {
     /// Update batches held for the dispatcher. When it's full, a batch is dropped and a getDifference brings
     /// back what it held.
     pub updates_capacity: usize,
+    /// Sees every request that ends; `None` by default.
     pub observer: Option<Observer>,
+    /// Writes every message sent and received to a recording; `None` by default.
     pub record: Option<Recorder>,
+    /// What the connection tells Telegram about the client in `initConnection`.
     pub device: Device,
     /// Carries MTProto over WebSocket on TLS (`wss://…web.telegram.org/apiws`), always obfuscated, instead of a
     /// direct TCP connection: for networks that only let HTTPS through. Set by `ClientBuilder::websocket`.
@@ -236,12 +247,19 @@ impl Options {
     }
 }
 
+/// The client details sent in `initConnection`, which Telegram shows in the account's list of active sessions.
+/// The default is model `vaegram`, the OS name as the system version, this crate's version as the app version and
+/// language `en`.
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct Device {
+    /// The device model, `"vaegram"` by default.
     pub model: String,
+    /// The operating system version, the OS name (`std::env::consts::OS`) by default.
     pub system_version: String,
+    /// The application version, this crate's version by default.
     pub app_version: String,
+    /// The language code of the user interface, such as `en`; `en` by default.
     pub lang_code: String,
     /// The official language pack the client uses (`android`, `ios`, `tdesktop`, …); empty by default.
     pub lang_pack: String,
@@ -269,12 +287,17 @@ impl Default for Device {
     }
 }
 
+/// One transport connection to a data center, framed and obfuscated as its [`Options`] say. It carries MTProto
+/// packets without encrypting them: that's the [`Session`](crate::session::Session) above it, which opens its own.
 pub struct Connection {
     reader: Reader,
     writer: Writer,
 }
 
 impl Connection {
+    /// Opens the stream, through the proxy or connection factory when set, and sends the transport's opening
+    /// bytes. Fails with `Error::InvalidArgument` for the full transport with obfuscation or an MTProxy, and with an
+    /// I/O `TimedOut` error after 10 seconds (90 through a web proxy).
     pub async fn connect(dc: &Dc, options: &Options) -> Result<Self> {
         let addr = dc.addr;
         let via = if options.proxy.is_some() { " through the proxy" } else { "" };
@@ -386,10 +409,13 @@ impl Connection {
         })
     }
 
+    /// Frames `payload` and writes it out.
     pub async fn send(&mut self, payload: &[u8]) -> Result<()> {
         self.writer.send(payload).await
     }
 
+    /// Waits for the next whole packet and returns its payload. Fails with `UnexpectedEof` once the other side
+    /// closes the stream.
     pub async fn recv(&mut self) -> Result<Vec<u8>> {
         self.reader.recv().await
     }

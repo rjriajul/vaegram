@@ -51,6 +51,7 @@ impl FileStorage {
         FileStorage { path: PathBuf::from(path), file, reports: Reports::default() }
     }
 
+    /// The session file: the name given to [`new`](Self::new) with `.session` added.
     pub fn path(&self) -> &Path {
         &self.path
     }
