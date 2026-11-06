@@ -736,6 +736,9 @@ impl Message {
     }
 
     /// Sends `text` to this chat without a quote, in the same topic and through the same business connection.
+    ///
+    /// On queries (`CallbackQuery`, `InlineQuery`, `ShippingQuery`, `GuestMessage`) `answer` responds to the query
+    /// instead, like the Bot API's `answer*` methods.
     pub fn answer(&self, text: impl Into<Text>) -> SendMessage<'_> {
         self.route(self.client.send_message(self.chat.id, text))
     }

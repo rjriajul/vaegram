@@ -9,8 +9,13 @@ use crate::types::{FileSource, InputChecklist, InputInvoice, InputMedia, InputPo
 impl Message {
     /// Points a send at this message's topic, direct-messages topic and business connection.
     pub(super) fn route<B: Routable>(&self, mut send: B) -> B {
+        send.options().business_connection_id.clone_from(&self.business_connection_id);
+        self.route_topic(send)
+    }
+
+    /// Points a send at this message's forum topic and direct-messages topic.
+    fn route_topic<B: Routable>(&self, mut send: B) -> B {
         let options = send.options();
-        options.business_connection_id.clone_from(&self.business_connection_id);
         options.direct_messages_topic_id = self.direct_messages_topic.as_ref().map(|topic| topic.topic_id.into());
         if self.is_topic_message {
             options.message_thread_id = self.message_thread_id;
@@ -255,7 +260,7 @@ impl Message {
     }
 
     /// Shows `action` in this chat, through the same business connection.
-    pub fn reply_chat_action(&self, action: ChatAction) -> SendChatAction<'_> {
+    pub fn send_chat_action(&self, action: ChatAction) -> SendChatAction<'_> {
         let mut send = self.client().send_chat_action(self.chat.id, action);
         send.business_connection().clone_from(&self.business_connection_id);
         send
@@ -266,15 +271,10 @@ impl Message {
         self.answer_inline_bot_result(query_id, result_id).reply_to(self.id)
     }
 
-    /// Sends an inline bot result to this chat, in the same forum topic. messages.sendInlineBotResult has no
-    /// direct-messages topic or business connection, so neither is kept.
+    /// Sends an inline bot result to this chat, in the same forum topic and direct-messages topic.
+    /// messages.sendInlineBotResult takes no business connection, so it isn't kept.
     pub fn answer_inline_bot_result(&self, query_id: i64, result_id: impl Into<String>) -> SendInlineBotResult<'_> {
-        let send = self.client().send_inline_bot_result(self.chat.id, query_id, result_id);
-        // Per messages.sendMessage, the General topic (id 1) is never named.
-        match self.message_thread_id.filter(|&thread| self.is_topic_message && thread != 1) {
-            Some(thread) => send.reply_to(thread),
-            None => send,
-        }
+        self.route_topic(self.client().send_inline_bot_result(self.chat.id, query_id, result_id))
     }
 }
 
@@ -449,12 +449,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reply_chat_action_goes_through_the_business_connection() {
+    async fn send_chat_action_goes_through_the_business_connection() {
         let (_client, mut rx, mut m) = seeded();
-        let (id, _) = sent(&mut rx, m.reply_chat_action(ChatAction::Typing)).await;
+        let (id, _) = sent(&mut rx, m.send_chat_action(ChatAction::Typing)).await;
         assert_eq!(id, functions::messages::SetTyping::CONSTRUCTOR_ID);
         m.business_connection_id = Some("c".into());
-        let (id, _) = sent(&mut rx, m.reply_chat_action(ChatAction::Typing)).await;
+        let (id, _) = sent(&mut rx, m.send_chat_action(ChatAction::Typing)).await;
         assert_eq!(id, BUSINESS);
     }
 
@@ -467,21 +467,29 @@ mod tests {
         (m.message_thread_id, m.is_topic_message) = (Some(1), true);
         assert_eq!(sent(&mut rx, m.answer_inline_bot_result(1, "r")).await, (id, false));
         m.message_thread_id = Some(3);
+        let topic_reply = |reply_to_msg_id, top_msg_id| {
+            let reply = base::InputReplyTo::InputReplyToMessage(Box::new(types::InputReplyToMessage {
+                reply_to_msg_id,
+                top_msg_id,
+                reply_to_peer_id: None,
+                quote_text: None,
+                quote_entities: None,
+                quote_offset: None,
+                monoforum_peer_id: None,
+                todo_item_id: None,
+                poll_option: None,
+                quote_rich: None,
+            }));
+            crate::raw::Serializable::to_bytes(&reply)
+        };
         let _ = m.answer_inline_bot_result(1, "r").await;
         let body = rx.try_recv().expect("no request sent");
-        let reply = base::InputReplyTo::InputReplyToMessage(Box::new(types::InputReplyToMessage {
-            reply_to_msg_id: 3,
-            top_msg_id: None,
-            reply_to_peer_id: None,
-            quote_text: None,
-            quote_entities: None,
-            quote_offset: None,
-            monoforum_peer_id: None,
-            todo_item_id: None,
-            poll_option: None,
-            quote_rich: None,
-        }));
-        let reply = crate::raw::Serializable::to_bytes(&reply);
+        let reply = topic_reply(3, None);
         assert!(body.windows(reply.len()).any(|w| w == reply), "the topic is not the reply target");
+        // A reply inside the topic names the topic as well, like every other reply.
+        let _ = m.reply_inline_bot_result(1, "r").await;
+        let body = rx.try_recv().expect("no request sent");
+        let reply = topic_reply(5, Some(3));
+        assert!(body.windows(reply.len()).any(|w| w == reply), "the reply lost its topic");
     }
 }

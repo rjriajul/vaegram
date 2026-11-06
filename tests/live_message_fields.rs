@@ -15,6 +15,6 @@ async fn sent_message_has_no_join_type_or_import() {
     let sent = kit.bot.send_message(chat_id, "message fields").await.unwrap();
     assert!(sent.chat_join_type.is_none());
     assert!(sent.forward_origin.is_none());
-    assert!(sent.reply_to_story().await.unwrap().is_none());
+    assert!(sent.replied_story().await.unwrap().is_none());
     kit.bot.delete_messages(chat_id, &[sent.id]).await.unwrap();
 }
