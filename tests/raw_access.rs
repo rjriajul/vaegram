@@ -1,6 +1,6 @@
 //! The raw layer stays reachable from outside the crate: `raw` (with `raw::core`), `Client::invoke`,
-//! `Client::invoke_with_timeout`, `Client::on_raw_update` with `RawUpdate`, and the chat id converters in `utils`.
-//! Crates built on raw TL (a Bot API layer, for one) depend on exactly these.
+//! `Client::invoke_with_timeout`, `Client::resolve_peer`, `Client::on_raw_update` with `RawUpdate`, and the chat id
+//! converters in `utils`. Crates built on raw TL (a Bot API layer, for one) depend on exactly these.
 
 #[allow(dead_code)]
 #[path = "../benches/support/mockdc.rs"]
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
-use mockdc::{MockDc, SELF_ID};
+use mockdc::{GROUP_ID, MockDc, SELF_ID};
 use vaegram::Client;
 use vaegram::raw::core::msg_container;
 use vaegram::raw::{Deserializable, Identifiable, LAYER, RemoteCall, Serializable, base, functions, types};
@@ -31,6 +31,10 @@ async fn invoke_and_raw_updates_work_from_outside_the_crate() {
 
     let me: User = client.get_me().await.unwrap();
     assert_eq!((me.id, me.is_self), (SELF_ID, true));
+
+    assert_eq!(client.resolve_peer("me").await.unwrap(), base::InputPeer::InputPeerSelf);
+    let group = client.resolve_peer(-GROUP_ID).await.unwrap();
+    assert!(matches!(&group, base::InputPeer::InputPeerChat(p) if p.chat_id == GROUP_ID), "{group:?}");
 
     let seen = Arc::new(AtomicU32::new(0));
     let counted = seen.clone();
@@ -96,4 +100,6 @@ fn chat_id_converters_are_public() {
 fn connection_targets_are_public() {
     let dc = Dc::new(2, "149.154.167.51:443".parse().unwrap()).test(true);
     assert_eq!((dc.id, dc.wire_id()), (2, 10002));
+    assert_eq!(Dc::production(2).map(|dc| dc.addr), Some("149.154.167.51:443".parse().unwrap()));
+    assert_eq!(Dc::test_server(2).map(|dc| dc.wire_id()), Some(10002));
 }

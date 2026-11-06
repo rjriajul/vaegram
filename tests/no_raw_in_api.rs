@@ -1,14 +1,19 @@
 //! The friendly API takes and returns friendly types only: a TL type (`raw::base::*`, `raw::types::*`) in a public
-//! signature would tie every caller to the TL schema of one layer. This scans `src/` for TL paths in
-//! `pub fn` signatures, `pub` fields, `pub enum` variants, `IntoFuture` outputs and `From`/`TryFrom` impls.
+//! signature would tie every caller to the TL schema of one layer. This scans `src/` outside `src/raw/` and reports
+//! a TL type named in:
+//! - a `pub fn` signature, or a method, associated type or const in a `pub trait`;
+//! - a `pub` field, a `pub struct` tuple field, a variant of a `pub enum`, a `pub type`, `pub const` or `pub static`;
+//! - an `impl` header (`impl<T> TryFrom<base::X> for Y`, `impl Trait for base::X`, …) or a `type X =` inside an
+//!   `impl`, including the `IntoFuture` impls `into_future!` writes;
+//! - a `pub use`.
 //!
-//! Allowed without an entry here:
-//! - `src/raw/`: the TL layer itself, reached through `Client::invoke`.
-//! - Items gated by `#[cfg(feature = "unstable-raw")]`, on the item or on its enclosing `impl`.
-//! - `pub(crate)`/`pub(super)` items, and `#[cfg(test)]` modules.
+//! A TL type is a path through `raw::base`/`raw::types`, through `base`/`types` imported from `crate::raw` or
+//! `base` from `super`, or a name imported from them (aliases and nested `use` groups included).
 //!
-//! The scan is line-based: it reads a signature up to its body and doesn't resolve types, so a TL type renamed on
-//! import (`use crate::raw::base::User as RawUser`) slips through.
+//! Skipped: `#[cfg(test)]` modules and files, items gated by `#[cfg(feature = "unstable-raw")]` or `#[cfg(test)]`,
+//! and anything inside a type, trait, `impl` or inline module that isn't plain `pub` (`pub(crate)`, private). The
+//! scan reads lines, not types: it doesn't follow type aliases, macros other than `into_future!`, or the visibility
+//! of modules declared in other files.
 
 use std::fs;
 use std::path::Path;
@@ -18,6 +23,8 @@ const ALLOWED: &[(&str, &str)] = &[
     // The chat id converters between Bot API ids and TL peers, for code built on `invoke`.
     ("src/utils.rs", "get_peer_id"),
     ("src/utils.rs", "get_peer"),
+    // The input half of the raw escape hatch next to `invoke`: the TL peer, with its access hash, for a chat.
+    ("src/methods/advanced/resolve_peer.rs", "resolve_peer"),
 ];
 
 #[test]
@@ -48,7 +55,10 @@ fn friendly_signatures_name_no_tl_types() {
 
 #[test]
 fn the_scan_finds_what_it_should() {
-    let source = r#"use crate::raw::{base, types};
+    let cases: &[(&str, &[&str])] = &[
+        // Fields, variants, aliases and functions; hidden owners, gates and test modules.
+        (
+            r#"use crate::raw::{base, types};
 use crate::raw::base::InputPeer;
 use crate::types::User;
 
@@ -70,6 +80,7 @@ pub enum Kind {
 }
 
 pub type Alias = base::Peer;
+pub const EMPTY: Option<base::Peer> = None;
 
 impl Client {
     pub async fn get_me(&self) -> Result<User> {}
@@ -92,22 +103,118 @@ impl Friendly {
     pub fn into_raw(self) -> base::InputFile {}
 }
 
-impl From<base::InputFileLocation> for Friendly {}
+#[cfg(test)]
+mod tests {
+    pub fn helper() -> base::User {}
+}
+"#,
+            &["raw", "Wrapper", "Raw", "Alias", "EMPTY", "leaks"],
+        ),
+        // `impl` headers of any shape, and associated types inside impls.
+        (
+            r#"use crate::raw::base;
+
+pub struct A;
+struct Private;
+
+impl<'a> From<base::User> for A {}
+impl TryFrom<base::User> for A {}
+impl Into<base::User> for A {}
+impl PartialEq<base::Message> for A {}
+impl AsRef<base::User> for A {}
+impl Searchable for base::Message {}
+impl From<base::User> for Private {}
+
+impl std::ops::Deref for A {
+    type Target = base::User;
+}
+
+impl Iterator for A {
+    type Item = base::Message;
+}
 
 impl IntoFuture for Fetch<'_> {
     type Output = Result<base::Updates>;
 }
 
 into_future!(Upload, base::InputFile);
-into_future!(Hidden, base::InputFile);
+into_future!(Private, base::InputFile);
+"#,
+            &[
+                "impl A",
+                "impl A",
+                "impl A",
+                "impl A",
+                "impl A",
+                "impl base::Message",
+                "A::Target",
+                "A::Item",
+                "Fetch::Output",
+                "impl Upload",
+            ],
+        ),
+        // Re-exports, with and without `as`.
+        (
+            r#"pub use crate::raw::base::User;
+pub use crate::raw::base::Chat as RawChat;
+pub use crate::types::Message;
+pub(crate) use crate::raw::base::Peer;
+"#,
+            &["User", "RawChat"],
+        ),
+        // Nested `use` groups, `self` and aliases.
+        (
+            r#"use crate::raw::{base::{self as tl, User as TlUser}, functions};
 
-#[cfg(test)]
-mod tests {
-    pub fn helper() -> base::User {}
+pub fn module_alias() -> tl::Message {}
+pub fn name_alias() -> TlUser {}
+pub fn friendly() -> crate::types::User {}
+"#,
+            &["module_alias", "name_alias"],
+        ),
+        // Inline modules: `use super::base`, `super::base::` paths, and owners inside them.
+        (
+            r#"pub mod open {
+    use super::base;
+
+    pub struct B;
+
+    impl From<super::base::User> for B {}
+
+    pub fn through_super() -> base::User {}
 }
-"#;
-    let items: Vec<String> = violations(source).into_iter().map(|(_, item, _)| item).collect();
-    assert_eq!(items, ["raw", "Wrapper", "Raw", "Alias", "leaks", "Friendly", "Fetch", "Upload"]);
+
+mod closed {
+    pub struct C;
+
+    impl From<super::base::User> for C {}
+
+    pub fn hidden() -> super::base::User {}
+}
+"#,
+            &["impl B", "through_super"],
+        ),
+        // Trait bodies.
+        (
+            r#"use crate::raw::base;
+
+pub trait Public {
+    type Raw: Into<base::User>;
+    fn raw(&self) -> base::User;
+    fn friendly(&self) -> crate::types::User;
+}
+
+pub(crate) trait Internal {
+    fn raw(&self) -> base::User;
+}
+"#,
+            &["Public::Raw", "Public::raw"],
+        ),
+    ];
+    for (source, expected) in cases {
+        let items: Vec<String> = violations(source).into_iter().map(|(_, item, _)| item).collect();
+        assert_eq!(&items, expected, "in:\n{source}");
+    }
 }
 
 fn collect(dir: &Path, out: &mut Vec<(String, String)>) {
@@ -144,8 +251,24 @@ fn test_module_files(files: &[(String, String)]) -> Vec<String> {
     modules
 }
 
-/// `(line, item, text)` for each public signature in `source` that names a TL type. Items of types the file
-/// declares crate-private (`struct`, `pub(crate) struct`, …) are skipped: nothing outside the crate sees them.
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    Type,
+    Enum,
+    Trait,
+    Impl,
+    Module,
+}
+
+/// A block the current line is inside: what opened it, at which indent, and whether it hides what it holds.
+struct Scope {
+    indent: usize,
+    kind: Kind,
+    name: String,
+    hidden: bool,
+}
+
+/// `(line, item, text)` for each public signature in `source` that names a TL type.
 fn violations(source: &str) -> Vec<(usize, String, String)> {
     let lines: Vec<&str> = source.lines().collect();
     let tl = TlNames::of(source);
@@ -153,18 +276,14 @@ fn violations(source: &str) -> Vec<(usize, String, String)> {
     let is_private = |name: &str| private.iter().any(|p| p == name);
     let mut found = Vec::new();
     let mut attrs = String::new();
-    // The top-level item the current line is in: its type name, and whether it's gated or private.
-    let mut owner = String::new();
-    let mut hidden_owner = false;
-    let mut pub_enum: Option<usize> = None;
+    let mut scopes: Vec<Scope> = Vec::new();
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i];
         let trimmed = line.trim();
         let indent = line.len() - line.trim_start().len();
-        if trimmed == "#[cfg(test)]" && lines.get(i + 1).is_some_and(|l| l.trim().starts_with("mod ")) {
-            i = if lines[i + 1].trim_end().ends_with('{') { end_of_block(&lines, i + 1, indent) + 1 } else { i + 2 };
-            attrs.clear();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            i += 1;
             continue;
         }
         if trimmed.starts_with("#[") {
@@ -172,49 +291,78 @@ fn violations(source: &str) -> Vec<(usize, String, String)> {
             i += 1;
             continue;
         }
-        if trimmed.is_empty() || trimmed.starts_with("//") {
-            i += 1;
-            continue;
-        }
         let gated = attrs.contains("cfg(feature = \"unstable-raw\")") || attrs.contains("cfg(test)");
         attrs.clear();
-        if indent == 0 && trimmed != "}" {
-            owner = owner_of(trimmed).unwrap_or_default();
-            hidden_owner = gated || is_private(&owner);
+        while scopes.last().is_some_and(|s| s.indent >= indent) {
+            scopes.pop();
         }
-        let report = |found: &mut Vec<_>, item: &str, text: &str| {
-            if tl.found_in(text) && !gated && !hidden_owner {
-                found.push((i + 1, item.to_string(), text.to_string()));
+        // A test module's strings can hold anything: skip it to its closing brace.
+        if gated && trimmed.starts_with("mod ") && trimmed.ends_with('{') {
+            i = end_of_block(&lines, i, indent) + 1;
+            continue;
+        }
+        let hidden = gated || scopes.iter().any(|s| s.hidden);
+        let parent = scopes.last().filter(|s| indent == s.indent + 4).map(|s| (s.kind, s.name.clone()));
+        let line_number = i + 1;
+        let mut report = |item: String, text: &str| {
+            if !hidden && tl.found_in(text) {
+                found.push((line_number, item, text.to_string()));
             }
         };
 
-        if let Some(start) = pub_enum {
-            if trimmed == "}" && indent == start {
-                pub_enum = None;
-            } else {
-                report(&mut found, trimmed.split(['(', ' ', '{', ',']).next().unwrap_or(trimmed), trimmed);
+        if let Some((kind, name, public)) = declaration(trimmed) {
+            let (end, header) = signature(&lines, i);
+            let name = if kind == Kind::Impl { impl_target(&header) } else { name };
+            let hides = if kind == Kind::Impl { is_private(&name) } else { !public };
+            if kind == Kind::Impl && !hides {
+                report(format!("impl {name}"), &header);
+            } else if kind == Kind::Type && public && header.contains("(pub ") {
+                report(name.clone(), &header);
             }
-            i += 1;
+            if lines[end].contains('{') {
+                scopes.push(Scope { indent, kind, name, hidden: hidden || hides });
+            }
+            i = end + 1;
             continue;
         }
-        if trimmed.starts_with("pub enum ") && trimmed.ends_with('{') {
-            pub_enum = Some(indent);
-        } else if let Some(name) = fn_name(trimmed) {
-            let mut end = i;
-            while !lines[end].contains('{') && !lines[end].trim_end().ends_with(';') && end + 1 < lines.len() {
-                end += 1;
+        if let Some(name) = fn_name(trimmed) {
+            let (end, header) = signature(&lines, i);
+            report(name.to_string(), &header);
+            i = end + 1;
+            continue;
+        }
+        if trimmed.starts_with("pub use ") {
+            let end = (i..lines.len()).find(|&j| lines[j].trim_end().ends_with(';')).unwrap_or(i);
+            let statement = lines[i..=end].iter().map(|l| l.trim()).collect::<Vec<_>>().join(" ");
+            for (name, full) in flatten_use(statement.trim_start_matches("pub use ").trim_end_matches(';')) {
+                report(name, &full);
             }
-            let signature = lines[i..=end].iter().map(|l| l.trim()).collect::<Vec<_>>().join(" ");
-            report(&mut found, name, signature.split('{').next().unwrap_or(&signature));
-            i = end;
-        } else if let Some(name) = pub_field(trimmed) {
-            report(&mut found, name, trimmed);
-        } else if trimmed.starts_with("type Output") || trimmed.starts_with("impl From<") {
-            report(&mut found, &owner, trimmed.split('{').next().unwrap_or(trimmed));
+            i = end + 1;
+            continue;
+        }
+        if let Some(name) = pub_item(trimmed) {
+            report(name.to_string(), trimmed);
         } else if let Some(args) = trimmed.strip_prefix("into_future!(") {
-            let name = args.split(',').next().unwrap_or(args);
+            let name = args.split(',').next().unwrap_or(args).trim();
             if !is_private(name) {
-                report(&mut found, name, trimmed);
+                report(format!("impl {name}"), trimmed);
+            }
+        } else if let Some((kind, owner)) = parent {
+            let member = ["type ", "fn ", "const "].iter().find_map(|word| trimmed.strip_prefix(word));
+            let member = member.map(|rest| rest.split([' ', ':', '=', '<', '(', ';']).next().unwrap_or(rest));
+            match (kind, member) {
+                (Kind::Impl, Some(name)) if trimmed.starts_with("type ") => {
+                    report(format!("{owner}::{name}"), trimmed);
+                }
+                (Kind::Trait, Some(name)) => {
+                    let (end, header) = signature(&lines, i);
+                    report(format!("{owner}::{name}"), &header);
+                    i = end;
+                }
+                (Kind::Enum, None) => {
+                    report(trimmed.split(['(', ' ', '{', ',']).next().unwrap_or(trimmed).into(), trimmed)
+                }
+                _ => {}
             }
         }
         i += 1;
@@ -222,67 +370,156 @@ fn violations(source: &str) -> Vec<(usize, String, String)> {
     found
 }
 
-/// The type a top-level line declares or implements for: `Foo` in `pub struct Foo {`, `impl<'a> Foo<'a> {` and
-/// `impl From<X> for Foo {`.
-fn owner_of(line: &str) -> Option<String> {
-    let rest = if line.starts_with("impl") {
-        let head = line.split('{').next().unwrap_or(line);
-        match head.rsplit_once(" for ") {
-            Some((_, target)) => target,
-            None => head.strip_prefix("impl")?.trim_start_matches(|c| c != ' ').trim_start(),
-        }
-    } else {
-        let line = ["pub(crate) ", "pub(super) ", "pub "].iter().fold(line, |l, p| l.strip_prefix(p).unwrap_or(l));
-        ["struct ", "enum "].iter().find_map(|kind| line.strip_prefix(kind))?
+/// The lines from `start` to the one that opens a body or ends the item, and their text up to the body.
+fn signature(lines: &[&str], start: usize) -> (usize, String) {
+    let end = (start..lines.len())
+        .find(|&j| lines[j].contains('{') || lines[j].trim_end().ends_with(';'))
+        .unwrap_or(lines.len() - 1);
+    let text = lines[start..=end].iter().map(|l| l.trim()).collect::<Vec<_>>().join(" ");
+    let text = text.split('{').next().unwrap_or(&text).to_string();
+    (end, text)
+}
+
+/// What a line declares, the name it declares and whether it's plain `pub`: `pub struct A`, `enum B`,
+/// `pub trait C`, `impl …`, `pub mod d {`.
+fn declaration(line: &str) -> Option<(Kind, String, bool)> {
+    let (public, rest) = match line.strip_prefix("pub ") {
+        Some(rest) => (true, rest),
+        None => (false, ["pub(crate) ", "pub(super) "].iter().find_map(|p| line.strip_prefix(p)).unwrap_or(line)),
     };
-    let name: String = rest.trim().chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-    (!name.is_empty()).then_some(name)
+    let rest = rest.strip_prefix("unsafe ").unwrap_or(rest);
+    if rest.starts_with("impl ") || rest.starts_with("impl<") {
+        return Some((Kind::Impl, String::new(), true));
+    }
+    let (kind, rest) =
+        [("struct ", Kind::Type), ("enum ", Kind::Enum), ("trait ", Kind::Trait), ("mod ", Kind::Module)]
+            .iter()
+            .find_map(|&(word, kind)| rest.strip_prefix(word).map(|r| (kind, r)))?;
+    if kind == Kind::Module && !line.ends_with('{') {
+        return None;
+    }
+    Some((kind, ident(rest), public))
+}
+
+/// The type an `impl` header is for: `Foo` in `impl<'a> Foo<'a>`, `Bar` in `impl From<X> for Bar`, and the whole
+/// path in `impl Trait for base::X`.
+fn impl_target(header: &str) -> String {
+    let head = header.split(" where ").next().unwrap_or(header).trim();
+    let target = match head.rsplit_once(" for ") {
+        Some((_, target)) => target,
+        None => {
+            let rest = head.trim_start_matches("unsafe ").trim_start_matches("impl");
+            match rest.strip_prefix('<') {
+                Some(_) => skip_generics(rest),
+                None => rest,
+            }
+        }
+    };
+    target.trim().chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':').collect()
+}
+
+/// What follows the `<…>` that `s` starts with.
+fn skip_generics(s: &str) -> &str {
+    let mut depth = 0;
+    for (at, c) in s.char_indices() {
+        match c {
+            '<' => depth += 1,
+            '>' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &s[at + 1..];
+                }
+            }
+            _ => {}
+        }
+    }
+    ""
 }
 
 /// Types declared without `pub`, or with a restricted `pub(…)`.
 fn private_types(lines: &[&str]) -> Vec<String> {
-    let mut names = Vec::new();
-    for line in lines.iter().map(|l| l.trim()) {
-        if line.starts_with("pub ") {
-            continue;
-        }
-        let rest = line.strip_prefix("pub(crate) ").or_else(|| line.strip_prefix("pub(super) ")).unwrap_or(line);
-        if let Some(decl) = ["struct ", "enum "].iter().find_map(|kind| rest.strip_prefix(kind)) {
-            names.push(decl.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect());
-        }
-    }
-    names
+    lines
+        .iter()
+        .filter_map(|l| match declaration(l.trim())? {
+            (Kind::Type | Kind::Enum | Kind::Trait, name, false) => Some(name),
+            _ => None,
+        })
+        .collect()
+}
+
+fn ident(s: &str) -> String {
+    s.trim().chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect()
 }
 
 /// The name of a `pub fn` (not `pub(crate)`), if the line starts one.
 fn fn_name(line: &str) -> Option<&str> {
     let mut rest = line.strip_prefix("pub ")?;
-    for qualifier in ["const ", "async ", "unsafe "] {
+    for qualifier in ["const ", "async ", "unsafe ", "extern \"C\" "] {
         rest = rest.strip_prefix(qualifier).unwrap_or(rest);
     }
     let rest = rest.strip_prefix("fn ")?;
     rest.split(['(', '<']).next()
 }
 
-/// The name of a `pub` field, tuple struct, type alias, const or static, if the line declares one.
-fn pub_field(line: &str) -> Option<&str> {
+/// The name of a `pub` field, type alias, const or static, if the line declares one.
+fn pub_item(line: &str) -> Option<&str> {
     let rest = line.strip_prefix("pub ")?;
-    let ident = |s: &str| s.chars().all(|c| c.is_alphanumeric() || c == '_');
-    if let Some(rest) = rest.strip_prefix("struct ") {
-        return rest.contains("(pub ").then(|| rest.split(['(', '<']).next().unwrap_or(rest));
-    }
     if let Some(rest) = rest.strip_prefix("type ") {
         return rest.split([' ', '<', '=']).next();
     }
     let rest = rest.strip_prefix("const ").or_else(|| rest.strip_prefix("static ")).unwrap_or(rest);
     let (name, _) = rest.split_once(':')?;
-    ident(name).then_some(name)
+    name.chars().all(|c| c.is_alphanumeric() || c == '_').then_some(name)
 }
 
-/// The ways a file can spell a TL type: `base::` and `types::` when it imports them from `crate::raw`, `raw::base::`
-/// and `raw::types::` anywhere, and names it imports straight from them.
+/// Each name a `use` tree brings in, with the full path it stands for: `a::{b::{self as c, D}, e}` gives
+/// `(c, a::b)`, `(D, a::b::D)` and `(e, a::e)`.
+fn flatten_use(tree: &str) -> Vec<(String, String)> {
+    fn walk(prefix: &str, tree: &str, out: &mut Vec<(String, String)>) {
+        let tree = tree.trim();
+        let Some(open) = tree.find('{') else {
+            let (path, alias) = match tree.split_once(" as ") {
+                Some((path, alias)) => (path.trim(), Some(alias.trim())),
+                None => (tree, None),
+            };
+            let full = match (prefix.is_empty(), path) {
+                (_, "self") => prefix.trim_end_matches("::").to_string(),
+                (true, path) => path.to_string(),
+                (false, path) => format!("{prefix}{path}"),
+            };
+            let name = alias.unwrap_or_else(|| full.rsplit("::").next().unwrap_or(&full)).to_string();
+            if !name.is_empty() && name != "*" {
+                out.push((name, full));
+            }
+            return;
+        };
+        let prefix = format!("{prefix}{}", &tree[..open]);
+        let close = tree.rfind('}').filter(|&close| close > open).unwrap_or(tree.len());
+        let inner = &tree[open + 1..close];
+        let mut depth = 0;
+        let mut start = 0;
+        for (at, c) in inner.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                ',' if depth == 0 => {
+                    walk(&prefix, &inner[start..at], out);
+                    start = at + 1;
+                }
+                _ => {}
+            }
+        }
+        walk(&prefix, &inner[start..], out);
+    }
+    let mut out = Vec::new();
+    walk("", tree, &mut out);
+    out
+}
+
+/// The ways a file can spell a TL type: through `raw::base`/`raw::types`, through the `base`/`types` modules it
+/// imports from `crate::raw` (or `base` from `super`), and the names it imports from them.
 struct TlNames {
-    modules: Vec<&'static str>,
+    modules: Vec<String>,
     names: Vec<String>,
 }
 
@@ -291,45 +528,55 @@ impl TlNames {
         let mut modules = Vec::new();
         let mut names = Vec::new();
         for statement in source.split(';') {
-            let statement = statement.split_whitespace().collect::<Vec<_>>().join(" ");
-            let Some(at) = statement.find("use crate::raw::") else { continue };
-            let path = statement[at + "use crate::raw::".len()..].replace("{ ", "{").replace(" }", "}");
-            let path = path.as_str();
-            if let Some(group) = path.strip_prefix('{').and_then(|g| g.strip_suffix('}')) {
-                for module in ["base", "types"] {
-                    if group.split(',').any(|part| part.trim() == module) {
-                        modules.push(module);
-                    }
-                }
+            let Some(line) = statement.lines().position(|l| {
+                let l = l.trim_start();
+                ["use ", "pub use ", "pub(crate) use ", "pub(super) use "].iter().any(|p| l.starts_with(p))
+            }) else {
                 continue;
-            }
-            for module in ["base", "types"] {
-                if path == module {
-                    modules.push(module);
-                } else if let Some(imported) = path.strip_prefix(module).and_then(|p| p.strip_prefix("::")) {
-                    let list = imported.trim_start_matches('{').trim_end_matches('}');
-                    for part in list.split(',') {
-                        let name = part.trim().rsplit("::").next().unwrap_or("");
-                        if !name.is_empty() {
-                            names.push(name.to_string());
-                        }
-                    }
+            };
+            let statement = statement.lines().skip(line).collect::<Vec<_>>().join(" ");
+            let statement = statement.split_whitespace().collect::<Vec<_>>().join(" ");
+            let tree = &statement[statement.find("use ").unwrap_or(0) + "use ".len()..];
+            for (name, full) in flatten_use(tree) {
+                let module = full.rsplit("::").next().unwrap_or("");
+                if full.ends_with("raw::base")
+                    || full.ends_with("raw::types")
+                    || (full.starts_with("super::") && module == "base")
+                {
+                    modules.push(name);
+                } else if TlNames::is_tl_path(&full) {
+                    names.push(name);
                 }
             }
         }
         TlNames { modules, names }
     }
 
+    /// A path through `raw::base`/`raw::types` to something inside them.
+    fn is_tl_path(path: &str) -> bool {
+        path.contains("raw::base::") || path.contains("raw::types::")
+    }
+
     fn found_in(&self, text: &str) -> bool {
-        if text.contains("raw::base::") || text.contains("raw::types::") {
+        if TlNames::is_tl_path(text) {
             return true;
         }
-        let bare = |at: usize| at == 0 || !text[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == ':');
-        let modules = self.modules.iter().any(|module| {
-            let path = format!("{module}::");
-            text.match_indices(&path).any(|(at, _)| bare(at))
-        });
-        modules
+        // Not part of a longer path, except one that only climbs modules (`super::base::`).
+        let bare = |at: usize| {
+            let mut before = &text[..at];
+            while let Some(rest) = before.strip_suffix("super::").or_else(|| before.strip_suffix("self::")) {
+                before = rest;
+            }
+            !before.ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == ':')
+        };
+        let climbs = text.contains("super::base::").then_some("base");
+        let in_module = self
+            .modules
+            .iter()
+            .map(String::as_str)
+            .chain(climbs)
+            .any(|module| text.match_indices(&format!("{module}::")).any(|(at, _)| bare(at)));
+        in_module
             || self.names.iter().any(|name| {
                 text.match_indices(name.as_str()).any(|(at, _)| {
                     let after = text[at + name.len()..].chars().next();

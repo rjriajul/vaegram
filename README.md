@@ -145,8 +145,7 @@ app.on_raw_update(|_, update| async move {
 
 With the `json` feature, `update.to_json(&mut out)` writes the update and all its users and chats. The `unstable-raw`
 feature adds `update.raw()`, `raw_users()`, `raw_chats()` and `Incoming::into_updates()` with the TL objects
-themselves, and `client.resolve_peer(chat)` for the TL peer raw requests take; it is experimental and may change or go
-away in any release.
+themselves; it is experimental and may change or go away in any release.
 
 The JSON shape is stable: TL names under `"_"`, bytes as base64url without padding, longs past 2^53 as strings,
 absent flag fields left out and `false` flags kept. New layers may add fields; anything else is a breaking change.

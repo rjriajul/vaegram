@@ -36,7 +36,7 @@ impl Client {
             },
         };
         if value.contains(':') {
-            return self.sign_in_bot(&value).await.map(drop);
+            return self.authorized_raw(self.sign_in_bot_raw(&value).await?).await.map(drop);
         }
 
         let phone = value.trim_matches(|c| c == ' ' || c == '+').to_owned();
@@ -57,7 +57,7 @@ impl Client {
                     let hash = &sent.phone_code_hash;
                     return self.finish_sign_up(&phone, hash, &first_name, &last_name, terms, confirm).await;
                 }
-                Ok(auth) => return self.authorized(auth).await.map(drop),
+                Ok(auth) => return self.authorized_raw(auth).await.map(drop),
                 Err(e) if e.is("PHONE_CODE_INVALID") => println!("Wrong code, try again"),
                 Err(e) if e.is("SESSION_PASSWORD_NEEDED") => break,
                 Err(e) => return Err(e),
@@ -76,8 +76,8 @@ impl Client {
                     ask("Enter password: ", true).await?
                 }
             };
-            match self.check_password(&p).await {
-                Ok(_) => return Ok(()),
+            match self.check_password_raw(&p).await {
+                Ok(auth) => return self.authorized_raw(auth).await.map(drop),
                 Err(e) if e.is("PASSWORD_HASH_INVALID") => println!("Wrong password, try again"),
                 Err(e) => return Err(e),
             }

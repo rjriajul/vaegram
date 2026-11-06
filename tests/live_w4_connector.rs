@@ -9,7 +9,7 @@ use vaegram::session::{Dc, Session};
 #[tokio::test]
 #[ignore = "connects to Telegram"]
 async fn connector_dials_production() {
-    let dc = Dc::new(2, "149.154.167.51:443".parse().unwrap());
+    let dc = Dc::production(2).unwrap();
     let dials = Arc::new(AtomicUsize::new(0));
     let counted = dials.clone();
     let factory = move |addr: SocketAddr| {

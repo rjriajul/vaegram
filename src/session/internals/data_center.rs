@@ -5,9 +5,13 @@ use crate::raw::base;
 /// A data center to connect a [`Session`](crate::session::Session) or a
 /// [`Connection`](crate::connection::Connection) to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct Dc {
+    /// Telegram's number for the data center, the `n` that `*_MIGRATE_n` errors name.
     pub id: i32,
+    /// The data center's IP address and port; the built-in addresses all use port 443.
     pub addr: SocketAddr,
+    /// A test server: its wire id is `id + 10000`, and it only knows test accounts.
     pub test: bool,
 }
 
@@ -15,6 +19,16 @@ impl Dc {
     /// A production data center; [`test`](Self::test) makes it a test one.
     pub fn new(id: i32, addr: SocketAddr) -> Self {
         Dc { id, addr, test: false }
+    }
+
+    /// Production data center `id` at its built-in IPv4 address. `None` for an id outside 1 to 5.
+    pub fn production(id: i32) -> Option<Self> {
+        Some(Dc::new(id, address(id, false, false)?))
+    }
+
+    /// Test server `id` at its built-in IPv4 address. `None` for an id outside 1 to 3.
+    pub fn test_server(id: i32) -> Option<Self> {
+        Some(Dc::new(id, address(id, true, false)?).test(true))
     }
 
     /// Sets whether this is a test data center, whose wire id is `id + 10000`.
@@ -136,5 +150,14 @@ mod tests {
         let addr = "149.154.167.51:443".parse().unwrap();
         assert_eq!(Dc::new(2, addr).wire_id(), 2);
         assert_eq!(Dc::new(2, addr).test(true).wire_id(), 10002);
+    }
+
+    #[test]
+    fn built_in_constructors_use_the_ipv4_table() {
+        let prod = Dc::production(4).unwrap();
+        assert_eq!((prod.addr, prod.test), ("149.154.167.91:443".parse().unwrap(), false));
+        let test = Dc::test_server(2).unwrap();
+        assert_eq!((test.addr, test.wire_id()), ("149.154.167.40:443".parse().unwrap(), 10002));
+        assert_eq!((Dc::production(6), Dc::test_server(4)), (None, None));
     }
 }

@@ -15,7 +15,7 @@ async fn web_proxy_carries_a_handshake() {
     };
     let proxy: Proxy = link.parse().unwrap();
     let options = Options::new().proxy(proxy);
-    let dc = Dc::new(2, "149.154.167.51:443".parse().unwrap());
+    let dc = Dc::production(2).unwrap();
     let (session, _updates) = Session::connect(dc, None, &options, Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 5 }).await.unwrap();
     assert_eq!(pong.ping_id, 5);

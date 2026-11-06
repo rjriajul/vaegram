@@ -30,11 +30,17 @@ impl Client {
     }
 
     pub(crate) async fn authorized(&self, auth: base::auth::Authorization) -> Result<User> {
+        Ok(User::from_raw(self, self.authorized_raw(auth).await?))
+    }
+
+    /// Records the account and saves the session, without building the friendly `User` a login that drops it
+    /// doesn't need.
+    pub(crate) async fn authorized_raw(&self, auth: base::auth::Authorization) -> Result<base::User> {
         match auth {
             base::auth::Authorization::Authorization(a) => {
                 self.set_me(&a.user);
                 self.save().await?;
-                Ok(User::from_raw(self, a.user))
+                Ok(a.user)
             }
             base::auth::Authorization::AuthorizationSignUpRequired(_) => Err(Error::SignUpRequired),
         }

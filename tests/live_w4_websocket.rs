@@ -16,7 +16,7 @@ fn websocket() -> Options {
 #[tokio::test]
 #[ignore = "connects to Telegram over WebSocket"]
 async fn websocket_gets_config() {
-    let dc = Dc::new(2, "149.154.167.51:443".parse().unwrap());
+    let dc = Dc::production(2).unwrap();
     let (session, _updates) = Session::connect(dc, None, &websocket(), Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 3 }).await.unwrap();
     assert_eq!(pong.ping_id, 3);
@@ -25,7 +25,7 @@ async fn websocket_gets_config() {
 #[tokio::test]
 #[ignore = "connects to Telegram over WebSocket and waits five minutes"]
 async fn websocket_survives_5_min_idle() {
-    let dc = Dc::new(4, "149.154.167.91:443".parse().unwrap());
+    let dc = Dc::production(4).unwrap();
     let (session, _updates) = Session::connect(dc, None, &websocket(), Arc::default(), None).await.unwrap();
     tokio::time::sleep(Duration::from_secs(5 * 60)).await;
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 5 }).await.unwrap();

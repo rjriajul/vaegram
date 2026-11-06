@@ -6,21 +6,24 @@ use std::time::Duration;
 
 use vaegram::connection::{Options, Proxy, Transport};
 use vaegram::enums::{
-    MessageEntityType, MessagesFilter, ParseMode, PollType, StickerType, StoriesPrivacyRules, TopChatCategory,
+    MessageEntityType, MessagesFilter, ParseMode, PollType, ProfileTab, StickerType, StoriesPrivacyRules,
+    TopChatCategory,
 };
 use vaegram::raw::{Serializable, base, functions, types};
 use vaegram::session::{Dc, Session};
+use vaegram::storage::{FileStorage, Storage};
 use vaegram::types::{
     ButtonStyle, FileSource, Folder, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
     InputPollMedia, InputPollOption, InputRichMessage, InputSticker, InputStoryContent, Json, KeyboardButton, Media,
     Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
 };
+use vaegram::utils::get_channel_id;
 use vaegram::{Client, filters};
 
 #[tokio::test]
 #[ignore = "connects to Telegram"]
 async fn creates_auth_key_and_pings() {
-    let dc = Dc::new(2, "149.154.167.51:443".parse().unwrap());
+    let dc = Dc::production(2).unwrap();
     let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 42 }).await.unwrap();
     assert_eq!(pong.ping_id, 42);
@@ -29,7 +32,7 @@ async fn creates_auth_key_and_pings() {
 #[tokio::test]
 #[ignore = "connects to Telegram's test servers"]
 async fn creates_auth_key_on_test_server() {
-    let dc = Dc::new(2, "149.154.167.40:443".parse().unwrap()).test(true);
+    let dc = Dc::test_server(2).unwrap();
     let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
     assert_eq!(pong.ping_id, 7);
@@ -38,7 +41,7 @@ async fn creates_auth_key_on_test_server() {
 #[tokio::test]
 #[ignore = "connects to Telegram's test servers"]
 async fn binds_temp_key_on_test_server() {
-    let dc = Dc::new(2, "149.154.167.40:443".parse().unwrap()).test(true);
+    let dc = Dc::test_server(2).unwrap();
     let init = Some(functions::help::GetNearestDc {}.to_bytes());
     let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), init).await.unwrap();
     // Requests wait for auth.bindTempAuthKey to succeed, so an answer means it did.
@@ -49,7 +52,7 @@ async fn binds_temp_key_on_test_server() {
 #[tokio::test]
 #[ignore = "connects to Telegram"]
 async fn handshakes_over_every_transport() {
-    let dc = Dc::new(2, "149.154.167.51:443".parse().unwrap());
+    let dc = Dc::production(2).unwrap();
     for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
         for obfuscated in [false, true] {
             let options = Options::new().transport(transport).obfuscated(obfuscated);
@@ -63,7 +66,7 @@ async fn handshakes_over_every_transport() {
 #[tokio::test]
 #[ignore = "connects through VAEGRAM_SOCKS5 (host:port[:user:pass]) and VAEGRAM_MTPROXY (host:port:secret)"]
 async fn handshakes_through_proxies() {
-    let dc = Dc::new(2, "149.154.167.51:443".parse().unwrap());
+    let dc = Dc::production(2).unwrap();
     let mut proxies = Vec::new();
     if let Ok(s) = std::env::var("VAEGRAM_SOCKS5") {
         let parts: Vec<&str> = s.split(':').collect();
@@ -502,24 +505,41 @@ async fn user_account_talks_to_bot() {
     let ping = ping.edit_text("ping 2").await.unwrap();
     assert_eq!(next(&mut rx, "new").await.text(), "edited: ping 2");
 
-    let answer = user.request_callback_answer(bot_id, pong.id, b"tap".to_vec()).await.unwrap();
-    assert_eq!(answer.text.as_deref(), Some("tapped"));
+    let peer = user.resolve_peer(bot_id).await.unwrap();
+    let request = functions::messages::GetBotCallbackAnswer {
+        game: false,
+        peer: peer.clone(),
+        msg_id: pong.id,
+        data: Some(b"tap".to_vec()),
+        password: None,
+    };
+    let base::messages::BotCallbackAnswer::BotCallbackAnswer(answer) = user.invoke(&request).await.unwrap();
+    assert_eq!(answer.message.as_deref(), Some("tapped"));
     let tapped = next(&mut rx, "edit").await;
     assert_eq!((tapped.id, tapped.text()), (pong.id, "tapped!"));
 
-    let results = user.get_inline_bot_results(bot_id, "hi").chat_id(bot_id).await.unwrap();
-    assert_eq!(results.results.first().and_then(|r| r.title.as_deref()), Some("Result"));
+    let base::InputPeer::InputPeerUser(bot_peer) = &peer else { panic!("the bot is not a user peer") };
+    let bot_user =
+        base::InputUser::InputUser(Box::new(types::InputUser { user_id: bot_id, access_hash: bot_peer.access_hash }));
+    let request = functions::messages::GetInlineBotResults {
+        bot: bot_user,
+        peer,
+        geo_point: None,
+        query: "hi".into(),
+        offset: String::new(),
+    };
+    let base::messages::BotResults::BotResults(results) = user.invoke(&request).await.unwrap();
+    assert!(
+        matches!(results.results.first(), Some(base::BotInlineResult::BotInlineResult(r)) if r.title.as_deref() == Some("Result"))
+    );
 
     assert!(raw_updates.load(Ordering::Relaxed) >= 3);
     user.delete_messages(bot_id, &[ping.id, pong.id]).await.unwrap();
 }
 
-#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "uses a logged-in user session"]
 async fn user_keeps_peers_across_restarts() {
-    use vaegram::storage::{FileStorage, Storage};
-
     let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
         eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
         return;
@@ -701,7 +721,7 @@ async fn user_lists_dialogs_and_contacts() {
     user.pin_chat(me.id).await.unwrap();
     user.unpin_chat(me.id).await.unwrap();
     user.mark_chat_unread(me.id).await.unwrap();
-    let peer = types::InputDialogPeer { peer: base::InputPeer::InputPeerSelf };
+    let peer = types::InputDialogPeer { peer: user.resolve_peer(me.id).await.unwrap() };
     let peer = base::InputDialogPeer::InputDialogPeer(Box::new(peer));
     user.invoke(&functions::messages::MarkDialogUnread { unread: false, parent_peer: None, peer }).await.unwrap();
     assert!(user.get_chat_history_count(me.id).await.unwrap() >= 0);
@@ -1079,7 +1099,6 @@ async fn user_manages_invite_links() {
     user.delete_supergroup(group.id).await.unwrap();
 }
 
-#[cfg(feature = "unstable-raw")]
 async fn input_channel(user: &Client, chat_id: i64) -> base::InputChannel {
     let base::InputPeer::InputPeerChannel(p) = user.resolve_peer(chat_id).await.unwrap() else {
         panic!("{chat_id} is not a channel")
@@ -1090,7 +1109,6 @@ async fn input_channel(user: &Client, chat_id: i64) -> base::InputChannel {
     }))
 }
 
-#[cfg(feature = "unstable-raw")]
 async fn channel_full(user: &Client, chat_id: i64) -> types::ChannelFull {
     let channel = input_channel(user, chat_id).await;
     let base::messages::ChatFull::ChatFull(full) =
@@ -1099,7 +1117,6 @@ async fn channel_full(user: &Client, chat_id: i64) -> types::ChannelFull {
     *full
 }
 
-#[cfg(feature = "unstable-raw")]
 async fn channel_info(user: &Client, chat_id: i64) -> types::Channel {
     let id = vec![input_channel(user, chat_id).await];
     let chats = match user.invoke(&functions::channels::GetChannels { id }).await.unwrap() {
@@ -1115,7 +1132,6 @@ async fn channel_info(user: &Client, chat_id: i64) -> types::Channel {
         .expect("the channel is gone")
 }
 
-#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "creates and deletes a supergroup with a logged-in user session"]
 async fn user_changes_supergroup_settings() {
@@ -1143,7 +1159,6 @@ async fn user_changes_supergroup_settings() {
     user.delete_supergroup(group.id).await.unwrap();
 }
 
-#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "flips and restores four settings of a chat the user owns; the chat must qualify for anti-spam, hidden \
             members, auto-translation and sponsored-message limits"]
@@ -1173,13 +1188,9 @@ async fn owner_flips_and_restores_channel_toggles() {
     assert_eq!(channel_info(&user, chat).await.autotranslation, translated);
 }
 
-#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "creates and deletes a channel and a supergroup with a logged-in user session"]
 async fn user_links_a_discussion_group() {
-    use vaegram::enums::ProfileTab;
-    use vaegram::utils::get_channel_id;
-
     let Some(user) = user_client().await else { return };
     let channel = user.create_channel("vaegram live test", "deleted right away").await.unwrap();
     let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();

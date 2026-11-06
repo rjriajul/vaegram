@@ -1,6 +1,8 @@
 #[allow(dead_code)]
 mod support;
 
+use vaegram::enums::ParseMode;
+use vaegram::raw::{base, functions, types};
 use vaegram::types::InputMedia;
 use vaegram::{Client, Error};
 
@@ -132,10 +134,7 @@ fn env_id(key: &str) -> Option<i64> {
     id
 }
 
-#[cfg(feature = "unstable-raw")]
 async fn contact_note(user: &Client, user_id: i64) -> Option<String> {
-    use vaegram::raw::{base, functions, types};
-
     let base::InputPeer::InputPeerUser(peer) = user.resolve_peer(user_id).await.unwrap() else { panic!("not a user") };
     let id = base::InputUser::InputUser(Box::new(types::InputUser { user_id, access_hash: peer.access_hash }));
     let base::users::UserFull::UserFull(full) = user.invoke(&functions::users::GetFullUser { id }).await.unwrap();
@@ -143,12 +142,9 @@ async fn contact_note(user: &Client, user_id: i64) -> Option<String> {
     full.note.map(|base::TextWithEntities::TextWithEntities(note)| note.text)
 }
 
-#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "uses a logged-in user session; changes a contact's note and puts back its text without formatting"]
 async fn user_sets_a_contact_note() {
-    use vaegram::enums::ParseMode;
-
     let Some(contact) = env_id("VAEGRAM_CONTACT_ID") else { return };
     let Some(user) = user_client().await else { return };
     let old = contact_note(&user, contact).await.unwrap_or_default();

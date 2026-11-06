@@ -3,6 +3,7 @@ mod support;
 
 use vaegram::Client;
 use vaegram::enums::{StickerType, StoriesPrivacyRules};
+use vaegram::raw::{base, functions, types};
 use vaegram::types::InputStoryContent;
 
 async fn user_client() -> Option<Client> {
@@ -62,12 +63,9 @@ async fn user_reorders_sticker_sets_and_restores_them() {
     assert_eq!(ids(user.get_installed_sticker_sets(StickerType::Regular).await.unwrap()), original);
 }
 
-#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "needs the kit bot and user in VAEGRAM_CHAT_ID; deletes the bot's welcome messages there"]
 async fn bot_stores_and_deletes_a_welcome_message() {
-    use vaegram::raw::{base, functions, types};
-
     let Ok(chat_id) = std::env::var("VAEGRAM_CHAT_ID") else {
         eprintln!("skipped: set VAEGRAM_CHAT_ID (a group with the kit bot and user)");
         return;
