@@ -14,7 +14,7 @@ pub struct WebView {
     pub fullsize: bool,
     /// Set when the web view should open in fullscreen.
     pub fullscreen: bool,
-    /// Telegram's `same_origin` flag on the result, passed through unchanged; Telegram doesn't document it yet.
+    /// Telegram's `same_origin` flag on the result, passed through unchanged.
     pub same_origin: bool,
 }
 

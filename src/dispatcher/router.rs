@@ -346,7 +346,7 @@ update_kinds! {
     deleted_ephemeral_messages: DeletedEphemeralMessages => DeletedEphemeralMessages {
         UpdateDeleteEphemeralMessages(u) => DeletedEphemeralMessages::parse(client, *u, entities),
     }
-    /// A user's reactions to a message changed: [`on_message_reaction`](crate::Client::on_message_reaction).
+    /// A user's or chat's reactions to a message changed: [`on_message_reaction`](crate::Client::on_message_reaction).
     message_reaction: MessageReaction => MessageReactionUpdated {
         UpdateBotMessageReaction(u) => MessageReactionUpdated::parse(client, &u, entities),
     }

@@ -11,7 +11,7 @@ pub enum PassportElementError {
         kind: PassportElementType,
         /// Name of the data field that has the error.
         field_name: String,
-        /// Hash of the field's encrypted data, from the Passport credentials.
+        /// Hash of the section's encrypted data: the `data_hash` from its `DataCredentials`.
         data_hash: Vec<u8>,
         /// The error message shown to the user.
         message: String,

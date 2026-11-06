@@ -18,7 +18,8 @@ use crate::enums::{ChatType, MediaKind, ServiceKind};
 use crate::types::Message;
 
 /// A test a `T` update passes or fails, given to a `Client::on_*` registration. Combine filters with `&`, `|` and
-/// `!`. Built-in filters are decided before the update is parsed; a [`create`] closure needs the parsed update.
+/// `!`. On messages and callback queries, built-in filters run before the update is parsed, so a miss costs no
+/// parse; a [`create`] closure always needs the parsed update.
 pub struct Filter<T = Message>(Pred<T>);
 
 impl<T> Clone for Filter<T> {
@@ -254,7 +255,7 @@ media_filters! {
     giveaway => Giveaway,
     /// The results of a giveaway only; the announcement is `giveaway`.
     giveaway_winners => GiveawayWinners,
-    /// Media bought with Stars.
+    /// Media behind a Stars paywall.
     paid_media => PaidMedia,
     /// A link preview with no other media; [`media`] leaves these out.
     web_page => WebPage,
@@ -272,11 +273,11 @@ macro_rules! flag_filters {
 flag_filters! {
     /// A reply to another message. Pointing only at a forum topic's root, or a pin's header, doesn't count.
     reply: HasMedia => REPLY,
-    /// Forwarded from another chat or user.
+    /// Forwarded, including automatic forwards from a linked channel.
     forwarded: HasMedia => FORWARDED,
     /// Sent through an inline bot.
     via_bot: HasMedia => VIA_BOT,
-    /// Mentions this account, as Telegram's `mentioned` flag says.
+    /// Mentions this account (Telegram's `mentioned` flag).
     mentioned: HasMedia => MENTIONED,
     /// Sent by the server at a time the sender had scheduled.
     from_scheduled: HasMedia => FROM_SCHEDULED,

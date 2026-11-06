@@ -7,9 +7,10 @@ use crate::handlers::HandlerError;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ClientEvent {
-    /// The connection to `dc` came back after `attempt` tries; updates missed meanwhile are being fetched.
+    /// A connection to `dc` came back after `attempt` tries. When it's the main connection, updates missed
+    /// meanwhile are being fetched.
     Reconnected {
-        /// Id of the data center the main connection is to.
+        /// Id of the data center whose connection came back; file-transfer connections report theirs too.
         dc: i32,
         /// How many connection attempts it took, counting the one that worked; 1 means the first try.
         attempt: u32,
