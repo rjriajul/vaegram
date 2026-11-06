@@ -4,7 +4,7 @@ use crate::types::PeerRef;
 
 impl Client {
     /// Turns notifications for a chat back on.
-    pub async fn unmute_chat(&self, chat_id: impl Into<PeerRef>) -> Result<bool> {
+    pub async fn unmute_chat(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
         self.update_chat_notifications(chat_id).mute_until(0).await
     }
 }

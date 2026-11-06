@@ -41,7 +41,7 @@ mod tests {
             ("{\"id\":7}", "Be nice", true, Some(18), Some((1, MessageEntityType::Bold, 2)))
         );
         assert_eq!(client.get_terms_of_service_update().await.unwrap(), None);
-        assert!(client.accept_terms_of_service(tos.id).await.unwrap());
+        client.accept_terms_of_service(tos.id).await.unwrap();
 
         let request = functions::help::GetTermsOfServiceUpdate {}.to_bytes();
         assert_eq!((sent.recv().await.unwrap(), sent.recv().await.unwrap()), (request.clone(), request));

@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 
 impl Client {
@@ -9,7 +10,7 @@ impl Client {
         bot_id: i64,
         is_access_restricted: bool,
         added_user_ids: &[i64],
-    ) -> Result<bool> {
+    ) -> Result<()> {
         let bot = self.resolve_user(&bot_id.into()).await?;
         let add_users = if is_access_restricted {
             let mut users = Vec::with_capacity(added_user_ids.len());
@@ -21,6 +22,6 @@ impl Client {
             None
         };
         let request = functions::bots::EditAccessSettings { restricted: is_access_restricted, bot, add_users };
-        self.invoke(&request).await
+        accepted(self.invoke(&request).await?)
     }
 }

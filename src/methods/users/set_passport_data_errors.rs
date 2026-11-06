@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::{PassportElementError, PeerRef};
 
@@ -9,11 +10,11 @@ impl Client {
         &self,
         user_id: impl Into<PeerRef>,
         errors: impl IntoIterator<Item = PassportElementError>,
-    ) -> Result<bool> {
+    ) -> Result<()> {
         let request = functions::users::SetSecureValueErrors {
             id: self.resolve_user(&user_id.into()).await?,
             errors: errors.into_iter().map(PassportElementError::write).collect(),
         };
-        self.invoke(&request).await
+        accepted(self.invoke(&request).await?)
     }
 }

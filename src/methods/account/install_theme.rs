@@ -1,6 +1,7 @@
 use crate::Client;
 use crate::enums::BaseTheme;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions};
 use crate::types::{THEME_FORMAT, Theme};
 
@@ -14,7 +15,7 @@ pub struct InstallTheme<'a> {
 }
 
 impl Client {
-    /// Installs a theme on the account. Awaiting the request returns whether Telegram accepted it.
+    /// Installs a theme on the account.
     pub fn install_theme(&self, theme: &Theme) -> InstallTheme<'_> {
         InstallTheme { client: self, theme: theme.write(), dark: false, base_theme: None }
     }
@@ -33,15 +34,15 @@ impl InstallTheme<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let request = functions::account::InstallTheme {
             dark: self.dark,
             theme: Some(self.theme),
             format: Some(THEME_FORMAT.into()),
             base_theme: self.base_theme.map(BaseTheme::write),
         };
-        self.client.invoke(&request).await
+        accepted(self.client.invoke(&request).await?)
     }
 }
 
-into_future!(InstallTheme, bool);
+into_future!(InstallTheme, ());

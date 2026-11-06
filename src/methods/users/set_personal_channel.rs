@@ -1,15 +1,16 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
     /// Shows a channel on your profile. Passing `None` removes it.
-    pub async fn set_personal_channel(&self, chat_id: Option<PeerRef>) -> Result<bool> {
+    pub async fn set_personal_channel(&self, chat_id: Option<PeerRef>) -> Result<()> {
         let channel = match chat_id {
             Some(chat_id) => self.resolve_channel(&chat_id).await?,
             None => base::InputChannel::InputChannelEmpty,
         };
-        self.invoke(&functions::account::UpdatePersonalChannel { channel }).await
+        accepted(self.invoke(&functions::account::UpdatePersonalChannel { channel }).await?)
     }
 }

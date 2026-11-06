@@ -2,6 +2,7 @@ use super::enable_cloud_password::new_settings;
 use crate::Client;
 use crate::crypto::random;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions};
 use crate::utils::compute_password_check;
 
@@ -34,14 +35,14 @@ impl ChangeCloudPassword<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let base::account::Password::Password(p) = self.client.invoke(&functions::account::GetPassword {}).await?;
         let request = functions::account::UpdatePasswordSettings {
             password: compute_password_check(&p, &self.current)?,
             new_settings: new_settings(&p, &self.new, self.hint, None, &random())?,
         };
-        self.client.invoke(&request).await
+        accepted(self.client.invoke(&request).await?)
     }
 }
 
-into_future!(ChangeCloudPassword, bool);
+into_future!(ChangeCloudPassword, ());

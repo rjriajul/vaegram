@@ -1,10 +1,11 @@
 use crate::Client;
 use crate::enums::BusinessAwayMessageSchedule;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 use crate::types::BusinessRecipients;
 
-/// Request built by [`Client::set_business_away_message`]. Awaiting it returns whether Telegram accepted the message.
+/// Request built by [`Client::set_business_away_message`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetBusinessAwayMessage<'a> {
     client: &'a Client,
@@ -46,7 +47,7 @@ impl SetBusinessAwayMessage<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let message = types::InputBusinessAwayMessage {
             offline_only: self.offline_only,
             shortcut_id: self.shortcut_id,
@@ -54,8 +55,8 @@ impl SetBusinessAwayMessage<'_> {
             recipients: self.recipients.write(self.client).await?,
         };
         let message = Some(base::InputBusinessAwayMessage::InputBusinessAwayMessage(Box::new(message)));
-        self.client.invoke(&functions::account::UpdateBusinessAwayMessage { message }).await
+        accepted(self.client.invoke(&functions::account::UpdateBusinessAwayMessage { message }).await?)
     }
 }
 
-into_future!(SetBusinessAwayMessage, bool);
+into_future!(SetBusinessAwayMessage, ());

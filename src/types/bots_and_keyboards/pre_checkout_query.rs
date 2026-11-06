@@ -55,12 +55,12 @@ impl PreCheckoutQuery {
     ///
     /// Telegram cancels the payment unless the query is answered within 10 seconds.
     pub async fn approve(&self) -> Result<()> {
-        self.client.answer_pre_checkout_query(self.id).await.map(drop)
+        self.client.answer_pre_checkout_query(self.id).await
     }
 
     /// Rejects the payment and shows `reason` to the user.
     pub async fn decline(&self, reason: impl Into<String>) -> Result<()> {
-        self.client.answer_pre_checkout_query(self.id).error(reason).await.map(drop)
+        self.client.answer_pre_checkout_query(self.id).error(reason).await
     }
 }
 

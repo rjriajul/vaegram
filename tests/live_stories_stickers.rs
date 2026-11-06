@@ -100,7 +100,7 @@ async fn bot_stores_and_deletes_a_welcome_message() {
 
     let stored = user.get_welcome_messages(chat_id).await.unwrap();
     let welcome = stored.iter().find(|m| m.text == "welcome").expect("the welcome message wasn't stored");
-    assert!(bot.delete_welcome_message(chat_id, welcome.id).await.unwrap());
+    bot.delete_welcome_message(chat_id, welcome.id).await.unwrap();
     assert!(!user.get_welcome_messages(chat_id).await.unwrap().iter().any(|m| m.id == welcome.id));
     bot.delete_all_welcome_messages(chat_id).await.unwrap();
 }

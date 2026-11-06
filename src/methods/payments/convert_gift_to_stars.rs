@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::functions;
 
 /// Request built by [`Client::convert_gift_to_stars`].
@@ -14,8 +15,7 @@ impl Client {
     /// Converts a received gift into Stars and gives up the gift.
     ///
     /// `owned_gift_id` is the `owned_gift_id` of an [`OwnedGift`](crate::types::OwnedGift) or a unique gift slug;
-    /// awaiting fails with `Error::InvalidArgument` if it is empty. Awaiting the request returns the `bool` Telegram
-    /// answers with.
+    /// awaiting fails with `Error::InvalidArgument` if it is empty.
     pub fn convert_gift_to_stars(&self, owned_gift_id: impl Into<String>) -> ConvertGiftToStars<'_> {
         ConvertGiftToStars { client: self, owned_gift_id: owned_gift_id.into(), connection_id: None }
     }
@@ -28,14 +28,14 @@ impl ConvertGiftToStars<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         if self.owned_gift_id.is_empty() {
             return Err(Error::InvalidArgument("owned_gift_id is empty"));
         }
         let stargift = self.client.input_saved_gift(&self.owned_gift_id).await?;
         let request = functions::payments::ConvertStarGift { stargift };
-        Ok(self.client.invoke_business(self.connection_id.as_deref(), request).await?.0)
+        accepted(self.client.invoke_business(self.connection_id.as_deref(), request).await?.0)
     }
 }
 
-into_future!(ConvertGiftToStars, bool);
+into_future!(ConvertGiftToStars, ());

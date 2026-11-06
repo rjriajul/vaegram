@@ -1,14 +1,15 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
 impl Client {
-    /// Deletes one welcome message of the chat and returns Telegram's answer.
-    pub async fn delete_welcome_message(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> Result<bool> {
+    /// Deletes one welcome message of the chat.
+    pub async fn delete_welcome_message(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> Result<()> {
         let request =
             functions::ephemeral::DeleteWelcomeMessage { peer: self.resolve_peer(chat_id).await?, id: message_id };
-        self.invoke(&request).await
+        accepted(self.invoke(&request).await?)
     }
 }
 
@@ -20,9 +21,9 @@ mod tests {
     use crate::raw::{Serializable, base, types};
 
     #[tokio::test]
-    async fn returns_telegrams_answer() {
+    async fn sends_the_message_id() {
         let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes())]);
-        assert!(client.delete_welcome_message(-5_i64, 7).await.unwrap());
+        client.delete_welcome_message(-5_i64, 7).await.unwrap();
         let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
         assert_eq!(rx.try_recv().unwrap(), DeleteWelcomeMessage { peer, id: 7 }.to_bytes());
     }

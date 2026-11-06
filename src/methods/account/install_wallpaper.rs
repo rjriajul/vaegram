@@ -1,12 +1,13 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::ChatBackground;
 
 impl Client {
-    /// Installs a wallpaper with its display settings. Returns whether Telegram accepted it.
-    pub async fn install_wallpaper(&self, wallpaper: &ChatBackground) -> Result<bool> {
+    /// Installs a wallpaper with its display settings.
+    pub async fn install_wallpaper(&self, wallpaper: &ChatBackground) -> Result<()> {
         let (settings, wallpaper) = (wallpaper.write_settings(), wallpaper.write());
-        self.invoke(&functions::account::InstallWallPaper { wallpaper, settings }).await
+        accepted(self.invoke(&functions::account::InstallWallPaper { wallpaper, settings }).await?)
     }
 }

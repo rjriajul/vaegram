@@ -31,5 +31,5 @@ async fn takeout_exports_inside_the_session() {
     };
     session.client().invoke(&functions::contacts::GetSaved {}).await.unwrap();
     session.client().invoke(&functions::messages::GetSplitRanges {}).await.unwrap();
-    assert!(session.finish(true).await.unwrap());
+    session.finish(true).await.unwrap();
 }

@@ -1,9 +1,10 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::{InlineMessageId, PeerRef};
 
-/// Request built by [`Client::set_inline_game_score`]. Awaiting it returns whether Telegram accepted the score.
+/// Request built by [`Client::set_inline_game_score`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetInlineGameScore<'a> {
     client: &'a Client,
@@ -48,7 +49,7 @@ impl SetInlineGameScore<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let client = self.client;
         let dc_id = self.inline_message_id.dc_id();
         let request = functions::messages::SetInlineGameScore {
@@ -58,8 +59,8 @@ impl SetInlineGameScore<'_> {
             user_id: client.resolve_user(&self.user_id).await?,
             score: self.score,
         };
-        client.invoke_inline(dc_id, request).await
+        accepted(client.invoke_inline(dc_id, request).await?)
     }
 }
 
-into_future!(SetInlineGameScore, bool);
+into_future!(SetInlineGameScore, ());

@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::{BotCommand, BotCommandScope};
 
@@ -10,12 +11,12 @@ impl Client {
         commands: impl IntoIterator<Item = BotCommand>,
         scope: BotCommandScope,
         language_code: &str,
-    ) -> Result<bool> {
+    ) -> Result<()> {
         let request = functions::bots::SetBotCommands {
             scope: scope.write(self).await?,
             lang_code: language_code.to_owned(),
             commands: commands.into_iter().map(BotCommand::write).collect(),
         };
-        self.invoke(&request).await
+        accepted(self.invoke(&request).await?)
     }
 }

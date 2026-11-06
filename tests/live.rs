@@ -662,9 +662,9 @@ async fn account_settings_round_trip() {
 
     // Every call writes back what it read, so the account is left as it was.
     let days = user.get_account_ttl().await.unwrap();
-    assert!(user.set_account_ttl(days).await.unwrap());
+    user.set_account_ttl(days).await.unwrap();
     let days = user.get_active_sessions().await.unwrap().inactive_session_ttl_days;
-    assert!(user.set_inactive_session_ttl(days).await.unwrap());
+    user.set_inactive_session_ttl(days).await.unwrap();
 
     let key = vaegram::enums::PrivacyKey::Bio;
     let rules = user.get_privacy(key).await.unwrap();
@@ -674,11 +674,11 @@ async fn account_settings_round_trip() {
     assert_eq!(user.set_global_privacy_settings(global).await.unwrap(), global);
 
     let notify = user.get_chat_notifications(me.id).await.unwrap();
-    assert!(user.update_chat_notifications(me.id).mute_until(notify.mute_until.unwrap_or(0)).await.unwrap());
+    user.update_chat_notifications(me.id).mute_until(notify.mute_until.unwrap_or(0)).await.unwrap();
 
     let first_name = me.first_name;
     assert_eq!(user.update_profile().first_name(first_name.as_str()).await.unwrap().first_name, first_name);
-    assert!(user.update_status(false).await.unwrap());
+    user.update_status(false).await.unwrap();
 }
 
 #[tokio::test]
@@ -997,7 +997,7 @@ async fn user_manages_business_links_and_quick_replies() {
     let link = user.edit_business_chat_link(link.slug(), "edited").await.unwrap();
     assert!(user.get_business_chat_links().await.unwrap().iter().any(|l| l.link == link.link && l.text == "edited"));
     assert_eq!(user.resolve_business_chat_link(link.slug()).await.unwrap().text, "edited");
-    assert!(user.delete_business_chat_link(link.slug()).await.unwrap());
+    user.delete_business_chat_link(link.slug()).await.unwrap();
 }
 
 #[tokio::test]

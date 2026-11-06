@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions};
 
 /// Request built by [`Client::takeout`].
@@ -95,9 +96,9 @@ impl TakeoutSession {
     }
 
     /// Ends the session. `success = false` aborts it.
-    pub async fn finish(mut self, success: bool) -> Result<bool> {
+    pub async fn finish(mut self, success: bool) -> Result<()> {
         self.finished = true;
-        self.client.invoke(&functions::account::FinishTakeoutSession { success }).await
+        accepted(self.client.invoke(&functions::account::FinishTakeoutSession { success }).await?)
     }
 }
 
@@ -171,9 +172,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn finish_reports_success_inside_the_session() {
+    async fn finish_is_sent_inside_the_session() {
         let (_client, session, mut sent) = opened(vec![Ok(true.to_bytes())]).await;
-        assert!(session.finish(true).await.unwrap());
+        session.finish(true).await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), finish(true));
     }
 

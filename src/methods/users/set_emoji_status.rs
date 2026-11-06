@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 
 /// Request built by [`Client::set_emoji_status`].
@@ -14,8 +15,8 @@ pub struct SetEmojiStatus<'a> {
 impl Client {
     /// Sets your emoji status to a custom emoji, or clears it when `custom_emoji_id` is `None`.
     ///
-    /// Awaiting it returns whether Telegram accepted the change. For a collectible status, pass `None` here and
-    /// use [`collectible_id`](SetEmojiStatus::collectible_id). Setting both fails with `Error::InvalidArgument`.
+    /// For a collectible status, pass `None` here and use [`collectible_id`](SetEmojiStatus::collectible_id). Setting
+    /// both fails with `Error::InvalidArgument`.
     pub fn set_emoji_status(&self, custom_emoji_id: Option<i64>) -> SetEmojiStatus<'_> {
         SetEmojiStatus { client: self, custom_emoji_id, collectible_id: None, until: None }
     }
@@ -37,7 +38,7 @@ impl SetEmojiStatus<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let until = self.until;
         let emoji_status = match (self.custom_emoji_id, self.collectible_id) {
             (Some(_), Some(_)) => {
@@ -54,11 +55,11 @@ impl SetEmojiStatus<'_> {
             }
             (None, None) => base::EmojiStatus::EmojiStatusEmpty,
         };
-        self.client.invoke(&functions::account::UpdateEmojiStatus { emoji_status }).await
+        accepted(self.client.invoke(&functions::account::UpdateEmojiStatus { emoji_status }).await?)
     }
 }
 
-into_future!(SetEmojiStatus, bool);
+into_future!(SetEmojiStatus, ());
 
 #[cfg(test)]
 mod tests {

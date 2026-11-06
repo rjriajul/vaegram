@@ -44,7 +44,7 @@ impl ShippingQuery {
 
     /// Tells the user the order can't ship to this address, with `reason` as the message.
     pub async fn decline(&self, reason: impl Into<String>) -> Result<()> {
-        self.client.answer_shipping_query(self.id).error(reason).await.map(drop)
+        self.client.answer_shipping_query(self.id).error(reason).await
     }
 }
 

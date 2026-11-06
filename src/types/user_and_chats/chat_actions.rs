@@ -155,7 +155,7 @@ impl Chat {
     }
 
     /// Unmutes this chat with [`Client::unmute_chat`].
-    pub async fn unmute(&self, client: &Client) -> Result<bool> {
+    pub async fn unmute(&self, client: &Client) -> Result<()> {
         client.unmute_chat(self.id).await
     }
 }

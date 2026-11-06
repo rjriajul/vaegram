@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::{BotPreviewMedia, PeerRef};
 
@@ -12,13 +13,13 @@ impl Client {
         bot_id: impl Into<PeerRef>,
         lang_code: &str,
         order: &[BotPreviewMedia],
-    ) -> Result<bool> {
+    ) -> Result<()> {
         if order.is_empty() {
             return Err(Error::InvalidArgument("reorder_bot_preview_medias takes at least one preview"));
         }
         let order = order.iter().map(BotPreviewMedia::input).collect::<Result<_>>()?;
         let bot = self.resolve_user(&bot_id.into()).await?;
-        self.invoke(&functions::bots::ReorderPreviewMedias { bot, lang_code: lang_code.into(), order }).await
+        accepted(self.invoke(&functions::bots::ReorderPreviewMedias { bot, lang_code: lang_code.into(), order }).await?)
     }
 }
 

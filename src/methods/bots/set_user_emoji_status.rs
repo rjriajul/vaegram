@@ -1,9 +1,10 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
-/// Request built by [`Client::set_user_emoji_status`]. Awaiting it returns whether Telegram accepted the status.
+/// Request built by [`Client::set_user_emoji_status`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetUserEmojiStatus<'a> {
     client: &'a Client,
@@ -34,7 +35,7 @@ impl SetUserEmojiStatus<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let emoji_status = match self.custom_emoji_id {
             Some(document_id) => base::EmojiStatus::EmojiStatus(Box::new(types::EmojiStatus {
                 document_id,
@@ -43,8 +44,8 @@ impl SetUserEmojiStatus<'_> {
             None => base::EmojiStatus::EmojiStatusEmpty,
         };
         let user_id = self.client.resolve_user(&self.user_id).await?;
-        self.client.invoke(&functions::bots::UpdateUserEmojiStatus { user_id, emoji_status }).await
+        accepted(self.client.invoke(&functions::bots::UpdateUserEmojiStatus { user_id, emoji_status }).await?)
     }
 }
 
-into_future!(SetUserEmojiStatus, bool);
+into_future!(SetUserEmojiStatus, ());

@@ -1,10 +1,11 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::{base, functions};
 use crate::types::{InlineMessageId, InputMedia, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::edit_inline_media`]. Awaiting it returns Telegram's `bool` answer.
+/// Request built by [`Client::edit_inline_media`].
 pub struct EditInlineMedia<'a> {
     client: &'a Client,
     inline_message_id: InlineMessageId,
@@ -17,8 +18,7 @@ impl Client {
     /// Replaces the media of an inline message.
     ///
     /// Takes only files already on Telegram, since an upload needs a chat to store it in. Media that needs an
-    /// upload makes awaiting return `Error::InvalidArgument`. The caption in `media` is sent with it, and awaiting
-    /// returns Telegram's `bool` answer.
+    /// upload makes awaiting return `Error::InvalidArgument`. The caption in `media` is sent with it.
     pub fn edit_inline_media<'a>(
         &'a self,
         inline_message_id: InlineMessageId,
@@ -41,7 +41,7 @@ impl EditInlineMedia<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let client = self.client;
         if self.media.uploads() {
             return Err(Error::InvalidArgument("an inline message can't take a new upload, only a stored file"));
@@ -59,8 +59,8 @@ impl EditInlineMedia<'_> {
             entities: (!entities.is_empty()).then_some(entities),
             rich_message: None,
         };
-        client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await
+        accepted(client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await?)
     }
 }
 
-into_future!(EditInlineMedia, bool);
+into_future!(EditInlineMedia, ());

@@ -2,11 +2,12 @@ use super::send_options::caption_setters;
 use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{RemoteCall, functions};
 use crate::types::{InlineMessageId, LinkPreviewOptions, MessageText, ReplyMarkup};
 
 #[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::edit_inline_text`]. Awaiting it returns Telegram's `bool` answer.
+/// Request built by [`Client::edit_inline_text`].
 pub struct EditInlineText<'a> {
     client: &'a Client,
     inline_message_id: InlineMessageId,
@@ -99,7 +100,7 @@ impl EditInlineText<'_> {
         self
     }
 
-    async fn send(self) -> Result<bool> {
+    async fn send(self) -> Result<()> {
         let client = self.client;
         let preview = if self.apply_client_default {
             client.link_preview(self.link_preview_options.as_ref())
@@ -121,12 +122,12 @@ impl EditInlineText<'_> {
             entities,
             rich_message,
         };
-        client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await
+        accepted(client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await?)
     }
 }
 
 caption_setters!(EditInlineText);
-into_future!(EditInlineText, bool);
+into_future!(EditInlineText, ());
 
 #[cfg(test)]
 pub(super) mod tests {
