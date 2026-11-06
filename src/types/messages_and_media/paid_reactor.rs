@@ -9,7 +9,7 @@ pub struct PaidReactor {
     /// Who sent the Stars; `None` when they reacted anonymously.
     pub sender: Option<Chat>,
     /// Stars this sender has spent on the message.
-    pub star_count: i32,
+    pub star_count: i64,
     /// The sender is among the top senders.
     pub is_top: bool,
     /// The current account sent them.
@@ -23,7 +23,7 @@ impl PaidReactor {
         let base::MessageReactor::MessageReactor(r) = raw;
         PaidReactor {
             sender: r.peer_id.as_ref().map(|peer| Chat::parse(peer, entities, false)),
-            star_count: r.count,
+            star_count: i64::from(r.count),
             is_top: r.top,
             is_me: r.my,
             is_anonymous: r.anonymous,

@@ -12,19 +12,20 @@ pub struct SendPaidReaction<'a> {
     client: &'a Client,
     chat_id: PeerRef,
     message_id: i32,
-    star_count: i32,
+    star_count: i64,
     privacy: Option<PaidReactionPrivacy>,
 }
 
 impl Client {
     /// Sends a paid reaction worth `star_count` Stars to a message.
     ///
-    /// A `star_count` below 1 fails with `Error::InvalidArgument`. Awaiting the request returns `()`.
+    /// A `star_count` below 1 or above `i32::MAX` fails with `Error::InvalidArgument`. Awaiting the request returns
+    /// `()`.
     pub fn send_paid_reaction(
         &self,
         chat_id: impl Into<PeerRef>,
         message_id: i32,
-        star_count: i32,
+        star_count: i64,
     ) -> SendPaidReaction<'_> {
         SendPaidReaction { client: self, chat_id: chat_id.into(), message_id, star_count, privacy: None }
     }
@@ -41,6 +42,8 @@ impl SendPaidReaction<'_> {
         if self.star_count < 1 {
             return Err(Error::InvalidArgument("a paid reaction takes at least 1 star"));
         }
+        let count = i32::try_from(self.star_count)
+            .map_err(|_| Error::InvalidArgument("a paid reaction takes at most i32::MAX stars"))?;
         let peer = self.client.resolve_peer(self.chat_id).await?;
         let private = match self.privacy {
             Some(privacy) => Some(privacy.write(self.client).await?),
@@ -49,7 +52,7 @@ impl SendPaidReaction<'_> {
         let request = functions::messages::SendPaidReaction {
             peer,
             msg_id: self.message_id,
-            count: self.star_count,
+            count,
             random_id: random_id(now(), random()),
             private,
         };
@@ -111,6 +114,9 @@ mod tests {
     async fn no_privacy_sends_the_account_setting() {
         let bytes = recorded(None).await;
         assert_eq!(bytes[4] & 1, 0, "the private flag is clear");
+        // Constructor, flags, the user peer (constructor, id, hash) and msg_id come before the count.
+        let head = [&bytes[..8], &peer().to_bytes(), &1_i32.to_le_bytes(), &5_i32.to_le_bytes()].concat();
+        assert_eq!(bytes[..head.len()], head);
     }
 
     #[test]
@@ -122,7 +128,7 @@ mod tests {
     #[tokio::test]
     async fn no_stars_is_refused_without_a_request() {
         let (client, mut rx) = crate::Client::scripted(Vec::new());
-        for stars in [0, -1] {
+        for stars in [0, -1, i64::from(i32::MAX) + 1] {
             assert!(matches!(client.send_paid_reaction(7, 1, stars).await, Err(Error::InvalidArgument(_))));
         }
         assert!(rx.try_recv().is_err());

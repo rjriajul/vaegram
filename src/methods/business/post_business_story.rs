@@ -6,9 +6,9 @@ use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions};
 use crate::types::{InputStoryContent, Story, StoryArea, Text};
 
-/// Request built by [`Client::post_story`]. Awaiting it returns the posted [`Story`].
+/// Request built by [`Client::post_business_story`]. Awaiting it returns the posted [`Story`].
 #[must_use = "a request does nothing until it is awaited"]
-pub struct PostStory<'a> {
+pub struct PostBusinessStory<'a> {
     client: &'a Client,
     business_connection_id: String,
     content: InputStoryContent<'a>,
@@ -24,13 +24,13 @@ impl Client {
     /// Posts a story for the business account behind a connection, visible to everyone.
     ///
     /// `active_period` is in seconds and must be 6, 12, 24 or 48 hours.
-    pub fn post_story<'a>(
+    pub fn post_business_story<'a>(
         &'a self,
         business_connection_id: impl Into<String>,
         content: InputStoryContent<'a>,
         active_period: i32,
-    ) -> PostStory<'a> {
-        PostStory {
+    ) -> PostBusinessStory<'a> {
+        PostBusinessStory {
             client: self,
             business_connection_id: business_connection_id.into(),
             content,
@@ -50,7 +50,7 @@ impl Client {
     }
 }
 
-impl PostStory<'_> {
+impl PostBusinessStory<'_> {
     /// Adds a caption under the story, parsed with the request's parse mode.
     pub fn caption(mut self, caption: impl Into<Text>) -> Self {
         self.caption = caption.into();
@@ -100,5 +100,5 @@ impl PostStory<'_> {
     }
 }
 
-caption_setters!(PostStory);
-into_future!(PostStory, Story);
+caption_setters!(PostBusinessStory);
+into_future!(PostBusinessStory, Story);

@@ -7,24 +7,24 @@ mod delete_business_intro;
 mod delete_business_location;
 mod delete_business_messages;
 mod delete_business_opening_hours;
+mod delete_business_story;
 mod delete_quick_reply_messages;
 mod delete_quick_reply_shortcut;
-mod delete_story;
 mod disable_peer_connected_bot;
 mod edit_business_chat_link;
+mod edit_business_story;
 mod edit_quick_reply_shortcut;
-mod edit_story;
 mod get_business_account_star_balance;
 mod get_business_chat_links;
 mod get_business_connection;
 mod get_connected_bots;
 mod get_quick_replies;
-mod post_story;
+mod post_business_story;
 mod read_business_message;
 mod remove_business_account_profile_photo;
 mod remove_connected_bot;
 mod reorder_quick_replies;
-mod repost_story;
+mod repost_business_story;
 mod resolve_business_chat_link;
 mod send_quick_reply_messages;
 mod set_business_account_bio;
@@ -43,11 +43,12 @@ mod update_connected_bot;
 
 pub use create_business_chat_link::CreateBusinessChatLink;
 pub use edit_business_chat_link::EditBusinessChatLink;
-pub use edit_story::EditStory;
-pub use post_story::PostStory;
-pub use repost_story::RepostStory;
+pub use edit_business_story::EditBusinessStory;
+pub use post_business_story::PostBusinessStory;
+pub use repost_business_story::RepostBusinessStory;
 pub use set_business_account_gift_settings::SetBusinessAccountGiftSettings;
 pub use set_business_away_message::SetBusinessAwayMessage;
+pub use set_business_location::SetBusinessLocation;
 
 #[cfg(test)]
 mod tests {
@@ -85,9 +86,14 @@ mod tests {
         let body = sent(rx, client.delete_business_opening_hours()).await;
         assert_eq!(body, account::UpdateBusinessWorkHours { business_work_hours: None }.to_bytes());
 
-        let body = sent(rx, client.set_business_location("Main St 1", None)).await;
+        let body = sent(rx, client.set_business_location("Main St 1")).await;
         let address = Some("Main St 1".into());
         assert_eq!(body, account::UpdateBusinessLocation { geo_point: None, address }.to_bytes());
+        let body = sent(rx, client.set_business_location("Main St 1").location(52.5, 13.4)).await;
+        let point = types::InputGeoPoint { lat: 52.5, long: 13.4, accuracy_radius: None };
+        let geo_point = Some(base::InputGeoPoint::InputGeoPoint(Box::new(point)));
+        let address = Some("Main St 1".into());
+        assert_eq!(body, account::UpdateBusinessLocation { geo_point, address }.to_bytes());
         let body = sent(rx, client.delete_business_intro()).await;
         assert_eq!(body, account::UpdateBusinessIntro { intro: None }.to_bytes());
         let body = sent(rx, client.reorder_quick_replies([2, 1])).await;
@@ -127,10 +133,10 @@ mod tests {
     #[tokio::test]
     async fn a_location_needs_a_short_address_and_real_coordinates() {
         let (client, mut rx) = recording_client();
-        assert!(refused(client.set_business_location("", None).await));
-        assert!(refused(client.set_business_location("x".repeat(97), None).await));
-        assert!(refused(client.set_business_location("Main St 1", Some((91.0, 0.0))).await));
-        assert!(refused(client.set_business_location("Main St 1", Some((0.0, f64::NAN))).await));
+        assert!(refused(client.set_business_location("").await));
+        assert!(refused(client.set_business_location("x".repeat(97)).await));
+        assert!(refused(client.set_business_location("Main St 1").location(91.0, 0.0).await));
+        assert!(refused(client.set_business_location("Main St 1").location(0.0, f64::NAN).await));
         assert!(rx.try_recv().is_err());
     }
 
@@ -261,9 +267,9 @@ mod tests {
             let photo = InputStoryContent::photo(Upload::bytes("a.jpg", b"x"));
             let text = Text::new().bold("hi");
             let _ = if edit {
-                client.edit_story("c", 1, photo).caption(text).await
+                client.edit_business_story("c", 1, photo).caption(text).await
             } else {
-                client.post_story("c", photo, 86400).caption(text).await
+                client.post_business_story("c", photo, 86400).caption(text).await
             };
             let bodies: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
             assert!(bodies.iter().any(|body| body.windows(caption.len()).any(|w| w == caption)), "edit: {edit}");

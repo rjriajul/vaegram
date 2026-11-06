@@ -92,7 +92,7 @@ impl Message {
     /// Replies with an ephemeral message that only the sender of this message sees.
     ///
     /// Awaiting fails with `Error::InvalidArgument`, sending nothing, if the message has no sender user.
-    pub fn reply_ephemeral_text(&self, text: impl Into<Text>) -> SendEphemeralMessage<'_> {
+    pub fn reply_ephemeral(&self, text: impl Into<Text>) -> SendEphemeralMessage<'_> {
         let receiver = self.from_user.as_ref().map(|u| PeerRef::from(u.id));
         SendEphemeralMessage::new(self.client(), self.chat.id.into(), receiver, text.into()).reply_to(self.id)
     }
@@ -367,12 +367,12 @@ mod tests {
         let mut message = message(&client);
         let mut from_channel = message.clone();
         from_channel.from_user = None;
-        let refused = from_channel.reply_ephemeral_text("hi").await;
+        let refused = from_channel.reply_ephemeral("hi").await;
         assert!(matches!(refused, Err(Error::InvalidArgument("this message has no sender user"))), "{refused:?}");
         assert!(sent.try_recv().is_err());
 
         std::sync::Arc::make_mut(&mut message.chat).id = 1000;
-        assert!(message.reply_ephemeral_text("hi").await.is_err());
+        assert!(message.reply_ephemeral("hi").await.is_err());
         let request = sent.try_recv().expect("no request sent");
         assert_eq!(request[..4], 0xba8d5f35_u32.to_le_bytes());
         // reply_to is flags.5 of ephemeral.sendMessage, right after the constructor id.

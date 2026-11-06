@@ -14,7 +14,6 @@ pub struct EditInlineText<'a> {
     text: MessageText,
     parse_mode: Option<ParseMode>,
     reply_markup: Option<ReplyMarkup>,
-    no_webpage: bool,
     show_caption_above_media: bool,
     link_preview_options: Option<LinkPreviewOptions>,
     business_connection_id: Option<String>,
@@ -38,7 +37,6 @@ impl Client {
             text: text.into(),
             parse_mode: None,
             reply_markup: None,
-            no_webpage: false,
             show_caption_above_media: false,
             link_preview_options: None,
             business_connection_id: None,
@@ -67,12 +65,6 @@ impl EditInlineText<'_> {
     /// Attaches a reply markup to the edited message.
     pub fn reply_markup(mut self, markup: impl Into<ReplyMarkup>) -> Self {
         self.reply_markup = Some(markup.into());
-        self
-    }
-
-    /// Sends the text without a link preview.
-    pub fn disable_web_page_preview(mut self) -> Self {
-        self.no_webpage = true;
         self
     }
 
@@ -109,7 +101,7 @@ impl EditInlineText<'_> {
         }
         .map(|o| o.resolve())
         .unwrap_or_default();
-        let no_webpage = self.no_webpage || preview.no_webpage;
+        let no_webpage = preview.no_webpage;
         let (message, entities, rich_message) = self.text.write(client, self.parse_mode).await?;
         let dc_id = self.inline_message_id.dc_id();
         let request = functions::messages::EditInlineBotMessage {

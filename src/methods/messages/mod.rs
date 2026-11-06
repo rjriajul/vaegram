@@ -238,7 +238,7 @@ mod saved_tests {
     use crate::raw::{Identifiable, Serializable, base, types};
     use crate::session::Affected;
     use crate::types::messages_and_media::message::tests::header;
-    use crate::types::{Draft, Message, MessageViews};
+    use crate::types::{Message, MessageViews};
     use crate::utils::get_peer;
 
     const USER: i64 = 7;
@@ -469,15 +469,11 @@ mod saved_tests {
         let (client, _rx) = setup(vec![base::Updates::Updates(Box::new(updates)).to_bytes()]);
 
         let drafts = client.get_all_drafts().await.unwrap();
-        let drafts: Vec<_> = drafts.into_iter().map(|(chat, draft)| (chat.id, draft)).collect();
-        let saved = |text: &str, topic_id| Draft {
-            text: text.into(),
-            entities: None,
-            reply_to_message_id: Some(5),
-            topic_id,
-            date: 100,
-        };
-        let expected = [(USER, saved("hello", None)), (-9, saved("topic", Some(4)))];
+        let drafts: Vec<_> = drafts
+            .iter()
+            .map(|d| (d.chat.id, d.text.as_str(), d.entities.is_none(), d.reply_to_message_id, d.topic_id, d.date))
+            .collect();
+        let expected = [(USER, "hello", true, Some(5), None, 100), (-9, "topic", true, Some(5), Some(4), 100)];
         assert_eq!(drafts, expected);
     }
 
@@ -592,7 +588,7 @@ mod search_tests {
     use crate::enums::MessagesFilter;
     use crate::errors::Error;
     use crate::raw::functions::{channels, messages};
-    use crate::raw::{Identifiable, base, types};
+    use crate::raw::{Identifiable, Serializable, base, types};
     use crate::utils::get_channel_id;
 
     const GROUP: i64 = -5;
@@ -625,10 +621,16 @@ mod search_tests {
         let read = client.get_message_read_participants(GROUP, 1);
         assert_eq!(sent(rx, read).await, messages::GetMessageReadParticipants::CONSTRUCTOR_ID);
 
-        let text = client.translate_text("es", "hi");
-        assert_eq!(sent(rx, text).await, messages::TranslateText::CONSTRUCTOR_ID);
-        let posted = client.translate_message_text("es", GROUP, &[1, 2]);
-        assert_eq!(sent(rx, posted).await, messages::TranslateText::CONSTRUCTOR_ID);
+        let _ = client.translate_text("hi", "es").await;
+        let hi = types::TextWithEntities { text: "hi".into(), entities: Vec::new() };
+        let text = Some(vec![base::TextWithEntities::TextWithEntities(Box::new(hi))]);
+        let expected = messages::TranslateText { peer: None, id: None, text, to_lang: "es".into(), tone: None };
+        assert_eq!(rx.try_recv().unwrap(), expected.to_bytes());
+        let _ = client.translate_message_text(GROUP, &[1, 2], "es").await;
+        let group = Some(base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 }));
+        let expected =
+            messages::TranslateText { peer: group, id: Some(vec![1, 2]), text: None, to_lang: "es".into(), tone: None };
+        assert_eq!(rx.try_recv().unwrap(), expected.to_bytes());
         assert_eq!(sent(rx, client.transcribe_audio(GROUP, 1)).await, messages::TranscribeAudio::CONSTRUCTOR_ID);
 
         assert_eq!(sent(rx, client.get_chat_online_count(GROUP)).await, messages::GetOnlines::CONSTRUCTOR_ID);

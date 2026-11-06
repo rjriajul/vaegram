@@ -10,9 +10,9 @@ impl Client {
     /// message.
     pub async fn translate_message_text(
         &self,
-        to_language_code: impl Into<String>,
         chat_id: impl Into<PeerRef>,
         message_ids: &[i32],
+        to_language_code: impl Into<String>,
     ) -> Result<Vec<TranslatedText>> {
         if message_ids.is_empty() {
             return Err(Error::InvalidArgument("translate_message_text takes at least one message id"));
@@ -36,7 +36,7 @@ mod tests {
     #[tokio::test]
     async fn no_ids_is_refused_without_a_request() {
         let (client, mut rx) = Client::recording();
-        assert!(matches!(client.translate_message_text("es", -5, &[]).await, Err(Error::InvalidArgument(_))));
+        assert!(matches!(client.translate_message_text(-5, &[], "es").await, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
     }
 }

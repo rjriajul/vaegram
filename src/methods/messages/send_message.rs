@@ -51,12 +51,6 @@ impl Client {
 }
 
 impl SendMessage<'_> {
-    /// Sends the text without a link preview.
-    pub fn disable_web_page_preview(mut self) -> Self {
-        self.options.no_webpage = true;
-        self
-    }
-
     /// Which link to preview, how, and whether to show it above the text. Replaces the client default.
     pub fn link_preview_options(mut self, options: LinkPreviewOptions) -> Self {
         self.link_preview_options = Some(options);
@@ -69,10 +63,10 @@ impl SendMessage<'_> {
         let text = (message, (!entities.is_empty()).then_some(entities));
         let mut media = None;
         if let Some(preview) = preview {
-            self.options.no_webpage |= preview.no_webpage;
+            self.options.no_webpage = preview.no_webpage;
             self.options.invert_media = preview.invert_media;
-            // A disabled preview or an explicit `disable_web_page_preview` sends no web page media.
-            if !self.options.no_webpage {
+            // A disabled preview sends no web page media.
+            if !preview.no_webpage {
                 media = preview.media;
             }
         }

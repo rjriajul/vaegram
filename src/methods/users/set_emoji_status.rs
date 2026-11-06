@@ -23,7 +23,9 @@ impl Client {
 }
 
 impl SetEmojiStatus<'_> {
-    /// Makes the status expire at this Unix timestamp.
+    /// Makes the status expire at this Unix time, as [`EmojiStatus::until`] reads it back.
+    ///
+    /// [`EmojiStatus::until`]: crate::types::EmojiStatus::until
     pub fn until(mut self, date: i32) -> Self {
         self.until = Some(date);
         self

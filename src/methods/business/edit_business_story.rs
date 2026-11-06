@@ -5,9 +5,9 @@ use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions};
 use crate::types::{InputStoryContent, Story, StoryArea, Text};
 
-/// Request built by [`Client::edit_story`]. Awaiting it returns the edited [`Story`].
+/// Request built by [`Client::edit_business_story`]. Awaiting it returns the edited [`Story`].
 #[must_use = "a request does nothing until it is awaited"]
-pub struct EditStory<'a> {
+pub struct EditBusinessStory<'a> {
     client: &'a Client,
     business_connection_id: String,
     story_id: i32,
@@ -21,13 +21,13 @@ impl Client {
     /// Replaces the content of a story posted by the business account behind a connection.
     ///
     /// A caption or areas left unset are cleared, and the story becomes visible to everyone.
-    pub fn edit_story<'a>(
+    pub fn edit_business_story<'a>(
         &'a self,
         business_connection_id: impl Into<String>,
         story_id: i32,
         content: InputStoryContent<'a>,
-    ) -> EditStory<'a> {
-        EditStory {
+    ) -> EditBusinessStory<'a> {
+        EditBusinessStory {
             client: self,
             business_connection_id: business_connection_id.into(),
             story_id,
@@ -39,7 +39,7 @@ impl Client {
     }
 }
 
-impl EditStory<'_> {
+impl EditBusinessStory<'_> {
     /// Adds a caption under the story, parsed with the request's parse mode.
     pub fn caption(mut self, caption: impl Into<Text>) -> Self {
         self.caption = caption.into();
@@ -70,5 +70,5 @@ impl EditStory<'_> {
     }
 }
 
-caption_setters!(EditStory);
-into_future!(EditStory, Story);
+caption_setters!(EditBusinessStory);
+into_future!(EditBusinessStory, Story);

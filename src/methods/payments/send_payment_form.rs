@@ -302,8 +302,8 @@ pub(super) mod tests {
         let form = client.get_payment_form(InvoiceRef::Link("abc".into())).await.unwrap();
         let result = client.send_payment_form(form).await.unwrap();
         assert_eq!(result, PaymentResult::VerificationNeeded { url: "https://t.me".into() });
-        assert_eq!((result.success(), result.verification_url()), (false, Some("https://t.me")));
-        assert!(PaymentResult::Paid.success() && PaymentResult::Paid.verification_url().is_none());
+        assert_eq!((result.is_success(), result.verification_url()), (false, Some("https://t.me")));
+        assert!(PaymentResult::Paid.is_success() && PaymentResult::Paid.verification_url().is_none());
     }
 
     #[tokio::test]

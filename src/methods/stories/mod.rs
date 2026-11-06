@@ -1,4 +1,3 @@
-mod can_post_stories;
 mod copy_story;
 mod delete_stories;
 mod edit_story_caption;
@@ -12,6 +11,7 @@ mod get_chat_stories;
 mod get_pinned_stories;
 mod get_stories;
 mod get_stories_archive;
+mod get_story_post_count;
 mod get_story_viewers;
 mod hide_chat_stories;
 mod pin_chat_stories;
@@ -30,6 +30,7 @@ pub use forward_story::ForwardStory;
 pub use get_stories_archive::StoryPages;
 pub use get_story_viewers::GetStoryViewers;
 pub use send_story::SendStory;
+pub use send_story_reaction::SendStoryReaction;
 
 #[cfg(test)]
 mod tests {
@@ -45,7 +46,7 @@ mod tests {
     #[tokio::test]
     async fn reaction_none_sends_empty_reaction() {
         let (client, mut rx) = Client::recording();
-        let _ = client.send_story_reaction(0_i64, 7, None).await;
+        let _ = client.send_story_reaction(0_i64, 7).await;
         let expected = stories::SendReaction {
             add_to_recent: true,
             peer: base::InputPeer::InputPeerSelf,
@@ -126,7 +127,7 @@ mod tests {
     #[tokio::test]
     async fn custom_emoji_reactions_are_sent() {
         let (client, mut rx) = Client::recording();
-        let _ = client.send_story_reaction(0_i64, 7, Some(ReactionType::CustomEmoji(5))).await;
+        let _ = client.send_story_reaction(0_i64, 7).reaction(ReactionType::CustomEmoji(5)).await;
         let emoji = types::ReactionCustomEmoji { document_id: 5 };
         let expected = stories::SendReaction {
             add_to_recent: true,

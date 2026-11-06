@@ -1,11 +1,13 @@
 use crate::dispatcher::Entities;
 use crate::raw::base;
-use crate::types::MessageEntity;
+use crate::types::{Chat, MessageEntity};
 
 /// A message draft saved in a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Draft {
+    /// Chat the draft is saved in.
+    pub chat: Chat,
     /// Draft text, without formatting.
     pub text: String,
     /// Formatting of the text. `None` if it has none.
@@ -19,13 +21,19 @@ pub struct Draft {
 }
 
 impl Draft {
-    pub(crate) fn parse(raw: &base::DraftMessage, topic_id: Option<i32>, entities: &Entities) -> Option<Draft> {
+    pub(crate) fn parse(
+        raw: &base::DraftMessage,
+        chat: Chat,
+        topic_id: Option<i32>,
+        entities: &Entities,
+    ) -> Option<Draft> {
         let base::DraftMessage::DraftMessage(d) = raw else { return None };
         let reply_to_message_id = match &d.reply_to {
             Some(base::InputReplyTo::InputReplyToMessage(r)) => Some(r.reply_to_msg_id),
             _ => None,
         };
         Some(Draft {
+            chat,
             text: d.message.clone(),
             entities: d.entities.as_deref().and_then(|e| MessageEntity::parse_all(e, entities)),
             reply_to_message_id,

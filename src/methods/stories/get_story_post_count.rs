@@ -4,8 +4,10 @@ use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
 impl Client {
-    /// Returns how many more stories the chat can post now; limits reached come back as Telegram errors.
-    pub async fn can_post_stories(&self, chat_id: impl Into<PeerRef>) -> Result<i32> {
+    /// Returns how many more stories the chat can post now.
+    ///
+    /// A limit already reached comes back as a Telegram error such as `STORIES_TOO_MUCH`.
+    pub async fn get_story_post_count(&self, chat_id: impl Into<PeerRef>) -> Result<i32> {
         let request = functions::stories::CanSendStory { peer: self.resolve_peer(chat_id).await? };
         let base::stories::CanSendStoryCount::CanSendStoryCount(count) = self.invoke(&request).await?;
         Ok(count.count_remains)
@@ -24,7 +26,7 @@ mod tests {
         let reply =
             base::stories::CanSendStoryCount::CanSendStoryCount(types::stories::CanSendStoryCount { count_remains: 3 });
         let (client, mut rx) = Client::scripted(vec![Ok(reply.to_bytes())]);
-        assert_eq!(client.can_post_stories("me").await.unwrap(), 3);
+        assert_eq!(client.get_story_post_count("me").await.unwrap(), 3);
         let expected = stories::CanSendStory { peer: base::InputPeer::InputPeerSelf };
         assert_eq!(rx.try_recv().unwrap(), expected.to_bytes());
     }
@@ -32,7 +34,7 @@ mod tests {
     #[tokio::test]
     async fn story_limits_come_back_as_errors() {
         let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "STORIES_TOO_MUCH")))]);
-        let result = client.can_post_stories("me").await;
+        let result = client.get_story_post_count("me").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "STORIES_TOO_MUCH"), "{result:?}");
     }
 }

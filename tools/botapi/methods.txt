@@ -133,10 +133,10 @@ getChatGifts                       get_chat_gifts
 convertGiftToStars                 convert_gift_to_stars
 upgradeGift                        upgrade_gift
 transferGift                       transfer_gift
-postStory                          post_story
-repostStory                        repost_story
-editStory                          edit_story
-deleteStory                        delete_story
+postStory                          post_business_story
+repostStory                        repost_business_story
+editStory                          edit_business_story
+deleteStory                        delete_business_story
 answerWebAppQuery                  answer_web_app_query
 savePreparedInlineMessage          save_prepared_inline_message
 savePreparedKeyboardButton         save_prepared_keyboard_button

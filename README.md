@@ -209,7 +209,7 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   `.allow_adding_options()`, `add_poll_option`, `delete_poll_option`, `get_poll_results`, `get_poll_statistics` (not
   yet tested live)
 - [ ] Parallel file upload and download: `send_document`, `send_photo`, `msg.download()`, with
-  `.progress(|done, total| ..)` and `.stream()` for chunks in order; downloads use media-only and CDN DCs and refresh
+  `.progress(|done, total| ..)`, `.save(path)` to write to disk and `.stream()` for chunks in order; downloads use media-only and CDN DCs and refresh
   expired file references (not yet tested live)
 - [ ] Uploads sent later and more than once: `upload_file("a.jpg").progress(..)`, `upload_stream(reader, size, name)`,
   an `&UploadedFile` wherever a file is accepted, `send_cached_media` by file id (not yet tested live)
@@ -266,8 +266,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Games: `send_game(chat, "race")`, `set_game_score`, `get_game_high_scores`, `msg.game()`, inline callback
   queries and their game variants on the message's own data center (not yet tested live)
 - [ ] Boosts, profile photos and stories: `get_user_chat_boosts(chat, user)`, `on_chat_boost`, `on_removed_chat_boost`,
-  `ServiceAction::BoostAdded`, `get_chat_photos(user)`, `set_user_emoji_status(user)`, business `post_story`,
-  `edit_story`, `repost_story`, `delete_story` (not yet tested live)
+  `ServiceAction::BoostAdded`, `get_chat_photos(user)`, `set_user_emoji_status(user)`, business `post_business_story`,
+  `edit_business_story`, `repost_business_story`, `delete_business_story` (not yet tested live)
 - [ ] Chat member, poll, poll answer, deleted message and user status handlers, business callback queries
   (not yet tested live)
 - [ ] Chat and profile photos: `set_chat_photo(chat, "a.jpg")`, `set_profile_photo("a.jpg").video()`,
@@ -300,7 +300,7 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Record traffic, replay it offline and dump it as JSON lines: `.record("bot.rec")`,
   `Replay::start(&recording::read(path)?)` (not yet tested live)
 - [ ] Story posting for users: `send_story(me, InputStoryContent::photo("a.jpg")).privacy(..)`, edits, pins, archive,
-  stealth mode, `can_post_stories`, `forward_story`, `copy_story` (not yet tested live)
+  stealth mode, `get_story_post_count`, `forward_story`, `copy_story` (not yet tested live)
 - [ ] Using bots as a user: `get_inline_bot_results`, `send_inline_bot_result`, `msg.click(0)`, `request_callback_answer`,
   `start_bot`, `vote_poll` (not yet tested live)
 - [ ] Saved GIFs, media search filters and message links: `.filter(MessagesFilter::Photo)`, `get_message_by_link`

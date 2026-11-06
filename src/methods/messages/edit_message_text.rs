@@ -17,7 +17,6 @@ pub struct EditMessageText<'a> {
     reply_markup: Option<ReplyMarkup>,
     business_connection_id: Option<String>,
     schedule_date: Option<i32>,
-    no_webpage: bool,
     link_preview_options: Option<LinkPreviewOptions>,
     apply_client_default: bool,
 }
@@ -40,7 +39,6 @@ impl Client {
             reply_markup: None,
             business_connection_id: None,
             schedule_date: None,
-            no_webpage: false,
             link_preview_options: None,
             apply_client_default: true,
         }
@@ -72,12 +70,6 @@ impl EditMessageText<'_> {
         self
     }
 
-    /// Sends the text without a link preview.
-    pub fn disable_web_page_preview(mut self) -> Self {
-        self.no_webpage = true;
-        self
-    }
-
     /// Which link to preview, how, and whether to show it above the text. Replaces the client default.
     pub fn link_preview_options(mut self, options: LinkPreviewOptions) -> Self {
         self.link_preview_options = Some(options);
@@ -99,7 +91,7 @@ impl EditMessageText<'_> {
         }
         .map(|o| o.resolve())
         .unwrap_or_default();
-        let no_webpage = self.no_webpage || preview.no_webpage;
+        let no_webpage = preview.no_webpage;
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let (message, entities, rich_message) = self.text.write(client, self.parse_mode).await?;
         let request = functions::messages::EditMessage {

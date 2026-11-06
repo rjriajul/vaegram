@@ -1,17 +1,18 @@
-use crate::types::InputPollMedia;
+use crate::types::{InputPollMedia, Text};
 
-/// An answer option of a poll to send. A plain `&str` or `String` converts into one without media.
+/// An answer option of a poll to send. A plain `&str`, `String` or [`Text`] converts into one without media.
 #[non_exhaustive]
 pub struct InputPollOption<'a> {
-    /// The option's text.
-    pub text: String,
+    /// The option's text, with its formatting. A `Text` made straight from a string is parsed with the client's
+    /// default parse mode when the option is sent.
+    pub text: Text,
     /// Media shown with the option. `None` for a text-only option.
     pub media: Option<InputPollMedia<'a>>,
 }
 
 impl<'a> InputPollOption<'a> {
     /// Creates an option with the given text and no media.
-    pub fn new(text: impl Into<String>) -> Self {
+    pub fn new(text: impl Into<Text>) -> Self {
         InputPollOption { text: text.into(), media: None }
     }
 
@@ -30,6 +31,12 @@ impl From<&str> for InputPollOption<'_> {
 
 impl From<String> for InputPollOption<'_> {
     fn from(text: String) -> Self {
+        InputPollOption::new(text)
+    }
+}
+
+impl From<Text> for InputPollOption<'_> {
+    fn from(text: Text) -> Self {
         InputPollOption::new(text)
     }
 }

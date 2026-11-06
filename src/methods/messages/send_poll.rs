@@ -11,6 +11,9 @@ use crate::types::{InputPollMedia, InputPollOption, Message, PeerRef, Text};
 pub struct SendPoll<'a> {
     client: &'a Client,
     chat_id: PeerRef,
+    question: Text,
+    answers: Vec<Text>,
+    // Settings only: the question and answers go in when the request is sent.
     poll: types::Poll,
     correct_answers: Option<Vec<i32>>,
     explanation: Option<Text>,
@@ -22,12 +25,13 @@ pub struct SendPoll<'a> {
 impl Client {
     /// Sends a poll.
     ///
-    /// A poll takes 1 to 12 options, and any other count fails with `Error::InvalidArgument`.
-    /// Awaiting the request returns the sent [`Message`].
+    /// A poll takes 1 to 12 options, and any other count fails with `Error::InvalidArgument`. The question and the
+    /// option texts keep their formatting; one made straight from a string is parsed with the client's default parse
+    /// mode. Awaiting the request returns the sent [`Message`].
     pub fn send_poll<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,
-        question: impl Into<String>,
+        question: impl Into<Text>,
         options: impl IntoIterator<Item = impl Into<InputPollOption<'a>>>,
     ) -> SendPoll<'a> {
         let mut poll_media = PollMedia::default();
@@ -36,14 +40,15 @@ impl Client {
             .map(|option| {
                 let InputPollOption { text, media } = option.into();
                 poll_media.options.push(media);
-                let answer = types::InputPollAnswer { text: text_with_entities(text), media: None };
-                base::PollAnswer::InputPollAnswer(Box::new(answer))
+                text
             })
             .collect();
         SendPoll {
             client: self,
             chat_id: chat_id.into(),
-            poll: poll(0, question.into(), answers),
+            question: question.into(),
+            answers,
+            poll: poll(0, String::new(), Vec::new()),
             correct_answers: None,
             explanation: None,
             explanation_parse_mode: None,
@@ -133,10 +138,21 @@ impl<'a> SendPoll<'a> {
         self
     }
 
-    async fn send(mut self) -> Result<Message> {
-        if !(1..=12).contains(&self.poll.answers.len()) {
+    async fn write_texts(&mut self) -> Result<()> {
+        if !(1..=12).contains(&self.answers.len()) {
             return Err(Error::InvalidArgument("a poll takes 1 to 12 options"));
         }
+        self.poll.question = write_text_with_entities(self.client, std::mem::take(&mut self.question)).await?;
+        for text in std::mem::take(&mut self.answers) {
+            let text = write_text_with_entities(self.client, text).await?;
+            let answer = types::InputPollAnswer { text, media: None };
+            self.poll.answers.push(base::PollAnswer::InputPollAnswer(Box::new(answer)));
+        }
+        Ok(())
+    }
+
+    async fn send(mut self) -> Result<Message> {
+        self.write_texts().await?;
         let solution = match self.explanation.take() {
             Some(text) => Some(self.client.write_text(text, self.explanation_parse_mode).await?),
             None => None,
@@ -186,6 +202,12 @@ pub(crate) fn poll(id: i64, question: String, answers: Vec<base::PollAnswer>) ->
     }
 }
 
+/// Writes `text` with its entities, parsing one made straight from a string with the client's default parse mode.
+pub(super) async fn write_text_with_entities(client: &Client, text: Text) -> Result<base::TextWithEntities> {
+    let (text, entities) = client.write_text(text, None).await?;
+    Ok(base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities })))
+}
+
 pub(super) fn text_with_entities(text: String) -> base::TextWithEntities {
     base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities: Vec::new() }))
 }
@@ -198,18 +220,19 @@ mod tests {
     use crate::raw::{Serializable, base, types};
     use crate::types::{FileSource, InputMedia, InputPollMedia, InputPollOption, Text};
 
-    #[test]
-    fn maps_quiz_and_voting_limits() {
+    #[tokio::test]
+    async fn maps_quiz_and_voting_limits() {
         let client = Client::offline();
-        let media = client
+        let mut send = client
             .send_poll(1, "2 + 2?", ["3", "4"])
             .public_voters()
             .allows_multiple_answers()
             .quiz([1])
             .open_period(30)
             .members_only()
-            .country_codes(["US", "DE"])
-            .media(Some(("Basic math".into(), Vec::new())));
+            .country_codes(["US", "DE"]);
+        send.write_texts().await.unwrap();
+        let media = send.media(Some(("Basic math".into(), Vec::new())));
         let base::InputMedia::InputMediaPoll(media) = media else { panic!("not a poll") };
         assert_eq!(
             (&media.correct_answers, media.solution.as_deref(), &media.solution_entities),
@@ -253,17 +276,18 @@ mod tests {
         assert!(poll.open_answers && !poll.quiz && !poll.multiple_choice);
     }
 
-    #[test]
-    fn keeps_option_media_in_option_order() {
+    #[tokio::test]
+    async fn keeps_option_media_in_option_order() {
         let client = Client::offline();
         let options = [
             InputPollOption::new("Paris").media(InputPollMedia::location(48.85, 2.35)),
             "Rome".into(),
             InputPollOption::new("Photo").media(InputMedia::photo("a.jpg")),
         ];
-        let send = client.send_poll(1, "Where?", options);
+        let mut send = client.send_poll(1, "Where?", options);
         let has_media: Vec<_> = send.poll_media.options.iter().map(Option::is_some).collect();
         assert_eq!(has_media, [true, false, true]);
+        send.write_texts().await.unwrap();
         let base::InputMedia::InputMediaPoll(media) = send.media(None) else { panic!("not a poll") };
         let base::Poll::Poll(poll) = &media.poll;
         let rome = types::InputPollAnswer { text: text_with_entities("Rome".into()), media: None };
@@ -305,6 +329,29 @@ mod tests {
         let mut solution = String::from("hi").to_bytes();
         solution.extend(bold.to_bytes());
         assert!(body.windows(solution.len()).any(|w| w == solution));
+    }
+
+    #[tokio::test]
+    async fn the_question_and_options_keep_their_entities_on_the_wire() {
+        let (client, mut sent) = Client::recording();
+        let options = [InputPollOption::new(Text::new().italic("Pizza")), "Sushi".into()];
+        let _ = client.send_poll(-5, Text::new().plain("Lunch ").bold("today"), options).await;
+        let body = sent.try_recv().expect("no request sent");
+        let bold = base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 6, length: 5 });
+        let italic = base::MessageEntity::MessageEntityItalic(types::MessageEntityItalic { offset: 0, length: 5 });
+        let has = |bytes: &[u8]| body.windows(bytes.len()).any(|w| w == bytes);
+        assert!(has(&written_text("Lunch today", vec![bold]).to_bytes()), "the question lost its bold");
+        let pizza = types::InputPollAnswer { text: written_text("Pizza", vec![italic]), media: None };
+        let sushi = types::InputPollAnswer { text: written_text("Sushi", Vec::new()), media: None };
+        let answers = vec![
+            base::PollAnswer::InputPollAnswer(Box::new(pizza)),
+            base::PollAnswer::InputPollAnswer(Box::new(sushi)),
+        ];
+        assert!(has(&answers.to_bytes()), "the options lost their formatting");
+    }
+
+    fn written_text(text: &str, entities: Vec<base::MessageEntity>) -> base::TextWithEntities {
+        base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text: text.into(), entities }))
     }
 
     #[tokio::test]

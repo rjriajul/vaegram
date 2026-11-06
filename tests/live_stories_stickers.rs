@@ -25,7 +25,7 @@ async fn user_checks_forwards_and_copies_a_story() {
     };
     let Some(user) = user_client().await else { return };
     let me = user.get_me().await.unwrap();
-    assert!(user.can_post_stories(me.id).await.unwrap() > 0);
+    assert!(user.get_story_post_count(me.id).await.unwrap() > 0);
 
     let only_me = StoriesPrivacyRules::SelectedUsers(vec![me.id]);
     let story =

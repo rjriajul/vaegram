@@ -1,7 +1,7 @@
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::methods::{EditEphemeralMessage, EditInlineMedia, EditInlineText, EditMessageMedia, EditMessageText};
-use crate::types::{CallbackOrigin, CallbackQuery, InputMedia, MessageText, ReplyMarkup, Text};
+use crate::types::{CallbackOrigin, CallbackQuery, InputMedia, LinkPreviewOptions, MessageText, ReplyMarkup, Text};
 
 impl CallbackQuery {
     /// Edits the caption of the message the button is on. Calls [`CallbackQuery::edit_message_text`], since
@@ -65,11 +65,12 @@ impl EditCallbackMessageText<'_> {
         }
     }
 
-    /// Turns off the link preview. Does nothing for an ephemeral message, which has no previews.
-    pub fn disable_web_page_preview(self) -> Self {
+    /// Which link to preview, how, and whether to show it above the text. Replaces the client default. Does nothing
+    /// for an ephemeral message, which has no previews.
+    pub fn link_preview_options(self, options: LinkPreviewOptions) -> Self {
         match self {
-            Self::Message(edit) => Self::Message(edit.disable_web_page_preview()),
-            Self::Inline(edit) => Self::Inline(edit.disable_web_page_preview()),
+            Self::Message(edit) => Self::Message(edit.link_preview_options(options)),
+            Self::Inline(edit) => Self::Inline(edit.link_preview_options(options)),
             ephemeral @ Self::Ephemeral(_) => ephemeral,
         }
     }
@@ -135,7 +136,7 @@ mod tests {
     use crate::dispatcher::listeners::tests::{inline_query, query};
     use crate::raw::{Serializable, base, types};
     use crate::types::messages_and_media::ephemeral_message::tests::{channel, ephemeral};
-    use crate::types::{CallbackQuery, FileSource, InputMedia, Message, Text};
+    use crate::types::{CallbackQuery, FileSource, InputMedia, LinkPreviewOptions, Message, Text};
     use crate::utils::get_peer;
 
     const PHOTO: &str = "AgACAgIAAxkBAAIENGfeY4AfRquwTL2LpDrzqvFMVNt_AAIG9DEbXX3wSq3oI7t_PqQGAQADAgADbQADNgQ";
@@ -198,5 +199,19 @@ mod tests {
         let bold = vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 3 })];
         let has = |bytes: &[u8]| body.windows(bytes.len()).any(|w| w == bytes);
         assert!(has(&String::from("new").to_bytes()) && has(&bold.to_bytes()));
+    }
+
+    #[tokio::test]
+    async fn a_disabled_preview_reaches_message_and_inline_edits() {
+        let (client, mut sent) = Client::recording();
+        let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
+        client.0.peers.lock().unwrap().insert(7, peer);
+        let off = || LinkPreviewOptions::new().is_disabled(true);
+        for q in [query(&client, 7, 7, 5), inline_query(&client, 7, 1)] {
+            let _ = q.edit_message_text("hi").await;
+            assert_eq!(sent.try_recv().expect("no request sent")[4] & 0b10, 0, "previews stay on by default");
+            let _ = q.edit_message_text("hi").link_preview_options(off()).await;
+            assert_eq!(sent.try_recv().expect("no request sent")[4] & 0b10, 0b10, "no_webpage is set");
+        }
     }
 }

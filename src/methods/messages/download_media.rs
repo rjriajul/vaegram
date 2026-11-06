@@ -75,7 +75,7 @@ pub(crate) enum DownloadSource {
     Story(i64, i32),
 }
 
-/// Awaiting it collects the file in memory; `.file_name(path)` writes it to disk, `.stream()` yields chunks.
+/// Awaiting it collects the file in memory; `.save(path)` writes it to disk, `.stream()` yields chunks.
 #[must_use = "a request does nothing until it is awaited"]
 pub struct DownloadMedia<'a> {
     client: &'a Client,
@@ -135,7 +135,7 @@ impl<'a> DownloadMedia<'a> {
     /// replaced only when the download succeeds, by a new file: a symlink or the permissions of the old one are not
     /// kept. A failed or cancelled download leaves it as it was, and a `path` that is a directory is refused. Don't
     /// pass a name taken from the message as is: the sender chose it, and it can contain `..` or an absolute path.
-    pub async fn file_name(self, path: impl AsRef<Path>) -> Result<()> {
+    pub async fn save(self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
         // A bad file id fails before anything touches the disk.
         if self.location.is_err() {
@@ -756,11 +756,11 @@ mod tests {
         let path = dir.join("keep.jpg");
         std::fs::write(&path, b"old").unwrap();
         let (client, _rx) = Client::scripted(Vec::new());
-        let result = client.download_media("not a file id").file_name(&path).await;
+        let result = client.download_media("not a file id").save(&path).await;
         assert!(result.is_err());
         assert_eq!((std::fs::read(&path).unwrap(), leftovers(&dir)), (b"old".to_vec(), vec!["keep.jpg".to_string()]));
         let fresh = dir.join("sub").join("new.jpg");
-        assert!(client.download_media("not a file id").file_name(&fresh).await.is_err());
+        assert!(client.download_media("not a file id").save(&fresh).await.is_err());
         assert!(!dir.join("sub").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -774,7 +774,7 @@ mod tests {
         client.0.transfers.insert(client.dc(2).unwrap(), &client.session());
         let location =
             FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
-        assert!(to_file(&client, Ok(location)).file_name(&path).await.is_err());
+        assert!(to_file(&client, Ok(location)).save(&path).await.is_err());
         assert_eq!((std::fs::read(&path).unwrap(), leftovers(&dir)), (b"old".to_vec(), vec!["keep.bin".to_string()]));
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -788,7 +788,7 @@ mod tests {
         client.0.transfers.insert(client.dc(2).unwrap(), &client.session());
         let location =
             FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
-        to_file(&client, Ok(location)).file_name(&path).await.unwrap();
+        to_file(&client, Ok(location)).save(&path).await.unwrap();
         assert_eq!((std::fs::read(&path).unwrap(), leftovers(&dir)), (b"hi".to_vec(), vec!["out.bin".to_string()]));
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -801,7 +801,7 @@ mod tests {
         let client = Client::with_session(session);
         let location =
             FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
-        let mut download = Box::pin(to_file(&client, Ok(location)).file_name(&path));
+        let mut download = Box::pin(to_file(&client, Ok(location)).save(&path));
         // The request is out and unanswered: the download is mid-flight, with its temporary file on disk.
         tokio::select! {
             _ = &mut download => panic!("nothing answered"),
@@ -820,7 +820,7 @@ mod tests {
         let (client, _rx) = Client::scripted(Vec::new());
         let location =
             FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
-        assert!(matches!(to_file(&client, Ok(location)).file_name(&dir).await, Err(Error::InvalidArgument(_))));
+        assert!(matches!(to_file(&client, Ok(location)).save(&dir).await, Err(Error::InvalidArgument(_))));
         assert_eq!(leftovers(&dir), Vec::<String>::new());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1114,7 +1114,7 @@ mod tests {
         let (client, _rx) = Client::scripted(vec![file(whole.clone())]);
         let location = located(&client, Some(2 * i64::from(CHUNK)));
         let path = std::env::temp_dir().join(format!("vaegram-range-{}.bin", std::process::id()));
-        client.download_media(location).offset(5).limit(10).file_name(&path).await.unwrap();
+        client.download_media(location).offset(5).limit(10).save(&path).await.unwrap();
         let written = std::fs::read(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(written, whole[5..15]);
