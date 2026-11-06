@@ -79,11 +79,11 @@ async fn set_parse_mode_switches_markup() {
     let literal = client.send_message("me", "<b>bold</b>").await.unwrap();
     client.delete_messages("me", &[marked.id, literal.id]).await.unwrap();
 
-    assert_eq!(marked.text, "bold");
-    let entities = marked.entities.as_deref().unwrap_or_default();
+    assert_eq!(marked.text(), "bold");
+    let entities = marked.entities().unwrap_or_default();
     assert!(entities.iter().any(|e| matches!(e.kind, MessageEntityType::Bold)), "{entities:?}");
-    assert_eq!(literal.text, "<b>bold</b>");
-    assert!(literal.entities.is_none());
+    assert_eq!(literal.text(), "<b>bold</b>");
+    assert!(literal.entities().is_none());
 }
 
 #[tokio::test]

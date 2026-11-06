@@ -105,7 +105,7 @@ mod tests {
         assert!(m.topic().await.unwrap().is_none(), "not a forum");
         assert!(rx.try_recv().is_err());
 
-        m.chat.is_forum = true;
+        std::sync::Arc::make_mut(&mut m.chat).is_forum = true;
         let _ = m.topic().await;
         let general = messages::GetForumTopicsByID { peer: input.clone(), topics: vec![1] };
         assert_eq!(rx.try_recv().unwrap(), general.to_bytes());

@@ -1030,7 +1030,7 @@ mod tests {
         let log = Log::default();
         let mut router = Router::default();
         router.message.push(1, filters::command("start"), record(&log, "start"));
-        router.message.push(2, filters::create(|m: &Message| m.text == "/nope"), record(&log, "nope"));
+        router.message.push(2, filters::create(|m: &Message| m.text() == "/nope"), record(&log, "nope"));
         router.message.push(3, filters::private() & filters::create(|m: &Message| m.id == 1), record(&log, "one"));
         router.message.push(4, filters::all(), record(&log, "all"));
         router.configure(UpdateKind::Message, 2, Some(1), false);
@@ -1122,7 +1122,7 @@ mod tests {
     async fn an_unmatched_message_still_reaches_handlers() {
         let (client, log) = (Client::offline(), Log::default());
         client.0.handlers.add(|r| r.message.push(1, filters::all(), record(&log, "handler")));
-        let waiter = spawn_listen::<Message>(&client, |l| l.filter(filters::create(|m: &Message| m.text == "yes")));
+        let waiter = spawn_listen::<Message>(&client, |l| l.filter(filters::create(|m: &Message| m.text() == "yes")));
         until_waiting(&client.0.handlers.listeners.messages).await;
         dispatch_on(&client, new_message(7, false));
         settle().await;

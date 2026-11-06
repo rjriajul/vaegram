@@ -45,20 +45,20 @@ async fn main() -> vaegram::Result<()> {
         Ok(())
     });
 
-    app.on_message(filters::text() & filters::create(|m: &Message| m.text == "Remove keyboard"), |msg| async move {
+    app.on_message(filters::text() & filters::create(|m: &Message| m.text() == "Remove keyboard"), |msg| async move {
         msg.answer("Keyboard removed.").reply_markup(ReplyKeyboardRemove::default()).await?;
         Ok(())
     });
 
     app.on_message(filters::text() & filters::private(), |msg| async move {
-        println!("message: {:?}", msg.text);
-        msg.reply(Text::new().plain("You said: ").bold(&msg.text)).await?;
+        println!("message: {:?}", msg.text());
+        msg.reply(Text::new().plain("You said: ").bold(msg.text())).await?;
         Ok(())
     });
 
     app.on_edited_message(filters::text(), |msg| async move {
-        println!("edited: {:?}", msg.text);
-        msg.reply(format!("You edited it to: {}", msg.text)).await?;
+        println!("edited: {:?}", msg.text());
+        msg.reply(format!("You edited it to: {}", msg.text())).await?;
         Ok(())
     });
 

@@ -18,8 +18,8 @@ fn handlers(app: &Client, replies: mpsc::UnboundedSender<String>) {
     app.on_message(filters::private() & filters::text(), move |m| {
         let replies = replies.clone();
         async move {
-            let sent = m.reply(format!("pong: {}", m.text)).await?;
-            let _ = replies.send(sent.text.clone());
+            let sent = m.reply(format!("pong: {}", m.text())).await?;
+            let _ = replies.send(sent.text().to_owned());
             Ok(())
         }
     });

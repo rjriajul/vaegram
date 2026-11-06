@@ -501,7 +501,7 @@ mod tests {
         client.0.peers.lock().unwrap().insert(forum, input.clone());
         client.0.caches.store_topic(forum, &topic(6));
         let mut in_topic = message(&client, 1, forum);
-        (in_topic.chat.is_forum, in_topic.message_thread_id) = (true, Some(6));
+        (Arc::make_mut(&mut in_topic.chat).is_forum, in_topic.message_thread_id) = (true, Some(6));
         assert_eq!(in_topic.topic().await.unwrap().map(|t| t.id), Some(6));
         assert!(rx.try_recv().is_err());
 

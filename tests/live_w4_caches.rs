@@ -43,7 +43,7 @@ async fn callback_on_a_cached_message_needs_no_request() {
     bot.on_callback_query(filters::all(), move |q| {
         let tx = tx.clone();
         async move {
-            let _ = tx.send(q.message().await?.map(|m| m.text));
+            let _ = tx.send(q.message().await?.map(|m| m.text().to_owned()));
             q.answer().await?;
             Ok(())
         }

@@ -35,7 +35,7 @@ async fn wait_for_callback_query_gets_the_click() {
     let picked = picked.unwrap();
     user.delete_messages(asked.chat.id, &[asked.id, picked.id]).await.unwrap();
     assert!(click.is_ok(), "{click:?}");
-    assert_eq!(picked.text, "picked pick");
+    assert_eq!(picked.text(), "picked pick");
 }
 
 #[tokio::test]
@@ -47,7 +47,7 @@ async fn ask_returns_the_users_answer() {
         let bot = bot.clone();
         async move {
             let answer = bot.ask(m.chat.id, "Your name?").filter(filters::text()).timeout(WAIT).await?;
-            answer.reply(format!("Hi {}", answer.text)).await?;
+            answer.reply(format!("Hi {}", answer.text())).await?;
             Ok(())
         }
     });
@@ -55,8 +55,8 @@ async fn ask_returns_the_users_answer() {
     let question = kit.user.send_and_wait_reply(&kit.bot, "/ask").await.unwrap();
     let greeting = kit.user.send_and_wait_reply(&kit.bot, "Ada").await.unwrap();
     kit.user.client.delete_messages(question.chat.id, &[question.id, greeting.id]).await.unwrap();
-    assert_eq!(question.text, "Your name?");
-    assert_eq!(greeting.text, "Hi Ada");
+    assert_eq!(question.text(), "Your name?");
+    assert_eq!(greeting.text(), "Hi Ada");
 }
 
 #[tokio::test]
@@ -68,7 +68,7 @@ async fn next_step_handler_runs_on_the_next_message() {
         let bot = bot.clone();
         async move {
             let step = |answer: vaegram::types::Message| async move {
-                answer.reply(format!("step {}", answer.text)).await?;
+                answer.reply(format!("step {}", answer.text())).await?;
                 Ok(())
             };
             bot.register_next_step_handler(step).chat(m.chat.id).filter(filters::text()).timeout(WAIT).await?;
@@ -80,6 +80,6 @@ async fn next_step_handler_runs_on_the_next_message() {
     let prompt = kit.user.send_and_wait_reply(&kit.bot, "/step").await.unwrap();
     let done = kit.user.send_and_wait_reply(&kit.bot, "two").await.unwrap();
     kit.user.client.delete_messages(prompt.chat.id, &[prompt.id, done.id]).await.unwrap();
-    assert_eq!(prompt.text, "Send the next one");
-    assert_eq!(done.text, "step two");
+    assert_eq!(prompt.text(), "Send the next one");
+    assert_eq!(done.text(), "step two");
 }

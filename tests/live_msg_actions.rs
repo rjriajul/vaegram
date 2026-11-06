@@ -68,7 +68,7 @@ async fn bot_edits_the_media_it_sent() {
     let file_names: Vec<_> = history.iter().filter_map(|m| m.document().and_then(|d| d.file_name.clone())).collect();
     let ids: Vec<_> = history.iter().map(|m| m.id).collect();
     user.delete_messages(done.chat.id, &ids).await.unwrap();
-    assert_eq!(done.text, "edited");
+    assert_eq!(done.text(), "edited");
     assert_eq!(file_names, ["new.txt"]);
 }
 
@@ -93,5 +93,5 @@ async fn wait_for_click_gets_the_press_on_the_sent_keyboard() {
     let clicked = clicked.unwrap();
     user.delete_messages(asked.chat.id, &[asked.id, clicked.id]).await.unwrap();
     assert!(click.is_ok(), "{click:?}");
-    assert_eq!(clicked.text, "clicked pick");
+    assert_eq!(clicked.text(), "clicked pick");
 }

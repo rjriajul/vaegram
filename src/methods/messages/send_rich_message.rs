@@ -98,11 +98,11 @@ mod tests {
         let blocks =
             InputRichMessage::blocks([RichBlock::heading(1, "Hi"), RichBlock::paragraph(Text::new().bold("there"))]);
         let message = client.send_rich_message("me", blocks).await.unwrap();
-        assert_eq!((message.id, message.text.as_str()), (9, "Hi\nthere"));
+        assert_eq!((message.id, message.text()), (9, "Hi\nthere"));
         assert_eq!(message.rich_message.map(|r| r.raw.blocks.len()), Some(2));
 
         let message = client.send_rich_message("me", InputRichMessage::html("<h1>Hi</h1> <b>there</b>")).await.unwrap();
-        assert_eq!((message.id, message.text.as_str(), message.rich_message), (9, "Hi there", None));
+        assert_eq!((message.id, message.text(), message.rich_message.is_none()), (9, "Hi there", true));
     }
 
     #[tokio::test]

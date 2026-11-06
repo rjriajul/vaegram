@@ -61,7 +61,7 @@ async fn unread_mentions_and_reactions_from_the_bot() {
     let mut mentions = Vec::new();
     let mut unread = user.get_unread_mentions(chat_id).limit(20);
     while let Some(m) = unread.next().await.unwrap() {
-        mentions.push(m.text);
+        mentions.push(m.text().to_owned());
     }
     let mut reacted = Vec::new();
     let mut unread = user.get_unread_reactions(chat_id).limit(20);

@@ -20,8 +20,8 @@ async fn link_previews(kit: &support::Kit) {
         Ok(())
     });
     let reply = kit.user.send_and_wait_reply(&kit.bot, LINK).await.unwrap();
-    if reply.text != "pending" {
-        assert!(reply.text.starts_with(LINK), "the bot saw {:?}", reply.text);
+    if reply.text() != "pending" {
+        assert!(reply.text().starts_with(LINK), "the bot saw {:?}", reply.text());
         return;
     }
     let sent = reply.reply_to_message_id.expect("the bot's answer replies to the link message");
