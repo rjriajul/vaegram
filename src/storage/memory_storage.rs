@@ -92,6 +92,7 @@ impl Tables {
 pub struct MemoryStorage(Mutex<Tables>);
 
 impl MemoryStorage {
+    /// An empty store: no login, state or peers.
     pub fn new() -> MemoryStorage {
         MemoryStorage::default()
     }

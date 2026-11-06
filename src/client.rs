@@ -34,6 +34,8 @@ use crate::types::{Json, LinkPreviewOptions};
 const DEFAULT_DC: i32 = 2;
 const LISTENER_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// Settings for a [`Client`], from [`Client::builder`]; [`start`](Self::start) or [`connect`](Self::connect) makes
+/// the client.
 #[must_use = "call .start() or .connect() to get a client"]
 pub struct ClientBuilder {
     name: String,
@@ -82,41 +84,52 @@ pub(crate) struct Login {
 }
 
 impl ClientBuilder {
+    /// Logs in as the bot with this token from @BotFather when `start` finds no saved login. Wins over
+    /// [`phone_number`](Self::phone_number).
     pub fn bot_token(mut self, token: impl Into<String>) -> Self {
         self.login.bot_token = Some(token.into());
         self
     }
 
+    /// Logs in as the user with this phone number, in international format, when `start` finds no saved login,
+    /// instead of asking for it.
     pub fn phone_number(mut self, phone_number: impl Into<String>) -> Self {
         self.login.phone_number = Some(phone_number.into());
         self
     }
 
+    /// The login code `start` tries first instead of asking; a wrong one is asked for again on stdin.
     pub fn phone_code(mut self, phone_code: impl Into<String>) -> Self {
         self.login.phone_code = Some(phone_code.into());
         self
     }
 
+    /// The two-step verification password `start` tries first instead of asking; a wrong one is asked for again
+    /// on stdin.
     pub fn password(mut self, password: impl Into<String>) -> Self {
         self.login.password = Some(password.into());
         self
     }
 
+    /// The device model shown in the account's active sessions, `"vaegram"` by default.
     pub fn device_model(mut self, model: impl Into<String>) -> Self {
         self.options.device.model = model.into();
         self
     }
 
+    /// The operating system version shown in the account's active sessions, the OS name by default.
     pub fn system_version(mut self, version: impl Into<String>) -> Self {
         self.options.device.system_version = version.into();
         self
     }
 
+    /// The application version shown in the account's active sessions, this crate's version by default.
     pub fn app_version(mut self, version: impl Into<String>) -> Self {
         self.options.device.app_version = version.into();
         self
     }
 
+    /// The ISO 639-1 code of the client's language, `en` by default.
     pub fn lang_code(mut self, code: impl Into<String>) -> Self {
         self.options.device.lang_code = code.into();
         self
@@ -158,6 +171,7 @@ impl ClientBuilder {
         self
     }
 
+    /// The framing of packets on the wire, [`Transport::Intermediate`] by default.
     pub fn transport(mut self, transport: Transport) -> Self {
         self.options.transport = transport;
         self
@@ -169,6 +183,7 @@ impl ClientBuilder {
         self
     }
 
+    /// Connects through `proxy`, transfers and CDNs included.
     pub fn proxy(mut self, proxy: Proxy) -> Self {
         self.options.proxy = Some(proxy);
         self
@@ -209,6 +224,7 @@ impl ClientBuilder {
         self
     }
 
+    /// Connects to the data centers' IPv6 addresses instead of IPv4.
     pub fn ipv6(mut self) -> Self {
         self.ipv6 = true;
         self
@@ -234,6 +250,7 @@ impl ClientBuilder {
         self
     }
 
+    /// Caps how many handlers run at once, at least 1; updates past the cap wait for a slot. No cap by default.
     pub fn max_concurrent_handlers(mut self, n: usize) -> Self {
         self.max_concurrent_handlers = Some(n);
         self
@@ -340,6 +357,8 @@ impl ClientBuilder {
         self
     }
 
+    /// How text sent or edited without its own parse mode is read; [`ParseMode::Disabled`], sending text as it is,
+    /// by default.
     pub fn parse_mode(mut self, mode: ParseMode) -> Self {
         self.parse_mode = mode;
         self
@@ -477,6 +496,8 @@ impl ClientBuilder {
         Ok(client)
     }
 
+    /// Connects without logging in: when the storage holds no login, the client is connected but signed out, for
+    /// `send_code` and `sign_in`. Nothing is asked on stdin.
     pub async fn connect(self) -> Result<Client> {
         Ok(self.open().await?.0)
     }
@@ -603,6 +624,8 @@ impl ClientBuilder {
     }
 }
 
+/// A connection to Telegram as one account. Clones are cheap and share the connection, handlers and storage, so
+/// hand one to each task. Make one with [`Client::builder`].
 #[derive(Clone)]
 pub struct Client(pub(crate) Arc<Inner>, pub(crate) Option<i64>);
 
@@ -799,6 +822,9 @@ impl Drop for Inner {
 }
 
 impl Client {
+    /// Begins building a client named `name`, whose session file is `<name>.session` unless another storage is
+    /// chosen; nothing connects until `start` or `connect`.
+    /// `api_id` and `api_hash` come from <https://my.telegram.org>.
     pub fn builder(name: impl Into<String>, api_id: i32, api_hash: impl Into<String>) -> ClientBuilder {
         ClientBuilder {
             name: name.into(),

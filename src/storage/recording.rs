@@ -57,9 +57,13 @@ const DIFFERENCE_SLICE: u32 = <types::updates::DifferenceSlice as Identifiable>:
 /// One message as recorded: `body` is its TL bytes, cut down when it held a credential.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Record {
+    /// Whether the client sent the message; `false` for one it received.
     pub outgoing: bool,
+    /// The MTProto message id it went under.
     pub msg_id: i64,
+    /// When it was recorded, in milliseconds since the Unix epoch.
     pub unix_ms: i64,
+    /// The message's TL bytes.
     pub body: Vec<u8>,
 }
 
@@ -122,7 +126,9 @@ fn body_json(body: &[u8], out: &mut String, depth: usize) {
     }
 }
 
-// Clones share the file, so every session of a client, including other DCs', lands in one recording.
+/// Writes a recording as the [module](self) describes, for [`ClientBuilder::record`](crate::ClientBuilder::record)
+/// or [`Options::record`](crate::connection::Options::record). Clones share the file, so every session of a client,
+/// including other DCs', lands in one recording.
 #[derive(Clone, Debug)]
 pub struct Recorder(Arc<Mutex<Log>>);
 

@@ -65,17 +65,23 @@ pub trait Storage: Send + Sync + 'static {
     /// Forgets the session, the state and every peer, as logging out does.
     fn delete(&self) -> StorageFuture<'_, ()>;
 
+    /// The saved login; `None` when there is none yet, which makes the client log in.
     fn load_session(&self) -> StorageFuture<'_, Option<SessionData>>;
 
+    /// Replaces the saved login.
     fn save_session<'a>(&'a self, session: &'a SessionData) -> StorageFuture<'a, ()>;
 
+    /// The saved update state and salt; `None` when there is none. The client drops a state whose
+    /// [`owner`](StoredState::owner) isn't the logged-in account, and clears the peers with it.
     fn load_state(&self) -> StorageFuture<'_, Option<StoredState>>;
 
+    /// Replaces the saved update state and salt.
     fn save_state<'a>(&'a self, state: &'a StoredState) -> StorageFuture<'a, ()>;
 
     /// Inserts or replaces each peer whole, usernames and phone number included.
     fn update_peers<'a>(&'a self, peers: &'a [PeerRecord]) -> StorageFuture<'a, ()>;
 
+    /// The peer with this Bot-API-style id; `None` when it isn't stored.
     fn get_peer_by_id(&self, id: i64) -> StorageFuture<'_, Option<PeerRecord>>;
 
     /// `username` is lowercase, as [`PeerRecord::usernames`] are.
@@ -84,6 +90,8 @@ pub trait Storage: Send + Sync + 'static {
         Box::pin(async { Ok(None) })
     }
 
+    /// The user with this phone number, as Telegram gives it; `None` when it isn't stored. By default nothing
+    /// is found.
     fn get_peer_by_phone_number<'a>(&'a self, phone_number: &'a str) -> StorageFuture<'a, Option<PeerRecord>> {
         let _ = phone_number;
         Box::pin(async { Ok(None) })
@@ -163,15 +171,18 @@ impl<T: Storage + ?Sized> Storage for Arc<T> {
 pub struct PeerRecord {
     /// Bot API style: users positive, channels `-100…`.
     pub id: i64,
+    /// The access hash that lets this account reach the peer.
     pub access_hash: i64,
     /// Active usernames, lowercase.
     pub usernames: Vec<String>,
+    /// The user's phone number as Telegram gave it, when the account may see it.
     pub phone_number: Option<String>,
     /// Unix time of the last change.
     pub updated: i64,
 }
 
 impl PeerRecord {
+    /// A peer with no usernames, no phone number and `updated` 0.
     pub fn new(id: i64, access_hash: i64) -> PeerRecord {
         PeerRecord { id, access_hash, ..PeerRecord::default() }
     }
@@ -181,12 +192,16 @@ impl PeerRecord {
 #[non_exhaustive]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StoredState {
+    /// The user id of the account the state belongs to; 0 before login.
     pub owner: i64,
+    /// The server salt and clock offset to start the next connection with.
     pub salt: Salt,
+    /// Where updates resume; `None` before the first update state is known.
     pub update: Option<UpdateState>,
 }
 
 impl StoredState {
+    /// The state of account `owner` (0 before login): its salt and, once known, where updates resume.
     pub fn new(owner: i64, salt: Salt, update: Option<UpdateState>) -> StoredState {
         StoredState { owner, salt, update }
     }

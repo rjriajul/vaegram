@@ -122,9 +122,11 @@ pub struct Call<'a> {
     /// The whole call as sent, credentials included (bot tokens, SRP proofs, exported authorizations): don't log
     /// it as is. A recording keeps the redacted form.
     pub request: &'a [u8],
+    /// From when the connection's task took the request in to its end, re-sends included.
     pub duration: Duration,
     /// The answer's TL bytes, or the error the caller got. A caller that stopped waiting got `Error::Timeout`.
     pub result: Result<&'a [u8], &'a Error>,
+    /// The data center the request went to.
     pub dc: i32,
     /// 0 for the main connection; file transfers number theirs per DC, from 1.
     pub connection: u32,
@@ -142,12 +144,18 @@ impl std::fmt::Debug for Observer {
         f.write_str("Observer")
     }
 }
+
+/// The updates a main session receives, in arrival order, for the dispatcher. It holds
+/// [`Options::updates_capacity`](crate::connection::Options::updates_capacity) batches; past that, batches are
+/// dropped and an `UpdatesTooLong` stands in for them.
 pub struct UpdatesRx {
     rx: mpsc::Receiver<Incoming>,
     pub(crate) events: Arc<Events>,
 }
 
 impl UpdatesRx {
+    /// The next batch of updates; `None` once the session's task has ended. Updates that were dropped because the
+    /// queue was full come back as one `UpdatesTooLong`, after `ClientEvent::UpdatesDropped` fires.
     pub async fn recv(&mut self) -> Option<Incoming> {
         loop {
             let (count, unrecoverable) = self.events.take_dropped();
@@ -185,6 +193,9 @@ impl UpdatesRx {
     }
 }
 
+/// One MTProto session with a data center: an auth key and an encrypted connection that a background task owns.
+/// The task pings, reconnects with backoff after a failure and sends the waiting requests again. Clones share
+/// the connection; it closes once every clone is dropped.
 #[derive(Clone)]
 pub struct Session {
     requests: mpsc::UnboundedSender<Request>,
@@ -203,6 +214,7 @@ pub struct Session {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[non_exhaustive]
 pub struct Salt {
+    /// The salt Telegram last gave this session, sent in every encrypted message.
     pub value: i64,
     /// Server time minus local time, in seconds.
     pub time_offset: i64,
@@ -384,10 +396,14 @@ impl Session {
         Known { key: self.auth_key, salt: self.salt(), made: self.key_made }
     }
 
+    /// The data center this session is connected to. It never changes: moving to another data center takes a new
+    /// session.
     pub fn dc_id(&self) -> i32 {
         self.dc_id
     }
 
+    /// The permanent auth key: the login itself, so keep it secret. With PFS, traffic runs under a temporary key
+    /// bound to this one.
     pub fn auth_key(&self) -> &[u8; 256] {
         &self.auth_key
     }

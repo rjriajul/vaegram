@@ -9,7 +9,8 @@ pub(crate) const CHANNEL_OFFSET: i64 = 1_000_000_000_000;
 
 const BASE64URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-// Ids come from the server and can be anything: wrap like release builds do instead of panicking in debug.
+/// The Bot-API-style id of a TL peer: users as they are, basic groups negated, channels as `-100…`
+/// ([`get_channel_id`]). An id from the server out of range wraps instead of panicking.
 pub fn get_peer_id(peer: &base::Peer) -> i64 {
     match peer {
         base::Peer::PeerUser(p) => p.user_id,
@@ -29,6 +30,7 @@ pub(crate) fn get_chat_id(chat: &base::Chat) -> Option<i64> {
     }
 }
 
+/// The Bot-API-style id of a channel or supergroup: `-1000000000000 - channel_id`, so 1234 is `-1000000001234`.
 pub fn get_channel_id(channel_id: i64) -> i64 {
     (-CHANNEL_OFFSET).wrapping_sub(channel_id)
 }
@@ -37,6 +39,8 @@ pub(crate) fn channel_id_of(chat_id: i64) -> i64 {
     -CHANNEL_OFFSET - chat_id
 }
 
+/// The TL peer of a Bot-API-style id: positive is a user, `-100…` (at most `-1000000000000`) a channel, and any
+/// other id, 0 included, a basic group.
 pub fn get_peer(chat_id: i64) -> base::Peer {
     if chat_id > 0 {
         base::Peer::PeerUser(types::PeerUser { user_id: chat_id })

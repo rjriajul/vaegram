@@ -56,15 +56,21 @@ pub struct DnsConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AccessPointRule {
+    /// Which phone numbers the rule is for: comma-separated `+prefix` rules that include numbers starting with
+    /// the prefix and `-prefix` rules that exclude them; empty for every number.
     pub phone_prefix_rules: String,
+    /// The data center these addresses belong to.
     pub dc_id: i32,
+    /// The data center's addresses; one with a [`secret`](IpPort::secret) takes only obfuscation keyed with it.
     pub ips: Vec<IpPort>,
 }
 
 /// An address of a data center. One with a `secret` only answers MTProxy-style obfuscation keyed with it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IpPort {
+    /// The IPv4 address and port.
     pub addr: SocketAddrV4,
+    /// The obfuscation secret this address needs; `None` for a plain connection.
     pub secret: Option<Vec<u8>>,
 }
 
@@ -79,6 +85,7 @@ impl DnsConfig {
         self.expires
     }
 
+    /// The data centers' addresses, in the order the config lists them.
     pub fn rules(&self) -> &[AccessPointRule] {
         &self.rules
     }

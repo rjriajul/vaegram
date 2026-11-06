@@ -13,6 +13,7 @@ use crate::errors::Error;
 /// answers `Continue` retries it for ever. A retried FLOOD_WAIT doesn't take new tokens from the client's rate
 /// limiter, which counted the request once.
 pub trait RetryPolicy: Send + Sync + 'static {
+    /// `Continue(wait)` sleeps `wait` and sends the request again; `Break(())` hands the error to the caller.
     fn should_retry(&self, ctx: &RetryContext<'_>) -> ControlFlow<(), Duration>;
 }
 
@@ -22,6 +23,7 @@ pub trait RetryPolicy: Send + Sync + 'static {
 pub struct RetryContext<'a> {
     /// The TL name of the request, such as `messages.sendMessage`.
     pub request: &'static str,
+    /// The error the request failed with.
     pub error: &'a Error,
     /// How many times the policy has been asked about this request, this time included: 1 after the first failure.
     pub fail_count: u32,
@@ -95,6 +97,7 @@ impl RetryPolicy for NoRetries {
 pub struct Retry(pub Arc<dyn RetryPolicy>);
 
 impl Retry {
+    /// Wraps `policy` to be shared by every request of a client.
     pub fn new(policy: impl RetryPolicy) -> Retry {
         Retry(Arc::new(policy))
     }

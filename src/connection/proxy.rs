@@ -10,29 +10,46 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::utils::{base64_decode, base64_encode};
 
+/// A proxy every connection goes through, set with [`ClientBuilder::proxy`](crate::ClientBuilder::proxy). Parse one
+/// from an address or a `t.me/proxy` link with [`str::parse`]. `Debug` shows only the kind, host and port, never
+/// credentials or secrets.
 #[derive(Clone)]
 #[non_exhaustive]
 pub enum Proxy {
+    /// SOCKS5 (RFC 1928). The data center is asked for by IP address, so the proxy resolves no names.
     Socks5 {
+        /// The proxy's host name or IP address; a name is resolved by the system when connecting.
         host: String,
+        /// The proxy's port.
         port: u16,
+        /// User name and password (RFC 1929), each at most 255 bytes; `None` connects without authentication.
         auth: Option<(String, String)>,
     },
     /// IPv4 data centers only.
     Socks4 {
+        /// The proxy's host name or IP address; a name is resolved by the system when connecting.
         host: String,
+        /// The proxy's port.
         port: u16,
     },
     /// HTTP CONNECT. The proxy is spoken to in plain HTTP, not HTTPS, so `auth` (Basic, the only kind) crosses
     /// the network readable.
     Http {
+        /// The proxy's host name or IP address; a name is resolved by the system when connecting.
         host: String,
+        /// The proxy's port.
         port: u16,
+        /// User name and password for Basic authentication; `None` sends none.
         auth: Option<(String, String)>,
     },
+    /// Telegram's own MTProxy. It reads the data center from the obfuscation header, so the connection is always
+    /// obfuscated and the full transport can't be used.
     MtProxy {
+        /// The proxy's host name or IP address; a name is resolved by the system when connecting.
         host: String,
+        /// The proxy's port.
         port: u16,
+        /// The proxy's secret, which also picks padding (`dd`) or fake TLS (`ee`).
         secret: Secret,
     },
     /// An MTProxy behind an HTTPS relay, as `tg://webproxy` links give: the stream to the data center rides in
@@ -40,7 +57,9 @@ pub enum Proxy {
     /// IP address, and the secret is plain or `dd`, never `ee`; `connect` checks both.
     #[cfg(feature = "web-proxy")]
     Web {
+        /// The relay's DNS name, reached on port 443.
         host: String,
+        /// The MTProxy secret, plain or `dd`.
         secret: Secret,
     },
 }
@@ -58,6 +77,7 @@ impl Proxy {
         Some(base::InputClientProxy::InputClientProxy(Box::new(proxy)))
     }
 
+    /// The kind of proxy, without its address or credentials.
     pub fn scheme(&self) -> ProxyScheme {
         match self {
             Proxy::Socks5 { .. } => ProxyScheme::Socks5,

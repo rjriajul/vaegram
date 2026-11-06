@@ -1,20 +1,83 @@
+//! A Telegram [MTProto](https://core.telegram.org/mtproto) client for users and bots, written from scratch: it
+//! talks to Telegram's main API directly, as a user account or as a bot (an alternative to the Bot API), with its
+//! own transport, auth key exchange and encrypted session, generated types for the whole API layer, and a
+//! friendly API of methods, handlers and filters on top.
+//!
+//! ```no_run
+//! use vaegram::{Client, filters};
+//!
+//! #[tokio::main]
+//! async fn main() -> vaegram::Result<()> {
+//!     let app = Client::builder("my_bot", 12345, "0123456789abcdef0123456789abcdef")
+//!         .bot_token("123456:ABC-DEF")
+//!         .start()
+//!         .await?;
+//!
+//!     app.on_message(filters::command("start") & filters::private(), |msg| async move {
+//!         msg.answer("Hello from vaegram!").await?;
+//!         Ok(())
+//!     });
+//!
+//!     app.run().await
+//! }
+//! ```
+//!
+//! The `api_id` and `api_hash` come from <https://my.telegram.org>. Without `.bot_token(..)`, `start` asks on stdin
+//! for a phone number, the login code and the two-step verification password. The first run writes
+//! `my_bot.session`, and later runs log in from it: see [`ClientBuilder`] for other storage and settings. Anything
+//! without a friendly method can be called with [`Client::invoke`] and the TL types in [`raw`].
+//!
+//! # Cargo features
+//!
+//! None is on by default.
+//!
+//! - `json`: `ToJson` for every TL type and function, and JSON for raw updates and recordings.
+//! - `unstable-raw`: the TL objects behind raw updates (`RawUpdate::raw()`, `raw_users()`, `raw_chats()`),
+//!   `Incoming::into_updates()` and `UploadedFile::into_raw()`. Experimental: may change or go away in any
+//!   release.
+//! - Storage engines: `sqlite` (`SqliteStorage`), `redb` (`RedbStorage`), `redis` (`RedisStorage`), `mongodb`
+//!   (`MongoStorage`), `s3` (`S3Storage`, an S3-compatible object store) and `vault` (`VaultStorage`, the login in
+//!   HashiCorp Vault).
+//! - Observability: `metrics` and `opentelemetry`, request observers in the `observe` module.
+//! - `regex`: `filters::regex` and `filters::matches`.
+//! - Transports over TLS: `websocket` (`ClientBuilder::websocket`), `dns-config` (`ClientBuilder::dns_fallback`
+//!   to Telegram's DNS config) and `web-proxy` (`Proxy::Web`, an MTProxy behind an HTTPS relay).
+
+#![warn(missing_docs)]
+
+/// [`Client`] and its [`ClientBuilder`].
 pub mod client;
+/// The transport under a session: framing, obfuscation, proxies, and the connection settings in
+/// [`Options`](connection::Options).
 pub mod connection;
 pub(crate) mod crypto;
+/// The update loop behind `Client::run`: it fills gaps in the update sequence and hands updates to the handlers.
+/// Its items are internal.
 pub mod dispatcher;
+/// Enumerations of the friendly API, such as chat types, parse modes and client events.
 pub mod enums;
+/// [`Error`], the error every call can fail with, and Telegram's own [`RpcError`].
 pub mod errors;
 pub(crate) mod file_id;
+/// Filters that choose which updates a handler gets; combine them with `&`, `|` and `!`.
 pub mod filters;
+/// Handler registration: groups, stopping propagation and removing a handler.
 pub mod handlers;
+/// The friendly API methods, all on [`Client`], and the request builders some of them return.
 pub mod methods;
 #[cfg(any(feature = "metrics", feature = "opentelemetry"))]
 pub mod observe;
+/// HTML and Markdown parsing into text with formatting entities.
 pub mod parser;
+/// Every type and function of Telegram's API, generated from the TL schema, for [`Client::invoke`].
 pub mod raw;
+/// The encrypted MTProto session: requests, retries, rate limits, observers and replaying recordings.
 pub mod session;
+/// Where a client keeps its login, update state and known peers, session strings and recordings.
 pub mod storage;
+/// The friendly types: messages, users, chats, media, keyboards and the rest.
 pub mod types;
+/// Bot-API-style chat id conversions, and decoders for the compact thumbnails Telegram inlines.
 pub mod utils;
 
 pub use client::{Client, ClientBuilder};

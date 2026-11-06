@@ -167,10 +167,9 @@ impl Client {
         input_user(peer).ok_or(Error::PeerNotFound(id))
     }
 
-    /// Gives each mention the input user Telegram wants in place of its bare user id. As Pyrogram
-    /// does, a mention of a user this account has never met is dropped and its text kept, rather
-    /// than the whole message failing (a helper bot captioning a file with the requester's
-    /// `tg://user` link). Each user is looked up once per call.
+    /// Gives each mention the input user Telegram wants in place of its bare user id. A mention of a user this
+    /// account has never met is dropped and its text kept, rather than the whole message failing (a helper bot
+    /// captioning a file with the requester's `tg://user` link). Each user is looked up once per call.
     pub(crate) async fn resolve_mentions(
         &self,
         entities: Vec<base::MessageEntity>,

@@ -4,6 +4,7 @@ use std::time::Duration;
 use crate::raw;
 use crate::types::User;
 
+/// The result of every fallible vaegram call; the error is [`Error`] unless given.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 const WAITS: [&str; 6] = [
@@ -17,10 +18,18 @@ const WAITS: [&str; 6] = [
 // A hostile value can't push `Instant` arithmetic past its range.
 const MAX_WAIT: Duration = Duration::from_secs(14 * 24 * 60 * 60);
 
+/// An error Telegram answered a request with, such as `400 PEER_ID_INVALID` or `420 FLOOD_WAIT_30`. A trailing
+/// number is split off the name into `value`, so match on the name with [`is`](Self::is).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RpcError {
+    /// The error code, which works like an HTTP status: 303 for a data center migration, 400 for a bad request,
+    /// 401 for a missing or broken login, 420 for flood limits, and so on. See
+    /// <https://core.telegram.org/api/errors>.
     pub code: i32,
+    /// The error's name, without the trailing number: `FLOOD_WAIT` for `FLOOD_WAIT_30`.
     pub name: String,
+    /// The number Telegram put at the end of the name, such as the seconds of a FLOOD_WAIT or the data center of a
+    /// `*_MIGRATE`; `None` when the name doesn't end in one. Numbers past `u32::MAX` are kept as `u32::MAX`.
     pub value: Option<u32>,
 }
 
@@ -72,32 +81,60 @@ impl fmt::Display for RpcError {
 
 impl std::error::Error for RpcError {}
 
+/// Everything a vaegram call can fail with. Telegram's own errors are [`Error::Rpc`]; [`is`](Self::is) and
+/// [`flood_wait`](Self::flood_wait) look into them without a match.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
+    /// Telegram answered the request with an error.
     Rpc(RpcError),
+    /// A network or file error: the connection failed, a socket timed out, a file couldn't be read or written.
     Io(std::io::Error),
+    /// The server refused the connection with this transport error code, made positive. 404 usually means the data
+    /// center doesn't know the auth key; on the main connection that's the stored login. It's also sent for a
+    /// malformed packet. See <https://core.telegram.org/mtproto/mtproto-transports#transport-errors>.
     Transport(i32),
+    /// Telegram's answer couldn't be read as the TL type expected.
     Deserialize(raw::Error),
+    /// A security check failed, such as a nonce, hash or DH value in the key exchange, so the data was refused.
     Security(&'static str),
+    /// Telegram refused the message carrying the request with this `bad_msg_notification` code. The time and
+    /// sequence codes (16, 17, 32, 33) are fixed and resent instead, so they never get here. See
+    /// <https://core.telegram.org/mtproto/service_messages_about_messages>.
     BadMessage(i32),
+    /// The connection the call needed was closed before an answer came: by `disconnect` or `stop_transmission`,
+    /// because its session ended or every handle to it was dropped, or `run` stopped while a `recover_gaps` waited.
     Disconnected,
+    /// The request got no answer within its timeout and was abandoned. `DnsConfig::fetch` (`dns-config` feature)
+    /// also returns it when a DNS resolver doesn't answer in time.
     Timeout,
+    /// No address is known for this data center id.
     InvalidDc(i32),
+    /// The chat or user with this id (Bot API style) can't be used: it's neither in storage nor found by asking
+    /// Telegram, or the call needs a user and the id names a group or channel.
     PeerNotFound(i64),
     /// An invite link to a private chat this account hasn't joined; join it first.
     ChatNotJoined,
     /// Joining needs the approval of the chat's guard bot: open its web app with `query_id`, then retry.
     GuardBotApprovalRequired {
+        /// The guard bot whose web app approves the join.
         bot: Box<User>,
+        /// The web app query the approval belongs to.
         query_id: i64,
     },
+    /// An answer vaegram can't use, such as no chat in the answer to a join; the text says what.
     Unexpected(&'static str),
+    /// An argument or setting that can't work; the text says which and why.
     InvalidArgument(&'static str),
+    /// The session string passed to `ClientBuilder::session_string` can't be read; the text says why.
     InvalidSession(&'static str),
+    /// The phone number has no Telegram account yet: create one with `sign_up`.
     SignUpRequired,
+    /// A file can't be uploaded: it's empty (`size` 0) or bigger than this account may send.
     FileSize {
+        /// The file's size in bytes.
         size: u64,
+        /// The largest file this account may upload, in bytes; it's higher for Premium accounts.
         limit: u64,
     },
     /// No matching update arrived before a listener's timeout.
@@ -111,10 +148,13 @@ pub enum Error {
 }
 
 impl Error {
+    /// The Telegram error inside, or `None` for any other error.
     pub fn rpc(&self) -> Option<&RpcError> {
         if let Error::Rpc(e) = self { Some(e) } else { None }
     }
 
+    /// Whether this is a Telegram error with this name, compared without its value: `"FLOOD_WAIT"` matches
+    /// `FLOOD_WAIT_30`. Always `false` for any other error.
     pub fn is(&self, name: &str) -> bool {
         self.rpc().is_some_and(|e| e.is(name))
     }
