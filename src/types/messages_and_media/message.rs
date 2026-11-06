@@ -117,7 +117,7 @@ pub struct Message {
     /// The user whose guest bot request produced this message.
     pub guest_bot_caller_user: Option<User>,
     /// The chat whose guest bot request produced this message.
-    pub guest_bot_caller_chat: Option<Chat>,
+    pub guest_bot_caller_chat: Option<Arc<Chat>>,
     /// How many times the message was viewed. `None` if Telegram doesn't count views for it.
     pub views: Option<i32>,
     /// How many times the message was forwarded. `None` if Telegram doesn't count forwards for it.
@@ -152,9 +152,10 @@ pub struct Message {
 }
 
 // Every update moves a `Message` and handlers often clone it, so a field that makes it grow should be a choice.
-// The bound is the size measured on x86_64.
-#[cfg(target_pointer_width = "64")]
-const _: () = assert!(std::mem::size_of::<Message>() <= 7536);
+// The bound is the exact size measured on x86_64, on purpose: lower it whenever the type shrinks. It is checked in
+// this crate's tests only, so a compiler that lays the type out differently can't break a user's build.
+#[cfg(all(test, target_pointer_width = "64"))]
+const _: () = assert!(std::mem::size_of::<Message>() <= 6312);
 
 /// Each slot is `None` when nothing was fetched (the option is off, or the fetch failed), and `Some(None)` when
 /// Telegram answered that there's nothing there.
@@ -210,7 +211,7 @@ impl Message {
         let is_automatic_forward = is_automatic_forward(&chat, raw.fwd_from.as_ref());
         let (guest_bot_caller_user, guest_bot_caller_chat) = match &raw.guestchat_via_from {
             Some(base::Peer::PeerUser(p)) => (Some(User::parse(p.user_id, entities)), None),
-            Some(peer) => (None, Some(Chat::parse(peer, entities, false))),
+            Some(peer) => (None, Some(Arc::new(Chat::parse(peer, entities, false)))),
             None => (None, None),
         };
         Message {

@@ -151,6 +151,7 @@ mod tests {
     use crate::errors::Error;
     use crate::raw::{Serializable, base, functions, types};
     use crate::types::messages_and_media::ephemeral_message::tests::ephemeral;
+    use crate::types::messages_and_media::media::tests::document_media;
     use crate::types::{EphemeralMessage, FileSource, InputChecklist, InputMedia, Message};
     use crate::utils::{get_channel_id, get_peer};
 
@@ -336,7 +337,7 @@ mod tests {
         raw.message = "hello".into();
         let parse = |raw: &types::Message| Message::parse(&client, Box::new(raw.clone()), &Entities::default());
         assert_eq!(parse(&raw).content(), "hello");
-        raw.media = Some(crate::types::messages_and_media::media::tests::document_media("image/png", Vec::new()));
+        raw.media = Some(document_media("image/png", Vec::new()));
         let media = parse(&raw);
         assert_eq!((media.text(), media.caption(), media.content()), ("", Some("hello"), "hello"));
     }
