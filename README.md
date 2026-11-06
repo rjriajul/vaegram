@@ -41,7 +41,7 @@ Rust. It talks to the main Telegram API directly, as a user account (custom clie
 ### Key Features
 
 - **Pure Rust** — Its own MTProto 2.0 transport, auth key handshake and encrypted session, with all of Telegram's security checks.
-- **Up-to-Date** — All 868 functions of the latest layer (232), generated from the TL schema at build time.
+- **Up-to-Date** — All 876 functions of the latest layer (233), generated from the TL schema at build time.
 - **Async Natively** — Built on [tokio](https://tokio.rs), `async`/`await` throughout.
 - **Typed** — Every Telegram type and method is a Rust type, checked by the compiler.
 - **Fast** — Crypto by [WarpCrypto](https://github.com/rjriajul/WarpCrypto), a high-performance cryptography library written in Rust.
