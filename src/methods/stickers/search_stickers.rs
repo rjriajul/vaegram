@@ -1,11 +1,12 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::pages::wire_limit;
 use crate::raw::{base, functions};
 use crate::types::Sticker;
 
 /// Request built by [`Client::search_stickers`].
-pub struct SearchStickers<'a> {
 #[must_use = "a request does nothing until it is awaited"]
+pub struct SearchStickers<'a> {
     client: &'a Client,
     request: functions::messages::SearchStickers,
 }
@@ -52,8 +53,8 @@ impl SearchStickers<'_> {
     }
 
     /// Caps how many stickers come back. The default is 50.
-    pub fn limit(mut self, limit: i32) -> Self {
-        self.request.limit = limit;
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.request.limit = wire_limit(limit);
         self
     }
 }

@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::pages::wire_limit;
 use crate::raw::{base, functions};
 use crate::types::{Media, PeerRef, UserProfileAudios};
 
@@ -30,8 +31,8 @@ impl GetUserProfileAudios<'_> {
     }
 
     /// Caps how many audios one call returns. Defaults to 100.
-    pub fn limit(mut self, limit: i32) -> Self {
-        self.limit = limit;
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.limit = wire_limit(limit);
         self
     }
 

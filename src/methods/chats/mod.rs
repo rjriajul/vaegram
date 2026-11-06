@@ -789,6 +789,16 @@ mod settings_tests {
         assert!(rx.try_recv().is_err());
     }
 
+    #[tokio::test]
+    async fn top_chats_send_a_usize_limit_as_i32_and_saturate_past_i32_max() {
+        let (client, mut rx) = Client::recording();
+        for (limit, wire) in [(10, 10), (usize::MAX, i32::MAX)] {
+            let sent = body(&mut rx, client.get_top_chats(TopChatCategory::Users, limit)).await;
+            // Constructor id, flags and `offset` take four bytes each, so `limit` starts at byte 12.
+            assert_eq!(i32::from_le_bytes(sent[12..16].try_into().unwrap()), wire, "{limit}");
+        }
+    }
+
     fn top_category(category: base::TopPeerCategory, peers: Vec<(i64, f64)>) -> base::TopPeerCategoryPeers {
         let peers: Vec<_> = peers
             .into_iter()

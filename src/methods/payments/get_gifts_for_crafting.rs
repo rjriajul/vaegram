@@ -1,6 +1,7 @@
 use super::get_chat_gifts::owned_gifts;
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::pages::wire_limit;
 use crate::raw::functions;
 use crate::types::{OwnedGifts, PeerRef};
 
@@ -27,8 +28,8 @@ impl GetGiftsForCrafting<'_> {
     }
 
     /// Caps how many gifts one page holds. The default is 100.
-    pub fn limit(mut self, limit: i32) -> Self {
-        self.request.limit = limit;
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.request.limit = wire_limit(limit);
         self
     }
 
@@ -106,5 +107,12 @@ mod tests {
         let (client, mut sent) = Client::scripted(vec![Ok(empty_page())]);
         client.get_gifts_for_crafting(1).offset("x").limit(10).await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), request("x", 10));
+    }
+
+    #[tokio::test]
+    async fn a_limit_past_i32_max_saturates() {
+        let (client, mut sent) = Client::recording();
+        let _ = client.get_gifts_for_crafting(1).limit(usize::MAX).await;
+        assert_eq!(sent.try_recv().unwrap(), request("", i32::MAX));
     }
 }

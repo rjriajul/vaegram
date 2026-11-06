@@ -1,6 +1,7 @@
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::Result;
+use crate::methods::pages::wire_limit;
 use crate::raw::functions;
 use crate::types::{ChatInviteLink, PeerRef};
 
@@ -46,8 +47,8 @@ impl CreateChatInviteLink<'_> {
     }
 
     /// Caps how many users can join through the link. Without it the number is unlimited.
-    pub fn member_limit(mut self, limit: i32) -> Self {
-        self.member_limit = Some(limit);
+    pub fn member_limit(mut self, limit: usize) -> Self {
+        self.member_limit = Some(wire_limit(limit));
         self
     }
 
@@ -177,5 +178,20 @@ pub(crate) mod tests {
         assert_eq!(sent(rx, client.approve_all_chat_join_requests(chat, Some(LINK))).await, request.to_bytes());
         let request = messages::HideAllChatJoinRequests { approved: false, peer: channel(), link: None };
         assert_eq!(sent(rx, client.decline_all_chat_join_requests(chat, None)).await, request.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn member_limits_send_a_usize_as_i32_and_saturate_past_i32_max() {
+        let (client, mut rx) = setup(Vec::new());
+        let rx = &mut rx;
+        let chat = get_channel_id(CHANNEL_ID);
+        for (limit, wire) in [(50, 50), (usize::MAX, i32::MAX)] {
+            let request = messages::ExportChatInvite { usage_limit: Some(wire), ..export() };
+            let call = client.create_chat_invite_link(chat).member_limit(limit);
+            assert_eq!(sent(rx, call).await, request.to_bytes());
+            let request = messages::EditExportedChatInvite { usage_limit: Some(wire), ..edit(false) };
+            let call = client.edit_chat_invite_link(chat, LINK).member_limit(limit);
+            assert_eq!(sent(rx, call).await, request.to_bytes());
+        }
     }
 }

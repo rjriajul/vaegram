@@ -1,6 +1,7 @@
 use crate::Client;
 use crate::errors::{Error, Result};
 use crate::methods::advanced::ChatPeer;
+use crate::methods::pages::wire_limit;
 use crate::raw::{base, functions, types};
 use crate::types::{FailedToAddMember, PeerRef};
 
@@ -14,7 +15,7 @@ impl Client {
         &self,
         chat_id: impl Into<PeerRef>,
         user_ids: impl IntoIterator<Item = impl Into<PeerRef>>,
-        forward_limit: i32,
+        forward_limit: usize,
     ) -> Result<Vec<FailedToAddMember>> {
         let user_ids: Vec<PeerRef> = user_ids.into_iter().map(Into::into).collect();
         if user_ids.is_empty() {
@@ -34,7 +35,8 @@ impl Client {
                 let mut missing = Vec::new();
                 // Basic groups only take one user per call.
                 for user_id in users {
-                    let request = functions::messages::AddChatUser { chat_id, user_id, fwd_limit: forward_limit };
+                    let fwd_limit = wire_limit(forward_limit);
+                    let request = functions::messages::AddChatUser { chat_id, user_id, fwd_limit };
                     let base::messages::InvitedUsers::InvitedUsers(invited) = self.invoke(&request).await?;
                     missing.extend(failed_members(&invited));
                 }

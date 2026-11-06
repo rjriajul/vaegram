@@ -1,6 +1,7 @@
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::Result;
+use crate::methods::pages::wire_limit;
 use crate::raw::{base, functions};
 use crate::types::{OwnedGift, OwnedGifts, PeerRef};
 
@@ -91,8 +92,8 @@ impl<'a> GetChatGifts<'a> {
     }
 
     /// Caps how many gifts one page holds. The default is 100.
-    pub fn limit(mut self, limit: i32) -> Self {
-        self.request.limit = limit;
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.request.limit = wire_limit(limit);
         self
     }
 
