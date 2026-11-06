@@ -23,7 +23,7 @@ pub(super) fn stars_amount(price: StarAmount) -> Result<base::StarsAmount> {
     if price.amount <= 0 {
         return Err(Error::InvalidArgument("the price must be positive"));
     }
-    Ok(if price.ton {
+    Ok(if price.is_ton {
         base::StarsAmount::StarsTonAmount(types::StarsTonAmount { amount: price.amount })
     } else {
         base::StarsAmount::StarsAmount(Box::new(types::StarsAmount {
@@ -57,7 +57,7 @@ mod tests {
         client.set_gift_resale_price("9", Some(in_stars)).await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), request(stars(500)));
 
-        let in_ton = StarAmount::new(2_000_000_000).ton(true);
+        let in_ton = StarAmount::new(2_000_000_000).is_ton(true);
         client.set_gift_resale_price("9", Some(in_ton)).await.unwrap();
         let ton = base::StarsAmount::StarsTonAmount(types::StarsTonAmount { amount: 2_000_000_000 });
         assert_eq!(sent.try_recv().unwrap(), request(ton));
@@ -71,7 +71,7 @@ mod tests {
         let (client, mut sent) = Client::scripted(Vec::new());
         for amount in [0, -5] {
             for ton in [false, true] {
-                let price = StarAmount::new(amount).ton(ton);
+                let price = StarAmount::new(amount).is_ton(ton);
                 let refused = client.set_gift_resale_price("9", Some(price)).await;
                 assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{amount} {ton}");
             }

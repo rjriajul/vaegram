@@ -21,11 +21,11 @@ pub struct Language {
     /// Link to the translation platform page for the language.
     pub translations_url: String,
     /// Set when the pack is an official one.
-    pub official: bool,
+    pub is_official: bool,
     /// Set when the language is written right to left.
-    pub rtl: bool,
+    pub is_rtl: bool,
     /// Set when the pack is a beta.
-    pub beta: bool,
+    pub is_beta: bool,
 }
 
 impl Language {
@@ -40,9 +40,9 @@ impl Language {
             strings_count: l.strings_count,
             translated_count: l.translated_count,
             translations_url: l.translations_url,
-            official: l.official,
-            rtl: l.rtl,
-            beta: l.beta,
+            is_official: l.official,
+            is_rtl: l.rtl,
+            is_beta: l.beta,
         }
     }
 }
@@ -77,9 +77,9 @@ mod tests {
             strings_count: 10,
             translated_count: 9,
             translations_url: "t".into(),
-            official: false,
-            rtl: true,
-            beta: false,
+            is_official: false,
+            is_rtl: true,
+            is_beta: false,
         };
         assert_eq!(languages, [arabic]);
     }

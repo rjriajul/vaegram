@@ -12,7 +12,7 @@ pub struct AttachMenuBot {
     /// Name shown for the bot in the menu.
     pub short_name: String,
     /// Telegram marks the bot as inactive for the user.
-    pub inactive: bool,
+    pub is_inactive: bool,
     /// The bot's mini app has a settings screen.
     pub has_settings: bool,
     /// The bot asks for permission to message the user.
@@ -22,7 +22,7 @@ pub struct AttachMenuBot {
     /// The bot appears in the side menu.
     pub show_in_side_menu: bool,
     /// Telegram shows a disclaimer before the bot is added to the side menu.
-    pub side_menu_disclaimer_needed: bool,
+    pub needs_side_menu_disclaimer: bool,
     /// Chat types the bot shows up in. Empty if Telegram sent none.
     pub peer_types: Vec<AttachMenuPeerType>,
 }
@@ -32,12 +32,12 @@ impl AttachMenuBot {
         AttachMenuBot {
             bot: User::parse(raw.bot_id, entities),
             short_name: raw.short_name,
-            inactive: raw.inactive,
+            is_inactive: raw.inactive,
             has_settings: raw.has_settings,
             request_write_access: raw.request_write_access,
             show_in_attach_menu: raw.show_in_attach_menu,
             show_in_side_menu: raw.show_in_side_menu,
-            side_menu_disclaimer_needed: raw.side_menu_disclaimer_needed,
+            needs_side_menu_disclaimer: raw.side_menu_disclaimer_needed,
             peer_types: raw.peer_types.iter().flatten().map(AttachMenuPeerType::parse).collect(),
         }
     }
@@ -72,10 +72,10 @@ mod tests {
         let bot = AttachMenuBot::parse(raw(Some(peer_types)), &Entities::default());
         assert_eq!((bot.bot.id, bot.short_name.as_str()), (42, "shop"));
         assert_eq!(
-            (bot.inactive, bot.has_settings, bot.request_write_access, bot.show_in_attach_menu),
+            (bot.is_inactive, bot.has_settings, bot.request_write_access, bot.show_in_attach_menu),
             (true, false, true, true)
         );
-        assert_eq!((bot.show_in_side_menu, bot.side_menu_disclaimer_needed), (false, true));
+        assert_eq!((bot.show_in_side_menu, bot.needs_side_menu_disclaimer), (false, true));
         assert_eq!(bot.peer_types, [P::SameBot, P::Group, P::Channel]);
 
         assert!(AttachMenuBot::parse(raw(None), &Entities::default()).peer_types.is_empty());

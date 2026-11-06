@@ -334,7 +334,7 @@ fn usernames(raw: &Option<Vec<base::Username>>) -> Vec<Username> {
 
 /// Chats with several usernames send them only in the list.
 fn username(single: &Option<String>, all: &[Username]) -> Option<String> {
-    single.clone().or_else(|| all.iter().find(|u| u.active).map(|u| u.username.clone()))
+    single.clone().or_else(|| all.iter().find(|u| u.is_active).map(|u| u.username.clone()))
 }
 
 /// The photo needs the peer's access hash to be downloaded, so a peer seen without one has none.

@@ -8,8 +8,8 @@ use crate::types::{Document, Photo};
 
 /// The content of a rich message to send, written as HTML, Markdown or a list of [`RichBlock`]s.
 ///
-/// Every form carries a media list, the `rtl` flag and the `no_autolink` flag, which
-/// [`media`](InputRichMessage::media), [`rtl`](InputRichMessage::rtl) and
+/// Every form carries a media list, the `is_rtl` flag and the `no_autolink` flag, which
+/// [`media`](InputRichMessage::media), [`is_rtl`](InputRichMessage::is_rtl) and
 /// [`no_autolink`](InputRichMessage::no_autolink) set.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -21,7 +21,7 @@ pub enum InputRichMessage {
         /// Files the source refers to by id, in the order they were attached. Empty sends none.
         media: Vec<InputRichMessageMedia>,
         /// Lays the message out right to left.
-        rtl: bool,
+        is_rtl: bool,
         /// Turns Telegram's automatic linking off in the message.
         no_autolink: bool,
     },
@@ -32,7 +32,7 @@ pub enum InputRichMessage {
         /// Files the source refers to by id, in the order they were attached. Empty sends none.
         media: Vec<InputRichMessageMedia>,
         /// Lays the message out right to left.
-        rtl: bool,
+        is_rtl: bool,
         /// Turns Telegram's automatic linking off in the message.
         no_autolink: bool,
     },
@@ -43,7 +43,7 @@ pub enum InputRichMessage {
         /// Files sent along with the ones the blocks show. Their string ids are dropped.
         media: Vec<InputRichMessageMedia>,
         /// Lays the message out right to left.
-        rtl: bool,
+        is_rtl: bool,
         /// Turns Telegram's automatic linking off in the message.
         no_autolink: bool,
     },
@@ -56,12 +56,12 @@ pub struct InputRichMessageMedia(base::InputRichFile);
 impl InputRichMessage {
     /// Creates content from HTML source.
     pub fn html(html: impl Into<String>) -> Self {
-        InputRichMessage::Html { html: html.into(), media: Vec::new(), rtl: false, no_autolink: false }
+        InputRichMessage::Html { html: html.into(), media: Vec::new(), is_rtl: false, no_autolink: false }
     }
 
     /// Creates content from Markdown source.
     pub fn markdown(markdown: impl Into<String>) -> Self {
-        InputRichMessage::Markdown { markdown: markdown.into(), media: Vec::new(), rtl: false, no_autolink: false }
+        InputRichMessage::Markdown { markdown: markdown.into(), media: Vec::new(), is_rtl: false, no_autolink: false }
     }
 
     /// Creates content from blocks. Files that media blocks show are attached automatically.
@@ -69,17 +69,17 @@ impl InputRichMessage {
         InputRichMessage::Blocks {
             blocks: blocks.into_iter().collect(),
             media: Vec::new(),
-            rtl: false,
+            is_rtl: false,
             no_autolink: false,
         }
     }
 
     /// Sets whether the message is laid out right to left; `true` lays it out right to left.
-    pub fn rtl(mut self, rtl: bool) -> Self {
+    pub fn is_rtl(mut self, is_rtl: bool) -> Self {
         match &mut self {
-            InputRichMessage::Html { rtl: field, .. }
-            | InputRichMessage::Markdown { rtl: field, .. }
-            | InputRichMessage::Blocks { rtl: field, .. } => *field = rtl,
+            InputRichMessage::Html { is_rtl: field, .. }
+            | InputRichMessage::Markdown { is_rtl: field, .. }
+            | InputRichMessage::Blocks { is_rtl: field, .. } => *field = is_rtl,
         }
         self
     }
@@ -127,16 +127,18 @@ impl InputRichMessage {
         let files =
             |media: Vec<InputRichMessageMedia>| (!media.is_empty()).then(|| media.into_iter().map(|m| m.0).collect());
         match self {
-            InputRichMessage::Html { html, media, rtl, no_autolink } => {
-                let html = types::InputRichMessageHTML { rtl, noautolink: no_autolink, html, files: files(media) };
+            InputRichMessage::Html { html, media, is_rtl, no_autolink } => {
+                let html =
+                    types::InputRichMessageHTML { rtl: is_rtl, noautolink: no_autolink, html, files: files(media) };
                 base::InputRichMessage::InputRichMessageHTML(Box::new(html))
             }
-            InputRichMessage::Markdown { markdown, media, rtl, no_autolink } => {
+            InputRichMessage::Markdown { markdown, media, is_rtl, no_autolink } => {
                 let files = files(media);
-                let markdown = types::InputRichMessageMarkdown { rtl, noautolink: no_autolink, markdown, files };
+                let markdown =
+                    types::InputRichMessageMarkdown { rtl: is_rtl, noautolink: no_autolink, markdown, files };
                 base::InputRichMessage::InputRichMessageMarkdown(Box::new(markdown))
             }
-            InputRichMessage::Blocks { blocks, media, rtl, no_autolink } => {
+            InputRichMessage::Blocks { blocks, media, is_rtl, no_autolink } => {
                 let mut files = Files::default();
                 let blocks = unzip(blocks, &mut files);
                 for m in media {
@@ -147,7 +149,7 @@ impl InputRichMessage {
                 }
                 let Files { photos, documents, .. } = files;
                 base::InputRichMessage::InputRichMessage(Box::new(types::InputRichMessage {
-                    rtl,
+                    rtl: is_rtl,
                     noautolink: no_autolink,
                     blocks,
                     photos: (!photos.is_empty()).then_some(photos),
@@ -246,9 +248,9 @@ mod tests {
 
     #[test]
     fn flag_setters_round_trip_their_fields() {
-        let on = InputRichMessage::markdown("x").rtl(true).no_autolink(true);
-        let InputRichMessage::Markdown { rtl, no_autolink, .. } = &on else { panic!("expected markdown") };
-        assert!(*rtl && *no_autolink);
-        assert_eq!(on.rtl(false).no_autolink(false), InputRichMessage::markdown("x"));
+        let on = InputRichMessage::markdown("x").is_rtl(true).no_autolink(true);
+        let InputRichMessage::Markdown { is_rtl, no_autolink, .. } = &on else { panic!("expected markdown") };
+        assert!(*is_rtl && *no_autolink);
+        assert_eq!(on.is_rtl(false).no_autolink(false), InputRichMessage::markdown("x"));
     }
 }

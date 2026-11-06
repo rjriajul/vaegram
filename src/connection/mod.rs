@@ -89,7 +89,9 @@ impl std::fmt::Debug for dyn ConnectionFactory {
 }
 
 /// How a session connects and talks to Telegram: transport, proxy, timeouts, retries and the device it reports.
-/// [`ClientBuilder`](crate::ClientBuilder) fills one from its settings; the setters here build one directly.
+/// [`ClientBuilder`](crate::ClientBuilder) fills one from its settings. Only the `unstable-raw` plumbing
+/// (`Connection::connect` and `Session::connect`) takes an `Options`, so without that feature one built with the
+/// setters here has no use.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Options {

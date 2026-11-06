@@ -73,7 +73,7 @@ impl Click<'_> {
             T::InlineButtonTypeUrlAuth(u) => return Ok(ClickResult::Url(u.url.clone())),
             T::InlineButtonTypeWebView(u) => return Ok(ClickResult::Url(u.url.clone())),
             T::InlineButtonTypeSwitchInline(s) => {
-                return Ok(ClickResult::SwitchInline { query: s.query.clone(), same_chat: s.same_peer });
+                return Ok(ClickResult::SwitchInline { query: s.query.clone(), is_same_chat: s.same_peer });
             }
             T::InlineButtonTypeCopy(c) => return Ok(ClickResult::Copy(c.copy_text.clone())),
             T::InlineButtonTypeUserProfile(u) => return Ok(ClickResult::User(u.user_id)),

@@ -713,7 +713,7 @@ mod settings_tests {
         let counts = (topic.top_message_id, topic.unread_messages_count, topic.unread_reactions_count);
         let read = (topic.last_read_inbox_message_id, topic.last_read_outbox_message_id);
         assert_eq!((counts, read), ((40, 3, 2), (30, 31)));
-        assert_eq!((topic.unread_mark, topic.can_send_unpaid_messages), (true, true));
+        assert_eq!((topic.is_marked_as_unread, topic.can_send_unpaid_messages), (true, true));
     }
 
     #[tokio::test]
@@ -970,7 +970,7 @@ mod forum_topic_tests {
             is_pinned: true,
             is_hidden: true,
             creator: Some(crate::types::Chat::parse(&get_peer(USER), &Default::default(), false)),
-            is_my: false,
+            is_mine: false,
             is_short: false,
             unread_poll_vote_count: 0,
         };

@@ -15,8 +15,8 @@ pub struct Community {
     /// The community's title. Empty for a community the account has never seen.
     pub name: String,
     /// Whether the account can open the community. `false` when Telegram sent only its name.
-    pub have_access: bool,
-    /// The community photo. `None` if it has none or `have_access` is `false`.
+    pub has_access: bool,
+    /// The community photo. `None` if it has none or `has_access` is `false`.
     pub photo: Option<ChatPhoto>,
     /// Unix time Telegram sends with the community. `None` for banned or unseen communities.
     pub date: Option<i32>,
@@ -34,7 +34,7 @@ impl Community {
         Community {
             id: 0,
             name: String::new(),
-            have_access: false,
+            has_access: false,
             photo: None,
             date: None,
             status: None,
@@ -70,7 +70,7 @@ impl Community {
                 Community {
                     id,
                     name: c.title.clone(),
-                    have_access: c.access_hash.is_some(),
+                    has_access: c.access_hash.is_some(),
                     photo,
                     date: Some(c.date),
                     status,
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(status(raw(|_| {})), Some(Status::Member));
         let parsed = parse(raw(|_| {}));
         assert_eq!(
-            (parsed.id, parsed.name.as_str(), parsed.date, parsed.have_access),
+            (parsed.id, parsed.name.as_str(), parsed.date, parsed.has_access),
             (get_channel_id(7), "Hub", Some(1234), true)
         );
     }
@@ -185,7 +185,7 @@ mod tests {
     fn forbidden_is_banned_without_access() {
         let forbidden = types::CommunityForbidden { id: 7, access_hash: None, title: "Hub".into() };
         let parsed = parse(base::Chat::CommunityForbidden(Box::new(forbidden)));
-        assert_eq!((parsed.have_access, parsed.status, parsed.date), (false, Some(Status::Banned), None));
+        assert_eq!((parsed.has_access, parsed.status, parsed.date), (false, Some(Status::Banned), None));
         assert_eq!(parsed.name, "Hub");
     }
 
@@ -198,7 +198,7 @@ mod tests {
         let with = parse(raw(|c| c.photo = photo()));
         assert!(with.photo.is_some());
         let without = parse(raw(|c| (c.photo, c.access_hash) = (photo(), None)));
-        assert_eq!((without.photo, without.have_access), (None, false));
+        assert_eq!((without.photo, without.has_access), (None, false));
         assert_eq!(parse(raw(|_| {})).photo, None);
     }
 

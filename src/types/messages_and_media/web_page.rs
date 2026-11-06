@@ -42,9 +42,9 @@ pub struct WebPage {
     /// The sender asked for the media to be shown small.
     pub prefer_small_media: bool,
     /// The sender picked the preview, rather than Telegram taking the first link.
-    pub manual: bool,
+    pub is_manual: bool,
     /// The url was checked and is safe to open without a warning.
-    pub safe: bool,
+    pub is_safe: bool,
 }
 
 impl WebPage {
@@ -71,8 +71,8 @@ impl WebPage {
             has_large_media: page.has_large_media,
             prefer_large_media: m.force_large_media,
             prefer_small_media: m.force_small_media,
-            manual: m.manual,
-            safe: m.safe,
+            is_manual: m.manual,
+            is_safe: m.safe,
         })
     }
 }
@@ -146,7 +146,11 @@ pub(crate) mod tests {
         );
         assert_eq!(page.media.map(|m| m.kind()), Some(MediaKind::Video));
         assert!(
-            page.has_large_media && page.prefer_large_media && !page.prefer_small_media && page.manual && !page.safe
+            page.has_large_media
+                && page.prefer_large_media
+                && !page.prefer_small_media
+                && page.is_manual
+                && !page.is_safe
         );
     }
 

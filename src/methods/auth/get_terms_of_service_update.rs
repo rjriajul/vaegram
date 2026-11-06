@@ -37,7 +37,7 @@ mod tests {
         let tos = client.get_terms_of_service_update().await.unwrap().unwrap();
         let bold = tos.entities.as_deref().map(|e| (e.len(), e[0].kind, e[0].length));
         assert_eq!(
-            (tos.id.as_str(), tos.text.as_str(), tos.popup, tos.min_age_confirm, bold),
+            (tos.id.as_str(), tos.text.as_str(), tos.is_popup, tos.min_age_confirm, bold),
             ("{\"id\":7}", "Be nice", true, Some(18), Some((1, MessageEntityType::Bold, 2)))
         );
         assert_eq!(client.get_terms_of_service_update().await.unwrap(), None);

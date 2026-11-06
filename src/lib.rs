@@ -63,6 +63,16 @@ macro_rules! unstable_raw_pub {
 pub mod client;
 /// The transport under a session: framing, obfuscation, proxies, and the connection settings in
 /// [`Options`](connection::Options).
+#[cfg_attr(
+    not(feature = "unstable-raw"),
+    doc = r#"
+The connection itself is experimental and needs the `unstable-raw` feature:
+
+```compile_fail,E0603
+fn f(_: vaegram::connection::Connection) {}
+```
+"#
+)]
 pub mod connection;
 pub(crate) mod crypto;
 pub(crate) mod dispatcher;
@@ -85,6 +95,16 @@ pub(crate) mod parser;
 /// Every type and function of Telegram's API, generated from the TL schema, for [`Client::invoke`].
 pub mod raw;
 /// The encrypted MTProto session: requests, retries, rate limits, observers and replaying recordings.
+#[cfg_attr(
+    not(feature = "unstable-raw"),
+    doc = r#"
+The session itself is experimental and needs the `unstable-raw` feature:
+
+```compile_fail,E0603
+fn f(_: vaegram::session::Session) {}
+```
+"#
+)]
 pub mod session;
 /// Where a client keeps its login, update state and known peers, session strings and recordings.
 pub mod storage;

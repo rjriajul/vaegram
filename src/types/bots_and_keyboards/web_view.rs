@@ -11,11 +11,11 @@ pub struct WebView {
     /// Id of the web app query the bot answers. `None` when the view has no query to answer.
     pub query_id: Option<i64>,
     /// Set when the web view should open at full height.
-    pub fullsize: bool,
+    pub is_fullsize: bool,
     /// Set when the web view should open in fullscreen.
-    pub fullscreen: bool,
+    pub is_fullscreen: bool,
     /// Telegram's `same_origin` flag on the result, passed through unchanged.
-    pub same_origin: bool,
+    pub is_same_origin: bool,
 }
 
 impl WebView {
@@ -24,9 +24,9 @@ impl WebView {
         WebView {
             url: r.url,
             query_id: r.query_id,
-            fullsize: r.fullsize,
-            fullscreen: r.fullscreen,
-            same_origin: r.same_origin,
+            is_fullsize: r.fullsize,
+            is_fullscreen: r.fullscreen,
+            is_same_origin: r.same_origin,
         }
     }
 }

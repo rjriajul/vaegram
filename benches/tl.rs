@@ -4,12 +4,9 @@
 mod timing;
 
 use std::hint::black_box;
-use std::io::{Read, Write};
 
 use timing::bench;
-use vaegram::connection::{Connection, Options};
 use vaegram::raw::{Deserializable, Identifiable, Serializable, base, functions, types};
-use vaegram::session::Dc;
 use vaegram::storage::{SessionData, session_string};
 
 const VECTOR: u32 = 0x1cb5c415;
@@ -174,6 +171,8 @@ fn main() {
         black_box(Vec::<u8>::from_bytes(black_box(&part_bytes[16..])).unwrap());
     });
 
+    // The connection is `unstable-raw` plumbing; the other benchmarks run without the feature.
+    #[cfg(feature = "unstable-raw")]
     for size in [256, 64 << 10] {
         recv_loopback(size);
     }
@@ -191,7 +190,12 @@ fn main() {
 
 // A loopback server streams `size`-byte frames; each op reads one through the real Connection,
 // so syscalls and buffering are part of the number.
+#[cfg(feature = "unstable-raw")]
 fn recv_loopback(size: usize) {
+    use std::io::{Read, Write};
+    use vaegram::connection::{Connection, Options};
+    use vaegram::session::Dc;
+
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let mut frames = Vec::new();

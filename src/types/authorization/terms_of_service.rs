@@ -13,7 +13,7 @@ pub struct TermsOfService {
     /// Formatting of `text`. `None` if Telegram sent no entities.
     pub entities: Option<Vec<MessageEntity>>,
     /// Telegram asks apps to show the terms in a popup.
-    pub popup: bool,
+    pub is_popup: bool,
     /// Minimum age the user must confirm to have. `None` if no age check is required.
     pub min_age_confirm: Option<i32>,
 }
@@ -26,7 +26,7 @@ impl TermsOfService {
             id: id.data,
             entities: MessageEntity::parse_all(&t.entities, &Entities::default()),
             text: t.text,
-            popup: t.popup,
+            is_popup: t.popup,
             min_age_confirm: t.min_age_confirm,
         }
     }
@@ -48,6 +48,6 @@ mod tests {
             min_age_confirm: None,
         };
         let tos = TermsOfService::parse(base::help::TermsOfService::TermsOfService(Box::new(raw)));
-        assert_eq!((tos.entities, tos.min_age_confirm, tos.popup), (None, None, false));
+        assert_eq!((tos.entities, tos.min_age_confirm, tos.is_popup), (None, None, false));
     }
 }

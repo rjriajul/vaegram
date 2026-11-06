@@ -104,7 +104,7 @@ pub struct Message {
     /// The edit is hidden from the chat, so the message shows no "edited" mark.
     pub edit_hidden: bool,
     /// The message is pinned.
-    pub pinned: bool,
+    pub is_pinned: bool,
     /// The caption is shown above the media instead of below it.
     pub show_caption_above_media: bool,
     /// Sent by a business bot or an away message while the account was offline.
@@ -253,7 +253,7 @@ impl Message {
             channel_post: raw.post,
             from_scheduled: raw.from_scheduled,
             edit_hidden: raw.edit_hide,
-            pinned: raw.pinned,
+            is_pinned: raw.pinned,
             show_caption_above_media: raw.invert_media,
             from_offline: raw.offline,
             video_processing_pending: raw.video_processing_pending,
@@ -1265,7 +1265,7 @@ pub(crate) mod tests {
         let message = parse(&raw);
         assert_eq!(message.text(), "/start\nhi Bob");
         assert_eq!(message.command().map(|c| c.name), Some("start"));
-        assert!(message.rich_message.is_some_and(|r| r.rtl));
+        assert!(message.rich_message.is_some_and(|r| r.is_rtl));
         assert_eq!(message.raw.rich_message, None);
 
         raw.media = Some(document_media("application/pdf", Vec::new()));
@@ -1480,7 +1480,7 @@ pub(crate) mod tests {
     fn maps_message_flags_and_counters() {
         let bare = parse(&Message::bare(1, get_peer(get_channel_id(9)), 0));
         let flags = [bare.mentioned, bare.unread_media, bare.silent, bare.channel_post, bare.from_scheduled];
-        let more = [bare.edit_hidden, bare.pinned, bare.show_caption_above_media, bare.from_offline];
+        let more = [bare.edit_hidden, bare.is_pinned, bare.show_caption_above_media, bare.from_offline];
         assert!(flags.iter().chain(&more).all(|f| !f) && !bare.video_processing_pending);
         assert!(
             bare.sender_business_bot.is_none() && bare.sender_tag.is_none() && bare.guest_bot_caller_user.is_none()
@@ -1514,7 +1514,8 @@ pub(crate) mod tests {
             ..Message::bare(1, get_peer(get_channel_id(9)), 0)
         };
         let m = parse(&raw);
-        let flags = [m.mentioned, m.unread_media, m.silent, m.channel_post, m.from_scheduled, m.edit_hidden, m.pinned];
+        let flags =
+            [m.mentioned, m.unread_media, m.silent, m.channel_post, m.from_scheduled, m.edit_hidden, m.is_pinned];
         assert!(flags.iter().all(|f| *f));
         assert!(m.show_caption_above_media && m.from_offline && m.video_processing_pending);
         assert_eq!(m.sender_business_bot.map(|u| u.id), Some(42));
@@ -1589,7 +1590,7 @@ pub(crate) mod tests {
         let m = parse(&raw);
         let reasons: Vec<_> = m.restriction_reason.iter().map(|r| (r.platform.as_str(), r.reason.as_str())).collect();
         assert_eq!(reasons, [("ios", "porn")]);
-        assert_eq!(m.fact_check.map(|f| (f.need_check, f.hash)), Some((true, 3)));
+        assert_eq!(m.fact_check.map(|f| (f.needs_check, f.hash)), Some((true, 3)));
     }
 
     #[test]

@@ -8,7 +8,7 @@ use crate::types::MessageEntity;
 #[non_exhaustive]
 pub struct FactCheck {
     /// The text is out of date and is being fetched again.
-    pub need_check: bool,
+    pub needs_check: bool,
     /// The two-letter code of the country the check is shown in.
     pub country: Option<String>,
     /// Text of the fact check. Telegram sends it together with `country`, so both are `None` or both set.
@@ -29,7 +29,7 @@ impl FactCheck {
             }
             None => (None, None),
         };
-        FactCheck { need_check: f.need_check, country: f.country.clone(), text, text_entities, hash: f.hash }
+        FactCheck { needs_check: f.need_check, country: f.country.clone(), text, text_entities, hash: f.hash }
     }
 }
 
@@ -61,6 +61,6 @@ mod tests {
     #[test]
     fn a_pending_check_has_no_text() {
         let check = parse(types::FactCheck { need_check: true, country: None, text: None, hash: 1 });
-        assert_eq!(check, FactCheck { need_check: true, country: None, text: None, text_entities: None, hash: 1 });
+        assert_eq!(check, FactCheck { needs_check: true, country: None, text: None, text_entities: None, hash: 1 });
     }
 }

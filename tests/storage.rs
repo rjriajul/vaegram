@@ -3,9 +3,9 @@ use vaegram::storage::{SessionData, session_string};
 const V3_STRING: &str = "VAE_AwQAADA5AAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5_gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp-goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2-v8DBwsPExcbHyMnKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OHi4-Tl5ufo6err7O3u7_Dx8vP09fb3-Pn6-_z9_v8AAAAAAAvbKAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYNzrA";
 const LEGACY_STRING: &str = "BAAAMDkAAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn-AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq-wsbKztLW2t7i5uru8vb6_wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t_g4eLj5OXm5-jp6uvs7e7v8PHy8_T19vf4-fr7_P3-_wAAAAAAC9soAQ";
 const V4_STRING: &str = "VAE_BAQAADA5AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5_gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp-goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2-v8DBwsPExcbHyMnKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OHi4-Tl5ufo6err7O3u7_Dx8vP09fb3-Pn6-_z9_v8AAAAAAAvbKAEBuwAAAAAAAAAAAAD__5Wapyg2SpWJ";
-// Each one is the real export_session_string of wzgram's storage.py (rjriajul/wzgram) at the commit
-// that wrote that layout: WZ_V3 2d66ac8, WZ_V2 5a25d02, WZ_V2_NO_CRC e44599e, LEGACY_NO_API_ID fe764e0
-// (the 64-bit user id branch), LEGACY_U32_USER 7dda167.
+// Each one is a real export of the Python client that writes `WZ_` strings and the older unprefixed layouts,
+// taken at the commit of that client that wrote the layout: WZ_V3 2d66ac8, WZ_V2 5a25d02, WZ_V2_NO_CRC e44599e,
+// LEGACY_NO_API_ID fe764e0 (the 64-bit user id branch), LEGACY_U32_USER 7dda167.
 const WZ_V3: &str = "WZ_AwQAADA5AAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5_gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp-goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2-v8DBwsPExcbHyMnKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OHi4-Tl5ufo6err7O3u7_Dx8vP09fb3-Pn6-_z9_v8AAAAAAAvbKAEBuzIwMDE6NjdjOjRlODpmMDA0OjpiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIyBZ_4";
 const WZ_V3_NO_ADDR: &str = "WZ_AwQAADA5AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5_gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp-goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2-v8DBwsPExcbHyMnKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OHi4-Tl5ufo6err7O3u7_Dx8vP09fb3-Pn6-_z9_v8AAAAAAAvbKAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABwhHEg";
 const WZ_V2: &str = "WZ_AgQAADA5AAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5_gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp-goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2-v8DBwsPExcbHyMnKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OHi4-Tl5ufo6err7O3u7_Dx8vP09fb3-Pn6-_z9_v8AAAAAAAvbKAEBuzE0OS4xNTQuMTY3LjkxAACU96HB";
@@ -60,7 +60,7 @@ fn rejects_damaged_strings() {
 }
 
 #[test]
-fn reads_wzgram_strings() {
+fn reads_wz_prefixed_strings() {
     let v3 = session_string::parse(WZ_V3).unwrap();
     check(&v3);
     assert_eq!((v3.test_mode, v3.addr), (false, Some("[2001:67c:4e8:f004::b]:443".parse().unwrap())));
@@ -85,7 +85,7 @@ fn reads_wzgram_strings() {
 }
 
 #[test]
-fn reads_pyrogram_strings_without_api_id() {
+fn reads_legacy_strings_without_api_id() {
     let padded = format!("{LEGACY_U32_USER}==");
     for (s, user_id) in [(LEGACY_NO_API_ID, 5_000_000_000), (LEGACY_U32_USER, 777000), (padded.as_str(), 777000)] {
         let s = session_string::parse(s).unwrap();

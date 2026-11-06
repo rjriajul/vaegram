@@ -851,7 +851,7 @@ async fn user_reads_reaction_and_effect_lists() {
         .unwrap();
 
     let available = user.get_available_reactions().await.unwrap();
-    assert!(available.iter().any(|r| r.emoji == "👍" && !r.premium));
+    assert!(available.iter().any(|r| r.emoji == "👍" && !r.is_premium));
     let effects = user.get_available_effects().await.unwrap();
     assert!(effects.iter().all(|e| e.id != 0 && !e.emoji.is_empty()));
     assert!(user.get_top_reactions(10).await.unwrap().len() <= 10);
@@ -1012,9 +1012,9 @@ async fn user_reads_app_config_and_languages() {
     user.get_promo_data().await.unwrap();
 
     let languages = user.get_languages("android").await.unwrap();
-    assert!(languages.iter().any(|l| l.lang_code == "en" && l.official));
+    assert!(languages.iter().any(|l| l.lang_code == "en" && l.is_official));
     let en = user.get_language("android", "en").await.unwrap();
-    assert_eq!((en.lang_code.as_str(), en.rtl), ("en", false));
+    assert_eq!((en.lang_code.as_str(), en.is_rtl), ("en", false));
     let pack = user.get_lang_pack("android", "en").await.unwrap();
     assert!(!pack.strings.is_empty());
     let diff = user.get_lang_pack_difference("android", "en", pack.version).await.unwrap();

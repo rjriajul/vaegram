@@ -344,7 +344,7 @@ cargo test --workspace
 cargo test --features unstable-raw --test live -- --ignored
 
 # Run the benchmarks
-cargo bench --features unstable-raw --bench tl
+cargo bench --bench tl
 ```
 
 ### Resources

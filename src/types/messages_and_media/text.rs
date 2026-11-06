@@ -371,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn pyrogram_spellings_of_emoji_and_spoiler_tags() {
+    fn html_reads_emoji_and_spoiler_tags_and_writes_tg_emoji() {
         let t = Text::from_html("Hi <emoji id=\"5111807768608638111\">👋</emoji> <spoiler>s</spoiler>");
         assert_eq!(t.text, "Hi 👋 s");
         let kinds: Vec<_> = t.spans.iter().map(|s| (s.kind.clone(), s.start, s.end)).collect();

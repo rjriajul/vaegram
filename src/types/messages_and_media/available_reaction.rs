@@ -9,14 +9,14 @@ pub struct AvailableReaction {
     /// Name of the reaction.
     pub title: String,
     /// `true` if only Premium users can use the reaction.
-    pub premium: bool,
+    pub is_premium: bool,
     /// `true` if the reaction can no longer be added to messages.
-    pub inactive: bool,
+    pub is_inactive: bool,
 }
 
 impl AvailableReaction {
     pub(crate) fn parse(raw: base::AvailableReaction) -> AvailableReaction {
         let base::AvailableReaction::AvailableReaction(r) = raw;
-        AvailableReaction { emoji: r.reaction, title: r.title, premium: r.premium, inactive: r.inactive }
+        AvailableReaction { emoji: r.reaction, title: r.title, is_premium: r.premium, is_inactive: r.inactive }
     }
 }

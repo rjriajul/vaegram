@@ -7,15 +7,15 @@ pub struct Username {
     /// The username, without the `@`.
     pub username: String,
     /// The username the owner set and can change, as opposed to a collectible one.
-    pub editable: bool,
+    pub is_editable: bool,
     /// Shown on the profile and resolvable.
-    pub active: bool,
+    pub is_active: bool,
 }
 
 impl Username {
     pub(crate) fn parse(raw: &base::Username) -> Username {
         let base::Username::Username(u) = raw;
-        Username { username: u.username.clone(), editable: u.editable, active: u.active }
+        Username { username: u.username.clone(), is_editable: u.editable, is_active: u.active }
     }
 }
 
@@ -30,7 +30,7 @@ mod tests {
             let u = types::Username { editable, active, deletable: false, expired: false, username: "neko".into() };
             Username::parse(&base::Username::Username(u.into()))
         };
-        assert_eq!(raw(true, false), Username { username: "neko".into(), editable: true, active: false });
-        assert_eq!(raw(false, true), Username { username: "neko".into(), editable: false, active: true });
+        assert_eq!(raw(true, false), Username { username: "neko".into(), is_editable: true, is_active: false });
+        assert_eq!(raw(false, true), Username { username: "neko".into(), is_editable: false, is_active: true });
     }
 }

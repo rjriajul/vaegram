@@ -36,7 +36,9 @@ pub struct RpcError {
 
 impl RpcError {
     /// An error with this code, name and number, as Telegram splits `FLOOD_WAIT_30` into `"FLOOD_WAIT"` and
-    /// `Some(30)`; for building errors in tests or a custom retry policy.
+    /// `Some(30)`; for building errors in tests or a custom retry policy. `name` excludes the trailing number, which
+    /// goes in `value`: `new(420, "FLOOD_WAIT_30", None)` prints the same but [`is`](Self::is)`("FLOOD_WAIT")` and
+    /// [`flood_wait`](Self::flood_wait) don't see it.
     pub fn new(code: i32, name: impl Into<String>, value: Option<u32>) -> Self {
         RpcError { code, name: name.into(), value }
     }

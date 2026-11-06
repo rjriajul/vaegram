@@ -19,7 +19,7 @@ pub struct Dialog {
     /// Number of unread reactions to the account's messages.
     pub unread_reactions_count: i32,
     /// Whether the chat was marked as unread by hand.
-    pub unread_mark: bool,
+    pub is_marked_as_unread: bool,
     /// Whether the chat is pinned in its list.
     pub is_pinned: bool,
     /// Id of the peer folder holding the chat, `1` for the archive. `None` for the main chat list.
@@ -63,7 +63,7 @@ impl Dialog {
                     unread_messages_count: d.unread_count,
                     unread_mentions_count: d.unread_mentions_count,
                     unread_reactions_count: d.unread_reactions_count,
-                    unread_mark: d.unread_mark,
+                    is_marked_as_unread: d.unread_mark,
                     is_pinned: d.pinned,
                     chat_list: d.folder_id,
                     last_read_inbox_message_id: d.read_inbox_max_id,
@@ -153,7 +153,10 @@ mod tests {
         let d = &dialogs[0];
         assert_eq!((d.chat.id, d.chat.kind, d.chat.title.as_deref()), (-7, ChatType::Group, Some("Old group")));
         assert_eq!((d.unread_messages_count, d.unread_mentions_count), (4, 1));
-        assert_eq!((d.is_pinned, d.unread_mark, d.top_message.is_none(), d.chat_list), (true, true, true, Some(1)));
+        assert_eq!(
+            (d.is_pinned, d.is_marked_as_unread, d.top_message.is_none(), d.chat_list),
+            (true, true, true, Some(1))
+        );
     }
 
     #[test]

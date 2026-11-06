@@ -121,7 +121,7 @@ mod tests {
         for _ in 0..3 {
             results.push(client.report_messages(7, &[5]).option(b"2".as_slice()).await.unwrap());
         }
-        let comment = |optional| ReportResult::AddComment { optional, option: b"2a".to_vec() };
+        let comment = |is_optional| ReportResult::AddComment { is_optional, option: b"2a".to_vec() };
         assert_eq!(results, [comment(true), comment(false), ReportResult::Reported]);
     }
 }

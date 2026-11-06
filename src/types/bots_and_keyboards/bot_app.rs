@@ -14,7 +14,7 @@ pub struct BotApp {
     /// Description shown for the app.
     pub description: String,
     /// Telegram marks the app as inactive for the user.
-    pub inactive: bool,
+    pub is_inactive: bool,
     /// The app asks for permission to message the user.
     pub request_write_access: bool,
     /// The app has a settings screen.
@@ -33,7 +33,7 @@ impl BotApp {
             short_name: app.short_name.clone(),
             title: app.title.clone(),
             description: app.description.clone(),
-            inactive,
+            is_inactive: inactive,
             request_write_access,
             has_settings,
         })
@@ -65,7 +65,7 @@ mod tests {
         };
         let parsed = BotApp::parse(raw(base::BotApp::BotApp(Box::new(app)))).unwrap();
         assert_eq!((parsed.id, parsed.short_name.as_str(), parsed.title.as_str()), (7, "game", "Game"));
-        assert_eq!((parsed.inactive, parsed.request_write_access, parsed.has_settings), (true, false, true));
+        assert_eq!((parsed.is_inactive, parsed.request_write_access, parsed.has_settings), (true, false, true));
         assert!(matches!(BotApp::parse(raw(base::BotApp::BotAppNotModified)), Err(Error::Unexpected(_))));
     }
 }

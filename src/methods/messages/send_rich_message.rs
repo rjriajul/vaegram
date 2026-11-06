@@ -48,7 +48,7 @@ mod tests {
 
     #[tokio::test]
     async fn sets_rich_message() {
-        let body = sent_body(InputRichMessage::html("<b>hi</b>").rtl(true)).await;
+        let body = sent_body(InputRichMessage::html("<b>hi</b>").is_rtl(true)).await;
         let flags = u32::from_le_bytes(body[4..8].try_into().unwrap());
         assert_ne!(flags & 1 << 23, 0);
         let html = types::InputRichMessageHTML { rtl: true, noautolink: false, html: "<b>hi</b>".into(), files: None };

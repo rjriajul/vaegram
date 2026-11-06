@@ -46,7 +46,7 @@ async fn screenshots_and_rich_messages(kit: &support::Kit, group: i64) {
 
     let sent = user.send_rich_message(group, InputRichMessage::html("<b>hi</b>")).await.unwrap();
     let found = user.get_rich_message(group, sent.id).await.unwrap().expect("the rich message is gone");
-    assert!(found.rich_message.is_some_and(|r| !r.part));
+    assert!(found.rich_message.is_some_and(|r| !r.is_partial));
 }
 
 async fn text_tools(user: &Client) {
