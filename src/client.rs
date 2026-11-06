@@ -347,6 +347,7 @@ impl ClientBuilder {
 
     /// The link preview options for every message sent or edited without its own `.link_preview_options(..)`.
     /// Its `url` is ignored: one link for every message makes no sense.
+    /// [`Client::set_link_preview_options`] changes them later.
     pub fn link_preview_options(mut self, options: LinkPreviewOptions) -> Self {
         self.link_preview_options = Some(options);
         self
@@ -550,7 +551,7 @@ impl ClientBuilder {
         inner.ipv6 = self.ipv6;
         inner.options = self.options;
         inner.parse_mode = Mutex::new(self.parse_mode);
-        inner.link_preview_options = self.link_preview_options;
+        inner.link_preview_options = Mutex::new(self.link_preview_options);
         inner.state = Mutex::new(state);
         inner.me = Mutex::new(Me { id: user_id, is_bot, premium: None, username: None });
         inner.ordered = self.ordered;
@@ -626,7 +627,7 @@ pub(crate) struct Inner {
     pub(crate) store: Arc<Store>,
     pub(crate) options: Options,
     pub(crate) parse_mode: Mutex<ParseMode>,
-    pub(crate) link_preview_options: Option<LinkPreviewOptions>,
+    pub(crate) link_preview_options: Mutex<Option<LinkPreviewOptions>>,
     pub(crate) state: Mutex<Option<UpdateState>>,
     // Bumped by log_out under the `state` lock, so a dispatcher started for the old account can't hand its
     // state back.
@@ -733,7 +734,7 @@ impl Inner {
             store,
             options: Options::default(),
             parse_mode: Mutex::new(ParseMode::Disabled),
-            link_preview_options: None,
+            link_preview_options: Mutex::new(None),
             transfers: TransferPool::default(),
             state: Mutex::new(None),
             account: AtomicU64::new(0),

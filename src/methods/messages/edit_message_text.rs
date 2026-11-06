@@ -153,8 +153,8 @@ mod tests {
     #[tokio::test]
     async fn a_client_default_leaves_caption_edits_alone() {
         let default = LinkPreviewOptions::new().show_above_text(true);
-        let (mut client, mut rx) = Client::recording();
-        std::sync::Arc::get_mut(&mut client.0).unwrap().link_preview_options = Some(default);
+        let (client, mut rx) = Client::recording();
+        client.set_link_preview_options(Some(default));
         let _ = client.edit_message_caption("me", 5, "cap").await;
         let _ = client.edit_message_text("me", 5, "text").await;
         let flags = |body: Vec<u8>| u32::from_le_bytes(body[4..8].try_into().unwrap()) >> 16 & 1;

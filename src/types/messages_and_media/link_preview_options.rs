@@ -1,9 +1,12 @@
+use std::sync::PoisonError;
+
 use crate::Client;
 use crate::raw::{base, types};
 
 /// What to preview for a link in a message. Read from received messages, and passed to `send_message`,
 /// `edit_message_text` and `edit_inline_text` through `.link_preview_options(..)`.
-/// `ClientBuilder::link_preview_options` sets a default for every call that gives none.
+/// `ClientBuilder::link_preview_options` and `Client::set_link_preview_options` set a default for every call that
+/// gives none.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LinkPreviewOptions {
     /// The link to preview instead of the first one in the text.
@@ -106,8 +109,11 @@ impl Client {
     /// The options a request uses: its own, or the client default without its `url` (one link for every message
     /// makes no sense).
     pub(crate) fn link_preview(&self, own: Option<&LinkPreviewOptions>) -> Option<LinkPreviewOptions> {
-        own.cloned()
-            .or_else(|| self.0.link_preview_options.as_ref().map(|d| LinkPreviewOptions { url: None, ..d.clone() }))
+        if let Some(own) = own {
+            return Some(own.clone());
+        }
+        let default = self.0.link_preview_options.lock().unwrap_or_else(PoisonError::into_inner);
+        default.as_ref().map(|d| LinkPreviewOptions { url: None, ..d.clone() })
     }
 }
 

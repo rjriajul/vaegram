@@ -23,8 +23,8 @@ mod tests {
     #[tokio::test]
     async fn a_client_default_leaves_inline_captions_alone() {
         let default = crate::types::LinkPreviewOptions::new().show_above_text(true);
-        let (mut client, mut rx) = Client::recording();
-        std::sync::Arc::get_mut(&mut client.0).unwrap().link_preview_options = Some(default);
+        let (client, mut rx) = Client::recording();
+        client.set_link_preview_options(Some(default));
         let _ = client.edit_inline_caption(id(), "new").await;
         let body = rx.try_recv().unwrap();
         assert_eq!(u32::from_le_bytes(body[4..8].try_into().unwrap()) >> 16 & 1, 0);

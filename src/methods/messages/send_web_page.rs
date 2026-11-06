@@ -57,8 +57,8 @@ mod tests {
     #[tokio::test]
     async fn the_client_default_applies_flags_but_not_its_url() {
         let default = LinkPreviewOptions::new().url("https://x.y").show_above_text(true);
-        let (mut client, mut rx) = Client::recording();
-        std::sync::Arc::get_mut(&mut client.0).unwrap().link_preview_options = Some(default);
+        let (client, mut rx) = Client::recording();
+        client.set_link_preview_options(Some(default));
         let _ = client.send_message("me", "hi").await;
         let body = rx.try_recv().unwrap();
         assert_eq!(body_id(&body), crate::raw::functions::messages::SendMessage::CONSTRUCTOR_ID);
