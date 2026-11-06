@@ -69,7 +69,8 @@ impl Folder {
 
     /// Changes the folder's tag color, or removes it when `color` is `None`.
     pub async fn update_color(&self, client: &Client, color: Option<i32>) -> Result<()> {
-        let folder = Folder { color, ..self.clone() };
+        let mut folder = self.clone();
+        folder.color = color;
         client.edit_folder(&folder).await
     }
 
@@ -110,19 +111,13 @@ mod tests {
     async fn folder_include_pin_remove_edit_lists() {
         let (client, mut rx) = client();
         let rx = &mut rx;
-        let folder = Folder {
-            id: 3,
-            title: "Work".into(),
-            pinned_chats: vec![5],
-            included_chats: vec![5, 6],
-            excluded_chats: vec![7],
-            ..Folder::default()
-        };
-        let expect = |pinned: &[i64], included: &[i64], excluded: &[i64]| Folder {
-            pinned_chats: pinned.to_vec(),
-            included_chats: included.to_vec(),
-            excluded_chats: excluded.to_vec(),
-            ..folder.clone()
+        let folder = Folder::new("Work").id(3).pinned_chats([5]).included_chats([5, 6]).excluded_chats([7]);
+        let expect = |pinned: &[i64], included: &[i64], excluded: &[i64]| {
+            folder
+                .clone()
+                .pinned_chats(pinned.to_vec())
+                .included_chats(included.to_vec())
+                .excluded_chats(excluded.to_vec())
         };
 
         let _ = folder.include_chat(&client, 7).await;
@@ -136,7 +131,7 @@ mod tests {
         let _ = folder.remove_chat(&client, 5).await;
         saved(&client, rx, &expect(&[], &[6], &[7])).await;
         let _ = folder.update_color(&client, Some(4)).await;
-        saved(&client, rx, &Folder { color: Some(4), ..folder.clone() }).await;
+        saved(&client, rx, &folder.clone().color(4)).await;
         let _ = folder.edit(&client).await;
         saved(&client, rx, &folder).await;
         let _ = folder.delete(&client).await;

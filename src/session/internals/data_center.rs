@@ -10,6 +10,18 @@ pub struct Dc {
 }
 
 impl Dc {
+    /// A production data center; [`test`](Self::test) makes it a test one.
+    pub fn new(id: i32, addr: SocketAddr) -> Self {
+        Dc { id, addr, test: false }
+    }
+
+    /// Sets whether this is a test data center, whose wire id is `id + 10000`.
+    #[must_use]
+    pub fn test(mut self, test: bool) -> Self {
+        self.test = test;
+        self
+    }
+
     /// The id handshakes and transport headers carry: test DCs add 10000.
     pub fn wire_id(&self) -> i32 {
         if self.test { self.id + 10000 } else { self.id }
@@ -63,7 +75,7 @@ pub fn find(table: &[(i32, SocketAddr)], dc_id: i32, test: bool, ipv6: bool) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::{address, find, table};
+    use super::{Dc, address, find, table};
     use crate::raw::{base, types};
 
     fn option(id: i32, ip: &str, ipv6: bool, media_only: bool) -> base::DcOption {
@@ -115,5 +127,12 @@ mod tests {
         assert_eq!(address(2, false, true), Some("[2001:67c:4e8:f002::a]:443".parse().unwrap()));
         assert_eq!(address(3, true, true), Some("[2001:b28:f23d:f003::e]:443".parse().unwrap()));
         assert_eq!(address(4, true, false), None);
+    }
+
+    #[test]
+    fn new_is_a_production_dc_until_test_is_set() {
+        let addr = "149.154.167.51:443".parse().unwrap();
+        assert_eq!(Dc::new(2, addr).wire_id(), 2);
+        assert_eq!(Dc::new(2, addr).test(true).wire_id(), 10002);
     }
 }

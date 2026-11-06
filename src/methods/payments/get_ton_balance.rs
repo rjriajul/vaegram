@@ -32,7 +32,7 @@ mod tests {
         };
         let reply = base::payments::StarsStatus::StarsStatus(Box::new(status)).to_bytes();
         let (client, mut sent) = Client::scripted(vec![Ok(reply)]);
-        assert_eq!(client.get_ton_balance().await.unwrap(), StarAmount { amount: 5, nanostar_amount: 0, ton: true });
+        assert_eq!(client.get_ton_balance().await.unwrap(), StarAmount::new(5).ton(true));
         let request = functions::payments::GetStarsStatus { ton: true, peer: base::InputPeer::InputPeerSelf };
         assert_eq!(sent.try_recv().unwrap(), request.to_bytes());
     }

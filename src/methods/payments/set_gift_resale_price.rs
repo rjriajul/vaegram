@@ -53,11 +53,11 @@ mod tests {
     async fn lists_in_stars_or_ton_and_unlists() {
         let replies = (0..3).map(|_| Ok(base::Updates::UpdatesTooLong.to_bytes())).collect();
         let (client, mut sent) = Client::scripted(replies);
-        let in_stars = StarAmount { amount: 500, nanostar_amount: 0, ton: false };
+        let in_stars = StarAmount::new(500);
         client.set_gift_resale_price("9", Some(in_stars)).await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), request(stars(500)));
 
-        let in_ton = StarAmount { amount: 2_000_000_000, nanostar_amount: 0, ton: true };
+        let in_ton = StarAmount::new(2_000_000_000).ton(true);
         client.set_gift_resale_price("9", Some(in_ton)).await.unwrap();
         let ton = base::StarsAmount::StarsTonAmount(types::StarsTonAmount { amount: 2_000_000_000 });
         assert_eq!(sent.try_recv().unwrap(), request(ton));
@@ -71,7 +71,7 @@ mod tests {
         let (client, mut sent) = Client::scripted(Vec::new());
         for amount in [0, -5] {
             for ton in [false, true] {
-                let price = StarAmount { amount, nanostar_amount: 0, ton };
+                let price = StarAmount::new(amount).ton(ton);
                 let refused = client.set_gift_resale_price("9", Some(price)).await;
                 assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{amount} {ton}");
             }

@@ -46,7 +46,7 @@ mod tests {
             users: None,
             exclude_users: Some(vec![8, 9]),
         };
-        let rights = BusinessBotRights { can_reply: true, ..Default::default() }.write();
+        let rights = BusinessBotRights::new().can_reply(true).write();
         let raw = types::ConnectedBot {
             bot_id: 42,
             recipients: base::BusinessBotRecipients::BusinessBotRecipients(Box::new(recipients)),

@@ -31,7 +31,7 @@ async fn runner_with(salt: Salt) -> (Runner, Frames, UpdatesRx) {
 async fn listening(salt: Salt) -> (Runner, Frames, UpdatesRx, TcpListener) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let options = Options { transport: crate::connection::Transport::Intermediate, ..Options::default() };
+    let options = Options::new().transport(crate::connection::Transport::Intermediate);
     let dc = Dc { id: 2, addr, test: false };
     let conn = Connection::connect(&dc, &options).await.unwrap();
     let (mut server, _) = listener.accept().await.unwrap();
@@ -1092,7 +1092,7 @@ async fn every_connection_on_a_new_permanent_key_waits_for_it_to_propagate() {
     let (home, _sent) = Session::scripted(vec![Ok(export)]);
     let init = super::init_connection(1, &Options::default(), functions::help::GetNearestDc {}).to_bytes();
     let home = Session { pfs: Some(Arc::from(init)), ..home };
-    let options = Options { transport: crate::connection::Transport::Intermediate, ..Options::default() };
+    let options = Options::new().transport(crate::connection::Transport::Intermediate);
     let pool = TransferPool::default();
     let lease = pool.lease(dc.dc(4), 2, Auth::Home(&home, 1), &options, &Arc::default()).await.unwrap();
     for (i, session) in lease.sessions.iter().enumerate() {
@@ -1113,7 +1113,7 @@ async fn after_log_out_a_transfer_lease_authorizes_again() {
     client.0.transfers.insert(dc.dc(4), &imported);
 
     client.log_out().await.unwrap();
-    let options = Options { transport: crate::connection::Transport::Intermediate, ..Options::default() };
+    let options = Options::new().transport(crate::connection::Transport::Intermediate);
     let home = client.session();
     let lease = client.0.transfers.lease(dc.dc(4), 1, Auth::Home(&home, 1), &options, &Arc::default()).await;
     drop(lease.unwrap());
@@ -1151,7 +1151,7 @@ async fn first_salt(listener: &TcpListener, auth_key: &[u8; 256]) -> i64 {
 async fn transfer_dc() -> (TcpListener, Dc, Options) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let dc = Dc { id: 4, addr: listener.local_addr().unwrap(), test: false };
-    (listener, dc, Options { transport: crate::connection::Transport::Intermediate, ..Options::default() })
+    (listener, dc, Options::new().transport(crate::connection::Transport::Intermediate))
 }
 
 #[tokio::test]

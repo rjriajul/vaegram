@@ -33,12 +33,16 @@ async fn validate_order_info_returns_an_id() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let client = kit.user.client;
     let form = client.get_payment_form(invoice).await.unwrap();
-    let info = OrderInfo {
-        name: form.is_name_requested.then(|| "Test Buyer".to_owned()),
-        phone_number: form.is_phone_requested.then(|| "+10000000000".to_owned()),
-        email: form.is_email_requested.then(|| "buyer@example.com".to_owned()),
-        shipping_address: None,
-    };
+    let mut info = OrderInfo::new();
+    if form.is_name_requested {
+        info = info.name("Test Buyer");
+    }
+    if form.is_phone_requested {
+        info = info.phone_number("+10000000000");
+    }
+    if form.is_email_requested {
+        info = info.email("buyer@example.com");
+    }
     if form.is_shipping_address_requested {
         eprintln!("skipped: the invoice asks for a shipping address");
         return;

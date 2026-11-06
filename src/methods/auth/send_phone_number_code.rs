@@ -122,12 +122,10 @@ mod tests {
 
     #[tokio::test]
     async fn custom_settings_are_sent_with_a_login_code() {
-        let settings = PhoneNumberAuthenticationSettings {
-            allow_flash_call: true,
-            is_current_phone_number: true,
-            authentication_tokens: vec![vec![1, 2]],
-            ..Default::default()
-        };
+        let settings = PhoneNumberAuthenticationSettings::new()
+            .allow_flash_call(true)
+            .is_current_phone_number(true)
+            .authentication_tokens([vec![1, 2]]);
         let (client, mut sent) = Client::recording();
         let _ = client.send_phone_number_code("8801").settings(settings.clone()).await;
         let expected = functions::auth::SendCode {

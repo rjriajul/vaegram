@@ -11,7 +11,7 @@ use vaegram::session::internals::data_center;
 use vaegram::types::Upload;
 
 fn websocket() -> Options {
-    Options { websocket: true, ..Options::default() }
+    Options::new().websocket(true)
 }
 
 #[tokio::test]

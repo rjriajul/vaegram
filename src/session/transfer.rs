@@ -340,8 +340,8 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_flood_wait_over_the_threshold_comes_back_without_sleeping() {
         let (mut session, mut sent) = Session::scripted(vec![Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_120")))]);
-        let retry = Retry::new(AutoSleep { threshold: Duration::from_secs(60), ..AutoSleep::default() });
-        session.set_options(Options { retry, ..Options::default() });
+        let retry = Retry::new(AutoSleep::new().threshold(Duration::from_secs(60)));
+        session.set_options(Options::new().retry(retry));
         let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };
 
         let start = tokio::time::Instant::now();
@@ -355,8 +355,8 @@ mod tests {
     async fn parts_follow_the_flood_sleep_setting() {
         let flood = || Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_1")));
         let (mut session, mut sent) = Session::scripted(vec![flood(), flood()]);
-        let retry = Retry::new(AutoSleep { tries: 1, ..AutoSleep::default() });
-        session.set_options(Options { retry, ..Options::default() });
+        let retry = Retry::new(AutoSleep::new().tries(1));
+        session.set_options(Options::new().retry(retry));
         let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };
         let e = invoke_part(&session, &part).await.unwrap_err();
         assert!(matches!(e, Error::Rpc(e) if e.is("FLOOD_WAIT")));
@@ -378,7 +378,7 @@ mod tests {
         let seen = Arc::default();
         let flood = || Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_300")));
         let (mut session, _sent) = Session::scripted(vec![flood(), flood()]);
-        session.set_options(Options { retry: Retry::new(Record(Arc::clone(&seen))), ..Options::default() });
+        session.set_options(Options::new().retry(Retry::new(Record(Arc::clone(&seen)))));
         let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };
         let _ = invoke_part(&session, &part).await;
         let _ = invoke_cdn_part(&session, &part).await;
@@ -393,7 +393,7 @@ mod tests {
         let export = types::auth::ExportedAuthorization { id: 1, bytes: vec![1] };
         let export = base::auth::ExportedAuthorization::ExportedAuthorization(Box::new(export)).to_bytes();
         let (home, _sent) = Session::scripted(vec![Ok(export)]);
-        let options = Options { transport: Transport::Intermediate, ..Options::default() };
+        let options = Options::new().transport(Transport::Intermediate);
         let pool = TransferPool::default();
         let lease = pool.lease(dc.dc(4), 1, Auth::Home(&home, 1), &options, &Arc::default()).await.unwrap();
         let ping = functions::Ping { ping_id: 1 };

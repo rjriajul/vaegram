@@ -17,7 +17,7 @@ async fn connector_dials_production() {
         counted.fetch_add(1, Ordering::Relaxed);
         tokio::net::TcpStream::connect(addr)
     };
-    let options = Options { connection_factory: Some(Arc::new(factory)), ..Options::default() };
+    let options = Options::new().connection_factory(factory);
     let (session, _updates) = Session::connect(dc, None, &options, Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 5 }).await.unwrap();
     assert_eq!((pong.ping_id, dials.load(Ordering::Relaxed)), (5, 1));

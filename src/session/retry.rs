@@ -48,6 +48,27 @@ impl Default for AutoSleep {
     }
 }
 
+impl AutoSleep {
+    /// Same as `Default`: sleeps off waits of up to a minute, five times per request.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the longest wait slept off; longer ones go to the caller. `Duration::ZERO` hands every one over.
+    #[must_use]
+    pub fn threshold(mut self, threshold: Duration) -> Self {
+        self.threshold = threshold;
+        self
+    }
+
+    /// Sets how many waits one request sleeps off; 0 hands every one over.
+    #[must_use]
+    pub fn tries(mut self, tries: usize) -> Self {
+        self.tries = tries;
+        self
+    }
+}
+
 impl RetryPolicy for AutoSleep {
     fn should_retry(&self, ctx: &RetryContext<'_>) -> ControlFlow<(), Duration> {
         match ctx.flood_wait {
@@ -120,5 +141,13 @@ mod tests {
     #[test]
     fn no_retries_never_retries() {
         assert_eq!(ask(&NoRetries, Some(1), 1), ControlFlow::Break(()));
+    }
+
+    #[test]
+    fn auto_sleep_new_keeps_the_defaults_a_setter_leaves_alone() {
+        let patient = AutoSleep::new().threshold(Duration::from_secs(300));
+        assert_eq!(patient.tries, 5);
+        assert_eq!(ask(&patient, Some(200), 1), ControlFlow::Continue(Duration::from_secs(200)));
+        assert_eq!(ask(&AutoSleep::new().tries(0), Some(1), 1), ControlFlow::Break(()));
     }
 }

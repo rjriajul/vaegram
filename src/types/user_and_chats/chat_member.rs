@@ -149,7 +149,7 @@ mod tests {
     use crate::utils::{get_channel_id, get_peer};
 
     fn banned(view_messages: bool, until_date: i32) -> base::ChannelParticipant {
-        let mut rights = ChatPermissions { can_send_messages: true, ..Default::default() }.write(until_date);
+        let mut rights = ChatPermissions::new().can_send_messages(true).write(until_date);
         rights.view_messages = view_messages;
         base::ChannelParticipant::ChannelParticipantBanned(Box::new(types::ChannelParticipantBanned {
             left: false,

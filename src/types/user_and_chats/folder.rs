@@ -50,6 +50,131 @@ pub struct Folder {
 }
 
 impl Folder {
+    /// Creates a folder titled `title` that holds no chats yet; add chats or chat types with the setters.
+    pub fn new(title: impl Into<String>) -> Self {
+        Folder { title: title.into(), ..Folder::default() }
+    }
+
+    /// Sets the id of the folder to edit. [`Client::create_folder`] picks its own and ignores this one.
+    #[must_use]
+    pub fn id(mut self, id: i32) -> Self {
+        self.id = id;
+        self
+    }
+
+    /// Formats the title, such as with custom emoji.
+    #[must_use]
+    pub fn title_entities(mut self, title_entities: impl IntoIterator<Item = MessageEntity>) -> Self {
+        self.title_entities = title_entities.into_iter().collect();
+        self
+    }
+
+    /// Sets whether custom emoji in the title stay still.
+    #[must_use]
+    pub fn no_title_animation(mut self, no_title_animation: bool) -> Self {
+        self.no_title_animation = no_title_animation;
+        self
+    }
+
+    /// Sets the emoji shown as the folder's icon.
+    #[must_use]
+    pub fn emoji(mut self, emoji: impl Into<String>) -> Self {
+        self.emoji = Some(emoji.into());
+        self
+    }
+
+    /// Sets the index of the folder's tag color.
+    #[must_use]
+    pub fn color(mut self, color: i32) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// Pins these chats at the top of the folder.
+    #[must_use]
+    pub fn pinned_chats(mut self, pinned_chats: impl IntoIterator<Item = i64>) -> Self {
+        self.pinned_chats = pinned_chats.into_iter().collect();
+        self
+    }
+
+    /// Always puts these chats in the folder.
+    #[must_use]
+    pub fn included_chats(mut self, included_chats: impl IntoIterator<Item = i64>) -> Self {
+        self.included_chats = included_chats.into_iter().collect();
+        self
+    }
+
+    /// Never puts these chats in the folder.
+    #[must_use]
+    pub fn excluded_chats(mut self, excluded_chats: impl IntoIterator<Item = i64>) -> Self {
+        self.excluded_chats = excluded_chats.into_iter().collect();
+        self
+    }
+
+    /// Sets whether the folder includes chats with contacts.
+    #[must_use]
+    pub fn contacts(mut self, contacts: bool) -> Self {
+        self.contacts = contacts;
+        self
+    }
+
+    /// Sets whether the folder includes chats with users who aren't contacts.
+    #[must_use]
+    pub fn non_contacts(mut self, non_contacts: bool) -> Self {
+        self.non_contacts = non_contacts;
+        self
+    }
+
+    /// Sets whether the folder includes groups.
+    #[must_use]
+    pub fn groups(mut self, groups: bool) -> Self {
+        self.groups = groups;
+        self
+    }
+
+    /// Sets whether the folder includes channels.
+    #[must_use]
+    pub fn channels(mut self, channels: bool) -> Self {
+        self.channels = channels;
+        self
+    }
+
+    /// Sets whether the folder includes chats with bots.
+    #[must_use]
+    pub fn bots(mut self, bots: bool) -> Self {
+        self.bots = bots;
+        self
+    }
+
+    /// Sets whether the folder leaves out muted chats.
+    #[must_use]
+    pub fn exclude_muted(mut self, exclude_muted: bool) -> Self {
+        self.exclude_muted = exclude_muted;
+        self
+    }
+
+    /// Sets whether the folder leaves out chats with no unread messages.
+    #[must_use]
+    pub fn exclude_read(mut self, exclude_read: bool) -> Self {
+        self.exclude_read = exclude_read;
+        self
+    }
+
+    /// Sets whether the folder leaves out archived chats.
+    #[must_use]
+    pub fn exclude_archived(mut self, exclude_archived: bool) -> Self {
+        self.exclude_archived = exclude_archived;
+        self
+    }
+
+    /// Sets whether the folder is shared through an invite link. Saving a shared folder drops its exclusions
+    /// and chat type flags.
+    #[must_use]
+    pub fn is_shareable(mut self, is_shareable: bool) -> Self {
+        self.is_shareable = is_shareable;
+        self
+    }
+
     pub(crate) fn parse(client: &Client, filter: base::DialogFilter) -> Option<Folder> {
         match filter {
             base::DialogFilter::DialogFilterDefault => None,
@@ -230,4 +355,29 @@ fn chat_ids(client: &Client, peers: Vec<base::InputPeer>) -> Vec<i64> {
         ids.push(id);
     }
     ids
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Folder;
+    use crate::Client;
+    use crate::enums::MessageEntityType;
+    use crate::raw::base;
+    use crate::types::MessageEntity;
+
+    #[tokio::test]
+    async fn builds_from_new_and_setters() {
+        let emoji = MessageEntity::new(MessageEntityType::CustomEmoji, 0, 2).custom_emoji_id(5);
+        let folder = Folder::new("Work").id(4).title_entities([emoji]).emoji("💼").groups(true).exclude_read(true);
+        let Ok(base::DialogFilter::DialogFilter(f)) = folder.write(&Client::offline()).await else {
+            panic!("expected a plain folder");
+        };
+        let base::TextWithEntities::TextWithEntities(title) = &f.title;
+        assert_eq!((f.id, title.text.as_str(), f.emoticon.as_deref()), (4, "Work", Some("💼")));
+        assert!(
+            matches!(&title.entities[..], [base::MessageEntity::MessageEntityCustomEmoji(e)] if e.document_id == 5)
+        );
+        assert!(f.groups && f.exclude_read && !f.contacts && !f.broadcasts && !f.title_noanimate);
+        assert!(f.include_peers.is_empty() && f.color.is_none());
+    }
 }

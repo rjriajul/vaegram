@@ -1111,7 +1111,7 @@ mod tests {
         let builder = Client::builder("defaults", 1, "hash");
         let options = &builder.options;
         assert_eq!(options.updates_capacity, 1024);
-        assert_eq!(builder.auto_sleep, AutoSleep { threshold: Duration::from_secs(60), tries: 5 });
+        assert_eq!(builder.auto_sleep, AutoSleep::new().threshold(Duration::from_secs(60)).tries(5));
         assert!(builder.catch_up);
         assert_eq!(builder.client_platform, "unknown");
         assert_eq!(builder.listener_timeout, Some(Duration::from_secs(300)));

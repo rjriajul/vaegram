@@ -56,7 +56,7 @@ async fn handshakes_over_every_transport() {
     let dc = data_center::find(&[], 2, false, false).unwrap();
     for transport in [Transport::Abridged, Transport::Intermediate, Transport::PaddedIntermediate] {
         for obfuscated in [false, true] {
-            let options = Options { transport, obfuscated, ..Options::default() };
+            let options = Options::new().transport(transport).obfuscated(obfuscated);
             let (session, _updates) = Session::connect(dc, None, &options, Arc::default(), None).await.unwrap();
             let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
             assert_eq!(pong.ping_id, 7, "{options:?}");
@@ -87,7 +87,7 @@ async fn handshakes_through_proxies() {
         return;
     }
     for proxy in proxies {
-        let options = Options { proxy: Some(proxy), ..Options::default() };
+        let options = Options::new().proxy(proxy);
         let (session, _updates) = Session::connect(dc, None, &options, Arc::default(), None).await.unwrap();
         let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 9 }).await.unwrap();
         assert_eq!(pong.ping_id, 9, "{options:?}");
@@ -794,7 +794,7 @@ async fn user_posts_and_edits_a_story() {
 async fn user_manages_folders() {
     let Some(user) = user_client().await else { return };
     let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
-    let folder = Folder { title: "vaegram".into(), included_chats: vec![me.id], ..Folder::default() };
+    let folder = Folder::new("vaegram").included_chats([me.id]);
     let mut folder = user.create_folder(folder).await.unwrap();
     assert!(user.get_folders().await.unwrap().iter().any(|f| f.id == folder.id && f.title == "vaegram"));
 
@@ -815,7 +815,7 @@ async fn user_shares_a_folder() {
     };
     let Some(user) = user_client().await else { return };
     let chat_id: i64 = chat_id.parse().unwrap();
-    let folder = Folder { title: "vaegram".into(), included_chats: vec![chat_id], ..Folder::default() };
+    let folder = Folder::new("vaegram").included_chats([chat_id]);
     let folder = user.create_folder(folder).await.unwrap();
 
     let link = user.create_folder_invite_link(folder.id, [chat_id]).name("vaegram").await.unwrap();

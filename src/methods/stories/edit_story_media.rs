@@ -170,9 +170,9 @@ mod tests {
         let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         let chat = crate::utils::get_channel_id(9);
         client.0.peers.lock().unwrap().insert(chat, base::InputPeer::InputPeerChannel(Box::new(peer)));
-        let post = StoryArea {
-            position: StoryAreaPosition::default(),
-            kind: StoryAreaType::ChannelPost {
+        let post = StoryArea::new(
+            StoryAreaPosition::default(),
+            StoryAreaType::ChannelPost {
                 chat: Box::new(crate::types::Chat::parse(
                     &crate::utils::get_peer(chat),
                     &crate::dispatcher::Entities::default(),
@@ -180,7 +180,7 @@ mod tests {
                 )),
                 message_id: 3,
             },
-        };
+        );
         let expected = post.write(&client).await.unwrap();
         assert!(matches!(expected, base::MediaArea::InputMediaAreaChannelPost(_)));
         let edit = client.edit_story_media("me", 4, InputStoryContent::photo("a.jpg")).media_areas([post]);

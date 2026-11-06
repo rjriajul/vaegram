@@ -46,22 +46,12 @@ impl ReplyMarkup {
     pub(crate) fn parse(raw: &base::ReplyMarkup) -> Option<ReplyMarkup> {
         Some(match raw {
             base::ReplyMarkup::ReplyKeyboardHide(m) => {
-                ReplyMarkup::Remove(ReplyKeyboardRemove { selective: m.selective })
+                ReplyMarkup::Remove(ReplyKeyboardRemove::new().selective(m.selective))
             }
-            base::ReplyMarkup::ReplyKeyboardForceReply(m) => {
-                ReplyMarkup::ForceReply(ForceReply { selective: m.selective, placeholder: m.placeholder.clone() })
-            }
+            base::ReplyMarkup::ReplyKeyboardForceReply(m) => ReplyMarkup::ForceReply(ForceReply::parse(m)),
             base::ReplyMarkup::ReplyKeyboardMarkup(m) => {
                 let rows = m.rows.iter().map(keyboard_row).collect::<Option<_>>()?;
-                ReplyMarkup::Keyboard(ReplyKeyboardMarkup {
-                    rows,
-                    resize: m.resize,
-                    one_time: m.single_use,
-                    persistent: m.persistent,
-                    selective: m.selective,
-                    force_reply: m.force_reply,
-                    placeholder: m.placeholder.clone(),
-                })
+                ReplyMarkup::Keyboard(ReplyKeyboardMarkup::parse(m, rows))
             }
             base::ReplyMarkup::ReplyInlineMarkup(m) => {
                 let rows = m.rows.iter().map(inline_row).collect::<Option<_>>()?;
@@ -231,7 +221,7 @@ mod tests {
     }
 
     fn rights() -> ChatPrivileges {
-        ChatPrivileges { can_delete_messages: true, can_pin_messages: true, ..Default::default() }
+        ChatPrivileges::new().can_delete_messages(true).can_pin_messages(true)
     }
 
     #[tokio::test]
@@ -255,8 +245,8 @@ mod tests {
         let markups: [ReplyMarkup; 4] = [
             inline.into(),
             keyboard.into(),
-            ReplyKeyboardRemove { selective: true }.into(),
-            ForceReply { selective: true, placeholder: Some("why?".into()) }.into(),
+            ReplyKeyboardRemove::new().selective(true).into(),
+            ForceReply::new().selective(true).placeholder("why?").into(),
         ];
         let client = Client::offline();
         for markup in markups {

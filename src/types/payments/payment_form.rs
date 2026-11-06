@@ -230,7 +230,7 @@ impl PaymentForm {
         let prices: Vec<LabeledPrice> = terms
             .prices
             .into_iter()
-            .map(|base::LabeledPrice::LabeledPrice(p)| LabeledPrice { label: p.label, amount: p.amount })
+            .map(|base::LabeledPrice::LabeledPrice(p)| LabeledPrice::new(p.label, p.amount))
             .collect();
         PaymentForm {
             id,

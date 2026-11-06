@@ -54,7 +54,7 @@ mod tests {
     use crate::types::{InvoiceRef, OrderInfo};
 
     fn info() -> OrderInfo {
-        OrderInfo { name: Some("Ann".into()), phone_number: Some("+100".into()), email: None, shipping_address: None }
+        OrderInfo::new().name("Ann").phone_number("+100")
     }
 
     fn reply() -> Vec<u8> {

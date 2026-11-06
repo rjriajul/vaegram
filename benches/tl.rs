@@ -229,7 +229,7 @@ fn recv_loopback(size: usize) {
         while s.write_all(&frames).is_ok() {}
     });
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    let dc = Dc { id: 2, addr, test: false };
+    let dc = Dc::new(2, addr);
     let mut conn = rt.block_on(Connection::connect(&dc, &Options::default())).unwrap();
     bench(&format!("recv loopback {size} B"), || {
         black_box(rt.block_on(conn.recv()).unwrap());

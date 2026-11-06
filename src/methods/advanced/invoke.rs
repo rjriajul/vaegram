@@ -221,8 +221,8 @@ mod tests {
     fn flooded(flood_sleep_threshold: Duration) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
         let (mut client, sent) =
             Client::scripted(vec![Err(flood(1)), Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes())]);
-        let retry = Retry::new(AutoSleep { threshold: flood_sleep_threshold, ..AutoSleep::default() });
-        client.set_options(Options { retry, ..Options::default() });
+        let retry = Retry::new(AutoSleep::new().threshold(flood_sleep_threshold));
+        client.set_options(Options::new().retry(retry));
         (client, sent)
     }
 
@@ -381,8 +381,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_setting_of_two_sleeps_two_flood_waits() {
-        let two =
-            || Options { retry: Retry::new(AutoSleep { tries: 2, ..AutoSleep::default() }), ..Options::default() };
+        let two = || Options::new().retry(Retry::new(AutoSleep::new().tries(2)));
         let (result, sends) = ping_with(two(), (0..3).map(|_| rpc_420("FLOOD_WAIT_1")).collect()).await;
         assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
         assert_eq!(sends, 3);
@@ -393,14 +392,14 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn zero_flood_sleeps_hand_every_wait_to_the_caller() {
-        let none = Options { retry: Retry::new(AutoSleep { tries: 0, ..AutoSleep::default() }), ..Options::default() };
+        let none = Options::new().retry(Retry::new(AutoSleep::new().tries(0)));
         let (result, sends) = ping_with(none, vec![rpc_420("FLOOD_WAIT_1")]).await;
         assert!(matches!(result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")));
         assert_eq!(sends, 1);
     }
 
     fn with_policy(policy: impl RetryPolicy) -> Options {
-        Options { retry: Retry::new(policy), ..Options::default() }
+        Options::new().retry(Retry::new(policy))
     }
 
     #[tokio::test(start_paused = true)]
@@ -527,7 +526,7 @@ mod tests {
     fn quiet_client(replies: usize) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
         let pong = || Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes());
         let (mut client, sent) = Client::scripted((0..replies).map(|_| pong()).collect());
-        client.set_options(Options { no_updates: true, ..Options::default() });
+        client.set_options(Options::new().no_updates(true));
         (client, sent)
     }
 
@@ -553,7 +552,7 @@ mod tests {
 
     fn auto_client(replies: usize, no_updates: bool) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
         let (mut client, sent) = Client::scripted((0..replies).map(|_| Ok(true.to_bytes())).collect());
-        client.set_options(Options { no_updates, ..Options::default() });
+        client.set_options(Options::new().no_updates(no_updates));
         Arc::get_mut(&mut client.0).unwrap().auto_no_updates = true;
         (client, sent)
     }

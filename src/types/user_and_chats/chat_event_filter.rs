@@ -38,6 +38,116 @@ pub struct ChatEventFilter {
 }
 
 impl ChatEventFilter {
+    /// Filters nothing, so the query returns every event; each setter narrows it to the kinds turned on.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets whether the query returns bans, unbans, kicks and restriction changes.
+    #[must_use]
+    pub fn new_restrictions(mut self, new_restrictions: bool) -> Self {
+        self.new_restrictions = new_restrictions;
+        self
+    }
+
+    /// Sets whether the query returns promotions and demotions of administrators.
+    #[must_use]
+    pub fn new_privileges(mut self, new_privileges: bool) -> Self {
+        self.new_privileges = new_privileges;
+        self
+    }
+
+    /// Sets whether the query returns users joining and being invited.
+    #[must_use]
+    pub fn new_members(mut self, new_members: bool) -> Self {
+        self.new_members = new_members;
+        self
+    }
+
+    /// Sets whether the query returns changes to the title, description, username and photo.
+    #[must_use]
+    pub fn chat_info(mut self, chat_info: bool) -> Self {
+        self.chat_info = chat_info;
+        self
+    }
+
+    /// Sets whether the query returns changes to chat settings.
+    #[must_use]
+    pub fn chat_settings(mut self, chat_settings: bool) -> Self {
+        self.chat_settings = chat_settings;
+        self
+    }
+
+    /// Sets whether the query returns invite links being created, edited, revoked or deleted.
+    #[must_use]
+    pub fn invite_links(mut self, invite_links: bool) -> Self {
+        self.invite_links = invite_links;
+        self
+    }
+
+    /// Sets whether the query returns deleted messages.
+    #[must_use]
+    pub fn deleted_messages(mut self, deleted_messages: bool) -> Self {
+        self.deleted_messages = deleted_messages;
+        self
+    }
+
+    /// Sets whether the query returns edited messages.
+    #[must_use]
+    pub fn edited_messages(mut self, edited_messages: bool) -> Self {
+        self.edited_messages = edited_messages;
+        self
+    }
+
+    /// Sets whether the query returns pinned and unpinned messages.
+    #[must_use]
+    pub fn pinned_messages(mut self, pinned_messages: bool) -> Self {
+        self.pinned_messages = pinned_messages;
+        self
+    }
+
+    /// Sets whether the query returns users leaving.
+    #[must_use]
+    pub fn leaving_members(mut self, leaving_members: bool) -> Self {
+        self.leaving_members = leaving_members;
+        self
+    }
+
+    /// Sets whether the query returns video chats starting and ending.
+    #[must_use]
+    pub fn video_chats(mut self, video_chats: bool) -> Self {
+        self.video_chats = video_chats;
+        self
+    }
+
+    /// Sets whether the query returns messages sent by admins.
+    #[must_use]
+    pub fn sent_messages(mut self, sent_messages: bool) -> Self {
+        self.sent_messages = sent_messages;
+        self
+    }
+
+    /// Sets whether the query returns changes to forum topics.
+    #[must_use]
+    pub fn forum_topics(mut self, forum_topics: bool) -> Self {
+        self.forum_topics = forum_topics;
+        self
+    }
+
+    /// Sets whether the query returns members extending their paid subscription.
+    #[must_use]
+    pub fn subscription_extensions(mut self, subscription_extensions: bool) -> Self {
+        self.subscription_extensions = subscription_extensions;
+        self
+    }
+
+    /// Sets whether the query returns changes to member ranks.
+    #[must_use]
+    pub fn member_ranks(mut self, member_ranks: bool) -> Self {
+        self.member_ranks = member_ranks;
+        self
+    }
+
     pub(crate) fn write(&self) -> Option<base::ChannelAdminLogEventsFilter> {
         if *self == ChatEventFilter::default() {
             return None;
@@ -82,5 +192,15 @@ mod tests {
         };
         assert_eq!((f.ban, f.unban, f.kick, f.unkick, f.leave), (true, true, true, true, true));
         assert_eq!((f.join, f.promote, f.edit, f.delete), (false, false, false, false));
+    }
+
+    #[test]
+    fn builds_from_new_and_setters() {
+        assert_eq!(ChatEventFilter::new().write(), None);
+        let filter = ChatEventFilter::new().new_members(true).edited_messages(true).edited_messages(false);
+        let Some(base::ChannelAdminLogEventsFilter::ChannelAdminLogEventsFilter(f)) = filter.write() else {
+            panic!("expected a filter");
+        };
+        assert_eq!((f.join, f.invite, f.edit, f.leave), (true, true, false, false));
     }
 }

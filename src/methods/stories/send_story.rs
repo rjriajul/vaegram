@@ -194,10 +194,8 @@ mod tests {
     #[tokio::test]
     async fn sends_media_areas() {
         let client = Client::offline();
-        let link = StoryArea {
-            position: StoryAreaPosition { x_percentage: 50.0, y_percentage: 50.0, ..Default::default() },
-            kind: StoryAreaType::Link { url: "https://example.com".into() },
-        };
+        let position = StoryAreaPosition::new(50.0, 50.0, 0.0, 0.0);
+        let link = StoryArea::new(position, StoryAreaType::Link { url: "https://example.com".into() });
         let story = client.send_story("me", InputStoryContent::photo("story.jpg")).media_areas([link.clone()]);
         let request = story.request(base::InputMedia::InputMediaEmpty).await.unwrap();
         let written = link.write(&client).await.unwrap();

@@ -458,7 +458,7 @@ mod tests {
             peers.insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
         }
         let rx = &mut rx;
-        let admin = ChatPrivileges { can_pin_messages: true, ..Default::default() };
+        let admin = ChatPrivileges::new().can_pin_messages(true);
         let muted = ChatPermissions::default();
 
         assert_eq!(sent(rx, client.get_chat(USER)).await, users::GetFullUser::CONSTRUCTOR_ID);

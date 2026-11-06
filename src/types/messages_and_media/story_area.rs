@@ -97,7 +97,55 @@ pub struct LocationAddress {
     pub street: Option<String>,
 }
 
+impl LocationAddress {
+    /// Creates an address that names only its country, as a two-letter ISO 3166-1 alpha-2 code.
+    pub fn new(country_code: impl Into<String>) -> Self {
+        LocationAddress { country_code: country_code.into(), ..Default::default() }
+    }
+
+    /// Sets the state or region.
+    #[must_use]
+    pub fn state(mut self, state: impl Into<String>) -> Self {
+        self.state = Some(state.into());
+        self
+    }
+
+    /// Sets the city.
+    #[must_use]
+    pub fn city(mut self, city: impl Into<String>) -> Self {
+        self.city = Some(city.into());
+        self
+    }
+
+    /// Sets the street and house number.
+    #[must_use]
+    pub fn street(mut self, street: impl Into<String>) -> Self {
+        self.street = Some(street.into());
+        self
+    }
+}
+
 impl StoryAreaPosition {
+    /// Places an area of `width_percentage` by `height_percentage` with its center at (`x_percentage`,
+    /// `y_percentage`), all in percent of the media's size, unrotated and with square corners.
+    pub fn new(x_percentage: f64, y_percentage: f64, width_percentage: f64, height_percentage: f64) -> Self {
+        StoryAreaPosition { x_percentage, y_percentage, width_percentage, height_percentage, ..Default::default() }
+    }
+
+    /// Rotates the area by this many degrees.
+    #[must_use]
+    pub fn rotation_angle(mut self, rotation_angle: f64) -> Self {
+        self.rotation_angle = rotation_angle;
+        self
+    }
+
+    /// Rounds the corners, in percent of the area's smaller side.
+    #[must_use]
+    pub fn corner_radius_percentage(mut self, corner_radius_percentage: f64) -> Self {
+        self.corner_radius_percentage = corner_radius_percentage;
+        self
+    }
+
     fn parse(coordinates: &base::MediaAreaCoordinates) -> StoryAreaPosition {
         let base::MediaAreaCoordinates::MediaAreaCoordinates(c) = coordinates;
         StoryAreaPosition {
@@ -123,6 +171,11 @@ impl StoryAreaPosition {
 }
 
 impl StoryArea {
+    /// Creates an area showing `kind` at `position`.
+    pub fn new(position: StoryAreaPosition, kind: StoryAreaType) -> Self {
+        StoryArea { position, kind }
+    }
+
     /// `None` for the `input*` areas, which only exist in requests, and for areas without a usable place.
     pub(crate) fn parse(area: &base::MediaArea, entities: &Entities) -> Option<StoryArea> {
         use base::MediaArea as A;
@@ -256,7 +309,7 @@ impl StoryArea {
 
 #[cfg(test)]
 mod tests {
-    use super::{LocationAddress, StoryArea, StoryAreaType};
+    use super::{LocationAddress, StoryArea, StoryAreaPosition, StoryAreaType};
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::raw::{base, types};
@@ -329,11 +382,7 @@ mod tests {
                 StoryAreaType::Location {
                     latitude: 3.0,
                     longitude: 4.0,
-                    address: Some(LocationAddress {
-                        country_code: "DE".into(),
-                        city: Some("Berlin".into()),
-                        ..Default::default()
-                    }),
+                    address: Some(LocationAddress::new("DE").city("Berlin")),
                 },
             ),
             (
@@ -435,5 +484,15 @@ mod tests {
             msg_id: 7,
         };
         assert_eq!(area.write(&client).await.unwrap(), base::MediaArea::InputMediaAreaChannelPost(Box::new(expected)));
+    }
+
+    #[tokio::test]
+    async fn builds_from_new_and_setters() {
+        let position = StoryAreaPosition::new(10.0, 20.0, 30.0, 40.0).rotation_angle(5.0).corner_radius_percentage(2.5);
+        let area = StoryArea::new(position, StoryAreaType::Link { url: "https://a.b".into() });
+        let url = types::MediaAreaUrl { coordinates: coords(), url: "https://a.b".into() };
+        assert_eq!(area.write(&Client::offline()).await.unwrap(), base::MediaArea::MediaAreaUrl(Box::new(url)));
+        let square = StoryAreaPosition::new(1.0, 2.0, 3.0, 4.0);
+        assert_eq!((square.rotation_angle, square.corner_radius_percentage), (0.0, 0.0));
     }
 }

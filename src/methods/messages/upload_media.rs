@@ -522,7 +522,7 @@ mod tests {
 
     #[test]
     fn a_mask_sticker_carries_its_coordinates() {
-        let chin = MaskPosition { point: MaskPointType::Chin, x_shift: -1.0, y_shift: 0.5, scale: 2.0 };
+        let chin = MaskPosition::new(MaskPointType::Chin, -1.0, 0.5, 2.0);
         let sticker = document(InputMedia::sticker("mask.webp").emoji("🎭").mask_position(chin));
         let attribute = types::DocumentAttributeSticker {
             mask: true,

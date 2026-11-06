@@ -32,7 +32,7 @@ async fn dns_address_accepts_a_handshake() {
         eprintln!("skipped: every address in today's config needs a secret: {config:?}");
         return;
     };
-    let dc = Dc { id, addr: SocketAddr::V4(ip.addr), test: false };
+    let dc = Dc::new(id, SocketAddr::V4(ip.addr));
     let (session, _updates) = Session::connect(dc, None, &Options::default(), Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 9 }).await.unwrap();
     assert_eq!(pong.ping_id, 9);

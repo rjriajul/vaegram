@@ -24,12 +24,7 @@ mod tests {
 
     #[tokio::test]
     async fn saved_info_reads_and_clears() {
-        let info = OrderInfo {
-            name: Some("Ann".into()),
-            phone_number: None,
-            email: Some("a@b.c".into()),
-            shipping_address: None,
-        };
+        let info = OrderInfo::new().name("Ann").email("a@b.c");
         let (client, mut sent) = client(vec![saved(Some(info.clone())), saved(None), true.to_bytes(), true.to_bytes()]);
         assert_eq!(client.get_saved_order_info().await.unwrap(), Some(info));
         assert_eq!(sent.try_recv().unwrap(), functions::payments::GetSavedInfo {}.to_bytes());

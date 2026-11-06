@@ -18,6 +18,12 @@ pub struct MaskPosition {
 impl Eq for MaskPosition {}
 
 impl MaskPosition {
+    /// Places a mask relative to `point`, shifted by `x_shift` mask widths right and `y_shift` mask heights down,
+    /// and scaled by `scale`.
+    pub fn new(point: MaskPointType, x_shift: f64, y_shift: f64, scale: f64) -> Self {
+        MaskPosition { point, x_shift, y_shift, scale }
+    }
+
     pub(crate) fn parse(coords: &base::MaskCoords) -> Option<MaskPosition> {
         let base::MaskCoords::MaskCoords(c) = coords;
         let point = match c.n {
@@ -52,5 +58,12 @@ mod tests {
 
         let unknown = base::MaskCoords::MaskCoords(Box::new(types::MaskCoords { n: 4, x: 0.0, y: 0.0, zoom: 1.0 }));
         assert_eq!(MaskPosition::parse(&unknown), None);
+    }
+
+    #[test]
+    fn new_writes_its_values() {
+        let eyes = MaskPosition::new(MaskPointType::Eyes, 0.5, -0.25, 1.5);
+        let base::MaskCoords::MaskCoords(raw) = eyes.write();
+        assert_eq!(*raw, types::MaskCoords { n: 1, x: 0.5, y: -0.25, zoom: 1.5 });
     }
 }

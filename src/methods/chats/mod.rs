@@ -323,7 +323,7 @@ mod statistics_tests {
         assert_eq!(sent(rx, client.get_statistical_graph("t", None)).await, stats::LoadAsyncGraph::CONSTRUCTOR_ID);
         let mut forwards = client.get_message_public_forwards(channel, 1);
         assert_eq!(sent(rx, forwards.next()).await, stats::GetMessagePublicForwards::CONSTRUCTOR_ID);
-        let filter = ChatEventFilter { deleted_messages: true, ..Default::default() };
+        let filter = ChatEventFilter::new().deleted_messages(true);
         let mut log = client.get_chat_event_log(channel).filter(filter).query("spam");
         assert_eq!(sent(rx, log.next()).await, channels::GetAdminLog::CONSTRUCTOR_ID);
 
