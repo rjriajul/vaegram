@@ -7,6 +7,7 @@ use crate::types::PeerRef;
 pub(crate) const GENERAL_TOPIC_ID: i32 = 1;
 
 /// Request built by [`Client::edit_forum_topic`].
+#[must_use = "a request does nothing until it is awaited"]
 pub struct EditForumTopic<'a> {
     client: &'a Client,
     chat_id: PeerRef,

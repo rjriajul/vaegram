@@ -5,6 +5,7 @@ use crate::types::Sticker;
 
 /// Request built by [`Client::search_stickers`].
 pub struct SearchStickers<'a> {
+#[must_use = "a request does nothing until it is awaited"]
     client: &'a Client,
     request: functions::messages::SearchStickers,
 }

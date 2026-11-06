@@ -6,6 +6,7 @@ use crate::types::StickerSet;
 
 /// Request built by [`Client::get_archived_sticker_sets`].
 pub struct GetArchivedStickerSets<'a> {
+#[must_use = "a request does nothing until it is awaited"]
     client: &'a Client,
     request: functions::messages::GetArchivedStickers,
 }

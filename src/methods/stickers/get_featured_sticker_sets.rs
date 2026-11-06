@@ -7,6 +7,7 @@ const OLD_FEATURED_LIMIT: i32 = 100;
 
 /// Request built by [`Client::get_featured_sticker_sets`].
 pub struct GetFeaturedStickerSets<'a> {
+#[must_use = "a request does nothing until it is awaited"]
     client: &'a Client,
     custom_emoji: bool,
     offset: Option<i32>,

@@ -6,6 +6,7 @@ use crate::raw::{base, functions};
 use crate::types::{Chat, ForumTopic, PeerRef};
 
 /// Request built by [`Client::create_forum_topic`]. Awaiting it returns the new [`ForumTopic`].
+#[must_use = "a request does nothing until it is awaited"]
 pub struct CreateForumTopic<'a> {
     client: &'a Client,
     chat_id: PeerRef,

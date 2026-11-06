@@ -4,6 +4,7 @@ use crate::raw::{base, functions};
 use crate::types::StickerSet;
 
 /// Request built by [`Client::search_sticker_sets`].
+#[must_use = "a request does nothing until it is awaited"]
 pub struct SearchStickerSets<'a> {
     client: &'a Client,
     query: String,
