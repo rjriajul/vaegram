@@ -46,9 +46,9 @@ impl KeyboardButtonRequestChat {
         }
     }
 
-    /// Asks for a channel instead of a group.
-    pub fn chat_is_channel(mut self) -> Self {
-        self.chat_is_channel = true;
+    /// Sets whether to ask for a channel instead of a group; `true` asks for a channel.
+    pub fn chat_is_channel(mut self, chat_is_channel: bool) -> Self {
+        self.chat_is_channel = chat_is_channel;
         self
     }
 
@@ -64,9 +64,9 @@ impl KeyboardButtonRequestChat {
         self
     }
 
-    /// Limits chats to those the user owns.
-    pub fn chat_is_created(mut self) -> Self {
-        self.chat_is_created = true;
+    /// Sets whether chats are limited to those the user owns; `true` limits them.
+    pub fn chat_is_created(mut self, chat_is_created: bool) -> Self {
+        self.chat_is_created = chat_is_created;
         self
     }
 
@@ -82,27 +82,27 @@ impl KeyboardButtonRequestChat {
         self
     }
 
-    /// Limits groups to those the bot is a member of. Ignored for channels.
-    pub fn bot_is_member(mut self) -> Self {
-        self.bot_is_member = true;
+    /// Sets whether groups are limited to those the bot is a member of; `true` limits them. Ignored for channels.
+    pub fn bot_is_member(mut self, bot_is_member: bool) -> Self {
+        self.bot_is_member = bot_is_member;
         self
     }
 
-    /// Also shares the chat's title.
-    pub fn request_title(mut self) -> Self {
-        self.request_title = true;
+    /// Sets whether the chat's title is shared too; `true` shares it.
+    pub fn request_title(mut self, request_title: bool) -> Self {
+        self.request_title = request_title;
         self
     }
 
-    /// Also shares the chat's username.
-    pub fn request_username(mut self) -> Self {
-        self.request_username = true;
+    /// Sets whether the chat's username is shared too; `true` shares it.
+    pub fn request_username(mut self, request_username: bool) -> Self {
+        self.request_username = request_username;
         self
     }
 
-    /// Also shares the chat's photo.
-    pub fn request_photo(mut self) -> Self {
-        self.request_photo = true;
+    /// Sets whether the chat's photo is shared too; `true` shares it.
+    pub fn request_photo(mut self, request_photo: bool) -> Self {
+        self.request_photo = request_photo;
         self
     }
 
@@ -164,5 +164,31 @@ impl KeyboardButtonRequestChat {
         }
         (request.request_title, request.request_username, request.request_photo) = requested;
         Some(request)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bool_setters_round_trip_their_fields() {
+        let on = KeyboardButtonRequestChat::new(1)
+            .chat_is_channel(true)
+            .chat_is_created(true)
+            .bot_is_member(true)
+            .request_title(true)
+            .request_username(true)
+            .request_photo(true);
+        assert!(on.chat_is_channel && on.chat_is_created && on.bot_is_member);
+        assert!(on.request_title && on.request_username && on.request_photo);
+        let off = on
+            .chat_is_channel(false)
+            .chat_is_created(false)
+            .bot_is_member(false)
+            .request_title(false)
+            .request_username(false)
+            .request_photo(false);
+        assert_eq!(off, KeyboardButtonRequestChat::new(1));
     }
 }

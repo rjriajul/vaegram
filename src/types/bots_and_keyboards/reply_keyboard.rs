@@ -29,10 +29,10 @@ impl ReplyKeyboardMarkup {
         ReplyKeyboardMarkup { rows: rows.into_iter().collect(), resize: true, ..Default::default() }
     }
 
-    /// Hides the keyboard after one button press.
+    /// Sets whether the keyboard hides after one button press; `true` hides it.
     #[must_use]
-    pub fn one_time(mut self) -> Self {
-        self.one_time = true;
+    pub fn one_time(mut self, one_time: bool) -> Self {
+        self.one_time = one_time;
         self
     }
 
@@ -43,10 +43,10 @@ impl ReplyKeyboardMarkup {
         self
     }
 
-    /// Also forces the user to reply, as [`ForceReply`] does.
+    /// Sets whether the keyboard also forces the user to reply, as [`ForceReply`] does; `true` forces it.
     #[must_use]
-    pub fn force_reply(mut self) -> Self {
-        self.force_reply = true;
+    pub fn force_reply(mut self, force_reply: bool) -> Self {
+        self.force_reply = force_reply;
         self
     }
 
@@ -148,15 +148,15 @@ impl KeyboardButton {
         }
     }
 
-    /// Makes the button send the user's phone number when pressed.
-    pub fn request_contact(mut self) -> Self {
-        self.request_contact = true;
+    /// Sets whether the button sends the user's phone number when pressed; `true` sends it.
+    pub fn request_contact(mut self, request_contact: bool) -> Self {
+        self.request_contact = request_contact;
         self
     }
 
-    /// Makes the button send the user's current location when pressed.
-    pub fn request_location(mut self) -> Self {
-        self.request_location = true;
+    /// Sets whether the button sends the user's current location when pressed; `true` sends it.
+    pub fn request_location(mut self, request_location: bool) -> Self {
+        self.request_location = request_location;
         self
     }
 
@@ -358,7 +358,7 @@ mod tests {
     fn force_reply_maps_to_raw_flag() {
         let plain = ReplyKeyboardMarkup::new([vec![KeyboardButton::new("a")]]);
         assert!(!keyboard(plain.write()).force_reply);
-        let raw = plain.force_reply().write();
+        let raw = plain.force_reply(true).write();
         assert!(keyboard(raw.clone()).force_reply);
         let bytes = raw.to_bytes();
         assert_eq!(bytes[..4], 0x85dd99d1u32.to_le_bytes());
@@ -389,6 +389,19 @@ mod tests {
         assert!(plain.resize && !plain.persistent && !plain.selective && !plain.single_use);
         let set = keyboard(markup.resize(false).persistent(true).selective(true).write());
         assert!(!set.resize && set.persistent && set.selective && !set.single_use);
+    }
+
+    #[test]
+    fn bool_setters_round_trip_their_fields() {
+        let markup = ReplyKeyboardMarkup::new([vec![KeyboardButton::new("a")]]);
+        let on = markup.clone().one_time(true).force_reply(true);
+        assert!(on.one_time && on.force_reply);
+        let off = on.one_time(false).force_reply(false);
+        assert_eq!(off, markup);
+        let button = KeyboardButton::new("b").request_contact(true).request_location(true);
+        assert!(button.request_contact && button.request_location);
+        let button = button.request_contact(false).request_location(false);
+        assert_eq!(button, KeyboardButton::new("b"));
     }
 
     #[test]

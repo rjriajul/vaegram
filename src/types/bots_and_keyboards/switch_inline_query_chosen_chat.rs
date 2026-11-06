@@ -21,27 +21,27 @@ impl SwitchInlineQueryChosenChat {
         SwitchInlineQueryChosenChat { query: query.into(), ..Default::default() }
     }
 
-    /// Lets the user pick private chats with users.
-    pub fn allow_user_chats(mut self) -> Self {
-        self.allow_user_chats = true;
+    /// Sets whether the user can pick private chats with users; `true` allows them.
+    pub fn allow_user_chats(mut self, allow_user_chats: bool) -> Self {
+        self.allow_user_chats = allow_user_chats;
         self
     }
 
-    /// Lets the user pick private chats with bots.
-    pub fn allow_bot_chats(mut self) -> Self {
-        self.allow_bot_chats = true;
+    /// Sets whether the user can pick private chats with bots; `true` allows them.
+    pub fn allow_bot_chats(mut self, allow_bot_chats: bool) -> Self {
+        self.allow_bot_chats = allow_bot_chats;
         self
     }
 
-    /// Lets the user pick groups and supergroups.
-    pub fn allow_group_chats(mut self) -> Self {
-        self.allow_group_chats = true;
+    /// Sets whether the user can pick groups and supergroups; `true` allows them.
+    pub fn allow_group_chats(mut self, allow_group_chats: bool) -> Self {
+        self.allow_group_chats = allow_group_chats;
         self
     }
 
-    /// Lets the user pick channels.
-    pub fn allow_channel_chats(mut self) -> Self {
-        self.allow_channel_chats = true;
+    /// Sets whether the user can pick channels; `true` allows them.
+    pub fn allow_channel_chats(mut self, allow_channel_chats: bool) -> Self {
+        self.allow_channel_chats = allow_channel_chats;
         self
     }
 
@@ -79,5 +79,22 @@ impl SwitchInlineQueryChosenChat {
             }
         }
         chosen
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allow_setters_round_trip_their_fields() {
+        let on = SwitchInlineQueryChosenChat::new("q")
+            .allow_user_chats(true)
+            .allow_bot_chats(true)
+            .allow_group_chats(true)
+            .allow_channel_chats(true);
+        assert!(on.allow_user_chats && on.allow_bot_chats && on.allow_group_chats && on.allow_channel_chats);
+        let off = on.allow_user_chats(false).allow_bot_chats(false).allow_group_chats(false).allow_channel_chats(false);
+        assert_eq!(off, SwitchInlineQueryChosenChat::new("q"));
     }
 }

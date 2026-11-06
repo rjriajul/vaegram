@@ -28,7 +28,7 @@ async fn sends_and_reads_inline_kinds() {
         InlineKeyboardButton::web_app("app", WebAppInfo::new("https://telegram.org")),
         InlineKeyboardButton::switch_inline_query_chosen_chat(
             "chosen",
-            SwitchInlineQueryChosenChat::new("q").allow_user_chats().allow_group_chats(),
+            SwitchInlineQueryChosenChat::new("q").allow_user_chats(true).allow_group_chats(true),
         ),
     ]]);
     let sent = bot.send_message(chat, "inline kinds").reply_markup(markup.clone()).await.unwrap();

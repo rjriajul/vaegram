@@ -238,10 +238,10 @@ mod tests {
             ],
         ]);
         let rows = [
-            vec![KeyboardButton::new("phone").request_contact(), KeyboardButton::new("geo").request_location()],
+            vec![KeyboardButton::new("phone").request_contact(true), KeyboardButton::new("geo").request_location(true)],
             vec![KeyboardButton::new("plain").style(ButtonStyle::Success)],
         ];
-        let keyboard = ReplyKeyboardMarkup::new(rows).one_time().placeholder("pick");
+        let keyboard = ReplyKeyboardMarkup::new(rows).one_time(true).placeholder("pick");
         let markups: [ReplyMarkup; 4] = [
             inline.into(),
             keyboard.into(),
@@ -265,22 +265,22 @@ mod tests {
                         .user_is_bot(false)
                         .user_is_premium(true)
                         .max_quantity(3)
-                        .request_name()
-                        .request_photo(),
+                        .request_name(true)
+                        .request_photo(true),
                 ),
                 KeyboardButton::new("group").request_chat(
                     KeyboardButtonRequestChat::new(2)
                         .chat_is_forum(true)
                         .chat_has_username(false)
-                        .chat_is_created()
-                        .bot_is_member()
+                        .chat_is_created(true)
+                        .bot_is_member(true)
                         .user_administrator_rights(rights())
                         .bot_administrator_rights(rights())
-                        .request_title()
-                        .request_username(),
+                        .request_title(true)
+                        .request_username(true),
                 ),
                 KeyboardButton::new("channel")
-                    .request_chat(KeyboardButtonRequestChat::new(3).chat_is_channel().chat_has_username(true)),
+                    .request_chat(KeyboardButtonRequestChat::new(3).chat_is_channel(true).chat_has_username(true)),
             ],
             vec![
                 KeyboardButton::new("poll").request_poll(KeyboardButtonPollType::default()),
@@ -297,14 +297,17 @@ mod tests {
                 InlineKeyboardButton::web_app("app", WebAppInfo::new("https://a.b/app")),
                 InlineKeyboardButton::login_url(
                     "login",
-                    LoginUrl::new("https://a.b/login").forward_text("Log in").request_write_access(),
+                    LoginUrl::new("https://a.b/login").forward_text("Log in").request_write_access(true),
                 ),
                 InlineKeyboardButton::user_profile("user", 7),
             ],
             vec![
                 InlineKeyboardButton::switch_inline_query_chosen_chat(
                     "chosen",
-                    SwitchInlineQueryChosenChat::new("q").allow_user_chats().allow_group_chats().allow_channel_chats(),
+                    SwitchInlineQueryChosenChat::new("q")
+                        .allow_user_chats(true)
+                        .allow_group_chats(true)
+                        .allow_channel_chats(true),
                 ),
                 InlineKeyboardButton::switch_inline_query_chosen_chat("none", SwitchInlineQueryChosenChat::new("")),
                 InlineKeyboardButton::pay("pay"),
@@ -339,7 +342,7 @@ mod tests {
     #[test]
     fn chosen_chat_writes_peer_types() {
         use base::InlineQueryPeerType as P;
-        let chosen = SwitchInlineQueryChosenChat::new("q").allow_bot_chats().allow_group_chats().write();
+        let chosen = SwitchInlineQueryChosenChat::new("q").allow_bot_chats(true).allow_group_chats(true).write();
         let base::InlineButtonType::InlineButtonTypeSwitchInline(switch) = chosen else { panic!("not a switch") };
         assert_eq!(
             (switch.same_peer, switch.peer_types),

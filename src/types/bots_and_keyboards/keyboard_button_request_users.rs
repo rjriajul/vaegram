@@ -51,21 +51,21 @@ impl KeyboardButtonRequestUsers {
         self
     }
 
-    /// Also shares the users' names.
-    pub fn request_name(mut self) -> Self {
-        self.request_name = true;
+    /// Sets whether the users' names are shared too; `true` shares them.
+    pub fn request_name(mut self, request_name: bool) -> Self {
+        self.request_name = request_name;
         self
     }
 
-    /// Also shares the users' usernames.
-    pub fn request_username(mut self) -> Self {
-        self.request_username = true;
+    /// Sets whether the users' usernames are shared too; `true` shares them.
+    pub fn request_username(mut self, request_username: bool) -> Self {
+        self.request_username = request_username;
         self
     }
 
-    /// Also shares the users' photos.
-    pub fn request_photo(mut self) -> Self {
-        self.request_photo = true;
+    /// Sets whether the users' photos are shared too; `true` shares them.
+    pub fn request_photo(mut self, request_photo: bool) -> Self {
+        self.request_photo = request_photo;
         self
     }
 
@@ -98,5 +98,18 @@ impl KeyboardButtonRequestUsers {
             request_username: requested.1,
             request_photo: requested.2,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bool_setters_round_trip_their_fields() {
+        let on = KeyboardButtonRequestUsers::new(1).request_name(true).request_username(true).request_photo(true);
+        assert!(on.request_name && on.request_username && on.request_photo);
+        let off = on.request_name(false).request_username(false).request_photo(false);
+        assert_eq!(off, KeyboardButtonRequestUsers::new(1));
     }
 }

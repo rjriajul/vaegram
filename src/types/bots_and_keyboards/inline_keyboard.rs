@@ -8,6 +8,7 @@ use crate::types::{LoginUrl, PeerRef, SwitchInlineQueryChosenChat, WebAppInfo};
 pub struct InlineKeyboardMarkup {
     /// The buttons, one inner `Vec` per row.
     pub rows: Vec<Vec<InlineKeyboardButton>>,
+    /// Also forces the user to reply, as [`ForceReply`](crate::types::ForceReply) does.
     pub force_reply: bool,
 }
 
@@ -17,8 +18,11 @@ impl InlineKeyboardMarkup {
         InlineKeyboardMarkup { rows: rows.into_iter().collect(), force_reply: false }
     }
 
-    pub fn force_reply(mut self) -> Self {
-        self.force_reply = true;
+    /// Sets whether the keyboard also forces the user to reply, as [`ForceReply`](crate::types::ForceReply) does;
+    /// `true` forces it.
+    #[must_use]
+    pub fn force_reply(mut self, force_reply: bool) -> Self {
+        self.force_reply = force_reply;
         self
     }
 
@@ -288,11 +292,18 @@ mod tests {
         let client = Client::offline();
         let plain = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("a", "b")]]);
         assert!(!inline(plain.write(&client).await.unwrap()).force_reply);
-        let raw = plain.force_reply().write(&client).await.unwrap();
+        let raw = plain.force_reply(true).write(&client).await.unwrap();
         assert!(inline(raw.clone()).force_reply);
         let bytes = raw.to_bytes();
         assert_eq!(bytes[..4], 0xb2b15770u32.to_le_bytes());
         assert_eq!(bytes[4..8], (1u32 << 5).to_le_bytes());
+    }
+
+    #[test]
+    fn force_reply_setter_round_trips_the_field() {
+        let markup = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("a", "b")]]);
+        assert!(markup.clone().force_reply(true).force_reply);
+        assert!(!markup.force_reply(true).force_reply(false).force_reply);
     }
 
     #[test]

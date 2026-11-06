@@ -32,9 +32,9 @@ impl LoginUrl {
         self
     }
 
-    /// Asks the user to let the bot write to them.
-    pub fn request_write_access(mut self) -> Self {
-        self.request_write_access = true;
+    /// Sets whether the user is asked to let the bot write to them; `true` asks.
+    pub fn request_write_access(mut self, request_write_access: bool) -> Self {
+        self.request_write_access = request_write_access;
         self
     }
 
@@ -45,5 +45,17 @@ impl LoginUrl {
             url: self.url.clone(),
             bot,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_write_access_setter_round_trips_the_field() {
+        let url = LoginUrl::new("https://example.com").request_write_access(true);
+        assert!(url.request_write_access);
+        assert_eq!(url.request_write_access(false), LoginUrl::new("https://example.com"));
     }
 }
