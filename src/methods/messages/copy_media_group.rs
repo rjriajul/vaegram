@@ -7,7 +7,7 @@ use crate::crypto::random;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
-use crate::types::{Message, PeerRef};
+use crate::types::{Message, PeerRef, Text};
 
 #[must_use = "a request does nothing until it is awaited"]
 /// Request built by [`Client::copy_media_group`]. Awaiting it returns the new [`Message`]s, sorted by id.
@@ -16,7 +16,7 @@ pub struct CopyMediaGroup<'a> {
     chat_id: PeerRef,
     from_chat_id: PeerRef,
     message_id: i32,
-    captions: BTreeMap<usize, String>,
+    captions: BTreeMap<usize, Text>,
     parse_mode: Option<ParseMode>,
     options: SendOptions,
 }
@@ -43,7 +43,7 @@ impl Client {
 
 impl CopyMediaGroup<'_> {
     /// Replaces the caption of the album item at `position`; `""` removes it. Other items keep theirs.
-    pub fn caption(mut self, position: usize, caption: impl Into<String>) -> Self {
+    pub fn caption(mut self, position: usize, caption: impl Into<Text>) -> Self {
         self.captions.insert(position, caption.into());
         self
     }
@@ -65,7 +65,7 @@ impl CopyMediaGroup<'_> {
             let media = media.ok_or(Error::Unexpected("getMessages returned an album item without media"))?;
             let (message, entities) = match self.captions.remove(&position) {
                 Some(caption) => {
-                    let (text, entities) = client.parse_text(&caption, self.parse_mode).await?;
+                    let (text, entities) = client.write_text(caption, self.parse_mode).await?;
                     (text, (!entities.is_empty()).then_some(entities))
                 }
                 None => (source.message, input_entities(client, source.entities).await?),

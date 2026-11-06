@@ -39,7 +39,7 @@ mod tests {
     use crate::errors::Error;
     use crate::raw::functions::stories;
     use crate::raw::{Serializable, base, types};
-    use crate::types::{Media, ReactionType, Story, StoryViewer};
+    use crate::types::{Media, ReactionType, Story, StoryViewer, Text};
     use crate::utils::{get_channel_id, get_peer};
 
     #[tokio::test]
@@ -285,6 +285,15 @@ mod tests {
         let expected = stories::EditStory {
             caption: Some("new".into()),
             entities: Some(vec![base::MessageEntity::MessageEntityItalic(italic)]),
+            ..edit(3)
+        };
+        assert_eq!(rx.try_recv().unwrap(), expected.to_bytes());
+
+        let _ = client.edit_story_caption(channel, 3, Text::new().bold("new")).await;
+        let bold = types::MessageEntityBold { offset: 0, length: 3 };
+        let expected = stories::EditStory {
+            caption: Some("new".into()),
+            entities: Some(vec![base::MessageEntity::MessageEntityBold(bold)]),
             ..edit(3)
         };
         assert_eq!(rx.try_recv().unwrap(), expected.to_bytes());

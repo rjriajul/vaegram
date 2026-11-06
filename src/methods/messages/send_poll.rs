@@ -4,7 +4,7 @@ use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::types::messages_and_media::PollMedia;
-use crate::types::{InputPollMedia, InputPollOption, Message, PeerRef};
+use crate::types::{InputPollMedia, InputPollOption, Message, PeerRef, Text};
 
 /// Request built by [`Client::send_poll`].
 #[must_use = "a request does nothing until it is awaited"]
@@ -13,7 +13,7 @@ pub struct SendPoll<'a> {
     chat_id: PeerRef,
     poll: types::Poll,
     correct_answers: Option<Vec<i32>>,
-    explanation: Option<String>,
+    explanation: Option<Text>,
     explanation_parse_mode: Option<ParseMode>,
     options: SendOptions,
     poll_media: PollMedia<'a>,
@@ -74,7 +74,7 @@ impl<'a> SendPoll<'a> {
     }
 
     /// Text shown after a wrong answer in a quiz.
-    pub fn explanation(mut self, text: impl Into<String>) -> Self {
+    pub fn explanation(mut self, text: impl Into<Text>) -> Self {
         self.explanation = Some(text.into());
         self
     }
@@ -138,7 +138,7 @@ impl<'a> SendPoll<'a> {
             return Err(Error::InvalidArgument("a poll takes 1 to 12 options"));
         }
         let solution = match self.explanation.take() {
-            Some(text) => Some(self.client.parse_text(&text, self.explanation_parse_mode).await?),
+            Some(text) => Some(self.client.write_text(text, self.explanation_parse_mode).await?),
             None => None,
         };
         let (client, chat_id, options) = (self.client, self.chat_id.clone(), std::mem::take(&mut self.options));
@@ -196,7 +196,7 @@ mod tests {
     use crate::Client;
     use crate::errors::Error;
     use crate::raw::{Serializable, base, types};
-    use crate::types::{FileSource, InputMedia, InputPollMedia, InputPollOption};
+    use crate::types::{FileSource, InputMedia, InputPollMedia, InputPollOption, Text};
 
     #[test]
     fn maps_quiz_and_voting_limits() {
@@ -294,6 +294,17 @@ mod tests {
     #[tokio::test]
     async fn poll_media_uploads_side_by_side() {
         assert_eq!(attach_url_documents().await.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_built_explanation_keeps_its_entities() {
+        let (client, mut sent) = Client::recording();
+        let _ = client.send_poll(-5, "2 + 2?", ["3", "4"]).quiz([1]).explanation(Text::new().bold("hi")).await;
+        let body = sent.try_recv().expect("no request sent");
+        let bold = vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 })];
+        let mut solution = String::from("hi").to_bytes();
+        solution.extend(bold.to_bytes());
+        assert!(body.windows(solution.len()).any(|w| w == solution));
     }
 
     #[tokio::test]

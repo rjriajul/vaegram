@@ -4,7 +4,7 @@ use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions};
-use crate::types::{InputStoryContent, Story, StoryArea};
+use crate::types::{InputStoryContent, Story, StoryArea, Text};
 
 /// Request built by [`Client::post_story`]. Awaiting it returns the posted [`Story`].
 #[must_use = "a request does nothing until it is awaited"]
@@ -13,7 +13,7 @@ pub struct PostStory<'a> {
     business_connection_id: String,
     content: InputStoryContent<'a>,
     active_period: i32,
-    caption: String,
+    caption: Text,
     parse_mode: Option<ParseMode>,
     areas: Vec<StoryArea>,
     post_to_chat_page: bool,
@@ -35,7 +35,7 @@ impl Client {
             business_connection_id: business_connection_id.into(),
             content,
             active_period,
-            caption: String::new(),
+            caption: Text::new(),
             parse_mode: None,
             areas: Vec::new(),
             post_to_chat_page: false,
@@ -52,7 +52,7 @@ impl Client {
 
 impl PostStory<'_> {
     /// Adds a caption under the story, parsed with the request's parse mode.
-    pub fn caption(mut self, caption: impl Into<String>) -> Self {
+    pub fn caption(mut self, caption: impl Into<Text>) -> Self {
         self.caption = caption.into();
         self
     }
@@ -78,7 +78,7 @@ impl PostStory<'_> {
     async fn send(self) -> Result<Story> {
         let client = self.client;
         let peer = client.business_user(&self.business_connection_id).await?;
-        let (caption, entities) = client.parse_text(&self.caption, self.parse_mode).await?;
+        let (caption, entities) = client.write_text(self.caption, self.parse_mode).await?;
         let request = functions::stories::SendStory {
             pinned: self.post_to_chat_page,
             noforwards: self.protect_content,

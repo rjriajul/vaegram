@@ -3,7 +3,7 @@ use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::methods::messages::caption_setters;
 use crate::raw::{base, types};
-use crate::types::PeerRef;
+use crate::types::{PeerRef, Text};
 use crate::utils::input_user;
 
 /// Request built by [`Client::gift_premium_subscription`].
@@ -12,7 +12,7 @@ pub struct GiftPremiumSubscription<'a> {
     client: &'a Client,
     user_id: PeerRef,
     month_count: i32,
-    text: Option<String>,
+    text: Option<Text>,
     parse_mode: Option<ParseMode>,
 }
 
@@ -31,7 +31,7 @@ impl Client {
 
 impl GiftPremiumSubscription<'_> {
     /// Adds a message that the recipient sees with the gift.
-    pub fn text(mut self, text: impl Into<String>) -> Self {
+    pub fn text(mut self, text: impl Into<Text>) -> Self {
         self.text = Some(text.into());
         self
     }
@@ -42,7 +42,7 @@ impl GiftPremiumSubscription<'_> {
         let invoice = types::InputInvoicePremiumGiftStars {
             user_id: input_user(peer).ok_or(Error::InvalidArgument("Premium can only be gifted to a user"))?,
             months: self.month_count,
-            message: client.parse_text_with_entities(self.text.as_deref(), self.parse_mode).await?,
+            message: client.parse_text_with_entities(self.text, self.parse_mode).await?,
         };
         client.pay_with_stars(None, base::InputInvoice::InputInvoicePremiumGiftStars(Box::new(invoice))).await
     }

@@ -3,7 +3,7 @@ use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::methods::geo_point;
 use crate::raw::{base, types};
-use crate::types::{InputInvoice, InputRichMessage};
+use crate::types::{InputInvoice, InputRichMessage, Text};
 
 /// Content of the message sent when the user picks an inline result.
 #[derive(Debug, Clone, PartialEq)]
@@ -11,7 +11,7 @@ use crate::types::{InputInvoice, InputRichMessage};
 pub enum InputMessageContent {
     /// A text message.
     Text {
-        text: String,
+        text: Text,
         parse_mode: Option<ParseMode>,
         no_webpage: bool,
         invert_media: bool,
@@ -58,21 +58,21 @@ pub enum InputMessageContent {
 
 impl InputMessageContent {
     /// Creates text content parsed with the client's default parse mode.
-    pub fn text(text: impl Into<String>) -> Self {
+    pub fn text(text: impl Into<Text>) -> Self {
         InputMessageContent::formatted(text.into(), None)
     }
 
     /// Creates text content parsed as HTML.
-    pub fn html(text: impl Into<String>) -> Self {
+    pub fn html(text: impl Into<Text>) -> Self {
         InputMessageContent::formatted(text.into(), Some(ParseMode::Html))
     }
 
     /// Creates text content parsed as Markdown.
-    pub fn markdown(text: impl Into<String>) -> Self {
+    pub fn markdown(text: impl Into<Text>) -> Self {
         InputMessageContent::formatted(text.into(), Some(ParseMode::Markdown))
     }
 
-    fn formatted(text: String, parse_mode: Option<ParseMode>) -> Self {
+    fn formatted(text: Text, parse_mode: Option<ParseMode>) -> Self {
         InputMessageContent::Text {
             text,
             parse_mode,
@@ -139,7 +139,7 @@ impl InputMessageContent {
                 prefer_large_media,
                 prefer_small_media,
             } => {
-                let (message, entities) = client.parse_text(&text, parse_mode).await?;
+                let (message, entities) = client.write_text(text, parse_mode).await?;
                 let entities = (!entities.is_empty()).then_some(entities);
                 match preview_url.filter(|_| !no_webpage) {
                     // `optional` keeps the send from failing when Telegram can't build the preview.
@@ -212,7 +212,7 @@ impl InputMessageContent {
 
 impl From<String> for InputMessageContent {
     fn from(text: String) -> Self {
-        InputMessageContent::formatted(text, Some(ParseMode::Disabled))
+        InputMessageContent::formatted(text.into(), Some(ParseMode::Disabled))
     }
 }
 

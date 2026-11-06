@@ -4,7 +4,7 @@ use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::types::messages_and_media::{input_document_of, input_photo_of};
-use crate::types::{Message, PeerRef};
+use crate::types::{Message, PeerRef, Text};
 
 #[must_use = "a request does nothing until it is awaited"]
 /// Request built by [`Client::copy_message`]. Awaiting it returns the new [`Message`].
@@ -13,7 +13,7 @@ pub struct CopyMessage<'a> {
     chat_id: PeerRef,
     from_chat_id: PeerRef,
     message_id: i32,
-    caption: Option<String>,
+    caption: Option<Text>,
     parse_mode: Option<ParseMode>,
     options: SendOptions,
 }
@@ -42,7 +42,7 @@ impl Client {
 
 impl CopyMessage<'_> {
     /// Replaces the caption of the copied media. Ignored when the source has no media.
-    pub fn caption(mut self, caption: impl Into<String>) -> Self {
+    pub fn caption(mut self, caption: impl Into<Text>) -> Self {
         self.caption = Some(caption.into());
         self
     }
@@ -54,9 +54,9 @@ impl CopyMessage<'_> {
         self.options.no_webpage = !matches!(source.media, Some(base::MessageMedia::MessageMediaWebPage(_)));
         self.options.invert_media = source.invert_media;
         let media = source.media.map(input_media).transpose()?.flatten();
-        let text = match (&self.caption, media.is_some()) {
+        let text = match (self.caption.take(), media.is_some()) {
             (Some(caption), true) => {
-                let (text, entities) = client.parse_text(caption, self.parse_mode).await?;
+                let (text, entities) = client.write_text(caption, self.parse_mode).await?;
                 (text, (!entities.is_empty()).then_some(entities))
             }
             _ => (source.message, input_entities(client, source.entities).await?),

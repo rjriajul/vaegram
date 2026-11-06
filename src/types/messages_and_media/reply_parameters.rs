@@ -2,14 +2,14 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
-use crate::types::{Message, PeerRef, Story};
+use crate::types::{Message, PeerRef, Story, Text};
 
 /// What a new message replies to: a message or a story, with an optional quote.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplyParameters {
     message_id: i32,
     chat_id: Option<PeerRef>,
-    quote: Option<String>,
+    quote: Option<Text>,
     quote_parse_mode: Option<ParseMode>,
     quote_position: Option<i32>,
     checklist_task_id: Option<i32>,
@@ -48,7 +48,7 @@ impl ReplyParameters {
     ///
     /// The quote is parsed with the client's default parse mode unless
     /// [`quote_parse_mode`](Self::quote_parse_mode) is set, then trimmed.
-    pub fn quote(mut self, quote: impl Into<String>) -> Self {
+    pub fn quote(mut self, quote: impl Into<Text>) -> Self {
         self.quote = Some(quote.into());
         self
     }
@@ -87,7 +87,7 @@ impl ReplyParameters {
         };
         let (quote_text, quote_entities) = match &self.quote {
             Some(quote) => {
-                let (text, entities) = client.parse_text(quote, self.quote_parse_mode).await?;
+                let (text, entities) = client.write_text(quote.clone(), self.quote_parse_mode).await?;
                 (Some(text), (!entities.is_empty()).then_some(entities))
             }
             None => (None, None),
@@ -179,5 +179,14 @@ mod tests {
             quote_rich: None,
         };
         assert_eq!(written, base::InputReplyTo::InputReplyToMessage(Box::new(expected)));
+    }
+
+    #[tokio::test]
+    async fn a_built_quote_keeps_its_entities() {
+        let (client, _rx, _) = seeded();
+        let written = ReplyParameters::new(4).quote(Text::new().bold("hi")).write(&client, -5).await.unwrap();
+        let base::InputReplyTo::InputReplyToMessage(reply) = written else { panic!("not a message reply") };
+        let bold = base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 });
+        assert_eq!((reply.quote_text.as_deref(), reply.quote_entities), (Some("hi"), Some(vec![bold])));
     }
 }

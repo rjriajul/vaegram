@@ -1,7 +1,7 @@
 use crate::enums::StoriesPrivacyRules;
 use crate::errors::Result;
 use crate::methods::{CopyStory, EditStoryCaption, ForwardStory};
-use crate::types::{InputStoryContent, PeerRef, ReactionType, Story};
+use crate::types::{InputStoryContent, PeerRef, ReactionType, Story, Text};
 
 impl Story {
     /// Posts this story's file to `chat_id` again.
@@ -21,7 +21,7 @@ impl Story {
     }
 
     /// Edits the story's caption. An empty caption removes it.
-    pub fn edit_caption(&self, caption: impl Into<String>) -> EditStoryCaption<'_> {
+    pub fn edit_caption(&self, caption: impl Into<Text>) -> EditStoryCaption<'_> {
         self.client().edit_story_caption(self.chat.id, self.id, caption)
     }
 
@@ -58,7 +58,7 @@ mod tests {
     use crate::enums::StoriesPrivacyRules;
     use crate::raw::functions::{messages, stories, upload};
     use crate::raw::{Identifiable, Serializable, base, types};
-    use crate::types::{InputStoryContent, ReactionType, Story, Upload};
+    use crate::types::{InputStoryContent, ReactionType, Story, Text, Upload};
     use crate::utils::get_peer;
 
     fn edit() -> stories::EditStory {
@@ -96,6 +96,15 @@ mod tests {
         let expected = stories::EditStory {
             caption: Some("new".into()),
             entities: Some(vec![base::MessageEntity::MessageEntityItalic(italic)]),
+            ..edit()
+        };
+        assert_eq!(rx.try_recv().unwrap(), expected.to_bytes());
+
+        let _ = story.edit_caption(Text::new().bold("new")).await;
+        let bold = types::MessageEntityBold { offset: 0, length: 3 };
+        let expected = stories::EditStory {
+            caption: Some("new".into()),
+            entities: Some(vec![base::MessageEntity::MessageEntityBold(bold)]),
             ..edit()
         };
         assert_eq!(rx.try_recv().unwrap(), expected.to_bytes());

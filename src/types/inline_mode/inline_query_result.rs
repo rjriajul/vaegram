@@ -11,6 +11,7 @@ use crate::types::{
     InlineQueryResultCachedVoice, InlineQueryResultContact, InlineQueryResultDocument, InlineQueryResultGame,
     InlineQueryResultGif, InlineQueryResultLocation, InlineQueryResultMpeg4Gif, InlineQueryResultPhoto,
     InlineQueryResultVenue, InlineQueryResultVideo, InlineQueryResultVoice, InputMessageContent, Photo, ReplyMarkup,
+    Text,
 };
 
 use super::input_message_content::{web_document, web_photo};
@@ -95,7 +96,7 @@ macro_rules! setters {
     };
     (@caption) => {
         /// Caption of the sent media, in the client's default parse mode unless `parse_mode` is set.
-        pub fn caption(mut self, caption: impl Into<String>) -> Self {
+        pub fn caption(mut self, caption: impl Into<$crate::types::Text>) -> Self {
             self.parts.caption = caption.into();
             self
         }
@@ -192,7 +193,7 @@ pub(super) struct Parts {
     pub(super) thumbnail_url: Option<String>,
     pub(super) file: Option<WebFile>,
     pub(super) stored: Option<Stored>,
-    pub(super) caption: String,
+    pub(super) caption: Text,
     pub(super) parse_mode: Option<ParseMode>,
     pub(super) caption_above: bool,
     pub(super) reply_markup: Option<ReplyMarkup>,
@@ -251,7 +252,7 @@ impl InlineQueryResult {
                 }))
             }
             None => {
-                let (message, entities) = client.parse_text(&p.caption, p.parse_mode).await?;
+                let (message, entities) = client.write_text(p.caption, p.parse_mode).await?;
                 base::InputBotInlineMessage::InputBotInlineMessageMediaAuto(Box::new(
                     types::InputBotInlineMessageMediaAuto {
                         invert_media: p.caption_above,
@@ -344,11 +345,15 @@ fn attributes(kind: &str, file: &WebFile, title: Option<&str>) -> Vec<base::Docu
 #[cfg(test)]
 mod tests {
     use super::{InlineQueryResult, attributes};
-    use crate::raw::base;
+    use crate::raw::{base, types};
     use crate::types::{
         InlineQueryResultArticle, InlineQueryResultAudio, InlineQueryResultDocument, InlineQueryResultLocation,
-        InlineQueryResultMpeg4Gif, InputMessageContent,
+        InlineQueryResultMpeg4Gif, InputMessageContent, Text,
     };
+
+    fn bold_hi() -> Option<Vec<base::MessageEntity>> {
+        Some(vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 })])
+    }
 
     #[test]
     fn kinds_pick_their_tl_type_and_media_attributes() {
@@ -403,5 +408,24 @@ mod tests {
             panic!("expected plain text content")
         };
         assert_eq!((m.message.as_str(), m.entities), ("<b>&", None));
+    }
+
+    #[tokio::test]
+    async fn built_text_keeps_its_entities() {
+        let client = crate::Client::offline();
+        let content = InputMessageContent::html(Text::new().bold("hi"));
+        let base::InputBotInlineMessage::InputBotInlineMessageText(m) = content.write(&client, None).await.unwrap()
+        else {
+            panic!("expected text content")
+        };
+        assert_eq!((m.message.as_str(), m.entities), ("hi", bold_hi()));
+
+        let document = InlineQueryResultDocument::new("u", "t").caption(Text::new().bold("hi"));
+        let result = InlineQueryResult::from(document).write(&client).await.unwrap();
+        let base::InputBotInlineResult::InputBotInlineResult(r) = result else { panic!("not a web result") };
+        let base::InputBotInlineMessage::InputBotInlineMessageMediaAuto(m) = r.send_message else {
+            panic!("expected a caption, got {:?}", r.send_message)
+        };
+        assert_eq!((m.message.as_str(), m.entities), ("hi", bold_hi()));
     }
 }

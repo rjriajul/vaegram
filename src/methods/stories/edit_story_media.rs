@@ -4,7 +4,7 @@ use crate::errors::{Error, Result};
 use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions};
 use crate::types::messages_and_media::input_document;
-use crate::types::{FileLocation, InputStoryContent, PeerRef, Story, StoryArea};
+use crate::types::{FileLocation, InputStoryContent, PeerRef, Story, StoryArea, Text};
 
 /// Replaces a story's media. Only what is set besides the media changes: areas, caption and music keep their
 /// current value otherwise.
@@ -15,7 +15,7 @@ pub struct EditStoryMedia<'a> {
     story_id: i32,
     media: InputStoryContent<'a>,
     areas: Option<Vec<StoryArea>>,
-    caption: Option<String>,
+    caption: Option<Text>,
     parse_mode: Option<ParseMode>,
     music: Option<String>,
 }
@@ -51,7 +51,7 @@ impl EditStoryMedia<'_> {
     }
 
     /// Replaces the caption. An empty one removes it.
-    pub fn caption(mut self, caption: impl Into<String>) -> Self {
+    pub fn caption(mut self, caption: impl Into<Text>) -> Self {
         self.caption = Some(caption.into());
         self
     }
@@ -65,7 +65,7 @@ impl EditStoryMedia<'_> {
     }
 
     async fn request(
-        &self,
+        self,
         media: base::InputMedia,
         music: Option<base::InputDocument>,
     ) -> Result<functions::stories::EditStory> {
@@ -74,9 +74,9 @@ impl EditStoryMedia<'_> {
             Some(areas) => Some(StoryArea::write_all(areas, self.client).await?),
             None => None,
         };
-        let (caption, entities) = match &self.caption {
+        let (caption, entities) = match self.caption {
             Some(text) => {
-                let (caption, entities) = self.client.parse_text(text, self.parse_mode).await?;
+                let (caption, entities) = self.client.write_text(text, self.parse_mode).await?;
                 (Some(caption), Some(entities))
             }
             None => (None, None),
@@ -94,10 +94,11 @@ impl EditStoryMedia<'_> {
     }
 
     async fn send(self) -> Result<Story> {
+        let client = self.client;
         let music = self.music.as_deref().map(story_music).transpose()?;
-        let media = self.media.upload(self.client).await?;
+        let media = self.media.upload(client).await?;
         let request = self.request(media, music).await?;
-        Story::from_updates(self.client, self.client.invoke(&request).await?)
+        Story::from_updates(client, client.invoke(&request).await?)
     }
 }
 
@@ -125,7 +126,7 @@ mod tests {
     use crate::errors::Error;
     use crate::file_id::{FileId, FileType, ThumbnailSource};
     use crate::raw::{base, types};
-    use crate::types::{InputStoryContent, StoryArea, StoryAreaPosition, StoryAreaType};
+    use crate::types::{InputStoryContent, StoryArea, StoryAreaPosition, StoryAreaType, Text};
 
     fn photo_id() -> String {
         FileId::new(FileType::Photo, 2, 5, 6, &[1]).encode()
@@ -158,6 +159,12 @@ mod tests {
         assert_eq!(request.caption.as_deref(), Some("hi"));
         assert!(matches!(request.entities.as_deref(), Some([base::MessageEntity::MessageEntityBold(_)])));
         assert_eq!(request.music, Some(music));
+
+        let caption = Text::new().bold("hi");
+        let built = client.edit_story_media("me", 4, InputStoryContent::photo("a.jpg")).caption(caption);
+        let request = built.request(base::InputMedia::InputMediaEmpty, None).await.unwrap();
+        let bold = base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 });
+        assert_eq!((request.caption.as_deref(), request.entities), (Some("hi"), Some(vec![bold])));
 
         let cleared = client.edit_story_media("me", 4, InputStoryContent::photo("a.jpg")).caption("");
         let request = cleared.request(base::InputMedia::InputMediaEmpty, None).await.unwrap();

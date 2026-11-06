@@ -537,8 +537,8 @@ impl Message {
     ///
     /// Telegram stores a caption as the message text, so this is the same request as
     /// [`edit_text`](Message::edit_text).
-    pub fn edit_caption(&self, caption: impl Into<String>) -> EditMessageText<'_> {
-        self.edit_text(caption.into())
+    pub fn edit_caption(&self, caption: impl Into<Text>) -> EditMessageText<'_> {
+        self.edit_text(MessageText::Text(caption.into()))
     }
 
     /// Replaces the inline keyboard of this message. `None` removes the keyboard.
