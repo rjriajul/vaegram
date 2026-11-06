@@ -32,7 +32,7 @@ pub struct Message {
     /// The chat the message belongs to. Shared, so cloning a message doesn't copy it.
     pub chat: Arc<Chat>,
     /// The sending user. `None` for channel posts and for messages sent on behalf of a chat.
-    pub from_user: Option<User>,
+    pub from_user: Option<Box<User>>,
     /// The chat the message was sent on behalf of. `None` when a user sent it as themselves.
     pub sender_chat: Option<Arc<Chat>>,
     /// When the message was sent, as a Unix timestamp.
@@ -45,7 +45,7 @@ pub struct Message {
     /// Media of a kind with no variant is [`Media::Unknown`].
     pub media: Option<Media>,
     /// The link preview of a text message; `media` stays `None` and the text stays in [`text`](Message::text).
-    pub web_page: Option<WebPage>,
+    pub web_page: Option<Box<WebPage>>,
     /// The structured content of a rich message. `None` for other messages.
     pub rich_message: Option<RichMessage>,
     /// How the link preview is shown. `None` if the message has no link preview.
@@ -70,11 +70,11 @@ pub struct Message {
     /// Details of a reply to a message in another chat. `None` for other messages.
     pub external_reply: Option<Box<ExternalReplyInfo>>,
     /// Where a forwarded message came from. `None` if it isn't a forward.
-    pub forward_origin: Option<MessageOrigin>,
+    pub forward_origin: Option<Box<MessageOrigin>>,
     /// The message is a channel post that Telegram copied into the channel's linked discussion group.
     pub is_automatic_forward: bool,
     /// The inline bot the message was sent through.
-    pub via_bot: Option<User>,
+    pub via_bot: Option<Box<User>>,
     /// Shared by the messages of one album. `None` if the message isn't part of an album.
     pub media_group_id: Option<i64>,
     /// Signature of the post's author, in channels that sign posts.
@@ -88,7 +88,7 @@ pub struct Message {
     /// Id of the business connection the message came through. `None` outside of business chats.
     pub business_connection_id: Option<String>,
     /// The direct messages topic the message is in. `None` outside of a channel's direct messages.
-    pub direct_messages_topic: Option<DirectMessagesTopic>,
+    pub direct_messages_topic: Option<Box<DirectMessagesTopic>>,
     /// `None` when nobody has reacted, or the message comes from a request that leaves reactions out.
     pub reactions: Option<MessageReactions>,
     /// The account was mentioned in it, or it replies to the account's message.
@@ -112,11 +112,11 @@ pub struct Message {
     /// A video still being processed; others can't see the message yet.
     pub video_processing_pending: bool,
     /// The business bot that sent it on behalf of the account.
-    pub sender_business_bot: Option<User>,
+    pub sender_business_bot: Option<Box<User>>,
     /// The sender's custom tag (rank) in the group.
     pub sender_tag: Option<String>,
     /// The user whose guest bot request produced this message.
-    pub guest_bot_caller_user: Option<User>,
+    pub guest_bot_caller_user: Option<Box<User>>,
     /// The chat whose guest bot request produced this message.
     pub guest_bot_caller_chat: Option<Arc<Chat>>,
     /// How many times the message was viewed. `None` if Telegram doesn't count views for it.
@@ -152,11 +152,12 @@ pub struct Message {
     client: Client,
 }
 
-// Every update moves a `Message` and handlers often clone it, so a field that makes it grow should be a choice.
-// The bound is the exact size measured on x86_64, on purpose: lower it whenever the type shrinks. It is checked in
-// this crate's tests only, so a compiler that lays the type out differently can't break a user's build.
+// Every update moves a `Message` and handlers often clone it, so a field that makes it grow should be a choice:
+// large optional fields, including the usually-set sender, are boxed. The bound is the exact size measured on
+// x86_64, on purpose: lower it whenever the type shrinks. It is checked in this crate's tests only, so a compiler
+// that lays the type out differently can't break a user's build.
 #[cfg(all(test, target_pointer_width = "64"))]
-const _: () = assert!(std::mem::size_of::<Message>() <= 6312);
+const _: () = assert!(std::mem::size_of::<Message>() <= 1672);
 
 /// Each slot is `None` when nothing was fetched (the option is off, or the fetch failed), and `Some(None)` when
 /// Telegram answered that there's nothing there.
@@ -183,11 +184,11 @@ impl Message {
         let chat = Arc::new(Chat::parse(&raw.peer_id, entities, raw.post));
         let (mut from_user, mut sender_chat) = (None, None);
         match (&raw.from_id, &raw.peer_id) {
-            (Some(base::Peer::PeerUser(p)), _) => from_user = Some(User::parse(p.user_id, entities)),
+            (Some(base::Peer::PeerUser(p)), _) => from_user = Some(Box::new(User::parse(p.user_id, entities))),
             (Some(peer), _) => sender_chat = Some(Arc::new(Chat::parse(peer, entities, false))),
             (None, base::Peer::PeerUser(p)) => {
                 let id = if raw.out { client.0.me.lock().unwrap().id } else { p.user_id };
-                from_user = Some(User::parse(id, entities));
+                from_user = Some(Box::new(User::parse(id, entities)));
             }
             (None, _) if chat.kind == ChatType::Channel => sender_chat = Some(Arc::clone(&chat)),
             (None, _) => {}
@@ -205,13 +206,13 @@ impl Message {
             external_reply,
         } = reply_fields(client, &raw, service.as_ref(), entities);
         let direct_messages_topic = match &raw.saved_peer_id {
-            Some(peer) if chat.is_direct_messages => Some(DirectMessagesTopic::parse(peer, entities)),
+            Some(peer) if chat.is_direct_messages => Some(Box::new(DirectMessagesTopic::parse(peer, entities))),
             _ => None,
         };
         let rich_message = raw.rich_message.take().map(RichMessage::parse);
         let is_automatic_forward = is_automatic_forward(&chat, raw.fwd_from.as_ref());
         let (guest_bot_caller_user, guest_bot_caller_chat) = match &raw.guestchat_via_from {
-            Some(base::Peer::PeerUser(p)) => (Some(User::parse(p.user_id, entities)), None),
+            Some(base::Peer::PeerUser(p)) => (Some(Box::new(User::parse(p.user_id, entities))), None),
             Some(peer) => (None, Some(Arc::new(Chat::parse(peer, entities, false)))),
             None => (None, None),
         };
@@ -224,7 +225,7 @@ impl Message {
             outgoing: raw.out,
             edit_date: raw.edit_date,
             media: raw.media.as_ref().and_then(|m| Media::parse(client, m, entities)),
-            web_page: raw.media.as_ref().and_then(WebPage::parse),
+            web_page: raw.media.as_ref().and_then(WebPage::parse).map(Box::new),
             rich_message,
             link_preview_options: LinkPreviewOptions::parse(raw.media.as_ref(), raw.invert_media),
             reply_to_message_id,
@@ -236,9 +237,9 @@ impl Message {
             is_topic_message,
             quote,
             external_reply,
-            forward_origin: raw.fwd_from.as_ref().and_then(|h| MessageOrigin::parse(h, entities)),
+            forward_origin: raw.fwd_from.as_ref().and_then(|h| MessageOrigin::parse(h, entities)).map(Box::new),
             is_automatic_forward,
-            via_bot: raw.via_bot_id.map(|id| User::parse(id, entities)),
+            via_bot: raw.via_bot_id.map(|id| Box::new(User::parse(id, entities))),
             media_group_id: raw.grouped_id,
             author_signature: raw.post_author.clone(),
             sender_boost_count: raw.from_boosts_applied,
@@ -257,7 +258,7 @@ impl Message {
             show_caption_above_media: raw.invert_media,
             from_offline: raw.offline,
             video_processing_pending: raw.video_processing_pending,
-            sender_business_bot: raw.via_business_bot_id.map(|id| User::parse(id, entities)),
+            sender_business_bot: raw.via_business_bot_id.map(|id| Box::new(User::parse(id, entities))),
             sender_tag: raw.from_rank.clone(),
             guest_bot_caller_user,
             guest_bot_caller_chat,
@@ -1037,7 +1038,7 @@ pub(crate) mod tests {
         assert!(matches!(external.origin, MessageOrigin::Channel { message_id: 77, .. }));
         assert!(matches!(&external.media, Some(Media::Dice(d)) if d.value == 6));
         let hidden = MessageOrigin::HiddenUser { date: 100, sender_user_name: "Hidden".into() };
-        assert_eq!(m.forward_origin, Some(hidden));
+        assert_eq!(m.forward_origin.as_deref(), Some(&hidden));
         assert!(!m.is_automatic_forward);
     }
 
@@ -1654,16 +1655,16 @@ pub(crate) mod tests {
         header.imported = true;
         raw.fwd_from = Some(base::MessageFwdHeader::MessageFwdHeader(header.clone()));
         let import = MessageOrigin::Import { date: 100, sender_user_name: "Ann".into() };
-        assert_eq!(parse(&raw).forward_origin, Some(import));
+        assert_eq!(parse(&raw).forward_origin.as_deref(), Some(&import));
 
         // The export may carry the name as the post author instead.
         (header.from_name, header.from_id, header.post_author) = (None, None, Some("Bob".into()));
         raw.fwd_from = Some(base::MessageFwdHeader::MessageFwdHeader(header));
         let import = MessageOrigin::Import { date: 100, sender_user_name: "Bob".into() };
-        assert_eq!(parse(&raw).forward_origin, Some(import));
+        assert_eq!(parse(&raw).forward_origin.as_deref(), Some(&import));
 
         raw.fwd_from = Some(forward(Some(get_peer(5)), None, None));
-        assert!(matches!(parse(&raw).forward_origin, Some(MessageOrigin::User { .. })));
+        assert!(matches!(parse(&raw).forward_origin.as_deref(), Some(MessageOrigin::User { .. })));
     }
 
     #[test]

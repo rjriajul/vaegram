@@ -446,7 +446,7 @@ mod tests {
 
         m.is_topic_message = true;
         m.business_connection_id = Some("c".into());
-        m.direct_messages_topic = Some(DirectMessagesTopic { topic_id: 7, user: None });
+        m.direct_messages_topic = Some(Box::new(DirectMessagesTopic { topic_id: 7, user: None }));
         assert_eq!(routed(&m), (Some(3), Some(PeerRef::Id(7)), Some("c".into())));
     }
 
@@ -495,7 +495,7 @@ mod tests {
         assert!(body.windows(reply.len()).any(|w| w == reply), "the reply lost its topic");
         // Outside a forum topic, a direct-messages topic goes out as the monoforum reply target.
         (m.message_thread_id, m.is_topic_message) = (None, false);
-        m.direct_messages_topic = Some(DirectMessagesTopic { topic_id: 7, user: None });
+        m.direct_messages_topic = Some(Box::new(DirectMessagesTopic { topic_id: 7, user: None }));
         let _ = m.answer_inline_bot_result(1, "r").await;
         let body = rx.try_recv().expect("no request sent");
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
