@@ -1,10 +1,11 @@
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, functions};
+use crate::types::PeerRef;
 
 impl Client {
     /// Returns the current token of a bot you manage without revoking it.
-    pub async fn get_managed_bot_token(&self, bot_id: i64) -> Result<String> {
+    pub async fn get_managed_bot_token(&self, bot_id: impl Into<PeerRef>) -> Result<String> {
         let bot = self.resolve_user(&bot_id.into()).await?;
         let base::bots::ExportedBotToken::ExportedBotToken(t) =
             self.invoke(&functions::bots::ExportBotToken { bot, revoke: false }).await?;

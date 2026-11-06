@@ -4,21 +4,27 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::types::{BotPreviewMedia, InputMedia, PeerRef};
 
+/// Request built by [`Client::add_bot_preview_media`].
+#[must_use = "a request does nothing until it is awaited"]
+pub struct AddBotPreviewMedia<'a> {
+    client: &'a Client,
+    bot_id: PeerRef,
+    media: InputMedia<'a>,
+    language_code: String,
+}
+
 impl Client {
-    /// Adds a photo or video to the preview media of your bot for one language.
+    /// Adds a photo or video to the default preview media of your bot, shown in languages without previews of
+    /// their own.
     ///
-    /// An empty `lang_code` targets the default previews. Returns the new [`BotPreviewMedia`]. Any other media
-    /// kind fails with `Error::InvalidArgument`.
-    pub async fn add_bot_preview_media(
-        &self,
+    /// [`language_code`](AddBotPreviewMedia::language_code) adds it to one language's previews instead. Returns
+    /// the new [`BotPreviewMedia`]. Any other media kind fails with `Error::InvalidArgument`.
+    pub fn add_bot_preview_media<'a>(
+        &'a self,
         bot_id: impl Into<PeerRef>,
-        lang_code: &str,
-        media: &InputMedia<'_>,
-    ) -> Result<BotPreviewMedia> {
-        let bot = self.resolve_user(&bot_id.into()).await?;
-        let media = self.upload_preview(media).await?;
-        let request = functions::bots::AddPreviewMedia { bot, lang_code: lang_code.into(), media };
-        Ok(BotPreviewMedia::parse(self, self.invoke(&request).await?))
+        media: InputMedia<'a>,
+    ) -> AddBotPreviewMedia<'a> {
+        AddBotPreviewMedia { client: self, bot_id: bot_id.into(), media, language_code: String::new() }
     }
 
     /// Previews are photos or videos, uploaded through `messages.uploadMedia` against the account's own chat.
@@ -30,6 +36,23 @@ impl Client {
         self.upload_media(&peer, self.input_media(&peer, media, None, None).await?, None).await
     }
 }
+
+impl AddBotPreviewMedia<'_> {
+    /// Adds the media to the previews for users with this two-letter language code.
+    pub fn language_code(mut self, language_code: impl Into<String>) -> Self {
+        self.language_code = language_code.into();
+        self
+    }
+
+    async fn send(self) -> Result<BotPreviewMedia> {
+        let bot = self.client.resolve_user(&self.bot_id).await?;
+        let media = self.client.upload_preview(&self.media).await?;
+        let request = functions::bots::AddPreviewMedia { bot, lang_code: self.language_code, media };
+        Ok(BotPreviewMedia::parse(self.client, self.client.invoke(&request).await?))
+    }
+}
+
+into_future!(AddBotPreviewMedia, BotPreviewMedia);
 
 #[cfg(test)]
 mod tests {
@@ -44,7 +67,8 @@ mod tests {
         let peer = types::InputPeerUser { user_id: 42, access_hash: 7 };
         client.0.peers.lock().unwrap().insert(42, base::InputPeer::InputPeerUser(Box::new(peer)));
         let document = InputMedia::document("notes.txt");
-        assert!(matches!(client.add_bot_preview_media(42, "en", &document).await, Err(Error::InvalidArgument(_))));
+        let added = client.add_bot_preview_media(42, document).language_code("en").await;
+        assert!(matches!(added, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
     }
 }

@@ -46,6 +46,7 @@ pub use edit_business_chat_link::EditBusinessChatLink;
 pub use edit_story::EditStory;
 pub use post_story::PostStory;
 pub use repost_story::RepostStory;
+pub use set_business_account_gift_settings::SetBusinessAccountGiftSettings;
 pub use set_business_away_message::SetBusinessAwayMessage;
 
 #[cfg(test)]
@@ -57,9 +58,10 @@ mod tests {
     use crate::Client;
     use crate::errors::Error;
     use crate::raw::functions::{account, messages};
-    use crate::raw::{Serializable, base, types};
+    use crate::raw::{Serializable, base, functions, types};
     use crate::types::{
-        BusinessBotRights, BusinessOpeningHours, BusinessRecipients, InputStoryContent, QuickReply, Text, Upload,
+        AcceptedGiftTypes, BusinessBotRights, BusinessOpeningHours, BusinessRecipients, InputStoryContent, QuickReply,
+        Text, Upload,
     };
 
     async fn sent<F: IntoFuture>(rx: &mut UnboundedReceiver<Vec<u8>>, call: F) -> Vec<u8> {
@@ -184,6 +186,54 @@ mod tests {
         assert!(refused(client.delete_business_chat_link("").await));
         assert!(refused(client.resolve_business_chat_link("").await));
         assert!(refused(client.edit_business_chat_link("", "hi").await));
+        assert!(rx.try_recv().is_err());
+    }
+
+    fn privacy(display_gifts_button: bool, accepted: Option<AcceptedGiftTypes>) -> base::GlobalPrivacySettings {
+        base::GlobalPrivacySettings::GlobalPrivacySettings(Box::new(types::GlobalPrivacySettings {
+            archive_and_mute_new_noncontact_peers: false,
+            keep_archived_unmuted: false,
+            keep_archived_folders: false,
+            hide_read_marks: true,
+            new_noncontact_peers_require_premium: false,
+            display_gifts_button,
+            noncontact_peers_paid_stars: Some(25),
+            disallowed_gifts: accepted.map(AcceptedGiftTypes::write),
+        }))
+    }
+
+    #[tokio::test]
+    async fn gift_settings_change_only_what_is_set() {
+        let current = privacy(true, None);
+        let no_unique = AcceptedGiftTypes::new().unique_gifts(false);
+        let cases = [
+            (Some(false), None, privacy(false, None)),
+            (None, Some(no_unique), privacy(true, Some(no_unique))),
+            (Some(false), Some(no_unique), privacy(false, Some(no_unique))),
+        ];
+        for (show_gift_button, accepted, settings) in cases {
+            let (client, mut rx) = Client::scripted(vec![Ok(current.to_bytes())]);
+            let mut request = client.set_business_account_gift_settings("c");
+            if let Some(show) = show_gift_button {
+                request = request.show_gift_button(show);
+            }
+            if let Some(accepted) = accepted {
+                request = request.accepted_gift_types(accepted);
+            }
+            let _ = request.await;
+            let get = account::GetGlobalPrivacySettings {};
+            let get = functions::InvokeWithBusinessConnection { connection_id: "c".into(), query: get };
+            assert_eq!(rx.try_recv().unwrap(), get.to_bytes());
+            let set = account::SetGlobalPrivacySettings { settings };
+            let set = functions::InvokeWithBusinessConnection { connection_id: "c".into(), query: set };
+            assert_eq!(rx.try_recv().unwrap(), set.to_bytes());
+        }
+    }
+
+    #[tokio::test]
+    async fn gift_settings_with_nothing_to_change_are_refused() {
+        let (client, mut rx) = recording_client();
+        assert!(refused(client.set_business_account_gift_settings("c").await));
         assert!(rx.try_recv().is_err());
     }
 
