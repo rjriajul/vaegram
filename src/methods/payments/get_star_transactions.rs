@@ -70,7 +70,8 @@ impl GetStarTransactions<'_> {
     }
 
     /// Where the unread part of the history starts, for `offset` on a later pager; `None` once the history has
-    /// ended. Transactions already fetched but not yet returned by `next` come before it.
+    /// ended. Transactions already fetched but not yet returned by `next` come before it. Before the first page it
+    /// is the starting point: `Some("")`, meaning from the start, unless `offset` set another.
     pub fn next_offset(&self) -> Option<&str> {
         self.pages.offset().map(String::as_str)
     }
