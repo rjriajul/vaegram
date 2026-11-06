@@ -33,7 +33,7 @@ async fn history_replies_come_prefetched() {
     let mut history = user.get_chat_history(PeerRef::Me).limit(2);
     let mut replies = Vec::new();
     while let Some(m) = history.next().await.unwrap() {
-        replies.push(m.reply_to_message().await.unwrap().map(|r| r.text));
+        replies.push(m.reply_to_message().await.unwrap().map(|r| r.text().to_owned()));
     }
     let asked = fetches.load(Ordering::Relaxed) - before;
     user.delete_messages(PeerRef::Me, &[first.id, second.id]).await.unwrap();

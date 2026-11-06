@@ -113,7 +113,8 @@ impl Message {
 
     /// The caption, or the text when there's no caption.
     pub fn content(&self) -> &str {
-        self.caption.as_deref().unwrap_or(&self.text)
+        // Telegram keeps both in the same field; `text` and `caption` only split it by the media.
+        &self.raw.message
     }
 }
 
@@ -150,6 +151,7 @@ mod tests {
     use crate::errors::Error;
     use crate::raw::{Serializable, base, functions, types};
     use crate::types::messages_and_media::ephemeral_message::tests::ephemeral;
+    use crate::types::messages_and_media::media::tests::document_media;
     use crate::types::{EphemeralMessage, FileSource, InputChecklist, InputMedia, Message};
     use crate::utils::{get_channel_id, get_peer};
 
@@ -314,8 +316,8 @@ mod tests {
         let mut message =
             Message::parse(&client, Box::new(Message::bare(9, get_peer(get_channel_id(77)), 0)), &Entities::default());
         let mut link = |kind, username: Option<&str>, thread: Option<i32>, topic: bool| {
-            message.chat.kind = kind;
-            message.chat.username = username.map(Into::into);
+            let chat = std::sync::Arc::make_mut(&mut message.chat);
+            (chat.kind, chat.username) = (kind, username.map(Into::into));
             (message.message_thread_id, message.is_topic_message) = (thread, topic);
             message.link()
         };
@@ -331,11 +333,13 @@ mod tests {
     #[test]
     fn content_is_the_caption_or_the_text() {
         let client = Client::offline();
-        let mut message = message(&client);
-        message.text = "hello".into();
-        assert_eq!(message.content(), "hello");
-        (message.text, message.caption) = (String::new(), Some("look".into()));
-        assert_eq!(message.content(), "look");
+        let mut raw = Message::bare(5, get_peer(7), 0);
+        raw.message = "hello".into();
+        let parse = |raw: &types::Message| Message::parse(&client, Box::new(raw.clone()), &Entities::default());
+        assert_eq!(parse(&raw).content(), "hello");
+        raw.media = Some(document_media("image/png", Vec::new()));
+        let media = parse(&raw);
+        assert_eq!((media.text(), media.caption(), media.content()), ("", Some("hello"), "hello"));
     }
 
     #[tokio::test]
@@ -364,7 +368,7 @@ mod tests {
         assert!(matches!(from_channel.reply_ephemeral_text("hi"), Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
 
-        message.chat.id = 1000;
+        std::sync::Arc::make_mut(&mut message.chat).id = 1000;
         assert!(message.reply_ephemeral_text("hi").unwrap().await.is_err());
         let request = sent.try_recv().expect("no request sent");
         assert_eq!(request[..4], 0xba8d5f35_u32.to_le_bytes());

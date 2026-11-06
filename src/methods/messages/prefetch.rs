@@ -411,7 +411,7 @@ mod tests {
     async fn fetch_off_sends_nothing_and_parses_identically() {
         let (client, mut sent) = client(Fetch::default(), false, Vec::new());
         let mut m = sticker_message(&client, 9, 10);
-        (m.reply_to_message_id, m.chat.is_forum) = (Some(4), true);
+        (m.reply_to_message_id, Arc::make_mut(&mut m.chat).is_forum) = (Some(4), true);
         let m = m.prepare().await;
         assert!(sent.try_recv().is_err());
         assert!(m.prefetched.is_none());
@@ -427,7 +427,7 @@ mod tests {
         client.0.peers.lock().unwrap().insert(get_channel_id(9), input.clone());
         let raw = Message::bare(9, get_peer(get_channel_id(9)), 0);
         let mut m = Message::parse(&client, Box::new(raw), &Entities::default());
-        (m.chat.is_forum, m.message_thread_id) = (true, Some(6));
+        (Arc::make_mut(&mut m.chat).is_forum, m.message_thread_id) = (true, Some(6));
         let m = m.prepare().await;
         assert_eq!(sent.try_recv().unwrap(), messages::GetForumTopicsByID { peer: input, topics: vec![6] }.to_bytes());
         assert!(m.prefetched.is_none());
@@ -518,7 +518,7 @@ mod tests {
         let fetch = Fetch { replies: false, topics: true, stories: true, stickers: false };
         let (client, mut sent) = client(fetch, true, Vec::new());
         let mut m = message(&client, 9);
-        m.chat.is_forum = true;
+        Arc::make_mut(&mut m.chat).is_forum = true;
         (m.reply_to_story_id, m.reply_to_story_user_id) = (Some(4), Some(7));
         let m = m.prepare().await;
         assert!(sent.try_recv().is_err());
@@ -531,7 +531,7 @@ mod tests {
         let (client, mut sent) = client(fetch, false, vec![sticker_set(10, "cats")]);
         let mut m = sticker_message(&client, 9, 10);
         m.business_connection_id = Some("conn".into());
-        (m.reply_to_message_id, m.chat.is_forum) = (Some(4), true);
+        (m.reply_to_message_id, Arc::make_mut(&mut m.chat).is_forum) = (Some(4), true);
         (m.reply_to_story_id, m.reply_to_story_user_id) = (Some(4), Some(7));
         let m = m.prepare().await;
         let request = messages::GetStickerSet { stickerset: set_id(10), hash: 0 };
@@ -681,7 +681,7 @@ mod tests {
             .map(|(id, thread, story)| {
                 let raw = Message::bare(id, get_peer(get_channel_id(9)), 0);
                 let mut m = Message::parse(&client, Box::new(raw), &crate::dispatcher::Entities::default());
-                (m.chat.is_forum, m.message_thread_id) = (true, Some(thread));
+                (Arc::make_mut(&mut m.chat).is_forum, m.message_thread_id) = (true, Some(thread));
                 (m.reply_to_story_id, m.reply_to_story_user_id) = (Some(story), Some(0));
                 m
             })

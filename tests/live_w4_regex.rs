@@ -21,5 +21,5 @@ async fn regex_captures_an_order_number() {
         }
     });
     let reply = kit.user.send_and_wait_reply(&kit.bot, "order 42").await.unwrap();
-    assert_eq!(reply.text, "42");
+    assert_eq!(reply.text(), "42");
 }

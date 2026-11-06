@@ -15,7 +15,7 @@ async fn main() -> vaegram::Result<()> {
     });
 
     app.on_message(filters::text() & filters::private(), |msg| async move {
-        msg.answer(&msg.text).await?;
+        msg.answer(msg.text()).await?;
         Ok(())
     });
 

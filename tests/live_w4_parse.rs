@@ -24,8 +24,8 @@ async fn default_mode_sends_bold_and_italic() {
     let sent = sent.unwrap();
     client.delete_messages("me", &[sent.id]).await.unwrap();
 
-    assert_eq!(sent.text, "bold italic 1 < 2");
-    let entities = sent.entities.as_deref().unwrap_or_default();
+    assert_eq!(sent.text(), "bold italic 1 < 2");
+    let entities = sent.entities().unwrap_or_default();
     let has = |kind: MessageEntityType| entities.iter().any(|e| e.kind == kind);
     assert!(has(MessageEntityType::Bold) && has(MessageEntityType::Italic), "{entities:?}");
 }

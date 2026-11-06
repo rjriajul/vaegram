@@ -114,14 +114,14 @@ async fn bot_sends_and_edits_messages() {
 
     let chat_id = env("VAEGRAM_CHAT_ID").parse().unwrap();
     let hello = app.send_message(chat_id, "hello from vaegram").await.unwrap();
-    assert_eq!((hello.chat.id, hello.text.as_str(), hello.outgoing), (chat_id, "hello from vaegram", true));
+    assert_eq!((hello.chat.id, hello.text(), hello.outgoing), (chat_id, "hello from vaegram", true));
     assert_eq!(hello.from_user.as_ref().map(|u| u.id), Some(me.id));
 
     let sent = app.send_message(chat_id, "<b>bold</b>, <i>italic</i> and <code>code</code>").html().await.unwrap();
-    assert_eq!((sent.text.as_str(), entities(&sent)), ("bold, italic and code", 3));
+    assert_eq!((sent.text(), entities(&sent)), ("bold, italic and code", 3));
     let sent =
         app.send_message(chat_id, "**bold**, __italic__ and [a link](https://github.com)").markdown().await.unwrap();
-    assert_eq!((sent.text.as_str(), entities(&sent)), ("bold, italic and a link", 3));
+    assert_eq!((sent.text(), entities(&sent)), ("bold, italic and a link", 3));
 
     let keyboard = InlineKeyboardMarkup::new([
         vec![
@@ -134,7 +134,7 @@ async fn bot_sends_and_edits_messages() {
     assert!(asked.reply_markup().is_some());
 
     let edited = asked.edit_text("Buttons work, <b>edited</b>.").html().await.unwrap();
-    assert_eq!((edited.id, edited.text.as_str(), entities(&edited)), (asked.id, "Buttons work, edited.", 1));
+    assert_eq!((edited.id, edited.text(), entities(&edited)), (asked.id, "Buttons work, edited.", 1));
     assert!(edited.edit_date.is_some());
     assert!(edited.reply_markup().is_none());
 
@@ -143,7 +143,7 @@ async fn bot_sends_and_edits_messages() {
     assert!(rich.rich_message.is_some());
     let rich =
         rich.edit_text(InputRichMessage::blocks([RichBlock::paragraph(Text::new().bold("edited"))])).await.unwrap();
-    assert!(rich.rich_message.is_some() && rich.text.contains("edited"));
+    assert!(rich.rich_message.is_some() && rich.text().contains("edited"));
     rich.delete().await.unwrap();
 
     let reply = app.send_message(chat_id, "a reply").reply_to(hello.id).await.unwrap();
@@ -165,7 +165,7 @@ async fn bot_sends_and_edits_messages() {
 }
 
 fn entities(message: &Message) -> usize {
-    message.entities.as_ref().map_or(0, Vec::len)
+    message.entities().map_or(0, <[_]>::len)
 }
 
 #[tokio::test]
@@ -329,12 +329,12 @@ async fn bot_sends_typed_files_and_albums() {
     let album = app.send_media_group(chat_id, album).await.unwrap();
     assert_eq!(album.len(), 2);
     assert!(album[0].id < album[1].id && album[0].media_group_id.is_some());
-    assert_eq!(album[0].caption.as_deref(), Some("first"));
+    assert_eq!(album[0].caption(), Some("first"));
 
     let replaced = InputMedia::document(Upload::bytes("c.bin", &data)).caption("replaced");
     let edited = app.edit_message_media(chat_id, album[1].id, replaced).await.unwrap();
     let name = edited.document().and_then(|d| d.file_name.as_deref());
-    assert_eq!((edited.caption.as_deref(), name), (Some("replaced"), Some("c.bin")));
+    assert_eq!((edited.caption(), name), (Some("replaced"), Some("c.bin")));
 
     let first = album[0].document().expect("the album has documents");
     let again = app.send_document(chat_id, first).await.unwrap();
@@ -427,9 +427,9 @@ async fn user_account_talks_to_bot() {
     assert!(!me.bot);
 
     let saved = user.send_message(me.id, "**saved** by vaegram").markdown().await.unwrap();
-    assert_eq!((saved.chat.id, saved.text.as_str(), entities(&saved)), (me.id, "saved by vaegram", 1));
+    assert_eq!((saved.chat.id, saved.text(), entities(&saved)), (me.id, "saved by vaegram", 1));
     let saved = saved.edit_text("edited by vaegram").await.unwrap();
-    assert_eq!(saved.text, "edited by vaegram");
+    assert_eq!(saved.text(), "edited by vaegram");
     saved.delete().await.unwrap();
 
     let again = Client::builder("unused", api_id, api_hash.clone())
@@ -447,7 +447,7 @@ async fn user_account_talks_to_bot() {
 
     let mention =
         user.send_message(me.id, format!("hi <a href=\"tg://user?id={bot_id}\">bot</a>")).html().await.unwrap();
-    assert!(matches!(mention.entities.as_deref(), Some([e]) if e.kind == MessageEntityType::TextMention));
+    assert!(matches!(mention.entities(), Some([e]) if e.kind == MessageEntityType::TextMention));
     mention.delete().await.unwrap();
 
     let raw_updates = Arc::new(AtomicUsize::new(0));
@@ -458,11 +458,11 @@ async fn user_account_talks_to_bot() {
     });
     bot.on_message(filters::private() & filters::text(), |msg| async move {
         let tap = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Tap", "tap")]]);
-        msg.reply(format!("pong: {}", msg.text)).reply_markup(tap).await?;
+        msg.reply(format!("pong: {}", msg.text())).reply_markup(tap).await?;
         Ok(())
     });
     bot.on_edited_message(filters::private(), |msg| async move {
-        msg.reply(format!("edited: {}", msg.text)).await?;
+        msg.reply(format!("edited: {}", msg.text())).await?;
         Ok(())
     });
     bot.on_callback_query(filters::data("tap"), |query| async move {
@@ -500,11 +500,11 @@ async fn user_account_talks_to_bot() {
 
     let ping = user.send_message(bot_id, "ping").await.unwrap();
     let pong = next(&mut rx, "new").await;
-    assert_eq!(pong.text, "pong: ping");
+    assert_eq!(pong.text(), "pong: ping");
     assert!(pong.reply_markup().is_some());
 
     let ping = ping.edit_text("ping 2").await.unwrap();
-    assert_eq!(next(&mut rx, "new").await.text, "edited: ping 2");
+    assert_eq!(next(&mut rx, "new").await.text(), "edited: ping 2");
 
     let peer = user.resolve_peer(bot_id).await.unwrap();
     let request = functions::messages::GetBotCallbackAnswer {
@@ -517,7 +517,7 @@ async fn user_account_talks_to_bot() {
     let base::messages::BotCallbackAnswer::BotCallbackAnswer(answer) = user.invoke(&request).await.unwrap();
     assert_eq!(answer.message.as_deref(), Some("tapped"));
     let tapped = next(&mut rx, "edit").await;
-    assert_eq!((tapped.id, tapped.text.as_str()), (pong.id, "tapped!"));
+    assert_eq!((tapped.id, tapped.text()), (pong.id, "tapped!"));
 
     let base::InputPeer::InputPeerUser(bot_peer) = &peer else { panic!("the bot is not a user peer") };
     let bot_user =
@@ -568,11 +568,11 @@ async fn user_keeps_peers_across_restarts() {
 async fn user_gets_the_bots_reply_through_the_kit() {
     let Some(kit) = support::Kit::from_env().await else { return };
     kit.bot.on_message(filters::private() & filters::text(), |m| async move {
-        m.reply(format!("echo: {}", m.text)).await?;
+        m.reply(format!("echo: {}", m.text())).await?;
         Ok(())
     });
     let reply = kit.user.send_and_wait_reply(&kit.bot, "hi from the kit").await.unwrap();
-    assert_eq!((reply.text.as_str(), reply.outgoing), ("echo: hi from the kit", false));
+    assert_eq!((reply.text(), reply.outgoing), ("echo: hi from the kit", false));
 }
 
 async fn next(rx: &mut tokio::sync::mpsc::UnboundedReceiver<(&'static str, Message)>, kind: &str) -> Message {
@@ -896,7 +896,7 @@ async fn user_searches_and_translates() {
     user.search_messages_count("me").query(marker.as_str()).await.unwrap();
     let mut found = user.search_global(marker.as_str()).limit(5);
     while let Some(message) = found.next().await.unwrap() {
-        assert!(message.text.contains(&marker));
+        assert!(message.text().contains(&marker));
     }
     user.search_global_count("telegram", MessagesFilter::Url).await.unwrap();
     saved.delete().await.unwrap();
@@ -1052,7 +1052,7 @@ async fn user_copies_and_forwards_an_album() {
     assert_ne!(forwarded[0].media_group_id, album[0].media_group_id);
 
     let copied = user.copy_media_group("me", "me", album[0].id).caption(0, "copied").await.unwrap();
-    assert_eq!((copied.len(), copied[0].caption.as_deref()), (2, Some("copied")));
+    assert_eq!((copied.len(), copied[0].caption()), (2, Some("copied")));
 
     let ids: Vec<i32> = [album, forwarded, copied].iter().flatten().map(|m| m.id).collect();
     user.delete_messages("me", &ids).await.unwrap();

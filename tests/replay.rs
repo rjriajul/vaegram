@@ -134,8 +134,8 @@ async fn play_over(records: &[Record], record: Option<&Path>, transport: Transpo
     client.on_message(filters::private(), move |m| {
         let tx = tx.clone();
         async move {
-            let sent = m.reply(format!("echo: {}", m.text)).await?;
-            let _ = tx.send(format!("{} {} -> {}", m.chat.id, m.text, sent.text));
+            let sent = m.reply(format!("echo: {}", m.text())).await?;
+            let _ = tx.send(format!("{} {} -> {}", m.chat.id, m.text(), sent.text()));
             Ok(())
         }
     });

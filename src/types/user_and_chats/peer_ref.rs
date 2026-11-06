@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::types::{Chat, Message, User};
 use crate::utils::get_channel_id;
 
@@ -46,6 +48,13 @@ impl From<String> for PeerRef {
 
 impl From<&Chat> for PeerRef {
     fn from(chat: &Chat) -> PeerRef {
+        PeerRef::Id(chat.id)
+    }
+}
+
+// `Message::chat` and `Message::sender_chat` are shared, so `&message.chat` is an `&Arc<Chat>`.
+impl From<&Arc<Chat>> for PeerRef {
+    fn from(chat: &Arc<Chat>) -> PeerRef {
         PeerRef::Id(chat.id)
     }
 }
@@ -125,6 +134,28 @@ fn name(s: &str) -> PeerRef {
 #[cfg(test)]
 mod tests {
     use super::PeerRef;
+    use crate::Client;
+    use crate::dispatcher::Entities;
+    use crate::types::Message;
+    use crate::utils::{get_channel_id, get_peer};
+
+    fn peer(peer: impl Into<PeerRef>) -> PeerRef {
+        peer.into()
+    }
+
+    #[test]
+    fn a_messages_shared_chats_name_their_chat() {
+        let client = Client::offline();
+        let mut raw = Message::bare(1, get_peer(get_channel_id(5)), 0);
+        raw.post = true;
+        let message = Message::parse(&client, Box::new(raw), &Entities::default());
+        let channel = PeerRef::Id(get_channel_id(5));
+        assert_eq!(peer(&message.chat), channel);
+        assert_eq!(message.sender_chat.as_ref().map(peer), Some(channel.clone()));
+        assert_eq!((peer(&*message.chat), peer(&message)), (channel.clone(), channel));
+        // The shared chat goes straight into a method that takes a chat.
+        let _ = client.send_message(&message.chat, "hi");
+    }
 
     #[test]
     fn parses_every_way_to_name_a_chat() {

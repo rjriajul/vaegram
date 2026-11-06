@@ -18,7 +18,7 @@ async fn full_client_talks_to_the_mock() {
     assert_eq!(pong.ping_id, 42);
 
     let sent = client.send_message(-GROUP_ID, "hi").await.unwrap();
-    assert_eq!(sent.text, "hi");
+    assert_eq!(sent.text(), "hi");
     assert_eq!(mock.stats.sent.load(Ordering::Relaxed), 1);
 
     let get = get_file(0, 4096);
@@ -29,7 +29,7 @@ async fn full_client_talks_to_the_mock() {
     let seen = Arc::new(AtomicU64::new(0));
     let s = seen.clone();
     client.on_message(filters::all(), move |m| {
-        assert_eq!(m.text, "ping");
+        assert_eq!(m.text(), "ping");
         s.fetch_add(1, Ordering::Relaxed);
         async { Ok(()) }
     });

@@ -20,36 +20,30 @@ use crate::utils::{get_peer, get_peer_id};
 
 /// A message in a chat, with its sender, content and metadata.
 ///
-/// Media messages keep their text in `caption` and leave `text` empty. A link preview doesn't count as media.
+/// Media messages keep their text in [`caption`](Message::caption) and leave [`text`](Message::text) empty. A link
+/// preview doesn't count as media.
 /// The methods on this type, such as
 /// [`reply`](Message::reply) and [`edit_text`](Message::edit_text), act on this message in its own chat.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Message {
     /// Id of the message, unique within `chat`.
     pub id: i32,
-    /// The chat the message belongs to.
-    pub chat: Chat,
+    /// The chat the message belongs to. Shared, so cloning a message doesn't copy it.
+    pub chat: Arc<Chat>,
     /// The sending user. `None` for channel posts and for messages sent on behalf of a chat.
     pub from_user: Option<User>,
     /// The chat the message was sent on behalf of. `None` when a user sent it as themselves.
-    pub sender_chat: Option<Chat>,
+    pub sender_chat: Option<Arc<Chat>>,
     /// When the message was sent, as a Unix timestamp.
     pub date: i32,
-    /// A rich message without plain text gets its blocks' text here, so text filters and commands still match.
-    pub text: String,
     /// The message was sent by the account this client is logged in as.
     pub outgoing: bool,
     /// When the message was last edited, as a Unix timestamp. `None` if it never was.
     pub edit_date: Option<i32>,
-    /// Formatting entities of `text`.
-    pub entities: Option<Vec<MessageEntity>>,
-    /// The text of a media message. `None` for a text message, or if the sender wrote no caption.
-    pub caption: Option<String>,
-    /// Formatting entities of `caption`.
-    pub caption_entities: Option<Vec<MessageEntity>>,
     /// The attached media. `None` for a text message and for media of a kind [`Media`] doesn't cover.
     pub media: Option<Media>,
-    /// The link preview of a text message; `media` stays `None` and the text stays in `text`.
+    /// The link preview of a text message; `media` stays `None` and the text stays in [`text`](Message::text).
     pub web_page: Option<WebPage>,
     /// The structured content of a rich message. `None` for other messages.
     pub rich_message: Option<RichMessage>,
@@ -123,7 +117,7 @@ pub struct Message {
     /// The user whose guest bot request produced this message.
     pub guest_bot_caller_user: Option<User>,
     /// The chat whose guest bot request produced this message.
-    pub guest_bot_caller_chat: Option<Chat>,
+    pub guest_bot_caller_chat: Option<Arc<Chat>>,
     /// How many times the message was viewed. `None` if Telegram doesn't count views for it.
     pub views: Option<i32>,
     /// How many times the message was forwarded. `None` if Telegram doesn't count forwards for it.
@@ -147,12 +141,21 @@ pub struct Message {
     /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`] and leaves its text in
     /// `message`.
     pub(crate) raw: Box<types::Message>,
+    // `raw.entities` parsed once, since a text mention needs the user the update carried. They format
+    // `raw.message`, which is the text or the caption depending on the media.
+    parsed_entities: Option<Vec<MessageEntity>>,
     // The replied message a business update carries, since the bot can't read the account's history.
     replied: Option<Box<Message>>,
     // What the client's fetch options looked up before handlers saw the message.
     pub(crate) prefetched: Option<Box<Prefetched>>,
     client: Client,
 }
+
+// Every update moves a `Message` and handlers often clone it, so a field that makes it grow should be a choice.
+// The bound is the exact size measured on x86_64, on purpose: lower it whenever the type shrinks. It is checked in
+// this crate's tests only, so a compiler that lays the type out differently can't break a user's build.
+#[cfg(all(test, target_pointer_width = "64"))]
+const _: () = assert!(std::mem::size_of::<Message>() <= 6312);
 
 /// Each slot is `None` when nothing was fetched (the option is off, or the fetch failed), and `Some(None)` when
 /// Telegram answered that there's nothing there.
@@ -176,25 +179,19 @@ impl Message {
         entities: &Entities,
     ) -> Message {
         Message::fill_rich_text(&mut raw);
-        let chat = Chat::parse(&raw.peer_id, entities, raw.post);
+        let chat = Arc::new(Chat::parse(&raw.peer_id, entities, raw.post));
         let (mut from_user, mut sender_chat) = (None, None);
         match (&raw.from_id, &raw.peer_id) {
             (Some(base::Peer::PeerUser(p)), _) => from_user = Some(User::parse(p.user_id, entities)),
-            (Some(peer), _) => sender_chat = Some(Chat::parse(peer, entities, false)),
+            (Some(peer), _) => sender_chat = Some(Arc::new(Chat::parse(peer, entities, false))),
             (None, base::Peer::PeerUser(p)) => {
                 let id = if raw.out { client.0.me.lock().unwrap().id } else { p.user_id };
                 from_user = Some(User::parse(id, entities));
             }
-            (None, _) if chat.kind == ChatType::Channel => sender_chat = Some(chat.clone()),
+            (None, _) if chat.kind == ChatType::Channel => sender_chat = Some(Arc::clone(&chat)),
             (None, _) => {}
         }
-        let has_caption = takes_caption(raw.media.as_ref());
         let parsed_entities = raw.entities.as_deref().and_then(|e| MessageEntity::parse_all(e, entities));
-        let (text, text_entities, caption, caption_entities) = if has_caption {
-            (String::new(), None, (!raw.message.is_empty()).then(|| raw.message.clone()), parsed_entities)
-        } else {
-            (raw.message.clone(), parsed_entities, None, None)
-        };
         let ReplyFields {
             reply_to_message_id,
             reply_to_checklist_task_id,
@@ -214,7 +211,7 @@ impl Message {
         let is_automatic_forward = is_automatic_forward(&chat, raw.fwd_from.as_ref());
         let (guest_bot_caller_user, guest_bot_caller_chat) = match &raw.guestchat_via_from {
             Some(base::Peer::PeerUser(p)) => (Some(User::parse(p.user_id, entities)), None),
-            Some(peer) => (None, Some(Chat::parse(peer, entities, false))),
+            Some(peer) => (None, Some(Arc::new(Chat::parse(peer, entities, false)))),
             None => (None, None),
         };
         Message {
@@ -223,12 +220,8 @@ impl Message {
             from_user,
             sender_chat,
             date: raw.date,
-            text,
             outgoing: raw.out,
             edit_date: raw.edit_date,
-            entities: text_entities,
-            caption,
-            caption_entities,
             media: raw.media.as_ref().and_then(|m| Media::parse(client, m, entities)),
             web_page: raw.media.as_ref().and_then(WebPage::parse),
             rich_message,
@@ -281,6 +274,7 @@ impl Message {
                 .map_or(Vec::new(), |r| r.iter().map(RestrictionReason::parse).collect()),
             fact_check: raw.factcheck.as_ref().map(|f| FactCheck::parse(f, entities)),
             raw,
+            parsed_entities,
             replied: None,
             prefetched: None,
             client: client.clone(),
@@ -477,6 +471,33 @@ impl Message {
         self.business_connection_id = Some(connection_id);
     }
 
+    /// The text of a text message. Empty for a media message, whose text is its [`caption`](Message::caption), and
+    /// for a service message.
+    ///
+    /// A rich message without plain text gets its blocks' text here, so text filters and commands still match.
+    pub fn text(&self) -> &str {
+        if self.has_caption() { "" } else { &self.raw.message }
+    }
+
+    /// Formatting entities of [`text`](Message::text). `None` if it has none, and for a media message.
+    pub fn entities(&self) -> Option<&[MessageEntity]> {
+        if self.has_caption() { None } else { self.parsed_entities.as_deref() }
+    }
+
+    /// The text of a media message. `None` for a text message, or if the sender wrote no caption.
+    pub fn caption(&self) -> Option<&str> {
+        (self.has_caption() && !self.raw.message.is_empty()).then_some(self.raw.message.as_str())
+    }
+
+    /// Formatting entities of [`caption`](Message::caption). `None` if it has none, and for a text message.
+    pub fn caption_entities(&self) -> Option<&[MessageEntity]> {
+        if self.has_caption() { self.parsed_entities.as_deref() } else { None }
+    }
+
+    fn has_caption(&self) -> bool {
+        takes_caption(self.raw.media.as_ref())
+    }
+
     /// The reply markup attached to the message. `None` if it has none.
     pub fn reply_markup(&self) -> Option<ReplyMarkup> {
         ReplyMarkup::parse(self.raw.reply_markup.as_ref()?)
@@ -666,7 +687,7 @@ impl Message {
     ///
     /// Returns `None` if there is no command, or if it names another bot.
     pub fn command_with(&self, prefixes: &str) -> Option<Command<'_>> {
-        let command = Command::parse(self.caption.as_deref().unwrap_or(&self.text), prefixes)?;
+        let command = Command::parse(self.content(), prefixes)?;
         (command.bot.is_none() || command.is_for(self.client.0.me.lock().unwrap().username.as_deref()))
             .then_some(command)
     }
@@ -820,7 +841,7 @@ fn takes_caption(media: Option<&base::MessageMedia>) -> bool {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::super::media::tests::document_media;
-    use super::Message;
+    use super::{Message, MessageEntity};
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::errors::{Error, RpcError};
@@ -901,15 +922,74 @@ pub(crate) mod tests {
         let bold = types::MessageEntityBold { offset: 0, length: 6 };
         raw.entities = Some(vec![base::MessageEntity::MessageEntityBold(bold)]);
         let text = parse(&raw);
-        assert_eq!((text.text.as_str(), text.caption, text.entities.map(|e| e.len())), ("/start now", None, Some(1)));
+        assert_eq!((text.text(), text.caption(), text.entities().map(<[_]>::len)), ("/start now", None, Some(1)));
 
         raw.media = Some(document_media("application/pdf", Vec::new()));
         let media = parse(&raw);
-        assert_eq!((media.text.as_str(), media.caption.as_deref()), ("", Some("/start now")));
-        let entities = (media.entities.as_ref().map(Vec::len), media.caption_entities.as_ref().map(Vec::len));
+        assert_eq!((media.text(), media.caption()), ("", Some("/start now")));
+        let entities = (media.entities().map(<[_]>::len), media.caption_entities().map(<[_]>::len));
         assert_eq!((entities, media.document().is_some()), ((None, Some(1)), true));
         let command = media.command().map(|c| (c.name, c.args().collect::<Vec<_>>()));
         assert_eq!(command, Some(("start", vec!["now"])));
+    }
+
+    #[test]
+    fn text_and_caption_borrow_the_raw_text_and_clones_share_the_chat() {
+        let mut raw = Message::bare(1, get_peer(get_channel_id(5)), 0);
+        (raw.message, raw.post) = ("hello".into(), true);
+        let text = parse(&raw);
+        assert_eq!(text.text().as_ptr(), text.raw.message.as_ptr());
+        raw.media = Some(document_media("application/pdf", Vec::new()));
+        let media = parse(&raw);
+        assert_eq!(media.caption().map(str::as_ptr), Some(media.raw.message.as_ptr()));
+        let copy = media.clone();
+        assert!(std::sync::Arc::ptr_eq(&copy.chat, &media.chat));
+        let (sender, copied) = (media.sender_chat.as_ref().unwrap(), copy.sender_chat.as_ref().unwrap());
+        assert!(std::sync::Arc::ptr_eq(sender, copied) && std::sync::Arc::ptr_eq(sender, &media.chat));
+    }
+
+    #[test]
+    fn empty_and_service_messages_have_no_text_or_caption() {
+        type Parts<'a> = (&'a str, Option<&'a str>, Option<&'a [MessageEntity]>, Option<&'a [MessageEntity]>, &'a str);
+        fn none(m: &Message) -> Parts<'_> {
+            (m.text(), m.caption(), m.entities(), m.caption_entities(), m.content())
+        }
+        let empty = parse(&Message::bare(1, get_peer(7), 0));
+        assert_eq!(none(&empty), ("", None, None, None, ""));
+
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        raw.media = Some(document_media("application/pdf", Vec::new()));
+        let uncaptioned = parse(&raw);
+        assert!(uncaptioned.document().is_some());
+        assert_eq!(none(&uncaptioned), ("", None, None, None, ""));
+
+        let raw = base::Message::MessageService(Box::new(service(base::MessageAction::MessageActionChatDeletePhoto)));
+        let service = Message::from_raw(&Client::offline(), raw, &Entities::default()).unwrap();
+        assert!(service.service.is_some());
+        assert_eq!(none(&service), ("", None, None, None, ""));
+    }
+
+    #[test]
+    fn entities_follow_the_text_or_the_caption() {
+        use crate::enums::MessageEntityType as T;
+        let mut raw = Message::bare(1, get_peer(7), 0);
+        raw.message = "hi Bob".into();
+        let bold = types::MessageEntityBold { offset: 0, length: 2 };
+        let mention = Box::new(types::MessageEntityMentionName { offset: 3, length: 3, user_id: 42 });
+        raw.entities = Some(vec![
+            base::MessageEntity::MessageEntityBold(bold),
+            base::MessageEntity::MessageEntityMentionName(mention),
+        ]);
+        let spans = |e: Option<&[MessageEntity]>| {
+            e.map(|e| e.iter().map(|e| (e.kind, e.offset, e.length, e.user.as_ref().map(|u| u.id))).collect::<Vec<_>>())
+        };
+        let expected = Some(vec![(T::Bold, 0, 2, None), (T::TextMention, 3, 3, Some(42))]);
+
+        let text = parse(&raw);
+        assert_eq!((spans(text.entities()), spans(text.caption_entities())), (expected.clone(), None));
+        raw.media = Some(document_media("application/pdf", Vec::new()));
+        let media = parse(&raw);
+        assert_eq!((spans(media.entities()), spans(media.caption_entities())), (None, expected));
     }
 
     #[test]
@@ -1178,14 +1258,14 @@ pub(crate) mod tests {
         let rich = types::RichMessage { rtl: true, part: false, blocks, photos: vec![], documents: vec![] };
         raw.rich_message = Some(base::RichMessage::RichMessage(Box::new(rich)));
         let message = parse(&raw);
-        assert_eq!(message.text, "/start\nhi Bob");
+        assert_eq!(message.text(), "/start\nhi Bob");
         assert_eq!(message.command().map(|c| c.name), Some("start"));
         assert!(message.rich_message.is_some_and(|r| r.rtl));
         assert_eq!(message.raw.rich_message, None);
 
         raw.media = Some(document_media("application/pdf", Vec::new()));
         let media = parse(&raw);
-        assert_eq!((media.text.as_str(), media.caption.as_deref(), media.raw.message.as_str()), ("", None, ""));
+        assert_eq!((media.text(), media.caption(), media.raw.message.as_str()), ("", None, ""));
         let (command, filtered) = (media.command().map(|c| c.name), filters::command("start").check(&media));
         assert_eq!((command, filtered, media.rich_message.is_some()), (None, false, true));
     }
@@ -1310,7 +1390,7 @@ pub(crate) mod tests {
         let (client, mut sent) = Client::scripted(vec![reply]);
         let message = Message::parse(&client, Box::new(Message::bare(5, get_peer(-5), 0)), &Entities::default());
         let again = message.refetch().await.unwrap().unwrap();
-        assert_eq!((again.id, again.chat.id, again.text.as_str()), (5, -5, "edited"));
+        assert_eq!((again.id, again.chat.id, again.text()), (5, -5, "edited"));
         let request = functions::messages::GetMessages {
             id: vec![base::InputMessage::InputMessageID(types::InputMessageID { id: 5 })],
         };
@@ -1386,7 +1466,7 @@ pub(crate) mod tests {
         assert_eq!((text.html_text().as_str(), text.markdown_text().as_str()), ("<b>hi</b> &lt;3", "**hi** <3"));
         raw.media = Some(document_media("application/pdf", Vec::new()));
         let media = parse(&raw);
-        assert_eq!((media.caption.as_deref(), media.html_text().as_str()), (Some("hi <3"), "<b>hi</b> &lt;3"));
+        assert_eq!((media.caption(), media.html_text().as_str()), (Some("hi <3"), "<b>hi</b> &lt;3"));
         // A message without text or caption has nothing to format.
         assert_eq!(parse(&Message::bare(2, get_peer(7), 0)).html_text(), "");
     }
@@ -1537,14 +1617,14 @@ pub(crate) mod tests {
         raw.message = "see https://example.com/v".into();
         raw.media = Some(web_page_media(base::WebPage::WebPage(Box::new(page("https://example.com/v")))));
         let m = parse(&raw);
-        assert_eq!((m.text.as_str(), m.caption.as_deref()), ("see https://example.com/v", None));
+        assert_eq!((m.text(), m.caption()), ("see https://example.com/v", None));
         assert!(m.media.is_none());
         assert_eq!(m.web_page.map(|p| p.url), Some("https://example.com/v".into()));
 
         let pending = types::WebPagePending { id: 1, url: None, date: 0 };
         raw.media = Some(web_page_media(base::WebPage::WebPagePending(Box::new(pending))));
         let m = parse(&raw);
-        assert!(m.web_page.is_none() && m.media.is_none() && !m.text.is_empty());
+        assert!(m.web_page.is_none() && m.media.is_none() && !m.text().is_empty());
     }
 
     #[test]

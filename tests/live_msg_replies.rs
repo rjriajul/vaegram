@@ -14,7 +14,7 @@ async fn bot_replies_and_answers_with_media() {
     kit.bot.on_message(filters::private() & filters::text(), move |m| {
         let tx = tx.clone();
         async move {
-            if m.text == "media" {
+            if m.text() == "media" {
                 let document = m.reply_document(Upload::bytes("a.txt", b"a")).await.map(drop);
                 let poll = m.answer_poll("q", ["a", "b"]).await.map(drop);
                 let dice = m.reply_dice().await.map(drop);
@@ -27,7 +27,7 @@ async fn bot_replies_and_answers_with_media() {
     let reply = kit.user.send_and_wait_reply(&kit.bot, "media").await.unwrap();
     assert!(reply.document().is_some(), "the first reply is the document");
     let replied = reply.reply_to_message().await.unwrap().expect("the document replies to the request");
-    assert_eq!(replied.text, "media");
+    assert_eq!(replied.text(), "media");
     let sent = tokio::time::timeout(std::time::Duration::from_secs(30), rx.recv()).await.unwrap().unwrap();
     for result in sent {
         result.unwrap();
