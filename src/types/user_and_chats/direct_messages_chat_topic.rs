@@ -19,7 +19,7 @@ pub struct DirectMessagesChatTopic {
     /// Id of the last outgoing message that was read.
     pub last_read_outbox_message_id: i32,
     /// Whether the conversation was marked as unread by hand.
-    pub unread_mark: bool,
+    pub is_marked_as_unread: bool,
     /// Whether the sender is exempt from paying for messages.
     pub can_send_unpaid_messages: bool,
 }
@@ -33,7 +33,7 @@ impl DirectMessagesChatTopic {
             unread_reactions_count: raw.unread_reactions_count,
             last_read_inbox_message_id: raw.read_inbox_max_id,
             last_read_outbox_message_id: raw.read_outbox_max_id,
-            unread_mark: raw.unread_mark,
+            is_marked_as_unread: raw.unread_mark,
             can_send_unpaid_messages: raw.nopaid_messages_exception,
         }
     }

@@ -9,7 +9,7 @@ pub struct InlineBotResults {
     /// Pass to `.offset()` for the next page; `None` on the last one.
     pub next_offset: Option<String>,
     /// Set when the results should be shown as a media gallery instead of a list.
-    pub gallery: bool,
+    pub is_gallery: bool,
     /// The results on this page.
     pub results: Vec<InlineBotResult>,
 }
@@ -45,7 +45,7 @@ impl InlineBotResults {
                 }
             })
             .collect();
-        InlineBotResults { query_id: r.query_id, next_offset: r.next_offset, gallery: r.gallery, results }
+        InlineBotResults { query_id: r.query_id, next_offset: r.next_offset, is_gallery: r.gallery, results }
     }
 }
 
@@ -90,7 +90,7 @@ mod tests {
             url: None,
         };
         let expected =
-            InlineBotResults { query_id: 7, next_offset: Some("20".into()), gallery: true, results: vec![gif] };
+            InlineBotResults { query_id: 7, next_offset: Some("20".into()), is_gallery: true, results: vec![gif] };
         assert_eq!(results, expected);
     }
 }

@@ -126,7 +126,7 @@ pub enum ChatEventAction {
         /// The link used; empty for a public join-request link.
         invite_link: String,
         /// The link was opened as part of a chat folder link.
-        via_chatlist: bool,
+        via_chat_folder_invite_link: bool,
     },
     /// A user joined after a join request was approved.
     #[non_exhaustive]
@@ -237,9 +237,10 @@ impl ChatEventAction {
             A::ChannelAdminLogEventActionStopPoll(a) => Self::PollStopped(message(&a.message)?),
             A::ChannelAdminLogEventActionParticipantJoin => Self::MemberJoined,
             A::ChannelAdminLogEventActionParticipantLeave => Self::MemberLeft,
-            A::ChannelAdminLogEventActionParticipantJoinByInvite(a) => {
-                Self::MemberJoinedByLink { invite_link: invite_link(&a.invite), via_chatlist: a.via_chatlist }
-            }
+            A::ChannelAdminLogEventActionParticipantJoinByInvite(a) => Self::MemberJoinedByLink {
+                invite_link: invite_link(&a.invite),
+                via_chat_folder_invite_link: a.via_chatlist,
+            },
             A::ChannelAdminLogEventActionParticipantJoinByRequest(a) => Self::MemberJoinedByRequest {
                 invite_link: invite_link(&a.invite),
                 approved_by: User::parse(a.approved_by, entities),

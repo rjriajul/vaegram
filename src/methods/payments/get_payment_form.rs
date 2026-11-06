@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(cards, [("card-1", "Visa *1111")]);
         let info = OrderInfo::new().name("Ann");
         assert_eq!(form.saved_order_info, Some(info));
-        assert!(form.can_save_credentials && form.need_password);
+        assert!(form.can_save_credentials && form.needs_password);
     }
 
     #[tokio::test]

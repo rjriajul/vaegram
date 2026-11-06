@@ -74,8 +74,6 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 [[bench]]
 name = "tl"
 harness = false
-# Its connection benchmark drives `connection::Connection` directly.
-required-features = ["unstable-raw"]
 
 [[bench]]
 name = "session"

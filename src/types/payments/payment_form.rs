@@ -64,7 +64,7 @@ pub struct PaymentForm {
     /// See [`InputCredentials::allow_save`](crate::types::InputCredentials::allow_save).
     pub can_save_credentials: bool,
     /// Paying with saved credentials needs a 2FA password, and this account has none.
-    pub need_password: bool,
+    pub needs_password: bool,
     /// Whether the invoice asks for the payer's name.
     pub is_name_requested: bool,
     /// Whether the invoice asks for the payer's phone number.
@@ -114,7 +114,7 @@ impl std::fmt::Debug for PaymentForm {
             .field("saved_credentials", &format_args!("<{} redacted>", self.saved_credentials.len()))
             .field("saved_order_info", &format_args!("{}", redacted(self.saved_order_info.is_some())))
             .field("can_save_credentials", &self.can_save_credentials)
-            .field("need_password", &self.need_password)
+            .field("needs_password", &self.needs_password)
             .field("is_name_requested", &self.is_name_requested)
             .field("is_phone_requested", &self.is_phone_requested)
             .field("is_email_requested", &self.is_email_requested)
@@ -253,7 +253,7 @@ impl PaymentForm {
             saved_credentials: card.saved_credentials,
             saved_order_info: card.saved_order_info,
             can_save_credentials: card.can_save_credentials,
-            need_password: card.need_password,
+            needs_password: card.need_password,
             is_name_requested: terms.name_requested,
             is_phone_requested: terms.phone_requested,
             is_email_requested: terms.email_requested,

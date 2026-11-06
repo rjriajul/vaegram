@@ -13,7 +13,7 @@ pub struct StarTransaction {
     /// When the transaction happened, as a Unix timestamp.
     pub date: i32,
     /// Set when the transaction is a refund.
-    pub refund: bool,
+    pub is_refund: bool,
     /// The other party in the transaction.
     pub partner: TransactionPartner,
 }
@@ -25,7 +25,7 @@ impl StarTransaction {
             id: raw.id,
             amount: StarAmount::parse(&raw.amount),
             date: raw.date,
-            refund: raw.refund,
+            is_refund: raw.refund,
             partner,
         }
     }

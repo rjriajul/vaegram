@@ -16,7 +16,7 @@ pub enum ClickResult {
         /// The query text to prefill.
         query: String,
         /// Set when the query is for the current chat, not a chat the user picks.
-        same_chat: bool,
+        is_same_chat: bool,
     },
     /// The text the button copies to the clipboard.
     Copy(String),

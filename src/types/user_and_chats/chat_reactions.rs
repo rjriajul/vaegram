@@ -1,7 +1,7 @@
 use crate::raw::base;
 use crate::types::ReactionType;
 
-/// The reactions members can put on messages. The default allows none.
+/// The reactions members can put on messages. An empty one allows none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ChatReactions {

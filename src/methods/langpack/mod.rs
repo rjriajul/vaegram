@@ -50,7 +50,7 @@ mod tests {
         ]);
 
         let en = client.get_language("android", "en").await.unwrap();
-        assert_eq!((en.lang_code.as_str(), en.base_lang_code, en.official), ("en", None, true));
+        assert_eq!((en.lang_code.as_str(), en.base_lang_code, en.is_official), ("en", None, true));
         let strings = vec![
             LangPackString::Plain { key: "Ok".into(), value: "OK".into() },
             LangPackString::Pluralized {

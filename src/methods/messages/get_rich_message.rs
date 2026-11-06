@@ -5,10 +5,10 @@ use crate::types::{Message, PeerRef};
 use crate::utils::get_peer_id;
 
 impl Client {
-    /// The whole rich message, for one Telegram sent only in part ([`RichMessage::part`]). `None` when the
+    /// The whole rich message, for one Telegram sent only in part ([`RichMessage::is_partial`]). `None` when the
     /// message is gone.
     ///
-    /// [`RichMessage::part`]: crate::types::RichMessage::part
+    /// [`RichMessage::is_partial`]: crate::types::RichMessage::is_partial
     pub async fn get_rich_message(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> Result<Option<Message>> {
         let (chat_id, peer) = self.resolve(&chat_id.into()).await?;
         let found = self.invoke(&functions::messages::GetRichMessage { peer, id: message_id }).await?;
@@ -54,7 +54,7 @@ mod tests {
         client.0.peers.lock().unwrap().insert(7, user());
 
         let message = client.get_rich_message(7, 5).await.unwrap().expect("the message was sent back");
-        assert!(message.rich_message.is_some_and(|r| !r.part));
+        assert!(message.rich_message.is_some_and(|r| !r.is_partial));
         let request = functions::messages::GetRichMessage { peer: user(), id: 5 };
         assert_eq!(rx.try_recv().unwrap(), request.to_bytes());
     }

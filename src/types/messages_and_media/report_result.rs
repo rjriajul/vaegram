@@ -16,7 +16,7 @@ pub enum ReportResult {
     #[non_exhaustive]
     AddComment {
         /// `true` if the comment may be left empty.
-        optional: bool,
+        is_optional: bool,
         /// Opaque value to pass to [`ReportMessages::option`](crate::methods::ReportMessages::option).
         option: Vec<u8>,
     },
@@ -49,7 +49,7 @@ impl ReportResult {
                     .collect(),
             },
             base::ReportResult::ReportResultAddComment(r) => {
-                ReportResult::AddComment { optional: r.optional, option: r.option }
+                ReportResult::AddComment { is_optional: r.optional, option: r.option }
             }
             base::ReportResult::ReportResultReported => ReportResult::Reported,
         }

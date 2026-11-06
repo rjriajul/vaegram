@@ -7,7 +7,7 @@ pub struct CallbackAnswer {
     /// Message to show the user. `None` if the bot sent none.
     pub text: Option<String>,
     /// Shows the text as an alert instead of a brief notice.
-    pub alert: bool,
+    pub is_alert: bool,
     /// A link for the client to open. `None` if the bot sent none.
     pub url: Option<String>,
     /// Seconds the client may reuse this answer without asking the bot again.
@@ -17,6 +17,6 @@ pub struct CallbackAnswer {
 impl CallbackAnswer {
     pub(crate) fn parse(raw: base::messages::BotCallbackAnswer) -> CallbackAnswer {
         let base::messages::BotCallbackAnswer::BotCallbackAnswer(a) = raw;
-        CallbackAnswer { text: a.message, alert: a.alert, url: a.url, cache_time: a.cache_time }
+        CallbackAnswer { text: a.message, is_alert: a.alert, url: a.url, cache_time: a.cache_time }
     }
 }

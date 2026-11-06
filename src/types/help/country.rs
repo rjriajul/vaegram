@@ -11,7 +11,7 @@ pub struct Country {
     /// Name in the language Telegram was asked for. `None` if Telegram sent no localized name.
     pub name: Option<String>,
     /// Set when Telegram marks the country as hidden.
-    pub hidden: bool,
+    pub is_hidden: bool,
     /// Dialing codes of the country.
     pub country_codes: Vec<CountryCode>,
 }
@@ -40,7 +40,7 @@ impl Country {
                 patterns: code.patterns.unwrap_or_default(),
             })
             .collect();
-        Country { iso2: c.iso2, default_name: c.default_name, name: c.name, hidden: c.hidden, country_codes }
+        Country { iso2: c.iso2, default_name: c.default_name, name: c.name, is_hidden: c.hidden, country_codes }
     }
 }
 
@@ -65,6 +65,6 @@ mod tests {
         };
         let country = Country::parse(base::help::Country::Country(Box::new(raw)));
         let code = CountryCode { country_code: "1".into(), prefixes: Vec::new(), patterns: vec!["XXX XXXX".into()] };
-        assert_eq!((country.hidden, country.name, country.country_codes), (true, None, vec![code]));
+        assert_eq!((country.is_hidden, country.name, country.country_codes), (true, None, vec![code]));
     }
 }

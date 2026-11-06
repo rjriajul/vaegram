@@ -19,7 +19,7 @@ pub struct BoostsStatus {
     /// Link people open to boost the chat.
     pub boost_url: String,
     /// `true` if you boost the chat yourself.
-    pub my_boost: bool,
+    pub has_my_boost: bool,
     /// Your boost slots assigned to this chat.
     pub my_boost_slots: Vec<i32>,
 }
@@ -34,7 +34,7 @@ impl BoostsStatus {
             gift_boosts: raw.gift_boosts.unwrap_or_default(),
             premium_members: raw.premium_audience.map(|base::StatsPercentValue::StatsPercentValue(p)| p.part as i32),
             boost_url: raw.boost_url,
-            my_boost: raw.my_boost,
+            has_my_boost: raw.my_boost,
             my_boost_slots: raw.my_boost_slots.unwrap_or_default(),
         }
     }

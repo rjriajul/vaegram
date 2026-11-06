@@ -9,7 +9,7 @@ pub struct AvailableEffect {
     /// Emoji that represents the effect.
     pub emoji: String,
     /// `true` if only Premium users can send the effect.
-    pub premium_required: bool,
+    pub is_premium: bool,
     /// Id of the document used as the effect's static icon.
     pub static_icon_id: Option<i64>,
     /// Id of the effect's sticker.
@@ -24,7 +24,7 @@ impl AvailableEffect {
         AvailableEffect {
             id: e.id,
             emoji: e.emoticon,
-            premium_required: e.premium_required,
+            is_premium: e.premium_required,
             static_icon_id: e.static_icon_id,
             effect_sticker_id: e.effect_sticker_id,
             effect_animation_id: e.effect_animation_id,

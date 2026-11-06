@@ -13,11 +13,11 @@ pub struct PeerReaction {
     /// Unix time the reaction was left.
     pub date: i32,
     /// The reaction was sent with the big animation.
-    pub big: bool,
+    pub is_big: bool,
     /// The current account has not seen the reaction yet.
-    pub unread: bool,
+    pub is_unread: bool,
     /// The current account left the reaction.
-    pub my: bool,
+    pub is_mine: bool,
 }
 
 impl PeerReaction {
@@ -27,9 +27,9 @@ impl PeerReaction {
             peer_id: get_peer_id(&r.peer_id),
             reaction: ReactionType::parse(&r.reaction)?,
             date: r.date,
-            big: r.big,
-            unread: r.unread,
-            my: r.my,
+            is_big: r.big,
+            is_unread: r.unread,
+            is_mine: r.my,
         })
     }
 }

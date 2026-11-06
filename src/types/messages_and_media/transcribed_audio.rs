@@ -6,10 +6,10 @@ use crate::raw::base;
 pub struct TranscribedAudio {
     /// Id of the transcription.
     pub transcription_id: i64,
-    /// The transcribed text. It can be partial while `pending` is `true`.
+    /// The transcribed text. It can be partial while `is_pending` is `true`.
     pub text: String,
     /// `true` while Telegram is still transcribing.
-    pub pending: bool,
+    pub is_pending: bool,
     /// Free transcriptions left in the trial. `None` if the account isn't on a trial.
     pub trial_remains_num: Option<i32>,
     /// Unix time when the trial allowance resets. `None` if the account isn't on a trial.
@@ -22,7 +22,7 @@ impl TranscribedAudio {
         TranscribedAudio {
             transcription_id: t.transcription_id,
             text: t.text,
-            pending: t.pending,
+            is_pending: t.pending,
             trial_remains_num: t.trial_remains_num,
             trial_remains_until_date: t.trial_remains_until_date,
         }

@@ -85,7 +85,7 @@ pub struct User {
     /// Bots only: monthly active users.
     pub active_users_count: Option<i32>,
     /// Bots only: inline queries ask for the user's location.
-    pub inline_need_location: bool,
+    pub inline_needs_location: bool,
     /// Bots only: the hint shown in the inline query field.
     pub inline_query_placeholder: Option<String>,
     /// Bots only: you own this bot.
@@ -152,7 +152,7 @@ impl User {
             phone_number: None,
             added_to_attachment_menu: false,
             active_users_count: None,
-            inline_need_location: false,
+            inline_needs_location: false,
             inline_query_placeholder: None,
             can_be_edited: false,
             can_be_added_to_attachment_menu: false,
@@ -191,7 +191,7 @@ impl User {
                     username: u
                         .username
                         .clone()
-                        .or_else(|| usernames.iter().find(|n| n.active).map(|n| n.username.clone())),
+                        .or_else(|| usernames.iter().find(|n| n.is_active).map(|n| n.username.clone())),
                     language_code: u.lang_code.clone(),
                     is_premium: u.premium,
                     is_deleted: u.deleted,
@@ -223,7 +223,7 @@ impl User {
                     phone_number: u.phone.clone(),
                     added_to_attachment_menu: u.attach_menu_enabled,
                     active_users_count: u.bot_active_users,
-                    inline_need_location: u.bot_inline_geo,
+                    inline_needs_location: u.bot_inline_geo,
                     inline_query_placeholder: u.bot_inline_placeholder.clone(),
                     can_be_edited: u.bot_can_edit,
                     can_be_added_to_attachment_menu: u.bot_attach_menu,
@@ -362,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn a_user_with_no_optional_fields_equals_the_default() {
+    fn a_user_with_no_optional_fields_parses_to_the_empty_user() {
         assert_eq!(parse(raw(7)), User { id: 7, first_name: "Neko".into(), ..User::empty() });
     }
 
@@ -381,7 +381,7 @@ mod tests {
             (|u| u.stories_hidden = true, |u| u.is_stories_hidden),
             (|u| u.stories_unavailable = true, |u| u.is_stories_unavailable),
             (|u| u.attach_menu_enabled = true, |u| u.added_to_attachment_menu),
-            (|u| u.bot_inline_geo = true, |u| u.inline_need_location),
+            (|u| u.bot_inline_geo = true, |u| u.inline_needs_location),
             (|u| u.bot_can_edit = true, |u| u.can_be_edited),
             (|u| u.bot_forum_sidebar = true, |u| u.has_topics_sidebar),
         ];
@@ -438,7 +438,7 @@ mod tests {
         let parsed = parse(user.clone());
         assert_eq!(parsed.username.as_deref(), Some("second"));
         assert_eq!(parsed.usernames.len(), 2);
-        assert!(!parsed.usernames[0].editable);
+        assert!(!parsed.usernames[0].is_editable);
         user.username = Some("own".into());
         assert_eq!(parse(user).username.as_deref(), Some("own"));
     }

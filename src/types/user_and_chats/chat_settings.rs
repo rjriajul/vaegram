@@ -15,7 +15,7 @@ pub struct ChatSettings {
     /// Whether the account's phone number can be shared with the user.
     pub can_share_contact: bool,
     /// Whether adding the user to contacts needs an exception to their privacy settings.
-    pub need_contacts_exception: bool,
+    pub needs_contacts_exception: bool,
     /// Whether Telegram moved the chat to the archive on its own.
     pub is_autoarchived: bool,
     /// Whether the account can invite members to the group.
@@ -55,7 +55,7 @@ impl ChatSettings {
             can_add_contact: false,
             can_block_contact: false,
             can_share_contact: false,
-            need_contacts_exception: false,
+            needs_contacts_exception: false,
             is_autoarchived: false,
             can_invite_members: false,
             is_business_bot_paused: false,
@@ -79,7 +79,7 @@ impl ChatSettings {
             can_add_contact: raw.add_contact,
             can_block_contact: raw.block_contact,
             can_share_contact: raw.share_contact,
-            need_contacts_exception: raw.need_contacts_exception,
+            needs_contacts_exception: raw.need_contacts_exception,
             is_autoarchived: raw.autoarchived,
             can_invite_members: raw.invite_members,
             is_business_bot_paused: raw.business_bot_paused,
@@ -161,7 +161,7 @@ mod tests {
             can_add_contact: true,
             can_block_contact: true,
             can_share_contact: true,
-            need_contacts_exception: true,
+            needs_contacts_exception: true,
             is_autoarchived: true,
             can_invite_members: true,
             is_business_bot_paused: true,

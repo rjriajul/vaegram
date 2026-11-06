@@ -13,17 +13,17 @@ use crate::types::{Document, Photo};
 #[derive(Debug, Clone, PartialEq)]
 pub struct RichMessage {
     /// Whether the message is laid out right to left.
-    pub rtl: bool,
+    pub is_rtl: bool,
     /// Whether Telegram sent only part of the message.
     /// [`Client::get_rich_message`](crate::Client::get_rich_message) fetches all of it.
-    pub part: bool,
+    pub is_partial: bool,
     pub(crate) raw: Box<types::RichMessage>,
 }
 
 impl RichMessage {
     pub(crate) fn parse(raw: base::RichMessage) -> RichMessage {
         let base::RichMessage::RichMessage(raw) = raw;
-        RichMessage { rtl: raw.rtl, part: raw.part, raw }
+        RichMessage { is_rtl: raw.rtl, is_partial: raw.part, raw }
     }
 
     pub(crate) fn sent(raw: base::InputRichMessage) -> (String, Option<RichMessage>) {
@@ -113,7 +113,7 @@ mod tests {
         let raw = input.write(&Client::offline()).await.unwrap();
         let (_, rich) = RichMessage::sent(raw);
         let rich = rich.expect("block content comes back as blocks");
-        assert!(rich.rtl);
+        assert!(rich.is_rtl);
 
         let read = rich.blocks();
         assert_eq!(read.len(), built.len());
