@@ -61,6 +61,7 @@ impl MongoStorage {
     }
 
     /// Uses `database` instead of the session name.
+    #[must_use]
     pub fn database(mut self, database: impl Into<String>) -> MongoStorage {
         self.database = database.into();
         self

@@ -163,6 +163,7 @@ impl Text {
     /// Returns the text in `range`, in UTF-16 units, with entities clipped to it.
     ///
     /// An offset inside a surrogate pair moves back to the pair's start. A reversed range gives an empty `Text`.
+    #[must_use]
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Text {
         let unit = |n: usize| n.min(self.len()) as i32;
         let start = match range.start_bound() {

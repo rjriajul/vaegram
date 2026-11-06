@@ -46,6 +46,7 @@
 //!   to Telegram's DNS config) and `web-proxy` (`Proxy::Web`, an MTProxy behind an HTTPS relay).
 
 #![warn(missing_docs)]
+#![warn(clippy::return_self_not_must_use)]
 
 // Declares a struct `pub` with the `unstable-raw` feature and `pub(crate)` without it: the session plumbing under
 // `Client` is experimental, so only that feature lets callers name it.
@@ -99,7 +100,9 @@ pub(crate) mod parser;
 /// [`InlineQuery`](types::InlineQuery)), [`Text`](types::Text) and [`ParseMode`](enums::ParseMode), peers
 /// ([`PeerRef`](types::PeerRef), [`User`](types::User), [`Chat`](types::Chat), [`ChatType`](enums::ChatType)),
 /// [`InputMedia`](types::InputMedia), [`ReplyParameters`](types::ReplyParameters) and the keyboards. [`Result`]
-/// keeps a second parameter for the error, so `Result<T, E>` still works with it in scope.
+/// keeps a second parameter for the error, so `Result<T, E>` still works with it in scope. Names you import
+/// explicitly win over the glob, so `use std::error::Error;` or `use anyhow::Result;` next to it still means that
+/// item.
 pub mod prelude;
 /// Every type and function of Telegram's API, generated from the TL schema, for [`Client::invoke`].
 pub mod raw;

@@ -3,7 +3,10 @@ use crate::raw::base;
 use crate::types::{FileLocation, Thumbnail};
 
 /// A general file: anything that isn't a video, audio, voice, animation, video note or sticker.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `==` compares every field, and `file_id` differs between bots and sessions or over time; compare
+/// `file_unique_id` to tell whether two values are the same file.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     /// Id for downloading or resending the file. It can change between sessions and accounts.
     pub file_id: String,

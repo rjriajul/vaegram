@@ -2,7 +2,10 @@ use crate::raw::types;
 use crate::types::{Document, FileLocation, Thumbnail};
 
 /// A GIF or silent MPEG-4 clip that clients play in a loop.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `==` compares every field, and `file_id` differs between bots and sessions or over time; compare
+/// `file_unique_id` to tell whether two values are the same file.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Animation {
     /// Encoded identifier for sending or downloading the file again.
     pub file_id: String,
