@@ -28,7 +28,7 @@ mod tests {
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "PEER_ID_INVALID")))]);
+        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "PEER_ID_INVALID")))]);
         let result = client.delete_all_welcome_messages(-5_i64).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "PEER_ID_INVALID"), "{result:?}");
     }

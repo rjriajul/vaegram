@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(chat.description, None);
         assert_eq!(info.invite_link.as_deref(), Some("https://t.me/+group"));
         // No reactions allowed is a value, not a missing field.
-        assert_eq!(info.available_reactions, Some(ChatReactions::default()));
+        assert_eq!(info.available_reactions, Some(ChatReactions::empty()));
         assert_eq!((info.reactions_limit, info.join_requests_count), (Some(11), Some(2)));
         assert_eq!(
             (info.pinned_message_id, info.folder_id, info.message_auto_delete_time),
@@ -523,7 +523,7 @@ mod tests {
 
     #[tokio::test]
     async fn server_peer_id_invalid_stays_an_rpc_error() {
-        let refused = crate::errors::RpcError::new(400, "PEER_ID_INVALID");
+        let refused = crate::errors::RpcError::parse(400, "PEER_ID_INVALID");
         let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(refused))]);
         let result = client.leave_chat(GROUP).await;
         assert!(matches!(result, Err(Error::Rpc(e)) if e.name == "PEER_ID_INVALID"));

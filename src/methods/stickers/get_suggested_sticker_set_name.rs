@@ -29,7 +29,7 @@ mod tests {
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "TITLE_INVALID")))]);
+        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "TITLE_INVALID")))]);
         let result = client.get_suggested_sticker_set_name("").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "TITLE_INVALID"), "{result:?}");
     }

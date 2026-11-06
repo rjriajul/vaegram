@@ -204,7 +204,7 @@ mod tests {
     #[tokio::test]
     async fn rpc_errors_come_back_unchanged() {
         let (client, _sent) =
-            crate::Client::scripted(vec![Err(Error::Rpc(crate::errors::RpcError::new(400, "SLUG_INVALID")))]);
+            crate::Client::scripted(vec![Err(Error::Rpc(crate::errors::RpcError::parse(400, "SLUG_INVALID")))]);
         let result = client.get_payment_form(InvoiceRef::Link("abc".into())).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "SLUG_INVALID"), "{result:?}");
     }

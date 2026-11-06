@@ -1,7 +1,7 @@
 use crate::raw::base;
 
 /// The colors a regular gift is drawn on.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct GiftBackground {
     /// Color at the center, as an RGB integer.

@@ -25,7 +25,7 @@ mod tests {
 
     #[tokio::test]
     async fn errors_come_back_unchanged() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "USERNAME_SUFFIX_MISSING")))]);
+        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "USERNAME_SUFFIX_MISSING")))]);
         let result = client.check_bot_username("name").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.is("USERNAME_SUFFIX_MISSING")), "{result:?}");
     }

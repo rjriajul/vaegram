@@ -25,7 +25,7 @@ mod tests {
 
     #[tokio::test]
     async fn wallet_unavailable_is_returned_as_rpc() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "WALLET_UNAVAILABLE")))]);
+        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "WALLET_UNAVAILABLE")))]);
         let result = client.get_ton_wallet_state().await;
         assert!(matches!(&result, Err(e) if e.is("WALLET_UNAVAILABLE")), "{result:?}");
     }

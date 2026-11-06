@@ -33,8 +33,9 @@
 //!
 //! - `json`: `ToJson` for every TL type and function, and JSON for raw updates and recordings.
 //! - `unstable-raw`: the TL objects behind raw updates (`RawUpdate::raw()`, `raw_users()`, `raw_chats()`),
-//!   `Incoming::into_updates()` and `UploadedFile::into_raw()`. Experimental: may change or go away in any
-//!   release.
+//!   `Incoming::into_updates()` and `UploadedFile::into_raw()`, and the session plumbing below `Client`
+//!   (`connection::Connection`, `session::{Session, UpdatesRx, Incoming, Events}`). Experimental: may change or
+//!   go away in any release.
 //! - Storage engines: `sqlite` (`SqliteStorage`), `redb` (`RedbStorage`), `redis` (`RedisStorage`), `mongodb`
 //!   (`MongoStorage`), `s3` (`S3Storage`, an S3-compatible object store) and `vault` (`VaultStorage`, the login in
 //!   HashiCorp Vault).
@@ -45,15 +46,26 @@
 
 #![warn(missing_docs)]
 
+// Declares a struct `pub` with the `unstable-raw` feature and `pub(crate)` without it: the session plumbing under
+// `Client` is experimental, so only that feature lets callers name it.
+macro_rules! unstable_raw_pub {
+    ($(#[$meta:meta])* struct $($rest:tt)*) => {
+        #[cfg(feature = "unstable-raw")]
+        $(#[$meta])*
+        pub struct $($rest)*
+        #[cfg(not(feature = "unstable-raw"))]
+        $(#[$meta])*
+        pub(crate) struct $($rest)*
+    };
+}
+
 /// [`Client`] and its [`ClientBuilder`].
 pub mod client;
 /// The transport under a session: framing, obfuscation, proxies, and the connection settings in
 /// [`Options`](connection::Options).
 pub mod connection;
 pub(crate) mod crypto;
-/// The update loop behind `Client::run`: it fills gaps in the update sequence and hands updates to the handlers.
-/// Its items are internal.
-pub mod dispatcher;
+pub(crate) mod dispatcher;
 /// Enumerations of the friendly API, such as chat types, parse modes and client events.
 pub mod enums;
 /// [`Error`], the error every call can fail with, and Telegram's own [`RpcError`].
@@ -61,14 +73,15 @@ pub mod errors;
 pub(crate) mod file_id;
 /// Filters that choose which updates a handler gets; combine them with `&`, `|` and `!`.
 pub mod filters;
+#[cfg(test)]
+mod fuzz;
 /// Handler registration: groups, stopping propagation and removing a handler.
 pub mod handlers;
 /// The friendly API methods, all on [`Client`], and the request builders some of them return.
 pub mod methods;
 #[cfg(any(feature = "metrics", feature = "opentelemetry"))]
 pub mod observe;
-/// HTML and Markdown parsing into text with formatting entities.
-pub mod parser;
+pub(crate) mod parser;
 /// Every type and function of Telegram's API, generated from the TL schema, for [`Client::invoke`].
 pub mod raw;
 /// The encrypted MTProto session: requests, retries, rate limits, observers and replaying recordings.

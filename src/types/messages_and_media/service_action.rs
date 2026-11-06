@@ -40,6 +40,7 @@ pub enum ServiceAction {
     /// The auto-delete timer changed. Holds the new period in seconds, 0 when auto-deletion is off.
     AutoDeleteTimerChanged(i32),
     /// A video chat was scheduled.
+    #[non_exhaustive]
     VideoChatScheduled {
         /// When it is due to start, as a Unix timestamp.
         start_date: i32,
@@ -47,6 +48,7 @@ pub enum ServiceAction {
     /// A video chat started.
     VideoChatStarted,
     /// A video chat ended.
+    #[non_exhaustive]
     VideoChatEnded {
         /// How long the video chat lasted, in seconds.
         duration: i32,
@@ -106,6 +108,7 @@ pub enum ServiceAction {
     /// Tasks were added to a checklist.
     ChecklistTasksAdded(ChecklistTasksAdded),
     /// A player set a new score in a game.
+    #[non_exhaustive]
     GameHighScore {
         /// Id of the game the score was set in.
         game_id: i64,
@@ -133,11 +136,13 @@ pub enum ServiceAction {
     /// Toncoin was gifted.
     GiftedGrams(Box<GiftedGrams>),
     /// A giveaway was started.
+    #[non_exhaustive]
     GiveawayCreated {
         /// Stars to split among the winners. `None` unless the giveaway is of Telegram Stars.
         prize_star_count: Option<i64>,
     },
     /// A giveaway ended. The giveaway message is the reply target.
+    #[non_exhaustive]
     GiveawayCompleted {
         /// Number of winners.
         winner_count: i32,
@@ -151,6 +156,7 @@ pub enum ServiceAction {
     /// The chat history was cleared.
     HistoryCleared,
     /// A phone call started.
+    #[non_exhaustive]
     PhoneCallStarted {
         /// Id of the call.
         id: i64,
@@ -160,6 +166,7 @@ pub enum ServiceAction {
     /// A phone call ended.
     PhoneCallEnded(Box<PhoneCallEnded>),
     /// A conference call took place.
+    #[non_exhaustive]
     ConferenceCall {
         /// Id of the call.
         id: i64,
@@ -179,6 +186,7 @@ pub enum ServiceAction {
     /// An offer to buy an upgraded gift was rejected.
     UpgradedGiftPurchaseOfferRejected(Box<UpgradedGiftPurchaseOfferRejected>),
     /// Protected content was turned on or off in the chat.
+    #[non_exhaustive]
     ChatHasProtectedContentToggled {
         /// Whether content was protected before.
         old_has_protected_content: bool,
@@ -186,6 +194,7 @@ pub enum ServiceAction {
         new_has_protected_content: bool,
     },
     /// A request to turn off protected content in a private chat.
+    #[non_exhaustive]
     ChatHasProtectedContentDisableRequested {
         /// Whether the request has expired.
         is_expired: bool,
@@ -193,6 +202,7 @@ pub enum ServiceAction {
     /// The chat's theme was changed.
     ChatSetTheme(Box<ChatTheme>),
     /// The chat's background was changed.
+    #[non_exhaustive]
     ChatBackgroundSet {
         /// The new background.
         background: Box<ChatBackground>,
@@ -206,6 +216,7 @@ pub enum ServiceAction {
     /// The sender suggests this birthday for the recipient's profile.
     SuggestBirthday(Birthday),
     /// Paid messages were refunded.
+    #[non_exhaustive]
     PaidMessagesRefunded {
         /// Number of messages refunded.
         message_count: i32,
@@ -213,11 +224,13 @@ pub enum ServiceAction {
         star_count: i64,
     },
     /// The price of a message to this chat changed.
+    #[non_exhaustive]
     PaidMessagePriceChanged {
         /// Stars a message now costs.
         paid_message_star_count: i64,
     },
     /// The price of direct messages to the channel changed.
+    #[non_exhaustive]
     DirectMessagePriceChanged {
         /// Whether direct messages to the channel are allowed.
         is_enabled: bool,
@@ -319,12 +332,12 @@ impl ServiceAction {
             }
             // The requesting user's own copy of the same message only carries peer ids.
             (K::UsersShared, A::MessageActionRequestedPeer(a)) => {
-                let users = a.peers.iter().map(|p| SharedUser { user_id: get_peer_id(p), ..Default::default() });
+                let users = a.peers.iter().map(|p| SharedUser { user_id: get_peer_id(p), ..SharedUser::empty() });
                 ServiceAction::UsersShared(UsersShared { request_id: a.button_id, users: users.collect() })
             }
             (K::ChatShared, A::MessageActionRequestedPeer(a)) => {
                 let peer = a.peers.iter().find(|p| !matches!(p, base::Peer::PeerUser(_)))?;
-                let chat = ChatShared { request_id: a.button_id, chat_id: get_peer_id(peer), ..Default::default() };
+                let chat = ChatShared { request_id: a.button_id, chat_id: get_peer_id(peer), ..ChatShared::empty() };
                 ServiceAction::ChatShared(Box::new(chat))
             }
             (K::ProximityAlertTriggered, A::MessageActionGeoProximityReached(a)) => {

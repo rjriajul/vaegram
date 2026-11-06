@@ -9,9 +9,8 @@ use crate::types::Text;
 // unbounded stack would make the span count quadratic in the input.
 pub(crate) const MAX_NESTING: usize = 64;
 
-/// Reads `text` as `mode` says into a [`Text`] with its formatting entities. It never fails:
-/// [`ParseMode::Disabled`] keeps the text plain, and formatting nested deeper than 64 levels is dropped.
-pub fn parse(text: &str, mode: ParseMode) -> Text {
+/// Backs [`Text::parse`].
+pub(crate) fn parse(text: &str, mode: ParseMode) -> Text {
     match mode {
         ParseMode::Disabled => Text::new().plain(text),
         ParseMode::Html => html::parse(text),

@@ -49,9 +49,9 @@ mod tests {
     #[tokio::test]
     async fn code_errors_come_back_unchanged() {
         for name in ["PHONE_CODE_EXPIRED", "PHONE_CODE_INVALID"] {
-            let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, name)))]);
+            let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, name)))]);
             let result = client.change_phone_number("8802", "h3", "12345").await;
-            assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::new(400, name)), "{result:?}");
+            assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::parse(400, name)), "{result:?}");
         }
     }
 

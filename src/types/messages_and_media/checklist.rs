@@ -122,7 +122,7 @@ pub(crate) mod tests {
         let flags = (checklist.title.as_str(), checklist.others_can_add_tasks, checklist.others_can_mark_tasks_as_done);
         assert_eq!(flags, ("Trip", true, false));
         let [tickets, hotel, visa] = &checklist.tasks[..] else { panic!("expected 3 tasks") };
-        assert_eq!(tickets.completed_by_user, Some(User { id: 42, ..User::default() }));
+        assert_eq!(tickets.completed_by_user, Some(User { id: 42, ..User::empty() }));
         assert_eq!((tickets.completed_by_chat.as_ref(), tickets.completion_date), (None, Some(10)));
         assert_eq!(hotel, &ChecklistTask::parse(&item(2, "Hotel"), &entities));
         assert_eq!(visa.completed_by_chat.as_ref().map(|c| c.id), Some(-1000000000005));

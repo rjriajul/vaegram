@@ -329,7 +329,7 @@ mod tests {
             users: Vec::new(),
         };
         let page = base::updates::ChannelDifference::ChannelDifference(Box::new(page));
-        let refused = || Err(Error::Rpc(RpcError::new(400, "CHANNEL_BROKEN")));
+        let refused = || Err(Error::Rpc(RpcError::parse(400, "CHANNEL_BROKEN")));
         let (client, _sent) = Client::scripted(vec![Ok(page.to_bytes()), refused()]);
         let peer = types::InputPeerChannel { channel_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(get_channel_id(7), base::InputPeer::InputPeerChannel(Box::new(peer)));
@@ -341,7 +341,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_flood_wait_on_get_difference_is_returned_not_slept() {
-        let flood = Error::Rpc(RpcError::new(420, "FLOOD_WAIT_30"));
+        let flood = Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_30"));
         let (client, mut sent) = Client::scripted(vec![Err(flood)]);
         let mut d = Dispatcher::new(client, &state());
         let result = d.difference().await;
@@ -676,7 +676,7 @@ mod tests {
 
     #[tokio::test]
     async fn refused_channel_differences_report_where_they_stopped() {
-        let (mut d, events) = in_channel(vec![Err(Error::Rpc(RpcError::new(400, "CHANNEL_PRIVATE")))], 10);
+        let (mut d, events) = in_channel(vec![Err(Error::Rpc(RpcError::parse(400, "CHANNEL_PRIVATE")))], 10);
         d.resolve().await;
 
         let got: Vec<ClientEvent> = events.try_iter().collect();

@@ -16,7 +16,10 @@ mod tests;
 pub(crate) mod transfer;
 
 pub(crate) use events::Affected;
+#[cfg(feature = "unstable-raw")]
 pub use events::Events;
+#[cfg(not(feature = "unstable-raw"))]
+pub(crate) use events::Events;
 pub use internals::data_center::Dc;
 pub use rate_limiter::{RateCategory, RateLimiter, RateLimits};
 pub use replay::Replay;
@@ -80,22 +83,14 @@ struct Request {
     answer: oneshot::Sender<Answer>,
 }
 
-/// One push from the server, at the session level, where requests and answers are raw TL too.
-#[cfg_attr(
-    not(feature = "unstable-raw"),
-    doc = r#"
-Its TL updates are only reachable with the `unstable-raw` feature:
-
-```compile_fail
-fn raw(incoming: vaegram::session::Incoming) {
-    let _ = incoming.into_updates();
-}
-```
-"#
-)]
-pub struct Incoming {
-    pub(crate) updates: base::Updates,
-    pub(crate) from_request: bool,
+unstable_raw_pub! {
+    /// One push from the server, at the session level, where requests and answers are raw TL too.
+    ///
+    /// Experimental (`unstable-raw`): may change or go away in any release.
+    struct Incoming {
+        pub(crate) updates: base::Updates,
+        pub(crate) from_request: bool,
+    }
 }
 
 impl Incoming {
@@ -106,6 +101,7 @@ impl Incoming {
     }
 
     /// Sent back as the answer to one of this session's own requests, not pushed.
+    #[cfg(feature = "unstable-raw")]
     pub fn from_request(&self) -> bool {
         self.from_request
     }
@@ -145,12 +141,16 @@ impl std::fmt::Debug for Observer {
     }
 }
 
-/// The updates a main session receives, in arrival order, for the dispatcher. It holds
-/// [`Options::updates_capacity`](crate::connection::Options::updates_capacity) batches; past that, batches are
-/// dropped and an `UpdatesTooLong` stands in for them.
-pub struct UpdatesRx {
-    rx: mpsc::Receiver<Incoming>,
-    pub(crate) events: Arc<Events>,
+unstable_raw_pub! {
+    /// The updates a main session receives, in arrival order, for the dispatcher. It holds
+    /// [`Options::updates_capacity`](crate::connection::Options::updates_capacity) batches; past that, batches are
+    /// dropped and an `UpdatesTooLong` stands in for them.
+    ///
+    /// Experimental (`unstable-raw`): may change or go away in any release.
+    struct UpdatesRx {
+        rx: mpsc::Receiver<Incoming>,
+        pub(crate) events: Arc<Events>,
+    }
 }
 
 impl UpdatesRx {
@@ -193,20 +193,24 @@ impl UpdatesRx {
     }
 }
 
-/// One MTProto session with a data center: an auth key and an encrypted connection that a background task owns.
-/// The task pings, reconnects with backoff after a failure and sends the waiting requests again. Clones share
-/// the connection; it closes once every clone is dropped.
-#[derive(Clone)]
-pub struct Session {
-    requests: mpsc::UnboundedSender<Request>,
-    dc_id: i32,
-    auth_key: [u8; 256],
-    // When this process made the permanent key; a bind under a newer one may be refused while it propagates.
-    key_made: Option<tokio::time::Instant>,
-    options: Arc<Options>,
-    pfs: Option<Arc<[u8]>>,
-    learned: Arc<Learned>,
-    control: Arc<Control>,
+unstable_raw_pub! {
+    /// One MTProto session with a data center: an auth key and an encrypted connection that a background task owns.
+    /// The task pings, reconnects with backoff after a failure and sends the waiting requests again. Clones share
+    /// the connection; it closes once every clone is dropped.
+    ///
+    /// Experimental (`unstable-raw`): may change or go away in any release.
+    #[derive(Clone)]
+    struct Session {
+        requests: mpsc::UnboundedSender<Request>,
+        dc_id: i32,
+        auth_key: [u8; 256],
+        // When this process made the permanent key; a bind under a newer one may be refused while it propagates.
+        key_made: Option<tokio::time::Instant>,
+        options: Arc<Options>,
+        pfs: Option<Arc<[u8]>>,
+        learned: Arc<Learned>,
+        control: Arc<Control>,
+    }
 }
 
 /// The server salt and the clock offset, saved so a restart skips the first bad_server_salt and starts with
@@ -1090,7 +1094,7 @@ impl Runner {
         let answer = if constructor_id(&result) == Some(RPC_ERROR) {
             match base::RpcError::from_bytes(&result) {
                 Ok(base::RpcError::RpcError(e)) => {
-                    Err(Error::Rpc(RpcError::new(e.error_code, &String::from_utf8_lossy(&e.error_message))))
+                    Err(Error::Rpc(RpcError::parse(e.error_code, &String::from_utf8_lossy(&e.error_message))))
                 }
                 Err(e) => Err(e.into()),
             }

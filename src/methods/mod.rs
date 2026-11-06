@@ -10,7 +10,6 @@ macro_rules! into_future {
         }
     };
 }
-pub(crate) use into_future;
 
 pub(crate) trait OnBehalf {
     fn business_connection(&mut self) -> &mut Option<String>;

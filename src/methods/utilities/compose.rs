@@ -86,7 +86,7 @@ mod tests {
     use crate::methods::utilities::run::tests::stopped_client;
 
     fn failing_client() -> Client {
-        Client::scripted(vec![Err(Error::Rpc(RpcError::new(401, "AUTH_KEY_UNREGISTERED")))]).0
+        Client::scripted(vec![Err(Error::Rpc(RpcError::parse(401, "AUTH_KEY_UNREGISTERED")))]).0
     }
 
     #[tokio::test]

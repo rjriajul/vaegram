@@ -4,12 +4,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+#[cfg(feature = "unstable-raw")]
 use vaegram::connection::{Options, Proxy, Transport};
 use vaegram::enums::{
     MessageEntityType, MessagesFilter, ParseMode, PollType, ProfileTab, StickerType, StoriesPrivacyRules,
     TopChatCategory,
 };
-use vaegram::raw::{Serializable, base, functions, types};
+#[cfg(feature = "unstable-raw")]
+use vaegram::raw::Serializable;
+use vaegram::raw::{base, functions, types};
+#[cfg(feature = "unstable-raw")]
 use vaegram::session::{Dc, Session};
 use vaegram::storage::{FileStorage, Storage};
 use vaegram::types::{
@@ -20,6 +24,7 @@ use vaegram::types::{
 use vaegram::utils::get_channel_id;
 use vaegram::{Client, filters};
 
+#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "connects to Telegram"]
 async fn creates_auth_key_and_pings() {
@@ -29,6 +34,7 @@ async fn creates_auth_key_and_pings() {
     assert_eq!(pong.ping_id, 42);
 }
 
+#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "connects to Telegram's test servers"]
 async fn creates_auth_key_on_test_server() {
@@ -38,6 +44,7 @@ async fn creates_auth_key_on_test_server() {
     assert_eq!(pong.ping_id, 7);
 }
 
+#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "connects to Telegram's test servers"]
 async fn binds_temp_key_on_test_server() {
@@ -49,6 +56,7 @@ async fn binds_temp_key_on_test_server() {
     assert_eq!(pong.ping_id, 11);
 }
 
+#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "connects to Telegram"]
 async fn handshakes_over_every_transport() {
@@ -63,6 +71,7 @@ async fn handshakes_over_every_transport() {
     }
 }
 
+#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "connects through VAEGRAM_SOCKS5 (host:port[:user:pass]) and VAEGRAM_MTPROXY (host:port:secret)"]
 async fn handshakes_through_proxies() {

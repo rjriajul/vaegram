@@ -65,7 +65,7 @@ mod tests {
 
     #[tokio::test]
     async fn errors_come_back_unchanged() {
-        let (client, _sent) = seeded(vec![Err(Error::Rpc(RpcError::new(400, "USERNAME_OCCUPIED")))]);
+        let (client, _sent) = seeded(vec![Err(Error::Rpc(RpcError::parse(400, "USERNAME_OCCUPIED")))]);
         let result = client.check_username("me", "name").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.is("USERNAME_OCCUPIED")), "{result:?}");
     }

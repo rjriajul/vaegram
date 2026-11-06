@@ -213,7 +213,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_long_init_delay_reaches_the_caller() {
-        let delay = Err(Error::Rpc(RpcError::new(420, "TAKEOUT_INIT_DELAY_86400")));
+        let delay = Err(Error::Rpc(RpcError::parse(420, "TAKEOUT_INIT_DELAY_86400")));
         let (client, mut sent) = Client::scripted(vec![delay]);
         let e = client.takeout().contacts().await.unwrap_err();
         assert_eq!(e.flood_wait(), Some(Duration::from_secs(86400)));

@@ -281,7 +281,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_cdn_that_keeps_flooding_is_given_up_on() {
-        let flood = || Err(Error::Rpc(crate::errors::RpcError::new(420, "FLOOD_WAIT_3600")));
+        let flood = || Err(Error::Rpc(crate::errors::RpcError::parse(420, "FLOOD_WAIT_3600")));
         let (master, _) = Session::scripted(Vec::new());
         let options = Options::default();
         let cdn = Cdn::new(&master, redirect(Vec::new()), (0, &options)).unwrap();

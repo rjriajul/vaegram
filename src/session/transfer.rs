@@ -339,7 +339,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_flood_wait_over_the_threshold_comes_back_without_sleeping() {
-        let (mut session, mut sent) = Session::scripted(vec![Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_120")))]);
+        let (mut session, mut sent) = Session::scripted(vec![Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_120")))]);
         let retry = Retry::new(AutoSleep::new().threshold(Duration::from_secs(60)));
         session.set_options(Options::new().retry(retry));
         let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };
@@ -353,7 +353,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn parts_follow_the_flood_sleep_setting() {
-        let flood = || Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_1")));
+        let flood = || Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_1")));
         let (mut session, mut sent) = Session::scripted(vec![flood(), flood()]);
         let retry = Retry::new(AutoSleep::new().tries(1));
         session.set_options(Options::new().retry(retry));
@@ -376,7 +376,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn cdn_floods_reach_the_policy_capped() {
         let seen = Arc::default();
-        let flood = || Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_300")));
+        let flood = || Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_300")));
         let (mut session, _sent) = Session::scripted(vec![flood(), flood()]);
         session.set_options(Options::new().retry(Retry::new(Record(Arc::clone(&seen)))));
         let part = functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] };

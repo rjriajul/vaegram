@@ -16,7 +16,8 @@ mod websocket;
 #[cfg(feature = "dns-config")]
 pub use dns_config::{AccessPointRule, DnsConfig, IpPort};
 pub use proxy::{Proxy, Secret};
-pub use transport::{Framing, RecvBuf, Transport};
+pub use transport::Transport;
+pub(crate) use transport::{Framing, RecvBuf};
 
 use std::io;
 use std::net::SocketAddr;
@@ -287,12 +288,16 @@ impl Default for Device {
     }
 }
 
-/// One transport connection to a data center, framed and obfuscated as its [`Options`] say. It carries MTProto
-/// packets without MTProto encryption, which the [`Session`](crate::session::Session) above it adds; each session
-/// opens its own connections rather than taking one.
-pub struct Connection {
-    reader: Reader,
-    writer: Writer,
+unstable_raw_pub! {
+    /// One transport connection to a data center, framed and obfuscated as its [`Options`] say. It carries MTProto
+    /// packets without MTProto encryption, which the [`Session`](crate::session::Session) above it adds; each session
+    /// opens its own connections rather than taking one.
+    ///
+    /// Experimental (`unstable-raw`): may change or go away in any release.
+    struct Connection {
+        reader: Reader,
+        writer: Writer,
+    }
 }
 
 impl Connection {

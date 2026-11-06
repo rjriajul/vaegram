@@ -2,7 +2,7 @@ use crate::types::Photo;
 
 /// Users picked in answer to a
 /// [`KeyboardButtonRequestUsers`](crate::types::KeyboardButtonRequestUsers) button.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct UsersShared {
     /// The `request_id` set on the button.
@@ -13,7 +13,7 @@ pub struct UsersShared {
 
 /// Fields other than `user_id` are only set when the button asked for them. Only the bot's copy carries them; the
 /// requesting user's copy has only `user_id`.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct SharedUser {
     /// Id of the picked user.
@@ -26,4 +26,11 @@ pub struct SharedUser {
     pub username: Option<String>,
     /// Profile photo. `None` unless the button asked for it, or the user has none.
     pub photo: Option<Photo>,
+}
+
+impl SharedUser {
+    /// Every field zero, empty or `None`: the base the parsers and tests fill in.
+    pub(crate) fn empty() -> Self {
+        SharedUser { user_id: 0, first_name: None, last_name: None, username: None, photo: None }
+    }
 }

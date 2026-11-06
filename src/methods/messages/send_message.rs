@@ -119,7 +119,7 @@ mod tests {
         let (text, entities) = client.write_text(HTML.into(), Some(ParseMode::Html)).await.unwrap();
         assert_eq!((text.as_str(), kinds(&entities)), ("hi you", vec!["bold"]));
 
-        let refused = Err(Error::Rpc(RpcError::new(400, "USER_ID_INVALID")));
+        let refused = Err(Error::Rpc(RpcError::parse(400, "USER_ID_INVALID")));
         let (client, _sent) = Client::scripted(vec![refused]);
         let (_, entities) = client.write_text(HTML.into(), Some(ParseMode::Html)).await.unwrap();
         assert_eq!(kinds(&entities), vec!["bold"]);
@@ -137,7 +137,7 @@ mod tests {
 
     #[tokio::test]
     async fn other_errors_still_fail() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_3")))]);
+        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_3")))]);
         assert!(client.write_text(HTML.into(), Some(ParseMode::Html)).await.is_err());
     }
 }

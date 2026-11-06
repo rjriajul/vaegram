@@ -39,6 +39,7 @@ pub struct StoryAreaPosition {
 #[non_exhaustive]
 pub enum StoryAreaType {
     /// A geographic point.
+    #[non_exhaustive]
     Location {
         /// Latitude in degrees.
         latitude: f64,
@@ -48,6 +49,7 @@ pub enum StoryAreaType {
         address: Option<LocationAddress>,
     },
     /// A reaction viewers can tap to send the same one.
+    #[non_exhaustive]
     SuggestedReaction {
         /// The suggested reaction.
         reaction: ReactionType,
@@ -57,11 +59,13 @@ pub enum StoryAreaType {
         is_flipped: bool,
     },
     /// A link to a URL.
+    #[non_exhaustive]
     Link {
         /// URL the area opens.
         url: String,
     },
     /// A weather widget.
+    #[non_exhaustive]
     Weather {
         /// Temperature in degrees Celsius.
         temperature: f64,
@@ -71,6 +75,7 @@ pub enum StoryAreaType {
         background_color: i32,
     },
     /// A link to a unique gift.
+    #[non_exhaustive]
     UniqueGift {
         /// Slug of the unique gift.
         name: String,
@@ -78,6 +83,7 @@ pub enum StoryAreaType {
     /// A venue on the map.
     Venue(Venue),
     /// A link to a post of a channel. Writing it needs the channel to be known to the client.
+    #[non_exhaustive]
     ChannelPost {
         /// The channel that holds the post.
         chat: Box<Chat>,
@@ -170,6 +176,40 @@ impl StoryAreaPosition {
             rotation: self.rotation_angle,
             radius: Some(self.corner_radius_percentage),
         }))
+    }
+}
+
+impl StoryAreaType {
+    /// A geographic point, with its street address when `address` is `Some`.
+    pub fn location(latitude: f64, longitude: f64, address: Option<LocationAddress>) -> Self {
+        StoryAreaType::Location { latitude, longitude, address }
+    }
+
+    /// A reaction viewers can tap to send the same one; `is_dark` picks the dark variant and `is_flipped`
+    /// mirrors the area horizontally.
+    pub fn suggested_reaction(reaction: impl Into<ReactionType>, is_dark: bool, is_flipped: bool) -> Self {
+        StoryAreaType::SuggestedReaction { reaction: reaction.into(), is_dark, is_flipped }
+    }
+
+    /// A link to `url`.
+    pub fn link(url: impl Into<String>) -> Self {
+        StoryAreaType::Link { url: url.into() }
+    }
+
+    /// A weather widget: `temperature` in degrees Celsius, an `emoji` showing the weather and the widget's
+    /// `background_color` as ARGB.
+    pub fn weather(temperature: f64, emoji: impl Into<String>, background_color: i32) -> Self {
+        StoryAreaType::Weather { temperature, emoji: emoji.into(), background_color }
+    }
+
+    /// A link to the unique gift with this slug.
+    pub fn unique_gift(name: impl Into<String>) -> Self {
+        StoryAreaType::UniqueGift { name: name.into() }
+    }
+
+    /// A link to post `message_id` of the channel `chat`, which the client must know when the story is written.
+    pub fn channel_post(chat: Chat, message_id: i32) -> Self {
+        StoryAreaType::ChannelPost { chat: Box::new(chat), message_id }
     }
 }
 
@@ -316,7 +356,7 @@ mod tests {
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::raw::{base, types};
-    use crate::types::{ReactionType, Venue};
+    use crate::types::Venue;
     use crate::utils::get_channel_id;
 
     fn coords() -> base::MediaAreaCoordinates {
@@ -382,11 +422,7 @@ mod tests {
                     geo: geo(3.0, 4.0),
                     address: Some(base::GeoPointAddress::GeoPointAddress(Box::new(address))),
                 })),
-                StoryAreaType::Location {
-                    latitude: 3.0,
-                    longitude: 4.0,
-                    address: Some(LocationAddress::new("DE").city("Berlin")),
-                },
+                StoryAreaType::location(3.0, 4.0, Some(LocationAddress::new("DE").city("Berlin"))),
             ),
             (
                 base::MediaArea::MediaAreaSuggestedReaction(Box::new(types::MediaAreaSuggestedReaction {
@@ -395,18 +431,14 @@ mod tests {
                     coordinates: c(),
                     reaction: base::Reaction::ReactionEmoji(Box::new(types::ReactionEmoji { emoticon: "🔥".into() })),
                 })),
-                StoryAreaType::SuggestedReaction {
-                    reaction: ReactionType::Emoji("🔥".into()),
-                    is_dark: true,
-                    is_flipped: false,
-                },
+                StoryAreaType::suggested_reaction("🔥", true, false),
             ),
             (
                 base::MediaArea::MediaAreaUrl(Box::new(types::MediaAreaUrl {
                     coordinates: c(),
                     url: "https://example.com".into(),
                 })),
-                StoryAreaType::Link { url: "https://example.com".into() },
+                StoryAreaType::link("https://example.com"),
             ),
             (
                 base::MediaArea::MediaAreaWeather(Box::new(types::MediaAreaWeather {
@@ -415,14 +447,14 @@ mod tests {
                     temperature_c: 21.5,
                     color: -1,
                 })),
-                StoryAreaType::Weather { temperature: 21.5, emoji: "☀".into(), background_color: -1 },
+                StoryAreaType::weather(21.5, "☀", -1),
             ),
             (
                 base::MediaArea::MediaAreaStarGift(Box::new(types::MediaAreaStarGift {
                     coordinates: c(),
                     slug: "Plush-1".into(),
                 })),
-                StoryAreaType::UniqueGift { name: "Plush-1".into() },
+                StoryAreaType::unique_gift("Plush-1"),
             ),
         ]
     }
@@ -441,8 +473,9 @@ mod tests {
 
         let post = types::MediaAreaChannelPost { coordinates: coords(), channel_id: 9, msg_id: 7 };
         let area = StoryArea::parse(&base::MediaArea::MediaAreaChannelPost(Box::new(post)), &entities).unwrap();
-        let StoryAreaType::ChannelPost { chat, message_id } = area.kind else { panic!("not a channel post") };
+        let StoryAreaType::ChannelPost { chat, message_id } = area.kind.clone() else { panic!("not a channel post") };
         assert_eq!((chat.id, message_id), (get_channel_id(9), 7));
+        assert_eq!(area.kind, StoryAreaType::channel_post(*chat, 7));
 
         // A venue without a point has nowhere to sit.
         let nowhere = types::MediaAreaVenue {
@@ -492,7 +525,7 @@ mod tests {
     #[tokio::test]
     async fn builds_from_new_and_setters() {
         let position = StoryAreaPosition::new(10.0, 20.0, 30.0, 40.0).rotation_angle(5.0).corner_radius_percentage(2.5);
-        let area = StoryArea::new(position, StoryAreaType::Link { url: "https://a.b".into() });
+        let area = StoryArea::new(position, StoryAreaType::link("https://a.b"));
         let url = types::MediaAreaUrl { coordinates: coords(), url: "https://a.b".into() };
         assert_eq!(area.write(&Client::offline()).await.unwrap(), base::MediaArea::MediaAreaUrl(Box::new(url)));
         let square = StoryAreaPosition::new(1.0, 2.0, 3.0, 4.0);

@@ -145,7 +145,8 @@ app.on_raw_update(|_, update| async move {
 
 With the `json` feature, `update.to_json(&mut out)` writes the update and all its users and chats. The `unstable-raw`
 feature adds `update.raw()`, `raw_users()`, `raw_chats()` and `Incoming::into_updates()` with the TL objects
-themselves; it is experimental and may change or go away in any release.
+themselves, and the session plumbing below `Client` (`connection::Connection`, `session::Session` and its
+`UpdatesRx`, `Incoming` and `Events`); it is experimental and may change or go away in any release.
 
 The JSON shape is stable: TL names under `"_"`, bytes as base64url without padding, longs past 2^53 as strings,
 absent flag fields left out and `false` flags kept. New layers may add fields; anything else is a breaking change.
@@ -339,11 +340,11 @@ cd vaegram
 # Run the offline tests
 cargo test --workspace
 
-# Run the live tests against Telegram's servers
-cargo test --test live -- --ignored
+# Run the live tests against Telegram's servers (the bare-session ones need `unstable-raw`)
+cargo test --features unstable-raw --test live -- --ignored
 
 # Run the benchmarks
-cargo bench --bench tl
+cargo bench --features unstable-raw --bench tl
 ```
 
 ### Resources

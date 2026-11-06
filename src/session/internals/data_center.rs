@@ -2,8 +2,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use crate::raw::base;
 
-/// A data center to connect a [`Session`](crate::session::Session) or a
-/// [`Connection`](crate::connection::Connection) to.
+/// A Telegram data center: its number and address. With `unstable-raw`, `Session::connect` and
+/// `Connection::connect` take one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Dc {

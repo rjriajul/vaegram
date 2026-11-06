@@ -34,6 +34,7 @@ pub enum RichTextKind {
     /// Fixed-width code text.
     Code(RichText),
     /// A link to `url`. Anchor links, which start with `#`, read as [`AnchorLink`](RichTextKind::AnchorLink).
+    #[non_exhaustive]
     Url {
         /// Text shown for the link.
         text: RichText,
@@ -41,6 +42,7 @@ pub enum RichTextKind {
         url: String,
     },
     /// A link to the anchor `name`. An empty name leads back to the top of the message.
+    #[non_exhaustive]
     AnchorLink {
         /// Text shown for the link.
         text: RichText,
@@ -48,6 +50,7 @@ pub enum RichTextKind {
         name: String,
     },
     /// An email address.
+    #[non_exhaustive]
     Email {
         /// Text shown for the address.
         text: RichText,
@@ -55,6 +58,7 @@ pub enum RichTextKind {
         email: String,
     },
     /// A phone number.
+    #[non_exhaustive]
     Phone {
         /// Text shown for the number.
         text: RichText,
@@ -74,6 +78,7 @@ pub enum RichTextKind {
     /// A bot command.
     BotCommand(RichText),
     /// A mention of a user without a username.
+    #[non_exhaustive]
     TextMention {
         /// Text shown for the mention.
         text: RichText,
@@ -81,11 +86,13 @@ pub enum RichTextKind {
         user_id: i64,
     },
     /// A place other text can link to.
+    #[non_exhaustive]
     Anchor {
         /// Name of the anchor.
         name: String,
     },
     /// Text that other text can link to.
+    #[non_exhaustive]
     Reference {
         /// The text other text links to.
         text: RichText,
@@ -95,6 +102,7 @@ pub enum RichTextKind {
     /// Inline math holding the formula source.
     Math(String),
     /// A custom emoji.
+    #[non_exhaustive]
     CustomEmoji {
         /// Document id of the custom emoji.
         id: i64,
@@ -102,6 +110,7 @@ pub enum RichTextKind {
         alt: String,
     },
     /// An inline image: a document of the message.
+    #[non_exhaustive]
     Image {
         /// Id of the image document.
         document_id: i64,
@@ -111,6 +120,7 @@ pub enum RichTextKind {
         height: i32,
     },
     /// A date the client shows in the reader's format. The flags say which parts it shows.
+    #[non_exhaustive]
     DateTime {
         /// Fallback text for the date.
         text: RichText,
@@ -130,6 +140,7 @@ pub enum RichTextKind {
         day_of_week: bool,
     },
     /// New text with the text it replaced.
+    #[non_exhaustive]
     Diff {
         /// The new text.
         text: RichText,
@@ -137,6 +148,7 @@ pub enum RichTextKind {
         old_text: RichText,
     },
     /// A button inside text.
+    #[non_exhaustive]
     Button {
         /// Label of the button.
         text: RichText,

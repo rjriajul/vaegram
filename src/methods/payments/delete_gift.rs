@@ -65,7 +65,7 @@ mod tests {
 
     #[tokio::test]
     async fn rpc_errors_come_back_unchanged() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "STARGIFT_INVALID")))]);
+        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "STARGIFT_INVALID")))]);
         let result = client.delete_gift("9").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "STARGIFT_INVALID"), "{result:?}");
     }

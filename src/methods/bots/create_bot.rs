@@ -113,7 +113,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn errors_come_back_unchanged() {
-        let (client, _sent) = seeded(vec![Err(Error::Rpc(RpcError::new(400, "MANAGER_PERMISSION_MISSING")))]);
+        let (client, _sent) = seeded(vec![Err(Error::Rpc(RpcError::parse(400, "MANAGER_PERMISSION_MISSING")))]);
         let result = client.create_bot(42, "Name", "name_bot").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.is("MANAGER_PERMISSION_MISSING")), "{result:?}");
     }

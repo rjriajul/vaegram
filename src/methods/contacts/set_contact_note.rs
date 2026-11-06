@@ -88,7 +88,7 @@ mod tests {
 
     #[tokio::test]
     async fn errors_come_back_unchanged() {
-        let (client, _sent) = seeded(vec![Err(Error::Rpc(RpcError::new(400, "CONTACT_MISSING")))]);
+        let (client, _sent) = seeded(vec![Err(Error::Rpc(RpcError::parse(400, "CONTACT_MISSING")))]);
         let result = client.set_contact_note(7, "note").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.is("CONTACT_MISSING")), "{result:?}");
     }

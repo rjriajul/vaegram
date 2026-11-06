@@ -221,7 +221,7 @@ mod link_tests {
             ("Ann", 3, 1)
         );
         // An admin missing from `users` still comes back, by id.
-        assert_eq!(admins[1].admin, User { id: 8, ..User::default() });
+        assert_eq!(admins[1].admin, User { id: 8, ..User::empty() });
         assert_eq!((admins[1].chat_invite_links_count, admins[1].revoked_chat_invite_links_count), (0, 2));
         assert_eq!(rx.try_recv().unwrap(), messages::GetAdminsWithInvites { peer: channel() }.to_bytes());
     }

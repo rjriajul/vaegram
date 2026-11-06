@@ -72,7 +72,7 @@ mod tests {
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "STORY_ID_INVALID")))]);
+        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "STORY_ID_INVALID")))]);
         let result = client.forward_story("me", "me", 5).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "STORY_ID_INVALID"), "{result:?}");
     }

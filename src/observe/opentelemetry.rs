@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn a_failed_call_never_records_request_bytes() {
-        let refused = Error::Rpc(RpcError::new(401, "AUTH_KEY_UNREGISTERED"));
+        let refused = Error::Rpc(RpcError::parse(401, "AUTH_KEY_UNREGISTERED"));
         let span = observed(&call(b"bot-token-1234:secret", Err(&refused)));
         assert!(matches!(&span.status, Status::Error { description } if description.contains("AUTH_KEY_UNREGISTERED")));
         let leaks = |value: &Value| value.as_str().contains("secret");

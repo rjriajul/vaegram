@@ -212,7 +212,7 @@ mod tests {
 
     #[tokio::test]
     async fn uploads_with_regular_limits_when_the_account_lookup_fails() {
-        let failed = Err(Error::Rpc(RpcError::new(500, "INTERNAL")));
+        let failed = Err(Error::Rpc(RpcError::parse(500, "INTERNAL")));
         let (client, mut sent) = Client::scripted(vec![failed, Ok(premium_user())]);
         client.0.me.lock().unwrap().is_bot = false;
         let get_users = GetUsers::CONSTRUCTOR_ID.to_le_bytes();

@@ -10,7 +10,7 @@ async fn main() -> vaegram::Result<()> {
         .await?;
 
     app.on_event(|event| match event {
-        ClientEvent::Reconnected { dc, attempt } => println!("back on DC {dc} after {attempt} tries"),
+        ClientEvent::Reconnected { dc, attempt, .. } => println!("back on DC {dc} after {attempt} tries"),
         ClientEvent::UpdatesDropped { count, unrecoverable, .. } => {
             println!("{count} update batches dropped, {unrecoverable} with updates that can't be fetched again")
         }

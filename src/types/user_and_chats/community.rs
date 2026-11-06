@@ -7,7 +7,7 @@ use crate::utils::get_channel_id;
 /// A community the account knows of.
 ///
 /// Only `id` is set for a community the account has never seen.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Community {
     /// Bot API style id. Communities share the `-100` prefix of channels.
@@ -29,6 +29,20 @@ pub struct Community {
 }
 
 impl Community {
+    /// Every field zero, empty or `None`: the base the parsers and tests fill in.
+    pub(crate) fn empty() -> Self {
+        Community {
+            id: 0,
+            name: String::new(),
+            have_access: false,
+            photo: None,
+            date: None,
+            status: None,
+            administrator_rights: None,
+            permissions: None,
+        }
+    }
+
     // Communities live in the channel id space, so they share the -100 Bot API prefix.
     pub(crate) fn parse(community_id: i64, entities: &Entities) -> Community {
         let id = get_channel_id(community_id);
@@ -68,9 +82,9 @@ impl Community {
                 id,
                 name: c.title.clone(),
                 status: Some(CommunityMemberStatus::Banned),
-                ..Community::default()
+                ..Community::empty()
             },
-            _ => Community { id, ..Community::default() },
+            _ => Community { id, ..Community::empty() },
         }
     }
 
@@ -239,6 +253,6 @@ mod tests {
     #[test]
     fn unknown_community_keeps_only_id() {
         let parsed = Community::parse(7, &Entities::default());
-        assert_eq!(parsed, Community { id: get_channel_id(7), ..Community::default() });
+        assert_eq!(parsed, Community { id: get_channel_id(7), ..Community::empty() });
     }
 }

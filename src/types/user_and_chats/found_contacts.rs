@@ -3,7 +3,7 @@ use crate::raw::base;
 use crate::types::Chat;
 
 /// The answer of a contact search: the account's own contacts and chats apart from the global results.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FoundContacts {
     /// Matches among contacts and recent chats.

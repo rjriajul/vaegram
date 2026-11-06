@@ -23,6 +23,12 @@ impl Text {
         Text::default()
     }
 
+    /// Reads `text` as `mode` says into a `Text` with its formatting entities. It never fails:
+    /// [`ParseMode::Disabled`] keeps the text plain, and formatting nested deeper than 64 levels is dropped.
+    pub fn parse(text: &str, mode: ParseMode) -> Self {
+        parser::parse(text, mode)
+    }
+
     /// Parses `html` into a `Text` with its formatting entities.
     pub fn from_html(html: &str) -> Self {
         parser::parse(html, ParseMode::Html)
@@ -354,6 +360,14 @@ mod tests {
 
     fn texts(parts: &[Text]) -> Vec<&str> {
         parts.iter().map(Text::as_str).collect()
+    }
+
+    #[test]
+    fn parse_reads_every_mode() {
+        assert_eq!(Text::parse("<b>a</b>", ParseMode::Html), Text::from_html("<b>a</b>"));
+        assert_eq!(Text::parse("**a**", ParseMode::Markdown), Text::from_markdown("**a**"));
+        let plain = Text::parse("<b>a</b>", ParseMode::Disabled);
+        assert_eq!((plain.as_str(), plain.spans.len()), ("<b>a</b>", 0));
     }
 
     #[test]

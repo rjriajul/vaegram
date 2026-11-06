@@ -29,6 +29,7 @@ pub enum RichBlockKind {
     /// A paragraph of text.
     Paragraph(RichText),
     /// A heading.
+    #[non_exhaustive]
     Heading {
         /// Heading level, from 1 for the largest to 6.
         level: u8,
@@ -36,6 +37,7 @@ pub enum RichBlockKind {
         text: RichText,
     },
     /// A preformatted code block. `language` is empty when the block names none.
+    #[non_exhaustive]
     Preformatted {
         /// The code text.
         text: RichText,
@@ -56,6 +58,7 @@ pub enum RichBlockKind {
     List(Vec<RichListItem>),
     /// A quote made of blocks. A plain text quote is read as one paragraph block. `credit` is `None` when the
     /// quote has no attribution.
+    #[non_exhaustive]
     BlockQuote {
         /// Blocks inside the quote.
         blocks: Vec<RichBlock>,
@@ -64,6 +67,7 @@ pub enum RichBlockKind {
     },
     /// A text quote that stays collapsed until the reader expands it. `credit` is `None` when the quote has no
     /// attribution.
+    #[non_exhaustive]
     ExpandableBlockQuote {
         /// Text of the quote.
         text: RichText,
@@ -71,6 +75,7 @@ pub enum RichBlockKind {
         credit: Option<RichText>,
     },
     /// A highlighted excerpt. `credit` is `None` when it has no attribution.
+    #[non_exhaustive]
     PullQuote {
         /// Text of the excerpt.
         text: RichText,
@@ -78,6 +83,7 @@ pub enum RichBlockKind {
         credit: Option<RichText>,
     },
     /// A collage of media blocks. `caption` is `None` when it has neither text nor credit.
+    #[non_exhaustive]
     Collage {
         /// Media blocks in the collage.
         blocks: Vec<RichBlock>,
@@ -85,6 +91,7 @@ pub enum RichBlockKind {
         caption: Option<RichBlockCaption>,
     },
     /// A slideshow of media blocks. `caption` is `None` when it has neither text nor credit.
+    #[non_exhaustive]
     Slideshow {
         /// Media blocks in the slideshow.
         blocks: Vec<RichBlock>,
@@ -92,6 +99,7 @@ pub enum RichBlockKind {
         caption: Option<RichBlockCaption>,
     },
     /// A table. `title` is `None` when the table has none, and rows without cells are dropped.
+    #[non_exhaustive]
     Table {
         /// Title above the table.
         title: Option<RichText>,
@@ -105,6 +113,7 @@ pub enum RichBlockKind {
         is_compact: bool,
     },
     /// A collapsible section with a `summary` line.
+    #[non_exhaustive]
     Details {
         /// Line that stays visible when the section is collapsed.
         summary: RichText,
@@ -115,6 +124,7 @@ pub enum RichBlockKind {
     },
     /// A map. A map whose coordinates can't be read, or a map built with [`RichBlock::map`], is
     /// [`Unknown`](RichBlockKind::Unknown) instead.
+    #[non_exhaustive]
     Map {
         /// Center of the map.
         location: Location,
@@ -128,6 +138,7 @@ pub enum RichBlockKind {
         caption: Option<RichBlockCaption>,
     },
     /// A row of buttons. `align` is `None` when the row sets no alignment.
+    #[non_exhaustive]
     Buttons {
         /// Buttons in the row.
         buttons: Vec<RichButton>,
@@ -135,6 +146,7 @@ pub enum RichBlockKind {
         align: Option<Align>,
     },
     /// A photo. `photo` is `None` when the message doesn't carry the file.
+    #[non_exhaustive]
     Photo {
         /// The photo file.
         photo: Option<Photo>,
@@ -144,6 +156,7 @@ pub enum RichBlockKind {
         caption: Option<RichBlockCaption>,
     },
     /// A video. `video` is `None` when the message doesn't carry the file.
+    #[non_exhaustive]
     Video {
         /// The video file.
         video: Option<Video>,
@@ -154,6 +167,7 @@ pub enum RichBlockKind {
     },
     /// An animation. Without the file, a video block that autoplays and loops is read as this, with `animation`
     /// set to `None`.
+    #[non_exhaustive]
     Animation {
         /// The animation file.
         animation: Option<Animation>,
@@ -163,6 +177,7 @@ pub enum RichBlockKind {
         caption: Option<RichBlockCaption>,
     },
     /// An audio file. `audio` is `None` when the message doesn't carry the file.
+    #[non_exhaustive]
     Audio {
         /// The audio file.
         audio: Option<Audio>,
@@ -170,6 +185,7 @@ pub enum RichBlockKind {
         caption: Option<RichBlockCaption>,
     },
     /// A voice note, read from a video or audio block whose file is a voice note.
+    #[non_exhaustive]
     VoiceNote {
         /// The voice note file.
         voice_note: Voice,
@@ -177,6 +193,7 @@ pub enum RichBlockKind {
         caption: Option<RichBlockCaption>,
     },
     /// A document. `document` is `None` when the message doesn't carry the file.
+    #[non_exhaustive]
     Document {
         /// The document file.
         document: Option<Document>,

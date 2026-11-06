@@ -195,7 +195,7 @@ mod tests {
         account.srp_b = Some(to_be_padded::<256>(&g_b).to_vec());
         account.srp_id = Some(1);
         let with_password = base::account::Password::Password(Box::new(account)).to_bytes();
-        let refused = || Err(Error::Rpc(RpcError::new(400, "NEW_SETTINGS_INVALID")));
+        let refused = || Err(Error::Rpc(RpcError::parse(400, "NEW_SETTINGS_INVALID")));
 
         let (client, mut sent) = Client::scripted(vec![Ok(reply), refused()]);
         let enable = client.enable_cloud_password("").await;

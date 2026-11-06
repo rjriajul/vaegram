@@ -31,7 +31,7 @@ mod tests {
 
     #[tokio::test]
     async fn story_limits_come_back_as_errors() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "STORIES_TOO_MUCH")))]);
+        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "STORIES_TOO_MUCH")))]);
         let result = client.can_post_stories("me").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "STORIES_TOO_MUCH"), "{result:?}");
     }

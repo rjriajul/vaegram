@@ -11,6 +11,7 @@ pub enum ClickResult {
     /// A link the user is meant to open: plain url, login url or web app.
     Url(String),
     /// The button starts an inline query.
+    #[non_exhaustive]
     SwitchInline {
         /// The query text to prefill.
         query: String,

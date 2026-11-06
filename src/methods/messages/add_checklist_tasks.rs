@@ -117,7 +117,7 @@ mod tests {
 
     #[tokio::test]
     async fn telegram_errors_pass_through() {
-        let invalid = || Err(Error::Rpc(RpcError::new(400, "MESSAGE_ID_INVALID")));
+        let invalid = || Err(Error::Rpc(RpcError::parse(400, "MESSAGE_ID_INVALID")));
         let (client, _rx) = Client::scripted(vec![invalid(), invalid()]);
         client.0.peers.lock().unwrap().insert(7, user());
         let added = client.add_checklist_tasks(7, 5).task(2, "Visa").await;

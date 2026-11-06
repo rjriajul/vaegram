@@ -18,6 +18,7 @@ pub struct PaidMediaInfo {
 #[non_exhaustive]
 pub enum PaidMedia {
     /// Until it is bought, only the size and a video's length are shown.
+    #[non_exhaustive]
     Preview {
         /// Width in pixels, if Telegram sent it.
         width: Option<i32>,

@@ -3,7 +3,7 @@ use crate::raw::types;
 use crate::types::User;
 
 /// What Telegram suggests doing with a chat, and what it knows about the other side.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ChatSettings {
     /// Whether the chat can be reported as spam.
@@ -47,6 +47,32 @@ pub struct ChatSettings {
 }
 
 impl ChatSettings {
+    /// Every field zero, empty or `None`: the base the parsers and tests fill in.
+    #[cfg(test)]
+    pub(crate) fn empty() -> Self {
+        ChatSettings {
+            can_report_spam: false,
+            can_add_contact: false,
+            can_block_contact: false,
+            can_share_contact: false,
+            need_contacts_exception: false,
+            is_autoarchived: false,
+            can_invite_members: false,
+            is_business_bot_paused: false,
+            can_business_bot_reply: false,
+            request_chat_is_channel: false,
+            request_chat_title: None,
+            request_chat_date: None,
+            business_bot: None,
+            business_bot_manage_url: None,
+            paid_message_star_count: None,
+            registration_month: None,
+            phone_country: None,
+            name_change_date: None,
+            photo_change_date: None,
+        }
+    }
+
     pub(crate) fn parse(raw: types::PeerSettings, entities: &Entities) -> ChatSettings {
         ChatSettings {
             can_report_spam: raw.report_spam,
@@ -100,7 +126,7 @@ mod tests {
     #[test]
     fn no_action_bar_is_the_default() {
         let entities = Entities::default();
-        assert_eq!(ChatSettings::parse(empty(), &entities), ChatSettings::default());
+        assert_eq!(ChatSettings::parse(empty(), &entities), ChatSettings::empty());
     }
 
     #[test]
@@ -159,6 +185,6 @@ mod tests {
     fn a_business_bot_missing_from_users_keeps_its_id() {
         let raw = types::PeerSettings { business_bot_id: Some(42), ..empty() };
         let settings = ChatSettings::parse(raw, &Entities::default());
-        assert_eq!(settings.business_bot, Some(User { id: 42, ..User::default() }));
+        assert_eq!(settings.business_bot, Some(User { id: 42, ..User::empty() }));
     }
 }

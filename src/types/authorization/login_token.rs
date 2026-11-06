@@ -5,6 +5,7 @@ use crate::types::User;
 #[non_exhaustive]
 pub enum LoginToken {
     /// Login isn't finished yet.
+    #[non_exhaustive]
     Url {
         /// `tg://login` link to show as a QR code for an already logged-in app to scan.
         url: String,

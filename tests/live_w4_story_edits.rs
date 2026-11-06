@@ -16,7 +16,7 @@ async fn edit_story_media_keeps_areas() {
         let Some(kit) = support::Kit::from_env().await else { return };
         let user = kit.user.client;
         let position = StoryAreaPosition::new(50.0, 50.0, 0.0, 0.0);
-        let link = StoryArea::new(position, StoryAreaType::Link { url: "https://example.com".into() });
+        let link = StoryArea::new(position, StoryAreaType::link("https://example.com"));
         let story = user.send_story("me", InputStoryContent::photo(photo.as_str())).media_areas([link]).await.unwrap();
         let edited = user.edit_story_media("me", story.id, InputStoryContent::photo(photo.as_str())).await.unwrap();
         let stories = user.get_stories("me", &[edited.id]).await.unwrap();

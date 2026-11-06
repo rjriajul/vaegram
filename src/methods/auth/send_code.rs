@@ -134,8 +134,8 @@ pub(super) mod tests {
     #[tokio::test]
     async fn refused_numbers_come_back_unchanged() {
         for name in ["PHONE_NUMBER_INVALID", "PHONE_NUMBER_BANNED"] {
-            let result = answer(Err(Error::Rpc(RpcError::new(400, name)))).await;
-            assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::new(400, name)), "{result:?}");
+            let result = answer(Err(Error::Rpc(RpcError::parse(400, name)))).await;
+            assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::parse(400, name)), "{result:?}");
         }
     }
 }

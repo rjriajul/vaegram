@@ -28,7 +28,7 @@ mod tests {
     use crate::types::SentCode;
 
     fn rpc(code: i32, name: &str) -> Result<Vec<u8>> {
-        Err(Error::Rpc(RpcError::new(code, name)))
+        Err(Error::Rpc(RpcError::parse(code, name)))
     }
 
     async fn resend(reply: Result<Vec<u8>>) -> Result<SentCode> {
@@ -80,7 +80,7 @@ mod tests {
     async fn resend_errors_come_back_unchanged() {
         for name in ["PHONE_CODE_EXPIRED", "PHONE_CODE_HASH_EMPTY", "SEND_CODE_UNAVAILABLE"] {
             let result = resend(rpc(400, name)).await;
-            assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::new(400, name)), "{result:?}");
+            assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::parse(400, name)), "{result:?}");
         }
     }
 
@@ -91,7 +91,7 @@ mod tests {
             let (client, _sent) = Client::scripted(vec![Ok(sms_code("h2", None)), rpc(code, name)]);
             let code_hash = client.resend_code("8801", "h1").await.unwrap().phone_code_hash;
             let result = client.sign_in("8801", &code_hash, "22222").await;
-            assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::new(code, name)), "{result:?}");
+            assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::parse(code, name)), "{result:?}");
         }
     }
 

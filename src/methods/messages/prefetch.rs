@@ -335,7 +335,7 @@ mod tests {
     }
 
     fn refused(error: &str) -> Result<Vec<u8>> {
-        Err(Error::Rpc(RpcError::new(400, error)))
+        Err(Error::Rpc(RpcError::parse(400, error)))
     }
 
     fn set_id(id: i64) -> base::InputStickerSet {
@@ -576,7 +576,7 @@ mod tests {
     async fn a_flood_wait_is_handed_back_not_slept() {
         tokio::time::pause();
         let fetch = Fetch { stickers: true, ..Fetch::default() };
-        let flood = Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_30")));
+        let flood = Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_30")));
         let (client, mut sent) = client(fetch, true, vec![flood]);
         let start = Instant::now();
         let m = sticker_message(&client, 1, 10).prepare().await;
