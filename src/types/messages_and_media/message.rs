@@ -153,9 +153,9 @@ pub struct Message {
 }
 
 // Every update moves a `Message` and handlers often clone it, so a field that makes it grow should be a choice:
-// large fields that most messages leave `None` are boxed. The bound is the exact size measured on x86_64, on
-// purpose: lower it whenever the type shrinks. It is checked in this crate's tests only, so a compiler that lays the
-// type out differently can't break a user's build.
+// large optional fields, including the usually-set sender, are boxed. The bound is the exact size measured on
+// x86_64, on purpose: lower it whenever the type shrinks. It is checked in this crate's tests only, so a compiler
+// that lays the type out differently can't break a user's build.
 #[cfg(all(test, target_pointer_width = "64"))]
 const _: () = assert!(std::mem::size_of::<Message>() <= 1672);
 
