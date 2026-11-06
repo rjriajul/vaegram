@@ -11,6 +11,10 @@ use crate::types::{InputPollMedia, InputPollOption, Message, PeerRef, Text};
 pub struct SendPoll<'a> {
     client: &'a Client,
     chat_id: PeerRef,
+    question: Text,
+    answers: Vec<Text>,
+    parse_mode: Option<ParseMode>,
+    // Settings only: the question and answers go in when the request is sent.
     poll: types::Poll,
     correct_answers: Option<Vec<i32>>,
     explanation: Option<Text>,
@@ -22,12 +26,16 @@ pub struct SendPoll<'a> {
 impl Client {
     /// Sends a poll.
     ///
-    /// A poll takes 1 to 12 options, and any other count fails with `Error::InvalidArgument`.
-    /// Awaiting the request returns the sent [`Message`].
+    /// A poll takes 1 to 12 options, and any other count fails with `Error::InvalidArgument`. Awaiting the request
+    /// returns the sent [`Message`].
+    ///
+    /// Telegram currently accepts only custom emoji entities in the question and option texts; a plain string is
+    /// parsed with the client's default parse mode, so pass `Text::new().plain(..)` to send it as is.
+    /// [`parse_mode`](SendPoll::parse_mode) picks another mode for this poll.
     pub fn send_poll<'a>(
         &'a self,
         chat_id: impl Into<PeerRef>,
-        question: impl Into<String>,
+        question: impl Into<Text>,
         options: impl IntoIterator<Item = impl Into<InputPollOption<'a>>>,
     ) -> SendPoll<'a> {
         let mut poll_media = PollMedia::default();
@@ -36,14 +44,16 @@ impl Client {
             .map(|option| {
                 let InputPollOption { text, media } = option.into();
                 poll_media.options.push(media);
-                let answer = types::InputPollAnswer { text: text_with_entities(text), media: None };
-                base::PollAnswer::InputPollAnswer(Box::new(answer))
+                text
             })
             .collect();
         SendPoll {
             client: self,
             chat_id: chat_id.into(),
-            poll: poll(0, question.into(), answers),
+            question: question.into(),
+            answers,
+            parse_mode: None,
+            poll: poll(0, String::new(), Vec::new()),
             correct_answers: None,
             explanation: None,
             explanation_parse_mode: None,
@@ -76,6 +86,13 @@ impl<'a> SendPoll<'a> {
     /// Text shown after a wrong answer in a quiz.
     pub fn explanation(mut self, text: impl Into<Text>) -> Self {
         self.explanation = Some(text.into());
+        self
+    }
+
+    /// Parse mode for the question and the option texts made straight from strings. Without it the client's default
+    /// parse mode applies.
+    pub fn parse_mode(mut self, mode: ParseMode) -> Self {
+        self.parse_mode = Some(mode);
         self
     }
 
@@ -133,10 +150,22 @@ impl<'a> SendPoll<'a> {
         self
     }
 
-    async fn send(mut self) -> Result<Message> {
-        if !(1..=12).contains(&self.poll.answers.len()) {
+    async fn write_texts(&mut self) -> Result<()> {
+        if !(1..=12).contains(&self.answers.len()) {
             return Err(Error::InvalidArgument("a poll takes 1 to 12 options"));
         }
+        let (client, mode) = (self.client, self.parse_mode);
+        self.poll.question = write_text_with_entities(client, std::mem::take(&mut self.question), mode).await?;
+        for text in std::mem::take(&mut self.answers) {
+            let text = write_text_with_entities(client, text, mode).await?;
+            let answer = types::InputPollAnswer { text, media: None };
+            self.poll.answers.push(base::PollAnswer::InputPollAnswer(Box::new(answer)));
+        }
+        Ok(())
+    }
+
+    async fn send(mut self) -> Result<Message> {
+        self.write_texts().await?;
         let solution = match self.explanation.take() {
             Some(text) => Some(self.client.write_text(text, self.explanation_parse_mode).await?),
             None => None,
@@ -186,6 +215,16 @@ pub(crate) fn poll(id: i64, question: String, answers: Vec<base::PollAnswer>) ->
     }
 }
 
+/// Writes `text` with its entities, parsing one made straight from a string with `mode`, else the client's default.
+pub(super) async fn write_text_with_entities(
+    client: &Client,
+    text: Text,
+    mode: Option<ParseMode>,
+) -> Result<base::TextWithEntities> {
+    let (text, entities) = client.write_text(text, mode).await?;
+    Ok(base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities })))
+}
+
 pub(super) fn text_with_entities(text: String) -> base::TextWithEntities {
     base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities: Vec::new() }))
 }
@@ -194,22 +233,24 @@ pub(super) fn text_with_entities(text: String) -> base::TextWithEntities {
 mod tests {
     use super::text_with_entities;
     use crate::Client;
+    use crate::enums::ParseMode;
     use crate::errors::Error;
     use crate::raw::{Serializable, base, types};
     use crate::types::{FileSource, InputMedia, InputPollMedia, InputPollOption, Text};
 
-    #[test]
-    fn maps_quiz_and_voting_limits() {
+    #[tokio::test]
+    async fn maps_quiz_and_voting_limits() {
         let client = Client::offline();
-        let media = client
+        let mut send = client
             .send_poll(1, "2 + 2?", ["3", "4"])
             .public_voters()
             .allows_multiple_answers()
             .quiz([1])
             .open_period(30)
             .members_only()
-            .country_codes(["US", "DE"])
-            .media(Some(("Basic math".into(), Vec::new())));
+            .country_codes(["US", "DE"]);
+        send.write_texts().await.unwrap();
+        let media = send.media(Some(("Basic math".into(), Vec::new())));
         let base::InputMedia::InputMediaPoll(media) = media else { panic!("not a poll") };
         assert_eq!(
             (&media.correct_answers, media.solution.as_deref(), &media.solution_entities),
@@ -253,17 +294,18 @@ mod tests {
         assert!(poll.open_answers && !poll.quiz && !poll.multiple_choice);
     }
 
-    #[test]
-    fn keeps_option_media_in_option_order() {
+    #[tokio::test]
+    async fn keeps_option_media_in_option_order() {
         let client = Client::offline();
         let options = [
             InputPollOption::new("Paris").media(InputPollMedia::location(48.85, 2.35)),
             "Rome".into(),
             InputPollOption::new("Photo").media(InputMedia::photo("a.jpg")),
         ];
-        let send = client.send_poll(1, "Where?", options);
+        let mut send = client.send_poll(1, "Where?", options);
         let has_media: Vec<_> = send.poll_media.options.iter().map(Option::is_some).collect();
         assert_eq!(has_media, [true, false, true]);
+        send.write_texts().await.unwrap();
         let base::InputMedia::InputMediaPoll(media) = send.media(None) else { panic!("not a poll") };
         let base::Poll::Poll(poll) = &media.poll;
         let rome = types::InputPollAnswer { text: text_with_entities("Rome".into()), media: None };
@@ -305,6 +347,51 @@ mod tests {
         let mut solution = String::from("hi").to_bytes();
         solution.extend(bold.to_bytes());
         assert!(body.windows(solution.len()).any(|w| w == solution));
+    }
+
+    #[tokio::test]
+    async fn the_question_and_options_keep_their_custom_emoji_on_the_wire() {
+        let (client, mut sent) = Client::recording();
+        let options = [InputPollOption::new(Text::new().custom_emoji("⭐", 6).plain(" Pizza")), "Sushi".into()];
+        let _ = client.send_poll(-5, Text::new().plain("Lunch ").custom_emoji("⭐", 5), options).await;
+        let body = sent.try_recv().expect("no request sent");
+        let has = |bytes: &[u8]| body.windows(bytes.len()).any(|w| w == bytes);
+        assert!(has(&written_text("Lunch ⭐", vec![emoji(6, 5)]).to_bytes()), "the question lost its emoji");
+        assert!(has(&answers(vec![emoji(0, 6)]).to_bytes()), "the option lost its emoji");
+    }
+
+    #[tokio::test]
+    async fn the_poll_parse_mode_covers_the_question_and_options() {
+        let star = |id: i64| format!("<tg-emoji emoji-id=\"{id}\">⭐</tg-emoji>");
+        let (client, mut sent) = Client::recording();
+        let options = [format!("{} Pizza", star(6)), "Sushi".into()];
+        let _ = client.send_poll(-5, format!("Lunch {}", star(5)), options).parse_mode(ParseMode::Html).await;
+        let body = sent.try_recv().expect("no request sent");
+        let has = |bytes: &[u8]| body.windows(bytes.len()).any(|w| w == bytes);
+        assert!(has(&written_text("Lunch ⭐", vec![emoji(6, 5)]).to_bytes()), "the question wasn't parsed");
+        assert!(has(&answers(vec![emoji(0, 6)]).to_bytes()), "the option wasn't parsed");
+
+        // Without it the client's default, Disabled, sends the markup as is.
+        let _ = client.send_poll(-5, "a <b>b</b>", ["x"]).await;
+        let body = sent.try_recv().expect("no request sent");
+        let plain = written_text("a <b>b</b>", Vec::new()).to_bytes();
+        assert!(body.windows(plain.len()).any(|w| w == plain), "the question was parsed");
+    }
+
+    fn emoji(offset: i32, document_id: i64) -> base::MessageEntity {
+        let emoji = types::MessageEntityCustomEmoji { offset, length: 1, document_id };
+        base::MessageEntity::MessageEntityCustomEmoji(Box::new(emoji))
+    }
+
+    /// "⭐ Pizza" with `pizza_entities`, then plain "Sushi", as the poll's answer vector.
+    fn answers(pizza_entities: Vec<base::MessageEntity>) -> Vec<base::PollAnswer> {
+        let pizza = types::InputPollAnswer { text: written_text("⭐ Pizza", pizza_entities), media: None };
+        let sushi = types::InputPollAnswer { text: written_text("Sushi", Vec::new()), media: None };
+        vec![base::PollAnswer::InputPollAnswer(Box::new(pizza)), base::PollAnswer::InputPollAnswer(Box::new(sushi))]
+    }
+
+    fn written_text(text: &str, entities: Vec<base::MessageEntity>) -> base::TextWithEntities {
+        base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text: text.into(), entities }))
     }
 
     #[tokio::test]

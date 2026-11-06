@@ -14,7 +14,7 @@ pub enum PaymentResult {
 
 impl PaymentResult {
     /// Returns `true` if the payment went through.
-    pub fn success(&self) -> bool {
+    pub fn is_success(&self) -> bool {
         matches!(self, PaymentResult::Paid)
     }
 

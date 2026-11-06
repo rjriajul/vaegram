@@ -125,6 +125,8 @@ pub use set_chat_accent_color::SetChatAccentColor;
 pub use set_chat_photo::SetChatPhoto;
 pub use set_chat_wallpaper::SetChatWallpaper;
 pub use set_upgraded_gift_colors::SetUpgradedGiftColors;
+pub use toggle_forum_topics::ToggleForumTopics;
+pub use toggle_signatures::ToggleSignatures;
 pub use update_chat_notifications::UpdateChatNotifications;
 
 #[cfg(test)]
@@ -243,6 +245,52 @@ mod creation_tests {
             .map(|m| (m.user_id, m.premium_would_allow_invite, m.premium_required_to_send_messages))
             .collect();
         assert_eq!(failed, [(7, false, false), (8, true, false), (9, false, true)]);
+    }
+
+    #[tokio::test]
+    async fn a_created_group_comes_with_the_users_left_out() {
+        let group = types::Chat {
+            creator: true,
+            left: false,
+            deactivated: false,
+            call_active: false,
+            call_not_empty: false,
+            noforwards: false,
+            id: 5,
+            title: "friends".into(),
+            photo: base::ChatPhoto::ChatPhotoEmpty,
+            participants_count: 1,
+            date: 0,
+            version: 1,
+            migrated_to: None,
+            admin_rights: None,
+            default_banned_rights: None,
+        };
+        let updates = types::Updates {
+            updates: Vec::new(),
+            users: Vec::new(),
+            chats: vec![base::Chat::Chat(Box::new(group))],
+            date: 0,
+            seq: 0,
+        };
+        let missing =
+            types::MissingInvitee { premium_would_allow_invite: true, premium_required_for_pm: false, user_id: 7 };
+        let invited = types::messages::InvitedUsers {
+            updates: base::Updates::Updates(Box::new(updates)),
+            missing_invitees: vec![base::MissingInvitee::MissingInvitee(Box::new(missing))],
+        };
+        let (client, mut rx) =
+            Client::scripted(vec![Ok(base::messages::InvitedUsers::InvitedUsers(Box::new(invited)).to_bytes())]);
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+
+        let created = client.create_group("friends", [7_i64]).await.unwrap();
+        let user = base::InputUser::InputUser(Box::new(types::InputUser { user_id: 7, access_hash: 1 }));
+        let request = messages::CreateChat { users: vec![user], title: "friends".into(), ttl_period: None };
+        assert_eq!(rx.try_recv().unwrap(), request.to_bytes());
+        assert_eq!((created.chat.id, created.chat.title.as_deref()), (GROUP, Some("friends")));
+        let failed: Vec<_> = created.failed_members.iter().map(|m| (m.user_id, m.premium_would_allow_invite)).collect();
+        assert_eq!(failed, [(7, true)]);
     }
 }
 
@@ -469,6 +517,26 @@ mod settings_tests {
         assert_eq!(body(rx, client.set_chat_ttl(chat, 86400)).await, ttl.to_bytes());
         let ttl = messages::SetHistoryTTL { peer: user_peer(), period: 0 };
         assert_eq!(body(rx, client.set_chat_ttl(USER, 0)).await, ttl.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn forum_and_signature_toggles_send_only_the_chosen_options() {
+        let (client, mut rx) = settings_client(Vec::new());
+        let (rx, chat) = (&mut rx, get_channel_id(9));
+        let forum = |enabled, tabs, sidebar| channels::ToggleForum { channel: channel(), enabled, tabs, sidebar };
+        assert_eq!(body(rx, client.toggle_forum_topics(chat, true)).await, forum(true, false, false).to_bytes());
+        assert_eq!(body(rx, client.toggle_forum_topics(chat, true).tabs()).await, forum(true, true, false).to_bytes());
+        let sidebar = client.toggle_forum_topics(chat, false).sidebar();
+        assert_eq!(body(rx, sidebar).await, forum(false, false, true).to_bytes());
+
+        let signatures = |signatures_enabled, profiles_enabled| channels::ToggleSignatures {
+            signatures_enabled,
+            profiles_enabled,
+            channel: channel(),
+        };
+        assert_eq!(body(rx, client.toggle_signatures(chat, true)).await, signatures(true, false).to_bytes());
+        let profiles = client.toggle_signatures(chat, true).profiles();
+        assert_eq!(body(rx, profiles).await, signatures(true, true).to_bytes());
     }
 
     #[tokio::test]

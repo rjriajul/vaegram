@@ -1,6 +1,6 @@
 use crate::enums::StoriesPrivacyRules;
 use crate::errors::Result;
-use crate::methods::{CopyStory, EditStoryCaption, ForwardStory};
+use crate::methods::{CopyStory, EditStoryCaption, ForwardStory, SendStoryReaction};
 use crate::types::{InputStoryContent, PeerRef, ReactionType, Story, Text};
 
 impl Story {
@@ -30,9 +30,14 @@ impl Story {
         self.client().edit_story_privacy(self.chat.id, self.id, privacy).await
     }
 
-    /// Reacts to the story with `reaction`. `None` removes the account's reaction.
-    pub async fn react(&self, reaction: Option<ReactionType>) -> Result<()> {
-        self.client().send_story_reaction(self.chat.id, self.id, reaction).await
+    /// Reacts to the story, replacing the account's earlier reaction.
+    pub fn react(&self, reaction: impl Into<ReactionType>) -> SendStoryReaction<'_> {
+        self.client().send_story_reaction(self.chat.id, self.id).reaction(reaction)
+    }
+
+    /// Removes the account's reaction from the story.
+    pub fn unreact(&self) -> SendStoryReaction<'_> {
+        self.client().send_story_reaction(self.chat.id, self.id)
     }
 
     /// Sends this story to `chat_id` as a message.
@@ -113,10 +118,20 @@ mod tests {
         let rules = vec![base::InputPrivacyRule::InputPrivacyValueAllowCloseFriends];
         assert_eq!(rx.try_recv().unwrap(), stories::EditStory { privacy_rules: Some(rules), ..edit() }.to_bytes());
 
-        let _ = story.react(Some(ReactionType::Emoji("🔥".into()))).await;
+        let _ = story.react(ReactionType::Emoji("🔥".into())).await;
         let fire = base::Reaction::ReactionEmoji(Box::new(types::ReactionEmoji { emoticon: "🔥".into() }));
         let react = stories::SendReaction { add_to_recent: true, peer: me.clone(), story_id: 7, reaction: fire };
         assert_eq!(rx.try_recv().unwrap(), react.to_bytes());
+
+        let _ = story.react("👍").await;
+        let thumb = base::Reaction::ReactionEmoji(Box::new(types::ReactionEmoji { emoticon: "👍".into() }));
+        let react = stories::SendReaction { add_to_recent: true, peer: me.clone(), story_id: 7, reaction: thumb };
+        assert_eq!(rx.try_recv().unwrap(), react.to_bytes());
+
+        let _ = story.unreact().await;
+        let empty = base::Reaction::ReactionEmpty;
+        let unreact = stories::SendReaction { add_to_recent: true, peer: me.clone(), story_id: 7, reaction: empty };
+        assert_eq!(rx.try_recv().unwrap(), unreact.to_bytes());
 
         let _ = story.forward(0_i64).await;
         assert_eq!(rx.try_recv().unwrap()[..4], messages::SendMedia::CONSTRUCTOR_ID.to_le_bytes());

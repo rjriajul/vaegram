@@ -4,9 +4,9 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::{PeerRef, Story};
 
-/// Request built by [`Client::repost_story`]. Awaiting it returns the new [`Story`].
+/// Request built by [`Client::repost_business_story`]. Awaiting it returns the new [`Story`].
 #[must_use = "a request does nothing until it is awaited"]
-pub struct RepostStory<'a> {
+pub struct RepostBusinessStory<'a> {
     client: &'a Client,
     business_connection_id: String,
     from_chat_id: PeerRef,
@@ -20,14 +20,14 @@ impl Client {
     /// Reposts a story to the business account behind a connection, visible to everyone.
     ///
     /// The account the story comes from must be connected to the same bot.
-    pub fn repost_story(
+    pub fn repost_business_story(
         &self,
         business_connection_id: impl Into<String>,
         from_chat_id: impl Into<PeerRef>,
         from_story_id: i32,
         active_period: i32,
-    ) -> RepostStory<'_> {
-        RepostStory {
+    ) -> RepostBusinessStory<'_> {
+        RepostBusinessStory {
             client: self,
             business_connection_id: business_connection_id.into(),
             from_chat_id: from_chat_id.into(),
@@ -39,7 +39,7 @@ impl Client {
     }
 }
 
-impl RepostStory<'_> {
+impl RepostBusinessStory<'_> {
     /// Keeps the story on the account's profile after it expires.
     pub fn post_to_chat_page(mut self) -> Self {
         self.post_to_chat_page = true;
@@ -75,4 +75,4 @@ impl RepostStory<'_> {
     }
 }
 
-into_future!(RepostStory, Story);
+into_future!(RepostBusinessStory, Story);

@@ -4,7 +4,9 @@ use crate::methods::{
     SendDice, SendDocument, SendGame, SendInlineBotResult, SendInvoice, SendLivePhoto, SendLocation, SendPaidMedia,
     SendPhoto, SendPoll, SendRichMessage, SendSticker, SendVenue, SendVideo, SendVideoNote, SendVoice,
 };
-use crate::types::{FileSource, InputChecklist, InputInvoice, InputMedia, InputPollOption, InputRichMessage, Message};
+use crate::types::{
+    FileSource, InputChecklist, InputInvoice, InputMedia, InputPollOption, InputRichMessage, Message, Text,
+};
 
 impl Message {
     /// Points a send at this message's topic, direct-messages topic and business connection.
@@ -172,7 +174,7 @@ impl Message {
     /// Sends a poll as a reply to this message.
     pub fn reply_poll<'a>(
         &'a self,
-        question: impl Into<String>,
+        question: impl Into<Text>,
         options: impl IntoIterator<Item = impl Into<InputPollOption<'a>>>,
     ) -> SendPoll<'a> {
         self.answer_poll(question, options).reply_to(self.id)
@@ -181,7 +183,7 @@ impl Message {
     /// Sends a poll to this chat, in the same topic and through the same business connection.
     pub fn answer_poll<'a>(
         &'a self,
-        question: impl Into<String>,
+        question: impl Into<Text>,
         options: impl IntoIterator<Item = impl Into<InputPollOption<'a>>>,
     ) -> SendPoll<'a> {
         self.route(self.client().send_poll(self.chat.id, question, options))

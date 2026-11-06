@@ -136,7 +136,7 @@ impl<'a> SendEphemeralMessage<'a> {
 
     async fn send(mut self) -> Result<EphemeralMessage> {
         let client = self.client;
-        // Only `Message::reply_ephemeral_text` builds a request without a receiver: its message had no sender user.
+        // Only `Message::reply_ephemeral` builds a request without a receiver: its message had no sender user.
         let receiver = self.receiver_user_id.take().ok_or(Error::InvalidArgument("this message has no sender user"))?;
         let (message, entities) = match &mut self.media {
             Some(_) if !self.text.is_empty() => {

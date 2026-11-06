@@ -1,4 +1,4 @@
-use super::send_poll::text_with_entities;
+use super::send_poll::write_text_with_entities;
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
@@ -7,7 +7,9 @@ use crate::types::{InputPollOption, PeerRef};
 impl Client {
     /// Adds an option to a poll in `message_id`.
     ///
-    /// Media in the option is uploaded first.
+    /// Media in the option is uploaded first. Telegram currently accepts only custom emoji entities in the option
+    /// text; a plain string is parsed with the client's default parse mode, so pass `Text::new().plain(..)` to send it
+    /// as is.
     pub async fn add_poll_option<'a>(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -20,7 +22,7 @@ impl Client {
             Some(media) => Some(media.upload(self, &peer, None).await?),
             None => None,
         };
-        let answer = types::InputPollAnswer { text: text_with_entities(text), media };
+        let answer = types::InputPollAnswer { text: write_text_with_entities(self, text, None).await?, media };
         let answer = base::PollAnswer::InputPollAnswer(Box::new(answer));
         self.invoke(&functions::messages::AddPollAnswer { peer, msg_id: message_id, answer }).await.map(drop)
     }
