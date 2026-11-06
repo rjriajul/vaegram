@@ -174,10 +174,14 @@ impl Client {
         })
     }
 
-    pub(crate) async fn input_saved_gifts(&self, owned_gift_ids: &[&str]) -> Result<Vec<base::InputSavedStarGift>> {
-        let mut gifts = Vec::with_capacity(owned_gift_ids.len());
+    pub(crate) async fn input_saved_gifts(
+        &self,
+        owned_gift_ids: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<Vec<base::InputSavedStarGift>> {
+        let owned_gift_ids = owned_gift_ids.into_iter();
+        let mut gifts = Vec::with_capacity(owned_gift_ids.size_hint().0);
         for id in owned_gift_ids {
-            gifts.push(self.input_saved_gift(id).await?);
+            gifts.push(self.input_saved_gift(id.as_ref()).await?);
         }
         Ok(gifts)
     }

@@ -6,7 +6,10 @@ use crate::types::{Message, PeerRef};
 use crate::utils::{CHANNEL_OFFSET, get_peer_id};
 
 impl Client {
-    /// The result lines up with `message_ids`; missing or service messages are `None`.
+    /// Returns messages of a chat by id.
+    ///
+    /// The result lines up with `message_ids`, one slot per id: missing or service messages are `None`. Compare
+    /// [`get_stories`](Client::get_stories), which leaves missing stories out.
     pub async fn get_messages(&self, chat_id: impl Into<PeerRef>, message_ids: &[i32]) -> Result<Vec<Option<Message>>> {
         let (found, entities) = self.get_raw_messages(chat_id, message_ids).await?;
         let mut found: Vec<_> = found.into_iter().map(|m| m.map(|m| Message::parse(self, m, &entities))).collect();

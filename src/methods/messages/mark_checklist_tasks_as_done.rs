@@ -15,7 +15,9 @@ impl Client {
         marked_as_not_done_task_ids: &[i32],
     ) -> Result<()> {
         if marked_as_done_task_ids.is_empty() && marked_as_not_done_task_ids.is_empty() {
-            return Err(Error::InvalidArgument("mark at least one task as done or not done"));
+            return Err(Error::InvalidArgument(
+                "mark_checklist_tasks_as_done needs at least one task to mark as done or not done",
+            ));
         }
         let request = functions::messages::ToggleTodoCompleted {
             peer: self.resolve_peer(chat_id).await?,

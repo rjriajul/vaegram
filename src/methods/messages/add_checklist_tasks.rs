@@ -34,7 +34,7 @@ impl AddChecklistTasks<'_> {
 
     async fn send(self) -> Result<()> {
         if self.tasks.is_empty() {
-            return Err(Error::InvalidArgument("add at least one task"));
+            return Err(Error::InvalidArgument("add_checklist_tasks needs at least one task"));
         }
         let client = self.client;
         let peer = client.resolve_peer(self.chat_id).await?;

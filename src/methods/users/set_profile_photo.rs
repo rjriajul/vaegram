@@ -7,7 +7,7 @@ use crate::types::{PeerRef, Upload};
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SetProfilePhoto<'a> {
     client: &'a Client,
-    business_connection_id: Option<&'a str>,
+    business_connection_id: Option<String>,
     file: Upload<'a>,
     video: bool,
     video_start_ts: Option<f64>,
@@ -25,7 +25,7 @@ impl Client {
 }
 
 impl<'a> SetProfilePhoto<'a> {
-    pub(crate) fn new(client: &'a Client, business_connection_id: Option<&'a str>, file: Upload<'a>) -> Self {
+    pub(crate) fn new(client: &'a Client, business_connection_id: Option<String>, file: Upload<'a>) -> Self {
         SetProfilePhoto {
             client,
             business_connection_id,
@@ -68,7 +68,7 @@ impl<'a> SetProfilePhoto<'a> {
         };
         let (file, video) = uploaded(self.video, self.client.save_file(self.file).await?);
         let request = upload_request(bot, self.public, self.video_start_ts, file, video);
-        self.client.invoke_business(self.business_connection_id, request).await?;
+        self.client.invoke_business(self.business_connection_id.as_deref(), request).await?;
         Ok(())
     }
 }

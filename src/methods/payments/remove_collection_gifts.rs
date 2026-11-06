@@ -11,13 +11,13 @@ impl Client {
         &self,
         owner_id: impl Into<PeerRef>,
         collection_id: i32,
-        owned_gift_ids: &[&str],
+        owned_gift_ids: impl IntoIterator<Item = impl AsRef<str>>,
     ) -> Result<GiftCollection> {
-        if owned_gift_ids.is_empty() {
-            return Err(Error::InvalidArgument("owned_gift_ids is empty"));
+        let stargift = self.input_saved_gifts(owned_gift_ids).await?;
+        if stargift.is_empty() {
+            return Err(Error::InvalidArgument("remove_collection_gifts needs at least one owned gift id"));
         }
         let peer = self.resolve_peer(owner_id).await?;
-        let stargift = self.input_saved_gifts(owned_gift_ids).await?;
         let request = functions::payments::UpdateStarGiftCollection {
             peer,
             collection_id,
@@ -47,7 +47,8 @@ mod tests {
     #[tokio::test]
     async fn no_gifts_is_refused_without_a_request() {
         let (client, mut sent) = Client::scripted(Vec::new());
-        assert!(matches!(client.remove_collection_gifts("me", 4, &[]).await, Err(Error::InvalidArgument(_))));
+        let refused = client.remove_collection_gifts("me", 4, Vec::<String>::new()).await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
     }
 }

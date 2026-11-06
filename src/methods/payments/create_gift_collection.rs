@@ -11,7 +11,7 @@ impl Client {
         &self,
         owner_id: impl Into<PeerRef>,
         name: &str,
-        owned_gift_ids: &[&str],
+        owned_gift_ids: impl IntoIterator<Item = impl AsRef<str>>,
     ) -> Result<GiftCollection> {
         let peer = self.resolve_peer(owner_id).await?;
         let stargift = self.input_saved_gifts(owned_gift_ids).await?;
@@ -66,7 +66,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn rpc_errors_come_back_unchanged() {
         let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "COLLECTIONS_TOO_MANY")))]);
-        let result = client.create_gift_collection("me", "Best", &[]).await;
+        let result = client.create_gift_collection("me", "Best", [""; 0]).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "COLLECTIONS_TOO_MANY"), "{result:?}");
     }
 }

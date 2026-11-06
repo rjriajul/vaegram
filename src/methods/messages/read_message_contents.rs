@@ -10,7 +10,7 @@ impl Client {
     /// viewed, which starts its timer.
     pub async fn read_message_contents(&self, chat_id: impl Into<PeerRef>, message_ids: &[i32]) -> Result<()> {
         if message_ids.is_empty() {
-            return Err(Error::InvalidArgument("read_message_contents takes at least one message id"));
+            return Err(Error::InvalidArgument("read_message_contents needs at least one message id"));
         }
         let chat_id = self.peer_id(chat_id.into()).await?;
         let id = message_ids.to_vec();

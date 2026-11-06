@@ -9,6 +9,10 @@ impl Client {
     ///
     /// Returns the [`SentCode`] holding the `phone_code_hash` that [`sign_in`](Client::sign_in) needs. Fails with
     /// `Error::Unexpected` if Telegram logs in without a code or asks for a payment first.
+    ///
+    /// This is [`send_phone_number_code`](Client::send_phone_number_code) with its defaults: a login code and
+    /// Telegram's default delivery settings. Use that builder instead to change the delivery settings, pass a
+    /// reCAPTCHA token Telegram asked for, or send a code for changing or verifying a number.
     pub async fn send_code(&self, phone_number: &str) -> Result<SentCode> {
         self.send_phone_number_code(phone_number).await
     }

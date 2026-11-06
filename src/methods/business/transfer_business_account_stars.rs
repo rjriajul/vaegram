@@ -4,7 +4,11 @@ use crate::raw::{base, types};
 
 impl Client {
     /// Transfers Stars from the business account behind a connection to this bot.
-    pub async fn transfer_business_account_stars(&self, business_connection_id: &str, star_count: i64) -> Result<()> {
+    pub async fn transfer_business_account_stars(
+        &self,
+        business_connection_id: impl Into<String>,
+        star_count: i64,
+    ) -> Result<()> {
         // Inside the connection inputUserSelf means the business user, so name the bot explicitly.
         let bot = match self.get_me_raw().await? {
             base::User::User(u) => match u.access_hash {

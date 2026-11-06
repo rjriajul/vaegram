@@ -10,7 +10,7 @@ impl Client {
     pub async fn reorder_quick_replies(&self, shortcut_ids: impl IntoIterator<Item = i32>) -> Result<()> {
         let order: Vec<i32> = shortcut_ids.into_iter().collect();
         if order.is_empty() {
-            return Err(Error::InvalidArgument("reorder_quick_replies takes at least one shortcut id"));
+            return Err(Error::InvalidArgument("reorder_quick_replies needs at least one shortcut id"));
         }
         accepted(self.invoke(&functions::messages::ReorderQuickReplies { order }).await?)
     }

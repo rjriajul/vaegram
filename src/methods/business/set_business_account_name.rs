@@ -6,17 +6,18 @@ impl Client {
     /// Sets the name of the business account behind a connection. An empty `last_name` clears the last name.
     pub async fn set_business_account_name(
         &self,
-        business_connection_id: &str,
+        business_connection_id: impl Into<String>,
         first_name: &str,
         last_name: &str,
     ) -> Result<()> {
+        let business_connection_id: String = business_connection_id.into();
         // An empty last name is how Telegram clears it.
         let request = functions::account::UpdateProfile {
             first_name: Some(first_name.into()),
             last_name: Some(last_name.into()),
             about: None,
         };
-        self.invoke_business(Some(business_connection_id), request).await?;
+        self.invoke_business(Some(&business_connection_id), request).await?;
         Ok(())
     }
 }

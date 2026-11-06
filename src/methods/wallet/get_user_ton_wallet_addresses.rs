@@ -13,7 +13,7 @@ impl Client {
     ) -> Result<Vec<UserTonWalletAddress>> {
         let id = self.resolve_users(user_ids).await?;
         if id.is_empty() {
-            return Err(Error::InvalidArgument("pass at least one user id"));
+            return Err(Error::InvalidArgument("get_user_ton_wallet_addresses needs at least one user id"));
         }
         let request = functions::wallet::GetUserAddresses { force: false, id, addresses: Vec::new() };
         Ok(UserTonWalletAddress::parse_all(self, self.invoke(&request).await?))

@@ -4,14 +4,15 @@ use crate::raw::{base, types};
 
 impl Client {
     /// Removes the sender, recipient and message from an upgraded gift; nothing is paid above `star_count`.
-    pub async fn drop_gift_original_details(&self, owned_gift_id: &str, star_count: i64) -> Result<()> {
+    pub async fn drop_gift_original_details(&self, owned_gift_id: impl Into<String>, star_count: i64) -> Result<()> {
+        let owned_gift_id: String = owned_gift_id.into();
         if star_count <= 0 {
             return Err(Error::InvalidArgument("star_count must be positive"));
         }
         if owned_gift_id.is_empty() {
             return Err(Error::InvalidArgument("owned_gift_id is empty"));
         }
-        let stargift = self.input_saved_gift(owned_gift_id).await?;
+        let stargift = self.input_saved_gift(&owned_gift_id).await?;
         let invoice = types::InputInvoiceStarGiftDropOriginalDetails { stargift };
         let invoice = base::InputInvoice::InputInvoiceStarGiftDropOriginalDetails(Box::new(invoice));
         self.pay_in_stars_up_to(invoice, star_count).await

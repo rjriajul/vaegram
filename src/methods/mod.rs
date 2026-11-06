@@ -45,6 +45,8 @@ mod advanced;
 mod auth;
 mod bots;
 mod business;
+#[cfg(test)]
+mod call_shapes;
 mod chats;
 mod contacts;
 mod decorators;
@@ -68,6 +70,7 @@ mod wallet;
 pub use account::*;
 pub(crate) use advanced::invoke_sleeping_floods;
 pub use advanced::*;
+pub use auth::*;
 pub use bots::*;
 pub use business::*;
 pub use chats::*;

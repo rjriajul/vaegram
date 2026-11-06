@@ -18,6 +18,11 @@ pub struct SendPhoneNumberCode<'a> {
 
 impl Client {
     /// Sends a code to `phone_number`, by default for logging in. Aborts a previous verification of the number.
+    ///
+    /// Awaited without setters it does what [`send_code`](Client::send_code) does. The setters choose what the code
+    /// is for ([`kind`](SendPhoneNumberCode::kind)), how Telegram delivers it
+    /// ([`settings`](SendPhoneNumberCode::settings)) and a solved reCAPTCHA
+    /// ([`recaptcha_token`](SendPhoneNumberCode::recaptcha_token)).
     pub fn send_phone_number_code(&self, phone_number: impl Into<String>) -> SendPhoneNumberCode<'_> {
         SendPhoneNumberCode {
             client: self,

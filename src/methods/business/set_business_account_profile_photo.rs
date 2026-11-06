@@ -8,9 +8,9 @@ impl Client {
     /// Returns a [`SetProfilePhoto`] request that uploads the photo when awaited.
     pub fn set_business_account_profile_photo<'a>(
         &'a self,
-        business_connection_id: &'a str,
+        business_connection_id: impl Into<String>,
         photo: impl Into<Upload<'a>>,
     ) -> SetProfilePhoto<'a> {
-        SetProfilePhoto::new(self, Some(business_connection_id), photo.into())
+        SetProfilePhoto::new(self, Some(business_connection_id.into()), photo.into())
     }
 }

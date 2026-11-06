@@ -1,6 +1,6 @@
 use crate::enums::StoriesPrivacyRules;
 use crate::errors::Result;
-use crate::methods::{CopyStory, EditStoryCaption, ForwardStory, SendStoryReaction};
+use crate::methods::{CopyStory, EditStoryCaption, EditStoryMedia, EditStoryPrivacy, ForwardStory, SendStoryReaction};
 use crate::types::{InputStoryContent, PeerRef, ReactionType, Story, Text};
 
 impl Story {
@@ -15,9 +15,11 @@ impl Story {
         Ok(())
     }
 
-    /// Replaces the story's media. Returns the edited [`Story`].
-    pub async fn edit_media(&self, media: InputStoryContent<'_>) -> Result<Story> {
-        self.client().edit_story_media(self.chat.id, self.id, media).await
+    /// Replaces the story's media. Awaiting it returns the edited [`Story`].
+    ///
+    /// The caption and media areas stay as they were unless set on the returned [`EditStoryMedia`].
+    pub fn edit_media<'a>(&'a self, media: InputStoryContent<'a>) -> EditStoryMedia<'a> {
+        self.client().edit_story_media(self.chat.id, self.id, media)
     }
 
     /// Edits the story's caption. An empty caption removes it.
@@ -25,9 +27,9 @@ impl Story {
         self.client().edit_story_caption(self.chat.id, self.id, caption)
     }
 
-    /// Changes who can see the story. Returns the edited [`Story`].
-    pub async fn edit_privacy(&self, privacy: StoriesPrivacyRules) -> Result<Story> {
-        self.client().edit_story_privacy(self.chat.id, self.id, privacy).await
+    /// Changes who can see the story. Awaiting it returns the edited [`Story`].
+    pub fn edit_privacy(&self, privacy: StoriesPrivacyRules) -> EditStoryPrivacy<'_> {
+        self.client().edit_story_privacy(self.chat.id, self.id, privacy)
     }
 
     /// Reacts to the story, replacing the account's earlier reaction.

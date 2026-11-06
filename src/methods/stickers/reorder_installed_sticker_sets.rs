@@ -13,7 +13,7 @@ impl Client {
         sticker_set_ids: &[i64],
     ) -> Result<()> {
         if sticker_set_ids.is_empty() {
-            return Err(Error::InvalidArgument("reordering needs at least one sticker set id"));
+            return Err(Error::InvalidArgument("reorder_installed_sticker_sets needs at least one sticker set id"));
         }
         let request = functions::messages::ReorderStickerSets {
             masks: sticker_type == StickerType::Mask,

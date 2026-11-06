@@ -5,7 +5,12 @@ use crate::types::StarAmount;
 
 impl Client {
     /// Lists an upgraded gift for sale at `price`, or takes it off sale with `None`.
-    pub async fn set_gift_resale_price(&self, owned_gift_id: &str, price: Option<StarAmount>) -> Result<()> {
+    pub async fn set_gift_resale_price(
+        &self,
+        owned_gift_id: impl Into<String>,
+        price: Option<StarAmount>,
+    ) -> Result<()> {
+        let owned_gift_id: String = owned_gift_id.into();
         if owned_gift_id.is_empty() {
             return Err(Error::InvalidArgument("owned_gift_id is empty"));
         }
@@ -13,7 +18,7 @@ impl Client {
             Some(price) => stars_amount(price)?,
             None => base::StarsAmount::StarsAmount(Box::new(types::StarsAmount { amount: 0, nanos: 0 })),
         };
-        let stargift = self.input_saved_gift(owned_gift_id).await?;
+        let stargift = self.input_saved_gift(&owned_gift_id).await?;
         self.invoke(&functions::payments::UpdateStarGiftPrice { stargift, resell_amount }).await?;
         Ok(())
     }
