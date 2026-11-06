@@ -58,6 +58,123 @@ impl ChatPermissions {
         can_manage_topics: true,
     };
 
+    /// Allows nothing, like `Default`; grant permissions with the setters or start from [`ALL`](Self::ALL) and revoke.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets whether members can send plain text messages.
+    #[must_use]
+    pub fn can_send_messages(mut self, can_send_messages: bool) -> Self {
+        self.can_send_messages = can_send_messages;
+        self
+    }
+
+    /// Sets whether members can send music files.
+    #[must_use]
+    pub fn can_send_audios(mut self, can_send_audios: bool) -> Self {
+        self.can_send_audios = can_send_audios;
+        self
+    }
+
+    /// Sets whether members can send general files.
+    #[must_use]
+    pub fn can_send_documents(mut self, can_send_documents: bool) -> Self {
+        self.can_send_documents = can_send_documents;
+        self
+    }
+
+    /// Sets whether members can send photos.
+    #[must_use]
+    pub fn can_send_photos(mut self, can_send_photos: bool) -> Self {
+        self.can_send_photos = can_send_photos;
+        self
+    }
+
+    /// Sets whether members can send videos.
+    #[must_use]
+    pub fn can_send_videos(mut self, can_send_videos: bool) -> Self {
+        self.can_send_videos = can_send_videos;
+        self
+    }
+
+    /// Sets whether members can send round video messages.
+    #[must_use]
+    pub fn can_send_video_notes(mut self, can_send_video_notes: bool) -> Self {
+        self.can_send_video_notes = can_send_video_notes;
+        self
+    }
+
+    /// Sets whether members can send voice messages.
+    #[must_use]
+    pub fn can_send_voice_notes(mut self, can_send_voice_notes: bool) -> Self {
+        self.can_send_voice_notes = can_send_voice_notes;
+        self
+    }
+
+    /// Sets whether members can send polls.
+    #[must_use]
+    pub fn can_send_polls(mut self, can_send_polls: bool) -> Self {
+        self.can_send_polls = can_send_polls;
+        self
+    }
+
+    /// Sets whether members can send stickers, GIFs and games, and use inline bots.
+    #[must_use]
+    pub fn can_send_other_messages(mut self, can_send_other_messages: bool) -> Self {
+        self.can_send_other_messages = can_send_other_messages;
+        self
+    }
+
+    /// Sets whether members can embed link previews in messages.
+    #[must_use]
+    pub fn can_add_web_page_previews(mut self, can_add_web_page_previews: bool) -> Self {
+        self.can_add_web_page_previews = can_add_web_page_previews;
+        self
+    }
+
+    /// Sets whether members can react to messages.
+    #[must_use]
+    pub fn can_react_to_messages(mut self, can_react_to_messages: bool) -> Self {
+        self.can_react_to_messages = can_react_to_messages;
+        self
+    }
+
+    /// Sets whether members can edit their own member tag (their rank).
+    #[must_use]
+    pub fn can_edit_tag(mut self, can_edit_tag: bool) -> Self {
+        self.can_edit_tag = can_edit_tag;
+        self
+    }
+
+    /// Sets whether members can change the chat title, photo and other settings.
+    #[must_use]
+    pub fn can_change_info(mut self, can_change_info: bool) -> Self {
+        self.can_change_info = can_change_info;
+        self
+    }
+
+    /// Sets whether members can add new members or create invite links.
+    #[must_use]
+    pub fn can_invite_users(mut self, can_invite_users: bool) -> Self {
+        self.can_invite_users = can_invite_users;
+        self
+    }
+
+    /// Sets whether members can pin messages.
+    #[must_use]
+    pub fn can_pin_messages(mut self, can_pin_messages: bool) -> Self {
+        self.can_pin_messages = can_pin_messages;
+        self
+    }
+
+    /// Sets whether members can create and edit forum topics.
+    #[must_use]
+    pub fn can_manage_topics(mut self, can_manage_topics: bool) -> Self {
+        self.can_manage_topics = can_manage_topics;
+        self
+    }
+
     pub(crate) fn parse(rights: &base::ChatBannedRights) -> ChatPermissions {
         let base::ChatBannedRights::ChatBannedRights(r) = rights;
         // Older clients still set the catch-all send_messages / send_media bans.
@@ -151,5 +268,14 @@ mod tests {
         rights.send_media = true;
         let p = ChatPermissions::parse(&base::ChatBannedRights::ChatBannedRights(Box::new(rights)));
         assert_eq!((p.can_send_messages, p.can_send_photos, p.can_send_other_messages), (true, false, false));
+    }
+
+    #[test]
+    fn builds_from_new_and_setters() {
+        assert_eq!(ChatPermissions::new(), ChatPermissions::default());
+        let text_only = ChatPermissions::new().can_send_messages(true);
+        assert!(text_only.can_send_messages && !text_only.can_send_photos && !text_only.can_pin_messages);
+        assert_eq!(round_trip(text_only), text_only);
+        assert_eq!(flags(&ALL.can_react_to_messages(false).write(0)), 1 << 27);
     }
 }

@@ -224,7 +224,7 @@ mod tests {
         };
         assert_eq!(sent.try_recv().unwrap(), transfer.to_bytes());
 
-        let _ = gift.buy(&client, 5_i64, StarAmount { amount: 9, ..StarAmount::default() }).await;
+        let _ = gift.buy(&client, 5_i64, StarAmount::new(9)).await;
         assert_eq!(constructor(&sent.try_recv().unwrap()), functions::payments::GetPaymentForm::CONSTRUCTOR_ID);
 
         let owned = OwnedGiftUnique {
@@ -255,7 +255,7 @@ mod tests {
     #[tokio::test]
     async fn purchase_offers_need_an_owner() {
         let (client, mut sent) = owner_client();
-        let price = StarAmount { amount: 9, ..StarAmount::default() };
+        let price = StarAmount::new(9);
         assert!(matches!(unique().send_purchase_offer(&client, price, 60), Err(Error::InvalidArgument(_))));
         // An owner alone is not enough: the gift must take offers.
         let owner =

@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(options, [("Wallet", "https://wallet.example.com")]);
         let cards: Vec<_> = form.saved_credentials.iter().map(|c| (c.id.as_str(), c.title.as_str())).collect();
         assert_eq!(cards, [("card-1", "Visa *1111")]);
-        let info = OrderInfo { name: Some("Ann".into()), phone_number: None, email: None, shipping_address: None };
+        let info = OrderInfo::new().name("Ann");
         assert_eq!(form.saved_order_info, Some(info));
         assert!(form.can_save_credentials && form.need_password);
     }

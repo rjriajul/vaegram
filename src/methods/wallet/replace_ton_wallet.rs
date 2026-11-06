@@ -112,7 +112,7 @@ pub(super) mod tests {
     }
 
     fn proof() -> TonWalletOwnershipProof {
-        TonWalletOwnershipProof { public_key: vec![1, 2], timestamp: 10, signature: vec![3] }
+        TonWalletOwnershipProof::new(vec![1, 2], 10, vec![3])
     }
 
     #[tokio::test]

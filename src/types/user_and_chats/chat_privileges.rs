@@ -42,6 +42,137 @@ pub struct ChatPrivileges {
 }
 
 impl ChatPrivileges {
+    /// Grants nothing, like `Default`; grant privileges with the setters.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets whether the admin's messages show the chat as sender instead of their name.
+    #[must_use]
+    pub fn is_anonymous(mut self, is_anonymous: bool) -> Self {
+        self.is_anonymous = is_anonymous;
+        self
+    }
+
+    /// Sets whether the admin can access the admin log, statistics and other chat management tools.
+    #[must_use]
+    pub fn can_manage_chat(mut self, can_manage_chat: bool) -> Self {
+        self.can_manage_chat = can_manage_chat;
+        self
+    }
+
+    /// Sets whether the admin can delete other members' messages.
+    #[must_use]
+    pub fn can_delete_messages(mut self, can_delete_messages: bool) -> Self {
+        self.can_delete_messages = can_delete_messages;
+        self
+    }
+
+    /// Sets whether the admin can start and manage video chats.
+    #[must_use]
+    pub fn can_manage_video_chats(mut self, can_manage_video_chats: bool) -> Self {
+        self.can_manage_video_chats = can_manage_video_chats;
+        self
+    }
+
+    /// Sets whether the admin can ban and restrict members.
+    #[must_use]
+    pub fn can_restrict_members(mut self, can_restrict_members: bool) -> Self {
+        self.can_restrict_members = can_restrict_members;
+        self
+    }
+
+    /// Sets whether the admin can add other administrators.
+    #[must_use]
+    pub fn can_promote_members(mut self, can_promote_members: bool) -> Self {
+        self.can_promote_members = can_promote_members;
+        self
+    }
+
+    /// Sets whether the admin can change the chat title, photo and other settings.
+    #[must_use]
+    pub fn can_change_info(mut self, can_change_info: bool) -> Self {
+        self.can_change_info = can_change_info;
+        self
+    }
+
+    /// Sets whether the admin can add members and manage invite links.
+    #[must_use]
+    pub fn can_invite_users(mut self, can_invite_users: bool) -> Self {
+        self.can_invite_users = can_invite_users;
+        self
+    }
+
+    /// Sets whether the admin can post stories on behalf of the chat.
+    #[must_use]
+    pub fn can_post_stories(mut self, can_post_stories: bool) -> Self {
+        self.can_post_stories = can_post_stories;
+        self
+    }
+
+    /// Sets whether the admin can edit stories the chat's other admins posted.
+    #[must_use]
+    pub fn can_edit_stories(mut self, can_edit_stories: bool) -> Self {
+        self.can_edit_stories = can_edit_stories;
+        self
+    }
+
+    /// Sets whether the admin can delete stories the chat's other admins posted.
+    #[must_use]
+    pub fn can_delete_stories(mut self, can_delete_stories: bool) -> Self {
+        self.can_delete_stories = can_delete_stories;
+        self
+    }
+
+    /// Sets whether the admin can post messages in a channel.
+    #[must_use]
+    pub fn can_post_messages(mut self, can_post_messages: bool) -> Self {
+        self.can_post_messages = can_post_messages;
+        self
+    }
+
+    /// Sets whether the admin can edit other members' messages in a channel.
+    #[must_use]
+    pub fn can_edit_messages(mut self, can_edit_messages: bool) -> Self {
+        self.can_edit_messages = can_edit_messages;
+        self
+    }
+
+    /// Sets whether the admin can pin messages.
+    #[must_use]
+    pub fn can_pin_messages(mut self, can_pin_messages: bool) -> Self {
+        self.can_pin_messages = can_pin_messages;
+        self
+    }
+
+    /// Sets whether the admin can create, edit and close forum topics.
+    #[must_use]
+    pub fn can_manage_topics(mut self, can_manage_topics: bool) -> Self {
+        self.can_manage_topics = can_manage_topics;
+        self
+    }
+
+    /// Sets whether the admin can manage the channel's direct messages.
+    #[must_use]
+    pub fn can_manage_direct_messages(mut self, can_manage_direct_messages: bool) -> Self {
+        self.can_manage_direct_messages = can_manage_direct_messages;
+        self
+    }
+
+    /// Sets whether the admin can edit members' tags.
+    #[must_use]
+    pub fn can_manage_tags(mut self, can_manage_tags: bool) -> Self {
+        self.can_manage_tags = can_manage_tags;
+        self
+    }
+
+    /// Sets whether the admin can send welcome messages.
+    #[must_use]
+    pub fn can_send_welcome_messages(mut self, can_send_welcome_messages: bool) -> Self {
+        self.can_send_welcome_messages = can_send_welcome_messages;
+        self
+    }
+
     pub(crate) fn parse(rights: &base::ChatAdminRights) -> ChatPrivileges {
         let base::ChatAdminRights::ChatAdminRights(r) = rights;
         ChatPrivileges {
@@ -120,5 +251,13 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(ChatPrivileges::parse(&privileges.write()), privileges);
+    }
+
+    #[test]
+    fn builds_from_new_and_setters() {
+        assert_eq!(flags(ChatPrivileges::new()), 0);
+        let pinner = ChatPrivileges::new().can_pin_messages(true).can_manage_tags(true);
+        assert!(pinner.can_pin_messages && pinner.can_manage_tags && !pinner.is_anonymous);
+        assert_eq!(flags(pinner.can_manage_tags(false)), 1 << 7);
     }
 }

@@ -15,7 +15,60 @@ pub struct AcceptedGiftTypes {
     pub gifts_from_channels: bool,
 }
 
+/// Accepts every kind, as Telegram does for an account that set no restriction.
+impl Default for AcceptedGiftTypes {
+    fn default() -> Self {
+        AcceptedGiftTypes {
+            unlimited_gifts: true,
+            limited_gifts: true,
+            unique_gifts: true,
+            premium_subscription: true,
+            gifts_from_channels: true,
+        }
+    }
+}
+
 impl AcceptedGiftTypes {
+    /// Accepts every kind, like `Default`; turn kinds off with the setters.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets whether the account accepts gifts with unlimited supply.
+    #[must_use]
+    pub fn unlimited_gifts(mut self, unlimited_gifts: bool) -> Self {
+        self.unlimited_gifts = unlimited_gifts;
+        self
+    }
+
+    /// Sets whether the account accepts gifts with limited supply.
+    #[must_use]
+    pub fn limited_gifts(mut self, limited_gifts: bool) -> Self {
+        self.limited_gifts = limited_gifts;
+        self
+    }
+
+    /// Sets whether the account accepts unique gifts, such as upgraded or transferred ones.
+    #[must_use]
+    pub fn unique_gifts(mut self, unique_gifts: bool) -> Self {
+        self.unique_gifts = unique_gifts;
+        self
+    }
+
+    /// Sets whether the account accepts gifted Telegram Premium subscriptions.
+    #[must_use]
+    pub fn premium_subscription(mut self, premium_subscription: bool) -> Self {
+        self.premium_subscription = premium_subscription;
+        self
+    }
+
+    /// Sets whether the account accepts gifts sent by channels.
+    #[must_use]
+    pub fn gifts_from_channels(mut self, gifts_from_channels: bool) -> Self {
+        self.gifts_from_channels = gifts_from_channels;
+        self
+    }
+
     pub(crate) fn parse(settings: &base::DisallowedGiftsSettings) -> AcceptedGiftTypes {
         let base::DisallowedGiftsSettings::DisallowedGiftsSettings(d) = settings;
         AcceptedGiftTypes {
@@ -63,5 +116,17 @@ mod tests {
             ),
             (false, true, false, true, false)
         );
+    }
+
+    #[test]
+    fn new_accepts_every_kind_until_a_setter_turns_one_off() {
+        let base::DisallowedGiftsSettings::DisallowedGiftsSettings(all) = AcceptedGiftTypes::new().write();
+        assert!(
+            !all.disallow_unlimited_stargifts && !all.disallow_premium_gifts && !all.disallow_stargifts_from_channels
+        );
+        let no_channels = AcceptedGiftTypes::new().gifts_from_channels(false);
+        assert!(no_channels.unlimited_gifts && no_channels.unique_gifts && !no_channels.gifts_from_channels);
+        let base::DisallowedGiftsSettings::DisallowedGiftsSettings(d) = no_channels.write();
+        assert!(d.disallow_stargifts_from_channels && !d.disallow_limited_stargifts);
     }
 }

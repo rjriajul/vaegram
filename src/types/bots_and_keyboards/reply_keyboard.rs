@@ -30,21 +30,57 @@ impl ReplyKeyboardMarkup {
     }
 
     /// Hides the keyboard after one button press.
+    #[must_use]
     pub fn one_time(mut self) -> Self {
         self.one_time = true;
         self
     }
 
     /// Shows `text` in the input field while the keyboard is up.
+    #[must_use]
     pub fn placeholder(mut self, text: impl Into<String>) -> Self {
         self.placeholder = Some(text.into());
         self
     }
 
     /// Also forces the user to reply, as [`ForceReply`] does.
+    #[must_use]
     pub fn force_reply(mut self) -> Self {
         self.force_reply = true;
         self
+    }
+
+    /// Sets whether the keyboard fits its buttons instead of taking the default height; `new` turns it on.
+    #[must_use]
+    pub fn resize(mut self, resize: bool) -> Self {
+        self.resize = resize;
+        self
+    }
+
+    /// Sets whether the keyboard stays shown when the regular keyboard is hidden.
+    #[must_use]
+    pub fn persistent(mut self, persistent: bool) -> Self {
+        self.persistent = persistent;
+        self
+    }
+
+    /// Sets whether only some users in a group see the keyboard.
+    #[must_use]
+    pub fn selective(mut self, selective: bool) -> Self {
+        self.selective = selective;
+        self
+    }
+
+    pub(crate) fn parse(raw: &types::ReplyKeyboardMarkup, rows: Vec<Vec<KeyboardButton>>) -> Self {
+        ReplyKeyboardMarkup {
+            rows,
+            resize: raw.resize,
+            one_time: raw.single_use,
+            persistent: raw.persistent,
+            selective: raw.selective,
+            force_reply: raw.force_reply,
+            placeholder: raw.placeholder.clone(),
+        }
     }
 
     pub(crate) fn write(&self) -> base::ReplyMarkup {
@@ -247,6 +283,18 @@ pub struct ReplyKeyboardRemove {
 }
 
 impl ReplyKeyboardRemove {
+    /// Removes the keyboard for everyone, like `Default`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets whether the keyboard is removed only for some users in a group.
+    #[must_use]
+    pub fn selective(mut self, selective: bool) -> Self {
+        self.selective = selective;
+        self
+    }
+
     pub(crate) fn write(&self) -> base::ReplyMarkup {
         base::ReplyMarkup::ReplyKeyboardHide(types::ReplyKeyboardHide { selective: self.selective })
     }
@@ -262,6 +310,29 @@ pub struct ForceReply {
 }
 
 impl ForceReply {
+    /// Applies to everyone and shows no hint, like `Default`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets whether only some users in a group are asked to reply.
+    #[must_use]
+    pub fn selective(mut self, selective: bool) -> Self {
+        self.selective = selective;
+        self
+    }
+
+    /// Shows `placeholder` in the input field while the reply is pending.
+    #[must_use]
+    pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
+        self.placeholder = Some(placeholder.into());
+        self
+    }
+
+    pub(crate) fn parse(raw: &types::ReplyKeyboardForceReply) -> Self {
+        ForceReply { selective: raw.selective, placeholder: raw.placeholder.clone() }
+    }
+
     pub(crate) fn write(&self) -> base::ReplyMarkup {
         base::ReplyMarkup::ReplyKeyboardForceReply(Box::new(types::ReplyKeyboardForceReply {
             single_use: false,
@@ -309,5 +380,27 @@ mod tests {
             (peer.button_id, peer.max_quantity, bot.bot_managed, bot.suggested_username.as_deref()),
             (7, 1, true, Some("my_bot"))
         );
+    }
+
+    #[test]
+    fn keyboard_setters_override_new() {
+        let markup = ReplyKeyboardMarkup::new([vec![KeyboardButton::new("a")]]);
+        let plain = keyboard(markup.write());
+        assert!(plain.resize && !plain.persistent && !plain.selective && !plain.single_use);
+        let set = keyboard(markup.resize(false).persistent(true).selective(true).write());
+        assert!(!set.resize && set.persistent && set.selective && !set.single_use);
+    }
+
+    #[test]
+    fn remove_and_force_reply_build_without_a_literal() {
+        assert_eq!(ReplyKeyboardRemove::new(), ReplyKeyboardRemove::default());
+        let base::ReplyMarkup::ReplyKeyboardHide(hide) = ReplyKeyboardRemove::new().selective(true).write() else {
+            panic!("expected replyKeyboardHide");
+        };
+        assert!(hide.selective);
+        let base::ReplyMarkup::ReplyKeyboardForceReply(reply) = ForceReply::new().placeholder("why?").write() else {
+            panic!("expected replyKeyboardForceReply");
+        };
+        assert_eq!((reply.selective, reply.placeholder.as_deref()), (false, Some("why?")));
     }
 }

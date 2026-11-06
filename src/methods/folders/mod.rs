@@ -180,7 +180,7 @@ mod tests {
     #[tokio::test]
     async fn shareable_folders_write_as_chatlists() {
         let client = Client::offline();
-        let folder = Folder { id: 2, title: "Shared".into(), is_shareable: true, ..Folder::default() };
+        let folder = Folder::new("Shared").id(2).is_shareable(true);
         let raw = folder.write(&client).await.unwrap();
         assert!(matches!(raw, base::DialogFilter::DialogFilterChatlist(_)));
     }

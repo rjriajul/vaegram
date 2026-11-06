@@ -152,7 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_client_default_leaves_caption_edits_alone() {
-        let default = LinkPreviewOptions { show_above_text: true, ..Default::default() };
+        let default = LinkPreviewOptions::new().show_above_text(true);
         let (mut client, mut rx) = Client::recording();
         std::sync::Arc::get_mut(&mut client.0).unwrap().link_preview_options = Some(default);
         let _ = client.edit_message_caption("me", 5, "cap").await;
@@ -164,14 +164,13 @@ mod tests {
     #[tokio::test]
     async fn edit_text_with_url_sets_media() {
         let (client, mut rx) = Client::recording();
-        let options =
-            LinkPreviewOptions { url: Some("https://a.b".into()), show_above_text: true, ..Default::default() };
+        let options = LinkPreviewOptions::new().url("https://a.b").show_above_text(true);
         let _ = client.edit_message_text("me", 5, "hi").link_preview_options(options).await;
         let body = rx.try_recv().unwrap();
         let flags = u32::from_le_bytes(body[4..8].try_into().unwrap());
         // media is flag bit 14, invert_media bit 16, no_webpage bit 1.
         assert_eq!((flags >> 14 & 1, flags >> 16 & 1, flags >> 1 & 1), (1, 1, 0));
-        let disabled = LinkPreviewOptions { url: Some("https://a.b".into()), is_disabled: true, ..Default::default() };
+        let disabled = LinkPreviewOptions::new().url("https://a.b").is_disabled(true);
         let _ = client.edit_message_text("me", 5, "hi").link_preview_options(disabled).await;
         let flags = u32::from_le_bytes(rx.try_recv().unwrap()[4..8].try_into().unwrap());
         assert_eq!((flags >> 14 & 1, flags >> 1 & 1), (0, 1));

@@ -16,6 +16,13 @@ impl BotCommand {
         BotCommand { command: command.into(), description: description.into(), is_ephemeral: false }
     }
 
+    /// Sets Telegram's `ephemeral` flag on the command, which `new` leaves off.
+    #[must_use]
+    pub fn is_ephemeral(mut self, is_ephemeral: bool) -> Self {
+        self.is_ephemeral = is_ephemeral;
+        self
+    }
+
     pub(crate) fn parse(raw: base::BotCommand) -> BotCommand {
         let base::BotCommand::BotCommand(c) = raw;
         BotCommand { command: c.command, description: c.description, is_ephemeral: c.ephemeral }
@@ -27,5 +34,22 @@ impl BotCommand {
             command: self.command,
             description: self.description,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BotCommand;
+    use crate::raw::base;
+
+    #[test]
+    fn new_is_not_ephemeral_until_set() {
+        let base::BotCommand::BotCommand(plain) = BotCommand::new("start", "Starts the bot").write();
+        assert_eq!(
+            (plain.command.as_str(), plain.description.as_str(), plain.ephemeral),
+            ("start", "Starts the bot", false)
+        );
+        let base::BotCommand::BotCommand(ephemeral) = BotCommand::new("start", "Starts").is_ephemeral(true).write();
+        assert!(ephemeral.ephemeral);
     }
 }

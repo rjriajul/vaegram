@@ -104,7 +104,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn run_refuses_without_updates() {
         let (mut client, mut sent) = Client::recording();
-        client.set_options(crate::connection::Options { no_updates: true, ..Default::default() });
+        client.set_options(crate::connection::Options::new().no_updates(true));
         let refused = client.run().await;
         assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
         let listened = client.listen::<crate::types::Message>().await;

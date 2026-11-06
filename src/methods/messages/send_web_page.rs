@@ -13,7 +13,7 @@ impl Client {
         text: impl Into<Text>,
         url: impl Into<String>,
     ) -> SendMessage<'_> {
-        let preview = LinkPreviewOptions { url: Some(url.into()), ..Default::default() };
+        let preview = LinkPreviewOptions::new().url(url);
         self.send_message(chat_id, text).link_preview_options(preview)
     }
 }
@@ -46,7 +46,7 @@ mod tests {
     #[tokio::test]
     async fn disabled_ignores_url_and_sends_a_plain_message() {
         let (client, mut rx) = Client::recording();
-        let options = LinkPreviewOptions { url: Some("https://a.b".into()), is_disabled: true, ..Default::default() };
+        let options = LinkPreviewOptions::new().url("https://a.b").is_disabled(true);
         let _ = client.send_web_page("me", "look", "https://a.b").link_preview_options(options).await;
         let body = rx.try_recv().unwrap();
         assert_eq!(body_id(&body), crate::raw::functions::messages::SendMessage::CONSTRUCTOR_ID);
@@ -56,8 +56,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_client_default_applies_flags_but_not_its_url() {
-        let default =
-            LinkPreviewOptions { url: Some("https://x.y".into()), show_above_text: true, ..Default::default() };
+        let default = LinkPreviewOptions::new().url("https://x.y").show_above_text(true);
         let (mut client, mut rx) = Client::recording();
         std::sync::Arc::get_mut(&mut client.0).unwrap().link_preview_options = Some(default);
         let _ = client.send_message("me", "hi").await;

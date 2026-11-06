@@ -168,11 +168,8 @@ mod tests {
         };
         let affiliate_chat = Chat::parse(&get_peer(-1000000000020), &entities, false);
         assert_eq!((*buyer, invoice_payload.as_deref()), (user.clone(), Some("order-1")));
-        let expected = AffiliateInfo {
-            affiliate: affiliate_chat,
-            commission_per_mille: 100,
-            amount: StarAmount { amount: 5, nanostar_amount: 0, ton: false },
-        };
+        let expected =
+            AffiliateInfo { affiliate: affiliate_chat, commission_per_mille: 100, amount: StarAmount::new(5) };
         assert_eq!(affiliate, Some(expected));
 
         let mut commission = with_peer(10);

@@ -27,7 +27,7 @@ impl ShippingOption {
         let prices = o
             .prices
             .iter()
-            .map(|base::LabeledPrice::LabeledPrice(p)| LabeledPrice { label: p.label.clone(), amount: p.amount })
+            .map(|base::LabeledPrice::LabeledPrice(p)| LabeledPrice::new(p.label.clone(), p.amount))
             .collect();
         ShippingOption { id: o.id.clone(), title: o.title.clone(), prices }
     }

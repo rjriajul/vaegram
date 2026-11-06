@@ -38,6 +38,25 @@ pub struct SuggestedPostParameters {
 }
 
 impl SuggestedPostParameters {
+    /// A free suggestion with the publishing time left to the channel, like `Default`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Offers this price for publishing.
+    #[must_use]
+    pub fn price(mut self, price: SuggestedPostPrice) -> Self {
+        self.price = Some(price);
+        self
+    }
+
+    /// Asks for the post to be published at this Unix time.
+    #[must_use]
+    pub fn send_date(mut self, send_date: i32) -> Self {
+        self.send_date = Some(send_date);
+        self
+    }
+
     pub(crate) fn write(self) -> base::SuggestedPost {
         base::SuggestedPost::SuggestedPost(Box::new(types::SuggestedPost {
             accepted: false,
@@ -108,4 +127,20 @@ pub struct SuggestedPostPaid {
 pub struct SuggestedPostRefunded {
     /// Why the payment was refunded.
     pub reason: SuggestedPostRefundReason,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SuggestedPostParameters, SuggestedPostPrice};
+    use crate::raw::base;
+
+    #[test]
+    fn builds_from_new_and_setters() {
+        let base::SuggestedPost::SuggestedPost(free) = SuggestedPostParameters::new().write();
+        assert!(free.price.is_none() && free.schedule_date.is_none() && !free.accepted && !free.rejected);
+        let paid = SuggestedPostParameters::new().price(SuggestedPostPrice::Stars(50)).send_date(1_700_000_000);
+        let base::SuggestedPost::SuggestedPost(raw) = paid.write();
+        assert_eq!(raw.schedule_date, Some(1_700_000_000));
+        assert!(matches!(raw.price, Some(base::StarsAmount::StarsAmount(a)) if a.amount == 50));
+    }
 }

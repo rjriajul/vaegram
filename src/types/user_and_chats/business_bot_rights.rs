@@ -36,6 +36,109 @@ pub struct BusinessBotRights {
 }
 
 impl BusinessBotRights {
+    /// Grants nothing, like `Default`; grant rights with the setters.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets whether the bot may send messages in the chats it handles.
+    #[must_use]
+    pub fn can_reply(mut self, can_reply: bool) -> Self {
+        self.can_reply = can_reply;
+        self
+    }
+
+    /// Sets whether the bot may mark the messages of the chats it handles as read.
+    #[must_use]
+    pub fn can_read_messages(mut self, can_read_messages: bool) -> Self {
+        self.can_read_messages = can_read_messages;
+        self
+    }
+
+    /// Sets whether the bot may delete messages the bot sent.
+    #[must_use]
+    pub fn can_delete_sent_messages(mut self, can_delete_sent_messages: bool) -> Self {
+        self.can_delete_sent_messages = can_delete_sent_messages;
+        self
+    }
+
+    /// Sets whether the bot may delete messages the account received.
+    #[must_use]
+    pub fn can_delete_all_messages(mut self, can_delete_all_messages: bool) -> Self {
+        self.can_delete_all_messages = can_delete_all_messages;
+        self
+    }
+
+    /// Sets whether the bot may change the account's name.
+    #[must_use]
+    pub fn can_edit_name(mut self, can_edit_name: bool) -> Self {
+        self.can_edit_name = can_edit_name;
+        self
+    }
+
+    /// Sets whether the bot may change the account's bio.
+    #[must_use]
+    pub fn can_edit_bio(mut self, can_edit_bio: bool) -> Self {
+        self.can_edit_bio = can_edit_bio;
+        self
+    }
+
+    /// Sets whether the bot may change the account's profile photo.
+    #[must_use]
+    pub fn can_edit_profile_photo(mut self, can_edit_profile_photo: bool) -> Self {
+        self.can_edit_profile_photo = can_edit_profile_photo;
+        self
+    }
+
+    /// Sets whether the bot may change the account's username.
+    #[must_use]
+    pub fn can_edit_username(mut self, can_edit_username: bool) -> Self {
+        self.can_edit_username = can_edit_username;
+        self
+    }
+
+    /// Sets whether the bot may change which gifts the account accepts.
+    #[must_use]
+    pub fn can_change_gift_settings(mut self, can_change_gift_settings: bool) -> Self {
+        self.can_change_gift_settings = can_change_gift_settings;
+        self
+    }
+
+    /// Sets whether the bot may view the account's gifts and Star balance.
+    #[must_use]
+    pub fn can_view_gifts_and_stars(mut self, can_view_gifts_and_stars: bool) -> Self {
+        self.can_view_gifts_and_stars = can_view_gifts_and_stars;
+        self
+    }
+
+    /// Sets whether the bot may convert the account's gifts to Stars.
+    #[must_use]
+    pub fn can_convert_gifts_to_stars(mut self, can_convert_gifts_to_stars: bool) -> Self {
+        self.can_convert_gifts_to_stars = can_convert_gifts_to_stars;
+        self
+    }
+
+    /// Sets whether the bot may transfer and upgrade the account's gifts.
+    #[must_use]
+    pub fn can_transfer_and_upgrade_gifts(mut self, can_transfer_and_upgrade_gifts: bool) -> Self {
+        self.can_transfer_and_upgrade_gifts = can_transfer_and_upgrade_gifts;
+        self
+    }
+
+    /// Sets whether the bot may transfer Stars from the account.
+    #[must_use]
+    pub fn can_transfer_stars(mut self, can_transfer_stars: bool) -> Self {
+        self.can_transfer_stars = can_transfer_stars;
+        self
+    }
+
+    /// Sets whether the bot may post and manage stories for the account.
+    #[must_use]
+    pub fn can_manage_stories(mut self, can_manage_stories: bool) -> Self {
+        self.can_manage_stories = can_manage_stories;
+        self
+    }
+
     pub(crate) fn parse(raw: &base::BusinessBotRights) -> BusinessBotRights {
         let base::BusinessBotRights::BusinessBotRights(r) = raw;
         BusinessBotRights {
@@ -80,6 +183,7 @@ impl BusinessBotRights {
 #[cfg(test)]
 mod tests {
     use super::BusinessBotRights;
+    use crate::raw::base;
 
     #[test]
     fn every_right_survives_a_write_and_parse() {
@@ -104,5 +208,13 @@ mod tests {
             set(&mut rights);
             assert_eq!(BusinessBotRights::parse(&rights.write()), rights);
         }
+    }
+
+    #[test]
+    fn builds_from_new_and_setters() {
+        assert_eq!(BusinessBotRights::new(), BusinessBotRights::default());
+        let rights = BusinessBotRights::new().can_reply(true).can_edit_bio(true).can_edit_bio(false);
+        let base::BusinessBotRights::BusinessBotRights(raw) = rights.write();
+        assert!(raw.reply && !raw.edit_bio && !raw.read_messages && !raw.delete_received_messages);
     }
 }

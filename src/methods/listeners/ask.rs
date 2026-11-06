@@ -145,7 +145,7 @@ mod tests {
     #[tokio::test]
     async fn prompt_options_reach_the_request() {
         let (client, mut requests) = Client::scripted(vec![Ok(sent(9))]);
-        let markup = ForceReply { selective: false, placeholder: Some("name".into()) };
+        let markup = ForceReply::new().placeholder("name");
         let expected = markup.write().to_bytes();
         let waiter = tokio::spawn({
             let client = client.clone();

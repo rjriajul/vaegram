@@ -15,7 +15,7 @@ async fn web_proxy_carries_a_handshake() {
         return;
     };
     let proxy: Proxy = link.parse().unwrap();
-    let options = Options { proxy: Some(proxy), ..Options::default() };
+    let options = Options::new().proxy(proxy);
     let dc = data_center::find(&[], 2, false, false).unwrap();
     let (session, _updates) = Session::connect(dc, None, &options, Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 5 }).await.unwrap();

@@ -117,7 +117,7 @@ mod tests {
     }
 
     fn everyone() -> BusinessRecipients {
-        BusinessRecipients { existing_chats: true, ..Default::default() }
+        BusinessRecipients::new().existing_chats(true)
     }
 
     #[tokio::test]
@@ -140,7 +140,7 @@ mod tests {
     #[tokio::test]
     async fn greetings_and_away_messages_take_no_excluded_users() {
         let (client, mut rx) = recording_client();
-        let excluding = BusinessRecipients { exclude_users: vec![42], ..everyone() };
+        let excluding = everyone().exclude_users([42]);
         assert!(refused(client.set_business_greeting_message(1, &excluding, 7).await));
         assert!(refused(client.set_business_away_message(1, &excluding).await));
         assert!(rx.try_recv().is_err());

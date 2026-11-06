@@ -55,7 +55,7 @@ impl Client {
     }
 
     pub(crate) async fn pay_in_stars_up_to(&self, invoice: base::InputInvoice, star_count: i64) -> Result<()> {
-        self.pay_form_up_to(invoice, StarAmount { amount: star_count, ..StarAmount::default() }).await
+        self.pay_form_up_to(invoice, StarAmount::new(star_count)).await
     }
 }
 
@@ -201,7 +201,7 @@ pub(super) mod tests {
     /// A card form with id 3, sold by user 8 ("Shop") through provider 9 ("Provider"); it has a saved card, saved
     /// order info and a second way to pay.
     pub(in crate::methods::payments) fn card_form(currency: &str, price: i64) -> Vec<u8> {
-        let info = OrderInfo { name: Some("Ann".into()), phone_number: None, email: None, shipping_address: None };
+        let info = OrderInfo::new().name("Ann");
         let photo = types::WebDocumentNoProxy {
             url: "https://example.com/p.jpg".into(),
             size: 1,
@@ -463,7 +463,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn ton_cap_pays_a_ton_form() {
-        let ton = StarAmount { amount: 5, nanostar_amount: 0, ton: true };
+        let ton = StarAmount::new(5).ton(true);
         let (first, mut sent) = client(vec![gift_form("TON", 5), paid()]);
         first.pay_form_up_to(slug(), ton).await.unwrap();
         let [get, pay] = payment(slug());

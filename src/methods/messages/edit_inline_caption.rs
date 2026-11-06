@@ -22,7 +22,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_client_default_leaves_inline_captions_alone() {
-        let default = crate::types::LinkPreviewOptions { show_above_text: true, ..Default::default() };
+        let default = crate::types::LinkPreviewOptions::new().show_above_text(true);
         let (mut client, mut rx) = Client::recording();
         std::sync::Arc::get_mut(&mut client.0).unwrap().link_preview_options = Some(default);
         let _ = client.edit_inline_caption(id(), "new").await;

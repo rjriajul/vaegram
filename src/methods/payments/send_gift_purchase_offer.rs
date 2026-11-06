@@ -76,7 +76,7 @@ mod tests {
     use crate::types::StarAmount;
 
     fn stars(amount: i64) -> StarAmount {
-        StarAmount { amount, nanostar_amount: 0, ton: false }
+        StarAmount::new(amount)
     }
 
     fn offer(allow_paid_stars: Option<i64>) -> Vec<u8> {

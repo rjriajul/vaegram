@@ -126,6 +126,97 @@ impl Default for Options {
 }
 
 impl Options {
+    /// Same as `Default`: the intermediate transport over a direct, unobfuscated TCP connection, a 30 s request
+    /// timeout, room for 1024 update batches and the default retry policy.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Picks the MTProto transport the connection frames packets with.
+    #[must_use]
+    pub fn transport(mut self, transport: Transport) -> Self {
+        self.transport = transport;
+        self
+    }
+
+    /// Sets whether the transport is obfuscated. The full transport refuses obfuscation when connecting.
+    #[must_use]
+    pub fn obfuscated(mut self, obfuscated: bool) -> Self {
+        self.obfuscated = obfuscated;
+        self
+    }
+
+    /// Connects through `proxy` instead of directly.
+    #[must_use]
+    pub fn proxy(mut self, proxy: Proxy) -> Self {
+        self.proxy = Some(proxy);
+        self
+    }
+
+    /// Opens every connection's stream with `factory` instead of a TCP connect; see [`ConnectionFactory`].
+    #[must_use]
+    pub fn connection_factory(mut self, factory: impl ConnectionFactory + 'static) -> Self {
+        self.connection_factory = Some(Arc::new(factory));
+        self
+    }
+
+    /// Sets how long a request may wait for its answer.
+    #[must_use]
+    pub fn request_timeout(mut self, request_timeout: Duration) -> Self {
+        self.request_timeout = request_timeout;
+        self
+    }
+
+    /// Decides whether and when a failed request is sent again.
+    #[must_use]
+    pub fn retry(mut self, retry: Retry) -> Self {
+        self.retry = retry;
+        self
+    }
+
+    /// Sets whether every request goes inside `invokeWithoutUpdates`, so the connection never gets updates.
+    #[must_use]
+    pub fn no_updates(mut self, no_updates: bool) -> Self {
+        self.no_updates = no_updates;
+        self
+    }
+
+    /// Sets how many update batches are held for the dispatcher before one is dropped.
+    #[must_use]
+    pub fn updates_capacity(mut self, updates_capacity: usize) -> Self {
+        self.updates_capacity = updates_capacity;
+        self
+    }
+
+    /// Has `observer` see every request.
+    #[must_use]
+    pub fn observer(mut self, observer: Observer) -> Self {
+        self.observer = Some(observer);
+        self
+    }
+
+    /// Records the traffic into `record`.
+    #[must_use]
+    pub fn record(mut self, record: Recorder) -> Self {
+        self.record = Some(record);
+        self
+    }
+
+    /// Sets the device the connection describes to Telegram in `initConnection`.
+    #[must_use]
+    pub fn device(mut self, device: Device) -> Self {
+        self.device = device;
+        self
+    }
+
+    /// Sets whether MTProto goes over WebSocket on TLS instead of a direct TCP connection.
+    #[cfg(feature = "websocket")]
+    #[must_use]
+    pub fn websocket(mut self, websocket: bool) -> Self {
+        self.websocket = websocket;
+        self
+    }
+
     #[cfg(feature = "websocket")]
     pub(crate) fn uses_websocket(&self) -> bool {
         self.websocket
@@ -632,5 +723,25 @@ mod tests {
             result.err()
         );
         assert_eq!(format!("{:?}", options.connection_factory.unwrap()), "ConnectionFactory");
+    }
+
+    #[tokio::test]
+    async fn options_build_from_new_and_setters() {
+        let options = Options::new();
+        assert_eq!(
+            (options.transport, options.obfuscated, options.updates_capacity),
+            (Transport::Intermediate, false, 1024)
+        );
+        assert_eq!(options.request_timeout, Duration::from_secs(30));
+        assert!(options.proxy.is_none() && options.connection_factory.is_none() && !options.no_updates);
+        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false };
+        let refuse = |_: SocketAddr| async {
+            Err::<tokio::io::DuplexStream, _>(io::Error::new(io::ErrorKind::ConnectionRefused, "no route"))
+        };
+        let result = Connection::connect(&dc, &Options::new().connection_factory(refuse)).await;
+        assert!(matches!(&result, Err(Error::Io(e)) if e.kind() == io::ErrorKind::ConnectionRefused));
+        // The full transport refuses obfuscation before anything is dialed.
+        let full = Options::new().transport(Transport::Full).obfuscated(true).connection_factory(refuse);
+        assert!(matches!(Connection::connect(&dc, &full).await, Err(Error::InvalidArgument(_))));
     }
 }

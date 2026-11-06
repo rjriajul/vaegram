@@ -27,6 +27,46 @@ pub(crate) struct Preview {
 }
 
 impl LinkPreviewOptions {
+    /// Previews the first link in the text, the way Telegram does when no options are given.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Previews this link instead of the first one in the text.
+    #[must_use]
+    pub fn url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
+        self
+    }
+
+    /// Sends without any preview when `true`, whatever `url` says.
+    #[must_use]
+    pub fn is_disabled(mut self, is_disabled: bool) -> Self {
+        self.is_disabled = is_disabled;
+        self
+    }
+
+    /// Asks for the preview's media to be shrunk.
+    #[must_use]
+    pub fn prefer_small_media(mut self, prefer_small_media: bool) -> Self {
+        self.prefer_small_media = prefer_small_media;
+        self
+    }
+
+    /// Asks for the preview's media to be enlarged.
+    #[must_use]
+    pub fn prefer_large_media(mut self, prefer_large_media: bool) -> Self {
+        self.prefer_large_media = prefer_large_media;
+        self
+    }
+
+    /// Puts the preview above the message text instead of below it.
+    #[must_use]
+    pub fn show_above_text(mut self, show_above_text: bool) -> Self {
+        self.show_above_text = show_above_text;
+        self
+    }
+
     pub(crate) fn parse(media: Option<&base::MessageMedia>, invert_media: bool) -> Option<LinkPreviewOptions> {
         let Some(base::MessageMedia::MessageMediaWebPage(media)) = media else { return None };
         let url = match &media.webpage {
@@ -101,5 +141,16 @@ mod tests {
     fn above_text_inverts_media() {
         let preview = LinkPreviewOptions { show_above_text: true, ..options(None) }.resolve();
         assert!(preview.invert_media && preview.media.is_none() && !preview.no_webpage);
+    }
+
+    #[test]
+    fn builds_from_new_and_setters() {
+        let plain = LinkPreviewOptions::new().resolve();
+        assert!(plain.media.is_none() && !plain.no_webpage && !plain.invert_media);
+        let preview =
+            LinkPreviewOptions::new().url("https://a.b").prefer_small_media(true).show_above_text(true).resolve();
+        let Some(base::InputMedia::InputMediaWebPage(page)) = preview.media else { panic!("no web page media") };
+        assert_eq!((page.url.as_str(), page.force_small_media, page.force_large_media), ("https://a.b", true, false));
+        assert!(preview.invert_media && !preview.no_webpage);
     }
 }

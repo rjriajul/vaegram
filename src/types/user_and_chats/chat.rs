@@ -446,7 +446,7 @@ mod tests {
         let chat = parse_chat(-3, base::Chat::Chat(group.into()));
 
         assert_eq!(chat.photo, Some(ChatPhoto::new(-3, 0, 9, 4, false, false)));
-        assert_eq!(chat.privileges, Some(ChatPrivileges { can_restrict_members: true, ..Default::default() }));
+        assert_eq!(chat.privileges, Some(ChatPrivileges::new().can_restrict_members(true)));
         assert_eq!(chat.permissions, Some(ChatPermissions::parse(&banned)));
         let flags = (chat.is_creator, chat.is_admin, chat.is_deactivated, chat.is_call_active, chat.is_call_not_empty);
         assert_eq!(flags, (true, true, true, true, false));

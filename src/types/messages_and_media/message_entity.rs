@@ -31,6 +31,71 @@ pub struct MessageEntity {
 }
 
 impl MessageEntity {
+    /// Creates an entity of `kind` covering `length` UTF-16 code units from `offset`, with no kind-specific data.
+    pub fn new(kind: MessageEntityType, offset: i32, length: i32) -> Self {
+        MessageEntity {
+            kind,
+            offset,
+            length,
+            url: None,
+            user: None,
+            language: None,
+            custom_emoji_id: None,
+            unix_time: None,
+            date_time_format: None,
+            old_text: None,
+        }
+    }
+
+    /// Sets the target of a text link.
+    #[must_use]
+    pub fn url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
+        self
+    }
+
+    /// Sets the mentioned user of a text mention.
+    #[must_use]
+    pub fn user(mut self, user: User) -> Self {
+        self.user = Some(user);
+        self
+    }
+
+    /// Sets the programming language of a pre-formatted block.
+    #[must_use]
+    pub fn language(mut self, language: impl Into<String>) -> Self {
+        self.language = Some(language.into());
+        self
+    }
+
+    /// Sets the id of a custom emoji.
+    #[must_use]
+    pub fn custom_emoji_id(mut self, custom_emoji_id: i64) -> Self {
+        self.custom_emoji_id = Some(custom_emoji_id);
+        self
+    }
+
+    /// Sets the Unix time a date-time entity shows.
+    #[must_use]
+    pub fn unix_time(mut self, unix_time: i32) -> Self {
+        self.unix_time = Some(unix_time);
+        self
+    }
+
+    /// Sets how a [`MessageEntityType::DateTime`] shows its time, in the Bot API's `r|w?[dD]?[tT]?` syntax.
+    #[must_use]
+    pub fn date_time_format(mut self, date_time_format: impl Into<String>) -> Self {
+        self.date_time_format = Some(date_time_format.into());
+        self
+    }
+
+    /// Sets the text a [`MessageEntityType::DiffReplace`] replaces.
+    #[must_use]
+    pub fn old_text(mut self, old_text: impl Into<String>) -> Self {
+        self.old_text = Some(old_text.into());
+        self
+    }
+
     pub(crate) fn parse_all(raw: &[base::MessageEntity], entities: &Entities) -> Option<Vec<MessageEntity>> {
         (!raw.is_empty()).then(|| raw.iter().map(|e| MessageEntity::parse(e, entities)).collect())
     }
@@ -164,5 +229,16 @@ mod tests {
         assert_eq!((parsed[0].unix_time, parsed[2].offset, parsed[2].length), (Some(1_700_000_000), 1, 2));
         assert_eq!((parsed[3].language.as_deref(), parsed[4].user.as_ref().map(|u| u.id)), (None, Some(42)));
         assert_eq!(MessageEntity::parse_all(&[], &Entities::default()), None);
+    }
+
+    #[test]
+    fn new_matches_a_parsed_entity() {
+        let raw = base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 1, length: 3 });
+        assert_eq!(MessageEntity::new(T::Bold, 1, 3), MessageEntity::parse(&raw, &Entities::default()));
+        let link = types::MessageEntityTextUrl { offset: 2, length: 4, url: "https://a.b".into() };
+        let raw = base::MessageEntity::MessageEntityTextUrl(Box::new(link));
+        let built = MessageEntity::new(T::TextLink, 2, 4).url("https://a.b");
+        assert_eq!(built, MessageEntity::parse(&raw, &Entities::default()));
+        assert!(built.user.is_none() && built.custom_emoji_id.is_none());
     }
 }

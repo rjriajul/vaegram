@@ -48,7 +48,7 @@ mod tests {
     use crate::types::StarAmount;
 
     fn stars(amount: i64) -> StarAmount {
-        StarAmount { amount, ..StarAmount::default() }
+        StarAmount::new(amount)
     }
 
     fn star_gift_form(price: i64) -> Vec<u8> {
@@ -139,7 +139,7 @@ mod tests {
             updates: base::Updates::UpdatesTooLong,
         }));
         let (paying, mut sent) = client(vec![star_gift_form_in("TON", 5), paid.to_bytes()]);
-        let price = StarAmount { amount: 5, nanostar_amount: 0, ton: true };
+        let price = StarAmount::new(5).ton(true);
         paying.send_resold_gift("NekoHelmet-9215", 5, price).await.unwrap();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 5, access_hash: 6 }));
         let invoice = base::InputInvoice::InputInvoiceStarGiftResale(Box::new(types::InputInvoiceStarGiftResale {

@@ -72,13 +72,8 @@ mod tests {
 
     #[test]
     fn reads_greeting_and_away_messages() {
-        let expected = BusinessRecipients {
-            existing_chats: true,
-            contacts: true,
-            exclude_selected: true,
-            users: vec![5, 6],
-            ..Default::default()
-        };
+        let expected =
+            BusinessRecipients::new().existing_chats(true).contacts(true).exclude_selected(true).users([5, 6]);
         let greeting = types::BusinessGreetingMessage { shortcut_id: 3, recipients: recipients(), no_activity_days: 7 };
         let greeting =
             BusinessGreetingMessage::parse(base::BusinessGreetingMessage::BusinessGreetingMessage(greeting.into()));
