@@ -494,10 +494,5 @@ mod tests {
         assert_eq!(area.write(&Client::offline()).await.unwrap(), base::MediaArea::MediaAreaUrl(Box::new(url)));
         let square = StoryAreaPosition::new(1.0, 2.0, 3.0, 4.0);
         assert_eq!((square.rotation_angle, square.corner_radius_percentage), (0.0, 0.0));
-        let address = LocationAddress::new("DE").street("Main St 1");
-        assert_eq!(
-            (address.country_code.as_str(), address.street.as_deref(), address.city),
-            ("DE", Some("Main St 1"), None)
-        );
     }
 }

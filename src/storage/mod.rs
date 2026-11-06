@@ -64,6 +64,20 @@ pub struct UpdateState {
     pub channels: HashMap<i64, i32>,
 }
 
+impl UpdateState {
+    /// The account's state with no channel state yet.
+    pub fn new(pts: i32, qts: i32, date: i32, seq: i32) -> Self {
+        UpdateState { pts, qts, date, seq, channels: HashMap::new() }
+    }
+
+    /// Sets each channel's pts, keyed by channel id, replacing any set before.
+    #[must_use]
+    pub fn channels(mut self, channels: impl IntoIterator<Item = (i64, i32)>) -> Self {
+        self.channels = channels.into_iter().collect();
+        self
+    }
+}
+
 /// A login as a session string carries it. Build one with [`SessionData::new`] and set the other fields.
 #[non_exhaustive]
 #[derive(Clone)]

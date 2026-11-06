@@ -207,6 +207,13 @@ pub struct Salt {
     pub time_offset: i64,
 }
 
+impl Salt {
+    /// A server salt and the clock offset (server time minus local time, in seconds) it was learned with.
+    pub fn new(value: i64, time_offset: i64) -> Self {
+        Salt { value, time_offset }
+    }
+}
+
 /// A permanent key this process already has.
 #[derive(Clone, Copy)]
 pub(crate) struct Known {

@@ -32,6 +32,10 @@ pub struct MessageEntity {
 
 impl MessageEntity {
     /// Creates an entity of `kind` covering `length` UTF-16 code units from `offset`, with no kind-specific data.
+    ///
+    /// Writing a [`TextMention`](MessageEntityType::TextMention), [`CustomEmoji`](MessageEntityType::CustomEmoji) or
+    /// [`DateTime`](MessageEntityType::DateTime) entity fails with `Error::InvalidArgument` until its
+    /// [`user`](Self::user), [`custom_emoji_id`](Self::custom_emoji_id) or [`unix_time`](Self::unix_time) is set.
     pub fn new(kind: MessageEntityType, offset: i32, length: i32) -> Self {
         MessageEntity {
             kind,

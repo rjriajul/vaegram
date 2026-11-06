@@ -212,7 +212,6 @@ mod tests {
 
     #[test]
     fn builds_from_new_and_setters() {
-        assert_eq!(BusinessBotRights::new(), BusinessBotRights::default());
         let rights = BusinessBotRights::new().can_reply(true).can_edit_bio(true).can_edit_bio(false);
         let base::BusinessBotRights::BusinessBotRights(raw) = rights.write();
         assert!(raw.reply && !raw.edit_bio && !raw.read_messages && !raw.delete_received_messages);

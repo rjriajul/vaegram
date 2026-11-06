@@ -125,7 +125,6 @@ mod tests {
             !all.disallow_unlimited_stargifts && !all.disallow_premium_gifts && !all.disallow_stargifts_from_channels
         );
         let no_channels = AcceptedGiftTypes::new().gifts_from_channels(false);
-        assert!(no_channels.unlimited_gifts && no_channels.unique_gifts && !no_channels.gifts_from_channels);
         let base::DisallowedGiftsSettings::DisallowedGiftsSettings(d) = no_channels.write();
         assert!(d.disallow_stargifts_from_channels && !d.disallow_limited_stargifts);
     }

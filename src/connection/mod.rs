@@ -31,7 +31,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::errors::{Error, Result};
 use crate::session::internals::data_center::Dc;
-use crate::session::{Observer, Retry};
+use crate::session::{Call, Observer, Retry};
 use crate::storage::recording::Recorder;
 use crate::types::Json;
 use fake_tls::{RecordReader, RecordWriter};
@@ -70,6 +70,13 @@ where
     fn connect(&self, addr: SocketAddr) -> Connecting<'_> {
         let stream = self(addr);
         Box::pin(async move { Ok(Box::new(stream.await?) as Box<dyn Stream>) })
+    }
+}
+
+/// Lets a factory that is already shared be passed on as it is.
+impl<T: ConnectionFactory + ?Sized> ConnectionFactory for Arc<T> {
+    fn connect(&self, addr: SocketAddr) -> Connecting<'_> {
+        (**self).connect(addr)
     }
 }
 
@@ -188,10 +195,10 @@ impl Options {
         self
     }
 
-    /// Has `observer` see every request.
+    /// Has `observer` see every request. It runs on the connection's task, so it should return quickly.
     #[must_use]
-    pub fn observer(mut self, observer: Observer) -> Self {
-        self.observer = Some(observer);
+    pub fn observer(mut self, observer: impl Fn(&Call<'_>) + Send + Sync + 'static) -> Self {
+        self.observer = Some(Observer(Arc::new(observer)));
         self
     }
 
@@ -738,7 +745,9 @@ mod tests {
         let refuse = |_: SocketAddr| async {
             Err::<tokio::io::DuplexStream, _>(io::Error::new(io::ErrorKind::ConnectionRefused, "no route"))
         };
-        let result = Connection::connect(&dc, &Options::new().connection_factory(refuse)).await;
+        // An already shared factory is passed on as it is.
+        let shared: Arc<dyn ConnectionFactory> = Arc::new(refuse);
+        let result = Connection::connect(&dc, &Options::new().connection_factory(Arc::clone(&shared))).await;
         assert!(matches!(&result, Err(Error::Io(e)) if e.kind() == io::ErrorKind::ConnectionRefused));
         // The full transport refuses obfuscation before anything is dialed.
         let full = Options::new().transport(Transport::Full).obfuscated(true).connection_factory(refuse);

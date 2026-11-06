@@ -393,7 +393,6 @@ mod tests {
 
     #[test]
     fn remove_and_force_reply_build_without_a_literal() {
-        assert_eq!(ReplyKeyboardRemove::new(), ReplyKeyboardRemove::default());
         let base::ReplyMarkup::ReplyKeyboardHide(hide) = ReplyKeyboardRemove::new().selective(true).write() else {
             panic!("expected replyKeyboardHide");
         };

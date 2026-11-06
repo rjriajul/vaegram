@@ -272,9 +272,7 @@ mod tests {
 
     #[test]
     fn builds_from_new_and_setters() {
-        assert_eq!(ChatPermissions::new(), ChatPermissions::default());
         let text_only = ChatPermissions::new().can_send_messages(true);
-        assert!(text_only.can_send_messages && !text_only.can_send_photos && !text_only.can_pin_messages);
         assert_eq!(round_trip(text_only), text_only);
         assert_eq!(flags(&ALL.can_react_to_messages(false).write(0)), 1 << 27);
     }

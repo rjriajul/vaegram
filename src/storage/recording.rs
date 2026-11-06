@@ -63,6 +63,13 @@ pub struct Record {
     pub body: Vec<u8>,
 }
 
+impl Record {
+    /// A message sent (`outgoing`) or received under `msg_id`, at `unix_ms` milliseconds after the epoch.
+    pub fn new(outgoing: bool, msg_id: i64, unix_ms: i64, body: impl Into<Vec<u8>>) -> Self {
+        Record { outgoing, msg_id, unix_ms, body: body.into() }
+    }
+}
+
 #[cfg(feature = "json")]
 impl Record {
     /// One line for a readable dump: `{"outgoing":true,"msg_id":4,"unix_ms":0,"body":{..}}`, the body in the

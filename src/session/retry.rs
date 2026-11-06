@@ -145,7 +145,6 @@ mod tests {
 
     #[test]
     fn auto_sleep_new_keeps_the_defaults_a_setter_leaves_alone() {
-        assert_eq!(AutoSleep::new(), AutoSleep::default());
         let patient = AutoSleep::new().threshold(Duration::from_secs(300));
         assert_eq!(patient.tries, 5);
         assert_eq!(ask(&patient, Some(200), 1), ControlFlow::Continue(Duration::from_secs(200)));

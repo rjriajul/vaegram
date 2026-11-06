@@ -7,6 +7,7 @@ pub struct BotCommand {
     pub command: String,
     /// What the command does, as shown in the menu.
     pub description: String,
+    /// The command's message is seen only by its sender and the bot.
     pub is_ephemeral: bool,
 }
 
@@ -16,7 +17,7 @@ impl BotCommand {
         BotCommand { command: command.into(), description: description.into(), is_ephemeral: false }
     }
 
-    /// Sets Telegram's `ephemeral` flag on the command, which `new` leaves off.
+    /// Makes the command's message ephemeral: only the user who sent the command and the bot see it.
     #[must_use]
     pub fn is_ephemeral(mut self, is_ephemeral: bool) -> Self {
         self.is_ephemeral = is_ephemeral;

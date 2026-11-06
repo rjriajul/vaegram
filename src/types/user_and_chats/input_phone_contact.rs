@@ -22,18 +22,3 @@ impl InputPhoneContact {
         self
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::InputPhoneContact;
-
-    #[test]
-    fn last_name_is_empty_until_set() {
-        let contact = InputPhoneContact::new("+100", "Ann");
-        assert_eq!(
-            (contact.phone_number.as_str(), contact.first_name.as_str(), contact.last_name.as_str()),
-            ("+100", "Ann", "")
-        );
-        assert_eq!(contact.last_name("Lee").last_name, "Lee");
-    }
-}

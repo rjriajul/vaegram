@@ -26,6 +26,9 @@ pub struct GlobalPrivacySettings {
 
 impl GlobalPrivacySettings {
     /// Every setting off, no price for messages from non-contacts and no gift restriction.
+    ///
+    /// Sending it replaces every setting; to change one, start from
+    /// [`get_global_privacy_settings`](crate::Client::get_global_privacy_settings).
     pub fn new() -> Self {
         Self::default()
     }
@@ -139,9 +142,9 @@ mod tests {
             .hide_read_marks(true)
             .noncontact_peers_paid_stars(25)
             .accepted_gift_types(AcceptedGiftTypes::new().unique_gifts(false));
-        assert!(settings.hide_read_marks && !settings.keep_archived_unmuted && !settings.display_gifts_button);
-        assert_eq!(settings.noncontact_peers_paid_stars, Some(25));
         let base::GlobalPrivacySettings::GlobalPrivacySettings(raw) = settings.write();
+        assert!(raw.hide_read_marks && !raw.keep_archived_unmuted && !raw.display_gifts_button);
+        assert_eq!(raw.noncontact_peers_paid_stars, Some(25));
         let Some(base::DisallowedGiftsSettings::DisallowedGiftsSettings(gifts)) = raw.disallowed_gifts else {
             panic!("no gift settings written");
         };

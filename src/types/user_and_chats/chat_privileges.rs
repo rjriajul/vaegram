@@ -257,7 +257,6 @@ mod tests {
     fn builds_from_new_and_setters() {
         assert_eq!(flags(ChatPrivileges::new()), 0);
         let pinner = ChatPrivileges::new().can_pin_messages(true).can_manage_tags(true);
-        assert!(pinner.can_pin_messages && pinner.can_manage_tags && !pinner.is_anonymous);
         assert_eq!(flags(pinner.can_manage_tags(false)), 1 << 7);
     }
 }

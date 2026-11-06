@@ -203,13 +203,13 @@ fn bot_session_with(config: base::Config) -> Vec<Record> {
 
 fn call(records: &mut Vec<Record>, request: Vec<u8>, result: Vec<u8>) {
     let msg_id = 4 * records.len() as i64 + 4;
-    records.push(Record { outgoing: true, msg_id, unix_ms: 0, body: request });
+    records.push(Record::new(true, msg_id, 0, request));
     let body = [&RPC_RESULT.to_le_bytes()[..], &msg_id.to_le_bytes()[..], &result[..]].concat();
-    records.push(Record { outgoing: false, msg_id: msg_id + 1, unix_ms: 0, body });
+    records.push(Record::new(false, msg_id + 1, 0, body));
 }
 
 fn unasked(records: &mut Vec<Record>, body: Vec<u8>) {
-    records.push(Record { outgoing: false, msg_id: 4 * records.len() as i64 + 1, unix_ms: 0, body });
+    records.push(Record::new(false, 4 * records.len() as i64 + 1, 0, body));
 }
 
 fn new_message(pts: i32, text: &str) -> base::Updates {
