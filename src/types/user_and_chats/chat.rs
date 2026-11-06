@@ -111,6 +111,8 @@ pub struct Chat {
     pub has_automatic_translation: bool,
     /// `true` if the forum shows its topics as tabs.
     pub has_forum_tabs: bool,
+    /// `true` if the forum shows its topics in a sidebar.
+    pub has_forum_sidebar: bool,
     /// `true` if the channel accepts direct messages.
     pub has_direct_messages_group: bool,
     /// Id of the direct messages chat of this channel.
@@ -172,6 +174,7 @@ impl Chat {
             subscription_until_date: None,
             has_automatic_translation: false,
             has_forum_tabs: false,
+            has_forum_sidebar: false,
             has_direct_messages_group: false,
             direct_messages_chat_id: None,
             full_info: None,
@@ -269,6 +272,7 @@ impl Chat {
                     chat.subscription_until_date = c.subscription_until_date;
                     chat.has_automatic_translation = c.autotranslation;
                     chat.has_forum_tabs = c.forum_tabs;
+                    chat.has_forum_sidebar = c.forum_sidebar;
                     chat.has_direct_messages_group = c.broadcast_messages_allowed;
                 }
                 Some(base::Chat::ChannelForbidden(c)) => {
@@ -461,6 +465,7 @@ mod tests {
             join_request: true,
             autotranslation: true,
             forum_tabs: true,
+            forum_sidebar: true,
             broadcast_messages_allowed: true,
             stories_unavailable: true,
             participants_count: Some(40),
@@ -476,7 +481,7 @@ mod tests {
         assert_eq!(chat.username.as_deref(), Some("first"));
         assert_eq!((chat.sign_messages, chat.show_message_sender_name, chat.is_scam), (true, true, true));
         assert_eq!((chat.join_to_send_messages, chat.join_by_request), (true, true));
-        assert_eq!((chat.has_automatic_translation, chat.has_forum_tabs), (true, true));
+        assert_eq!((chat.has_automatic_translation, chat.has_forum_tabs, chat.has_forum_sidebar), (true, true, true));
         assert_eq!((chat.has_direct_messages_group, chat.is_stories_unavailable), (true, true));
         assert_eq!((chat.level, chat.subscription_until_date, chat.members_count), (Some(3), Some(99), Some(40)));
         assert_eq!((chat.direct_messages_chat_id, chat.parent_chat), (Some(get_channel_id(8)), None));

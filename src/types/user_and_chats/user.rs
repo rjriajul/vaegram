@@ -49,6 +49,8 @@ pub struct User {
     pub has_topics_enabled: bool,
     /// Bots only: users can create topics in the bot chat.
     pub allows_users_to_create_topics: bool,
+    /// Bots only: the bot chat shows its topics in a sidebar.
+    pub has_topics_sidebar: bool,
     /// Online status. `None` when Telegram did not send it.
     pub status: Option<UserStatus>,
     /// Unix time the user was last online. Set only when `status` is offline.
@@ -150,6 +152,7 @@ impl User {
                     can_manage_bots: u.bot_can_manage_bots,
                     has_topics_enabled: u.bot_forum_view,
                     allows_users_to_create_topics: u.bot_forum_can_manage_topics,
+                    has_topics_sidebar: u.bot_forum_sidebar,
                     is_self: u.is_self,
                     is_contact: u.contact,
                     is_mutual_contact: u.mutual_contact,
@@ -310,7 +313,7 @@ mod tests {
     fn reads_contact_and_bot_flags() {
         type Set = fn(&mut types::User);
         type Get = fn(&User) -> bool;
-        let cases: [(Set, Get); 12] = [
+        let cases: [(Set, Get); 13] = [
             (|u| u.is_self = true, |u| u.is_self),
             (|u| u.contact = true, |u| u.is_contact),
             (|u| u.mutual_contact = true, |u| u.is_mutual_contact),
@@ -323,6 +326,7 @@ mod tests {
             (|u| u.attach_menu_enabled = true, |u| u.added_to_attachment_menu),
             (|u| u.bot_inline_geo = true, |u| u.inline_need_location),
             (|u| u.bot_can_edit = true, |u| u.can_be_edited),
+            (|u| u.bot_forum_sidebar = true, |u| u.has_topics_sidebar),
         ];
         for (i, (set, get)) in cases.iter().enumerate() {
             let mut user = raw(7);
