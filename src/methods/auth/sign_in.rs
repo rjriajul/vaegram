@@ -8,7 +8,7 @@ impl Client {
     ///
     /// Saves the session and returns the signed-in user. Fails with `Error::SignUpRequired` if the number has no
     /// account yet. Call [`sign_up`](Client::sign_up) then.
-    pub async fn sign_in(&self, phone_number: &str, phone_code_hash: &str, phone_code: &str) -> Result<base::User> {
+    pub async fn sign_in(&self, phone_number: &str, phone_code_hash: &str, phone_code: &str) -> Result<User> {
         let auth = self.sign_in_raw(phone_number, phone_code_hash, phone_code).await?;
         self.authorized(auth).await
     }
@@ -29,18 +29,14 @@ impl Client {
         self.invoke(&request).await
     }
 
-    pub(crate) async fn authorized(&self, auth: base::auth::Authorization) -> Result<base::User> {
+    pub(crate) async fn authorized(&self, auth: base::auth::Authorization) -> Result<User> {
         match auth {
             base::auth::Authorization::Authorization(a) => {
                 self.set_me(&a.user);
                 self.save().await?;
-                Ok(a.user)
+                Ok(User::from_raw(self, a.user))
             }
             base::auth::Authorization::AuthorizationSignUpRequired(_) => Err(Error::SignUpRequired),
         }
-    }
-
-    pub(crate) async fn authorized_user(&self, auth: base::auth::Authorization) -> Result<User> {
-        Ok(User::from_raw(self, self.authorized(auth).await?))
     }
 }

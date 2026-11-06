@@ -4,8 +4,7 @@ use std::sync::Arc;
 
 use vaegram::connection::{Options, Proxy};
 use vaegram::raw::{base, functions};
-use vaegram::session::Session;
-use vaegram::session::internals::data_center;
+use vaegram::session::{Dc, Session};
 
 #[tokio::test]
 #[ignore = "connects to Telegram through a web proxy relay"]
@@ -16,7 +15,7 @@ async fn web_proxy_carries_a_handshake() {
     };
     let proxy: Proxy = link.parse().unwrap();
     let options = Options::new().proxy(proxy);
-    let dc = data_center::find(&[], 2, false, false).unwrap();
+    let dc = Dc::new(2, "149.154.167.51:443".parse().unwrap());
     let (session, _updates) = Session::connect(dc, None, &options, Arc::default(), None).await.unwrap();
     let base::Pong::Pong(pong) = session.invoke(&functions::Ping { ping_id: 5 }).await.unwrap();
     assert_eq!(pong.ping_id, 5);

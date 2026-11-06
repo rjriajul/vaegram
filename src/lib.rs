@@ -1,6 +1,6 @@
 pub mod client;
 pub mod connection;
-pub mod crypto;
+pub(crate) mod crypto;
 pub mod dispatcher;
 pub mod enums;
 pub mod errors;

@@ -7,7 +7,6 @@ use support::Kit;
 use tokio::sync::mpsc;
 use vaegram::enums::StoriesPrivacyRules;
 use vaegram::filters;
-use vaegram::raw::base;
 use vaegram::types::{InlineKeyboardButton, InlineKeyboardMarkup, InputStoryContent};
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -21,7 +20,7 @@ async fn on_story_sees_a_posted_story() {
     };
     let Some(kit) = Kit::from_env().await else { return };
     let user = &kit.user.client;
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
     let (tx, mut seen) = mpsc::unbounded_channel();
     user.on_story(filters::chat(me.id), move |story| {
         let _ = tx.send(story.id);
@@ -52,7 +51,7 @@ async fn a_bot_keyboard_matches_inline_keyboard() {
         m.reply("Keyboard").reply_markup(keyboard).await?;
         Ok(())
     });
-    let base::User::User(bot) = kit.bot.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let bot = kit.bot.get_me().await.unwrap();
     let (tx, mut matched) = mpsc::unbounded_channel();
     kit.user
         .client

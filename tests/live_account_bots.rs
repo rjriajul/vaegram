@@ -1,8 +1,6 @@
 #[allow(dead_code)]
 mod support;
 
-use vaegram::enums::ParseMode;
-use vaegram::raw::{base, functions, types};
 use vaegram::types::InputMedia;
 use vaegram::{Client, Error};
 
@@ -67,7 +65,6 @@ async fn test_account_logs_in_with_a_resent_code() {
     match client.send_phone_number_code(&new_phone).kind(vaegram::enums::PhoneNumberCodeType::Change).await {
         Ok(code) => {
             let user = client.change_phone_number(&new_phone, &code.phone_code_hash, "22222").await.unwrap();
-            let base::User::User(me) = me else { panic!("no account") };
             assert_eq!(user.id, me.id);
         }
         // The account was created a moment ago, and Telegram holds number changes back for about a day.
@@ -88,7 +85,7 @@ async fn user_session_is_authorized() {
 #[ignore = "uses a logged-in user session; creates and deletes a channel"]
 async fn user_checks_usernames_and_lists_owned_bots() {
     let Some(user) = user_client().await else { return };
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("no account") };
+    let me = user.get_me().await.unwrap();
     if let Some(own) = me.username {
         // Telegram's answer for the account's own name isn't documented; only a crash would be wrong.
         let result = user.check_username("me", own).await;
@@ -114,7 +111,7 @@ async fn user_creates_a_managed_bot() {
         return;
     }
     let Some(kit) = support::Kit::from_env().await else { return };
-    let base::User::User(manager) = kit.bot.get_me().await.unwrap() else { panic!("the bot has no user") };
+    let manager = kit.bot.get_me().await.unwrap();
     let name = manager.username.expect("the kit's bot has no username");
     let manager = kit.user.client.get_users([format!("@{name}")]).await.unwrap().remove(0);
     if !manager.can_manage_bots {
@@ -135,7 +132,10 @@ fn env_id(key: &str) -> Option<i64> {
     id
 }
 
+#[cfg(feature = "unstable-raw")]
 async fn contact_note(user: &Client, user_id: i64) -> Option<String> {
+    use vaegram::raw::{base, functions, types};
+
     let base::InputPeer::InputPeerUser(peer) = user.resolve_peer(user_id).await.unwrap() else { panic!("not a user") };
     let id = base::InputUser::InputUser(Box::new(types::InputUser { user_id, access_hash: peer.access_hash }));
     let base::users::UserFull::UserFull(full) = user.invoke(&functions::users::GetFullUser { id }).await.unwrap();
@@ -143,9 +143,12 @@ async fn contact_note(user: &Client, user_id: i64) -> Option<String> {
     full.note.map(|base::TextWithEntities::TextWithEntities(note)| note.text)
 }
 
+#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "uses a logged-in user session; changes a contact's note and puts back its text without formatting"]
 async fn user_sets_a_contact_note() {
+    use vaegram::enums::ParseMode;
+
     let Some(contact) = env_id("VAEGRAM_CONTACT_ID") else { return };
     let Some(user) = user_client().await else { return };
     let old = contact_note(&user, contact).await.unwrap_or_default();

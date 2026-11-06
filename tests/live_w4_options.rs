@@ -4,7 +4,6 @@ mod support;
 use std::time::Duration;
 
 use vaegram::enums::{MessageEntityType, ParseMode};
-use vaegram::raw::base;
 use vaegram::types::{Json, Upload};
 use vaegram::{Client, ClientBuilder, filters};
 
@@ -35,7 +34,7 @@ async fn echo_bot(user: &Client) -> Option<(Client, i64)> {
         m.reply("echo").await?;
         Ok(())
     });
-    let base::User::User(me) = bot.get_me().await.unwrap() else { panic!("the bot has no user") };
+    let me = bot.get_me().await.unwrap();
     let bot_id = user.resolve_username(&me.username.unwrap()).await.unwrap();
     Some((bot, bot_id))
 }
@@ -135,5 +134,5 @@ async fn custom_init_connection_params_connect() {
     let Some(builder) = user_builder() else { return };
     let params = Json::Object(vec![("tz_offset".into(), Json::Number(3600.0)), ("x".into(), Json::String("y".into()))]);
     let client = builder.init_connection_params(params).connect().await.unwrap();
-    assert!(matches!(client.get_me().await.unwrap(), base::User::User(_)));
+    assert!(client.get_me().await.unwrap().is_self);
 }

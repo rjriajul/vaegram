@@ -17,8 +17,9 @@ pub struct FileLocation {
 // TL types only derive PartialEq because some carry doubles; no file location does, so equality is total.
 impl Eq for FileLocation {}
 
-impl From<base::InputFileLocation> for FileLocation {
-    fn from(location: base::InputFileLocation) -> Self {
+impl FileLocation {
+    #[cfg(test)]
+    pub(crate) fn from_raw(location: base::InputFileLocation) -> Self {
         FileLocation { location, dc_id: None, file_size: None }
     }
 }

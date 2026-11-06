@@ -162,7 +162,7 @@ mod tests {
     fn photo(id: i64) -> Photo {
         let location =
             types::InputPhotoFileLocation { id, access_hash: 1, file_reference: vec![], thumb_size: "x".into() };
-        let location = FileLocation::from(base::InputFileLocation::InputPhotoFileLocation(Box::new(location)));
+        let location = FileLocation::from_raw(base::InputFileLocation::InputPhotoFileLocation(Box::new(location)));
         Photo {
             file_id: String::new(),
             file_unique_id: String::new(),

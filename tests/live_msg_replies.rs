@@ -2,7 +2,6 @@
 mod support;
 
 use vaegram::enums::StoriesPrivacyRules;
-use vaegram::raw::base;
 use vaegram::types::{InputStoryContent, Upload};
 use vaegram::{Client, filters};
 
@@ -52,7 +51,7 @@ async fn user_replies_to_a_story() {
         return;
     };
     let Some(user) = user_client().await else { return };
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
     let only_me = StoriesPrivacyRules::SelectedUsers(vec![me.id]);
     let story = user.send_story(me.id, InputStoryContent::photo(photo.as_str())).privacy(only_me).await.unwrap();
 

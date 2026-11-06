@@ -1,3 +1,5 @@
+#![cfg(feature = "unstable-raw")]
+
 #[allow(dead_code)]
 mod support;
 

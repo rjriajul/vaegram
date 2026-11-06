@@ -2,6 +2,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use crate::raw::base;
 
+/// A data center to connect a [`Session`](crate::session::Session) or a
+/// [`Connection`](crate::connection::Connection) to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Dc {
     pub id: i32,
@@ -28,7 +30,7 @@ impl Dc {
     }
 }
 
-pub fn address(dc_id: i32, test: bool, ipv6: bool) -> Option<SocketAddr> {
+pub(crate) fn address(dc_id: i32, test: bool, ipv6: bool) -> Option<SocketAddr> {
     let v4 = |a, b, c, d| IpAddr::V4(Ipv4Addr::new(a, b, c, d));
     let host = if test { 0xe } else { 0xa };
     let v6 = |a, b, c| IpAddr::V6(Ipv6Addr::new(0x2001, a, b, c, 0, 0, 0, host));
@@ -52,7 +54,7 @@ pub fn address(dc_id: i32, test: bool, ipv6: bool) -> Option<SocketAddr> {
 }
 
 // CDN DCs stay in the main table: their ids are their own, and `Client::dc` finds them for redirects.
-pub fn table(options: &[base::DcOption], ipv6: bool, media: bool) -> Vec<(i32, SocketAddr)> {
+pub(crate) fn table(options: &[base::DcOption], ipv6: bool, media: bool) -> Vec<(i32, SocketAddr)> {
     let mut table = Vec::new();
     for base::DcOption::DcOption(o) in options {
         if o.media_only != media || o.tcpo_only || o.ipv6 != ipv6 || table.iter().any(|(id, _)| *id == o.id) {
@@ -65,7 +67,7 @@ pub fn table(options: &[base::DcOption], ipv6: bool, media: bool) -> Vec<(i32, S
     table
 }
 
-pub fn find(table: &[(i32, SocketAddr)], dc_id: i32, test: bool, ipv6: bool) -> Option<Dc> {
+pub(crate) fn find(table: &[(i32, SocketAddr)], dc_id: i32, test: bool, ipv6: bool) -> Option<Dc> {
     let addr = match table.iter().find(|(id, _)| *id == dc_id) {
         Some(&(_, addr)) => addr,
         None => address(dc_id, test, ipv6)?,

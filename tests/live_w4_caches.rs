@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
-use vaegram::raw::base;
 use vaegram::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 use vaegram::{Client, filters};
 
@@ -53,7 +52,7 @@ async fn callback_on_a_cached_message_needs_no_request() {
         tokio::spawn(async move { client.run().await });
     }
 
-    let base::User::User(me) = bot.get_me().await.unwrap() else { panic!("the bot has no user") };
+    let me = bot.get_me().await.unwrap();
     let bot_id = user.resolve_username(&me.username.unwrap()).await.unwrap();
     let keyboard = user.wait_for_message(bot_id).filter(filters::text()).timeout(WAIT).into_future();
     let (keyboard, sent) = tokio::join!(keyboard, user.send_message(bot_id, "/tap").into_future());

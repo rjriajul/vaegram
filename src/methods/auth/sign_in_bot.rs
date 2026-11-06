@@ -1,12 +1,13 @@
 use crate::Client;
 use crate::errors::Result;
-use crate::raw::{base, functions};
+use crate::raw::functions;
+use crate::types::User;
 
 impl Client {
     /// Signs in as a bot with a token from @BotFather.
     ///
     /// Follows a migration to another data center and saves the session.
-    pub async fn sign_in_bot(&self, token: &str) -> Result<base::User> {
+    pub async fn sign_in_bot(&self, token: &str) -> Result<User> {
         let request = functions::auth::ImportBotAuthorization {
             flags: 0,
             api_id: self.0.api_id,

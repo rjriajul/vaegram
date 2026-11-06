@@ -4,7 +4,6 @@ mod support;
 use std::time::Duration;
 
 use vaegram::enums::ChatAction;
-use vaegram::raw::base;
 use vaegram::types::{Message, Upload};
 
 const CHUNK: usize = 512 * 1024;
@@ -54,7 +53,7 @@ async fn stream_media_equals_await() {
 #[ignore = "uses a logged-in user session and a bot token"]
 async fn typing_repeats_then_stops() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    let base::User::User(me) = kit.user.client.get_me().await.unwrap() else { panic!("get_me returned no user") };
+    let me = kit.user.client.get_me().await.unwrap();
     let handle = kit.bot.send_chat_action(me.id, ChatAction::Typing).repeat().await.unwrap();
     tokio::time::sleep(Duration::from_secs(9)).await;
     handle.stop().await.unwrap();

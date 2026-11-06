@@ -1,7 +1,7 @@
 mod auth;
 pub(crate) mod cdn;
 mod events;
-pub mod internals;
+pub(crate) mod internals;
 pub(crate) mod no_updates;
 mod outbox;
 mod pfs;
@@ -17,6 +17,7 @@ pub(crate) mod transfer;
 
 pub(crate) use events::Affected;
 pub use events::Events;
+pub use internals::data_center::Dc;
 pub use rate_limiter::{RateCategory, RateLimiter, RateLimits};
 pub use replay::Replay;
 pub use retry::{AutoSleep, NoRetries, Retry, RetryContext, RetryPolicy};
@@ -37,7 +38,6 @@ use crate::errors::{Error, Result, RpcError};
 use crate::raw::core::{gzip_packed, msg_container};
 use crate::raw::{Deserializable, Identifiable, LAYER, RemoteCall, Serializable, base, functions, types};
 use crate::types::Json;
-use internals::data_center::Dc;
 use internals::{MsgId, SeqNo, ServerMsgIds};
 use outbox::{MAX_CONTAINER_MSGS, MAX_IDS};
 use pfs::Pfs;

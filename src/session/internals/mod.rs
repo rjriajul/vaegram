@@ -1,4 +1,4 @@
-pub mod data_center;
+pub(crate) mod data_center;
 mod msg_id;
 mod seq_no;
 mod server_msg_ids;

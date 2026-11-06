@@ -4,7 +4,6 @@ mod support;
 use std::time::Duration;
 
 use vaegram::filters;
-use vaegram::raw::base;
 use vaegram::types::{ReportResult, Text};
 
 #[tokio::test]
@@ -48,7 +47,7 @@ async fn recent_locations_include_a_live_location() {
 async fn unread_mentions_and_reactions_from_the_bot() {
     let (Some(kit), Some(chat_id)) = (support::Kit::from_env().await, chat_id()) else { return };
     let user = &kit.user.client;
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("no user") };
+    let me = user.get_me().await.unwrap();
     let mine = user.send_message(chat_id, "react to this").await.unwrap();
     let mention = kit.bot.send_message(chat_id, Text::new().mention("you", me.id)).await.unwrap();
     // Only supergroups share message ids between accounts, so only there can the bot react to the user's message.

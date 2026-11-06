@@ -15,7 +15,23 @@ pub(crate) enum ChatPeer {
 }
 
 impl Client {
+    /// Returns the TL peer for a chat id, username or invite link, for building raw requests.
+    ///
+    /// Experimental (`unstable-raw`): may change or go away in any release.
+    #[cfg(feature = "unstable-raw")]
     pub async fn resolve_peer(&self, chat_id: impl Into<PeerRef>) -> Result<base::InputPeer> {
+        Ok(self.resolve(&chat_id.into()).await?.1)
+    }
+
+    /// The TL peer is only public with the `unstable-raw` feature:
+    ///
+    /// ```compile_fail
+    /// async fn raw(client: &vaegram::Client) {
+    ///     let _ = client.resolve_peer(777).await;
+    /// }
+    /// ```
+    #[cfg(not(feature = "unstable-raw"))]
+    pub(crate) async fn resolve_peer(&self, chat_id: impl Into<PeerRef>) -> Result<base::InputPeer> {
         Ok(self.resolve(&chat_id.into()).await?.1)
     }
 

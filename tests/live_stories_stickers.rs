@@ -3,7 +3,6 @@ mod support;
 
 use vaegram::Client;
 use vaegram::enums::{StickerType, StoriesPrivacyRules};
-use vaegram::raw::{base, functions, types};
 use vaegram::types::InputStoryContent;
 
 async fn user_client() -> Option<Client> {
@@ -24,7 +23,7 @@ async fn user_checks_forwards_and_copies_a_story() {
         return;
     };
     let Some(user) = user_client().await else { return };
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
     assert!(user.can_post_stories(me.id).await.unwrap() > 0);
 
     let only_me = StoriesPrivacyRules::SelectedUsers(vec![me.id]);
@@ -63,9 +62,12 @@ async fn user_reorders_sticker_sets_and_restores_them() {
     assert_eq!(ids(user.get_installed_sticker_sets(StickerType::Regular).await.unwrap()), original);
 }
 
+#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "needs the kit bot and user in VAEGRAM_CHAT_ID; deletes the bot's welcome messages there"]
 async fn bot_stores_and_deletes_a_welcome_message() {
+    use vaegram::raw::{base, functions, types};
+
     let Ok(chat_id) = std::env::var("VAEGRAM_CHAT_ID") else {
         eprintln!("skipped: set VAEGRAM_CHAT_ID (a group with the kit bot and user)");
         return;
@@ -73,7 +75,7 @@ async fn bot_stores_and_deletes_a_welcome_message() {
     let chat_id: i64 = chat_id.parse().unwrap();
     let Some(kit) = support::Kit::from_env().await else { return };
     let (user, bot) = (&kit.user.client, &kit.bot);
-    let base::User::User(me) = user.get_me().await.unwrap() else { panic!("get_me returned an empty user") };
+    let me = user.get_me().await.unwrap();
 
     let base::InputPeer::InputPeerUser(receiver) = bot.resolve_peer(me.id).await.unwrap() else {
         panic!("the bot can't address the kit user")

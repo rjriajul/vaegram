@@ -1,4 +1,6 @@
-pub use warpcrypto::{Error, kdf, unpack_message as unpack};
+#[cfg(test)]
+pub(crate) use warpcrypto::unpack_message as unpack;
+pub use warpcrypto::{Error, kdf};
 
 use std::ops::Range;
 
