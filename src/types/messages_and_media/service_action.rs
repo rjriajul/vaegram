@@ -247,8 +247,9 @@ pub enum ServiceAction {
 }
 
 impl ServiceAction {
-    /// The variant `ServiceKind::of` names, so `filters::service_kind` and `service` always agree. `None` only for a
-    /// known kind whose payload is malformed (a pin without its header).
+    /// The variant `ServiceKind::of` names, so `filters::service_kind` and `service` always agree. `None` for
+    /// `messageActionEmpty`, which reports nothing, and for a known kind whose payload is malformed (a pin without its
+    /// header).
     pub(crate) fn parse(raw: &types::MessageService, entities: &Entities) -> Option<ServiceAction> {
         use ServiceKind as K;
         use base::MessageAction as A;
@@ -522,6 +523,7 @@ impl ServiceAction {
                 ServiceAction::TonConnectRequest(Box::new(TonConnectRequest::parse(a)))
             }
             (K::NoPaidMessagesTokenUsed, _) => ServiceAction::NoPaidMessagesTokenUsed,
+            (K::Unknown, A::MessageActionEmpty) => return None,
             (K::Unknown, action) => ServiceAction::Unknown { constructor_id: action.constructor_id() },
             _ => return None,
         })
@@ -1241,14 +1243,13 @@ mod tests {
             invoice_slug: None,
             subscription_until_date: None,
         };
+        let action = parse(base::MessageAction::MessageActionPaymentSent(Box::new(receipt)))
+            .expect("an unmapped action still makes a service message");
+        assert!(matches!(action, ServiceAction::Unknown { constructor_id: 0xc624_b16e }));
+        assert_eq!(action.kind(), ServiceKind::Unknown);
+
         let empty = base::MessageAction::deserialize(&mut &0xb6ae_f7b0_u32.to_le_bytes()[..]).unwrap();
-        let cases =
-            [(empty, 0xb6ae_f7b0), (base::MessageAction::MessageActionPaymentSent(Box::new(receipt)), 0xc624_b16e)];
-        for (action, id) in cases {
-            let action = parse(action).expect("an unmapped action still makes a service message");
-            assert!(matches!(action, ServiceAction::Unknown { constructor_id } if constructor_id == id));
-            assert_eq!(action.kind(), ServiceKind::Unknown);
-        }
+        assert_eq!(parse(empty), None, "an empty action reports nothing");
     }
 
     #[test]

@@ -41,7 +41,8 @@ pub struct Message {
     pub outgoing: bool,
     /// When the message was last edited, as a Unix timestamp. `None` if it never was.
     pub edit_date: Option<i32>,
-    /// The attached media. `None` for a text message and for media of a kind [`Media`] doesn't cover.
+    /// The attached media. `None` for a text message, a link preview (see `web_page`) or media whose file is gone.
+    /// Media of a kind with no variant is [`Media::Unknown`].
     pub media: Option<Media>,
     /// The link preview of a text message; `media` stays `None` and the text stays in [`text`](Message::text).
     pub web_page: Option<WebPage>,

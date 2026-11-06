@@ -201,6 +201,7 @@ pub struct Session {
 /// The server salt and the clock offset, saved so a restart skips the first bad_server_salt and starts with
 /// msg_ids the server accepts.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub struct Salt {
     pub value: i64,
     /// Server time minus local time, in seconds.
