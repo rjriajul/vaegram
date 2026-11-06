@@ -194,6 +194,27 @@ mod closed {
 "#,
             &["impl B", "through_super"],
         ),
+        // Variants split over lines.
+        (
+            r#"use crate::raw::base;
+
+pub enum Event {
+    Plain(u32),
+    Struct {
+        id: i64,
+        raw: base::User,
+    },
+    Split(
+        i64,
+        base::Message,
+    ),
+    Friendly {
+        id: i64,
+    },
+}
+"#,
+            &["Struct", "Split"],
+        ),
         // Trait bodies.
         (
             r#"use crate::raw::base;
@@ -360,7 +381,13 @@ fn violations(source: &str) -> Vec<(usize, String, String)> {
                     i = end;
                 }
                 (Kind::Enum, None) => {
-                    report(trimmed.split(['(', ' ', '{', ',']).next().unwrap_or(trimmed).into(), trimmed)
+                    let name = trimmed.split(['(', ' ', '{', ',']).next().unwrap_or(trimmed).to_string();
+                    let (end, text) = match trimmed.ends_with(['{', '(']) {
+                        true => balanced(&lines, i),
+                        false => (i, trimmed.to_string()),
+                    };
+                    report(name, &text);
+                    i = end;
                 }
                 _ => {}
             }
@@ -368,6 +395,21 @@ fn violations(source: &str) -> Vec<(usize, String, String)> {
         i += 1;
     }
     found
+}
+
+/// The lines from `start` to the one that closes the brackets `start` opens (a struct or tuple variant split over
+/// lines), and their text.
+fn balanced(lines: &[&str], start: usize) -> (usize, String) {
+    let mut depth = 0i32;
+    let mut end = start;
+    for (j, line) in lines.iter().enumerate().skip(start) {
+        depth += line.matches(['{', '(']).count() as i32 - line.matches(['}', ')']).count() as i32;
+        end = j;
+        if depth <= 0 {
+            break;
+        }
+    }
+    (end, lines[start..=end].iter().map(|l| l.trim()).collect::<Vec<_>>().join(" "))
 }
 
 /// The lines from `start` to the one that opens a body or ends the item, and their text up to the body.
