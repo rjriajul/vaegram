@@ -390,6 +390,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_client_default_leaves_caption_edits_alone() {
+        let (client, mut sent) = recording();
+        client.set_link_preview_options(Some(crate::types::LinkPreviewOptions::new().show_above_text(true)));
+        let _ = message(&client).edit_caption("cap").await;
+        let _ = message(&client).edit_text("text").await;
+        // invert_media is flags.16 of messages.editMessage.
+        let flags = |body: Vec<u8>| u32::from_le_bytes(body[4..8].try_into().unwrap()) >> 16 & 1;
+        assert_eq!((flags(sent.try_recv().unwrap()), flags(sent.try_recv().unwrap())), (0, 1));
+    }
+
+    #[tokio::test]
     async fn ephemeral_edits_hit_edit_message() {
         let (client, mut sent) = recording();
         let message = EphemeralMessage::parse(&client, ephemeral(true, None), &Entities::default());

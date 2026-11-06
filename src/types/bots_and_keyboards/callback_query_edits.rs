@@ -6,9 +6,13 @@ use crate::types::{
 
 impl CallbackQuery {
     /// Edits the caption of the message the button is on. Calls [`CallbackQuery::edit_message_text`], since
-    /// one request edits text and captions alike.
+    /// one request edits text and captions alike, minus the client's link preview default.
     pub fn edit_message_caption(&self, caption: impl Into<Text>) -> EditCallbackMessageText<'_> {
-        self.edit_message_text(MessageText::Text(caption.into()))
+        match self.edit_message_text(MessageText::Text(caption.into())) {
+            EditCallbackMessageText::Message(edit) => EditCallbackMessageText::Message(edit.without_client_default()),
+            EditCallbackMessageText::Inline(edit) => EditCallbackMessageText::Inline(edit.without_client_default()),
+            edit @ EditCallbackMessageText::Ephemeral(_) => edit,
+        }
     }
 
     /// Replaces the media of the message the button is on.

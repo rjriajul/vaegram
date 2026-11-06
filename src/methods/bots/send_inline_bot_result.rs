@@ -92,6 +92,7 @@ mod tests {
     use crate::Client;
     use crate::errors::Error;
     use crate::raw::{Identifiable, base, functions, types};
+    use crate::types::SuggestedPostParameters;
 
     fn client() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
         let (client, rx) = Client::recording();
@@ -116,12 +117,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn options_telegram_ignores_are_refused() {
+    async fn options_the_request_cannot_carry_are_refused() {
         let (client, mut rx) = client();
         let refused = [
             client.send_inline_bot_result(7, 1, "r").protect_content().await,
             client.send_inline_bot_result(7, 1, "r").allow_paid_broadcast().await,
             client.send_inline_bot_result(7, 1, "r").message_effect_id(1).await,
+            client.send_inline_bot_result(7, 1, "r").suggested_post_parameters(SuggestedPostParameters::new()).await,
         ];
         for (i, result) in refused.into_iter().enumerate() {
             assert!(matches!(result, Err(Error::InvalidArgument(_))), "{i}");

@@ -536,9 +536,10 @@ impl Message {
     /// Edits the caption of this media message.
     ///
     /// Telegram stores a caption as the message text, so this is the same request as
-    /// [`edit_text`](Message::edit_text).
+    /// [`edit_text`](Message::edit_text), minus the client's link preview default, as in
+    /// [`Client::edit_message_caption`](crate::Client::edit_message_caption).
     pub fn edit_caption(&self, caption: impl Into<Text>) -> EditMessageText<'_> {
-        self.edit_text(MessageText::Text(caption.into()))
+        self.edit_text(MessageText::Text(caption.into())).without_client_default()
     }
 
     /// Replaces the inline keyboard of this message. `None` removes the keyboard.

@@ -491,5 +491,14 @@ mod tests {
         let body = rx.try_recv().expect("no request sent");
         let reply = topic_reply(5, Some(3));
         assert!(body.windows(reply.len()).any(|w| w == reply), "the reply lost its topic");
+        // Outside a forum topic, a direct-messages topic goes out as the monoforum reply target.
+        (m.message_thread_id, m.is_topic_message) = (None, false);
+        m.direct_messages_topic = Some(DirectMessagesTopic { topic_id: 7, user: None });
+        let _ = m.answer_inline_bot_result(1, "r").await;
+        let body = rx.try_recv().expect("no request sent");
+        let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
+        let monoforum = types::InputReplyToMonoForum { monoforum_peer_id: user };
+        let reply = crate::raw::Serializable::to_bytes(&base::InputReplyTo::InputReplyToMonoForum(Box::new(monoforum)));
+        assert!(body.windows(reply.len()).any(|w| w == reply), "the direct-messages topic is not the reply target");
     }
 }

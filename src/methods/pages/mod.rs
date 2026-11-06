@@ -4,8 +4,8 @@ mod offset_pages;
 pub(crate) use dialog_pages::DialogPages;
 pub(crate) use offset_pages::OffsetPages;
 
-/// Converts a caller's count to the `i32` Telegram takes. Counts above `i32::MAX` saturate, since Telegram caps them
-/// server-side anyway.
+/// Converts a caller's count to the `i32` Telegram takes. Counts above `i32::MAX` saturate, since Telegram caps or
+/// rejects them anyway.
 pub(crate) fn wire_limit(limit: usize) -> i32 {
     i32::try_from(limit).unwrap_or(i32::MAX)
 }

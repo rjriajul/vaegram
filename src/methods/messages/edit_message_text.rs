@@ -85,7 +85,7 @@ impl EditMessageText<'_> {
     }
 
     /// For caption edits: the client's link preview default is meant for text, not for moving captions.
-    pub(super) fn without_client_default(mut self) -> Self {
+    pub(crate) fn without_client_default(mut self) -> Self {
         self.apply_client_default = false;
         self
     }
