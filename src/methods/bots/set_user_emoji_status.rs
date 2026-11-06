@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
@@ -43,8 +44,7 @@ impl SetUserEmojiStatus<'_> {
             None => base::EmojiStatus::EmojiStatusEmpty,
         };
         let user_id = self.client.resolve_user(&self.user_id).await?;
-        self.client.invoke(&functions::bots::UpdateUserEmojiStatus { user_id, emoji_status }).await?;
-        Ok(())
+        accepted(self.client.invoke(&functions::bots::UpdateUserEmojiStatus { user_id, emoji_status }).await?)
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 use crate::utils::compute_password_check;
 
@@ -18,7 +19,6 @@ impl Client {
             password: compute_password_check(&p, password)?,
             new_settings: base::account::PasswordInputSettings::PasswordInputSettings(Box::new(settings)),
         };
-        self.invoke(&request).await?;
-        Ok(())
+        accepted(self.invoke(&request).await?)
     }
 }

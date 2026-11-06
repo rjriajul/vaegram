@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 
 impl Client {
@@ -21,7 +22,6 @@ impl Client {
             None
         };
         let request = functions::bots::EditAccessSettings { restricted: is_access_restricted, bot, add_users };
-        self.invoke(&request).await?;
-        Ok(())
+        accepted(self.invoke(&request).await?)
     }
 }

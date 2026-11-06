@@ -1,6 +1,7 @@
 use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 use crate::types::{MessageText, PeerRef};
 
@@ -104,8 +105,7 @@ impl SendMessageDraft<'_> {
             }
         };
         let request = functions::messages::SetTyping { peer, top_msg_id: options.message_thread_id, action };
-        client.invoke(&request).await?;
-        Ok(())
+        accepted(client.invoke(&request).await?)
     }
 }
 

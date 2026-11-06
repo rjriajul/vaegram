@@ -1,6 +1,7 @@
 use crate::Client;
 use crate::enums::BusinessAwayMessageSchedule;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 use crate::types::BusinessRecipients;
 
@@ -54,8 +55,7 @@ impl SetBusinessAwayMessage<'_> {
             recipients: self.recipients.write(self.client).await?,
         };
         let message = Some(base::InputBusinessAwayMessage::InputBusinessAwayMessage(Box::new(message)));
-        self.client.invoke(&functions::account::UpdateBusinessAwayMessage { message }).await?;
-        Ok(())
+        accepted(self.client.invoke(&functions::account::UpdateBusinessAwayMessage { message }).await?)
     }
 }
 

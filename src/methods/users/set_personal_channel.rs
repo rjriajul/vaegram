@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions};
 use crate::types::PeerRef;
 
@@ -10,7 +11,6 @@ impl Client {
             Some(chat_id) => self.resolve_channel(&chat_id).await?,
             None => base::InputChannel::InputChannelEmpty,
         };
-        self.invoke(&functions::account::UpdatePersonalChannel { channel }).await?;
-        Ok(())
+        accepted(self.invoke(&functions::account::UpdatePersonalChannel { channel }).await?)
     }
 }

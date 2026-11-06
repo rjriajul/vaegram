@@ -2,6 +2,7 @@ use super::send_options::caption_setters;
 use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{RemoteCall, functions};
 use crate::types::{InlineMessageId, LinkPreviewOptions, MessageText, ReplyMarkup};
 
@@ -121,8 +122,7 @@ impl EditInlineText<'_> {
             entities,
             rich_message,
         };
-        client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await?;
-        Ok(())
+        accepted(client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await?)
     }
 }
 

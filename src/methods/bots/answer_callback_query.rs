@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 
 /// Request built by [`Client::answer_callback_query`].
@@ -60,8 +61,7 @@ impl AnswerCallbackQuery<'_> {
             url: self.url,
             cache_time: self.cache_time,
         };
-        self.client.invoke(&request).await?;
-        Ok(())
+        accepted(self.client.invoke(&request).await?)
     }
 }
 

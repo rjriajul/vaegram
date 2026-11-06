@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 use crate::types::{InlineQueryResult, InlineQueryResultsButton};
 
@@ -96,8 +97,7 @@ impl AnswerInlineQuery<'_> {
             switch_pm,
             switch_webview,
         };
-        self.client.invoke(&request).await?;
-        Ok(())
+        accepted(self.client.invoke(&request).await?)
     }
 }
 

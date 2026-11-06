@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 
 impl Client {
@@ -9,7 +10,6 @@ impl Client {
     /// [`get_terms_of_service_update`](Client::get_terms_of_service_update).
     pub async fn accept_terms_of_service(&self, terms_of_service_id: impl Into<String>) -> Result<()> {
         let id = base::DataJSON::DataJSON(Box::new(types::DataJSON { data: terms_of_service_id.into() }));
-        self.invoke(&functions::help::AcceptTermsOfService { id }).await?;
-        Ok(())
+        accepted(self.invoke(&functions::help::AcceptTermsOfService { id }).await?)
     }
 }

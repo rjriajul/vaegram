@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
@@ -7,8 +8,7 @@ impl Client {
     /// Deletes every welcome message of the chat.
     pub async fn delete_all_welcome_messages(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
         let request = functions::ephemeral::DeleteAllWelcomeMessages { peer: self.resolve_peer(chat_id).await? };
-        self.invoke(&request).await?;
-        Ok(())
+        accepted(self.invoke(&request).await?)
     }
 }
 

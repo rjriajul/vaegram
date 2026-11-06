@@ -1,12 +1,12 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 
 impl Client {
     /// Logs out one device by its session id.
     pub async fn terminate_session(&self, session_id: i64) -> Result<()> {
-        self.invoke(&functions::account::ResetAuthorization { hash: session_id }).await?;
-        Ok(())
+        accepted(self.invoke(&functions::account::ResetAuthorization { hash: session_id }).await?)
     }
 }
 

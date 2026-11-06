@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::{PassportElementError, PeerRef};
 
@@ -14,7 +15,6 @@ impl Client {
             id: self.resolve_user(&user_id.into()).await?,
             errors: errors.into_iter().map(PassportElementError::write).collect(),
         };
-        self.invoke(&request).await?;
-        Ok(())
+        accepted(self.invoke(&request).await?)
     }
 }

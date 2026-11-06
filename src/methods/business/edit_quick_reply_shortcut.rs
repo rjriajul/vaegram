@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::functions;
 
 impl Client {
@@ -9,7 +10,6 @@ impl Client {
         if shortcut.is_empty() {
             return Err(Error::InvalidArgument("a quick reply shortcut needs a name"));
         }
-        self.invoke(&functions::messages::EditQuickReplyShortcut { shortcut_id, shortcut }).await?;
-        Ok(())
+        accepted(self.invoke(&functions::messages::EditQuickReplyShortcut { shortcut_id, shortcut }).await?)
     }
 }

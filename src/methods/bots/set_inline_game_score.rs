@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::{InlineMessageId, PeerRef};
 
@@ -58,8 +59,7 @@ impl SetInlineGameScore<'_> {
             user_id: client.resolve_user(&self.user_id).await?,
             score: self.score,
         };
-        client.invoke_inline(dc_id, request).await?;
-        Ok(())
+        accepted(client.invoke_inline(dc_id, request).await?)
     }
 }
 

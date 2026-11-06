@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 
 /// Request built by [`Client::set_emoji_status`].
@@ -54,8 +55,7 @@ impl SetEmojiStatus<'_> {
             }
             (None, None) => base::EmojiStatus::EmojiStatusEmpty,
         };
-        self.client.invoke(&functions::account::UpdateEmojiStatus { emoji_status }).await?;
-        Ok(())
+        accepted(self.client.invoke(&functions::account::UpdateEmojiStatus { emoji_status }).await?)
     }
 }
 

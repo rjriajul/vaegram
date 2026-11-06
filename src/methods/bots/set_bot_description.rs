@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 
 impl Client {
@@ -12,7 +13,6 @@ impl Client {
             about: None,
             description: Some(description.into()),
         };
-        self.invoke(&request).await?;
-        Ok(())
+        accepted(self.invoke(&request).await?)
     }
 }

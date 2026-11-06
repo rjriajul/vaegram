@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
@@ -7,8 +8,7 @@ impl Client {
     /// Reports a chat that wrote first as spam, as the "Report spam" bar of a new chat does.
     pub async fn report_spam(&self, chat_id: impl Into<PeerRef>) -> Result<()> {
         let request = functions::messages::ReportSpam { peer: self.resolve_peer(chat_id).await? };
-        self.invoke(&request).await?;
-        Ok(())
+        accepted(self.invoke(&request).await?)
     }
 }
 

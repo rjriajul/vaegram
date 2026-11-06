@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::{InlineKeyboardMarkup, InlineMessageId};
 
@@ -42,8 +43,7 @@ impl EditInlineReplyMarkup<'_> {
             entities: None,
             rich_message: None,
         };
-        self.client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await?;
-        Ok(())
+        accepted(self.client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await?)
     }
 }
 

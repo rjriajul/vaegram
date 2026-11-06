@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 use crate::types::BusinessRecipients;
 
@@ -17,7 +18,6 @@ impl Client {
         let recipients = recipients.write(self).await?;
         let message = types::InputBusinessGreetingMessage { shortcut_id, recipients, no_activity_days };
         let message = Some(base::InputBusinessGreetingMessage::InputBusinessGreetingMessage(Box::new(message)));
-        self.invoke(&functions::account::UpdateBusinessGreetingMessage { message }).await?;
-        Ok(())
+        accepted(self.invoke(&functions::account::UpdateBusinessGreetingMessage { message }).await?)
     }
 }

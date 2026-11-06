@@ -58,7 +58,7 @@ impl ChatJoinRequest {
     /// A request with a `query_id` went to the chat's guard bot, which answers it with `bots.setJoinChatResults`.
     pub async fn approve(&self) -> Result<()> {
         match self.query_id {
-            Some(id) => self.client.answer_chat_join_request_query(id, ChatJoinRequestResult::Approve).await.map(drop),
+            Some(id) => self.client.answer_chat_join_request_query(id, ChatJoinRequestResult::Approve).await,
             None => self.client.approve_chat_join_request(self.chat.id, self.from_user.id).await,
         }
     }
@@ -66,7 +66,7 @@ impl ChatJoinRequest {
     /// Declines the request.
     pub async fn decline(&self) -> Result<()> {
         match self.query_id {
-            Some(id) => self.client.answer_chat_join_request_query(id, ChatJoinRequestResult::Decline).await.map(drop),
+            Some(id) => self.client.answer_chat_join_request_query(id, ChatJoinRequestResult::Decline).await,
             None => self.client.decline_chat_join_request(self.chat.id, self.from_user.id).await,
         }
     }

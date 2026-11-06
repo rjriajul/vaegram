@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
@@ -16,7 +17,6 @@ impl Client {
             receiver_id: self.resolve_user(&receiver_user_id.into()).await?,
             id: ephemeral_message_id,
         };
-        self.invoke(&request).await?;
-        Ok(())
+        accepted(self.invoke(&request).await?)
     }
 }

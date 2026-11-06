@@ -15,6 +15,11 @@ pub(crate) trait OnBehalf {
     fn business_connection(&mut self) -> &mut Option<String>;
 }
 
+/// The answer to an action Telegram confirms with `true`; `false` means it wasn't applied.
+pub(crate) fn accepted(ok: bool) -> crate::Result<()> {
+    if ok { Ok(()) } else { Err(crate::Error::Unexpected("Telegram answered false")) }
+}
+
 mod account;
 mod advanced;
 mod auth;

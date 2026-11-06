@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
@@ -32,8 +33,7 @@ impl Client {
             peer: self.resolve_peer(chat_id).await?,
             custom_description,
         };
-        self.invoke(&request).await?;
-        Ok(())
+        accepted(self.invoke(&request).await?)
     }
 }
 

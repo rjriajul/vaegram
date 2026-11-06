@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::ShippingOption;
 
@@ -41,8 +42,7 @@ impl AnswerShippingQuery<'_> {
             error: self.error,
             shipping_options: self.shipping_options.map(|o| o.into_iter().map(ShippingOption::write).collect()),
         };
-        self.client.invoke(&request).await?;
-        Ok(())
+        accepted(self.client.invoke(&request).await?)
     }
 }
 

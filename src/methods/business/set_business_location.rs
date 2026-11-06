@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::methods::messages::geo_point;
 use crate::raw::functions;
 
@@ -15,7 +16,6 @@ impl Client {
             return Err(Error::InvalidArgument("latitude must be within 90 and longitude within 180 degrees"));
         }
         let geo_point = location.map(|(lat, long)| geo_point(lat, long, None));
-        self.invoke(&functions::account::UpdateBusinessLocation { geo_point, address: Some(address) }).await?;
-        Ok(())
+        accepted(self.invoke(&functions::account::UpdateBusinessLocation { geo_point, address: Some(address) }).await?)
     }
 }

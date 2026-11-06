@@ -2,6 +2,7 @@ use super::enable_cloud_password::new_settings;
 use crate::Client;
 use crate::crypto::random;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions};
 use crate::utils::compute_password_check;
 
@@ -40,8 +41,7 @@ impl ChangeCloudPassword<'_> {
             password: compute_password_check(&p, &self.current)?,
             new_settings: new_settings(&p, &self.new, self.hint, None, &random())?,
         };
-        self.client.invoke(&request).await?;
-        Ok(())
+        accepted(self.client.invoke(&request).await?)
     }
 }
 

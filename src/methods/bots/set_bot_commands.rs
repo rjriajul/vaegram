@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::{BotCommand, BotCommandScope};
 
@@ -16,7 +17,6 @@ impl Client {
             lang_code: language_code.to_owned(),
             commands: commands.into_iter().map(BotCommand::write).collect(),
         };
-        self.invoke(&request).await?;
-        Ok(())
+        accepted(self.invoke(&request).await?)
     }
 }

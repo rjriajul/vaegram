@@ -1,6 +1,7 @@
 use crate::Client;
 use crate::enums::BaseTheme;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions};
 use crate::types::{THEME_FORMAT, Theme};
 
@@ -40,8 +41,7 @@ impl InstallTheme<'_> {
             format: Some(THEME_FORMAT.into()),
             base_theme: self.base_theme.map(BaseTheme::write),
         };
-        self.client.invoke(&request).await?;
-        Ok(())
+        accepted(self.client.invoke(&request).await?)
     }
 }
 

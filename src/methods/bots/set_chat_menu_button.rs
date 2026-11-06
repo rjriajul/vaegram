@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions};
 use crate::types::{MenuButton, PeerRef};
 
@@ -12,7 +13,6 @@ impl Client {
             Some(id) => self.resolve_user(&id).await?,
             None => base::InputUser::InputUserEmpty,
         };
-        self.invoke(&functions::bots::SetBotMenuButton { user_id, button: menu_button.write() }).await?;
-        Ok(())
+        accepted(self.invoke(&functions::bots::SetBotMenuButton { user_id, button: menu_button.write() }).await?)
     }
 }

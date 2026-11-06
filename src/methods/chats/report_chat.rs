@@ -1,6 +1,7 @@
 use crate::Client;
 use crate::enums::ReportReason;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
@@ -9,8 +10,7 @@ impl Client {
     pub async fn report_chat(&self, chat_id: impl Into<PeerRef>, reason: ReportReason, message: &str) -> Result<()> {
         let peer = self.resolve_peer(chat_id).await?;
         let request = functions::account::ReportPeer { peer, reason: reason.write(), message: message.into() };
-        self.invoke(&request).await?;
-        Ok(())
+        accepted(self.invoke(&request).await?)
     }
 }
 

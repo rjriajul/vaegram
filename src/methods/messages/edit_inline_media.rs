@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::{base, functions};
 use crate::types::{InlineMessageId, InputMedia, ReplyMarkup};
 
@@ -58,8 +59,7 @@ impl EditInlineMedia<'_> {
             entities: (!entities.is_empty()).then_some(entities),
             rich_message: None,
         };
-        client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await?;
-        Ok(())
+        accepted(client.invoke_inline_on_behalf(dc_id, self.business_connection_id, request).await?)
     }
 }
 

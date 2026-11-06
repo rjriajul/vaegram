@@ -2,6 +2,7 @@ use crate::Client;
 use crate::crypto::password::verifier;
 use crate::crypto::random;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 use crate::utils::known_algo;
 
@@ -45,8 +46,7 @@ impl EnableCloudPassword<'_> {
             password: base::InputCheckPasswordSRP::InputCheckPasswordEmpty,
             new_settings: new_settings(&p, &self.password, self.hint, self.email, &random())?,
         };
-        self.client.invoke(&request).await?;
-        Ok(())
+        accepted(self.client.invoke(&request).await?)
     }
 }
 

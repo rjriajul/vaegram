@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions, types};
 use crate::types::PeerRef;
 
@@ -65,8 +66,7 @@ impl UpdateChatNotifications<'_> {
             peer: self.client.resolve_peer(self.chat_id).await?,
         }));
         let settings = base::InputPeerNotifySettings::InputPeerNotifySettings(Box::new(self.settings));
-        self.client.invoke(&functions::account::UpdateNotifySettings { peer, settings }).await?;
-        Ok(())
+        accepted(self.client.invoke(&functions::account::UpdateNotifySettings { peer, settings }).await?)
     }
 }
 

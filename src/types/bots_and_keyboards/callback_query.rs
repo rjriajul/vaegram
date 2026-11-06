@@ -226,9 +226,7 @@ impl CallbackQuery {
                     None => edit.await.map(drop),
                 }
             }
-            CallbackOrigin::Inline(id) => {
-                self.client.edit_inline_reply_markup(id.clone(), reply_markup).await.map(drop)
-            }
+            CallbackOrigin::Inline(id) => self.client.edit_inline_reply_markup(id.clone(), reply_markup).await,
             CallbackOrigin::Ephemeral(m) => {
                 let edit = self.client.edit_ephemeral_message_reply_markup(m.chat.id, m.receiver_user.id, m.id);
                 match reply_markup {
@@ -249,7 +247,7 @@ impl CallbackQuery {
                 self.client.delete_messages(chat.id, &[*message_id]).await
             }
             CallbackOrigin::Inline(_) => Err(Error::InvalidArgument("inline messages can't be deleted")),
-            CallbackOrigin::Ephemeral(message) => message.delete().await.map(drop),
+            CallbackOrigin::Ephemeral(message) => message.delete().await,
         }
     }
 }

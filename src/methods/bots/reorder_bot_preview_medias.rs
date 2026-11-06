@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::{BotPreviewMedia, PeerRef};
 
@@ -18,8 +19,7 @@ impl Client {
         }
         let order = order.iter().map(BotPreviewMedia::input).collect::<Result<_>>()?;
         let bot = self.resolve_user(&bot_id.into()).await?;
-        self.invoke(&functions::bots::ReorderPreviewMedias { bot, lang_code: lang_code.into(), order }).await?;
-        Ok(())
+        accepted(self.invoke(&functions::bots::ReorderPreviewMedias { bot, lang_code: lang_code.into(), order }).await?)
     }
 }
 

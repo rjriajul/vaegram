@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::{base, functions};
 
 /// Request built by [`Client::takeout`].
@@ -97,8 +98,7 @@ impl TakeoutSession {
     /// Ends the session. `success = false` aborts it.
     pub async fn finish(mut self, success: bool) -> Result<()> {
         self.finished = true;
-        self.client.invoke(&functions::account::FinishTakeoutSession { success }).await?;
-        Ok(())
+        accepted(self.client.invoke(&functions::account::FinishTakeoutSession { success }).await?)
     }
 }
 

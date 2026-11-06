@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::functions;
 
 impl Client {
@@ -11,7 +12,6 @@ impl Client {
         if order.is_empty() {
             return Err(Error::InvalidArgument("reorder_quick_replies takes at least one shortcut id"));
         }
-        self.invoke(&functions::messages::ReorderQuickReplies { order }).await?;
-        Ok(())
+        accepted(self.invoke(&functions::messages::ReorderQuickReplies { order }).await?)
     }
 }

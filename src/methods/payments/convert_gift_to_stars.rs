@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::accepted;
 use crate::raw::functions;
 
 /// Request built by [`Client::convert_gift_to_stars`].
@@ -33,8 +34,7 @@ impl ConvertGiftToStars<'_> {
         }
         let stargift = self.client.input_saved_gift(&self.owned_gift_id).await?;
         let request = functions::payments::ConvertStarGift { stargift };
-        self.client.invoke_business(self.connection_id.as_deref(), request).await?;
-        Ok(())
+        accepted(self.client.invoke_business(self.connection_id.as_deref(), request).await?.0)
     }
 }
 

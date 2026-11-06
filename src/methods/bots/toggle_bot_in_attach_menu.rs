@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 use crate::types::PeerRef;
 
@@ -32,8 +33,7 @@ impl ToggleBotInAttachMenu<'_> {
             bot: self.client.resolve_user(&self.bot_id).await?,
             enabled: self.enabled,
         };
-        self.client.invoke(&request).await?;
-        Ok(())
+        accepted(self.client.invoke(&request).await?)
     }
 }
 

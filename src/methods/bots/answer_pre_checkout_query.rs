@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::accepted;
 use crate::raw::functions;
 
 /// Request built by [`Client::answer_pre_checkout_query`].
@@ -30,8 +31,7 @@ impl AnswerPreCheckoutQuery<'_> {
             query_id: self.query_id,
             error: self.error,
         };
-        self.client.invoke(&request).await?;
-        Ok(())
+        accepted(self.client.invoke(&request).await?)
     }
 }
 
