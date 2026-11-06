@@ -52,7 +52,7 @@ pub(super) fn seen<'a>(facts: &Facts<'a>) -> Option<&'a str> {
 }
 
 /// Updates whose text, caption, callback data or payload contains a match of `re`. An empty text never matches.
-/// Read the groups of the match with [`matches`].
+/// Read the groups of the match with [`matches`](fn@matches).
 pub fn regex<T: Searchable>(re: Regex) -> Filter<T> {
     Filter(Pred::Regex(re))
 }

@@ -24,10 +24,18 @@ pub(crate) mod private {
 
 /// An update kind filters can test. Sealed: the capability traits below decide which filters apply.
 pub trait Subject: private::Sealed + Send + 'static {}
+/// Update kinds that happen in a chat, so chat filters apply: [`private`](super::private), [`group`](super::group),
+/// [`chat`](super::chat), [`outgoing`](super::outgoing), [`admin`](super::admin) and the like.
 pub trait HasChat: Subject {}
+/// Update kinds with a sender, user or chat, so [`user`](super::user), [`me`](super::me), [`bot`](super::bot) and
+/// [`sender_chat`](super::sender_chat) apply.
 pub trait HasSender: Subject {}
+/// Update kinds with text (a message's text or caption, an inline query), so [`text`](super::text),
+/// [`command`](super::command) and [`text_starts_with`](super::text_starts_with) apply.
 pub trait HasText: Subject {}
+/// Update kinds that are whole messages, so media, reply, forward, service and the other message filters apply.
 pub trait HasMedia: Subject {}
+/// Update kinds carrying callback data, so [`data`](super::data) and [`data_prefix`](super::data_prefix) apply.
 pub trait HasData: Subject {}
 
 macro_rules! subject {

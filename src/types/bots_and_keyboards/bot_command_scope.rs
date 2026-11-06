@@ -20,7 +20,12 @@ pub enum BotCommandScope {
     /// The administrators of one chat.
     ChatAdministrators(PeerRef),
     /// One user in one chat.
-    ChatMember { chat_id: PeerRef, user_id: PeerRef },
+    ChatMember {
+        /// The group or supergroup.
+        chat_id: PeerRef,
+        /// The member the commands are shown to.
+        user_id: PeerRef,
+    },
 }
 
 impl BotCommandScope {

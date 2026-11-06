@@ -211,16 +211,25 @@ impl Hooks {
 macro_rules! update_kinds {
     (
         |$client:ident, $entities:ident, $me:ident|
-        $($field:ident: $kind:ident => $ty:ty { $($variant:ident($u:ident) => $parse:expr),* $(,)? })*
+        $($(#[$doc:meta])* $field:ident: $kind:ident => $ty:ty { $($variant:ident($u:ident) => $parse:expr),* $(,)? })*
     ) => {
+        /// Which handler route an update or a handler belongs to; [`HandlerError::kind`] says which one failed.
+        /// Each variant names the `Client::on_*` method that registers it.
+        ///
+        /// [`HandlerError::kind`]: crate::handlers::HandlerError::kind
         #[non_exhaustive]
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub enum UpdateKind {
-            $($kind,)*
+            $($(#[$doc])* $kind,)*
+            /// Every update unparsed, before filtering: [`on_raw_update`](crate::Client::on_raw_update).
             Raw,
+            /// The hook `run` awaits before the first update: [`on_start`](crate::Client::on_start).
             Start,
+            /// The hook that runs as `run` returns: [`on_stop`](crate::Client::on_stop).
             Stop,
+            /// The hook for the main connection coming back: [`on_connect`](crate::Client::on_connect).
             Connect,
+            /// The hook for the main connection being lost or closed: [`on_disconnect`](crate::Client::on_disconnect).
             Disconnect,
         }
 
@@ -285,89 +294,126 @@ macro_rules! update_kinds {
 update_kinds! {
     |client, entities, me|
     // Messages and plain callback queries are pre-filtered on `Facts` in `dispatch`, before they are parsed.
+    /// New messages: [`on_message`](crate::Client::on_message).
     message: Message => Message {}
+    /// Edited messages: [`on_edited_message`](crate::Client::on_edited_message).
     edited_message: EditedMessage => Message {}
+    /// Presses of inline keyboard buttons: [`on_callback_query`](crate::Client::on_callback_query).
     callback_query: CallbackQuery => CallbackQuery {
         UpdateEphemeralBotCallbackQuery(u) => CallbackQuery::parse_ephemeral(client, *u, entities),
         UpdateInlineBotCallbackQuery(u) => CallbackQuery::parse_inline(client, *u, entities),
         UpdateBusinessBotCallbackQuery(u) => CallbackQuery::parse_business(client, *u, entities),
     }
+    /// Queries typed after the bot's username: [`on_inline_query`](crate::Client::on_inline_query).
     inline_query: InlineQuery => InlineQuery {
         UpdateBotInlineQuery(u) => InlineQuery::parse(client, &u, entities),
     }
+    /// Inline results a user picked: [`on_chosen_inline_result`](crate::Client::on_chosen_inline_result).
     chosen_inline_result: ChosenInlineResult => ChosenInlineResult {
         UpdateBotInlineSend(u) => ChosenInlineResult::parse(client, &u, entities),
     }
+    /// Requests to join a chat: [`on_chat_join_request`](crate::Client::on_chat_join_request).
     chat_join_request: ChatJoinRequest => ChatJoinRequest {
         UpdateBotChatInviteRequester(u) => ChatJoinRequest::parse(client, &u, entities),
     }
+    /// Messages sent through the bot in chats it isn't in: [`on_guest_message`](crate::Client::on_guest_message).
     guest_message: GuestMessage => GuestMessage {
         UpdateBotGuestChatQuery(u) => GuestMessage::parse(client, *u, entities),
     }
+    /// Changes to Star subscriptions to the bot:
+    /// [`on_bot_subscription_updated`](crate::Client::on_bot_subscription_updated).
     bot_subscription_updated: BotSubscriptionUpdated => BotSubscriptionUpdated {
         UpdateBotStarsSubscription(u) => BotSubscriptionUpdated::parse(client, &u, entities),
     }
+    /// Streamed message drafts that were stopped:
+    /// [`on_message_generation_stopped`](crate::Client::on_message_generation_stopped).
     message_generation_stopped: MessageGenerationStopped => MessageGenerationStopped {
         UpdateUserTyping(u) => MessageGenerationStopped::parse(client, &u, entities),
     }
+    /// Updates to bots this account manages: [`on_managed_bot`](crate::Client::on_managed_bot).
     managed_bot: ManagedBot => ManagedBotUpdated {
         UpdateManagedBot(u) => ManagedBotUpdated::parse(client, &u, entities),
     }
+    /// New ephemeral messages: [`on_ephemeral_message`](crate::Client::on_ephemeral_message).
     ephemeral_message: EphemeralMessage => EphemeralMessage {
         UpdateNewEphemeralMessage(u) => EphemeralMessage::parse(client, u.message, entities),
     }
+    /// Edited ephemeral messages: [`on_edited_ephemeral_message`](crate::Client::on_edited_ephemeral_message).
     edited_ephemeral_message: EditedEphemeralMessage => EphemeralMessage {
         UpdateEditEphemeralMessage(u) => EphemeralMessage::parse(client, u.message, entities),
     }
+    /// Deleted ephemeral messages: [`on_deleted_ephemeral_messages`](crate::Client::on_deleted_ephemeral_messages).
     deleted_ephemeral_messages: DeletedEphemeralMessages => DeletedEphemeralMessages {
         UpdateDeleteEphemeralMessages(u) => DeletedEphemeralMessages::parse(client, *u, entities),
     }
+    /// A user's or chat's reactions to a message changed: [`on_message_reaction`](crate::Client::on_message_reaction).
     message_reaction: MessageReaction => MessageReactionUpdated {
         UpdateBotMessageReaction(u) => MessageReactionUpdated::parse(client, &u, entities),
     }
+    /// Anonymous reaction counts on a message changed:
+    /// [`on_message_reaction_count`](crate::Client::on_message_reaction_count).
     message_reaction_count: MessageReactionCount => MessageReactionCountUpdated {
         UpdateBotMessageReactions(u) => MessageReactionCountUpdated::parse(client, &u, entities),
     }
+    /// A business connection of the bot changed: [`on_business_connection`](crate::Client::on_business_connection).
     business_connection: BusinessConnection => BusinessConnection {
         UpdateBotBusinessConnect(u) => BusinessConnection::parse(client, u.connection, entities),
     }
+    /// New messages through a business connection: [`on_business_message`](crate::Client::on_business_message).
     business_message: BusinessMessage => Message {}
+    /// Edited messages through a business connection:
+    /// [`on_edited_business_message`](crate::Client::on_edited_business_message).
     edited_business_message: EditedBusinessMessage => Message {}
+    /// Messages deleted through a business connection:
+    /// [`on_deleted_business_messages`](crate::Client::on_deleted_business_messages).
     deleted_business_messages: DeletedBusinessMessages => DeletedBusinessMessages {
         UpdateBotDeleteBusinessMessage(u) => DeletedBusinessMessages::parse(client, *u, entities),
     }
+    /// Shipping queries for invoices with a flexible price: [`on_shipping_query`](crate::Client::on_shipping_query).
     shipping_query: ShippingQuery => ShippingQuery {
         UpdateBotShippingQuery(u) => ShippingQuery::parse(client, &u, entities),
     }
+    /// Queries sent before a payment completes: [`on_pre_checkout_query`](crate::Client::on_pre_checkout_query).
     pre_checkout_query: PreCheckoutQuery => PreCheckoutQuery {
         UpdateBotPrecheckoutQuery(u) => PreCheckoutQuery::parse(client, &u, entities),
     }
+    /// Purchases of paid media: [`on_purchased_paid_media`](crate::Client::on_purchased_paid_media).
     purchased_paid_media: PurchasedPaidMedia => PurchasedPaidMedia {
         UpdateBotPurchasedPaidMedia(u) => PurchasedPaidMedia::parse(client, &u, entities),
     }
     // One boost update parses into either kind, so `dispatch` routes both.
+    /// Boosts added to or changed in a chat: [`on_chat_boost`](crate::Client::on_chat_boost).
     chat_boost: ChatBoost => ChatBoostUpdated {}
+    /// Boosts removed from a chat: [`on_removed_chat_boost`](crate::Client::on_removed_chat_boost).
     removed_chat_boost: RemovedChatBoost => ChatBoostRemoved {}
     // A member update goes to exactly one of these, depending on whose membership changed; `dispatch` routes both.
+    /// Another member's status in a chat changed: [`on_chat_member_updated`](crate::Client::on_chat_member_updated).
     chat_member_updated: ChatMemberUpdated => ChatMemberUpdated {}
+    /// This account's own membership changed: [`on_my_chat_member`](crate::Client::on_my_chat_member).
     my_chat_member: MyChatMember => ChatMemberUpdated {}
+    /// A poll's results changed or it closed: [`on_poll`](crate::Client::on_poll).
     poll: Poll => PollUpdated {
         UpdateMessagePoll(u) => PollUpdated::parse(client, &u, entities),
     }
+    /// Votes in a poll: [`on_poll_answer`](crate::Client::on_poll_answer).
     poll_answer: PollAnswer => PollAnswer {
         UpdateMessagePollVote(u) => PollAnswer::parse(client, *u, entities),
     }
+    /// Deleted messages: [`on_deleted_messages`](crate::Client::on_deleted_messages).
     deleted_messages: DeletedMessages => DeletedMessages {
         UpdateDeleteMessages(u) => DeletedMessages::parse(client, *u),
         UpdateDeleteChannelMessages(u) => DeletedMessages::parse_channel(client, *u, entities),
     }
+    /// A user's online status changed: [`on_user_status`](crate::Client::on_user_status).
     user_status: UserStatus => UserStatusUpdated {
         UpdateUserStatus(u) => UserStatusUpdated::parse(client, &u, entities),
     }
+    /// This account's TON wallet state changed: [`on_ton_wallet_state`](crate::Client::on_ton_wallet_state).
     ton_wallet_state: TonWalletState => TonWalletState {
         UpdateWalletState(u) => TonWalletState::parse(client, &u.state),
     }
     // A deleted story parses to `None`, so it never reaches a handler.
+    /// Stories, apart from deleted ones: [`on_story`](crate::Client::on_story).
     story: Story => Story {
         UpdateStory(u) => {
             let u = *u;
