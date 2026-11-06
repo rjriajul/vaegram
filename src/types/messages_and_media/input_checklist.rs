@@ -32,17 +32,20 @@ impl InputChecklist {
     /// Adds a task to the checklist.
     ///
     /// Task ids must be positive and unique within the checklist.
+    #[must_use]
     pub fn task(mut self, id: i32, text: impl Into<Text>) -> Self {
         self.tasks.push((id, text.into(), None));
         self
     }
 
     /// Parses the title and the tasks added with [`task`](InputChecklist::task) as HTML.
+    #[must_use]
     pub fn html(self) -> Self {
         self.parse_mode(ParseMode::Html)
     }
 
     /// Parses the title and the tasks added with [`task`](InputChecklist::task) as Markdown.
+    #[must_use]
     pub fn markdown(self) -> Self {
         self.parse_mode(ParseMode::Markdown)
     }
@@ -50,18 +53,21 @@ impl InputChecklist {
     /// Parses the title and the tasks added with [`task`](InputChecklist::task) with the given mode.
     ///
     /// Texts copied from a received checklist keep their entities and skip the mode.
+    #[must_use]
     pub fn parse_mode(mut self, mode: ParseMode) -> Self {
         self.parse_mode = Some(mode);
         self
     }
 
     /// Lets other users add tasks to the checklist.
+    #[must_use]
     pub fn others_can_add_tasks(mut self) -> Self {
         self.others_can_add_tasks = true;
         self
     }
 
     /// Lets other users mark tasks as done.
+    #[must_use]
     pub fn others_can_mark_tasks_as_done(mut self) -> Self {
         self.others_can_mark_tasks_as_done = true;
         self

@@ -4,7 +4,7 @@ use crate::raw::{base, types};
 use crate::types::{LivePhoto, Media, Photo, StrippedThumbnail, Video};
 
 /// Media a message sells for Stars.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct PaidMediaInfo {
     /// Price in Stars.
@@ -14,7 +14,7 @@ pub struct PaidMediaInfo {
 }
 
 /// One item of paid media.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum PaidMedia {
     /// Until it is bought, only the size and a video's length are shown.

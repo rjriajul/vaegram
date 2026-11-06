@@ -23,24 +23,28 @@ impl SwitchInlineQueryChosenChat {
     }
 
     /// Sets whether the user can pick private chats with users; `true` allows them.
+    #[must_use]
     pub fn allow_user_chats(mut self, allow_user_chats: bool) -> Self {
         self.allow_user_chats = allow_user_chats;
         self
     }
 
     /// Sets whether the user can pick private chats with bots; `true` allows them.
+    #[must_use]
     pub fn allow_bot_chats(mut self, allow_bot_chats: bool) -> Self {
         self.allow_bot_chats = allow_bot_chats;
         self
     }
 
     /// Sets whether the user can pick groups and supergroups; `true` allows them.
+    #[must_use]
     pub fn allow_group_chats(mut self, allow_group_chats: bool) -> Self {
         self.allow_group_chats = allow_group_chats;
         self
     }
 
     /// Sets whether the user can pick channels; `true` allows them.
+    #[must_use]
     pub fn allow_channel_chats(mut self, allow_channel_chats: bool) -> Self {
         self.allow_channel_chats = allow_channel_chats;
         self

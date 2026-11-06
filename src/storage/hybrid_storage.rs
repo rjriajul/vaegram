@@ -240,6 +240,7 @@ impl HybridStorage {
     }
 
     /// Answers reads from `engine` instead of from memory.
+    #[must_use]
     pub fn local(mut self, engine: impl Storage) -> HybridStorage {
         self.local = Box::new(engine);
         self
@@ -247,6 +248,7 @@ impl HybridStorage {
 
     /// How many peer writes may wait for the remote before the oldest are dropped; 1024 unless set. Set it before
     /// opening: once the storage has been opened it has no effect.
+    #[must_use]
     pub fn queue_size(mut self, peers: usize) -> HybridStorage {
         if let Some(shared) = Arc::get_mut(&mut self.shared) {
             shared.queue_size = peers;
@@ -256,12 +258,14 @@ impl HybridStorage {
 
     /// How many of the remote's newest peers opening copies to the local side; 4096 unless set. Set it before
     /// opening.
+    #[must_use]
     pub fn warm_peers(mut self, peers: usize) -> HybridStorage {
         self.warm_peers = peers;
         self
     }
 
     /// How long closing waits for the queue to reach the remote; 10 seconds unless set.
+    #[must_use]
     pub fn flush_timeout(mut self, timeout: Duration) -> HybridStorage {
         self.flush_timeout = timeout;
         self

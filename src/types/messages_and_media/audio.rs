@@ -2,7 +2,10 @@ use crate::raw::types;
 use crate::types::{Document, FileLocation, Thumbnail};
 
 /// An audio file shown as music, as opposed to a voice note.
-#[derive(Debug, Clone)]
+///
+/// `==` compares every field, and `file_id` differs between bots and sessions or over time; compare
+/// `file_unique_id` to tell whether two values are the same file.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Audio {
     /// Encoded identifier for sending or downloading the file again.
     pub file_id: String,

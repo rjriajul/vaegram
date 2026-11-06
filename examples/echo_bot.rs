@@ -1,7 +1,7 @@
-use vaegram::{Client, filters};
+use vaegram::prelude::*;
 
 #[tokio::main]
-async fn main() -> vaegram::Result<()> {
+async fn main() -> Result<()> {
     let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
     let app = Client::builder("echo_bot", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
         .bot_token(env("VAEGRAM_BOT_TOKEN"))

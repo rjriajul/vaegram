@@ -35,12 +35,14 @@ impl<'a> InputSticker<'a> {
     }
 
     /// Places the sticker on a face, which makes it a mask.
+    #[must_use]
     pub fn mask_position(mut self, position: MaskPosition) -> Self {
         self.mask_position = Some(position);
         self
     }
 
     /// Adds search keywords for the sticker, joined into one comma-separated string.
+    #[must_use]
     pub fn keywords(mut self, keywords: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.keywords = Some(InputSticker::join_keywords(keywords));
         self

@@ -55,6 +55,8 @@ pub struct HandlerRef<'a> {
     id: u32,
 }
 
+// `group` and `stop` take effect at once; `self` comes back only for chaining, so dropping it is fine.
+#[allow(clippy::return_self_not_must_use)]
 impl HandlerRef<'_> {
     /// Groups run in ascending order, default 0. Within a group the first matching handler
     /// wins, and every group gets its own turn. Raw handlers always run and ignore this, as do the

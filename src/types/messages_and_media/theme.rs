@@ -84,24 +84,28 @@ impl ThemeSettings {
     }
 
     /// Gives outgoing messages their own accent color instead of `accent_color`.
+    #[must_use]
     pub fn outbox_accent_color(mut self, color: i32) -> Self {
         self.outbox_accent_color = Some(color);
         self
     }
 
     /// Colors the message bubbles. More than one color makes a gradient.
+    #[must_use]
     pub fn message_colors(mut self, colors: impl IntoIterator<Item = i32>) -> Self {
         self.message_colors = colors.into_iter().collect();
         self
     }
 
     /// Sets whether the message bubble gradient is animated; `true` animates it.
+    #[must_use]
     pub fn message_colors_animated(mut self, message_colors_animated: bool) -> Self {
         self.message_colors_animated = message_colors_animated;
         self
     }
 
     /// Adds a chat wallpaper to the theme.
+    #[must_use]
     pub fn wallpaper(mut self, wallpaper: ChatBackground) -> Self {
         self.wallpaper = Some(wallpaper);
         self

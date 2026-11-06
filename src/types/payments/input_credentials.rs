@@ -44,6 +44,7 @@ impl InputCredentials {
     }
 
     /// Lets the provider remember the card. Only a new card can be saved: other kinds are returned unchanged.
+    #[must_use]
     pub fn allow_save(mut self) -> InputCredentials {
         if let InputCredentials::New { allow_save, .. } = &mut self {
             *allow_save = true;

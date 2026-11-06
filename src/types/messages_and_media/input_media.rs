@@ -7,6 +7,7 @@ use crate::types::{FileSource, MaskPosition, Text, Upload};
 /// Create one with a constructor such as [`photo`](InputMedia::photo) and pass it to a send or edit method.
 /// The setters below apply only to the kinds that use them, and the others ignore them.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct InputMedia<'a> {
     pub(crate) kind: MediaKind,
     pub(crate) file: FileSource<'a>,

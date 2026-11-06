@@ -151,54 +151,63 @@ impl KeyboardButton {
     }
 
     /// Sets whether the button sends the user's phone number when pressed; `true` sends it.
+    #[must_use]
     pub fn request_contact(mut self, request_contact: bool) -> Self {
         self.request_contact = request_contact;
         self
     }
 
     /// Sets whether the button sends the user's current location when pressed; `true` sends it.
+    #[must_use]
     pub fn request_location(mut self, request_location: bool) -> Self {
         self.request_location = request_location;
         self
     }
 
     /// Makes the button ask the user to create a managed bot.
+    #[must_use]
     pub fn request_managed_bot(mut self, request: KeyboardButtonRequestManagedBot) -> Self {
         self.request_managed_bot = Some(request);
         self
     }
 
     /// Makes the button ask the user to pick users to share.
+    #[must_use]
     pub fn request_users(mut self, request: KeyboardButtonRequestUsers) -> Self {
         self.request_users = Some(request);
         self
     }
 
     /// Makes the button ask the user to pick a chat to share.
+    #[must_use]
     pub fn request_chat(mut self, request: KeyboardButtonRequestChat) -> Self {
         self.request_chat = Some(request);
         self
     }
 
     /// Makes the button ask the user to create a poll.
+    #[must_use]
     pub fn request_poll(mut self, request: KeyboardButtonPollType) -> Self {
         self.request_poll = Some(request);
         self
     }
 
     /// Makes the button open a mini app.
+    #[must_use]
     pub fn web_app(mut self, web_app: WebAppInfo) -> Self {
         self.web_app = Some(web_app);
         self
     }
 
     /// Colors the button.
+    #[must_use]
     pub fn style(mut self, style: ButtonStyle) -> Self {
         self.style = style;
         self
     }
 
     /// Shows the custom emoji `id` before the text.
+    #[must_use]
     pub fn icon_custom_emoji_id(mut self, id: i64) -> Self {
         self.icon_custom_emoji_id = Some(id);
         self
@@ -250,12 +259,14 @@ impl KeyboardButtonRequestManagedBot {
     }
 
     /// Proposes a name for the new bot.
+    #[must_use]
     pub fn suggested_name(mut self, name: impl Into<String>) -> Self {
         self.suggested_name = Some(name.into());
         self
     }
 
     /// Proposes a username for the new bot.
+    #[must_use]
     pub fn suggested_username(mut self, username: impl Into<String>) -> Self {
         self.suggested_username = Some(username.into());
         self

@@ -35,36 +35,42 @@ impl KeyboardButtonRequestUsers {
     }
 
     /// Limits the choice to bots or to people.
+    #[must_use]
     pub fn user_is_bot(mut self, is_bot: bool) -> Self {
         self.user_is_bot = Some(is_bot);
         self
     }
 
     /// Limits the choice to Premium users or to users without Premium.
+    #[must_use]
     pub fn user_is_premium(mut self, is_premium: bool) -> Self {
         self.user_is_premium = Some(is_premium);
         self
     }
 
     /// Lets the user pick up to `n` users, from 1 to 10.
+    #[must_use]
     pub fn max_quantity(mut self, n: i32) -> Self {
         self.max_quantity = n;
         self
     }
 
     /// Sets whether the users' names are shared too; `true` shares them.
+    #[must_use]
     pub fn request_name(mut self, request_name: bool) -> Self {
         self.request_name = request_name;
         self
     }
 
     /// Sets whether the users' usernames are shared too; `true` shares them.
+    #[must_use]
     pub fn request_username(mut self, request_username: bool) -> Self {
         self.request_username = request_username;
         self
     }
 
     /// Sets whether the users' photos are shared too; `true` shares them.
+    #[must_use]
     pub fn request_photo(mut self, request_photo: bool) -> Self {
         self.request_photo = request_photo;
         self

@@ -48,60 +48,70 @@ impl KeyboardButtonRequestChat {
     }
 
     /// Sets whether to ask for a channel instead of a group; `true` asks for a channel.
+    #[must_use]
     pub fn chat_is_channel(mut self, chat_is_channel: bool) -> Self {
         self.chat_is_channel = chat_is_channel;
         self
     }
 
     /// Limits groups to forums or to non-forums. Ignored for channels.
+    #[must_use]
     pub fn chat_is_forum(mut self, is_forum: bool) -> Self {
         self.chat_is_forum = Some(is_forum);
         self
     }
 
     /// Limits chats to those with or without a username.
+    #[must_use]
     pub fn chat_has_username(mut self, has_username: bool) -> Self {
         self.chat_has_username = Some(has_username);
         self
     }
 
     /// Sets whether chats are limited to those the user owns; `true` limits them.
+    #[must_use]
     pub fn chat_is_created(mut self, chat_is_created: bool) -> Self {
         self.chat_is_created = chat_is_created;
         self
     }
 
     /// Requires the user to have these administrator rights in the chat.
+    #[must_use]
     pub fn user_administrator_rights(mut self, rights: ChatPrivileges) -> Self {
         self.user_administrator_rights = Some(rights);
         self
     }
 
     /// Requires the bot to have these administrator rights in the chat.
+    #[must_use]
     pub fn bot_administrator_rights(mut self, rights: ChatPrivileges) -> Self {
         self.bot_administrator_rights = Some(rights);
         self
     }
 
     /// Sets whether groups are limited to those the bot is a member of; `true` limits them. Ignored for channels.
+    #[must_use]
     pub fn bot_is_member(mut self, bot_is_member: bool) -> Self {
         self.bot_is_member = bot_is_member;
         self
     }
 
     /// Sets whether the chat's title is shared too; `true` shares it.
+    #[must_use]
     pub fn request_title(mut self, request_title: bool) -> Self {
         self.request_title = request_title;
         self
     }
 
     /// Sets whether the chat's username is shared too; `true` shares it.
+    #[must_use]
     pub fn request_username(mut self, request_username: bool) -> Self {
         self.request_username = request_username;
         self
     }
 
     /// Sets whether the chat's photo is shared too; `true` shares it.
+    #[must_use]
     pub fn request_photo(mut self, request_photo: bool) -> Self {
         self.request_photo = request_photo;
         self

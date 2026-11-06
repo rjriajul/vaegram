@@ -146,6 +146,7 @@ impl VaultStorage {
     }
 
     /// Keeps the update state and peers in `engine` instead of in memory.
+    #[must_use]
     pub fn data(mut self, engine: impl Storage) -> VaultStorage {
         self.data = Box::new(engine);
         self

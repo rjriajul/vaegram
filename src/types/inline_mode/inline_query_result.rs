@@ -96,6 +96,7 @@ macro_rules! setters {
     };
     (@id) => {
         /// Unique among the results of one answer; random unless set.
+        #[must_use]
         pub fn id(mut self, id: impl Into<String>) -> Self {
             self.parts.id = id.into();
             self
@@ -103,6 +104,7 @@ macro_rules! setters {
     };
     (@reply_markup) => {
         /// Attaches a keyboard to the message sent when the user picks this result.
+        #[must_use]
         pub fn reply_markup(mut self, markup: impl Into<$crate::types::ReplyMarkup>) -> Self {
             self.parts.reply_markup = Some(markup.into());
             self
@@ -110,6 +112,7 @@ macro_rules! setters {
     };
     (@input_message_content) => {
         /// Replaces the message sent when the user picks this result.
+        #[must_use]
         pub fn input_message_content(mut self, content: impl Into<$crate::types::InputMessageContent>) -> Self {
             self.parts.content = Some(content.into());
             self
@@ -117,29 +120,34 @@ macro_rules! setters {
     };
     (@caption) => {
         /// Caption of the sent media, in the client's default parse mode unless `parse_mode` is set.
+        #[must_use]
         pub fn caption(mut self, caption: impl Into<$crate::types::Text>) -> Self {
             self.parts.caption = caption.into();
             self
         }
 
         /// Parses the caption with `mode` instead of the client's default.
+        #[must_use]
         pub fn parse_mode(mut self, mode: $crate::enums::ParseMode) -> Self {
             self.parts.parse_mode = Some(mode);
             self
         }
 
         /// Parses the caption as HTML.
+        #[must_use]
         pub fn html(self) -> Self {
             self.parse_mode($crate::enums::ParseMode::Html)
         }
 
         /// Parses the caption as Markdown.
+        #[must_use]
         pub fn markdown(self) -> Self {
             self.parse_mode($crate::enums::ParseMode::Markdown)
         }
     };
     (@caption_above) => {
         /// Shows the caption above the media instead of below it.
+        #[must_use]
         pub fn show_caption_above_media(mut self) -> Self {
             self.parts.caption_above = true;
             self
@@ -147,6 +155,7 @@ macro_rules! setters {
     };
     (@title) => {
         /// Title shown for the result in the results list.
+        #[must_use]
         pub fn title(mut self, title: impl Into<String>) -> Self {
             self.parts.title = Some(title.into());
             self
@@ -154,6 +163,7 @@ macro_rules! setters {
     };
     (@description) => {
         /// Short description shown under the title in the results list.
+        #[must_use]
         pub fn description(mut self, description: impl Into<String>) -> Self {
             self.parts.description = Some(description.into());
             self
@@ -161,6 +171,7 @@ macro_rules! setters {
     };
     (@url) => {
         /// URL attached to the result.
+        #[must_use]
         pub fn url(mut self, url: impl Into<String>) -> Self {
             self.parts.url = Some(url.into());
             self
@@ -168,6 +179,7 @@ macro_rules! setters {
     };
     (@thumbnail) => {
         /// URL of a JPEG thumbnail shown in the results list.
+        #[must_use]
         pub fn thumbnail(mut self, thumbnail_url: impl Into<String>) -> Self {
             self.parts.thumbnail_url = Some(thumbnail_url.into());
             self
@@ -175,6 +187,7 @@ macro_rules! setters {
     };
     (@dimensions) => {
         /// Width and height of the media, in pixels.
+        #[must_use]
         pub fn dimensions(mut self, width: i32, height: i32) -> Self {
             (self.file.width, self.file.height) = (width, height);
             self
@@ -182,6 +195,7 @@ macro_rules! setters {
     };
     (@duration) => {
         /// Duration of the media, in seconds.
+        #[must_use]
         pub fn duration(mut self, seconds: i32) -> Self {
             self.file.duration = seconds;
             self
@@ -189,6 +203,7 @@ macro_rules! setters {
     };
     (@mime_type) => {
         /// MIME type of the file at the URL, replacing the default for this result kind.
+        #[must_use]
         pub fn mime_type(mut self, mime_type: impl Into<String>) -> Self {
             self.file.mime_type = mime_type.into();
             self
@@ -196,6 +211,7 @@ macro_rules! setters {
     };
     (@performer) => {
         /// Performer name shown for the audio.
+        #[must_use]
         pub fn performer(mut self, performer: impl Into<String>) -> Self {
             self.file.performer = Some(performer.into());
             self

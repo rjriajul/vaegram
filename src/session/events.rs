@@ -79,7 +79,7 @@ impl Events {
 
     /// A failed storage call, as `warn` reports it; `message` says what was being done and why it failed.
     pub(crate) fn storage_failed(&self, kind: std::io::ErrorKind, message: impl std::fmt::Display) {
-        self.warn(ClientEvent::StorageFailed { error: std::io::Error::new(kind, message.to_string()) });
+        self.warn(ClientEvent::StorageFailed { error: Arc::new(std::io::Error::new(kind, message.to_string())) });
     }
 
     pub(crate) fn on_link(&self, listener: LinkListener) {
@@ -194,6 +194,8 @@ fn unrecoverable(updates: &base::Updates) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{Affected, Events, NESTED_LIMIT, describe};
     use crate::enums::ClientEvent;
     use crate::errors::Error;
@@ -236,12 +238,13 @@ mod tests {
     #[test]
     fn unheard_warnings_are_described_in_one_line() {
         let failed = |chat_id| ClientEvent::HandlerFailed {
-            error: HandlerError { kind: UpdateKind::Message, chat_id, error: Error::Timeout },
+            error: Arc::new(HandlerError { kind: UpdateKind::Message, chat_id, error: Error::Timeout }),
         };
         let timeout = Error::Timeout.to_string();
         assert_eq!(describe(&failed(Some(5))), format!("Message handler failed in chat 5: {timeout}"));
         assert_eq!(describe(&failed(None)), format!("Message handler failed: {timeout}"));
-        let storage = ClientEvent::StorageFailed { error: std::io::Error::other("failed to close the storage engine") };
+        let error = Arc::new(std::io::Error::other("failed to close the storage engine"));
+        let storage = ClientEvent::StorageFailed { error };
         assert_eq!(describe(&storage), "failed to close the storage engine");
     }
 }

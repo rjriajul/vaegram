@@ -52,6 +52,7 @@ impl RedisStorage {
     }
 
     /// Puts every key under `prefix` instead of `vaegram:<name>`.
+    #[must_use]
     pub fn prefix(mut self, prefix: impl Into<String>) -> RedisStorage {
         self.prefix = prefix.into();
         self

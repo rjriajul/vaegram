@@ -13,10 +13,10 @@
 </div>
 
 ```rust
-use vaegram::{Client, filters};
+use vaegram::prelude::*;
 
 #[tokio::main]
-async fn main() -> vaegram::Result<()> {
+async fn main() -> Result<()> {
     let app = Client::builder("my_bot", 12345, "0123456789abcdef0123456789abcdef")
         .bot_token("123456:ABC-DEF")
         .start()

@@ -3,7 +3,10 @@ use crate::raw::{base, types};
 use crate::types::{Document, FileLocation, Photo};
 
 /// A photo with a short video that plays when it is held. The ids, sizes and download are the video's.
-#[derive(Debug, Clone)]
+///
+/// `==` compares every field, and `file_id` differs between bots and sessions or over time; compare
+/// `file_unique_id` to tell whether two values are the same file.
+#[derive(Debug, Clone, PartialEq)]
 pub struct LivePhoto {
     /// The still photo. `None` if Telegram sent none or it can't be downloaded.
     pub photo: Option<Photo>,

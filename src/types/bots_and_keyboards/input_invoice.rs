@@ -51,24 +51,28 @@ impl InputInvoice {
     }
 
     /// Sends the payment through the provider this token belongs to.
+    #[must_use]
     pub fn provider_token(mut self, token: impl Into<String>) -> Self {
         self.0.provider = Some(token.into());
         self
     }
 
     /// JSON data passed to the payment provider. Defaults to `{}`.
+    #[must_use]
     pub fn provider_data(mut self, json: impl Into<String>) -> Self {
         self.0.provider_data = base::DataJSON::DataJSON(Box::new(types::DataJSON { data: json.into() }));
         self
     }
 
     /// Adds a start parameter for deep links to the bot.
+    #[must_use]
     pub fn start_parameter(mut self, parameter: impl Into<String>) -> Self {
         self.0.start_param = Some(parameter.into());
         self
     }
 
     /// Shows the photo at `url` on the invoice. The size is sent only when `width` and `height` are both positive.
+    #[must_use]
     pub fn photo(mut self, url: impl Into<String>, width: i32, height: i32) -> Self {
         let size = types::DocumentAttributeImageSize { w: width, h: height };
         let attributes = if width > 0 && height > 0 {
@@ -83,6 +87,7 @@ impl InputInvoice {
 
     /// Lets the buyer tip up to `max_tip_amount`, offering the suggested amounts as presets. Amounts are in the
     /// currency's smallest units.
+    #[must_use]
     pub fn tips(mut self, max_tip_amount: i64, suggested_tip_amounts: impl IntoIterator<Item = i64>) -> Self {
         let invoice = self.invoice();
         invoice.max_tip_amount = Some(max_tip_amount);
@@ -91,6 +96,7 @@ impl InputInvoice {
     }
 
     /// Telegram only accepts 2592000 (30 days), and only for invoice links in Telegram Stars.
+    #[must_use]
     pub fn subscription_period(mut self, seconds: i32) -> Self {
         let invoice = self.invoice();
         (invoice.recurring, invoice.subscription_period) = (true, Some(seconds));
@@ -98,42 +104,49 @@ impl InputInvoice {
     }
 
     /// Asks the user for their full name.
+    #[must_use]
     pub fn need_name(mut self) -> Self {
         self.invoice().name_requested = true;
         self
     }
 
     /// Asks the user for their phone number.
+    #[must_use]
     pub fn need_phone_number(mut self) -> Self {
         self.invoice().phone_requested = true;
         self
     }
 
     /// Asks the user for their email address.
+    #[must_use]
     pub fn need_email(mut self) -> Self {
         self.invoice().email_requested = true;
         self
     }
 
     /// Asks the user for a shipping address.
+    #[must_use]
     pub fn need_shipping_address(mut self) -> Self {
         self.invoice().shipping_address_requested = true;
         self
     }
 
     /// Passes the user's phone number to the payment provider.
+    #[must_use]
     pub fn send_phone_number_to_provider(mut self) -> Self {
         self.invoice().phone_to_provider = true;
         self
     }
 
     /// Passes the user's email address to the payment provider.
+    #[must_use]
     pub fn send_email_to_provider(mut self) -> Self {
         self.invoice().email_to_provider = true;
         self
     }
 
     /// Makes the final price depend on the shipping method.
+    #[must_use]
     pub fn flexible(mut self) -> Self {
         self.invoice().flexible = true;
         self

@@ -79,6 +79,7 @@ impl Default for RateLimits {
 impl RateLimits {
     /// Changes one category. The rate must be above 0 and finite, and the burst at least 1; `ClientBuilder` refuses
     /// anything else when it connects.
+    #[must_use]
     pub fn limit(mut self, category: RateCategory, rate: f64, burst: f64) -> Self {
         self.limits[category.index()] = (rate, burst);
         self

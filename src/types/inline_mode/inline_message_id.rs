@@ -1,4 +1,5 @@
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 use crate::errors::{Error, Result};
@@ -15,6 +16,25 @@ impl InlineMessageId {
         match &self.0 {
             base::InputBotInlineMessageID::InputBotInlineMessageID(m) => m.dc_id,
             base::InputBotInlineMessageID::InputBotInlineMessageID64(m) => m.dc_id,
+        }
+    }
+}
+
+// The TL type has only integer fields, so its derived `PartialEq` is a full equivalence. `Hash` names every field,
+// so a field added to the schema stops the build here and both impls get a second look.
+impl Eq for InlineMessageId {}
+
+impl Hash for InlineMessageId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match &self.0 {
+            base::InputBotInlineMessageID::InputBotInlineMessageID(m) => {
+                let types::InputBotInlineMessageID { dc_id, id, access_hash } = &**m;
+                (dc_id, id, access_hash).hash(state)
+            }
+            base::InputBotInlineMessageID::InputBotInlineMessageID64(m) => {
+                let types::InputBotInlineMessageID64 { dc_id, owner_id, id, access_hash } = &**m;
+                (dc_id, owner_id, id, access_hash).hash(state)
+            }
         }
     }
 }
