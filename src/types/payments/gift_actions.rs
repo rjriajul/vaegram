@@ -39,8 +39,8 @@ impl UniqueGift {
         client.send_resold_gift(&self.name, new_owner, price).await
     }
 
-    /// Offers `price` to the owner, open for `duration` seconds. Fails when [`can_send_purchase_offer`] is false:
-    /// the gift has no known owner or doesn't take offers.
+    /// Offers `price` to the owner, open for `duration` seconds. Awaiting fails with `Error::InvalidArgument` when
+    /// [`can_send_purchase_offer`] is false: the gift has no known owner or doesn't take offers.
     ///
     /// [`can_send_purchase_offer`]: UniqueGift::can_send_purchase_offer
     pub fn send_purchase_offer<'a>(
@@ -48,12 +48,9 @@ impl UniqueGift {
         client: &'a Client,
         price: StarAmount,
         duration: i32,
-    ) -> Result<SendGiftPurchaseOffer<'a>> {
-        let owner = match &self.owner {
-            Some(owner) if self.can_send_purchase_offer() => owner,
-            _ => return Err(Error::InvalidArgument("the gift has no known owner or doesn't take offers")),
-        };
-        Ok(client.send_gift_purchase_offer(owner.id, &self.name, price, duration))
+    ) -> SendGiftPurchaseOffer<'a> {
+        let owner = self.owner.as_ref().filter(|_| self.can_send_purchase_offer()).map(|owner| owner.id.into());
+        client.offer_gift(owner, &self.name, price, duration)
     }
 }
 
@@ -89,16 +86,16 @@ impl OwnedGiftRegular {
 
     /// Builds a request that converts the gift to Stars and gives it up.
     ///
-    /// Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
-    pub fn convert<'a>(&self, client: &'a Client) -> Result<ConvertGiftToStars<'a>> {
-        Ok(client.convert_gift_to_stars(owned_id(&self.owned_gift_id)?))
+    /// Awaiting fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
+    pub fn convert<'a>(&self, client: &'a Client) -> ConvertGiftToStars<'a> {
+        client.convert_gift_to_stars(self.owned_gift_id.clone().unwrap_or_default())
     }
 
     /// Builds a request that upgrades the gift to a unique gift.
     ///
-    /// Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
-    pub fn upgrade<'a>(&self, client: &'a Client) -> Result<UpgradeGift<'a>> {
-        Ok(client.upgrade_gift(owned_id(&self.owned_gift_id)?))
+    /// Awaiting fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
+    pub fn upgrade<'a>(&self, client: &'a Client) -> UpgradeGift<'a> {
+        client.upgrade_gift(self.owned_gift_id.clone().unwrap_or_default())
     }
 }
 
@@ -132,16 +129,16 @@ impl GiftInfo {
 
     /// Builds a request that converts the gift to Stars and gives it up.
     ///
-    /// Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
-    pub fn convert<'a>(&self, client: &'a Client) -> Result<ConvertGiftToStars<'a>> {
-        Ok(client.convert_gift_to_stars(owned_id(&self.owned_gift_id)?))
+    /// Awaiting fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
+    pub fn convert<'a>(&self, client: &'a Client) -> ConvertGiftToStars<'a> {
+        client.convert_gift_to_stars(self.owned_gift_id.clone().unwrap_or_default())
     }
 
     /// Builds a request that upgrades the gift to a unique gift.
     ///
-    /// Fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
-    pub fn upgrade<'a>(&self, client: &'a Client) -> Result<UpgradeGift<'a>> {
-        Ok(client.upgrade_gift(owned_id(&self.owned_gift_id)?))
+    /// Awaiting fails with `Error::InvalidArgument` if `owned_gift_id` is `None`.
+    pub fn upgrade<'a>(&self, client: &'a Client) -> UpgradeGift<'a> {
+        client.upgrade_gift(self.owned_gift_id.clone().unwrap_or_default())
     }
 }
 
@@ -256,16 +253,16 @@ mod tests {
     async fn purchase_offers_need_an_owner() {
         let (client, mut sent) = owner_client();
         let price = StarAmount::new(9);
-        assert!(matches!(unique().send_purchase_offer(&client, price, 60), Err(Error::InvalidArgument(_))));
+        assert!(matches!(unique().send_purchase_offer(&client, price, 60).await, Err(Error::InvalidArgument(_))));
         // An owner alone is not enough: the gift must take offers.
         let owner =
             crate::types::Chat::parse(&crate::utils::get_peer(5), &crate::dispatcher::Entities::default(), true);
         let no_minimum = UniqueGift { owner: Some(owner.clone()), ..unique() };
-        assert!(matches!(no_minimum.send_purchase_offer(&client, price, 60), Err(Error::InvalidArgument(_))));
+        assert!(matches!(no_minimum.send_purchase_offer(&client, price, 60).await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
         let open = UniqueGift { owner: Some(owner), minimum_offer_star_count: Some(10), ..unique() };
-        assert!(open.send_purchase_offer(&client, price, 60).is_ok());
-        assert!(sent.try_recv().is_err());
+        let _ = open.send_purchase_offer(&client, price, 60).await;
+        assert_eq!(constructor(&sent.try_recv().unwrap()), functions::payments::SendStarGiftOffer::CONSTRUCTOR_ID);
     }
 
     #[tokio::test]
@@ -285,6 +282,9 @@ mod tests {
         assert!(matches!(owned.show(&client).await, Err(Error::InvalidArgument(_))));
         assert!(matches!(owned.hide(&client).await, Err(Error::InvalidArgument(_))));
         assert!(matches!(OwnedGift::Unique(Box::new(owned)).show(&client).await, Err(Error::InvalidArgument(_))));
+        // convert and upgrade pass a missing id on as an empty one, which the request refuses on await.
+        assert!(matches!(client.convert_gift_to_stars("").await, Err(Error::InvalidArgument(_))));
+        assert!(matches!(client.upgrade_gift("").await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err(), "no request without an id");
     }
 }
