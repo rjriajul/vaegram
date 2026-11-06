@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// The boost level of a chat and the progress toward the next one.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BoostsStatus {
     /// The chat's current boost level.
     pub level: i32,

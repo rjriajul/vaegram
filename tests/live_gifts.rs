@@ -115,6 +115,7 @@ fn owned_gift_ids(gifts: &OwnedGifts) -> Vec<String> {
     let id = |g: &OwnedGift| match g {
         OwnedGift::Regular(g) => g.owned_gift_id.clone(),
         OwnedGift::Unique(g) => g.owned_gift_id.clone(),
+        _ => None,
     };
     gifts.gifts.iter().filter_map(id).collect()
 }

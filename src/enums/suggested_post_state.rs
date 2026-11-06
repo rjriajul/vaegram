@@ -1,5 +1,6 @@
 /// Review state of a post suggested to a channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SuggestedPostState {
     /// Not approved or declined yet.
     Pending,

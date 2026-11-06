@@ -6,6 +6,7 @@ use crate::utils::get_peer_id;
 
 /// A chat that has messages saved in Saved Messages.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SavedDialog {
     /// The chat the saved messages came from.
     pub chat: Chat,

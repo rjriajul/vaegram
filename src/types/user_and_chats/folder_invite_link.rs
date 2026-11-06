@@ -3,6 +3,7 @@ use crate::utils::get_peer_id;
 
 /// An invite link that shares a folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FolderInviteLink {
     /// The invite URL to share.
     pub invite_link: String,

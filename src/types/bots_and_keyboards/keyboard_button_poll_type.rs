@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 
 /// A button that asks the user to make a poll. Without a type, any poll is accepted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct KeyboardButtonPollType {
     /// The kind of poll to accept. `None` accepts any.
     pub poll_type: Option<PollType>,

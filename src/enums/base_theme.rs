@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// The built-in theme a chat theme builds on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum BaseTheme {
     /// Telegram's classic theme.
     #[default]

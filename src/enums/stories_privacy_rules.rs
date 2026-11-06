@@ -2,6 +2,7 @@ use crate::types::PrivacyRule;
 
 /// Who can see a story. The default is [`Public`](Self::Public) with no exceptions.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum StoriesPrivacyRules {
     /// Everyone except the listed user ids.
     Public {

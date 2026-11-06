@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// An activity shown to other members of a chat, such as "typing...". Upload actions are sent with progress 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ChatAction {
     /// Typing a text message.
     Typing,

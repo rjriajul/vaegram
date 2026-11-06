@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// The emoji shown next to a user's name.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EmojiStatus {
     /// Id of the custom emoji.
     pub custom_emoji_id: i64,

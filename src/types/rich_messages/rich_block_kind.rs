@@ -10,6 +10,7 @@ use crate::types::{
 
 /// The caption of a media block, a collage or a slideshow.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct RichBlockCaption {
     /// The caption text. Empty when only a credit is set.
     pub text: RichText,
@@ -20,7 +21,7 @@ pub struct RichBlockCaption {
 /// What a block of a received rich message is.
 ///
 /// A media block keeps its kind when the message doesn't carry its file (as in a message you just sent): the file is
-/// `None`. `Unsupported` is for the legacy page blocks that have no friendly form, unreadable maps and maps built with
+/// `None`. `Unknown` is for the legacy page blocks that have no friendly form, unreadable maps and maps built with
 /// [`RichBlock::map`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -113,7 +114,7 @@ pub enum RichBlockKind {
         is_open: bool,
     },
     /// A map. A map whose coordinates can't be read, or a map built with [`RichBlock::map`], is
-    /// [`Unsupported`](RichBlockKind::Unsupported) instead.
+    /// [`Unknown`](RichBlockKind::Unknown) instead.
     Map {
         /// Center of the map.
         location: Location,
@@ -184,7 +185,11 @@ pub enum RichBlockKind {
     },
     /// A legacy page block with no friendly form, a map whose coordinates can't be read, or a map built with
     /// [`RichBlock::map`].
-    Unsupported,
+    #[non_exhaustive]
+    Unknown {
+        /// TL constructor id of the page block, for logging.
+        constructor_id: u32,
+    },
 }
 
 fn text(text: &base::RichText) -> RichText {
@@ -259,7 +264,7 @@ impl RichBlock {
                 Some(location) => {
                     RichBlockKind::Map { location, zoom: b.zoom, width: b.w, height: b.h, caption: caption(&b.caption) }
                 }
-                None => RichBlockKind::Unsupported,
+                None => RichBlockKind::Unknown { constructor_id: self.block.constructor_id() },
             },
             B::PageBlockButtonRow(b) => {
                 let align = if b.align_left {
@@ -319,7 +324,7 @@ impl RichBlock {
             | B::PageBlockChannel(_)
             | B::PageBlockKicker(_)
             | B::PageBlockRelatedArticles(_)
-            | B::InputPageBlockMap(_) => RichBlockKind::Unsupported,
+            | B::InputPageBlockMap(_) => RichBlockKind::Unknown { constructor_id: self.block.constructor_id() },
         }
     }
 
@@ -731,8 +736,9 @@ mod tests {
             B::PageBlockCover(Box::new(types::PageBlockCover { cover: paragraph() })),
         ];
         for raw in unsupported {
+            let id = raw.constructor_id();
             let kind = block(raw).kind();
-            assert!(matches!(kind, K::Unsupported), "read as {kind:?}");
+            assert!(matches!(kind, K::Unknown { constructor_id } if constructor_id == id), "read as {kind:?}");
         }
     }
 

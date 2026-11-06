@@ -4,6 +4,7 @@ use crate::utils::get_peer_id;
 
 /// A reaction one chat or user left on a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PeerReaction {
     /// Id of the user or chat that reacted.
     pub peer_id: i64,

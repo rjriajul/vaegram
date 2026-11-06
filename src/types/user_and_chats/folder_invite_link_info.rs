@@ -5,6 +5,7 @@ use crate::types::{Chat, MessageEntity};
 
 /// What a folder invite link shows before it is used.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FolderInviteLinkInfo {
     /// Id of the folder, when the account already joined it. `None` otherwise.
     pub folder_id: Option<i32>,

@@ -2,6 +2,7 @@ use crate::types::Photo;
 
 /// A page of a user's profile photos.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct UserProfilePhotos {
     /// Number of profile photos, not only this page.
     pub total_count: i32,

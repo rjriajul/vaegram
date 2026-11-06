@@ -1,5 +1,6 @@
 /// Service message data for an edited forum topic.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ForumTopicEdited {
     /// The new title. `None` if it didn't change.
     pub title: Option<String>,

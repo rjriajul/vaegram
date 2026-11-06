@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A kind of Telegram Passport data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum PassportElementType {
     /// Personal details such as name and birth date.
     PersonalDetails,

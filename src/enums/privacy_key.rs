@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A privacy setting whose audience the account can change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum PrivacyKey {
     /// Who can see the account's phone number.
     PhoneNumber,

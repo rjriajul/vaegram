@@ -4,6 +4,7 @@ use crate::types::UniqueGift;
 
 /// A chat theme: a named one, or one taken from a unique gift.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChatTheme {
     /// The emoji that names the theme. `None` for a gift theme.
     pub name: Option<String>,

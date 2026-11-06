@@ -8,6 +8,7 @@ use crate::raw::{base, types};
 /// `ClientBuilder::link_preview_options` and `Client::set_link_preview_options` set a default for every call that
 /// gives none.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LinkPreviewOptions {
     /// The link to preview instead of the first one in the text.
     pub url: Option<String>,

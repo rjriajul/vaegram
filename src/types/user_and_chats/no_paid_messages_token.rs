@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A link that lets whoever opens it message the account for free, even if the account charges for messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct NoPaidMessagesToken {
     /// The raw token.
     pub token: String,

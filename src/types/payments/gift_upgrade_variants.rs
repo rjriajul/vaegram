@@ -4,6 +4,7 @@ use crate::types::{UniqueGiftAttribute, UniqueGiftBackdrop};
 
 /// The models, symbols and backdrops a gift can get when it's upgraded.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GiftUpgradeVariants {
     /// The models the upgraded gift can have.
     pub models: Vec<UniqueGiftAttribute>,

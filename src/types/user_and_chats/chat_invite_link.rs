@@ -6,6 +6,7 @@ use crate::types::User;
 
 /// An invite link of a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChatInviteLink {
     /// The link, such as `https://t.me/+abc`.
     pub invite_link: String,

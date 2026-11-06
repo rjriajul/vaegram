@@ -6,6 +6,7 @@ use crate::types::{ChatColor, ChatPhoto, EmojiStatus, RestrictionReason, Usernam
 
 /// A Telegram user or bot.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct User {
     /// Unique id of the user. Always positive.
     pub id: i64,

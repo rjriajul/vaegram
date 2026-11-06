@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// What every member of a community can do.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CommunityPermissions {
     /// Whether members can add chats to the community and remove them.
     pub can_edit_chat_list: bool,

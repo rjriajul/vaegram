@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// One of the usernames of a user, bot or channel.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Username {
     /// The username, without the `@`.
     pub username: String,

@@ -12,6 +12,7 @@ use crate::types::{Document, Photo};
 /// [`media`](InputRichMessage::media), [`rtl`](InputRichMessage::rtl) and
 /// [`no_autolink`](InputRichMessage::no_autolink) set.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum InputRichMessage {
     /// HTML source, which refers to files added with [`media`](InputRichMessage::media) by their id.
     Html { html: String, media: Vec<InputRichMessageMedia>, rtl: bool, no_autolink: bool },

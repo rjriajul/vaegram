@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 
 /// A sticker or custom emoji used as a chat photo.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChatPhotoSticker {
     /// Whether the photo comes from a custom emoji or a regular sticker.
     pub kind: ChatPhotoStickerType,

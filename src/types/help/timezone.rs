@@ -1,5 +1,6 @@
 /// A timezone Telegram accepts for business hours.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Timezone {
     /// Timezone identifier, for example `Europe/Amsterdam`.
     pub id: String,

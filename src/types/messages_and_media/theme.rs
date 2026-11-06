@@ -31,6 +31,7 @@ pub struct Theme {
 
 /// Colors and wallpaper of a theme on top of a base theme.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ThemeSettings {
     /// The built-in theme these settings modify.
     pub base_theme: BaseTheme,

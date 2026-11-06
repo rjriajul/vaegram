@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 
 /// An error in a Telegram Passport element, reported back to the user so they can correct it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PassportElementError {
     /// A problem in one field of the element's data.
     DataField { kind: PassportElementType, field_name: String, data_hash: Vec<u8>, message: String },

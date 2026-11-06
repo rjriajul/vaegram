@@ -54,6 +54,7 @@ pub struct DnsConfig {
 
 /// The addresses of one data center, for the phone numbers `phone_prefix_rules` names (all of them when empty).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AccessPointRule {
     pub phone_prefix_rules: String,
     pub dc_id: i32,

@@ -1,5 +1,6 @@
 /// How a user came to be in a chat, as a service message tells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ChatJoinType {
     /// Another member added them.
     ByAdd,

@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 /// Proof that you own a wallet key: a signature over a
 /// [`TonWalletOwnershipProofChallenge`](super::TonWalletOwnershipProofChallenge).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TonWalletOwnershipProof {
     /// Public key of the wallet that made the signature.
     pub public_key: Vec<u8>,

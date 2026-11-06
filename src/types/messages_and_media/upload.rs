@@ -59,6 +59,7 @@ const MIME_TYPES: &[(&str, &str)] = &[
 /// A `&str`, `&Path` or `&PathBuf` converts to [`Upload::Path`]. The MIME type is guessed from the file name's
 /// extension and falls back to `application/octet-stream`.
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub enum Upload<'a> {
     /// A file read from disk. Its name is the last path component.
     Path(&'a Path),

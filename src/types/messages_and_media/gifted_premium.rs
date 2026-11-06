@@ -5,6 +5,7 @@ use crate::types::MessageEntity;
 
 /// Telegram Premium gifted by the message's sender.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GiftedPremium {
     /// Currency the gift was paid in.
     pub currency: String,

@@ -54,6 +54,12 @@ pub enum Media {
     Giveaway(Giveaway),
     /// The results of a finished giveaway. Boxed, since it holds a whole `Chat`.
     GiveawayWinners(Box<GiveawayWinners>),
+    /// Media of a kind this crate has no variant for, such as a live stream or a widget.
+    #[non_exhaustive]
+    Unknown {
+        /// TL constructor id of the media, for logging.
+        constructor_id: u32,
+    },
 }
 
 impl Media {
@@ -85,7 +91,9 @@ impl Media {
             }
             M::MessageMediaGiveaway(m) => Media::Giveaway(Giveaway::parse(m, entities)),
             M::MessageMediaGiveawayResults(m) => Media::GiveawayWinners(Box::new(GiveawayWinners::parse(m, entities))),
-            _ => return None,
+            // A link preview is `Message::web_page`, not media.
+            M::MessageMediaWebPage(_) => return None,
+            _ => Media::Unknown { constructor_id: media.constructor_id() },
         })
     }
 
@@ -150,6 +158,7 @@ impl Media {
             Media::Story(_) => MediaKind::Story,
             Media::Giveaway(_) => MediaKind::Giveaway,
             Media::GiveawayWinners(_) => MediaKind::GiveawayWinners,
+            Media::Unknown { .. } => MediaKind::Unknown,
         }
     }
 
@@ -175,7 +184,8 @@ impl Media {
             | Media::PaidMedia(_)
             | Media::Story(_)
             | Media::Giveaway(_)
-            | Media::GiveawayWinners(_) => None,
+            | Media::GiveawayWinners(_)
+            | Media::Unknown { .. } => None,
         }
     }
 }
@@ -446,6 +456,16 @@ pub(crate) mod tests {
             let parsed = Media::parse(&Client::offline(), &media, &Entities::default());
             assert_eq!(parsed.map(|m| m.kind()), MediaKind::of(&media));
         }
+    }
+
+    #[test]
+    fn unmapped_media_is_unknown_with_its_constructor_id() {
+        use crate::raw::Deserializable;
+        // messageMediaUnsupported: what Telegram sends for media the client's layer can't show.
+        let raw = base::MessageMedia::deserialize(&mut &0x9f84_f49e_u32.to_le_bytes()[..]).unwrap();
+        let media = parse(raw.clone());
+        assert!(matches!(media, Media::Unknown { constructor_id: 0x9f84_f49e }));
+        assert_eq!(Some(media.kind()), MediaKind::of(&raw));
     }
 
     fn live_photo(video: Option<base::Document>) -> base::MessageMedia {

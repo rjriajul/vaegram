@@ -3,6 +3,7 @@ use crate::types::Photo;
 /// A chat the user picked in response to a
 /// [`KeyboardButtonRequestChat`](crate::types::KeyboardButtonRequestChat) button.
 #[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
 pub struct ChatShared {
     /// The `request_id` of the button that was pressed.
     pub request_id: i32,

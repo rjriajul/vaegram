@@ -36,6 +36,7 @@ impl CallbackQuery {
 
 /// A media edit of the message behind a [`CallbackQuery`]. Awaiting it sends the edit and returns `()`.
 #[must_use = "a request does nothing until it is awaited"]
+#[non_exhaustive]
 pub enum EditCallbackMessageMedia<'a> {
     /// Edit of a regular message.
     Message(EditMessageMedia<'a>),

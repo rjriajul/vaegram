@@ -414,6 +414,15 @@ fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def], recursive: bool) {
     // `is_inline` guesses Rust's layout; this makes rustc check that no enum grew past a tag plus a box.
     writeln!(out, "const _: () = assert!(::std::mem::size_of::<{name}>() <= 16);").unwrap();
 
+    writeln!(out, "impl {name} {{").unwrap();
+    writeln!(out, "    /// The TL constructor id of this value.").unwrap();
+    writeln!(out, "    pub fn constructor_id(&self) -> u32 {{\n        match self {{").unwrap();
+    for (c, v) in ctors.iter().zip(&variants) {
+        let bind = if c.fields.is_empty() { "" } else { "(_)" };
+        writeln!(out, "            Self::{v}{bind} => {:#010x},", c.id).unwrap();
+    }
+    writeln!(out, "        }}\n    }}\n}}").unwrap();
+
     writeln!(out, "impl crate::raw::Serializable for {name} {{").unwrap();
     writeln!(out, "    fn serialize(&self, buf: &mut ::std::vec::Vec<u8>) {{\n        match self {{").unwrap();
     for (c, v) in ctors.iter().zip(&variants) {
@@ -492,12 +501,6 @@ fn gen_update_impl(out: &mut String, ctors: &[&Def]) {
     writeln!(out, "impl Update {{").unwrap();
     gen_counter(out, ctors, "pts", "(i32, i32)", &["pts", "pts_count"]);
     gen_counter(out, ctors, "qts", "i32", &["qts"]);
-    writeln!(out, "    pub fn constructor_id(&self) -> u32 {{\n        match self {{").unwrap();
-    for c in ctors {
-        let bind = if c.fields.is_empty() { "" } else { "(_)" };
-        writeln!(out, "            Self::{}{bind} => {:#010x},", pascal(split_ns(&c.name).1), c.id).unwrap();
-    }
-    writeln!(out, "        }}\n    }}").unwrap();
     writeln!(out, "}}").unwrap();
 }
 

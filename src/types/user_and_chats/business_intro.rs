@@ -3,6 +3,7 @@ use crate::types::Sticker;
 
 /// What a business account shows in an empty private chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BusinessIntro {
     /// Heading of the intro.
     pub title: String,

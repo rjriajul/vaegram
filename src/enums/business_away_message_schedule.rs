@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// When a business account sends its away message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum BusinessAwayMessageSchedule {
     /// At all times.
     Always,

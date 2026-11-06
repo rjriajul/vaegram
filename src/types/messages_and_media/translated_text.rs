@@ -4,6 +4,7 @@ use crate::types::MessageEntity;
 
 /// A translation of one message or text.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TranslatedText {
     /// The translated text.
     pub text: String,

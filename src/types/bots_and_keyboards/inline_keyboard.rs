@@ -5,6 +5,7 @@ use crate::types::{LoginUrl, PeerRef, SwitchInlineQueryChosenChat, WebAppInfo};
 
 /// A keyboard of buttons attached to a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct InlineKeyboardMarkup {
     /// The buttons, one inner `Vec` per row.
     pub rows: Vec<Vec<InlineKeyboardButton>>,
@@ -57,6 +58,7 @@ impl InlineKeyboardMarkup {
 
 /// Color of a keyboard button.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ButtonStyle {
     /// The client's normal button color.
     #[default]
@@ -86,6 +88,7 @@ impl ButtonStyle {
 
 /// A button on an [`InlineKeyboardMarkup`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct InlineKeyboardButton {
     /// The label.
     pub text: String,

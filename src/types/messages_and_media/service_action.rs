@@ -238,11 +238,18 @@ pub enum ServiceAction {
     TonConnectRequest(Box<TonConnectRequest>),
     /// Someone used a no-paid-messages token to write without paying.
     NoPaidMessagesTokenUsed,
+    /// A service message of a kind this crate has no variant for, the action [`ServiceKind::Unknown`] names.
+    #[non_exhaustive]
+    Unknown {
+        /// TL constructor id of the message action, for logging.
+        constructor_id: u32,
+    },
 }
 
 impl ServiceAction {
     /// The variant `ServiceKind::of` names, so `filters::service_kind` and `service` always agree. `None` for
-    /// `ServiceKind::Unknown`, and for a known kind only when its payload is malformed (a pin without its header).
+    /// `messageActionEmpty`, which reports nothing, and for a known kind whose payload is malformed (a pin without its
+    /// header).
     pub(crate) fn parse(raw: &types::MessageService, entities: &Entities) -> Option<ServiceAction> {
         use ServiceKind as K;
         use base::MessageAction as A;
@@ -516,6 +523,8 @@ impl ServiceAction {
                 ServiceAction::TonConnectRequest(Box::new(TonConnectRequest::parse(a)))
             }
             (K::NoPaidMessagesTokenUsed, _) => ServiceAction::NoPaidMessagesTokenUsed,
+            (K::Unknown, A::MessageActionEmpty) => return None,
+            (K::Unknown, action) => ServiceAction::Unknown { constructor_id: action.constructor_id() },
             _ => return None,
         })
     }
@@ -603,6 +612,7 @@ impl ServiceAction {
             S::TonWalletTransfer(_) => K::TonWalletTransfer,
             S::TonConnectRequest(_) => K::TonConnectRequest,
             S::NoPaidMessagesTokenUsed => K::NoPaidMessagesTokenUsed,
+            S::Unknown { .. } => K::Unknown,
         }
     }
 }
@@ -1205,6 +1215,26 @@ mod tests {
             |raw: types::MessageService| (ServiceKind::of(&raw.action, None), ServiceAction::parse(&raw, &entities));
         let empty = types::MessageActionChatEditPhoto { photo: base::Photo::PhotoEmpty(types::PhotoEmpty { id: 1 }) };
         let joined = types::MessageService { from_id: None, ..service(A::MessageActionChatJoinedByRequest) };
+        let cases = [
+            (service(A::MessageActionPinMessage), ServiceKind::PinnedMessage),
+            (service(A::MessageActionChatEditPhoto(Box::new(empty))), ServiceKind::NewChatPhoto),
+            (joined, ServiceKind::NewChatMembers),
+            (service(offer(star_gift().gift, false, false)), ServiceKind::UpgradedGiftPurchaseOffer),
+            (
+                service(A::MessageActionSuggestProfilePhoto(Box::new(types::MessageActionSuggestProfilePhoto {
+                    photo: base::Photo::PhotoEmpty(types::PhotoEmpty { id: 1 }),
+                }))),
+                ServiceKind::SuggestProfilePhoto,
+            ),
+        ];
+        for (raw, kind) in cases {
+            assert_eq!(kind_and_action(raw), (kind, None));
+        }
+    }
+
+    #[test]
+    fn unmapped_actions_are_unknown_with_their_constructor_id() {
+        use crate::raw::Deserializable;
         let receipt = types::MessageActionPaymentSent {
             recurring_init: false,
             recurring_used: false,
@@ -1213,23 +1243,13 @@ mod tests {
             invoice_slug: None,
             subscription_until_date: None,
         };
-        let cases = [
-            (service(A::MessageActionPinMessage), ServiceKind::PinnedMessage),
-            (service(A::MessageActionChatEditPhoto(Box::new(empty))), ServiceKind::NewChatPhoto),
-            (joined, ServiceKind::NewChatMembers),
-            (service(A::MessageActionEmpty), ServiceKind::Unknown),
-            (service(offer(star_gift().gift, false, false)), ServiceKind::UpgradedGiftPurchaseOffer),
-            (
-                service(A::MessageActionSuggestProfilePhoto(Box::new(types::MessageActionSuggestProfilePhoto {
-                    photo: base::Photo::PhotoEmpty(types::PhotoEmpty { id: 1 }),
-                }))),
-                ServiceKind::SuggestProfilePhoto,
-            ),
-            (service(A::MessageActionPaymentSent(Box::new(receipt))), ServiceKind::Unknown),
-        ];
-        for (raw, kind) in cases {
-            assert_eq!(kind_and_action(raw), (kind, None));
-        }
+        let action = parse(base::MessageAction::MessageActionPaymentSent(Box::new(receipt)))
+            .expect("an unmapped action still makes a service message");
+        assert!(matches!(action, ServiceAction::Unknown { constructor_id: 0xc624_b16e }));
+        assert_eq!(action.kind(), ServiceKind::Unknown);
+
+        let empty = base::MessageAction::deserialize(&mut &0xb6ae_f7b0_u32.to_le_bytes()[..]).unwrap();
+        assert_eq!(parse(empty), None, "an empty action reports nothing");
     }
 
     #[test]

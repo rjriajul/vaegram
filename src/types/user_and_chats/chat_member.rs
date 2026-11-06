@@ -6,6 +6,7 @@ use crate::utils::get_peer_id;
 
 /// A member of a chat with their status and rights.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChatMember {
     /// The member as a user. For a banned or departed chat only the id is filled, see `chat`.
     pub user: User,

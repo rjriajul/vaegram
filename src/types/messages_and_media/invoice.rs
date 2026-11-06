@@ -2,6 +2,7 @@ use crate::raw::types;
 
 /// An invoice sent in a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Invoice {
     /// Name of the product.
     pub title: String,

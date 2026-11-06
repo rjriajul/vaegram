@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// Opens a chat picker and puts the bot's username and `query` into the input field of the chosen chat.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SwitchInlineQueryChosenChat {
     /// Text put into the input field after the bot's username.
     pub query: String,

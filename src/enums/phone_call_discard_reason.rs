@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// Why a private call ended.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum PhoneCallDiscardReason {
     /// Nobody answered.
     Missed,

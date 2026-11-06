@@ -10,7 +10,24 @@ use crate::utils::{get_channel_id, get_peer, get_peer_id};
 /// A user, bot, group, supergroup or channel.
 ///
 /// Fields that Telegram doesn't send for a chat kind, or that the update didn't carry, stay `None` or `false`.
+///
+/// Telegram adds fields, so other crates read and change a `Chat` but can't build one with a struct literal:
+///
+/// ```
+/// fn retitle(chat: &vaegram::types::Chat) -> vaegram::types::Chat {
+///     let mut chat = chat.clone();
+///     chat.title = Some("New".into());
+///     chat
+/// }
+/// ```
+///
+/// ```compile_fail,E0639
+/// fn retitle(chat: &vaegram::types::Chat) -> vaegram::types::Chat {
+///     vaegram::types::Chat { title: Some("New".into()), ..chat.clone() }
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Chat {
     /// Chat id. Users are positive, basic groups negative and channels in the form `-1001234567890`.
     pub id: i64,

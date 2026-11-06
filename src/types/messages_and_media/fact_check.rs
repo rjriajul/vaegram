@@ -5,6 +5,7 @@ use crate::types::MessageEntity;
 
 /// An independent fact check attached to a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FactCheck {
     /// The text is out of date and is being fetched again.
     pub need_check: bool,

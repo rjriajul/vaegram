@@ -4,6 +4,7 @@ use crate::raw::{base, types};
 ///
 /// Basic groups ignore the filter.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ChatMembersFilter {
     /// All members whose name matches the query. An empty query matches everyone.
     #[default]

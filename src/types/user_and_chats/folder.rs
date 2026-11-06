@@ -8,6 +8,7 @@ use crate::utils::get_channel_id;
 
 /// A chat folder.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Folder {
     /// Id of the folder, as the `Client` folder methods take it.
     pub id: i32,

@@ -6,6 +6,7 @@ use crate::types::{InputRichMessage, Text};
 
 /// The text of a message to send or edit: plain or formatted [`Text`], or a rich message.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum MessageText {
     /// Plain or formatted text, parsed with the request's parse mode or the client's default.
     Text(Text),

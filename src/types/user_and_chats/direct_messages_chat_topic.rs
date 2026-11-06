@@ -4,6 +4,7 @@ use crate::types::DirectMessagesTopic;
 
 /// A direct messages conversation with one sender in a channel, with its unread state.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DirectMessagesChatTopic {
     /// Who the conversation is with.
     pub topic: DirectMessagesTopic,

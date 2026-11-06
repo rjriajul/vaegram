@@ -6,6 +6,7 @@ use crate::types::{Chat, InlineQueryResult, Message, User};
 
 /// A message in a chat the bot isn't in. [`answer`](GuestMessage::answer) is the only way to respond there.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GuestMessage {
     /// The message that invoked the bot.
     pub message: Message,

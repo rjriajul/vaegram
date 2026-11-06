@@ -8,6 +8,7 @@ use crate::utils::get_channel_id;
 ///
 /// Only `id` is set for a community the account has never seen.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Community {
     /// Bot API style id. Communities share the `-100` prefix of channels.
     pub id: i64,

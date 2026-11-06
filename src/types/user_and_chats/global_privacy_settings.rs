@@ -3,6 +3,7 @@ use crate::types::AcceptedGiftTypes;
 
 /// Account-wide privacy settings for chats with people who aren't contacts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GlobalPrivacySettings {
     /// Whether chats from new non-contacts are archived and muted.
     pub archive_and_mute_new_noncontact_peers: bool,

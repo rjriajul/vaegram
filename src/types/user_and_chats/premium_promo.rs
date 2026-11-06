@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// What Telegram currently offers for Premium.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PremiumPromo {
     /// Status line describing the offer, as Telegram words it.
     pub status_text: String,
@@ -11,6 +12,7 @@ pub struct PremiumPromo {
 
 /// One Premium subscription period and its price.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PremiumSubscriptionOption {
     /// Length of the subscription in months.
     pub months: i32,

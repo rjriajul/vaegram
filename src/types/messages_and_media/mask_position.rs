@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 
 /// Where a mask sticker sits on a face.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct MaskPosition {
     /// The part of the face the mask is placed relative to.
     pub point: MaskPointType,

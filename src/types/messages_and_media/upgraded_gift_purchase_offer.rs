@@ -5,6 +5,7 @@ use crate::types::{StarAmount, UniqueGift};
 
 /// An offer to buy the receiver's upgraded gift.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct UpgradedGiftPurchaseOffer {
     /// The upgraded gift the offer is for.
     pub gift: UniqueGift,
@@ -18,6 +19,7 @@ pub struct UpgradedGiftPurchaseOffer {
 
 /// An offer to buy an upgraded gift, turned down or left to run out.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct UpgradedGiftPurchaseOfferRejected {
     /// The upgraded gift the offer was for.
     pub gift: UniqueGift,

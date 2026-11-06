@@ -3,6 +3,7 @@ use crate::raw::base;
 /// The reply or profile color of a user or chat, as ids into the lists from `get_peer_colors` and
 /// `get_peer_profile_colors`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChatColor {
     /// Id of the color in the list from `get_peer_colors` or `get_peer_profile_colors`.
     pub color: Option<i32>,

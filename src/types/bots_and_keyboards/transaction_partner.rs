@@ -35,12 +35,17 @@ pub enum TransactionPartner {
         /// Number of requests over the regular limits that the transaction pays for. 0 if Telegram sends none.
         request_count: i32,
     },
-    /// Any partner this library doesn't map.
-    Other,
+    /// A partner this crate has no variant for, such as an app store.
+    #[non_exhaustive]
+    Unknown {
+        /// TL constructor id of the transaction peer, for logging.
+        constructor_id: u32,
+    },
 }
 
 /// Affiliate commission that came with a sale.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AffiliateInfo {
     /// The chat that earned the commission.
     pub affiliate: Chat,
@@ -52,6 +57,7 @@ pub struct AffiliateInfo {
 
 /// Progress of a withdrawal to Fragment.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RevenueWithdrawalState {
     /// The withdrawal is still in progress.
     Pending,
@@ -81,7 +87,7 @@ impl TransactionPartner {
             base::StarsTransactionPeer::StarsTransactionPeerAPI => {
                 return TransactionPartner::TelegramApi { request_count: raw.floodskip_number.unwrap_or_default() };
             }
-            _ => return TransactionPartner::Other,
+            other => return TransactionPartner::Unknown { constructor_id: other.constructor_id() },
         };
         let base::Peer::PeerUser(p) = peer else {
             return TransactionPartner::Chat(Chat::parse(peer, entities, false));
@@ -187,5 +193,12 @@ mod tests {
         let mut api = transaction(base::StarsTransactionPeer::StarsTransactionPeerAPI);
         api.floodskip_number = Some(3);
         assert_eq!(TransactionPartner::parse(&api, &entities), TransactionPartner::TelegramApi { request_count: 3 });
+    }
+
+    #[test]
+    fn unmapped_partners_are_unknown_with_their_constructor_id() {
+        let store = transaction(base::StarsTransactionPeer::StarsTransactionPeerAppStore);
+        let partner = TransactionPartner::parse(&store, &Entities::default());
+        assert_eq!(partner, TransactionPartner::Unknown { constructor_id: 0xb457_b375 });
     }
 }

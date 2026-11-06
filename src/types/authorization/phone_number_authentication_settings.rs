@@ -4,6 +4,7 @@ use crate::raw::{base, types};
 
 /// Firebase delivery of the code, for official apps' use.
 #[derive(Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FirebaseAuthenticationSettings {
     /// Android device.
     Android,
@@ -18,6 +19,7 @@ pub enum FirebaseAuthenticationSettings {
 
 /// How Telegram may deliver a phone number code. The default asks for nothing special.
 #[derive(Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PhoneNumberAuthenticationSettings {
     /// Telegram may deliver the code as a flash call.
     pub allow_flash_call: bool,

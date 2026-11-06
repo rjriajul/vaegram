@@ -8,6 +8,7 @@ use crate::utils::{get_channel_id, get_peer};
 
 /// An interactive area placed on a story's media.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct StoryArea {
     /// Where the area sits on the media.
     pub position: StoryAreaPosition,
@@ -17,6 +18,7 @@ pub struct StoryArea {
 
 /// Where an area sits on the story, in percent of the media size. `x` and `y` are the center.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[non_exhaustive]
 pub struct StoryAreaPosition {
     /// Horizontal position of the center, in percent of the media width.
     pub x_percentage: f64,
@@ -86,6 +88,7 @@ pub enum StoryAreaType {
 
 /// A street address attached to a [`StoryAreaType::Location`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LocationAddress {
     /// Country as a two-letter ISO 3166-1 alpha-2 code.
     pub country_code: String,

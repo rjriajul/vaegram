@@ -24,6 +24,7 @@ pub enum ReportResult {
 
 /// A choice offered during a report.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ReportOption {
     /// Label to show for this reason.
     pub text: String,

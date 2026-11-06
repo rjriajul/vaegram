@@ -4,6 +4,7 @@ use crate::types::Chat;
 
 /// A participant of a group call or live stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GroupCallMember {
     /// A user, or a chat speaking as itself.
     pub chat: Chat,

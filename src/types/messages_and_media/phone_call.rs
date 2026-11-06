@@ -2,6 +2,7 @@ use crate::enums::PhoneCallDiscardReason;
 
 /// A private call that ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PhoneCallEnded {
     /// Id of the call.
     pub id: i64,

@@ -5,15 +5,17 @@ use crate::types::{LivePhoto, Media, Photo, StrippedThumbnail, Video};
 
 /// Media a message sells for Stars.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PaidMediaInfo {
     /// Price in Stars.
     pub star_count: i64,
-    /// The media items. Kinds this crate has no variant for are left out.
+    /// The media items. A bought item that has no media is left out.
     pub paid_media: Vec<PaidMedia>,
 }
 
 /// One item of paid media.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum PaidMedia {
     /// Until it is bought, only the size and a video's length are shown.
     Preview {
@@ -32,6 +34,12 @@ pub enum PaidMedia {
     Video(Video),
     /// A bought live photo.
     LivePhoto(LivePhoto),
+    /// A bought item of a kind this crate has no variant for.
+    #[non_exhaustive]
+    Unknown {
+        /// TL constructor id of the item's media, for logging.
+        constructor_id: u32,
+    },
 }
 
 impl PaidMediaInfo {
@@ -49,7 +57,7 @@ impl PaidMediaInfo {
                         Media::Photo(photo) => Some(PaidMedia::Photo(photo)),
                         Media::Video(video) => Some(PaidMedia::Video(video)),
                         Media::LivePhoto(live) => Some(PaidMedia::LivePhoto(live)),
-                        _ => None,
+                        _ => Some(PaidMedia::Unknown { constructor_id: m.media.constructor_id() }),
                     }
                 }
             })
@@ -131,5 +139,18 @@ mod tests {
         let info = PaidMediaInfo::parse(&Client::offline(), &raw, &Entities::default());
         let kinds: Vec<_> = info.paid_media.iter().map(|m| format!("{m:?}")).collect();
         assert!(matches!(&kinds[..], [live] if live.starts_with("LivePhoto")), "{kinds:?}");
+    }
+
+    #[test]
+    fn a_bought_item_of_another_kind_is_unknown() {
+        let document = crate::types::messages_and_media::media::tests::document_media("application/pdf", Vec::new());
+        let media = types::MessageExtendedMedia { media: document };
+        let raw = types::MessageMediaPaidMedia {
+            stars_amount: 5,
+            extended_media: vec![base::MessageExtendedMedia::MessageExtendedMedia(Box::new(media))],
+        };
+        let info = PaidMediaInfo::parse(&Client::offline(), &raw, &Entities::default());
+        let [PaidMedia::Unknown { constructor_id }] = info.paid_media[..] else { panic!("{info:?}") };
+        assert_eq!(constructor_id, 0x52d8_ccd9);
     }
 }

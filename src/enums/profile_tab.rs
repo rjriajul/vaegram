@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A tab on a profile page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ProfileTab {
     /// Posts.
     Posts,

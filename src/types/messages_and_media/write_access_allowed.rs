@@ -1,5 +1,6 @@
 /// A service message saying the user let the bot message them.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct WriteAccessAllowed {
     /// The user accepted a write access request from the bot.
     pub from_request: bool,

@@ -4,6 +4,7 @@ use crate::types::Chat;
 
 /// A topic of a forum supergroup.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ForumTopic {
     /// Id of the topic, which is also the `message_thread_id` of its messages.
     pub id: i32,

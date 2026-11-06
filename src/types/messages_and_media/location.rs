@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A point on the map.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Location {
     /// Latitude in degrees.
     pub latitude: f64,

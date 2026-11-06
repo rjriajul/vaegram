@@ -3,6 +3,7 @@ use crate::types::Location;
 
 /// A named place on the map, such as a restaurant.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Venue {
     /// Where the venue is.
     pub location: Location,

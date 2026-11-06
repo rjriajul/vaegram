@@ -4,6 +4,7 @@ use crate::types::{BusinessBotRights, BusinessRecipients, User};
 
 /// A bot connected to the account for Telegram Business.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ConnectedBot {
     /// The bot.
     pub bot: User,

@@ -7,10 +7,11 @@ use crate::types::{FileSource, Media};
 
 /// One photo or video in a bot's profile preview.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct BotPreviewMedia {
     /// When the preview was added, as a Unix timestamp.
     pub date: i32,
-    /// The photo or video. `None` if the media can't be represented as a [`Media`].
+    /// The photo or video. `None` if Telegram sent no media or its file is gone.
     pub media: Option<Media>,
 }
 

@@ -4,6 +4,7 @@ use crate::types::User;
 
 /// A Toncoin transfer sent through the Telegram wallet.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct TonWalletTransfer {
     /// The message's sender, or the chat's user when the message has no sender. `None` if that peer isn't a user.
     pub sender: Option<User>,

@@ -1,5 +1,6 @@
 /// A member's standing in a chat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ChatMemberStatus {
     /// The chat's owner.
     Owner,

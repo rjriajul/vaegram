@@ -2,6 +2,7 @@ use crate::types::{MessageEntity, RichText};
 
 /// A quoted part of a message that another message replies to.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct TextQuote {
     /// The quoted text.
     pub text: String,

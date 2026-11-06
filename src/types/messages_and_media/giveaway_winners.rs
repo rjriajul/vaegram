@@ -5,6 +5,7 @@ use crate::utils::{get_channel_id, get_peer};
 
 /// The public results of a finished giveaway.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GiveawayWinners {
     /// The channel that ran the giveaway.
     pub chat: Chat,

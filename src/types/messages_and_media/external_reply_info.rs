@@ -5,6 +5,7 @@ use crate::types::{Chat, LinkPreviewOptions, Media, MessageOrigin};
 
 /// The message a reply points to when that message is in another chat.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ExternalReplyInfo {
     /// Where the replied-to message came from.
     pub origin: MessageOrigin,

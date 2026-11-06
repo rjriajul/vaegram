@@ -1,5 +1,6 @@
 /// Service message data for a new forum topic.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ForumTopicCreated {
     /// The topic title.
     pub title: String,

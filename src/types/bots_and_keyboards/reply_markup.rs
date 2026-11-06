@@ -9,6 +9,7 @@ use crate::types::{
 
 /// Buttons or keyboard actions attached to a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ReplyMarkup {
     /// Buttons shown under the message.
     Inline(InlineKeyboardMarkup),

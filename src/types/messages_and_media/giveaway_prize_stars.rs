@@ -4,6 +4,7 @@ use crate::types::Chat;
 
 /// Telegram Stars won in a giveaway.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GiveawayPrizeStars {
     /// How many Stars the prize contains.
     pub star_count: i64,
