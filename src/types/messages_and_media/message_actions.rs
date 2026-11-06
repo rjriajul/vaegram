@@ -90,9 +90,11 @@ impl Message {
     }
 
     /// Replies with an ephemeral message that only the sender of this message sees.
-    pub fn reply_ephemeral_text(&self, text: impl Into<String>) -> Result<SendEphemeralMessage<'_>> {
-        let receiver = self.from_user.as_ref().ok_or(Error::InvalidArgument("this message has no sender user"))?;
-        Ok(self.client().send_ephemeral_message(self.chat.id, receiver.id, text).reply_to(self.id))
+    ///
+    /// Awaiting fails with `Error::InvalidArgument`, sending nothing, if the message has no sender user.
+    pub fn reply_ephemeral_text(&self, text: impl Into<Text>) -> SendEphemeralMessage<'_> {
+        let receiver = self.from_user.as_ref().map(|u| PeerRef::from(u.id));
+        SendEphemeralMessage::new(self.client(), self.chat.id.into(), receiver, text.into()).reply_to(self.id)
     }
 
     /// The `t.me` link to this message. Only supergroups and channels have message links.
@@ -152,7 +154,7 @@ mod tests {
     use crate::raw::{Serializable, base, functions, types};
     use crate::types::messages_and_media::ephemeral_message::tests::ephemeral;
     use crate::types::messages_and_media::media::tests::document_media;
-    use crate::types::{EphemeralMessage, FileSource, InputChecklist, InputMedia, Message};
+    use crate::types::{EphemeralMessage, FileSource, InputChecklist, InputMedia, Message, Text};
     use crate::utils::{get_channel_id, get_peer};
 
     const PHOTO: &str = "AgACAgIAAxkBAAIENGfeY4AfRquwTL2LpDrzqvFMVNt_AAIG9DEbXX3wSq3oI7t_PqQGAQADAgADbQADNgQ";
@@ -365,15 +367,37 @@ mod tests {
         let mut message = message(&client);
         let mut from_channel = message.clone();
         from_channel.from_user = None;
-        assert!(matches!(from_channel.reply_ephemeral_text("hi"), Err(Error::InvalidArgument(_))));
+        let refused = from_channel.reply_ephemeral_text("hi").await;
+        assert!(matches!(refused, Err(Error::InvalidArgument("this message has no sender user"))), "{refused:?}");
         assert!(sent.try_recv().is_err());
 
         std::sync::Arc::make_mut(&mut message.chat).id = 1000;
-        assert!(message.reply_ephemeral_text("hi").unwrap().await.is_err());
+        assert!(message.reply_ephemeral_text("hi").await.is_err());
         let request = sent.try_recv().expect("no request sent");
         assert_eq!(request[..4], 0xba8d5f35_u32.to_le_bytes());
         // reply_to is flags.5 of ephemeral.sendMessage, right after the constructor id.
         assert_eq!(request[4] & 0x20, 0x20);
+    }
+
+    #[tokio::test]
+    async fn a_built_caption_keeps_its_entities() {
+        let (client, mut sent) = recording();
+        let _ = message(&client).edit_caption(Text::new().bold("new")).await;
+        let body = sent.try_recv().expect("no request sent");
+        let bold = vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 3 })];
+        let has = |bytes: &[u8]| body.windows(bytes.len()).any(|w| w == bytes);
+        assert!(has(&String::from("new").to_bytes()) && has(&bold.to_bytes()));
+    }
+
+    #[tokio::test]
+    async fn a_client_default_leaves_caption_edits_alone() {
+        let (client, mut sent) = recording();
+        client.set_link_preview_options(Some(crate::types::LinkPreviewOptions::new().show_above_text(true)));
+        let _ = message(&client).edit_caption("cap").await;
+        let _ = message(&client).edit_text("text").await;
+        // invert_media is flags.16 of messages.editMessage.
+        let flags = |body: Vec<u8>| u32::from_le_bytes(body[4..8].try_into().unwrap()) >> 16 & 1;
+        assert_eq!((flags(sent.try_recv().unwrap()), flags(sent.try_recv().unwrap())), (0, 1));
     }
 
     #[tokio::test]

@@ -1,12 +1,18 @@
 use crate::errors::Result;
 use crate::methods::{EditEphemeralMessage, EditInlineMedia, EditMessageMedia, into_future};
-use crate::types::{CallbackOrigin, CallbackQuery, EditCallbackMessageText, InputMedia, ReplyMarkup};
+use crate::types::{
+    CallbackOrigin, CallbackQuery, EditCallbackMessageText, InputMedia, MessageText, ReplyMarkup, Text,
+};
 
 impl CallbackQuery {
     /// Edits the caption of the message the button is on. Calls [`CallbackQuery::edit_message_text`], since
-    /// one request edits text and captions alike.
-    pub fn edit_message_caption(&self, caption: impl Into<String>) -> EditCallbackMessageText<'_> {
-        self.edit_message_text(caption.into())
+    /// one request edits text and captions alike, minus the client's link preview default.
+    pub fn edit_message_caption(&self, caption: impl Into<Text>) -> EditCallbackMessageText<'_> {
+        match self.edit_message_text(MessageText::Text(caption.into())) {
+            EditCallbackMessageText::Message(edit) => EditCallbackMessageText::Message(edit.without_client_default()),
+            EditCallbackMessageText::Inline(edit) => EditCallbackMessageText::Inline(edit.without_client_default()),
+            edit @ EditCallbackMessageText::Ephemeral(_) => edit,
+        }
     }
 
     /// Replaces the media of the message the button is on.
@@ -66,9 +72,9 @@ mod tests {
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::dispatcher::listeners::tests::{inline_query, query};
-    use crate::raw::{base, types};
+    use crate::raw::{Serializable, base, types};
     use crate::types::messages_and_media::ephemeral_message::tests::{channel, ephemeral};
-    use crate::types::{CallbackQuery, EditCallbackMessageText, FileSource, InputMedia, Message};
+    use crate::types::{CallbackQuery, EditCallbackMessageText, FileSource, InputMedia, Message, Text};
     use crate::utils::get_peer;
 
     const PHOTO: &str = "AgACAgIAAxkBAAIENGfeY4AfRquwTL2LpDrzqvFMVNt_AAIG9DEbXX3wSq3oI7t_PqQGAQADAgADbQADNgQ";
@@ -119,5 +125,17 @@ mod tests {
         let q = CallbackQuery::parse_business(&client, update, &Entities::default());
         assert!(q.edit_message_media(photo()).await.is_err());
         assert_eq!(sent.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
+    }
+
+    #[tokio::test]
+    async fn a_built_caption_keeps_its_entities() {
+        let (client, mut sent) = Client::recording();
+        let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
+        client.0.peers.lock().unwrap().insert(7, peer);
+        let _ = query(&client, 7, 7, 5).edit_message_caption(Text::new().bold("new")).await;
+        let body = sent.try_recv().expect("no request sent");
+        let bold = vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 3 })];
+        let has = |bytes: &[u8]| body.windows(bytes.len()).any(|w| w == bytes);
+        assert!(has(&String::from("new").to_bytes()) && has(&bold.to_bytes()));
     }
 }

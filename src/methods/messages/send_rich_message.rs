@@ -48,7 +48,7 @@ mod tests {
 
     #[tokio::test]
     async fn sets_rich_message() {
-        let body = sent_body(InputRichMessage::html("<b>hi</b>").rtl()).await;
+        let body = sent_body(InputRichMessage::html("<b>hi</b>").rtl(true)).await;
         let flags = u32::from_le_bytes(body[4..8].try_into().unwrap());
         assert_ne!(flags & 1 << 23, 0);
         let html = types::InputRichMessageHTML { rtl: true, noautolink: false, html: "<b>hi</b>".into(), files: None };
@@ -70,7 +70,7 @@ mod tests {
             location,
         };
         let media = InputRichMessageMedia::photo("pic", &photo);
-        let body = sent_body(InputRichMessage::markdown("**hi**").no_autolink().media(media)).await;
+        let body = sent_body(InputRichMessage::markdown("**hi**").no_autolink(true).media(media)).await;
         let photo = types::InputPhoto { id: 5, access_hash: 6, file_reference: vec![7] };
         let file = types::InputRichFilePhoto { id: "pic".into(), photo: base::InputPhoto::InputPhoto(Box::new(photo)) };
         let markdown = types::InputRichMessageMarkdown {

@@ -65,6 +65,7 @@ mod verify_chat;
 mod verify_user;
 
 pub use answer_callback_query::AnswerCallbackQuery;
+pub use answer_guest_query::AnswerGuestQuery;
 pub use answer_inline_query::AnswerInlineQuery;
 pub use answer_pre_checkout_query::AnswerPreCheckoutQuery;
 pub use answer_shipping_query::AnswerShippingQuery;

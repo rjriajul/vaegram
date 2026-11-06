@@ -5,7 +5,7 @@ use crate::enums::{ParseMode, StoriesPrivacyRules};
 use crate::errors::Result;
 use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions};
-use crate::types::{InputStoryContent, PeerRef, Story, StoryArea};
+use crate::types::{InputStoryContent, PeerRef, Story, StoryArea, Text};
 
 /// Request built by [`Client::send_story`].
 #[must_use = "a request does nothing until it is awaited"]
@@ -13,7 +13,7 @@ pub struct SendStory<'a> {
     client: &'a Client,
     chat_id: PeerRef,
     media: InputStoryContent<'a>,
-    caption: String,
+    caption: Text,
     parse_mode: Option<ParseMode>,
     privacy: StoriesPrivacyRules,
     period: Option<i32>,
@@ -35,7 +35,7 @@ impl Client {
             client: self,
             chat_id: chat_id.into(),
             media,
-            caption: String::new(),
+            caption: Text::new(),
             parse_mode: None,
             privacy: StoriesPrivacyRules::default(),
             period: None,
@@ -52,7 +52,7 @@ impl Client {
 
 impl SendStory<'_> {
     /// Adds a caption, parsed with the builder's parse mode.
-    pub fn caption(mut self, caption: impl Into<String>) -> Self {
+    pub fn caption(mut self, caption: impl Into<Text>) -> Self {
         self.caption = caption.into();
         self
     }
@@ -115,10 +115,10 @@ impl SendStory<'_> {
         self
     }
 
-    async fn request(&self, media: base::InputMedia) -> Result<functions::stories::SendStory> {
+    async fn request(self, media: base::InputMedia) -> Result<functions::stories::SendStory> {
         let music = self.music.as_deref().map(story_music).transpose()?;
         let peer = self.client.resolve_peer(self.chat_id.clone()).await?;
-        let (caption, entities) = self.client.parse_text(&self.caption, self.parse_mode).await?;
+        let (caption, entities) = self.client.write_text(self.caption, self.parse_mode).await?;
         let areas = StoryArea::write_all(&self.areas, self.client).await?;
         let (fwd_from_id, fwd_from_story) = match &self.repost {
             Some((chat_id, story_id)) => (Some(self.client.resolve_peer(chat_id.clone()).await?), Some(*story_id)),
@@ -144,11 +144,12 @@ impl SendStory<'_> {
     }
 
     async fn send(self) -> Result<Story> {
+        let client = self.client;
         // A bad music id is refused before the media is uploaded.
         self.music.as_deref().map(story_music).transpose()?;
-        let media = self.media.upload(self.client).await?;
+        let media = self.media.upload(client).await?;
         let request = self.request(media).await?;
-        Story::from_updates(self.client, self.client.invoke(&request).await?)
+        Story::from_updates(client, client.invoke(&request).await?)
     }
 }
 
@@ -162,7 +163,7 @@ mod tests {
     use crate::errors::Error;
     use crate::file_id::{FileId, FileType};
     use crate::raw::{base, types};
-    use crate::types::InputStoryContent;
+    use crate::types::{InputStoryContent, Text};
     use crate::types::{StoryArea, StoryAreaPosition, StoryAreaType};
 
     #[tokio::test]
@@ -189,6 +190,11 @@ mod tests {
         assert_eq!((request.caption, request.entities, request.period), (None, None, None));
         assert_eq!(request.privacy_rules, [base::InputPrivacyRule::InputPrivacyValueAllowAll]);
         assert!(!request.pinned && !request.noforwards);
+
+        let built = client.send_story("me", InputStoryContent::photo("story.jpg")).caption(Text::new().bold("hi"));
+        let request = built.request(base::InputMedia::InputMediaEmpty).await.unwrap();
+        let bold = base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 });
+        assert_eq!((request.caption.as_deref(), request.entities), (Some("hi"), Some(vec![bold])));
     }
 
     #[tokio::test]

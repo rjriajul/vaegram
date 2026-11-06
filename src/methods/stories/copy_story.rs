@@ -6,7 +6,7 @@ use crate::errors::{Error, Result};
 use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions, types};
 use crate::types::messages_and_media::{input_document_of, input_photo_of};
-use crate::types::{PeerRef, Story};
+use crate::types::{PeerRef, Story, Text};
 
 /// Posts the story's file again by reference, without downloading it. Media areas and music aren't copied.
 #[must_use = "a request does nothing until it is awaited"]
@@ -15,7 +15,7 @@ pub struct CopyStory<'a> {
     chat_id: PeerRef,
     from_chat_id: PeerRef,
     story_id: i32,
-    caption: Option<String>,
+    caption: Option<Text>,
     parse_mode: Option<ParseMode>,
     privacy: StoriesPrivacyRules,
     period: Option<i32>,
@@ -52,7 +52,7 @@ impl Client {
 
 impl CopyStory<'_> {
     /// Replaces the original caption. An empty one removes it.
-    pub fn caption(mut self, caption: impl Into<String>) -> Self {
+    pub fn caption(mut self, caption: impl Into<Text>) -> Self {
         self.caption = Some(caption.into());
         self
     }
@@ -81,10 +81,10 @@ impl CopyStory<'_> {
         self
     }
 
-    async fn request(&self, item: types::StoryItem) -> Result<functions::stories::SendStory> {
-        let (caption, entities) = match &self.caption {
+    async fn request(self, item: types::StoryItem) -> Result<functions::stories::SendStory> {
+        let (caption, entities) = match self.caption {
             Some(text) => {
-                let (caption, entities) = self.client.parse_text(text, self.parse_mode).await?;
+                let (caption, entities) = self.client.write_text(text, self.parse_mode).await?;
                 (caption, (!entities.is_empty()).then_some(entities))
             }
             None => (item.caption.unwrap_or_default(), input_entities(self.client, item.entities).await?),
@@ -123,8 +123,9 @@ impl CopyStory<'_> {
                 _ => None,
             })
             .ok_or(Error::Unexpected("Telegram returned no story to copy"))?;
+        let client = self.client;
         let request = self.request(item).await?;
-        Story::from_updates(self.client, self.client.invoke(&request).await?)
+        Story::from_updates(client, client.invoke(&request).await?)
     }
 }
 
@@ -172,6 +173,7 @@ mod tests {
     use crate::errors::Error;
     use crate::raw::functions::stories;
     use crate::raw::{Identifiable, Serializable, base, types};
+    use crate::types::Text;
 
     fn item(media: base::MessageMedia, entities: Vec<base::MessageEntity>) -> types::StoryItem {
         types::StoryItem {
@@ -287,6 +289,11 @@ mod tests {
     async fn a_new_caption_replaces_the_original() {
         let client = Client::offline();
         let copy = client.copy_story("me", "me", 5).caption("<b>new</b>").html();
+        let request = copy.request(item(photo(), Vec::new())).await.unwrap();
+        let new_bold = base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 3 });
+        assert_eq!((request.caption.as_deref(), request.entities), (Some("new"), Some(vec![new_bold])));
+
+        let copy = client.copy_story("me", "me", 5).caption(Text::new().bold("new"));
         let request = copy.request(item(photo(), Vec::new())).await.unwrap();
         let new_bold = base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 3 });
         assert_eq!((request.caption.as_deref(), request.entities), (Some("new"), Some(vec![new_bold])));

@@ -176,10 +176,10 @@ impl Story {
     /// Downloads the story's photo or video.
     ///
     /// Awaiting it fails with [`Error::InvalidArgument`] if the story has no downloadable media.
-    pub fn download<'a>(&self, client: &'a Client) -> DownloadMedia<'a> {
+    pub fn download(&self) -> DownloadMedia<'_> {
         let location = self.media.as_ref().and_then(Media::file_location).cloned();
         let location = location.ok_or(Error::InvalidArgument("this story has no photo or document to download"));
-        DownloadMedia::new(client, location, Some(DownloadSource::Story(self.chat.id, self.id)))
+        DownloadMedia::new(&self.client, location, Some(DownloadSource::Story(self.chat.id, self.id)))
     }
 
     pub(crate) fn parse_list(

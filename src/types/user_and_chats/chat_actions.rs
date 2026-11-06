@@ -129,7 +129,7 @@ impl Chat {
         &self,
         client: &Client,
         user_ids: impl IntoIterator<Item = impl Into<PeerRef>>,
-        forward_limit: i32,
+        forward_limit: usize,
     ) -> Result<Vec<FailedToAddMember>> {
         client.add_chat_members(self.id, user_ids, forward_limit).await
     }

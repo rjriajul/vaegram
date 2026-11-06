@@ -3,7 +3,7 @@ use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions};
-use crate::types::{InputStoryContent, Story, StoryArea};
+use crate::types::{InputStoryContent, Story, StoryArea, Text};
 
 /// Request built by [`Client::edit_story`]. Awaiting it returns the edited [`Story`].
 #[must_use = "a request does nothing until it is awaited"]
@@ -12,7 +12,7 @@ pub struct EditStory<'a> {
     business_connection_id: String,
     story_id: i32,
     content: InputStoryContent<'a>,
-    caption: String,
+    caption: Text,
     parse_mode: Option<ParseMode>,
     areas: Vec<StoryArea>,
 }
@@ -32,7 +32,7 @@ impl Client {
             business_connection_id: business_connection_id.into(),
             story_id,
             content,
-            caption: String::new(),
+            caption: Text::new(),
             parse_mode: None,
             areas: Vec::new(),
         }
@@ -41,7 +41,7 @@ impl Client {
 
 impl EditStory<'_> {
     /// Adds a caption under the story, parsed with the request's parse mode.
-    pub fn caption(mut self, caption: impl Into<String>) -> Self {
+    pub fn caption(mut self, caption: impl Into<Text>) -> Self {
         self.caption = caption.into();
         self
     }
@@ -55,7 +55,7 @@ impl EditStory<'_> {
     async fn send(self) -> Result<Story> {
         let client = self.client;
         let peer = client.business_user(&self.business_connection_id).await?;
-        let (caption, entities) = client.parse_text(&self.caption, self.parse_mode).await?;
+        let (caption, entities) = client.write_text(self.caption, self.parse_mode).await?;
         let request = functions::stories::EditStory {
             peer,
             id: self.story_id,

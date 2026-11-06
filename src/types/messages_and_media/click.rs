@@ -213,8 +213,8 @@ mod tests {
     async fn reply_buttons_that_share_data_are_not_sent_as_text() {
         let (client, mut rx) = Client::recording();
         let mut markup = ReplyKeyboardMarkup::new([vec![
-            KeyboardButton::new("Phone").request_contact(),
-            KeyboardButton::new("Here").request_location(),
+            KeyboardButton::new("Phone").request_contact(true),
+            KeyboardButton::new("Here").request_location(true),
             KeyboardButton::new("App"),
         ]])
         .write();

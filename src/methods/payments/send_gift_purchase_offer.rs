@@ -10,7 +10,7 @@ use crate::types::{PeerRef, StarAmount};
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendGiftPurchaseOffer<'a> {
     client: &'a Client,
-    owner_id: PeerRef,
+    owner_id: Option<PeerRef>,
     gift: &'a str,
     price: StarAmount,
     duration: i32,
@@ -28,14 +28,18 @@ impl Client {
         price: StarAmount,
         duration: i32,
     ) -> SendGiftPurchaseOffer<'a> {
-        SendGiftPurchaseOffer {
-            client: self,
-            owner_id: owner_id.into(),
-            gift,
-            price,
-            duration,
-            paid_message_star_count: None,
-        }
+        self.offer_gift(Some(owner_id.into()), gift, price, duration)
+    }
+
+    /// An offer that fails on await when `owner_id` is `None`: the gift has no known owner or takes no offers.
+    pub(crate) fn offer_gift<'a>(
+        &'a self,
+        owner_id: Option<PeerRef>,
+        gift: &'a str,
+        price: StarAmount,
+        duration: i32,
+    ) -> SendGiftPurchaseOffer<'a> {
+        SendGiftPurchaseOffer { client: self, owner_id, gift, price, duration, paid_message_star_count: None }
     }
 }
 
@@ -48,13 +52,15 @@ impl SendGiftPurchaseOffer<'_> {
     }
 
     async fn send(self) -> Result<()> {
+        let owner_id =
+            self.owner_id.ok_or(Error::InvalidArgument("the gift has no known owner or doesn't take offers"))?;
         let slug = gift_slug(self.gift)?.to_owned();
         let price = stars_amount(self.price)?;
         if self.paid_message_star_count.is_some_and(|stars| stars <= 0) {
             return Err(Error::InvalidArgument("paid_message_star_count must be positive"));
         }
         let request = functions::payments::SendStarGiftOffer {
-            peer: self.client.resolve_peer(self.owner_id).await?,
+            peer: self.client.resolve_peer(owner_id).await?,
             slug,
             price,
             duration: self.duration,

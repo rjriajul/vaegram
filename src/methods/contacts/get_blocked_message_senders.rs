@@ -2,6 +2,7 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::BlockList;
 use crate::errors::Result;
+use crate::methods::pages::wire_limit;
 use crate::raw::{base, functions};
 use crate::types::Chat;
 
@@ -10,7 +11,7 @@ use crate::types::Chat;
 pub struct GetBlockedMessageSenders<'a> {
     client: &'a Client,
     offset: i32,
-    limit: i32,
+    limit: usize,
     list: BlockList,
 }
 
@@ -18,7 +19,7 @@ impl Client {
     /// Returns up to `limit` users and chats from a block list, skipping the first `offset`.
     ///
     /// Reads [`BlockList::Main`] unless [`block_list`](GetBlockedMessageSenders::block_list) picks another.
-    pub fn get_blocked_message_senders(&self, offset: i32, limit: i32) -> GetBlockedMessageSenders<'_> {
+    pub fn get_blocked_message_senders(&self, offset: i32, limit: usize) -> GetBlockedMessageSenders<'_> {
         GetBlockedMessageSenders { client: self, offset, limit, list: BlockList::Main }
     }
 }
@@ -34,7 +35,7 @@ impl GetBlockedMessageSenders<'_> {
         let request = functions::contacts::GetBlocked {
             my_stories_from: self.list.my_stories_from(),
             offset: self.offset,
-            limit: self.limit,
+            limit: wire_limit(self.limit),
         };
         let (blocked, users, chats) = match self.client.invoke(&request).await? {
             base::contacts::Blocked::Blocked(b) => (b.blocked, b.users, b.chats),

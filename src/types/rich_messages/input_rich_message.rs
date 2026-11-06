@@ -46,22 +46,22 @@ impl InputRichMessage {
         }
     }
 
-    /// Lays the message out right to left.
-    pub fn rtl(mut self) -> Self {
+    /// Sets whether the message is laid out right to left; `true` lays it out right to left.
+    pub fn rtl(mut self, rtl: bool) -> Self {
         match &mut self {
-            InputRichMessage::Html { rtl, .. }
-            | InputRichMessage::Markdown { rtl, .. }
-            | InputRichMessage::Blocks { rtl, .. } => *rtl = true,
+            InputRichMessage::Html { rtl: field, .. }
+            | InputRichMessage::Markdown { rtl: field, .. }
+            | InputRichMessage::Blocks { rtl: field, .. } => *field = rtl,
         }
         self
     }
 
-    /// Turns off automatic linking in the message.
-    pub fn no_autolink(mut self) -> Self {
+    /// Sets whether automatic linking is off in the message; `true` turns it off.
+    pub fn no_autolink(mut self, no_autolink: bool) -> Self {
         match &mut self {
-            InputRichMessage::Html { no_autolink, .. }
-            | InputRichMessage::Markdown { no_autolink, .. }
-            | InputRichMessage::Blocks { no_autolink, .. } => *no_autolink = true,
+            InputRichMessage::Html { no_autolink: field, .. }
+            | InputRichMessage::Markdown { no_autolink: field, .. }
+            | InputRichMessage::Blocks { no_autolink: field, .. } => *field = no_autolink,
         }
         self
     }
@@ -214,5 +214,13 @@ mod tests {
         };
         let user = base::InputUser::InputUser(Box::new(types::InputUser { user_id: 42, access_hash: 7 }));
         assert_eq!(m.users, Some(vec![user]));
+    }
+
+    #[test]
+    fn flag_setters_round_trip_their_fields() {
+        let on = InputRichMessage::markdown("x").rtl(true).no_autolink(true);
+        let InputRichMessage::Markdown { rtl, no_autolink, .. } = &on else { panic!("expected markdown") };
+        assert!(*rtl && *no_autolink);
+        assert_eq!(on.rtl(false).no_autolink(false), InputRichMessage::markdown("x"));
     }
 }

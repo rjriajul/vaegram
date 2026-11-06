@@ -21,6 +21,7 @@ const CONNECTIONS: usize = 4;
 // The server throttles Premium uploads less, so more connections stay busy.
 const CONNECTIONS_PREMIUM: usize = 8;
 
+#[must_use = "a request does nothing until it is awaited"]
 pub(crate) struct SaveFile<'a> {
     client: &'a Client,
     input: Input<'a>,

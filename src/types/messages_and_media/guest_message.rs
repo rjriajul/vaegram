@@ -1,8 +1,8 @@
 use crate::Client;
 use crate::dispatcher::Entities;
-use crate::errors::Result;
+use crate::methods::AnswerGuestQuery;
 use crate::raw::{base, types};
-use crate::types::{Chat, InlineQueryResult, Message, SentGuestMessage, User};
+use crate::types::{Chat, InlineQueryResult, Message, User};
 
 /// A message in a chat the bot isn't in. [`answer`](GuestMessage::answer) is the only way to respond there.
 #[derive(Debug, Clone)]
@@ -36,8 +36,8 @@ impl GuestMessage {
 
     /// Answers the guest query with an inline result.
     ///
-    /// Returns the [`SentGuestMessage`].
-    pub async fn answer(&self, result: impl Into<InlineQueryResult>) -> Result<SentGuestMessage> {
-        self.client().answer_guest_query(self.query_id, result).await
+    /// Awaiting the request returns the [`SentGuestMessage`](crate::types::SentGuestMessage).
+    pub fn answer(&self, result: impl Into<InlineQueryResult>) -> AnswerGuestQuery<'_> {
+        self.client().answer_guest_query(self.query_id, result)
     }
 }

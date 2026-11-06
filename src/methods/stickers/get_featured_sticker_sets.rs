@@ -1,11 +1,13 @@
 use crate::Client;
 use crate::errors::{Error, Result};
+use crate::methods::pages::wire_limit;
 use crate::raw::{base, functions};
 use crate::types::StickerSet;
 
 const OLD_FEATURED_LIMIT: i32 = 100;
 
 /// Request built by [`Client::get_featured_sticker_sets`].
+#[must_use = "a request does nothing until it is awaited"]
 pub struct GetFeaturedStickerSets<'a> {
     client: &'a Client,
     custom_emoji: bool,
@@ -40,8 +42,8 @@ impl GetFeaturedStickerSets<'_> {
     }
 
     /// Caps how many older featured sets to get, 100 unless set. Like `offset`, it switches to the older sets.
-    pub fn limit(mut self, limit: i32) -> Self {
-        self.limit = Some(limit);
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.limit = Some(wire_limit(limit));
         self
     }
 }

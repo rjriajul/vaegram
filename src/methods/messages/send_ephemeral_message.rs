@@ -4,7 +4,7 @@ use crate::crypto::random;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
-use crate::types::{EphemeralMessage, InputMedia, PeerRef, ReplyMarkup, ReplyParameters};
+use crate::types::{EphemeralMessage, InputMedia, PeerRef, ReplyMarkup, ReplyParameters, Text};
 
 enum ReplyTo {
     Message(ReplyParameters),
@@ -16,8 +16,8 @@ enum ReplyTo {
 pub struct SendEphemeralMessage<'a> {
     client: &'a Client,
     chat_id: PeerRef,
-    receiver_user_id: PeerRef,
-    text: String,
+    receiver_user_id: Option<PeerRef>,
+    text: Text,
     parse_mode: Option<ParseMode>,
     media: Option<InputMedia<'a>>,
     protect_content: bool,
@@ -34,13 +34,21 @@ impl Client {
         &self,
         chat_id: impl Into<PeerRef>,
         receiver_user_id: impl Into<PeerRef>,
-        text: impl Into<String>,
+        text: impl Into<Text>,
     ) -> SendEphemeralMessage<'_> {
+        SendEphemeralMessage::new(self, chat_id.into(), Some(receiver_user_id.into()), text.into())
+    }
+}
+
+impl<'a> SendEphemeralMessage<'a> {
+    /// A request for `receiver_user_id`. Without one, awaiting fails with `Error::InvalidArgument` before any
+    /// request is sent.
+    pub(crate) fn new(client: &'a Client, chat_id: PeerRef, receiver_user_id: Option<PeerRef>, text: Text) -> Self {
         SendEphemeralMessage {
-            client: self,
-            chat_id: chat_id.into(),
-            receiver_user_id: receiver_user_id.into(),
-            text: text.into(),
+            client,
+            chat_id,
+            receiver_user_id,
+            text,
             parse_mode: None,
             media: None,
             protect_content: false,
@@ -49,9 +57,7 @@ impl Client {
             reply_markup: None,
         }
     }
-}
 
-impl<'a> SendEphemeralMessage<'a> {
     /// Answers the callback query with this id by sending the message.
     pub fn callback_query_id(mut self, query_id: i64) -> Self {
         self.callback_query_id = Some(query_id);
@@ -130,16 +136,18 @@ impl<'a> SendEphemeralMessage<'a> {
 
     async fn send(mut self) -> Result<EphemeralMessage> {
         let client = self.client;
+        // Only `Message::reply_ephemeral_text` builds a request without a receiver: its message had no sender user.
+        let receiver = self.receiver_user_id.take().ok_or(Error::InvalidArgument("this message has no sender user"))?;
         let (message, entities) = match &mut self.media {
             Some(_) if !self.text.is_empty() => {
                 return Err(Error::InvalidArgument("a media message takes its caption from InputMedia::caption"));
             }
             Some(media) => client.write_text(std::mem::take(&mut media.caption), media.parse_mode).await?,
-            None => client.parse_text(&self.text, self.parse_mode).await?,
+            None => client.write_text(std::mem::take(&mut self.text), self.parse_mode).await?,
         };
         let entities = (!entities.is_empty()).then_some(entities);
         let chat = client.resolve(&self.chat_id).await?;
-        let receiver_id = client.resolve_user(&self.receiver_user_id).await?;
+        let receiver_id = client.resolve_user(&receiver).await?;
         let request = self.request(chat, receiver_id, message, entities).await?;
         EphemeralMessage::from_updates(client, client.invoke(&request).await?)
     }
@@ -152,8 +160,8 @@ into_future!(SendEphemeralMessage, EphemeralMessage);
 mod tests {
     use crate::Client;
     use crate::errors::Error;
-    use crate::raw::{base, types};
-    use crate::types::InputMedia;
+    use crate::raw::{Serializable, base, types};
+    use crate::types::{InputMedia, Text};
 
     fn peer() -> base::InputPeer {
         base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 42, access_hash: 7 }))
@@ -183,5 +191,16 @@ mod tests {
         let send = client.send_ephemeral_message("me", "me", "text").media(InputMedia::photo("cat.jpg"));
         assert!(matches!(send.await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn built_text_keeps_its_entities() {
+        let (client, mut sent) = Client::recording();
+        let _ = client.send_ephemeral_message("me", "me", Text::new().bold("hi")).await;
+        let body = sent.try_recv().expect("no request sent");
+        let bold = vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 })];
+        let mut text = String::from("hi").to_bytes();
+        text.extend(bold.to_bytes());
+        assert!(body.windows(text.len()).any(|w| w == text));
     }
 }

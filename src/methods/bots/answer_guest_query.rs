@@ -3,17 +3,52 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{InlineMessageId, InlineQueryResult, SentGuestMessage};
 
+/// Request built by [`Client::answer_guest_query`]. Awaiting it returns the [`SentGuestMessage`].
+#[must_use = "a request does nothing until it is awaited"]
+pub struct AnswerGuestQuery<'a> {
+    client: &'a Client,
+    guest_query_id: i64,
+    result: InlineQueryResult,
+}
+
 impl Client {
     /// Answers a guest query with one inline result.
     ///
-    /// Returns a [`SentGuestMessage`] holding the inline message id of the message the bot sent.
-    pub async fn answer_guest_query(
+    /// Awaiting the request returns a [`SentGuestMessage`] holding the inline message id of the message the bot sent.
+    pub fn answer_guest_query(
         &self,
         guest_query_id: i64,
         result: impl Into<InlineQueryResult>,
-    ) -> Result<SentGuestMessage> {
-        let result = result.into().write(self).await?;
-        let request = functions::messages::SetBotGuestChatResult { query_id: guest_query_id, result };
-        Ok(SentGuestMessage { inline_message_id: InlineMessageId(self.invoke(&request).await?) })
+    ) -> AnswerGuestQuery<'_> {
+        AnswerGuestQuery { client: self, guest_query_id, result: result.into() }
+    }
+}
+
+impl AnswerGuestQuery<'_> {
+    async fn send(self) -> Result<SentGuestMessage> {
+        let result = self.result.write(self.client).await?;
+        let request = functions::messages::SetBotGuestChatResult { query_id: self.guest_query_id, result };
+        Ok(SentGuestMessage { inline_message_id: InlineMessageId(self.client.invoke(&request).await?) })
+    }
+}
+
+into_future!(AnswerGuestQuery, SentGuestMessage);
+
+#[cfg(test)]
+mod tests {
+    use crate::Client;
+    use crate::raw::{Identifiable, functions};
+    use crate::types::InlineQueryResultArticle;
+
+    #[tokio::test]
+    async fn sends_the_result_on_await() {
+        let (client, mut rx) = Client::recording();
+        let answer = client.answer_guest_query(9, InlineQueryResultArticle::new("t", "hi"));
+        assert!(rx.try_recv().is_err(), "nothing is sent before the await");
+        let _ = answer.await;
+        let body = rx.try_recv().expect("no request sent");
+        let id = u32::from_le_bytes(body[..4].try_into().unwrap());
+        assert_eq!(id, functions::messages::SetBotGuestChatResult::CONSTRUCTOR_ID);
+        assert_eq!(i64::from_le_bytes(body[4..12].try_into().unwrap()), 9);
     }
 }

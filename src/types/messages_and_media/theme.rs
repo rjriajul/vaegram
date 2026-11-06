@@ -94,9 +94,9 @@ impl ThemeSettings {
         self
     }
 
-    /// Animates the message bubble gradient.
-    pub fn message_colors_animated(mut self) -> Self {
-        self.message_colors_animated = true;
+    /// Sets whether the message bubble gradient is animated; `true` animates it.
+    pub fn message_colors_animated(mut self, message_colors_animated: bool) -> Self {
+        self.message_colors_animated = message_colors_animated;
         self
     }
 
@@ -165,7 +165,7 @@ mod tests {
         let theme = Theme::parse(raw);
         assert_eq!((theme.id, theme.title.as_str(), theme.emoji.as_deref()), (5, "Night", Some("🌚")));
         assert_eq!((theme.is_creator, theme.is_for_chat, theme.installs_count), (true, true, 0));
-        let night = ThemeSettings::new(BaseTheme::Night, 0x3e88f7).message_colors([1, 2]).message_colors_animated();
+        let night = ThemeSettings::new(BaseTheme::Night, 0x3e88f7).message_colors([1, 2]).message_colors_animated(true);
         assert_eq!(theme.settings, [night]);
         let input = types::InputTheme { id: 5, access_hash: 6 };
         assert_eq!(theme.write(), base::InputTheme::InputTheme(Box::new(input)));
@@ -188,6 +188,13 @@ mod tests {
         };
         let theme = Theme::parse(base::Theme::Theme(Box::new(raw)));
         assert_eq!((theme.settings.len(), theme.emoji, theme.installs_count, theme.is_default), (0, None, 0, true));
+    }
+
+    #[test]
+    fn message_colors_animated_setter_round_trips_the_field() {
+        let animated = ThemeSettings::new(BaseTheme::Day, 1).message_colors_animated(true);
+        assert!(animated.message_colors_animated);
+        assert_eq!(animated.message_colors_animated(false), ThemeSettings::new(BaseTheme::Day, 1));
     }
 
     #[test]

@@ -736,7 +736,7 @@ mod media_group_tests {
     use crate::raw::functions::{channels, contacts, messages};
     use crate::raw::{Identifiable, Serializable, base, types};
     use crate::types::messages_and_media::media::tests::document_media;
-    use crate::types::{Message, SuggestedPostParameters};
+    use crate::types::{Message, SuggestedPostParameters, Text};
     use crate::utils::{get_channel_id, get_peer};
 
     const GROUP: i64 = -5;
@@ -876,13 +876,15 @@ mod media_group_tests {
         let mut source = album();
         source[2].invert_media = true;
         let (client, mut rx) = Client::scripted(vec![Ok(found(source)), Ok(new_messages(&[21, 20]))]);
-        let copied = client.copy_media_group(GROUP, GROUP, 10).caption(1, "new").await.unwrap();
+        let copied = client.copy_media_group(GROUP, GROUP, 10).caption(1, Text::new().bold("new")).await.unwrap();
         assert_eq!(ids(&copied), [20, 21]);
         rx.try_recv().unwrap();
         let body = rx.try_recv().unwrap();
         assert_eq!((word(&body, 0), word(&body, 4)), (messages::SendMultiMedia::CONSTRUCTOR_ID, 1 << 16));
-        let has = |text: &str| body.windows(text.len()).any(|w| w == text.as_bytes());
-        assert_eq!((has("first"), has("new"), has("second")), (true, true, false));
+        let has = |bytes: &[u8]| body.windows(bytes.len()).any(|w| w == bytes);
+        assert_eq!((has(b"first"), has(b"new"), has(b"second")), (true, true, false));
+        let bold = base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 3 });
+        assert!(has(&vec![bold].to_bytes()));
     }
 
     #[tokio::test]

@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::pages::wire_limit;
 use crate::raw::functions;
 use crate::types::FoundContacts;
 
@@ -8,7 +9,8 @@ impl Client {
     ///
     /// Returns at most `limit` matches, split into [`FoundContacts::my_results`] and
     /// [`FoundContacts::global_results`].
-    pub async fn search_contacts(&self, query: &str, limit: i32) -> Result<FoundContacts> {
+    pub async fn search_contacts(&self, query: &str, limit: usize) -> Result<FoundContacts> {
+        let limit = wire_limit(limit);
         let request = functions::contacts::Search { broadcasts: false, bots: false, q: query.into(), limit };
         Ok(FoundContacts::parse(self, self.invoke(&request).await?))
     }

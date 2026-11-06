@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::pages::wire_limit;
 use crate::raw::{base, functions};
 use crate::types::StickerSet;
 
@@ -27,8 +28,8 @@ impl GetOwnedStickerSets<'_> {
     }
 
     /// Caps how many sets one page holds. The default is 100.
-    pub fn limit(mut self, limit: i32) -> Self {
-        self.request.limit = limit;
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.request.limit = wire_limit(limit);
         self
     }
 

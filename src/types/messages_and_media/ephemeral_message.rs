@@ -3,7 +3,7 @@ use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::methods::{EditEphemeralMessage, SendEphemeralMessage};
 use crate::raw::{base, types};
-use crate::types::{Chat, Media, MessageEntity, MessageText, ReplyMarkup, User};
+use crate::types::{Chat, Media, MessageEntity, MessageText, ReplyMarkup, Text, User};
 use crate::utils::get_peer;
 
 /// A message in a chat that only one user, the receiver, sees.
@@ -126,7 +126,7 @@ impl EphemeralMessage {
     ///
     /// The reply goes to the sender of an incoming message, or to the same receiver for an outgoing one.
     /// Awaiting returns the sent [`EphemeralMessage`].
-    pub fn reply(&self, text: impl Into<String>) -> SendEphemeralMessage<'_> {
+    pub fn reply(&self, text: impl Into<Text>) -> SendEphemeralMessage<'_> {
         let receiver = self.from_user.as_ref().filter(|_| !self.outgoing).map_or(self.receiver_user.id, |u| u.id);
         self.client.send_ephemeral_message(self.chat.id, receiver, text).reply_to_ephemeral(self.id)
     }

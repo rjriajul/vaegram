@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::pages::wire_limit;
 use crate::raw::functions;
 use crate::types::{ChatInviteLink, PeerRef};
 
@@ -49,9 +50,9 @@ impl EditChatInviteLink<'_> {
         self
     }
 
-    /// 0 removes the limit.
-    pub fn member_limit(mut self, limit: i32) -> Self {
-        self.member_limit = Some(limit);
+    /// Caps how many users can join through the link. 0 removes the limit.
+    pub fn member_limit(mut self, limit: usize) -> Self {
+        self.member_limit = Some(wire_limit(limit));
         self
     }
 

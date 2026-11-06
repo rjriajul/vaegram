@@ -1,5 +1,5 @@
 use crate::Client;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 
 /// Request built by [`Client::upgrade_gift`].
@@ -15,7 +15,8 @@ pub struct UpgradeGift<'a> {
 impl Client {
     /// Upgrades a received gift to a unique gift.
     ///
-    /// `owned_gift_id` is the `owned_gift_id` of an owned gift, or a unique gift's slug.
+    /// `owned_gift_id` is the `owned_gift_id` of an owned gift, or a unique gift's slug. Awaiting fails with
+    /// `Error::InvalidArgument` if it is empty.
     pub fn upgrade_gift(&self, owned_gift_id: impl Into<String>) -> UpgradeGift<'_> {
         UpgradeGift {
             client: self,
@@ -47,6 +48,9 @@ impl UpgradeGift<'_> {
     }
 
     async fn send(self) -> Result<()> {
+        if self.owned_gift_id.is_empty() {
+            return Err(Error::InvalidArgument("owned_gift_id is empty"));
+        }
         let client = self.client;
         let stargift = client.input_saved_gift(&self.owned_gift_id).await?;
         let keep_original_details = self.keep_original_details;

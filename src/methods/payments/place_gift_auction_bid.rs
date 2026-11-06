@@ -3,7 +3,7 @@ use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::methods::messages::caption_setters;
 use crate::raw::{base, types};
-use crate::types::PeerRef;
+use crate::types::{PeerRef, Text};
 
 /// Request built by [`Client::place_gift_auction_bid`].
 #[must_use = "a request does nothing until it is awaited"]
@@ -12,7 +12,7 @@ pub struct PlaceGiftAuctionBid<'a> {
     gift_id: i64,
     star_count: i64,
     recipient: Option<PeerRef>,
-    text: Option<String>,
+    text: Option<Text>,
     parse_mode: Option<ParseMode>,
     private: bool,
 }
@@ -44,7 +44,7 @@ impl PlaceGiftAuctionBid<'_> {
     }
 
     /// Adds a message that the recipient sees with the gift.
-    pub fn text(mut self, text: impl Into<String>) -> Self {
+    pub fn text(mut self, text: impl Into<Text>) -> Self {
         self.text = Some(text.into());
         self
     }
@@ -70,7 +70,7 @@ impl PlaceGiftAuctionBid<'_> {
             peer: Some(peer),
             gift_id: self.gift_id,
             bid_amount: self.star_count,
-            message: client.parse_text_with_entities(self.text.as_deref(), self.parse_mode).await?,
+            message: client.parse_text_with_entities(self.text, self.parse_mode).await?,
         };
         let invoice = base::InputInvoice::InputInvoiceStarGiftAuctionBid(Box::new(invoice));
         client.pay_in_stars_up_to(invoice, self.star_count).await
@@ -85,17 +85,15 @@ pub(super) mod tests {
     use super::super::send_payment_form::tests::{client, gift_form, paid, payment};
     use crate::errors::Error;
     use crate::raw::{base, types};
+    use crate::types::Text;
 
     pub(in crate::methods::payments) fn bid(
         update_bid: bool,
         hide_name: bool,
         peer: Option<base::InputPeer>,
-        message: Option<&str>,
+        message: Option<types::TextWithEntities>,
     ) -> base::InputInvoice {
-        let message = message.map(|text| {
-            let text = types::TextWithEntities { text: text.into(), entities: Vec::new() };
-            base::TextWithEntities::TextWithEntities(Box::new(text))
-        });
+        let message = message.map(|text| base::TextWithEntities::TextWithEntities(Box::new(text)));
         let invoice =
             types::InputInvoiceStarGiftAuctionBid { hide_name, update_bid, peer, gift_id: 1, bid_amount: 900, message };
         base::InputInvoice::InputInvoiceStarGiftAuctionBid(Box::new(invoice))
@@ -110,12 +108,14 @@ pub(super) mod tests {
         client.place_gift_auction_bid(1, 900).await.unwrap();
         client.place_gift_auction_bid(1, 900).recipient(5).await.unwrap();
         client.place_gift_auction_bid(1, 900).private().await.unwrap();
-        client.place_gift_auction_bid(1, 900).text("hi").await.unwrap();
+        client.place_gift_auction_bid(1, 900).text(Text::new().bold("hi")).await.unwrap();
+        let bold = base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 });
+        let message = types::TextWithEntities { text: "hi".into(), entities: vec![bold] };
         let expected = [
             bid(false, false, me.clone(), None),
             bid(false, false, user, None),
             bid(false, true, me.clone(), None),
-            bid(false, false, me, Some("hi")),
+            bid(false, false, me, Some(message)),
         ];
         for invoice in expected {
             let [get, pay] = payment(invoice);

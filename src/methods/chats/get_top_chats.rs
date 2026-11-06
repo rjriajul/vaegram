@@ -2,17 +2,17 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::TopChatCategory;
 use crate::errors::{Error, Result};
+use crate::methods::pages::wire_limit;
 use crate::raw::{base, functions, types};
 use crate::types::Chat;
 
 impl Client {
     /// Returns the chats you use most in a category, best rated first.
     ///
-    /// Fails with `Error::InvalidArgument` if `limit` is below 1. The result is empty if you turned off chat
-    /// suggestions.
-    pub async fn get_top_chats(&self, category: TopChatCategory, limit: i32) -> Result<Vec<Chat>> {
+    /// Fails with `Error::InvalidArgument` if `limit` is 0. The result is empty if you turned off chat suggestions.
+    pub async fn get_top_chats(&self, category: TopChatCategory, limit: usize) -> Result<Vec<Chat>> {
         use TopChatCategory as C;
-        if limit < 1 {
+        if limit == 0 {
             return Err(Error::InvalidArgument("get_top_chats needs a limit of at least 1"));
         }
         let request = functions::contacts::GetTopPeers {
@@ -28,7 +28,7 @@ impl Client {
             bots_app: category == C::WebAppBots,
             bots_guestchat: category == C::GuestBots,
             offset: 0,
-            limit,
+            limit: wire_limit(limit),
             hash: 0,
         };
         let top = match self.invoke(&request).await? {

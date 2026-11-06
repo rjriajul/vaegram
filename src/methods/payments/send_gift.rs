@@ -3,7 +3,7 @@ use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::methods::messages::caption_setters;
 use crate::raw::{base, functions, types};
-use crate::types::PeerRef;
+use crate::types::{PeerRef, Text};
 
 /// Request built by [`Client::send_gift`].
 #[must_use = "a request does nothing until it is awaited"]
@@ -11,7 +11,7 @@ pub struct SendGift<'a> {
     client: &'a Client,
     chat_id: PeerRef,
     gift_id: i64,
-    text: Option<String>,
+    text: Option<Text>,
     parse_mode: Option<ParseMode>,
     pay_for_upgrade: bool,
     private: bool,
@@ -52,18 +52,18 @@ impl Client {
 
     pub(crate) async fn parse_text_with_entities(
         &self,
-        text: Option<&str>,
+        text: Option<Text>,
         mode: Option<ParseMode>,
     ) -> Result<Option<base::TextWithEntities>> {
         let Some(text) = text else { return Ok(None) };
-        let (text, entities) = self.parse_text(text, mode).await?;
+        let (text, entities) = self.write_text(text, mode).await?;
         Ok(Some(base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities }))))
     }
 }
 
 impl SendGift<'_> {
     /// Adds a message that the recipient sees with the gift.
-    pub fn text(mut self, text: impl Into<String>) -> Self {
+    pub fn text(mut self, text: impl Into<Text>) -> Self {
         self.text = Some(text.into());
         self
     }
@@ -87,7 +87,7 @@ impl SendGift<'_> {
             include_upgrade: self.pay_for_upgrade,
             peer: client.resolve_peer(self.chat_id).await?,
             gift_id: self.gift_id,
-            message: client.parse_text_with_entities(self.text.as_deref(), self.parse_mode).await?,
+            message: client.parse_text_with_entities(self.text, self.parse_mode).await?,
         };
         client.pay_with_stars(None, base::InputInvoice::InputInvoiceStarGift(Box::new(invoice))).await
     }

@@ -39,14 +39,6 @@ impl Client {
         }
     }
 
-    pub(crate) async fn parse_text(
-        &self,
-        text: &str,
-        mode: Option<ParseMode>,
-    ) -> Result<(String, Vec<base::MessageEntity>)> {
-        self.write_text(text.into(), mode).await
-    }
-
     pub(crate) async fn write_text(
         &self,
         text: Text,

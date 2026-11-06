@@ -1,6 +1,7 @@
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::Result;
+use crate::methods::pages::wire_limit;
 use crate::raw::{base, functions};
 use crate::types::{PeerRef, StarTransaction, StarTransactions};
 
@@ -65,8 +66,8 @@ impl GetStarTransactions<'_> {
     }
 
     /// Caps how many transactions one page holds. The default is 100.
-    pub fn limit(mut self, limit: i32) -> Self {
-        self.limit = limit;
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.limit = wire_limit(limit);
         self
     }
 

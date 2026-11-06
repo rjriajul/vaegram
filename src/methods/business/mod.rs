@@ -58,7 +58,9 @@ mod tests {
     use crate::errors::Error;
     use crate::raw::functions::{account, messages};
     use crate::raw::{Serializable, base, types};
-    use crate::types::{BusinessBotRights, BusinessOpeningHours, BusinessRecipients, QuickReply};
+    use crate::types::{
+        BusinessBotRights, BusinessOpeningHours, BusinessRecipients, InputStoryContent, QuickReply, Text, Upload,
+    };
 
     async fn sent<F: IntoFuture>(rx: &mut UnboundedReceiver<Vec<u8>>, call: F) -> Vec<u8> {
         let _ = call.await;
@@ -183,5 +185,38 @@ mod tests {
         assert!(refused(client.resolve_business_chat_link("").await));
         assert!(refused(client.edit_business_chat_link("", "hi").await));
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_built_story_caption_keeps_its_entities() {
+        let connection = types::BotBusinessConnection {
+            disabled: false,
+            connection_id: "c".into(),
+            user_id: 42,
+            dc_id: 2,
+            date: 1,
+            rights: None,
+        };
+        let connection = base::BotBusinessConnection::BotBusinessConnection(Box::new(connection));
+        let update = types::UpdateBotBusinessConnect { connection, qts: 0 };
+        let update = base::Update::UpdateBotBusinessConnect(Box::new(update));
+        let connected = base::Updates::UpdateShort(Box::new(types::UpdateShort { update, date: 0 })).to_bytes();
+        let bold = vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 })];
+        let mut caption = String::from("hi").to_bytes();
+        caption.extend(bold.to_bytes());
+        for edit in [true, false] {
+            let (client, mut rx) = Client::scripted(vec![Ok(connected.clone()), Ok(true.to_bytes())]);
+            let user = types::InputPeerUser { user_id: 42, access_hash: 7 };
+            client.0.peers.lock().unwrap().insert(42, base::InputPeer::InputPeerUser(Box::new(user)));
+            let photo = InputStoryContent::photo(Upload::bytes("a.jpg", b"x"));
+            let text = Text::new().bold("hi");
+            let _ = if edit {
+                client.edit_story("c", 1, photo).caption(text).await
+            } else {
+                client.post_story("c", photo, 86400).caption(text).await
+            };
+            let bodies: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+            assert!(bodies.iter().any(|body| body.windows(caption.len()).any(|w| w == caption)), "edit: {edit}");
+        }
     }
 }

@@ -3,7 +3,7 @@ use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::methods::messages::caption_setters;
 use crate::raw::functions;
-use crate::types::{PeerRef, Story};
+use crate::types::{PeerRef, Story, Text};
 
 /// Request built by [`Client::edit_story_caption`].
 #[must_use = "a request does nothing until it is awaited"]
@@ -11,7 +11,7 @@ pub struct EditStoryCaption<'a> {
     client: &'a Client,
     chat_id: PeerRef,
     story_id: i32,
-    caption: String,
+    caption: Text,
     parse_mode: Option<ParseMode>,
 }
 
@@ -21,7 +21,7 @@ impl Client {
         &self,
         chat_id: impl Into<PeerRef>,
         story_id: i32,
-        caption: impl Into<String>,
+        caption: impl Into<Text>,
     ) -> EditStoryCaption<'_> {
         EditStoryCaption { client: self, chat_id: chat_id.into(), story_id, caption: caption.into(), parse_mode: None }
     }
@@ -30,7 +30,7 @@ impl Client {
 impl EditStoryCaption<'_> {
     async fn send(self) -> Result<Story> {
         let peer = self.client.resolve_peer(self.chat_id).await?;
-        let (caption, entities) = self.client.parse_text(&self.caption, self.parse_mode).await?;
+        let (caption, entities) = self.client.write_text(self.caption, self.parse_mode).await?;
         let request = functions::stories::EditStory {
             peer,
             id: self.story_id,

@@ -1,5 +1,6 @@
 use crate::Client;
 use crate::errors::Result;
+use crate::methods::pages::wire_limit;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
@@ -8,9 +9,10 @@ impl Client {
     pub async fn get_user_personal_chat_messages(
         &self,
         user_id: impl Into<PeerRef>,
-        limit: i32,
+        limit: usize,
     ) -> Result<Vec<Message>> {
         let user_id = self.resolve_user(&user_id.into()).await?;
+        let limit = wire_limit(limit);
         let request = functions::messages::GetPersonalChannelHistory { user_id, limit, max_id: 0, min_id: 0, hash: 0 };
         let (messages, entities) = Message::unpack(self, self.invoke(&request).await?);
         let mut found: Vec<_> = messages.into_iter().filter_map(|m| Message::from_raw(self, m, &entities)).collect();

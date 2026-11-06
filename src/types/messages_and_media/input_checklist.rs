@@ -2,7 +2,7 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::raw::{base, types};
-use crate::types::Checklist;
+use crate::types::{Checklist, Text};
 
 /// A checklist to send, built from a title and its tasks.
 ///
@@ -10,8 +10,8 @@ use crate::types::Checklist;
 #[derive(Debug, Clone)]
 pub struct InputChecklist {
     // Entities are `Some` only for texts taken from a received checklist; those skip the parse mode.
-    title: (String, Option<Vec<base::MessageEntity>>),
-    tasks: Vec<(i32, String, Option<Vec<base::MessageEntity>>)>,
+    title: (Text, Option<Vec<base::MessageEntity>>),
+    tasks: Vec<(i32, Text, Option<Vec<base::MessageEntity>>)>,
     parse_mode: Option<ParseMode>,
     others_can_add_tasks: bool,
     others_can_mark_tasks_as_done: bool,
@@ -19,7 +19,7 @@ pub struct InputChecklist {
 
 impl InputChecklist {
     /// Starts a checklist with the given title and no tasks.
-    pub fn new(title: impl Into<String>) -> Self {
+    pub fn new(title: impl Into<Text>) -> Self {
         InputChecklist {
             title: (title.into(), None),
             tasks: Vec::new(),
@@ -32,7 +32,7 @@ impl InputChecklist {
     /// Adds a task to the checklist.
     ///
     /// Task ids must be positive and unique within the checklist.
-    pub fn task(mut self, id: i32, text: impl Into<String>) -> Self {
+    pub fn task(mut self, id: i32, text: impl Into<Text>) -> Self {
         self.tasks.push((id, text.into(), None));
         self
     }
@@ -91,7 +91,7 @@ impl From<&Checklist> for InputChecklist {
         let base::TodoList::TodoList(todo) = &checklist.todo;
         let text = |t: &base::TextWithEntities| {
             let base::TextWithEntities::TextWithEntities(t) = t;
-            (t.text.clone(), Some(t.entities.clone()))
+            (Text::from(t.text.clone()), Some(t.entities.clone()))
         };
         let tasks = todo
             .list
@@ -114,12 +114,12 @@ impl From<&Checklist> for InputChecklist {
 // Telegram only accepts user mentions in their input form, so received ones are resolved again.
 async fn text_with_entities(
     client: &Client,
-    (text, entities): (String, Option<Vec<base::MessageEntity>>),
+    (text, entities): (Text, Option<Vec<base::MessageEntity>>),
     mode: Option<ParseMode>,
 ) -> Result<base::TextWithEntities> {
     let (text, entities) = match entities {
-        Some(entities) => (text, client.resolve_mentions(entities).await?),
-        None => client.parse_text(&text, mode).await?,
+        Some(entities) => (text.text, client.resolve_mentions(entities).await?),
+        None => client.write_text(text, mode).await?,
     };
     Ok(base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities })))
 }
@@ -132,7 +132,7 @@ mod tests {
     use crate::dispatcher::Entities;
     use crate::enums::ParseMode;
     use crate::raw::{base, types};
-    use crate::types::Checklist;
+    use crate::types::{Checklist, Text};
 
     #[tokio::test]
     async fn keeps_received_formatting_and_parses_new_tasks() {
@@ -176,5 +176,20 @@ mod tests {
                 (2, text("Hotel", vec![base::MessageEntity::MessageEntityBold(bold)])),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn built_texts_keep_their_entities() {
+        let client = Client::offline();
+        let input = InputChecklist::new(Text::new().bold("Trip")).task(1, Text::new().bold("Hotel")).html();
+        let base::InputMedia::InputMediaTodo(media) = input.write(&client).await.unwrap() else {
+            panic!("not a checklist")
+        };
+        let base::TodoList::TodoList(todo) = &media.todo;
+        let bold =
+            |length| vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length })];
+        assert_eq!(todo.title, text("Trip", bold(4)));
+        let base::TodoItem::TodoItem(task) = &todo.list[0];
+        assert_eq!((task.id, &task.title), (1, &text("Hotel", bold(5))));
     }
 }
