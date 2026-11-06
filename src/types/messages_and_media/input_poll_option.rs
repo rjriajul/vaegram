@@ -3,8 +3,8 @@ use crate::types::{InputPollMedia, Text};
 /// An answer option of a poll to send. A plain `&str`, `String` or [`Text`] converts into one without media.
 #[non_exhaustive]
 pub struct InputPollOption<'a> {
-    /// The option's text, with its formatting. A `Text` made straight from a string is parsed with the client's
-    /// default parse mode when the option is sent.
+    /// The option's text. Telegram currently accepts only custom emoji entities here; a plain string is parsed with
+    /// the client's default parse mode, so pass `Text::new().plain(..)` to send it as is.
     pub text: Text,
     /// Media shown with the option. `None` for a text-only option.
     pub media: Option<InputPollMedia<'a>>,

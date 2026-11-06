@@ -43,7 +43,7 @@ impl SendPaidReaction<'_> {
             return Err(Error::InvalidArgument("a paid reaction takes at least 1 star"));
         }
         let count = i32::try_from(self.star_count)
-            .map_err(|_| Error::InvalidArgument("a paid reaction takes at most i32::MAX stars"))?;
+            .map_err(|_| Error::InvalidArgument("a paid reaction takes at most 2147483647 stars"))?;
         let peer = self.client.resolve_peer(self.chat_id).await?;
         let private = match self.privacy {
             Some(privacy) => Some(privacy.write(self.client).await?),
