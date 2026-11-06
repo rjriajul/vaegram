@@ -5,8 +5,11 @@ use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::types::Message;
 
-/// Messages found by [`Client::search_global`]. Call [`next`](SearchGlobal::next) until it returns `None`.
-#[must_use = "call .next() to fetch messages"]
+/// Messages found by [`Client::search_global`]. Awaiting it collects the messages into a `Vec`, up to
+/// [`limit`](SearchGlobal::limit); [`next`](SearchGlobal::next) reads them one at a time.
+///
+/// Set `limit` before awaiting; without it this reads every match (one request per 100 messages).
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct SearchGlobal<'a> {
     client: &'a Client,
     query: String,
@@ -129,6 +132,8 @@ impl SearchGlobal<'_> {
         })
     }
 }
+
+pager!(SearchGlobal, Message);
 
 #[cfg(test)]
 mod tests {

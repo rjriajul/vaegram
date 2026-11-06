@@ -246,8 +246,8 @@ async fn bot_uploads_and_downloads_a_document() {
 
     let (mut reported, mut streamed) = (0, Vec::new());
     let mut stream = sent.download().progress(|done, _| reported = done).stream();
-    while let Some(chunk) = stream.next().await {
-        streamed.extend_from_slice(&chunk.unwrap());
+    while let Some(chunk) = stream.next().await.unwrap() {
+        streamed.extend_from_slice(&chunk);
     }
     drop(stream);
     assert!(streamed == data);
@@ -738,14 +738,14 @@ async fn user_lists_dialogs_and_contacts() {
     let contacts = user.get_contacts().await.unwrap();
     assert_eq!(contacts.len() as i32, user.get_contacts_count().await.unwrap());
     user.search_contacts("telegram", 5).await.unwrap();
-    user.get_blocked_message_senders(0, 10).await.unwrap();
+    user.get_blocked_message_senders().limit(10).await.unwrap();
     if let Some(phone) = &me.phone_number {
         assert_eq!(user.resolve_phone(phone).await.unwrap(), me.id);
     }
 
     let botfather = user.resolve_username("BotFather").await.unwrap();
     user.block_user(botfather).await.unwrap();
-    let blocked = user.get_blocked_message_senders(0, 100).await;
+    let blocked = user.get_blocked_message_senders().await;
     // Unblock before asserting so a failure doesn't leave BotFather blocked.
     user.unblock_user(botfather).await.unwrap();
     assert!(blocked.unwrap().iter().any(|c| c.id == botfather));

@@ -10,7 +10,7 @@ impl Client {
     pub async fn get_chat_photos_count(&self, chat_id: impl Into<PeerRef>) -> Result<i32> {
         let chat = chat_id.into();
         if self.peer_id(chat.clone()).await? > 0 {
-            return Ok(self.get_chat_photos(chat).limit(1).await?.total_count);
+            return self.get_chat_photos(chat).limit(1).total().await;
         }
         let is_bot = self.0.me.lock().unwrap().is_bot;
         if !is_bot {

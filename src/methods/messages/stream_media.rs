@@ -41,8 +41,8 @@ mod tests {
         let mut stream =
             if stream_media { client.stream_media(location) } else { client.download_media(location).stream() };
         let mut chunks = Vec::new();
-        while let Some(chunk) = stream.next().await {
-            chunks.push(chunk.unwrap());
+        while let Some(chunk) = stream.next().await.unwrap() {
+            chunks.push(chunk);
         }
         (chunks, std::iter::from_fn(|| rx.try_recv().ok()).collect())
     }

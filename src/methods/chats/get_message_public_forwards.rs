@@ -5,9 +5,13 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{Message, PeerRef};
 
-/// Public reposts of a channel message, read one at a time with [`next`](GetMessagePublicForwards::next).
+/// Public reposts of a channel message. Awaiting it collects the reposts into a `Vec`, up to
+/// [`limit`](GetMessagePublicForwards::limit); [`next`](GetMessagePublicForwards::next) reads them one at a time.
 ///
 /// Reposts to stories are left out because they are not messages.
+///
+/// Set `limit` before awaiting; without it this reads every repost (one request per 100).
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetMessagePublicForwards<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -65,3 +69,5 @@ impl GetMessagePublicForwards<'_> {
         }
     }
 }
+
+pager!(GetMessagePublicForwards, Message);

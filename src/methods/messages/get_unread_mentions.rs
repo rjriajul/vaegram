@@ -4,8 +4,9 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
-/// Pages through unread mentions. Call [`next`](GetUnreadMentions::next) until it returns `None`.
-#[must_use = "call .next() to fetch messages"]
+/// Unread mentions. Awaiting it collects the messages into a `Vec`, up to [`limit`](GetUnreadMentions::limit);
+/// [`next`](GetUnreadMentions::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetUnreadMentions<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -56,6 +57,8 @@ impl GetUnreadMentions<'_> {
         }
     }
 }
+
+pager!(GetUnreadMentions, Message);
 
 /// Shared by the tests of the unread mentions, reactions and poll votes walks.
 #[cfg(test)]

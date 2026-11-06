@@ -35,13 +35,13 @@ async fn stream_media_equals_await() {
     let document = message.document().expect("no document");
     let mut stream = kit.user.client.stream_media(document);
     let mut streamed = Vec::new();
-    let mut failed = None;
-    while let Some(chunk) = stream.next().await {
-        match chunk {
-            Ok(chunk) => streamed.extend(chunk),
-            Err(e) => failed = Some(e),
+    let failed = loop {
+        match stream.next().await {
+            Ok(Some(chunk)) => streamed.extend(chunk),
+            Ok(None) => break None,
+            Err(e) => break Some(e),
         }
-    }
+    };
     let awaited = kit.user.client.download_media(document).await;
     kit.user.client.delete_messages("me", &[message.id]).await.unwrap();
     assert!(failed.is_none(), "{failed:?}");

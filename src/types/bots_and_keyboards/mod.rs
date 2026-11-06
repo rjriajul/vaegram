@@ -69,7 +69,7 @@ pub use reply_markup::ReplyMarkup;
 pub use shipping_address::ShippingAddress;
 pub use shipping_option::ShippingOption;
 pub use shipping_query::ShippingQuery;
-pub use star_transaction::{StarTransaction, StarTransactions};
+pub use star_transaction::StarTransaction;
 pub use switch_inline_query_chosen_chat::SwitchInlineQueryChosenChat;
 pub use transaction_partner::{AffiliateInfo, RevenueWithdrawalState, TransactionPartner};
 pub use users_shared::{SharedUser, UsersShared};

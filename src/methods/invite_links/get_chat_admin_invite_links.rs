@@ -1,30 +1,45 @@
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::Result;
+use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{ChatInviteLink, PeerRef};
 
 const LINKS_LIMIT: usize = 100;
 
-#[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::get_chat_admin_invite_links`].
+/// Invite links an admin created, built by [`Client::get_chat_admin_invite_links`].
+///
+/// Awaiting it collects the links into a `Vec`, up to [`limit`](GetChatAdminInviteLinks::limit);
+/// [`next`](GetChatAdminInviteLinks::next) reads them one at a time. Links are fetched 100 to a page.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetChatAdminInviteLinks<'a> {
     client: &'a Client,
     chat_id: PeerRef,
     admin_id: PeerRef,
     revoked: bool,
-    limit: usize,
+    // Built on the first page and moved along by each one after.
+    request: Option<functions::messages::GetExportedChatInvites>,
+    seen: usize,
+    // The cursor lives in `request`, so the pages only track whether there are more.
+    pages: OffsetPages<ChatInviteLink, ()>,
 }
 
 impl Client {
-    /// Fetches every page before returning; `limit` caps it.
+    /// Lists the invite links an admin created in a chat.
     pub fn get_chat_admin_invite_links(
         &self,
         chat_id: impl Into<PeerRef>,
         admin_id: impl Into<PeerRef>,
     ) -> GetChatAdminInviteLinks<'_> {
-        let (chat_id, admin_id) = (chat_id.into(), admin_id.into());
-        GetChatAdminInviteLinks { client: self, chat_id, admin_id, revoked: false, limit: usize::MAX }
+        GetChatAdminInviteLinks {
+            client: self,
+            chat_id: chat_id.into(),
+            admin_id: admin_id.into(),
+            revoked: false,
+            request: None,
+            seen: 0,
+            pages: OffsetPages::starting_at(LINKS_LIMIT, ()),
+        }
     }
 }
 
@@ -35,33 +50,42 @@ impl GetChatAdminInviteLinks<'_> {
         self
     }
 
-    /// Stops after this many links.
+    /// Stops after this many links in total. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
-        self.limit = limit;
+        self.pages.remaining = limit;
         self
     }
 
-    async fn send(self) -> Result<Vec<ChatInviteLink>> {
+    /// Returns the next link, or `None` once the links or the limit run out.
+    pub async fn next(&mut self) -> Result<Option<ChatInviteLink>> {
         let client = self.client;
-        let mut request = functions::messages::GetExportedChatInvites {
-            revoked: self.revoked,
-            peer: client.resolve_peer(self.chat_id).await?,
-            admin_id: client.resolve_user(&self.admin_id).await?,
-            offset_date: None,
-            offset_link: None,
-            limit: 0,
-        };
-        let (mut links, mut seen) = (Vec::new(), 0);
-        while links.len() < self.limit {
-            request.limit = LINKS_LIMIT.min(self.limit - links.len()) as i32;
-            let base::messages::ExportedChatInvites::ExportedChatInvites(page) = client.invoke(&request).await?;
+        loop {
+            if let Some(link) = self.pages.pop() {
+                return Ok(Some(link));
+            }
+            let Some(limit) = self.pages.limit() else { return Ok(None) };
+            let request = match self.request.take() {
+                Some(request) => request,
+                None => functions::messages::GetExportedChatInvites {
+                    revoked: self.revoked,
+                    peer: client.resolve(&self.chat_id).await?.1,
+                    admin_id: client.resolve_user(&self.admin_id).await?,
+                    offset_date: None,
+                    offset_link: None,
+                    limit: 0,
+                },
+            };
+            let request = self.request.insert(request);
+            request.limit = limit;
+            let base::messages::ExportedChatInvites::ExportedChatInvites(page) = client.invoke(&*request).await?;
             let page = *page;
-            seen += page.invites.len();
+            self.seen += page.invites.len();
             let next = page.invites.iter().rev().find_map(|invite| match invite {
                 base::ExportedChatInvite::ChatInviteExported(i) => Some((i.date, i.link.clone())),
                 base::ExportedChatInvite::ChatInvitePublicJoinRequests => None,
             });
             let entities = Entities::new(client, page.users, Vec::new());
+            let mut links = Vec::with_capacity(page.invites.len());
             for invite in page.invites {
                 match invite {
                     // Not an invite link, so there's nothing to list; it still counts toward `count`.
@@ -69,16 +93,19 @@ impl GetChatAdminInviteLinks<'_> {
                     invite => links.push(ChatInviteLink::parse(invite, &entities)?),
                 }
             }
-            let Some((date, link)) = next else { break };
-            // Same cursor again would fetch the same page forever.
-            let repeated = request.offset_date == Some(date) && request.offset_link.as_deref() == Some(link.as_str());
-            if seen >= page.count as usize || repeated {
-                break;
+            let mut more = None;
+            if let Some((date, link)) = next {
+                // Same cursor again would fetch the same page forever.
+                let repeated =
+                    request.offset_date == Some(date) && request.offset_link.as_deref() == Some(link.as_str());
+                if self.seen < usize::try_from(page.count).unwrap_or(0) && !repeated {
+                    (request.offset_date, request.offset_link) = (Some(date), Some(link));
+                    more = Some(());
+                }
             }
-            (request.offset_date, request.offset_link) = (Some(date), Some(link));
+            self.pages.push(links, more);
         }
-        Ok(links)
     }
 }
 
-into_future!(GetChatAdminInviteLinks, Vec<ChatInviteLink>);
+pager!(GetChatAdminInviteLinks, ChatInviteLink);

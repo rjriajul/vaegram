@@ -57,7 +57,7 @@ mod tests {
             assert_eq!(rx.try_recv().unwrap(), contacts::Block { my_stories_from: flag, id: id.clone() }.to_bytes());
             let _ = client.unblock_user(9_i64).block_list(list).await;
             assert_eq!(rx.try_recv().unwrap(), contacts::Unblock { my_stories_from: flag, id: id.clone() }.to_bytes());
-            let _ = client.get_blocked_message_senders(5, 10).block_list(list).await;
+            let _ = client.get_blocked_message_senders().offset(5).limit(10).block_list(list).await;
             let request = contacts::GetBlocked { my_stories_from: flag, offset: 5, limit: 10 };
             assert_eq!(rx.try_recv().unwrap(), request.to_bytes());
         }

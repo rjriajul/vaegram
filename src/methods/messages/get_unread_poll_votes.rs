@@ -4,8 +4,9 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
-/// Pages through polls with unseen votes. Call [`next`](GetUnreadPollVotes::next) until it returns `None`.
-#[must_use = "call .next() to fetch messages"]
+/// Polls with unseen votes. Awaiting it collects the messages into a `Vec`, up to [`limit`](GetUnreadPollVotes::limit);
+/// [`next`](GetUnreadPollVotes::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetUnreadPollVotes<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -56,6 +57,8 @@ impl GetUnreadPollVotes<'_> {
         }
     }
 }
+
+pager!(GetUnreadPollVotes, Message);
 
 #[cfg(test)]
 mod tests {

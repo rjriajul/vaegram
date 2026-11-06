@@ -68,8 +68,13 @@ async fn compose_runs_a_bot_and_a_user() {
 async fn counts_match_the_lists() {
     let Some(builder) = user_builder() else { return };
     let client = builder.connect().await.unwrap();
-    let photos = client.get_chat_photos("me").await.unwrap().total_count;
-    assert_eq!(client.get_chat_photos_count("me").await.unwrap(), photos);
-    let audios = client.get_user_profile_audios("me").await.unwrap().total_count;
-    assert_eq!(client.get_chat_audios_count("me").await.unwrap(), audios);
+    // Parsing drops entries it can't read, so a list holds at most the count Telegram gives.
+    let mut photos = client.get_chat_photos("me");
+    let total = photos.total().await.unwrap();
+    assert_eq!(client.get_chat_photos_count("me").await.unwrap(), total);
+    assert!(photos.await.unwrap().len() <= total as usize);
+    let mut audios = client.get_user_profile_audios("me");
+    let total = audios.total().await.unwrap();
+    assert_eq!(client.get_chat_audios_count("me").await.unwrap(), total);
+    assert!(audios.await.unwrap().len() <= total as usize);
 }

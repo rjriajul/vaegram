@@ -5,8 +5,9 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions};
 use crate::types::{ChatBoost, PeerRef};
 
-#[must_use = "call .next() to fetch boosts"]
-/// Boosts of a chat, fetched page by page with [`next`](GetBoostsList::next).
+/// Boosts of a chat. Awaiting it collects the boosts into a `Vec`, up to [`limit`](GetBoostsList::limit);
+/// [`next`](GetBoostsList::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetBoostsList<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -30,7 +31,7 @@ impl GetBoostsList<'_> {
         self
     }
 
-    /// Stops after this many boosts.
+    /// Stops after this many boosts. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
@@ -55,6 +56,8 @@ impl GetBoostsList<'_> {
         }
     }
 }
+
+pager!(GetBoostsList, ChatBoost);
 
 #[cfg(test)]
 mod tests {
@@ -100,5 +103,18 @@ mod tests {
         }
         assert_eq!(ids, ["a", "b", "c"]);
         assert!(sent.try_recv().is_ok() && sent.try_recv().is_ok() && sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn awaiting_collects_across_pages_up_to_the_limit() {
+        let (client, mut sent) = Client::scripted(vec![Ok(page(&["a", "b"], Some("next"))), Ok(page(&["c"], None))]);
+        let peer = types::InputPeerChannel { channel_id: 1, access_hash: 2 };
+        client.0.peers.lock().unwrap().insert(get_channel_id(1), base::InputPeer::InputPeerChannel(Box::new(peer)));
+
+        let boosts = client.get_boosts_list(get_channel_id(1)).limit(3).await.unwrap();
+        assert_eq!(boosts.iter().map(|b| b.boost_id.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+        assert!(sent.try_recv().is_ok() && sent.try_recv().is_ok() && sent.try_recv().is_err());
+        assert!(client.get_boosts_list(get_channel_id(1)).limit(0).await.unwrap().is_empty());
+        assert!(sent.try_recv().is_err());
     }
 }

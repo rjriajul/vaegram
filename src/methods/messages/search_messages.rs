@@ -5,8 +5,11 @@ use crate::errors::Result;
 use crate::raw::functions;
 use crate::types::{Message, PeerRef};
 
-/// Messages found by [`Client::search_messages`]. Call [`next`](SearchMessages::next) until it returns `None`.
-#[must_use = "call .next() to fetch messages"]
+/// Messages found by [`Client::search_messages`]. Awaiting it collects the messages into a `Vec`, up to
+/// [`limit`](SearchMessages::limit); [`next`](SearchMessages::next) reads them one at a time.
+///
+/// Set `limit` before awaiting; without it this reads every match (one request per 100 messages).
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct SearchMessages<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -115,6 +118,8 @@ impl SearchMessages<'_> {
         })
     }
 }
+
+pager!(SearchMessages, Message);
 
 #[cfg(test)]
 mod tests {

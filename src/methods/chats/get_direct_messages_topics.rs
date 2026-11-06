@@ -4,7 +4,9 @@ use crate::methods::pages::DialogPages;
 use crate::raw::functions;
 use crate::types::{DirectMessagesChatTopic, PeerRef, SavedDialog};
 
-/// Topic list of a direct messages chat, read one topic at a time with [`next`](GetDirectMessagesTopics::next).
+/// Topic list of a direct messages chat. Awaiting it collects the topics into a `Vec`, up to
+/// [`limit`](GetDirectMessagesTopics::limit); [`next`](GetDirectMessagesTopics::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetDirectMessagesTopics<'a> {
     client: &'a Client,
     chat_id: PeerRef,
@@ -60,6 +62,8 @@ impl GetDirectMessagesTopics<'_> {
         }
     }
 }
+
+pager!(GetDirectMessagesTopics, DirectMessagesChatTopic);
 
 #[cfg(test)]
 mod tests {

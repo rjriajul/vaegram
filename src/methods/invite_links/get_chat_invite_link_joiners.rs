@@ -1,50 +1,41 @@
-use super::get_chat_join_requests::importers;
+use super::get_chat_join_requests::Importers;
 use crate::Client;
 use crate::errors::Result;
-use crate::raw::{base, functions};
 use crate::types::{ChatJoiner, PeerRef};
 
-#[must_use = "a request does nothing until it is awaited"]
-/// Request built by [`Client::get_chat_invite_link_joiners`].
+/// Users who joined through an invite link, built by [`Client::get_chat_invite_link_joiners`].
+///
+/// Awaiting it collects the joiners into a `Vec`, up to [`limit`](GetChatInviteLinkJoiners::limit);
+/// [`next`](GetChatInviteLinkJoiners::next) reads them one at a time. Joiners are fetched 100 to a page.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetChatInviteLinkJoiners<'a> {
     client: &'a Client,
-    chat_id: PeerRef,
-    invite_link: String,
-    limit: usize,
+    importers: Importers,
 }
 
 impl Client {
-    /// Fetches every page before returning; `limit` caps it. User accounts only.
+    /// Lists the users who joined a chat through an invite link. User accounts only.
     pub fn get_chat_invite_link_joiners(
         &self,
         chat_id: impl Into<PeerRef>,
         invite_link: impl Into<String>,
     ) -> GetChatInviteLinkJoiners<'_> {
-        let (chat_id, invite_link) = (chat_id.into(), invite_link.into());
-        GetChatInviteLinkJoiners { client: self, chat_id, invite_link, limit: usize::MAX }
+        let importers = Importers::new(chat_id.into(), false, Some(invite_link.into()));
+        GetChatInviteLinkJoiners { client: self, importers }
     }
 }
 
 impl GetChatInviteLinkJoiners<'_> {
-    /// Stops after this many joiners.
+    /// Stops after this many joiners in total. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
-        self.limit = limit;
+        self.importers.pages.remaining = limit;
         self
     }
 
-    async fn send(self) -> Result<Vec<ChatJoiner>> {
-        let request = functions::messages::GetChatInviteImporters {
-            requested: false,
-            subscription_expired: false,
-            peer: self.client.resolve_peer(self.chat_id).await?,
-            link: Some(self.invite_link),
-            q: None,
-            offset_date: 0,
-            offset_user: base::InputUser::InputUserEmpty,
-            limit: 0,
-        };
-        importers(self.client, request, self.limit).await
+    /// Returns the next joiner, or `None` once the joiners or the limit run out.
+    pub async fn next(&mut self) -> Result<Option<ChatJoiner>> {
+        self.importers.next(self.client).await
     }
 }
 
-into_future!(GetChatInviteLinkJoiners, Vec<ChatJoiner>);
+pager!(GetChatInviteLinkJoiners, ChatJoiner);

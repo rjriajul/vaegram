@@ -4,8 +4,9 @@ use crate::methods::pages::OffsetPages;
 use crate::raw::{base, functions, types};
 use crate::types::User;
 
-/// Paged list of popular bots with a Mini App. Call [`next`](GetPopularAppBots::next) until it returns `None`.
-#[must_use = "call .next() to fetch bots"]
+/// Popular bots with a Mini App. Awaiting it collects the bots into a `Vec`, up to [`limit`](GetPopularAppBots::limit);
+/// [`next`](GetPopularAppBots::next) reads them one at a time.
+#[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetPopularAppBots<'a> {
     client: &'a Client,
     pages: OffsetPages<User>,
@@ -19,7 +20,7 @@ impl Client {
 }
 
 impl GetPopularAppBots<'_> {
-    /// Stops after this many bots in total.
+    /// Stops after this many bots in total. The default reads them all.
     pub fn limit(mut self, limit: usize) -> Self {
         self.pages.remaining = limit;
         self
@@ -40,6 +41,8 @@ impl GetPopularAppBots<'_> {
         }
     }
 }
+
+pager!(GetPopularAppBots, User);
 
 #[cfg(test)]
 mod tests {

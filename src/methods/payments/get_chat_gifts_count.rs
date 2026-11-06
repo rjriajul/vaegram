@@ -7,7 +7,7 @@ impl Client {
     ///
     /// Costs one request, for a page of one gift.
     pub async fn get_chat_gifts_count(&self, chat_id: impl Into<PeerRef>) -> Result<i32> {
-        Ok(self.get_chat_gifts(chat_id).limit(1).await?.total_count)
+        self.get_chat_gifts(chat_id).limit(1).total().await
     }
 }
 
