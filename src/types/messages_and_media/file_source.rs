@@ -141,7 +141,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_stored_ids_and_keeps_telegram_errors() {
-        let expired = || Err(Error::Rpc(RpcError::new(400, "FILE_REFERENCE_EXPIRED")));
+        let expired = || Err(Error::Rpc(RpcError::parse(400, "FILE_REFERENCE_EXPIRED")));
         let (client, mut sent) = Client::scripted(vec![expired(), expired()]);
         let file_reference = FileId::decode(PHOTO).unwrap().file_reference;
 
@@ -196,7 +196,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_urls_as_external_media_and_keeps_fetch_errors() {
-        let failed = || Err(Error::Rpc(RpcError::new(400, "WEBPAGE_CURL_FAILED")));
+        let failed = || Err(Error::Rpc(RpcError::parse(400, "WEBPAGE_CURL_FAILED")));
         let (client, mut sent) = Client::scripted(vec![failed(), failed()]);
         let url = "https://example.com/cat.jpg";
 
@@ -246,7 +246,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_uploaded_files_and_keeps_telegram_errors() {
-        let missing = || Err(Error::Rpc(RpcError::new(400, "FILE_PART_0_MISSING")));
+        let missing = || Err(Error::Rpc(RpcError::parse(400, "FILE_PART_0_MISSING")));
         let (client, mut sent) = Client::scripted(vec![missing(), missing(), missing()]);
         let input = |name: &str| {
             let file = types::InputFile { id: 7, parts: 1, name: name.into(), md5_checksum: String::new() };

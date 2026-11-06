@@ -296,7 +296,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn no_hooks_when_run_fails_before_starting() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(401, "AUTH_KEY_UNREGISTERED")))]);
+        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(401, "AUTH_KEY_UNREGISTERED")))]);
         let log = Log::default();
         client.on_start(log_hook(&log, "start"));
         client.on_stop(log_hook(&log, "stop"));

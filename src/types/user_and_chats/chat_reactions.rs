@@ -2,7 +2,7 @@ use crate::raw::base;
 use crate::types::ReactionType;
 
 /// The reactions members can put on messages. The default allows none.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ChatReactions {
     /// Whether every emoji reaction is allowed.
@@ -14,9 +14,14 @@ pub struct ChatReactions {
 }
 
 impl ChatReactions {
+    /// Every field zero, empty or `None`: the base the parsers and tests fill in.
+    pub(crate) fn empty() -> Self {
+        ChatReactions { all_are_enabled: false, allow_custom_emoji: false, reactions: Vec::new() }
+    }
+
     pub(crate) fn parse(raw: &base::ChatReactions) -> ChatReactions {
         match raw {
-            base::ChatReactions::ChatReactionsNone => ChatReactions::default(),
+            base::ChatReactions::ChatReactionsNone => ChatReactions::empty(),
             base::ChatReactions::ChatReactionsAll(r) => {
                 ChatReactions { all_are_enabled: true, allow_custom_emoji: r.allow_custom, reactions: Vec::new() }
             }
@@ -48,6 +53,6 @@ mod tests {
         assert!(!some.all_are_enabled);
 
         let none = ChatReactions::parse(&base::ChatReactions::ChatReactionsNone);
-        assert_eq!(none, ChatReactions::default());
+        assert_eq!(none, ChatReactions::empty());
     }
 }

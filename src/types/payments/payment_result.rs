@@ -5,6 +5,7 @@ pub enum PaymentResult {
     /// The payment went through.
     Paid,
     /// The provider wants the customer to finish the payment (for example a 3-D Secure check) at this page.
+    #[non_exhaustive]
     VerificationNeeded {
         /// The page to finish the payment at.
         url: String,

@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn counts_calls_by_method_and_outcome() {
         let (flood, timeout, disconnected) =
-            (Error::Rpc(RpcError::new(420, "FLOOD_WAIT_3")), Error::Timeout, Error::Disconnected);
+            (Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_3")), Error::Timeout, Error::Disconnected);
         let other = Error::Transport(-404);
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();

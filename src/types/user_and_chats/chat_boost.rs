@@ -22,16 +22,19 @@ pub struct ChatBoost {
 #[non_exhaustive]
 pub enum ChatBoostSource {
     /// A boost from a user with Telegram Premium.
+    #[non_exhaustive]
     Premium {
         /// The booster.
         user: User,
     },
     /// A boost from a Premium gift code.
+    #[non_exhaustive]
     GiftCode {
         /// The user who received the gift code.
         user: User,
     },
     /// A boost won in a giveaway the chat ran.
+    #[non_exhaustive]
     Giveaway {
         /// Id of the giveaway message in the chat. `0` if Telegram omits it.
         giveaway_message_id: i32,
@@ -166,7 +169,7 @@ mod tests {
     fn maps_boost_sources() {
         let entities = Entities::default();
         let parse = |raw| ChatBoost::parse(raw, &entities).map(|b| b.source);
-        let user = User { id: 5, ..User::default() };
+        let user = User { id: 5, ..User::empty() };
 
         assert_eq!(parse(boost(false, false, false, Some(5))), Some(ChatBoostSource::Premium { user: user.clone() }));
         assert_eq!(parse(boost(true, false, false, Some(5))), Some(ChatBoostSource::GiftCode { user: user.clone() }));

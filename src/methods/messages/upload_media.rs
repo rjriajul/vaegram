@@ -409,7 +409,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_uploaded_cover_and_live_video_go_through_upload_media() {
-        let failed = || Err(Error::Rpc(RpcError::new(400, "FILE_PART_0_MISSING")));
+        let failed = || Err(Error::Rpc(RpcError::parse(400, "FILE_PART_0_MISSING")));
         let (client, mut sent) = Client::scripted(vec![failed(), failed()]);
         let peer = base::InputPeer::InputPeerEmpty;
         let (cover, clip) = (UploadedFile(stored("cover.jpg")), UploadedFile(stored("clip.mp4")));

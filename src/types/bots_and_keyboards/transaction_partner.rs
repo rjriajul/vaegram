@@ -7,6 +7,7 @@ use crate::types::{Chat, StarAmount, User};
 #[non_exhaustive]
 pub enum TransactionPartner {
     /// A user, for example paying for an invoice or a subscription.
+    #[non_exhaustive]
     User {
         /// The user.
         user: Box<User>,
@@ -20,6 +21,7 @@ pub enum TransactionPartner {
     /// A chat or channel.
     Chat(Chat),
     /// Commission paid out by an affiliate program.
+    #[non_exhaustive]
     AffiliateProgram {
         /// The bot that runs the program.
         sponsor_user: User,
@@ -31,6 +33,7 @@ pub enum TransactionPartner {
     /// Telegram Ads.
     TelegramAds,
     /// Telegram API usage, such as paid broadcasts.
+    #[non_exhaustive]
     TelegramApi {
         /// Number of requests over the regular limits that the transaction pays for. 0 if Telegram sends none.
         request_count: i32,
@@ -62,6 +65,7 @@ pub enum RevenueWithdrawalState {
     /// The withdrawal is still in progress.
     Pending,
     /// The withdrawal finished.
+    #[non_exhaustive]
     Succeeded {
         /// Unix time the withdrawal completed.
         date: i32,
@@ -165,7 +169,7 @@ mod tests {
     #[test]
     fn tells_affiliate_sales_from_affiliate_commissions() {
         let entities = Entities::default();
-        let user = User { id: 10, ..User::default() };
+        let user = User { id: 10, ..User::empty() };
 
         let mut sale = with_peer(10);
         sale.bot_payload = Some(b"order-1".to_vec());

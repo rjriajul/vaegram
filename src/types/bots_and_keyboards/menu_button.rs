@@ -9,6 +9,7 @@ pub enum MenuButton {
     /// Opens the bot's command list.
     Commands,
     /// Opens a mini app.
+    #[non_exhaustive]
     WebApp {
         /// Label of the button.
         text: String,
@@ -18,6 +19,11 @@ pub enum MenuButton {
 }
 
 impl MenuButton {
+    /// A button labelled `text` that opens the mini app at `url`.
+    pub fn web_app(text: impl Into<String>, url: impl Into<String>) -> Self {
+        MenuButton::WebApp { text: text.into(), url: url.into() }
+    }
+
     pub(crate) fn write(self) -> base::BotMenuButton {
         match self {
             MenuButton::Default => base::BotMenuButton::BotMenuButtonDefault,
@@ -43,11 +49,7 @@ mod tests {
 
     #[test]
     fn round_trips_through_raw() {
-        for button in [
-            MenuButton::Default,
-            MenuButton::Commands,
-            MenuButton::WebApp { text: "Open".into(), url: "https://example.com".into() },
-        ] {
+        for button in [MenuButton::Default, MenuButton::Commands, MenuButton::web_app("Open", "https://example.com")] {
             assert_eq!(MenuButton::parse(button.clone().write()), button);
         }
     }

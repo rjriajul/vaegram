@@ -486,7 +486,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn a_refused_payment_returns_the_telegram_error() {
-        let replies = vec![Ok(stars_form("XTR", &[900])), Err(Error::Rpc(RpcError::new(400, "FORM_EXPIRED")))];
+        let replies = vec![Ok(stars_form("XTR", &[900])), Err(Error::Rpc(RpcError::parse(400, "FORM_EXPIRED")))];
         let (client, _sent) = Client::scripted(replies);
         let form = client.get_payment_form(InvoiceRef::Link("abc".into())).await.unwrap();
         let result = client.send_payment_form(form).await;

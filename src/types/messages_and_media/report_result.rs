@@ -5,6 +5,7 @@ use crate::raw::base;
 #[non_exhaustive]
 pub enum ReportResult {
     /// Telegram wants a reason. Report again with the `option` of one of `options`.
+    #[non_exhaustive]
     ChooseOption {
         /// Prompt to show above the options.
         title: String,
@@ -12,6 +13,7 @@ pub enum ReportResult {
         options: Vec<ReportOption>,
     },
     /// Telegram wants a comment. Report again with this `option` and a comment.
+    #[non_exhaustive]
     AddComment {
         /// `true` if the comment may be left empty.
         optional: bool,

@@ -150,7 +150,7 @@ mod tests {
     #[tokio::test]
     async fn only_a_login_code_migrates() {
         // A change or verify code answered with a migration is handed back untouched.
-        let migrate = || Err(Error::Rpc(RpcError::new(303, "PHONE_MIGRATE_2")));
+        let migrate = || Err(Error::Rpc(RpcError::parse(303, "PHONE_MIGRATE_2")));
         let (client, mut sent) = Client::scripted(vec![migrate()]);
         let result = client.send_phone_number_code("8802").kind(PhoneNumberCodeType::Change).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "PHONE_MIGRATE"), "{result:?}");

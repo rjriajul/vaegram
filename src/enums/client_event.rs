@@ -9,6 +9,7 @@ use crate::handlers::HandlerError;
 pub enum ClientEvent {
     /// A connection to `dc` came back after `attempt` tries. When it's the main connection, updates missed
     /// meanwhile are being fetched.
+    #[non_exhaustive]
     Reconnected {
         /// Id of the data center whose connection came back; file-transfer connections report theirs too.
         dc: i32,
@@ -16,12 +17,14 @@ pub enum ClientEvent {
         attempt: u32,
     },
     /// A packet from Telegram was thrown away unread, and the connection carries on.
+    #[non_exhaustive]
     PacketDropped {
         /// Why: `"failed decryption or the MTProto checks"`, `"bad msg_container"` or `"bad gzip_packed"`.
         reason: &'static str,
     },
     /// An update Telegram pushed couldn't be deserialized and was skipped. An unknown constructor is reported as
     /// [`UnknownConstructor`](Self::UnknownConstructor) instead.
+    #[non_exhaustive]
     UpdateParseFailed {
         /// TL constructor id at the start of the update, or 0 when it's shorter than 4 bytes.
         constructor_id: u32,
@@ -30,17 +33,20 @@ pub enum ClientEvent {
     },
     /// An update Telegram pushed holds a TL constructor this build's schema doesn't know, usually from a newer
     /// layer, and was skipped.
+    #[non_exhaustive]
     UnknownConstructor {
         /// The unknown constructor id; it can sit anywhere inside the update, not only at its start.
         id: u32,
     },
     /// A handler or lifecycle hook returned `Err` and no [`on_error`](crate::Client::on_error) handler is set.
+    #[non_exhaustive]
     HandlerFailed {
         /// The error, with the route it came from and the chat of the update.
         error: HandlerError,
     },
     /// Fetching missed updates (`updates.getDifference` or `updates.getChannelDifference`) failed. Updates it gave
     /// up on, if any, follow as [`UpdatesSkipped`](Self::UpdatesSkipped).
+    #[non_exhaustive]
     DifferenceFailed {
         /// The error the fetch returned.
         error: Error,

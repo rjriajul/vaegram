@@ -45,7 +45,7 @@ mod tests {
 
     #[tokio::test]
     async fn rpc_errors_come_back_unchanged() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "SUBSCRIPTION_ID_INVALID")))]);
+        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "SUBSCRIPTION_ID_INVALID")))]);
         let result = client.reuse_star_subscription("sub1").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "SUBSCRIPTION_ID_INVALID"), "{result:?}");
     }

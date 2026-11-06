@@ -59,8 +59,8 @@ mod tests {
 
     #[tokio::test]
     async fn errors_come_back_unchanged() {
-        let result = hint(Err(Error::Rpc(RpcError::new(400, "X")))).await;
-        assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::new(400, "X")), "{result:?}");
+        let result = hint(Err(Error::Rpc(RpcError::parse(400, "X")))).await;
+        assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::parse(400, "X")), "{result:?}");
     }
 
     #[test]

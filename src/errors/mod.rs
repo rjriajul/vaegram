@@ -21,6 +21,7 @@ const MAX_WAIT: Duration = Duration::from_secs(14 * 24 * 60 * 60);
 /// An error Telegram answered a request with, such as `400 PEER_ID_INVALID` or `420 FLOOD_WAIT_30`. A trailing
 /// number is split off the name into `value`, so match on the name with [`is`](Self::is).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RpcError {
     /// The error code, which works like an HTTP status: 303 for a data center migration, 400 for a bad request,
     /// 401 for a missing or broken login, 420 for flood limits, and so on. See
@@ -34,7 +35,14 @@ pub struct RpcError {
 }
 
 impl RpcError {
-    pub(crate) fn new(code: i32, message: &str) -> Self {
+    /// An error with this code, name and number, as Telegram splits `FLOOD_WAIT_30` into `"FLOOD_WAIT"` and
+    /// `Some(30)`; for building errors in tests or a custom retry policy.
+    pub fn new(code: i32, name: impl Into<String>, value: Option<u32>) -> Self {
+        RpcError { code, name: name.into(), value }
+    }
+
+    /// Splits a trailing number off Telegram's error message: `FLOOD_WAIT_30` is `FLOOD_WAIT` with 30.
+    pub(crate) fn parse(code: i32, message: &str) -> Self {
         match message.rsplit_once('_') {
             // All digits, so parsing fails only past u32::MAX; such a wait still counts, at the cap.
             Some((name, n)) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => {
@@ -116,6 +124,7 @@ pub enum Error {
     /// An invite link to a private chat this account hasn't joined; join it first.
     ChatNotJoined,
     /// Joining needs the approval of the chat's guard bot: open its web app with `query_id`, then retry.
+    #[non_exhaustive]
     GuardBotApprovalRequired {
         /// The guard bot whose web app approves the join.
         bot: Box<User>,
@@ -131,6 +140,7 @@ pub enum Error {
     /// The phone number has no Telegram account yet: create one with `sign_up`.
     SignUpRequired,
     /// A file can't be uploaded: it's empty (`size` 0) or bigger than this account may send.
+    #[non_exhaustive]
     FileSize {
         /// The file's size in bytes.
         size: u64,
@@ -237,36 +247,38 @@ mod tests {
 
     #[test]
     fn splits_the_number_off() {
-        let e = RpcError::new(420, "FLOOD_WAIT_30");
+        let e = RpcError::parse(420, "FLOOD_WAIT_30");
         assert_eq!((e.name.as_str(), e.value), ("FLOOD_WAIT", Some(30)));
 
-        let e = RpcError::new(400, "PEER_ID_INVALID");
+        let e = RpcError::parse(400, "PEER_ID_INVALID");
         assert_eq!((e.name.as_str(), e.value), ("PEER_ID_INVALID", None));
 
-        let e = RpcError::new(303, "USER_MIGRATE_4");
+        let e = RpcError::parse(303, "USER_MIGRATE_4");
         assert_eq!((e.name.as_str(), e.value), ("USER_MIGRATE", Some(4)));
 
-        let e = RpcError::new(420, "2FA_CONFIRM_WAIT_604800");
+        let e = RpcError::parse(420, "2FA_CONFIRM_WAIT_604800");
         assert_eq!((e.name.as_str(), e.value), ("2FA_CONFIRM_WAIT", Some(604800)));
 
-        let e = RpcError::new(400, "FILE_PART_5_MISSING");
+        let e = RpcError::parse(400, "FILE_PART_5_MISSING");
         assert_eq!((e.name.as_str(), e.value), ("FILE_PART_5_MISSING", None));
+
+        assert_eq!(RpcError::new(420, "FLOOD_WAIT", Some(30)), RpcError::parse(420, "FLOOD_WAIT_30"));
     }
 
     #[test]
     fn names_match_without_the_value() {
-        let e = RpcError::new(420, "FLOOD_WAIT_30");
+        let e = RpcError::parse(420, "FLOOD_WAIT_30");
         assert!(e.is("FLOOD_WAIT") && !e.is("FLOOD_WAIT_30") && !e.is("FLOOD") && !e.is("FLOOD_PREMIUM_WAIT"));
-        assert!(RpcError::new(420, "2FA_CONFIRM_WAIT_604800").is("2FA_CONFIRM_WAIT"));
+        assert!(RpcError::parse(420, "2FA_CONFIRM_WAIT_604800").is("2FA_CONFIRM_WAIT"));
 
-        let e = Error::Rpc(RpcError::new(400, "MESSAGE_NOT_MODIFIED"));
+        let e = Error::Rpc(RpcError::parse(400, "MESSAGE_NOT_MODIFIED"));
         assert!(e.is("MESSAGE_NOT_MODIFIED") && !e.is("PEER_ID_INVALID"));
         assert!(!Error::Disconnected.is("MESSAGE_NOT_MODIFIED") && Error::Disconnected.rpc().is_none());
     }
 
     #[test]
     fn waits_and_migrations_carry_their_value() {
-        let wait = |code, msg| RpcError::new(code, msg).flood_wait();
+        let wait = |code, msg| RpcError::parse(code, msg).flood_wait();
         assert_eq!(wait(420, "FLOOD_WAIT_30"), Some(Duration::from_secs(30)));
         assert_eq!(wait(420, "SLOWMODE_WAIT_10"), Some(Duration::from_secs(10)));
         assert_eq!(wait(420, "FLOOD_WAIT"), None);
@@ -283,17 +295,17 @@ mod tests {
         }
         assert_eq!(wait(420, "ADDRESS_INVALID"), None);
         assert_eq!(wait(303, "USER_MIGRATE_4"), None);
-        assert_eq!(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_5")).flood_wait(), Some(Duration::from_secs(5)));
+        assert_eq!(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_5")).flood_wait(), Some(Duration::from_secs(5)));
 
-        let dc = |msg| RpcError::new(303, msg).migrate_dc();
+        let dc = |msg| RpcError::parse(303, msg).migrate_dc();
         assert_eq!((dc("USER_MIGRATE_4"), dc("PHONE_MIGRATE_2"), dc("FILE_MIGRATE_5")), (Some(4), Some(2), Some(5)));
-        assert_eq!((dc("NETWORK_MIGRATE"), RpcError::new(420, "FLOOD_WAIT_4").migrate_dc()), (None, None));
+        assert_eq!((dc("NETWORK_MIGRATE"), RpcError::parse(420, "FLOOD_WAIT_4").migrate_dc()), (None, None));
     }
 
     #[test]
     fn display_keeps_the_telegram_text() {
-        assert_eq!(RpcError::new(420, "FLOOD_WAIT_30").to_string(), "Telegram error 420: FLOOD_WAIT_30");
-        let e = Error::Rpc(RpcError::new(400, "PEER_ID_INVALID"));
+        assert_eq!(RpcError::parse(420, "FLOOD_WAIT_30").to_string(), "Telegram error 420: FLOOD_WAIT_30");
+        let e = Error::Rpc(RpcError::parse(400, "PEER_ID_INVALID"));
         assert_eq!(e.to_string(), "Telegram error 400: PEER_ID_INVALID");
     }
 }

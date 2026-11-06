@@ -59,7 +59,7 @@ mod tests {
 
     #[tokio::test]
     async fn errors_come_back_unchanged() {
-        let (client, _sent) = seeded(vec![Err(Error::Rpc(RpcError::new(400, "BIRTHDAY_ALREADY")))]);
+        let (client, _sent) = seeded(vec![Err(Error::Rpc(RpcError::parse(400, "BIRTHDAY_ALREADY")))]);
         let result = client.suggest_birthday(7, 31, 10, None).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.is("BIRTHDAY_ALREADY")), "{result:?}");
     }

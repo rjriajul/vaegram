@@ -433,7 +433,7 @@ mod settings_tests {
     }
 
     fn rpc(name: &str) -> Error {
-        Error::Rpc(RpcError::new(400, name))
+        Error::Rpc(RpcError::parse(400, name))
     }
 
     async fn toggles_refused(client: &Client, chat: i64) -> [bool; 6] {
@@ -720,7 +720,7 @@ mod settings_tests {
     async fn a_topic_user_missing_from_the_reply_keeps_its_id() {
         let (client, _rx) = settings_client(vec![saved_dialogs(vec![monoforum_dialog(USER)], Vec::new())]);
         let topics = client.get_direct_messages_topics_by_id(get_channel_id(9), &[USER]).await.unwrap();
-        assert_eq!(topics[0].topic.user, Some(User { id: USER, ..User::default() }));
+        assert_eq!(topics[0].topic.user, Some(User { id: USER, ..User::empty() }));
     }
 
     #[tokio::test]
@@ -738,7 +738,7 @@ mod settings_tests {
         let reply = types::messages::PeerSettings { settings, chats: Vec::new(), users: Vec::new() };
         let reply = Ok(base::messages::PeerSettings::PeerSettings(Box::new(reply)).to_bytes());
         let (client, mut rx) = settings_client(vec![reply]);
-        assert_eq!(client.get_chat_settings(USER).await.unwrap(), ChatSettings::default());
+        assert_eq!(client.get_chat_settings(USER).await.unwrap(), ChatSettings::empty());
         assert_eq!(rx.try_recv().unwrap(), messages::GetPeerSettings { peer: user_peer() }.to_bytes());
     }
 
@@ -1079,7 +1079,7 @@ mod forum_topic_tests {
 
     #[tokio::test]
     async fn a_refused_pin_returns_the_telegram_error() {
-        let (client, _rx) = topic_client(vec![Err(Error::Rpc(RpcError::new(400, "TOPIC_ID_INVALID")))]);
+        let (client, _rx) = topic_client(vec![Err(Error::Rpc(RpcError::parse(400, "TOPIC_ID_INVALID")))]);
         let result = client.pin_forum_topic(get_channel_id(9), 5).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "TOPIC_ID_INVALID"), "{result:?}");
     }

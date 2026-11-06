@@ -1,8 +1,7 @@
+use crate::enums::ParseMode;
 use crate::errors::Result;
-use crate::methods::{EditEphemeralMessage, EditInlineMedia, EditMessageMedia, into_future};
-use crate::types::{
-    CallbackOrigin, CallbackQuery, EditCallbackMessageText, InputMedia, MessageText, ReplyMarkup, Text,
-};
+use crate::methods::{EditEphemeralMessage, EditInlineMedia, EditInlineText, EditMessageMedia, EditMessageText};
+use crate::types::{CallbackOrigin, CallbackQuery, InputMedia, MessageText, ReplyMarkup, Text};
 
 impl CallbackQuery {
     /// Edits the caption of the message the button is on. Calls [`CallbackQuery::edit_message_text`], since
@@ -33,6 +32,67 @@ impl CallbackQuery {
         }
     }
 }
+
+/// A text edit of the message behind a [`CallbackQuery`]. Awaiting it sends the edit and returns `()`.
+#[must_use = "a request does nothing until it is awaited"]
+#[non_exhaustive]
+pub enum EditCallbackMessageText<'a> {
+    /// Edit of a regular message.
+    Message(EditMessageText<'a>),
+    /// Edit of an inline message.
+    Inline(EditInlineText<'a>),
+    /// Edit of an ephemeral message.
+    Ephemeral(EditEphemeralMessage<'a>),
+}
+
+impl EditCallbackMessageText<'_> {
+    /// Parses the text as HTML.
+    pub fn html(self) -> Self {
+        self.parse_mode(ParseMode::Html)
+    }
+
+    /// Parses the text as Markdown.
+    pub fn markdown(self) -> Self {
+        self.parse_mode(ParseMode::Markdown)
+    }
+
+    /// Parses the text with `mode`.
+    pub fn parse_mode(self, mode: ParseMode) -> Self {
+        match self {
+            Self::Message(edit) => Self::Message(edit.parse_mode(mode)),
+            Self::Inline(edit) => Self::Inline(edit.parse_mode(mode)),
+            Self::Ephemeral(edit) => Self::Ephemeral(edit.parse_mode(mode)),
+        }
+    }
+
+    /// Turns off the link preview. Does nothing for an ephemeral message, which has no previews.
+    pub fn disable_web_page_preview(self) -> Self {
+        match self {
+            Self::Message(edit) => Self::Message(edit.disable_web_page_preview()),
+            Self::Inline(edit) => Self::Inline(edit.disable_web_page_preview()),
+            ephemeral @ Self::Ephemeral(_) => ephemeral,
+        }
+    }
+
+    /// Replaces the message's keyboard.
+    pub fn reply_markup(self, markup: impl Into<ReplyMarkup>) -> Self {
+        match self {
+            Self::Message(edit) => Self::Message(edit.reply_markup(markup)),
+            Self::Inline(edit) => Self::Inline(edit.reply_markup(markup)),
+            Self::Ephemeral(edit) => Self::Ephemeral(edit.reply_markup(markup)),
+        }
+    }
+
+    async fn send(self) -> Result<()> {
+        match self {
+            Self::Message(edit) => edit.await.map(drop),
+            Self::Inline(edit) => edit.await.map(drop),
+            Self::Ephemeral(edit) => edit.await.map(drop),
+        }
+    }
+}
+
+into_future!(EditCallbackMessageText, ());
 
 /// A media edit of the message behind a [`CallbackQuery`]. Awaiting it sends the edit and returns `()`.
 #[must_use = "a request does nothing until it is awaited"]
@@ -69,13 +129,13 @@ into_future!(EditCallbackMessageMedia, ());
 
 #[cfg(test)]
 mod tests {
-    use super::EditCallbackMessageMedia;
+    use super::{EditCallbackMessageMedia, EditCallbackMessageText};
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::dispatcher::listeners::tests::{inline_query, query};
     use crate::raw::{Serializable, base, types};
     use crate::types::messages_and_media::ephemeral_message::tests::{channel, ephemeral};
-    use crate::types::{CallbackQuery, EditCallbackMessageText, FileSource, InputMedia, Message, Text};
+    use crate::types::{CallbackQuery, FileSource, InputMedia, Message, Text};
     use crate::utils::get_peer;
 
     const PHOTO: &str = "AgACAgIAAxkBAAIENGfeY4AfRquwTL2LpDrzqvFMVNt_AAIG9DEbXX3wSq3oI7t_PqQGAQADAgADbQADNgQ";

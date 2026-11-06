@@ -121,7 +121,7 @@ mod tests {
     use crate::errors::RpcError;
 
     fn ask(policy: &impl RetryPolicy, flood_wait: Option<u64>, fail_count: u32) -> ControlFlow<(), Duration> {
-        let error = Error::Rpc(RpcError::new(420, "FLOOD_WAIT_1"));
+        let error = Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_1"));
         let flood_wait = flood_wait.map(Duration::from_secs);
         let ctx = RetryContext { request: "x.y", error: &error, fail_count, slept_so_far: Duration::ZERO, flood_wait };
         policy.should_retry(&ctx)

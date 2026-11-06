@@ -54,7 +54,7 @@ mod tests {
             assert_eq!(sent.try_recv().unwrap(), expected.to_bytes());
         }
 
-        let refused = Err(Error::Rpc(RpcError::new(400, "PREMIUM_ACCOUNT_REQUIRED")));
+        let refused = Err(Error::Rpc(RpcError::parse(400, "PREMIUM_ACCOUNT_REQUIRED")));
         let (client, _sent) = Client::scripted(vec![refused]);
         let result = client.set_upgraded_gift_colors(77).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "PREMIUM_ACCOUNT_REQUIRED"), "{result:?}");

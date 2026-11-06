@@ -430,7 +430,7 @@ mod tests {
     fn refused_difference_delivers_held_updates() {
         let (mut t, e) = (tracker(10, 0, 0), Arc::default());
         t.update(delete(12, 1), &e, false);
-        let skipped = t.recover(&Err(Error::Rpc(RpcError::new(400, "CHANNEL_PRIVATE"))), Key::Pts);
+        let skipped = t.recover(&Err(Error::Rpc(RpcError::parse(400, "CHANNEL_PRIVATE"))), Key::Pts);
         assert_eq!(skipped, [Skipped { key: Key::Pts, from: 10, to: 11, reason: SkipReason::Refused }]);
         assert_eq!(delivered(&mut t), [12]);
         t.update(delete(14, 1), &e, false);
@@ -455,7 +455,7 @@ mod tests {
     fn flood_wait_retries_after_the_wait() {
         let (mut t, e) = (tracker(10, 0, 0), Arc::default());
         t.update(delete(12, 1), &e, false);
-        t.recover(&Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_30"))), Key::Pts);
+        t.recover(&Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_30"))), Key::Pts);
         assert!(delivered(&mut t).is_empty());
         t.expire(Instant::now() + GAP_TIMEOUT);
         assert!(t.due.is_empty());
@@ -466,7 +466,7 @@ mod tests {
     #[test]
     fn new_gaps_wait_for_a_scheduled_retry() {
         let mut t = tracker(10, 0, 0);
-        t.recover(&Err(Error::Rpc(RpcError::new(420, "FLOOD_WAIT_30"))), Key::Pts);
+        t.recover(&Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_30"))), Key::Pts);
         t.mark(Key::Pts);
         t.mark(Key::Qts);
         assert!(t.due.is_empty());
@@ -505,7 +505,7 @@ mod tests {
     fn giving_up_with_nothing_held_reports_where_it_stopped() {
         let mut t = tracker(0, 0, 0);
         t.state.channels.insert(1, 7);
-        let skipped = t.recover(&Err(Error::Rpc(RpcError::new(400, "CHANNEL_PRIVATE"))), Key::Channel(1));
+        let skipped = t.recover(&Err(Error::Rpc(RpcError::parse(400, "CHANNEL_PRIVATE"))), Key::Channel(1));
         assert_eq!(skipped, [Skipped { key: Key::Channel(1), from: 7, to: 7, reason: SkipReason::Refused }]);
         assert!(t.recover(&Ok(()), Key::Pts).is_empty());
     }
@@ -548,7 +548,7 @@ mod tests {
     #[test]
     fn a_refused_qts_fetch_is_not_reported_as_a_pts_range() {
         let mut t = tracker(10, 5, 0);
-        let refused = Err(Error::Rpc(crate::errors::RpcError::new(400, "CHANNEL_PRIVATE")));
+        let refused = Err(Error::Rpc(crate::errors::RpcError::parse(400, "CHANNEL_PRIVATE")));
         assert_eq!(t.recover(&refused, Key::Qts), []);
     }
 }

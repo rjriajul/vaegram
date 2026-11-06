@@ -5,6 +5,7 @@ use crate::raw::base;
 #[non_exhaustive]
 pub enum StatisticalGraph {
     /// The chart is ready.
+    #[non_exhaustive]
     Data {
         /// The chart data as JSON, as Telegram sends it.
         json: String,
@@ -14,11 +15,13 @@ pub enum StatisticalGraph {
     },
     /// The chart is not ready. Load it with `token` through
     /// [`Client::get_statistical_graph`](crate::Client::get_statistical_graph).
+    #[non_exhaustive]
     Async {
         /// Token to pass to `get_statistical_graph`.
         token: String,
     },
     /// Telegram could not build the chart.
+    #[non_exhaustive]
     Error {
         /// Telegram's error text.
         message: String,
@@ -26,7 +29,7 @@ pub enum StatisticalGraph {
 }
 
 /// A statistic with its value in the previous period.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct StatisticalValue {
     /// The value in the current period.

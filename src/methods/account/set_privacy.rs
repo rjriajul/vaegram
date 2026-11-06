@@ -78,7 +78,7 @@ mod tests {
 
     #[tokio::test]
     async fn chat_member_rules_refuse_user_ids_before_sending() {
-        let refused = || Err(Error::Rpc(RpcError::new(400, "PRIVACY_VALUE_INVALID")));
+        let refused = || Err(Error::Rpc(RpcError::parse(400, "PRIVACY_VALUE_INVALID")));
         let (client, mut sent) = Client::scripted(vec![refused()]);
         let result = client.set_privacy(PrivacyKey::Bio, &[PrivacyRule::AllowChatMembers(vec![7])]).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
@@ -87,7 +87,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_out_of_range_chat_id_is_an_error_not_a_panic() {
-        let refused = || Err(Error::Rpc(RpcError::new(400, "PRIVACY_VALUE_INVALID")));
+        let refused = || Err(Error::Rpc(RpcError::parse(400, "PRIVACY_VALUE_INVALID")));
         let (client, _sent) = Client::scripted(vec![refused()]);
         let result = client.set_privacy(PrivacyKey::Bio, &[PrivacyRule::DisallowChatMembers(vec![i64::MIN])]).await;
         assert!(result.is_err());

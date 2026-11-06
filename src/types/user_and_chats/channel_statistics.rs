@@ -54,7 +54,7 @@ pub struct ChannelStatistics {
 }
 
 /// Interaction counts of one post or story.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PostInteractions {
     /// Id of the message, or of the story if `is_story` is `true`.

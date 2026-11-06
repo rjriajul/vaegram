@@ -25,6 +25,7 @@ pub struct ChatEvent {
 #[non_exhaustive]
 pub enum ChatEventAction {
     /// The chat title changed.
+    #[non_exhaustive]
     TitleChanged {
         /// The title before.
         old: String,
@@ -32,6 +33,7 @@ pub enum ChatEventAction {
         new: String,
     },
     /// The chat description changed.
+    #[non_exhaustive]
     DescriptionChanged {
         /// The description before; empty if there was none.
         old: String,
@@ -39,6 +41,7 @@ pub enum ChatEventAction {
         new: String,
     },
     /// The chat's public username changed.
+    #[non_exhaustive]
     UsernameChanged {
         /// The username before, without `@`; empty if the chat had none.
         old: String,
@@ -46,6 +49,7 @@ pub enum ChatEventAction {
         new: String,
     },
     /// The chat photo changed. `None` means no photo.
+    #[non_exhaustive]
     PhotoChanged {
         /// The photo before.
         old: Option<Photo>,
@@ -53,6 +57,7 @@ pub enum ChatEventAction {
         new: Option<Photo>,
     },
     /// The linked discussion chat changed. `None` means no linked chat.
+    #[non_exhaustive]
     LinkedChatChanged {
         /// Bot-API id (`-100…`) of the chat linked before.
         old: Option<i64>,
@@ -60,6 +65,7 @@ pub enum ChatEventAction {
         new: Option<i64>,
     },
     /// The slow mode delay changed, in seconds.
+    #[non_exhaustive]
     SlowModeChanged {
         /// The delay before; 0 means slow mode was off.
         old: i32,
@@ -67,6 +73,7 @@ pub enum ChatEventAction {
         new: i32,
     },
     /// The auto-delete timer for messages changed, in seconds.
+    #[non_exhaustive]
     HistoryTtlChanged {
         /// The timer before; 0 means it was off.
         old: i32,
@@ -74,6 +81,7 @@ pub enum ChatEventAction {
         new: i32,
     },
     /// The default permissions of members changed.
+    #[non_exhaustive]
     ChatPermissionsChanged {
         /// The permissions before.
         old: ChatPermissions,
@@ -95,6 +103,7 @@ pub enum ChatEventAction {
     /// A message was unpinned.
     MessageUnpinned(Message),
     /// A message was edited.
+    #[non_exhaustive]
     MessageEdited {
         /// The message before the edit.
         old: Box<Message>,
@@ -112,6 +121,7 @@ pub enum ChatEventAction {
     /// A user left the chat.
     MemberLeft,
     /// A user joined through an invite link. The link is empty for a public join-request link.
+    #[non_exhaustive]
     MemberJoinedByLink {
         /// The link used; empty for a public join-request link.
         invite_link: String,
@@ -119,6 +129,7 @@ pub enum ChatEventAction {
         via_chatlist: bool,
     },
     /// A user joined after a join request was approved.
+    #[non_exhaustive]
     MemberJoinedByRequest {
         /// The link the request came through; empty for a public join-request link.
         invite_link: String,
@@ -128,6 +139,7 @@ pub enum ChatEventAction {
     /// A user was added to the chat.
     MemberInvited(ChatMember),
     /// A member was banned, unbanned or restricted, or their restrictions changed.
+    #[non_exhaustive]
     MemberPermissionsChanged {
         /// The member before the change.
         old: ChatMember,
@@ -135,6 +147,7 @@ pub enum ChatEventAction {
         new: ChatMember,
     },
     /// A member was promoted, demoted, or their administrator rights changed.
+    #[non_exhaustive]
     AdministratorPrivilegesChanged {
         /// The member before the change.
         old: ChatMember,
@@ -142,6 +155,7 @@ pub enum ChatEventAction {
         new: ChatMember,
     },
     /// An invite link was edited.
+    #[non_exhaustive]
     InviteLinkEdited {
         /// The link before the edit.
         old: String,

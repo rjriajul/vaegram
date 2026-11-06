@@ -47,7 +47,7 @@ mod tests {
     #[tokio::test]
     async fn unauthorized_answers_are_false_and_change_nothing() {
         for name in ["AUTH_KEY_UNREGISTERED", "SESSION_PASSWORD_NEEDED", "SESSION_REVOKED", "USER_DEACTIVATED"] {
-            let client = logged_in(Err(Error::Rpc(RpcError::new(401, name))));
+            let client = logged_in(Err(Error::Rpc(RpcError::parse(401, name))));
             assert!(!client.is_authorized().await.unwrap(), "{name}");
             // The answer is only reported: the cached account and peers stay for the caller to act on.
             assert_eq!(client.0.me.lock().unwrap().id, 1001);
@@ -58,8 +58,8 @@ mod tests {
     #[tokio::test]
     async fn other_errors_stay_errors() {
         for (code, name) in [(400, "X"), (500, "INTERNAL")] {
-            let result = logged_in(Err(Error::Rpc(RpcError::new(code, name)))).is_authorized().await;
-            assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::new(code, name)), "{result:?}");
+            let result = logged_in(Err(Error::Rpc(RpcError::parse(code, name)))).is_authorized().await;
+            assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::parse(code, name)), "{result:?}");
         }
     }
 }

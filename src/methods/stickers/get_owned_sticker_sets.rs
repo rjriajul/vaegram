@@ -97,7 +97,7 @@ mod tests {
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "OFFSET_INVALID")))]);
+        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "OFFSET_INVALID")))]);
         let result = client.get_owned_sticker_sets().await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "OFFSET_INVALID"), "{result:?}");
     }

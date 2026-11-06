@@ -3,7 +3,7 @@ use crate::raw::base;
 use crate::types::{UniqueGiftAttribute, UniqueGiftBackdrop};
 
 /// The models, symbols and backdrops a gift can get when it's upgraded.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct GiftUpgradeVariants {
     /// The models the upgraded gift can have.
@@ -15,8 +15,13 @@ pub struct GiftUpgradeVariants {
 }
 
 impl GiftUpgradeVariants {
+    /// Every field zero, empty or `None`: the base the parsers and tests fill in.
+    pub(crate) fn empty() -> Self {
+        GiftUpgradeVariants { models: Vec::new(), symbols: Vec::new(), backdrops: Vec::new() }
+    }
+
     pub(crate) fn parse(raw: &[base::StarGiftAttribute]) -> GiftUpgradeVariants {
-        let mut variants = GiftUpgradeVariants::default();
+        let mut variants = GiftUpgradeVariants::empty();
         for raw_attribute in raw {
             match raw_attribute {
                 base::StarGiftAttribute::StarGiftAttributeModel(a) => {

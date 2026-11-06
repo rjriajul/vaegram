@@ -49,7 +49,7 @@ mod tests {
 
     #[tokio::test]
     async fn errors_come_back_unchanged() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "DOCUMENT_INVALID")))]);
+        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "DOCUMENT_INVALID")))]);
         let result = client.set_profile_audio_position(&song(1), None).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.is("DOCUMENT_INVALID")), "{result:?}");
     }

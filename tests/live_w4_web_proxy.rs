@@ -1,4 +1,4 @@
-#![cfg(feature = "web-proxy")]
+#![cfg(all(feature = "web-proxy", feature = "unstable-raw"))]
 
 use std::sync::Arc;
 

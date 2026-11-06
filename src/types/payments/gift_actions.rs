@@ -180,7 +180,7 @@ mod tests {
             is_premium: false,
             is_burned: false,
             publisher_chat: None,
-            ..Default::default()
+            ..UniqueGift::empty()
         };
         let (client, mut sent) = Client::recording();
         assert!(gift.wear(&client).await.is_err());
@@ -190,7 +190,7 @@ mod tests {
     }
 
     fn unique() -> UniqueGift {
-        UniqueGift { id: 11, gift_id: 2, name: "PlushPepe-3".into(), ..Default::default() }
+        UniqueGift { id: 11, gift_id: 2, name: "PlushPepe-3".into(), ..UniqueGift::empty() }
     }
 
     fn owner_client() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {

@@ -1154,7 +1154,7 @@ pub(crate) mod tests {
             name: "Hub".into(),
             date: Some(0),
             status: Some(crate::enums::CommunityMemberStatus::Member),
-            ..Community::default()
+            ..Community::empty()
         };
 
         let added = service(change(Some(7))).unwrap();
@@ -1316,7 +1316,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn business_media_is_not_looked_up_in_the_bots_own_messages() {
-        let expired = Err(Error::Rpc(RpcError::new(400, "FILE_REFERENCE_EXPIRED")));
+        let expired = Err(Error::Rpc(RpcError::parse(400, "FILE_REFERENCE_EXPIRED")));
         let (client, mut rx) = Client::scripted(vec![expired]);
         client.0.me.lock().unwrap().premium = Some(false);
         let mut raw = Message::bare(5, get_peer(7), 0);

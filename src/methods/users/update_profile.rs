@@ -63,7 +63,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_update_is_refused_before_sending() {
-        let (client, mut sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "FIRSTNAME_INVALID")))]);
+        let (client, mut sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "FIRSTNAME_INVALID")))]);
         let result = client.update_profile().await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(sent.try_recv().is_err());

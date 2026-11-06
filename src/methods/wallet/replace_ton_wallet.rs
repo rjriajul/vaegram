@@ -140,7 +140,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn password_is_checked_first() {
-        let (client, mut rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "PASSWORD_HASH_INVALID")))]);
+        let (client, mut rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "PASSWORD_HASH_INVALID")))]);
         let result = client.replace_ton_wallet(proof()).password("hunter2").await;
         assert!(matches!(&result, Err(e) if e.is("PASSWORD_HASH_INVALID")), "{result:?}");
         rx.try_recv().unwrap();

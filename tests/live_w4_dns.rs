@@ -1,11 +1,17 @@
 #![cfg(feature = "dns-config")]
 
+#[cfg(feature = "unstable-raw")]
 use std::net::SocketAddr;
+#[cfg(feature = "unstable-raw")]
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use vaegram::connection::{DnsConfig, Options};
+use vaegram::connection::DnsConfig;
+#[cfg(feature = "unstable-raw")]
+use vaegram::connection::Options;
+#[cfg(feature = "unstable-raw")]
 use vaegram::raw::{base, functions};
+#[cfg(feature = "unstable-raw")]
 use vaegram::session::{Dc, Session};
 
 fn now() -> i64 {
@@ -22,6 +28,7 @@ async fn dns_config_from_both_resolvers() {
     }
 }
 
+#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "asks public DNS-over-HTTPS resolvers and connects to Telegram"]
 async fn dns_address_accepts_a_handshake() {

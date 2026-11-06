@@ -12,7 +12,7 @@ use crate::utils::{get_channel_id, get_peer};
 ///
 /// Users and bots, basic groups, and supergroups and channels each fill a different set of fields. Fields a
 /// chat kind doesn't have stay `None` or `false`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ChatFullInfo {
     // Every chat.
@@ -193,6 +193,95 @@ pub struct ChatFullInfo {
 }
 
 impl ChatFullInfo {
+    /// Every field zero, empty or `None`: the base the parsers and tests fill in.
+    pub(crate) fn empty() -> Self {
+        ChatFullInfo {
+            pinned_message_id: None,
+            folder_id: None,
+            chat_background: None,
+            is_wallpaper_overridden: false,
+            message_auto_delete_time: None,
+            theme: None,
+            share_theme: None,
+            can_schedule_messages: false,
+            is_translations_disabled: false,
+            is_blocked: false,
+            is_pinned_stories_available: false,
+            can_view_revenue: false,
+            gift_count: None,
+            main_profile_tab: None,
+            bot_verification: None,
+            invite_link: None,
+            join_requests_count: None,
+            available_reactions: None,
+            reactions_limit: None,
+            can_set_username: false,
+            has_welcome_messages: false,
+            admins_count: None,
+            kicked_count: None,
+            linked_chat: None,
+            send_as_chat: None,
+            slow_mode_delay: None,
+            slowmode_next_send_date: None,
+            sticker_set_name: None,
+            custom_emoji_sticker_set_name: None,
+            banned_count: None,
+            boosts_applied: None,
+            unrestrict_boost_count: None,
+            migrated_from_chat_id: None,
+            migrated_from_max_message_id: None,
+            can_view_participants: false,
+            can_set_sticker_set: false,
+            has_visible_history: false,
+            can_view_stats: false,
+            location: None,
+            can_set_location: false,
+            available_min_id: None,
+            stats_dc_id: None,
+            can_delete_channel: false,
+            has_aggressive_anti_spam_enabled: false,
+            is_members_hidden: false,
+            view_forum_as_messages: false,
+            is_ads_restricted: false,
+            can_send_paid_media: false,
+            can_view_stars_revenue: false,
+            is_paid_reactions_available: false,
+            can_send_gift: false,
+            is_paid_messages_available: false,
+            birthday: None,
+            personal_channel: None,
+            personal_channel_message_id: None,
+            personal_photo: None,
+            public_photo: None,
+            common_chats_count: None,
+            private_forward_name: None,
+            chat_admin_rights: None,
+            channel_admin_rights: None,
+            business_intro: None,
+            business_location: None,
+            business_opening_hours: None,
+            business_greeting_message: None,
+            business_away_message: None,
+            rating: None,
+            pending_rating: None,
+            pending_rating_date: None,
+            accepted_gift_types: None,
+            note: None,
+            is_phone_calls_available: false,
+            is_phone_calls_private: false,
+            is_video_calls_available: false,
+            can_pin_message: false,
+            can_send_voice_messages: false,
+            is_blocked_my_stories_from: false,
+            is_contact_require_premium: false,
+            is_read_dates_available: false,
+            is_ads_enabled: false,
+            bot_can_manage_emoji_status: false,
+            display_gifts_button: false,
+            uses_unofficial_app: false,
+        }
+    }
+
     pub(crate) fn parse_user(u: types::UserFull, entities: &Entities) -> ChatFullInfo {
         let id = u.id;
         let access_hash = match entities.users.get(&id) {
@@ -258,7 +347,7 @@ impl ChatFullInfo {
             bot_can_manage_emoji_status: u.bot_can_manage_emoji_status,
             display_gifts_button: u.display_gifts_button,
             uses_unofficial_app: u.unofficial_security_risk,
-            ..ChatFullInfo::default()
+            ..ChatFullInfo::empty()
         }
     }
 
@@ -276,7 +365,7 @@ impl ChatFullInfo {
             reactions_limit: c.reactions_limit,
             can_set_username: c.can_set_username,
             has_welcome_messages: c.has_welcome_messages,
-            ..ChatFullInfo::default()
+            ..ChatFullInfo::empty()
         }
     }
 
@@ -334,7 +423,7 @@ impl ChatFullInfo {
             is_paid_reactions_available: c.paid_reactions_available,
             can_send_gift: c.stargifts_available,
             is_paid_messages_available: c.paid_messages_available,
-            ..ChatFullInfo::default()
+            ..ChatFullInfo::empty()
         }
     }
 
@@ -343,7 +432,7 @@ impl ChatFullInfo {
             join_requests_count: c.peer_link_requests_pending,
             admins_count: c.admins_count,
             kicked_count: c.kicked_count,
-            ..ChatFullInfo::default()
+            ..ChatFullInfo::empty()
         }
     }
 }

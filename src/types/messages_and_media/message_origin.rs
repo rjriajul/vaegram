@@ -7,6 +7,7 @@ use crate::types::{Chat, User};
 #[non_exhaustive]
 pub enum MessageOrigin {
     /// Sent by a user whose account is visible.
+    #[non_exhaustive]
     User {
         /// Unix time the original message was sent.
         date: i32,
@@ -14,6 +15,7 @@ pub enum MessageOrigin {
         sender_user: User,
     },
     /// Sent by a user who hides their account when forwarded. Only their name is known.
+    #[non_exhaustive]
     HiddenUser {
         /// Unix time the original message was sent.
         date: i32,
@@ -21,6 +23,7 @@ pub enum MessageOrigin {
         sender_user_name: String,
     },
     /// A message imported from another app's chat export; `sender_user_name` is the name the export gave the sender.
+    #[non_exhaustive]
     Import {
         /// Unix time the original message was sent.
         date: i32,
@@ -28,6 +31,7 @@ pub enum MessageOrigin {
         sender_user_name: String,
     },
     /// Sent on behalf of a chat, such as an anonymous group admin.
+    #[non_exhaustive]
     Chat {
         /// Unix time the original message was sent.
         date: i32,
@@ -37,6 +41,7 @@ pub enum MessageOrigin {
         author_signature: Option<String>,
     },
     /// Posted in a channel, with the id of the original post.
+    #[non_exhaustive]
     Channel {
         /// Unix time the original message was sent.
         date: i32,

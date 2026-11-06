@@ -54,7 +54,7 @@ mod tests {
     use crate::types::User;
 
     fn user() -> User {
-        User { id: 7, first_name: "Ada".into(), last_name: Some("Lovelace".into()), ..User::default() }
+        User { id: 7, first_name: "Ada".into(), last_name: Some("Lovelace".into()), ..User::empty() }
     }
 
     #[test]

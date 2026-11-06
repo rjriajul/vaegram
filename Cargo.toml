@@ -43,7 +43,8 @@ webpki-roots = { version = "1", optional = true }
 # `ToJson` for every TL type and function; off by default to keep the generated code small.
 json = []
 # TL objects behind `RawUpdate` (`raw()`, `raw_users()`, `raw_chats()`), `Incoming::into_updates()` and
-# `UploadedFile::into_raw()`.
+# `UploadedFile::into_raw()`, and the session plumbing below `Client`: `connection::Connection` and
+# `session::{Session, UpdatesRx, Incoming, Events}`. The live tests that open a bare session need it.
 # Experimental: may change or go away in any release.
 unstable-raw = []
 # Storage engines.
@@ -73,6 +74,8 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 [[bench]]
 name = "tl"
 harness = false
+# Its connection benchmark drives `connection::Connection` directly.
+required-features = ["unstable-raw"]
 
 [[bench]]
 name = "session"

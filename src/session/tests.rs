@@ -419,7 +419,7 @@ async fn affected_pts_come_back_as_quiet_updates() {
     let mut updates = UpdatesRx::offline();
     updates.events.affected(Affected { channel_id: Some(7), pts: 5, pts_count: 1 });
     let incoming = updates.recv().await.unwrap();
-    let from_request = incoming.from_request();
+    let from_request = incoming.from_request;
     let base::Updates::UpdateShort(short) = incoming.updates else { panic!("not a stand-in update") };
     let channel = matches!(&short.update, base::Update::UpdateDeleteChannelMessages(u) if u.channel_id == 7);
     assert_eq!((from_request, channel, short.update.pts()), (true, true, Some((5, 1))));
@@ -651,7 +651,7 @@ async fn observer_sees_how_each_request_ended() {
     r.handle_message(9, 1, &rpc_result(ids[2], b"late"));
 
     assert_eq!(answered.try_recv().unwrap().unwrap(), &b"pong"[..]);
-    let flood = Error::Rpc(RpcError::new(420, "FLOOD_WAIT_5")).to_string();
+    let flood = Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_5")).to_string();
     let expected = [(ids[0], Ok(b"pong".to_vec())), (ids[1], Err(flood)), (ids[2], Err(Error::Timeout.to_string()))];
     assert_eq!(*seen.lock().unwrap(), expected.map(|(id, result)| ("ping", id, result)));
     assert!(r.pending.is_empty());

@@ -1,7 +1,7 @@
 use crate::raw::base;
 
 /// What the account can do as an administrator of a community.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CommunityAdministratorRights {
     /// Whether the admin can use the community's management tools.

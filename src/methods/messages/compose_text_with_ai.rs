@@ -113,7 +113,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn ai_errors_pass_through() {
-        let refused = || Err(Error::Rpc(RpcError::new(400, "PREMIUM_ACCOUNT_REQUIRED")));
+        let refused = || Err(Error::Rpc(RpcError::parse(400, "PREMIUM_ACCOUNT_REQUIRED")));
         let (client, _rx) = Client::scripted(vec![refused(), refused()]);
         let results = [client.compose_text_with_ai("hi").await, client.fix_text_with_ai("hi").await];
         for result in results {

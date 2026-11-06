@@ -307,7 +307,7 @@ mod tests {
     #[tokio::test]
     async fn folder_tags_send_the_flag_and_return_telegram_errors() {
         use crate::raw::functions::messages::ToggleDialogFilterTags;
-        let premium = Error::Rpc(RpcError::new(400, "PREMIUM_ACCOUNT_REQUIRED"));
+        let premium = Error::Rpc(RpcError::parse(400, "PREMIUM_ACCOUNT_REQUIRED"));
         let (client, mut rx) = Client::scripted(vec![Err(premium)]);
         let result = client.toggle_folder_tags(true).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "PREMIUM_ACCOUNT_REQUIRED"), "{result:?}");

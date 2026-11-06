@@ -55,7 +55,7 @@ mod tests {
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "WALLET_NOT_AVAILABLE")))]);
+        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "WALLET_NOT_AVAILABLE")))]);
         let result = client.get_address_ton_wallet("EQx").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "WALLET_NOT_AVAILABLE"), "{result:?}");
     }

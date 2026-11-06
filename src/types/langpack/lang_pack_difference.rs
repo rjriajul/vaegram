@@ -19,6 +19,7 @@ pub struct LangPackDifference {
 #[non_exhaustive]
 pub enum LangPackString {
     /// A string with a single form.
+    #[non_exhaustive]
     Plain {
         /// Key of the string.
         key: String,
@@ -26,6 +27,7 @@ pub enum LangPackString {
         value: String,
     },
     /// A string with one form per plural category of the language.
+    #[non_exhaustive]
     Pluralized {
         /// Key of the string.
         key: String,
@@ -43,6 +45,7 @@ pub enum LangPackString {
         other_value: String,
     },
     /// A string that was removed from the pack.
+    #[non_exhaustive]
     Deleted {
         /// Key of the removed string.
         key: String,

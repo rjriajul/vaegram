@@ -5,7 +5,7 @@ use crate::raw::base;
 use crate::types::{ChatColor, ChatPhoto, EmojiStatus, RestrictionReason, Username};
 
 /// A Telegram user or bot.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct User {
     /// Unique id of the user. Always positive.
@@ -111,6 +111,62 @@ pub struct User {
 }
 
 impl User {
+    /// Every field zero, empty or `None`: the base the parsers and tests fill in.
+    pub(crate) fn empty() -> Self {
+        User {
+            id: 0,
+            is_bot: false,
+            first_name: String::new(),
+            last_name: None,
+            username: None,
+            language_code: None,
+            is_premium: false,
+            is_deleted: false,
+            is_verified: false,
+            is_scam: false,
+            is_fake: false,
+            supports_join_request_queries: false,
+            supports_guest_queries: false,
+            can_join_groups: false,
+            can_read_all_group_messages: false,
+            supports_inline_queries: false,
+            can_connect_to_business: false,
+            has_main_web_app: false,
+            can_manage_bots: false,
+            has_topics_enabled: false,
+            allows_users_to_create_topics: false,
+            has_topics_sidebar: false,
+            status: None,
+            last_online_date: None,
+            next_offline_date: None,
+            is_self: false,
+            is_contact: false,
+            is_mutual_contact: false,
+            is_restricted: false,
+            is_support: false,
+            is_contact_require_premium: false,
+            is_close_friend: false,
+            is_stories_hidden: false,
+            is_stories_unavailable: false,
+            bot_verification_icon_custom_emoji_id: None,
+            phone_number: None,
+            added_to_attachment_menu: false,
+            active_users_count: None,
+            inline_need_location: false,
+            inline_query_placeholder: None,
+            can_be_edited: false,
+            can_be_added_to_attachment_menu: false,
+            paid_message_star_count: None,
+            emoji_status: None,
+            restrictions: Vec::new(),
+            usernames: Vec::new(),
+            dc_id: None,
+            photo: None,
+            reply_color: None,
+            profile_color: None,
+        }
+    }
+
     pub(crate) fn from_raw(client: &Client, user: base::User) -> User {
         let id = match &user {
             base::User::User(u) => u.id,
@@ -181,10 +237,10 @@ impl User {
                         .map(|(p, hash)| ChatPhoto::new(id, hash, p.photo_id, p.dc_id, p.has_video, p.personal)),
                     reply_color: u.color.as_ref().and_then(ChatColor::parse),
                     profile_color: u.profile_color.as_ref().and_then(ChatColor::parse),
-                    ..User::default().parse_status(u.status.as_ref())
+                    ..User::empty().parse_status(u.status.as_ref())
                 }
             }
-            _ => User { id, ..User::default() },
+            _ => User { id, ..User::empty() },
         }
     }
 
@@ -307,7 +363,7 @@ mod tests {
 
     #[test]
     fn a_user_with_no_optional_fields_equals_the_default() {
-        assert_eq!(parse(raw(7)), User { id: 7, first_name: "Neko".into(), ..User::default() });
+        assert_eq!(parse(raw(7)), User { id: 7, first_name: "Neko".into(), ..User::empty() });
     }
 
     #[test]

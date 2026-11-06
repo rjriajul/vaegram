@@ -1,9 +1,12 @@
+//! Garbage and hostile input against the decoders that read the network and stored sessions: TL, gzip, the
+//! transport framings, session strings and peer ids.
+
 use std::io::Write;
 
-use vaegram::connection::{Framing, RecvBuf, Transport};
-use vaegram::raw::core::{gzip_packed, msg_container};
-use vaegram::raw::{Deserializable, Error, Serializable, base, types};
-use vaegram::storage::{SessionData, session_string};
+use crate::connection::{Framing, RecvBuf, Transport};
+use crate::raw::core::{gzip_packed, msg_container};
+use crate::raw::{Deserializable, Error, Serializable, base, types};
+use crate::storage::{SessionData, session_string};
 
 const MAX_UNPACKED: usize = 32 << 20;
 const VECTOR: u32 = 0x1cb5c415;
@@ -307,7 +310,7 @@ fn session_strings_survive_garbage() {
 
 #[test]
 fn extreme_peer_ids_do_not_overflow() {
-    use vaegram::utils::{get_peer, get_peer_id};
+    use crate::utils::{get_peer, get_peer_id};
     for id in [i64::MIN, i64::MAX] {
         get_peer_id(&base::Peer::PeerChat(types::PeerChat { chat_id: id }));
         get_peer_id(&base::Peer::PeerChannel(types::PeerChannel { channel_id: id }));

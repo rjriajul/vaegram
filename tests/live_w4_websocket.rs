@@ -1,18 +1,25 @@
 #![cfg(feature = "websocket")]
 
+#[cfg(feature = "unstable-raw")]
 use std::sync::Arc;
+#[cfg(feature = "unstable-raw")]
 use std::time::Duration;
 
 use vaegram::Client;
+#[cfg(feature = "unstable-raw")]
 use vaegram::connection::Options;
+#[cfg(feature = "unstable-raw")]
 use vaegram::raw::{base, functions};
+#[cfg(feature = "unstable-raw")]
 use vaegram::session::{Dc, Session};
 use vaegram::types::Upload;
 
+#[cfg(feature = "unstable-raw")]
 fn websocket() -> Options {
     Options::new().websocket(true)
 }
 
+#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "connects to Telegram over WebSocket"]
 async fn websocket_gets_config() {
@@ -22,6 +29,7 @@ async fn websocket_gets_config() {
     assert_eq!(pong.ping_id, 3);
 }
 
+#[cfg(feature = "unstable-raw")]
 #[tokio::test]
 #[ignore = "connects to Telegram over WebSocket and waits five minutes"]
 async fn websocket_survives_5_min_idle() {

@@ -20,7 +20,7 @@ mod tests {
 
     #[tokio::test]
     async fn report_spam_names_the_peer() {
-        let refused = Err(Error::Rpc(RpcError::new(400, "PEER_ID_INVALID")));
+        let refused = Err(Error::Rpc(RpcError::parse(400, "PEER_ID_INVALID")));
         let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes()), refused]);
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 2 }));
         client.0.peers.lock().unwrap().insert(7, user.clone());

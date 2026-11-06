@@ -31,7 +31,7 @@ mod tests {
 
     #[tokio::test]
     async fn rpc_errors_come_back_unchanged() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "MESSAGE_ID_INVALID")))]);
+        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "MESSAGE_ID_INVALID")))]);
         let result = client.process_gift_purchase_offer(12, true).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "MESSAGE_ID_INVALID"), "{result:?}");
     }

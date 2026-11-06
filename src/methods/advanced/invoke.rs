@@ -214,7 +214,7 @@ mod tests {
     const FOREIGN_DC: i32 = 4;
 
     fn flood(seconds: u32) -> Error {
-        Error::Rpc(RpcError::new(420, &format!("FLOOD_WAIT_{seconds}")))
+        Error::Rpc(RpcError::parse(420, &format!("FLOOD_WAIT_{seconds}")))
     }
 
     // Answers FLOOD_WAIT_1 first, then a pong.
@@ -354,7 +354,7 @@ mod tests {
     }
 
     fn rpc_420(message: &str) -> Result<Vec<u8>> {
-        Err(Error::Rpc(RpcError::new(420, message)))
+        Err(Error::Rpc(RpcError::parse(420, message)))
     }
 
     async fn ping(replies: Vec<Result<Vec<u8>>>) -> (Result<base::Pong>, usize) {

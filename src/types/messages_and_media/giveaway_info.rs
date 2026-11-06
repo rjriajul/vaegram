@@ -6,6 +6,7 @@ use crate::utils::get_channel_id;
 #[non_exhaustive]
 pub enum GiveawayInfo {
     /// The giveaway hasn't finished yet.
+    #[non_exhaustive]
     Ongoing {
         /// When the giveaway started, as a Unix timestamp.
         start_date: i32,
@@ -21,6 +22,7 @@ pub enum GiveawayInfo {
         disallowed_country: Option<String>,
     },
     /// The giveaway has ended, with winners picked or prizes refunded.
+    #[non_exhaustive]
     Finished {
         /// When the giveaway started, as a Unix timestamp.
         start_date: i32,

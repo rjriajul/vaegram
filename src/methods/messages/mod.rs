@@ -3,6 +3,7 @@ mod add_poll_option;
 mod add_to_gifs;
 mod approve_suggested_post;
 mod clear_all_drafts;
+mod click;
 mod compose_text_with_ai;
 mod copy_media_group;
 mod copy_message;
@@ -146,6 +147,7 @@ mod web_view_options;
 
 pub use add_checklist_tasks::AddChecklistTasks;
 pub use approve_suggested_post::ApproveSuggestedPost;
+pub use click::Click;
 pub use compose_text_with_ai::ComposeTextWithAi;
 pub use copy_media_group::CopyMediaGroup;
 pub use copy_message::CopyMessage;
@@ -399,7 +401,7 @@ mod saved_tests {
 
     #[tokio::test]
     async fn an_unread_message_has_no_read_date() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "MESSAGE_NOT_READ_YET")))]);
+        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "MESSAGE_NOT_READ_YET")))]);
         client.0.peers.lock().unwrap().insert(USER, user());
         assert_eq!(client.get_message_read_date(USER, 3).await.ok(), Some(None));
     }

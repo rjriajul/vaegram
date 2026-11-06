@@ -69,7 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_member_is_left_with_the_user_filled_in() {
-        let refused = crate::errors::RpcError::new(400, "USER_NOT_PARTICIPANT");
+        let refused = crate::errors::RpcError::parse(400, "USER_NOT_PARTICIPANT");
         // Vector<User> holding one user with only first_name (flags bit 1) set.
         let mut users = Vec::new();
         for word in [0x1cb5c415, 1, types::User::CONSTRUCTOR_ID, 1 << 1, 0] {
@@ -98,7 +98,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_member_channel_is_left_without_a_user_lookup() {
-        let refused = crate::errors::RpcError::new(400, "USER_NOT_PARTICIPANT");
+        let refused = crate::errors::RpcError::parse(400, "USER_NOT_PARTICIPANT");
         let (client, mut sent) = Client::scripted(vec![Err(Error::Rpc(refused))]);
         let (group, sender) = (get_channel_id(9), get_channel_id(11));
         {

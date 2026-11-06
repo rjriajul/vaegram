@@ -65,7 +65,7 @@ pub struct Gift {
 }
 
 /// A unique gift, upgraded from a regular [`Gift`].
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct UniqueGift {
     /// Id of this unique gift.
@@ -195,6 +195,41 @@ impl Gift {
 }
 
 impl UniqueGift {
+    /// Every field zero, empty or `None`: the base the parsers and tests fill in.
+    #[cfg(test)]
+    pub(crate) fn empty() -> Self {
+        UniqueGift {
+            id: 0,
+            gift_id: 0,
+            base_name: String::new(),
+            name: String::new(),
+            number: 0,
+            model: None,
+            symbol: None,
+            backdrop: None,
+            is_premium: false,
+            is_burned: false,
+            publisher_chat: None,
+            owner: None,
+            owner_name: None,
+            owner_address: None,
+            gift_address: None,
+            host: None,
+            is_crafted: false,
+            is_theme_available: false,
+            total_upgraded_count: 0,
+            max_upgraded_count: 0,
+            minimum_offer_star_count: None,
+            used_theme_chat_id: None,
+            craft_probability_per_mille: None,
+            value_amount: None,
+            value_currency: None,
+            value_usd_amount: None,
+            original_details: None,
+            resale_parameters: None,
+        }
+    }
+
     pub(crate) fn parse(raw: &types::StarGiftUnique, entities: &Entities) -> UniqueGift {
         let (mut model, mut symbol, mut backdrop, mut original_details) = (None, None, None, None);
         for raw_attribute in &raw.attributes {

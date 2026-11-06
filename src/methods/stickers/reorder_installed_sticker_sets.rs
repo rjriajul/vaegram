@@ -58,7 +58,7 @@ mod tests {
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::new(400, "STICKERSET_INVALID")))]);
+        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "STICKERSET_INVALID")))]);
         let result = client.reorder_installed_sticker_sets(StickerType::Regular, &[1]).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "STICKERSET_INVALID"), "{result:?}");
     }
