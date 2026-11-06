@@ -2,11 +2,34 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, functions};
 
+/// Request built by [`Client::get_bot_short_description`].
+#[must_use = "a request does nothing until it is awaited"]
+pub struct GetBotShortDescription<'a> {
+    client: &'a Client,
+    language_code: String,
+}
+
 impl Client {
-    /// Returns this bot's short description for a language. An empty `language_code` gives the default.
-    pub async fn get_bot_short_description(&self, language_code: &str) -> Result<String> {
-        let request = functions::bots::GetBotInfo { bot: None, lang_code: language_code.into() };
-        let base::bots::BotInfo::BotInfo(info) = self.invoke(&request).await?;
+    /// Returns this bot's default short description, the one users of a language without its own see.
+    ///
+    /// [`language_code`](GetBotShortDescription::language_code) returns the one for a language instead.
+    pub fn get_bot_short_description(&self) -> GetBotShortDescription<'_> {
+        GetBotShortDescription { client: self, language_code: String::new() }
+    }
+}
+
+impl GetBotShortDescription<'_> {
+    /// Returns the short description set for users with this two-letter language code.
+    pub fn language_code(mut self, language_code: impl Into<String>) -> Self {
+        self.language_code = language_code.into();
+        self
+    }
+
+    async fn send(self) -> Result<String> {
+        let request = functions::bots::GetBotInfo { bot: None, lang_code: self.language_code };
+        let base::bots::BotInfo::BotInfo(info) = self.client.invoke(&request).await?;
         Ok(info.about)
     }
 }
+
+into_future!(GetBotShortDescription, String);
