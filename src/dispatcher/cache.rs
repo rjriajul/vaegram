@@ -108,9 +108,9 @@ impl Caches {
     }
 
     /// Learns from an update before it's routed: new and edited messages are kept, deleted ones dropped, and an
-    /// edited topic forgotten. Reactions, views, forwards and pins change a message without an edit, so they drop it
-    /// too; a later read asks Telegram. Other flag-only changes (a voice note marked listened, say) aren't tracked,
-    /// so a cached message can show them stale.
+    /// edited topic forgotten. Reactions, views, forwards, pins and widget data change a message without an edit, so
+    /// they drop it too; a later read asks Telegram. Other flag-only changes (a voice note marked listened, say)
+    /// aren't tracked, so a cached message can show them stale.
     pub(crate) fn observe(&self, update: &base::Update, entities: &Arc<Entities>) {
         use base::Update as U;
         match update {
@@ -125,6 +125,8 @@ impl Caches {
             U::UpdateChannelMessageForwards(u) => self.evict_ids(u.channel_id, &[u.id]),
             U::UpdatePinnedMessages(u) => self.evict_ids(channel_of(&u.peer), &u.messages),
             U::UpdatePinnedChannelMessages(u) => self.evict_ids(u.channel_id, &u.messages),
+            U::UpdateMessageWidgetData(u) => self.evict_ids(channel_of(&u.peer), &[u.msg_id]),
+            U::UpdateEditForumTopic(u) => self.evict_topic(crate::utils::get_peer_id(&u.peer), u.topic_id),
             _ => {}
         }
     }
@@ -410,6 +412,24 @@ mod tests {
         assert_eq!(caches.topic(forum, 1), None);
     }
 
+    #[test]
+    fn a_forum_topic_edit_update_evicts_its_topic() {
+        let caches = Caches::new(0, 10);
+        let forum = get_channel_id(9);
+        caches.store_topic(forum, &topic(6));
+        caches.store_topic(forum, &topic(7));
+        let edit = types::UpdateEditForumTopic {
+            peer: get_peer(forum),
+            topic_id: 6,
+            title: Some("new".into()),
+            icon_emoji_id: None,
+            closed: None,
+            hidden: None,
+        };
+        caches.observe(&base::Update::UpdateEditForumTopic(Box::new(edit)), &Arc::default());
+        assert_eq!((caches.topic(forum, 6), caches.topic(forum, 7).map(|t| t.id)), (None, Some(7)));
+    }
+
     fn caching(messages: usize, topics: usize) -> (Client, UnboundedReceiver<Vec<u8>>) {
         let (mut client, rx) = Client::recording();
         Arc::get_mut(&mut client.0).unwrap().caches = Caches::new(messages, topics);
@@ -540,10 +560,10 @@ mod tests {
     }
 
     #[test]
-    fn reactions_views_pins_and_history_deletes_evict() {
+    fn reactions_views_widget_data_pins_and_history_deletes_evict() {
         let caches = Caches::new(10, 0);
         let channel = get_channel_id(9);
-        for (id, chat) in [(1, 7), (2, 7), (3, channel), (4, channel), (5, 8)] {
+        for (id, chat) in [(1, 7), (2, 7), (3, channel), (4, channel), (5, 8), (6, channel)] {
             caches.store(&raw(id, chat), &Arc::default());
         }
         let reactions = types::UpdateMessageReactions {
@@ -563,8 +583,18 @@ mod tests {
         caches.observe(&base::Update::UpdateMessageReactions(Box::new(reactions)), &Arc::default());
         let views = types::UpdateChannelMessageViews { channel_id: 9, id: 3, views: 10 };
         caches.observe(&base::Update::UpdateChannelMessageViews(Box::new(views)), &Arc::default());
+        let widget = types::UpdateMessageWidgetData {
+            peer: get_peer(channel),
+            msg_id: 6,
+            public_data: Some("{}".into()),
+            public_data_hash: Some(1),
+            chat_data: None,
+            pts: 1,
+            pts_count: 1,
+        };
+        caches.observe(&base::Update::UpdateMessageWidgetData(Box::new(widget)), &Arc::default());
         assert_eq!(cached_ids(&caches, 7, &[1, 2, 5]), [false, true, true]);
-        assert_eq!(cached_ids(&caches, channel, &[3, 4]), [false, true]);
+        assert_eq!(cached_ids(&caches, channel, &[3, 4, 6]), [false, true, false]);
         // A history delete drops only that chat's messages, though ids outside channels share one key space.
         caches.evict_chat(7);
         caches.evict_chat(channel);

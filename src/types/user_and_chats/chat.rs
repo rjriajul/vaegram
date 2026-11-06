@@ -485,6 +485,10 @@ mod tests {
         assert_eq!((chat.has_direct_messages_group, chat.is_stories_unavailable), (true, true));
         assert_eq!((chat.level, chat.subscription_until_date, chat.members_count), (Some(3), Some(99), Some(40)));
         assert_eq!((chat.direct_messages_chat_id, chat.parent_chat), (Some(get_channel_id(8)), None));
+
+        let sidebar = types::Channel { forum_sidebar: true, ..raw_channel(5) };
+        let chat = parse_chat(get_channel_id(5), base::Chat::Channel(sidebar.into()));
+        assert_eq!((chat.has_forum_tabs, chat.has_forum_sidebar), (false, true));
     }
 
     #[test]
