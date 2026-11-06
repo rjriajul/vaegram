@@ -6,6 +6,8 @@ use crate::types::{Message, PeerRef};
 
 /// Messages of a chat. Awaiting it collects the messages into a `Vec`, up to [`limit`](GetChatHistory::limit);
 /// [`next`](GetChatHistory::next) reads them one at a time.
+///
+/// Set `limit` before awaiting; without it this reads the whole history (one request per 100 messages).
 #[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetChatHistory<'a> {
     client: &'a Client,

@@ -54,8 +54,10 @@ impl<T> OffsetPages<T> {
     }
 
     pub(crate) fn refill<R>(&mut self, raw: Vec<R>, next_offset: Option<String>, parse: impl FnOnce(Vec<R>) -> Vec<T>) {
-        // A missing or empty offset ends the list, and so does an empty page: asking again would loop forever.
-        let next = next_offset.filter(|o| !o.is_empty() && !raw.is_empty());
+        // A missing, empty or repeated offset ends the list, and so does an empty page: asking again would loop
+        // forever.
+        let repeated = |o: &String| self.offset.as_ref() == Some(o);
+        let next = next_offset.filter(|o| !o.is_empty() && !raw.is_empty() && !repeated(o));
         self.push(parse(raw), next);
     }
 }
@@ -92,6 +94,12 @@ mod tests {
             pages.refill(raw, next.map(Into::into), keep_even);
             assert_eq!(pages.limit(), None);
         }
+
+        // A token that doesn't move would fetch the same page forever.
+        let mut pages = OffsetPages::new(50);
+        pages.set_offset("same".into());
+        pages.refill(vec![2], Some("same".into()), keep_even);
+        assert_eq!((pages.pop(), pages.limit()), (Some(2), None));
     }
 
     #[test]

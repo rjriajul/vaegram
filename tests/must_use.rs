@@ -95,6 +95,8 @@ fn every_pager_is_awaitable() {
         pagers(source, &mut pager_types);
     }
     assert!(pager_types.len() > 30, "found only {} pagers", pager_types.len());
+    let stale: Vec<_> = STREAMS.iter().filter(|s| !pager_types.contains(**s)).collect();
+    assert!(stale.is_empty(), "STREAMS names types with no `next`: {stale:?}");
     let not_awaitable: Vec<_> =
         pager_types.iter().filter(|p| !awaitable.contains(*p) && !STREAMS.contains(&p.as_str())).collect();
     assert!(not_awaitable.is_empty(), "pagers that can't be awaited: {not_awaitable:?}");

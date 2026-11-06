@@ -53,24 +53,23 @@ impl GetFeaturedStickerSets<'_> {
 
     /// Returns the next set, or `None` once the sets or the limit run out.
     pub async fn next(&mut self) -> Result<Option<StickerSet>> {
+        // Checked before the limit, so a zero limit doesn't hide the mistake.
+        if self.custom_emoji && self.older {
+            return Err(Error::InvalidArgument("older featured sets are only listed for stickers, not custom emoji"));
+        }
         loop {
             if let Some(set) = self.pages.pop() {
                 return Ok(Some(set));
             }
             let Some(limit) = self.pages.limit() else { return Ok(None) };
             let client = self.client;
-            let featured = match (self.custom_emoji, self.older) {
-                (true, true) => {
-                    return Err(Error::InvalidArgument(
-                        "older featured sets are only listed for stickers, not custom emoji",
-                    ));
-                }
-                (true, false) => client.invoke(&functions::messages::GetFeaturedEmojiStickers { hash: 0 }).await?,
-                (false, true) => {
-                    let offset = self.pages.offset().copied().unwrap_or(0);
-                    client.invoke(&functions::messages::GetOldFeaturedStickers { offset, limit, hash: 0 }).await?
-                }
-                (false, false) => client.invoke(&functions::messages::GetFeaturedStickers { hash: 0 }).await?,
+            let featured = if self.older {
+                let offset = self.pages.offset().copied().unwrap_or(0);
+                client.invoke(&functions::messages::GetOldFeaturedStickers { offset, limit, hash: 0 }).await?
+            } else if self.custom_emoji {
+                client.invoke(&functions::messages::GetFeaturedEmojiStickers { hash: 0 }).await?
+            } else {
+                client.invoke(&functions::messages::GetFeaturedStickers { hash: 0 }).await?
             };
             match featured {
                 base::messages::FeaturedStickers::FeaturedStickers(f) => {
@@ -120,6 +119,50 @@ mod tests {
         assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
         let refused = client.get_featured_sticker_sets().offset(0).custom_emoji().await;
         assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
+        let refused = client.get_featured_sticker_sets().offset(0).custom_emoji().limit(0).await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
         assert!(rx.try_recv().is_err());
+    }
+
+    fn covered(id: i64) -> base::StickerSetCovered {
+        let set = types::StickerSet {
+            archived: false,
+            official: false,
+            masks: false,
+            emojis: false,
+            text_color: false,
+            channel_emoji_status: false,
+            creator: false,
+            installed_date: None,
+            id,
+            access_hash: 12,
+            title: "Featured".into(),
+            short_name: "featured".into(),
+            thumbs: None,
+            thumb_dc_id: None,
+            thumb_version: None,
+            thumb_document_id: None,
+            count: 1,
+            hash: 0,
+        };
+        let cover = base::Document::DocumentEmpty(types::DocumentEmpty { id: 1 });
+        let covered = types::StickerSetCovered { set: base::StickerSet::StickerSet(Box::new(set)), cover };
+        base::StickerSetCovered::StickerSetCovered(Box::new(covered))
+    }
+
+    fn featured(count: i32, ids: &[i64]) -> crate::Result<Vec<u8>> {
+        let sets = ids.iter().map(|&id| covered(id)).collect();
+        let page = types::messages::FeaturedStickers { premium: false, hash: 0, count, sets, unread: Vec::new() };
+        Ok(base::messages::FeaturedStickers::FeaturedStickers(Box::new(page)).to_bytes())
+    }
+
+    #[tokio::test]
+    async fn older_sets_are_read_page_by_page_up_to_the_count() {
+        let (client, mut rx) = Client::scripted(vec![featured(3, &[11, 12]), featured(3, &[13])]);
+        let sets = client.get_featured_sticker_sets().offset(0).await.unwrap();
+        assert_eq!(sets.iter().map(|s| s.id).collect::<Vec<_>>(), [11, 12, 13]);
+        let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        let old = |offset, limit| GetOldFeaturedStickers { offset, limit, hash: 0 }.to_bytes();
+        assert_eq!(sent, [old(0, 100), old(2, 100)]);
     }
 }

@@ -73,7 +73,9 @@ impl SetPages {
     pub(super) fn push(&mut self, page: &[base::StickerSetCovered], count: i32) {
         let sets: Vec<_> = page.iter().map(StickerSet::parse_covered).collect();
         self.read += sets.len();
-        // An empty page ends the list too: asking again would loop forever.
+        // An empty page ends the list too: asking again would loop forever. `read` counts from where this pager
+        // started, so after `offset_id` it stays below `count` and the list ends on that empty page, one request
+        // later than a list read from the start.
         let next = sets.last().map(|set| set.id).filter(|_| self.read < usize::try_from(count).unwrap_or(0));
         self.sets.push(sets, next);
     }

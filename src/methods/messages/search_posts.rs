@@ -6,6 +6,8 @@ use crate::types::Message;
 
 /// Public channel posts found by [`Client::search_posts`]. Awaiting it collects the posts into a `Vec`, up to
 /// [`limit`](SearchPosts::limit); [`next`](SearchPosts::next) reads them one at a time.
+///
+/// Set `limit` before awaiting; without it this reads every match (one request per 100 posts).
 #[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct SearchPosts<'a> {
     client: &'a Client,

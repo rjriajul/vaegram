@@ -6,6 +6,8 @@ use crate::types::{Message, PeerRef};
 
 /// Replies to a message, newest first. Awaiting it collects the replies into a `Vec`, up to
 /// [`limit`](GetDiscussionReplies::limit); [`next`](GetDiscussionReplies::next) reads them one at a time.
+///
+/// Set `limit` before awaiting; without it this reads every reply (one request per 100).
 #[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetDiscussionReplies<'a> {
     client: &'a Client,

@@ -64,7 +64,10 @@ async fn user_reads_stars_and_gift_counts() {
     let Some(user) = user().await else { return };
     user.get_ton_balance().await.unwrap();
     let count = user.get_chat_gifts_count("me").await.unwrap();
-    assert_eq!(count, user.get_chat_gifts("me").await.unwrap().len() as i32);
+    let mut listed = user.get_chat_gifts("me");
+    assert_eq!(count, listed.total().await.unwrap());
+    // Parsing drops gifts it can't read, so the list holds at most the count.
+    assert!(listed.await.unwrap().len() <= count as usize);
 
     let gifts = user.get_available_gifts().await.unwrap();
     let Some(gift) = gifts.iter().find(|g| g.upgrade_star_count.is_some()) else {

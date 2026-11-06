@@ -93,13 +93,16 @@ impl GetChatAdminInviteLinks<'_> {
                     invite => links.push(ChatInviteLink::parse(invite, &entities)?),
                 }
             }
-            let more = next.and_then(|(date, link)| {
+            let mut more = None;
+            if let Some((date, link)) = next {
                 // Same cursor again would fetch the same page forever.
                 let repeated =
                     request.offset_date == Some(date) && request.offset_link.as_deref() == Some(link.as_str());
-                let more = self.seen < usize::try_from(page.count).unwrap_or(0) && !repeated;
-                more.then(|| (request.offset_date, request.offset_link) = (Some(date), Some(link)))
-            });
+                if self.seen < usize::try_from(page.count).unwrap_or(0) && !repeated {
+                    (request.offset_date, request.offset_link) = (Some(date), Some(link));
+                    more = Some(());
+                }
+            }
             self.pages.push(links, more);
         }
     }

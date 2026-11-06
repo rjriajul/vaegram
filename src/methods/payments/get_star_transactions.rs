@@ -9,6 +9,8 @@ use crate::types::{PeerRef, StarTransaction};
 ///
 /// Awaiting it collects the transactions into a `Vec`, up to [`limit`](GetStarTransactions::limit);
 /// [`next`](GetStarTransactions::next) reads them one at a time. Transactions are fetched 100 to a page.
+///
+/// Set `limit` before awaiting; without it this reads the whole history.
 #[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetStarTransactions<'a> {
     client: &'a Client,
@@ -60,10 +62,17 @@ impl GetStarTransactions<'_> {
         self
     }
 
-    /// Starts at this offset token, which Telegram hands out with each page, instead of the first transaction.
+    /// Starts at this offset token, taken from [`next_offset`](Self::next_offset) of an earlier pager, instead of
+    /// the first transaction.
     pub fn offset(mut self, offset: impl Into<String>) -> Self {
         self.pages.set_offset(offset.into());
         self
+    }
+
+    /// Where the unread part of the history starts, for `offset` on a later pager; `None` once the history has
+    /// ended. Transactions already fetched but not yet returned by `next` come before it.
+    pub fn next_offset(&self) -> Option<&str> {
+        self.pages.offset().map(String::as_str)
     }
 
     /// Stops after this many transactions in total. The default reads the whole history.
@@ -109,3 +118,73 @@ impl GetStarTransactions<'_> {
 }
 
 pager!(GetStarTransactions, StarTransaction);
+
+#[cfg(test)]
+mod tests {
+    use crate::Client;
+    use crate::raw::{Serializable, base, functions, types};
+    use crate::utils::get_peer;
+
+    fn transaction(id: &str) -> base::StarsTransaction {
+        let mut buf = Vec::new();
+        0u32.serialize(&mut buf);
+        id.to_owned().serialize(&mut buf);
+        base::StarsAmount::StarsAmount(Box::new(types::StarsAmount { amount: 50, nanos: 0 })).serialize(&mut buf);
+        1i32.serialize(&mut buf);
+        let peer = types::StarsTransactionPeer { peer: get_peer(7) };
+        base::StarsTransactionPeer::StarsTransactionPeer(Box::new(peer)).serialize(&mut buf);
+        let transaction = types::StarsTransaction::deserialize_bare(&mut &buf[..]).unwrap();
+        base::StarsTransaction::StarsTransaction(Box::new(transaction))
+    }
+
+    fn status(ids: &[&str], next_offset: Option<&str>) -> crate::Result<Vec<u8>> {
+        let status = types::payments::StarsStatus {
+            balance: base::StarsAmount::StarsAmount(Box::new(types::StarsAmount { amount: 0, nanos: 0 })),
+            subscriptions: None,
+            subscriptions_next_offset: None,
+            subscriptions_missing_balance: None,
+            history: Some(ids.iter().map(|id| transaction(id)).collect()),
+            next_offset: next_offset.map(Into::into),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        Ok(base::payments::StarsStatus::StarsStatus(Box::new(status)).to_bytes())
+    }
+
+    fn request(offset: &str, limit: i32) -> Vec<u8> {
+        let request = functions::payments::GetStarsTransactions {
+            inbound: false,
+            outbound: false,
+            ascending: false,
+            ton: false,
+            subscription_id: None,
+            peer: base::InputPeer::InputPeerSelf,
+            offset: offset.into(),
+            limit,
+        };
+        request.to_bytes()
+    }
+
+    #[tokio::test]
+    async fn reads_the_history_across_pages() {
+        let (client, mut sent) = Client::scripted(vec![status(&["a", "b"], Some("p2")), status(&["c"], None)]);
+        let history = client.get_star_transactions().await.unwrap();
+        assert_eq!(history.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+        assert_eq!(sent.try_recv().unwrap(), request("", 100));
+        assert_eq!(sent.try_recv().unwrap(), request("p2", 100));
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_later_pager_resumes_from_next_offset() {
+        let (client, mut sent) = Client::scripted(vec![status(&["a", "b"], Some("p2")), status(&["c"], None)]);
+        let mut first = client.get_star_transactions().limit(2);
+        while first.next().await.unwrap().is_some() {}
+        let resume = first.next_offset().map(str::to_owned).unwrap();
+        let rest = client.get_star_transactions().offset(resume).await.unwrap();
+        assert_eq!(rest.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["c"]);
+        assert_eq!(sent.try_recv().unwrap(), request("", 2));
+        assert_eq!(sent.try_recv().unwrap(), request("p2", 100));
+        assert!(sent.try_recv().is_err());
+    }
+}

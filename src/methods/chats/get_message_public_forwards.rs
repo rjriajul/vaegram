@@ -9,6 +9,8 @@ use crate::types::{Message, PeerRef};
 /// [`limit`](GetMessagePublicForwards::limit); [`next`](GetMessagePublicForwards::next) reads them one at a time.
 ///
 /// Reposts to stories are left out because they are not messages.
+///
+/// Set `limit` before awaiting; without it this reads every repost (one request per 100).
 #[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetMessagePublicForwards<'a> {
     client: &'a Client,

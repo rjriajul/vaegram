@@ -7,6 +7,8 @@ use super::get_saved_history::GetSavedHistory;
 /// Messages of one topic of a direct messages chat, newest first. Awaiting it collects the messages into a `Vec`, up to
 /// [`limit`](GetDirectMessagesChatTopicHistory::limit); [`next`](GetDirectMessagesChatTopicHistory::next) reads them
 /// one at a time.
+///
+/// Set `limit` before awaiting; without it this reads the whole topic (one request per 100 messages).
 #[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct GetDirectMessagesChatTopicHistory<'a>(GetSavedHistory<'a>);
 

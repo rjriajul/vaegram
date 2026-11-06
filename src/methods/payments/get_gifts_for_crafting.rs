@@ -26,10 +26,17 @@ impl Client {
 }
 
 impl GetGiftsForCrafting<'_> {
-    /// Starts at this offset token, which Telegram hands out with each page, instead of the first gift.
+    /// Starts at this offset token, taken from [`next_offset`](Self::next_offset) of an earlier pager, instead of
+    /// the first gift.
     pub fn offset(mut self, offset: impl Into<String>) -> Self {
         self.pages.set_offset(offset.into());
         self
+    }
+
+    /// Where the unread part of the list starts, for `offset` on a later pager; `None` once the list has ended.
+    /// Gifts already fetched but not yet returned by `next` come before it.
+    pub fn next_offset(&self) -> Option<&str> {
+        self.pages.offset().map(String::as_str)
     }
 
     /// Stops after this many gifts in total. The default reads the whole list.

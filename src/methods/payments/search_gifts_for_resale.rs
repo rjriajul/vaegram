@@ -9,6 +9,8 @@ use crate::types::{UniqueGift, UpgradedGiftAttributeId};
 ///
 /// Awaiting it collects the gifts into a `Vec`, up to [`limit`](SearchGiftsForResale::limit);
 /// [`next`](SearchGiftsForResale::next) reads them one at a time.
+///
+/// Set `limit` before awaiting; without it this reads every listing (one request per 100 gifts).
 #[must_use = "a pager does nothing until it is awaited or read with next()"]
 pub struct SearchGiftsForResale<'a> {
     client: &'a Client,

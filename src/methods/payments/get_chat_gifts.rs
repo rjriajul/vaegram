@@ -92,10 +92,17 @@ impl<'a> GetChatGifts<'a> {
         self
     }
 
-    /// Starts at this offset token, which Telegram hands out with each page, instead of the first gift.
+    /// Starts at this offset token, taken from [`next_offset`](Self::next_offset) of an earlier pager, instead of
+    /// the first gift.
     pub fn offset(mut self, offset: impl Into<String>) -> Self {
         self.pages.set_offset(offset.into());
         self
+    }
+
+    /// Where the unread part of the list starts, for `offset` on a later pager; `None` once the list has ended.
+    /// Gifts already fetched but not yet returned by `next` come before it.
+    pub fn next_offset(&self) -> Option<&str> {
+        self.pages.offset().map(String::as_str)
     }
 
     /// Stops after this many gifts in total. The default reads the whole list.
@@ -275,6 +282,21 @@ pub(super) mod tests {
         assert_eq!(ids(&got), ["10", "11", "10"]);
         assert_eq!(sent.try_recv().unwrap(), request("", 3).to_bytes());
         assert_eq!(sent.try_recv().unwrap(), request("p2", 1).to_bytes());
+        assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn next_offset_is_where_a_later_pager_resumes() {
+        let (client, mut sent) = Client::scripted(vec![Ok(page(9, 2, Some("p2"))), Ok(empty_page())]);
+        let mut gifts = client.get_chat_gifts("me").limit(2);
+        assert_eq!(gifts.next_offset(), Some(""));
+        while gifts.next().await.unwrap().is_some() {}
+        assert_eq!(gifts.next_offset(), Some("p2"));
+        let mut rest = client.get_chat_gifts("me").offset(gifts.next_offset().unwrap());
+        assert!(rest.next().await.unwrap().is_none());
+        assert_eq!(rest.next_offset(), None);
+        assert_eq!(sent.try_recv().unwrap(), request("", 2).to_bytes());
+        assert_eq!(sent.try_recv().unwrap(), request("p2", 100).to_bytes());
         assert!(sent.try_recv().is_err());
     }
 }
