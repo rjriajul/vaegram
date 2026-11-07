@@ -74,7 +74,9 @@ impl RpcError {
     }
 
     /// The data center in any `*_MIGRATE_<dc>` error: `USER_`, `PHONE_` and `NETWORK_MIGRATE` move the account,
-    /// while `FILE_MIGRATE` and `STATS_MIGRATE` only say where that one request goes.
+    /// while `FILE_MIGRATE` and `STATS_MIGRATE` only say where that one request goes. A request sent through a
+    /// business connection is the exception: there `USER_MIGRATE` names the connection's data center, and the
+    /// client sends the request once more there by itself.
     pub fn migrate_dc(&self) -> Option<i32> {
         self.value.filter(|_| self.name.ends_with("_MIGRATE")).and_then(|dc| dc.try_into().ok())
     }

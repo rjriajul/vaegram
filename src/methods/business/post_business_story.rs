@@ -45,8 +45,8 @@ impl Client {
 
     // Business stories go straight to the account's own user peer; only deleting one needs the connection.
     pub(crate) async fn business_user(&self, business_connection_id: &str) -> Result<base::InputPeer> {
-        let connection = self.get_business_connection(business_connection_id).await?;
-        self.resolve_peer(connection.user.id).await
+        let user_id = self.business_home(business_connection_id).await?.user_id;
+        self.resolve_peer(user_id).await
     }
 }
 

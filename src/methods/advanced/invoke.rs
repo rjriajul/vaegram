@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use crate::Client;
 use crate::client::{Borrowed, quiet};
+use crate::dispatcher::cache::BusinessHome;
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, functions};
 use crate::session::no_updates::needs_updates;
@@ -87,10 +88,21 @@ impl Client {
         if dc_id == self.session().dc_id() {
             return self.invoke(request).await;
         }
-        self.limit(R::NAME).await;
+        self.invoke_away(dc_id, R::NAME, request, self.quiet_for(R::NAME)).await
+    }
+
+    /// `invoke_in_dc` for a DC that isn't home, counted as `name`, inside `invokeWithoutUpdates` if `off`.
+    async fn invoke_away<R: RemoteCall>(
+        &self,
+        dc_id: i32,
+        name: &'static str,
+        request: &R,
+        off: bool,
+    ) -> Result<R::Return> {
+        self.limit(name).await;
         let dc = self.dc(dc_id)?;
-        let (name, call) = (R::NAME, Borrowed(request));
-        match (self.1, self.quiet_for(name)) {
+        let call = Borrowed(request);
+        match (self.1, off) {
             (Some(takeout_id), true) => {
                 let request = functions::InvokeWithTakeout { takeout_id, query: quiet(call) };
                 self.invoke_on_file_connection(dc, name, &request).await
@@ -115,33 +127,63 @@ impl Client {
         }
     }
 
-    /// Hands the request back: a short "sent" update only carries what Telegram changed, the rest comes from it.
+    /// Sends `request` through the business connection `connection_id`, or plainly without one, and hands the
+    /// request back: a short "sent" update only carries what Telegram changed, the rest comes from it.
+    ///
+    /// Telegram serves a connection on the data center its `dc_id` names, which needn't be this client's. It's
+    /// remembered from `updateBotBusinessConnect` and fetched once when unknown. A `*_MIGRATE_<dc>` answer moves the
+    /// connection, not the client, and the request is sent once more there.
     pub(crate) async fn invoke_business<R: RemoteCall>(
         &self,
         connection_id: Option<&str>,
         request: R,
     ) -> Result<(R::Return, R)> {
-        let timeout = self.session().options().request_timeout;
-        match connection_id {
-            Some(connection_id) => {
-                // Counted as the request inside, not as the wrapper, and updates go off inside it.
-                let off = self.quiet_for(R::NAME);
-                let result = if off {
-                    let call = functions::InvokeWithBusinessConnection {
-                        connection_id: connection_id.into(),
-                        query: quiet(Borrowed(&request)),
-                    };
-                    self.invoke_wrapped(R::NAME, &call, timeout, false).await?
-                } else {
-                    let call = functions::InvokeWithBusinessConnection {
-                        connection_id: connection_id.into(),
-                        query: Borrowed(&request),
-                    };
-                    self.invoke_wrapped(R::NAME, &call, timeout, false).await?
+        let Some(connection_id) = connection_id else { return Ok((self.invoke(&request).await?, request)) };
+        let mut dc_id = self.business_home(connection_id).await?.dc_id;
+        // Counted as the request inside, not as the wrapper, and updates go off inside it.
+        let off = self.quiet_for(R::NAME);
+        let mut moved = false;
+        loop {
+            let result = if off {
+                let call = functions::InvokeWithBusinessConnection {
+                    connection_id: connection_id.into(),
+                    query: quiet(Borrowed(&request)),
                 };
-                Ok((result, request))
+                self.invoke_business_in(dc_id, R::NAME, &call).await
+            } else {
+                let call = functions::InvokeWithBusinessConnection {
+                    connection_id: connection_id.into(),
+                    query: Borrowed(&request),
+                };
+                self.invoke_business_in(dc_id, R::NAME, &call).await
+            };
+            let migrate = result.as_ref().err().and_then(Error::rpc).and_then(RpcError::migrate_dc);
+            match migrate {
+                Some(to) if !moved && to != dc_id => {
+                    self.0.caches.move_business(connection_id, to);
+                    (dc_id, moved) = (to, true);
+                }
+                _ => return Ok((result?, request)),
             }
-            None => Ok((self.invoke(&request).await?, request)),
+        }
+    }
+
+    async fn invoke_business_in<R: RemoteCall>(&self, dc_id: i32, name: &'static str, call: &R) -> Result<R::Return> {
+        if dc_id == self.session().dc_id() {
+            self.invoke_wrapped(name, call, self.session().options().request_timeout, false).await
+        } else {
+            self.invoke_away(dc_id, name, call, false).await
+        }
+    }
+
+    /// The account and data center of the business connection `connection_id`, fetched once if not seen yet.
+    pub(crate) async fn business_home(&self, connection_id: &str) -> Result<BusinessHome> {
+        match self.0.caches.business_home(connection_id) {
+            Some(home) => Ok(home),
+            None => {
+                let connection = self.get_business_connection(connection_id).await?;
+                Ok(BusinessHome { user_id: connection.user.id, dc_id: connection.dc_id })
+            }
         }
     }
 
@@ -440,6 +482,7 @@ mod tests {
         let seen = Arc::default();
         let (mut client, _sent) = Client::scripted(vec![rpc_420("FLOOD_WAIT_9"), Ok(true.to_bytes())]);
         client.set_options(with_policy(Watching(Arc::clone(&seen))));
+        client.0.caches.know_business("c", 7, 2);
         client.invoke_business(Some("c"), functions::account::UpdateStatus { offline: true }).await.unwrap();
         assert_eq!(seen.lock().unwrap()[0].0, "account.updateStatus");
     }
@@ -499,6 +542,7 @@ mod tests {
     async fn business_calls_use_the_inner_name() {
         let (mut client, _sent) = Client::scripted(vec![Ok(true.to_bytes())]);
         limited(&mut client);
+        client.0.caches.know_business("c", 7, 2);
         client.invoke_business(Some("c"), set_typing()).await.unwrap();
         // `messages.setTyping` is an admin call; the wrapper's own name would have counted as a query.
         assert_eq!(taken(&client), [Admin, Global]);
@@ -573,6 +617,7 @@ mod tests {
     #[tokio::test]
     async fn business_and_takeout_use_the_inner_name() {
         let (client, mut sent) = auto_client(2, false);
+        client.0.caches.know_business("c", 7, 2);
         client.invoke_business(Some("c"), set_typing()).await.unwrap();
         let business = functions::InvokeWithBusinessConnection {
             connection_id: "c".into(),
@@ -625,5 +670,93 @@ mod tests {
         let result = client.invoke(&functions::messages::GetMessages { id }).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(sent.try_recv().is_err());
+    }
+
+    fn business_typing() -> functions::InvokeWithBusinessConnection<functions::messages::SetTyping> {
+        functions::InvokeWithBusinessConnection { connection_id: "c".into(), query: set_typing() }
+    }
+
+    /// `updateBotBusinessConnect` for the connection `c` of user 7 on `dc_id`.
+    fn connected(dc_id: i32) -> base::Update {
+        let connection = types::BotBusinessConnection {
+            disabled: false,
+            connection_id: "c".into(),
+            user_id: 7,
+            dc_id,
+            date: 1,
+            rights: None,
+        };
+        let connection = base::BotBusinessConnection::BotBusinessConnection(Box::new(connection));
+        base::Update::UpdateBotBusinessConnect(Box::new(types::UpdateBotBusinessConnect { connection, qts: 0 }))
+    }
+
+    /// What `getBotBusinessConnection` answers for that connection.
+    fn connection_on(dc_id: i32) -> Vec<u8> {
+        base::Updates::UpdateShort(Box::new(types::UpdateShort { update: connected(dc_id), date: 0 })).to_bytes()
+    }
+
+    type Sent = mpsc::UnboundedReceiver<Vec<u8>>;
+
+    /// A client at home on DC 2 with a scripted session for `FOREIGN_DC`, which lives as long as the returned one.
+    fn with_foreign(home: Vec<Result<Vec<u8>>>, foreign: Vec<Result<Vec<u8>>>) -> (Client, Sent, Sent, Session) {
+        let (client, home) = Client::scripted(home);
+        let (session, away) = Session::scripted(foreign);
+        client.0.transfers.insert(client.dc(FOREIGN_DC).unwrap(), &session);
+        (client, home, away, session)
+    }
+
+    fn on_file_connection<R: RemoteCall>(client: &Client, request: R) -> Vec<u8> {
+        crate::session::init_connection(client.0.api_id, &client.0.options, request).to_bytes()
+    }
+
+    #[tokio::test]
+    async fn business_calls_go_to_the_connections_dc() {
+        let (client, mut home, mut away, _foreign) =
+            with_foreign(vec![Ok(connection_on(FOREIGN_DC))], vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        for _ in 0..2 {
+            client.invoke_business(Some("c"), set_typing()).await.unwrap();
+            assert_eq!(away.try_recv().unwrap(), on_file_connection(&client, business_typing()));
+        }
+        // The connection was fetched once, at home, and the client stayed there.
+        let fetch = functions::account::GetBotBusinessConnection { connection_id: "c".into() };
+        assert_eq!(home.try_recv().unwrap(), fetch.to_bytes());
+        assert!(home.try_recv().is_err());
+        assert_eq!(client.session().dc_id(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_connection_seen_in_an_update_is_not_fetched() {
+        let (client, mut home, mut away, _foreign) = with_foreign(vec![Ok(true.to_bytes())], Vec::new());
+        client.0.caches.observe(&connected(2), &Arc::default());
+        client.invoke_business(Some("c"), set_typing()).await.unwrap();
+        assert_eq!(home.try_recv().unwrap(), business_typing().to_bytes());
+        assert!(home.try_recv().is_err() && away.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_migrate_answer_moves_the_connection_not_the_client() {
+        let migrate = Err(Error::Rpc(RpcError::parse(303, "USER_MIGRATE_4")));
+        let (client, mut home, mut away, _foreign) =
+            with_foreign(vec![migrate], vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        client.0.caches.know_business("c", 7, 2);
+        client.invoke_business(Some("c"), set_typing()).await.unwrap();
+        assert_eq!(home.try_recv().unwrap(), business_typing().to_bytes());
+        assert_eq!(away.try_recv().unwrap(), on_file_connection(&client, business_typing()));
+        assert_eq!(client.session().dc_id(), 2);
+
+        // The next call goes straight to the DC the answer named.
+        client.invoke_business(Some("c"), set_typing()).await.unwrap();
+        assert!(home.try_recv().is_err());
+        assert_eq!(away.try_recv().unwrap(), on_file_connection(&client, business_typing()));
+    }
+
+    #[tokio::test]
+    async fn a_business_call_moves_only_once() {
+        let migrate = |dc: i32| Err(Error::Rpc(RpcError::parse(303, &format!("USER_MIGRATE_{dc}"))));
+        let (client, _home, mut away, _foreign) = with_foreign(vec![migrate(FOREIGN_DC)], vec![migrate(5)]);
+        client.0.caches.know_business("c", 7, 2);
+        let result = client.invoke_business(Some("c"), set_typing()).await;
+        assert!(matches!(&result, Err(Error::Rpc(e)) if e.value == Some(5)), "{result:?}");
+        assert_eq!(std::iter::from_fn(|| away.try_recv().ok()).count(), 1);
     }
 }

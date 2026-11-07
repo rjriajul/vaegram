@@ -327,6 +327,7 @@ mod tests {
         let (client, mut rx) = Client::recording();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, peer);
+        client.0.caches.know_business("conn", 7, 2);
         let q = CallbackQuery::parse_business(&client, update.clone(), &Entities::default());
         let chat_id = q.chat().map(|c| c.id);
         assert_eq!((chat_id, q.message_id(), q.from_user.id, q.data.as_str()), (Some(7), Some(5), 7, "buy"));
@@ -349,6 +350,7 @@ mod tests {
         let (client, mut rx) = Client::recording();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, peer);
+        client.0.caches.know_business("conn", 7, 2);
         let update = types::UpdateBusinessBotCallbackQuery {
             query_id: 1,
             user_id: 7,

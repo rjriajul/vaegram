@@ -191,6 +191,7 @@ mod tests {
     #[tokio::test]
     async fn business_edits_go_through_the_connection() {
         let (client, mut rx) = Client::recording();
+        client.0.caches.know_business("c", 7, 2);
         assert!(client.edit_message_text("me", 5, "hi").business_connection_id("c").await.is_err());
         let body = rx.try_recv().expect("no request sent");
         assert_eq!(body[..4], 0xdd289f8e_u32.to_le_bytes());

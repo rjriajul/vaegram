@@ -45,6 +45,7 @@ mod tests {
             let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
             peers.insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
         }
+        client.0.caches.know_business("c", 7, 2);
         let rx = &mut rx;
         assert_eq!(sent(rx, client.delete_chat_photo(-5)).await, messages::EditChatPhoto::CONSTRUCTOR_ID);
         assert_eq!(sent(rx, client.delete_chat_photo(channel)).await, channels::EditPhoto::CONSTRUCTOR_ID);

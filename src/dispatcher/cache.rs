@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
@@ -20,12 +21,16 @@ impl<K: Hash + Eq + Clone, V> Lru<K, V> {
         Lru { entries: HashMap::new(), order: BTreeMap::new(), tick: 0, capacity }
     }
 
-    fn get(&mut self, key: &K) -> Option<&V> {
+    fn get<Q: Hash + Eq + ?Sized>(&mut self, key: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+    {
         self.tick += 1;
         let (value, used) = self.entries.get_mut(key)?;
-        self.order.remove(used);
+        if let Some(key) = self.order.remove(used) {
+            self.order.insert(self.tick, key);
+        }
         *used = self.tick;
-        self.order.insert(self.tick, key.clone());
         Some(value)
     }
 
@@ -78,14 +83,30 @@ type MessageKey = (i64, i32);
 /// A poll as a message or update carried it, with that batch's users and chats.
 pub(crate) type CachedPoll = (base::Poll, Arc<Entities>);
 
-/// The message, poll, forum topic and sticker set name caches, each off (`None`) unless its size is set. Polls share
-/// the message cache's size.
-#[derive(Default)]
+/// Where a business connection lives: the account behind it, and the data center its requests have to go to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BusinessHome {
+    pub(crate) user_id: i64,
+    pub(crate) dc_id: i32,
+}
+
+/// How many business connections are remembered. A miss costs one `account.getBotBusinessConnection`.
+const BUSINESS_CONNECTIONS: usize = 1024;
+
+/// The message, poll, forum topic and sticker set name caches, each off (`None`) unless its size is set, and the
+/// business connections, which are always kept. Polls share the message cache's size.
 pub(crate) struct Caches {
     messages: Option<Mutex<Lru<MessageKey, Cached>>>,
     polls: Option<Mutex<Lru<i64, CachedPoll>>>,
     topics: Option<Mutex<Lru<(i64, i32), ForumTopic>>>,
     set_names: Option<Mutex<Lru<i64, String>>>,
+    business: Mutex<Lru<String, BusinessHome>>,
+}
+
+impl Default for Caches {
+    fn default() -> Caches {
+        Caches::new(0, 0)
+    }
 }
 
 impl Caches {
@@ -95,6 +116,7 @@ impl Caches {
             polls: (messages > 0).then(|| Mutex::new(Lru::new(messages))),
             topics: (topics > 0).then(|| Mutex::new(Lru::new(topics))),
             set_names: None,
+            business: Mutex::new(Lru::new(BUSINESS_CONNECTIONS)),
         }
     }
 
@@ -114,6 +136,30 @@ impl Caches {
         }
     }
 
+    /// Where the business connection `id` lives, if it was seen in an update or fetched.
+    pub(crate) fn business_home(&self, id: &str) -> Option<BusinessHome> {
+        self.business.lock().unwrap().get(id).copied()
+    }
+
+    pub(crate) fn store_business_connection(&self, connection: &base::BotBusinessConnection) {
+        let base::BotBusinessConnection::BotBusinessConnection(c) = connection;
+        let home = BusinessHome { user_id: c.user_id, dc_id: c.dc_id };
+        self.business.lock().unwrap().insert(c.connection_id.clone(), home);
+    }
+
+    /// Records that Telegram sent a request of the connection `id` to `dc_id`.
+    pub(crate) fn move_business(&self, id: &str, dc_id: i32) {
+        let mut business = self.business.lock().unwrap();
+        if let Some(&home) = business.get(id) {
+            business.insert(id.to_owned(), BusinessHome { dc_id, ..home });
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn know_business(&self, id: &str, user_id: i64, dc_id: i32) {
+        self.business.lock().unwrap().insert(id.to_owned(), BusinessHome { user_id, dc_id });
+    }
+
     pub(crate) fn caches_messages(&self) -> bool {
         self.messages.is_some()
     }
@@ -129,11 +175,11 @@ impl Caches {
         polls.lock().unwrap().insert(p.id, (poll.clone(), entities.clone()));
     }
 
-    /// Learns from an update before it's routed: new and edited messages are kept, deleted ones dropped, and an
-    /// edited topic forgotten. Reactions, views, forwards, pins and widget data change a message without an edit, so
-    /// they drop it too; a later read asks Telegram. A link preview Telegram finishes later is filled into the cached
-    /// messages that show it. Other flag-only changes (a voice note marked listened, say) aren't tracked, so a cached
-    /// message can show them stale.
+    /// Learns from an update before it's routed: new and edited messages are kept, deleted ones dropped, an edited
+    /// topic forgotten, and a business connection's account and data center remembered. Reactions, views, forwards,
+    /// pins and widget data change a message without an edit, so they drop it too; a later read asks Telegram. A link
+    /// preview Telegram finishes later is filled into the cached messages that show it. Other flag-only changes (a
+    /// voice note marked listened, say) aren't tracked, so a cached message can show them stale.
     pub(crate) fn observe(&self, update: &base::Update, entities: &Arc<Entities>) {
         use base::Update as U;
         match update {
@@ -157,6 +203,7 @@ impl Caches {
             }
             U::UpdateWebPage(u) => self.update_web_page(&u.webpage),
             U::UpdateChannelWebPage(u) => self.update_web_page(&u.webpage),
+            U::UpdateBotBusinessConnect(u) => self.store_business_connection(&u.connection),
             _ => {}
         }
     }

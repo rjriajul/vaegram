@@ -113,6 +113,7 @@ mod tests {
     #[tokio::test]
     async fn a_business_album_goes_through_the_connection() {
         let (client, mut rx) = Client::recording();
+        client.0.caches.know_business("conn", 7, 2);
         let photo = || InputMedia::photo(FileSource::file_id(PHOTO).unwrap());
         let album = client.send_media_group(-5, [photo(), photo()]).business_connection_id("conn");
         assert_eq!(

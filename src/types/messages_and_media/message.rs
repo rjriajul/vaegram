@@ -1332,6 +1332,7 @@ pub(crate) mod tests {
         let (client, mut rx) = Client::recording();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.0.caches.know_business("c", 7, 2);
         let raw = Message::bare(5, get_peer(7), 0);
         let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
         message.business_connection_id = Some("c".into());
@@ -1354,6 +1355,7 @@ pub(crate) mod tests {
         let (client, mut rx) = Client::recording();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.0.caches.know_business("c", 7, 2);
         let sent = [
             client.edit_message_live_location(7, 5, 1.0, 2.0).business_connection_id("c").await.map(drop),
             client.stop_message_live_location(7, 5).business_connection_id("c").await.map(drop),
@@ -1430,6 +1432,7 @@ pub(crate) mod tests {
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let channel = types::InputPeerChannel { channel_id: 9, access_hash: 2 };
         client.0.peers.lock().unwrap().insert(get_channel_id(9), base::InputPeer::InputPeerChannel(Box::new(channel)));
+        client.0.caches.know_business("c", 7, 2);
         (client, rx)
     }
 

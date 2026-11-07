@@ -173,6 +173,7 @@ mod tests {
     fn recording() -> (Client, Sent) {
         let (client, sent) = Client::recording();
         seeded(&client);
+        client.0.caches.know_business("c", 7, 2);
         (client, sent)
     }
 

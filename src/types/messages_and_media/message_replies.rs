@@ -303,6 +303,7 @@ mod tests {
         let (client, rx) = Client::recording();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.0.caches.know_business("c", 7, 2);
         let message = Message::parse(&client, Box::new(Message::bare(5, get_peer(7), 0)), &Entities::default());
         (client, rx, message)
     }
