@@ -602,6 +602,46 @@ pub(super) mod tests {
         assert_eq!(*seen.lock().unwrap(), ["new message", "callback query"]);
     }
 
+    // Telegram refuses the first difference, so what it held won't be read: from then on nothing more is taken for
+    // it, and an undated update pushed after reaches the handlers.
+    #[tokio::test]
+    async fn without_catch_up_a_refused_first_difference_ends_the_skipping() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let confirmed = types::updates::State { pts: 50, qts: 0, date: 2, seq: 0, unread_count: 0 };
+        let confirmed = base::updates::State::State(Box::new(confirmed));
+        let refused = Err(Error::Rpc(RpcError::parse(400, "X_INVALID")));
+        let (mut client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(confirmed.to_bytes()), refused]);
+        Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        let (updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        client.on_raw_update(move |_, raw| {
+            if let base::Update::UpdateDeleteMessages(u) = &raw.update {
+                log.lock().unwrap().push(u.pts);
+            }
+            ready(Ok(()))
+        });
+        // The run reads the stream only after its first difference was refused.
+        let deleted = types::UpdateDeleteMessages { messages: vec![1], pts: 51, pts_count: 1 };
+        let short = types::UpdateShort { update: base::Update::UpdateDeleteMessages(Box::new(deleted)), date: 3 };
+        let incoming = Incoming { updates: base::Updates::UpdateShort(Box::new(short)), from_request: false };
+        updates.send(incoming).await.unwrap();
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        for _ in 0..1000 {
+            if !seen.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        client.stop();
+        assert!(run.await.unwrap().is_ok());
+        assert_eq!(*seen.lock().unwrap(), [51]);
+    }
+
     #[tokio::test]
     async fn start_and_stop_hooks_bracket_run() {
         let (client, _updates) = stopped_client().await;

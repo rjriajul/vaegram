@@ -47,8 +47,8 @@ pub(crate) struct Dispatcher {
     tasks: Tasks,
     // Messages and other updates the differences have brought in, counted by `difference.rs`.
     recovered: (usize, usize),
-    // Set by `from_now` until the first difference is read whole: what it brings dated before this, Telegram held
-    // from before the run, and it is dropped unseen.
+    // Set by `from_now` until the first difference is read whole or given up on: what it brings, and what is pushed
+    // meanwhile, dated before this, Telegram may have held from before the run, and it is dropped unseen.
     held_before: Option<i32>,
 }
 
@@ -66,7 +66,9 @@ impl Dispatcher {
     /// Starts at `state` without catch-up. A bot's updates.getState names the last update Telegram knows it got, and
     /// the ones after it come again, even those an earlier run handled, so `run` reads them first: those dated
     /// before `since` are dropped, and those dated later, which came in since the run began, reach the handlers.
-    /// Updates that carry no date, such as deletions and poll votes, can't be told apart and are dropped too.
+    /// Updates that carry no date, such as deletions and poll votes, can't be told apart and are dropped too. Until
+    /// that first difference is read whole or given up on, pushed updates are filtered the same way, since Telegram
+    /// pushes what it held again.
     pub(crate) fn from_now(client: Client, state: &types::updates::State, since: i32) -> Self {
         let mut tracker = Tracker { due: vec![Key::Pts], ..Tracker::default() };
         tracker.set_state(state);
@@ -237,16 +239,16 @@ impl Dispatcher {
             self.dispatch_ready();
             let result = match key {
                 Key::Channel(id) => self.channel_difference(id).await,
-                _ => {
-                    let read = self.difference().await;
-                    // Only the first difference read whole holds what came before the run.
-                    if read.is_ok() {
-                        self.held_before = None;
-                    }
-                    read
-                }
+                _ => self.difference().await,
             };
             let skipped = self.tracker.recover(&result, key);
+            // Read whole or given up on: either way what Telegram held is settled, so the window closes, after what
+            // settling released went through it.
+            let settled = !matches!(key, Key::Channel(_)) && !self.tracker.retries.iter().any(|(_, k)| *k == key);
+            if settled && self.held_before.is_some() {
+                self.dispatch_ready();
+                self.held_before = None;
+            }
             self.report(result);
             for s in skipped {
                 self.skipped(s.key, s.from, s.to, s.reason);
