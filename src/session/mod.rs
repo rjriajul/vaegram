@@ -466,6 +466,11 @@ impl Session {
         self.learned.seen_offset.load(Ordering::Relaxed)
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_seen_offset(&self, offset: i64) {
+        self.learned.seen_offset.store(offset, Ordering::Relaxed);
+    }
+
     /// Waits up to the `request_timeout` the session was connected with. Dropping the future abandons the request.
     pub async fn invoke<R: RemoteCall>(&self, request: &R) -> Result<R::Return> {
         self.invoke_with_timeout(request, self.options.request_timeout).await

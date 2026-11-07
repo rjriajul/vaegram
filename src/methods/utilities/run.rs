@@ -453,13 +453,14 @@ pub(super) mod tests {
     }
 
     /// The ids of the new messages a run without catch-up hands to its handlers, waiting until `expected` came,
-    /// when getState says pts 50, the difference after it brings `held` and ends at pts `to`, and `pushed` waits on
-    /// the update stream.
+    /// when getState says pts 50, the difference after it brings `held` and ends at pts `to`, `pushed` waits on
+    /// the update stream, and the server's clock runs `server_ahead` seconds ahead of this one.
     async fn delivered_from_now(
         held: Vec<base::Update>,
         to: i32,
         pushed: Vec<base::Update>,
         expected: usize,
+        server_ahead: i64,
     ) -> Vec<i32> {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let state = |pts| types::updates::State { pts, qts: 0, date: 2, seq: 0, unread_count: 0 };
@@ -482,6 +483,7 @@ pub(super) mod tests {
         ];
         let (mut client, _sent) = Client::scripted(replies);
         Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        client.session().set_seen_offset(server_ahead);
         let (updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
         let seen = Arc::new(Mutex::new(Vec::new()));
@@ -525,14 +527,22 @@ pub(super) mod tests {
     #[tokio::test]
     async fn without_catch_up_what_came_since_the_run_began_is_delivered() {
         let held = vec![new_message(9, 1, 51), new_message(1, now(), 52)];
-        assert_eq!(delivered_from_now(held, 52, Vec::new(), 1).await, [1]);
+        assert_eq!(delivered_from_now(held, 52, Vec::new(), 1, 0).await, [1]);
     }
 
     // Telegram pushes a message it also puts in the difference, then one after it.
     #[tokio::test]
     async fn without_catch_up_a_message_both_held_and_pushed_runs_once() {
         let pushed = vec![new_message(1, now(), 51), new_message(2, now(), 52)];
-        assert_eq!(delivered_from_now(vec![new_message(1, now(), 51)], 51, pushed, 2).await, [1, 2]);
+        assert_eq!(delivered_from_now(vec![new_message(1, now(), 51)], 51, pushed, 2, 0).await, [1, 2]);
+    }
+
+    // The run's start is read off the clock the server's messages show, not the offset saved with the salt: here
+    // the server runs an hour ahead, so a message dated by this clock's now came before the run began.
+    #[tokio::test]
+    async fn without_catch_up_the_run_begins_by_the_server_clock() {
+        let held = vec![new_message(1, now(), 51), new_message(2, now() + 3600, 52)];
+        assert_eq!(delivered_from_now(held, 52, Vec::new(), 1, 3600).await, [2]);
     }
 
     // Telegram pushes what it held again, and reading it fails at first: until a difference is read, only what
@@ -553,11 +563,23 @@ pub(super) mod tests {
             log.lock().unwrap().push(match &raw.update {
                 base::Update::UpdateBotBusinessConnect(_) => "old connection",
                 base::Update::UpdateNewMessage(_) => "new message",
+                base::Update::UpdateBotCallbackQuery(_) => "callback query",
                 _ => "other",
             });
             ready(Ok(()))
         });
-        for update in [connected("old", 6), new_message(1, now(), 51)] {
+        let query = types::UpdateBotCallbackQuery {
+            query_id: 1,
+            user_id: 7,
+            peer: get_peer(7),
+            msg_id: 1,
+            chat_instance: 3,
+            data: Some(b"tap".to_vec()),
+            game_short_name: None,
+        };
+        // A callback query moves no counter, so Telegram never holds one: it passes.
+        let query = base::Update::UpdateBotCallbackQuery(Box::new(query));
+        for update in [connected("old", 6), new_message(1, now(), 51), query] {
             let short = types::UpdateShort { update, date: 3 };
             let incoming = Incoming { updates: base::Updates::UpdateShort(Box::new(short)), from_request: false };
             updates.send(incoming).await.unwrap();
@@ -567,7 +589,7 @@ pub(super) mod tests {
             async move { client.run().await }
         });
         for _ in 0..1000 {
-            if !seen.lock().unwrap().is_empty() {
+            if seen.lock().unwrap().len() >= 2 {
                 break;
             }
             tokio::task::yield_now().await;
@@ -577,7 +599,7 @@ pub(super) mod tests {
         }
         client.stop();
         assert!(run.await.unwrap().is_ok());
-        assert_eq!(*seen.lock().unwrap(), ["new message"]);
+        assert_eq!(*seen.lock().unwrap(), ["new message", "callback query"]);
     }
 
     #[tokio::test]
