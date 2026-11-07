@@ -244,6 +244,9 @@ pub(crate) struct Known {
 struct Learned {
     salt: AtomicI64,
     time_offset: AtomicI64,
+    // Server time minus local time as the newest message from the server showed it. `time_offset` is only
+    // corrected when Telegram refuses a msg_id, so it misses a local clock that moved since it was saved.
+    seen_offset: AtomicI64,
 }
 
 // Close and restart are signals to the task that owns the connection, so it never races another owner.
@@ -456,6 +459,11 @@ impl Session {
     pub fn salt(&self) -> Salt {
         let l = &self.learned;
         Salt { value: l.salt.load(Ordering::Relaxed), time_offset: l.time_offset.load(Ordering::Relaxed) }
+    }
+
+    /// Server time minus local time, in seconds, as the newest message from the server showed it.
+    pub(crate) fn seen_offset(&self) -> i64 {
+        self.learned.seen_offset.load(Ordering::Relaxed)
     }
 
     /// Waits up to the `request_timeout` the session was connected with. Dropping the future abandons the request.
@@ -674,7 +682,11 @@ impl Runner {
             auth_key,
             auth_key_id: mtproto::auth_key_id(&auth_key),
             session_id: random(),
-            learned: Arc::new(Learned { salt: salt.value.into(), time_offset: salt.time_offset.into() }),
+            learned: Arc::new(Learned {
+                salt: salt.value.into(),
+                time_offset: salt.time_offset.into(),
+                seen_offset: salt.time_offset.into(),
+            }),
             msg_ids: MsgId::new(salt.time_offset),
             clock_synced,
             server_msg_ids: ServerMsgIds::default(),
@@ -1054,7 +1066,12 @@ impl Runner {
         }
         let now = (self.clock_synced && constructor_id(body) != Some(BAD_MSG_NOTIFICATION))
             .then(|| internals::now() + self.msg_ids.time_offset);
-        msg_id % 2 != 0 && self.server_msg_ids.accept(msg_id, now)
+        let fresh = msg_id % 2 != 0 && self.server_msg_ids.accept(msg_id, now);
+        if fresh {
+            // Its upper half is when the server sent it, in Unix seconds.
+            self.learned.seen_offset.store((msg_id >> 32) - internals::now(), Ordering::Relaxed);
+        }
+        fresh
     }
 
     fn handle_message(&mut self, msg_id: i64, seq_no: i32, body: &[u8]) {

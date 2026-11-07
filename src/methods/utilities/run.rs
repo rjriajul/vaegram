@@ -8,7 +8,7 @@ use crate::handlers::UpdateKind;
 use crate::raw::{base, functions};
 use crate::session::internals::now;
 
-// The clock offset is learned in whole seconds, so the run's start, in Telegram's time, may read up to a second
+// The server's clock is read in whole seconds, so the run's start, in Telegram's time, may read up to a second
 // late.
 const CLOCK_SLACK: i64 = 1;
 
@@ -55,9 +55,11 @@ impl Client {
 
     async fn start_dispatcher(&self) -> Result<Dispatcher> {
         self.require_updates()?;
-        // When the run begins, in Telegram's time: without catch-up, what Telegram dated before it is dropped.
-        let started = now() + self.session().salt().time_offset - CLOCK_SLACK;
+        let local_start = now();
         self.set_me(&self.get_me_raw().await?);
+        // When the run began, in Telegram's time, as the getMe reply just showed its clock: without catch-up, a bot
+        // drops what Telegram dated before it.
+        let started = local_start + self.session().seen_offset() - CLOCK_SLACK;
         let saved = self.0.state.lock().unwrap().take().filter(|_| self.0.catch_up);
         let dispatcher = match saved {
             Some(state) => Dispatcher::resume(self.clone(), state),

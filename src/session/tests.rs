@@ -1147,6 +1147,19 @@ async fn saved_clock_offset_is_confirmed_by_the_server() {
     assert!(!r.fresh(((server_now - 600) << 32) | 1, &ping(1)));
 }
 
+// A saved offset that is wrong by less than the window is never corrected; what the server's messages show is kept
+// beside it.
+#[tokio::test]
+async fn the_server_clock_is_read_off_accepted_messages() {
+    let (mut r, _frames, _updates) = runner_with(Salt { value: 9, time_offset: 100 }).await;
+    let server_now = crate::session::internals::now();
+    assert!(r.fresh((server_now << 32) | 1, &ping(1)));
+    assert!(!r.fresh(((server_now - 600) << 32) | 1, &ping(1)), "a refused message shows nothing");
+    let session = Session { learned: r.learned.clone(), ..Session::local(mpsc::unbounded_channel().0) };
+    assert!(session.seen_offset().abs() <= 1, "{}", session.seen_offset());
+    assert_eq!(session.salt().time_offset, 100);
+}
+
 // Reads the salt out of a client frame on the intermediate transport.
 async fn first_salt(listener: &TcpListener, auth_key: &[u8; 256]) -> i64 {
     let (mut server, _) = listener.accept().await.unwrap();
@@ -1181,7 +1194,7 @@ async fn transfer_connections_start_with_the_salt_they_are_given() {
 async fn leased_connections_start_with_the_salt_the_slot_learned() {
     let (listener, dc, options) = transfer_dc().await;
     let (requests, _open) = mpsc::unbounded_channel();
-    let learned = Arc::new(Learned { salt: 77.into(), time_offset: 0.into() });
+    let learned = Arc::new(Learned { salt: 77.into(), time_offset: 0.into(), seen_offset: 0.into() });
     let live = Session { learned, ..Session::local(requests) };
     let pool = TransferPool::default();
     pool.insert(dc, &live);
