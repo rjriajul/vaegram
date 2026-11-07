@@ -14,6 +14,9 @@ pub struct MessageReactions {
     pub paid_reactors: Vec<PaidReactor>,
     /// The list of who reacted with what can be fetched.
     pub can_get_added_reactions: bool,
+    /// Telegram left out the account's own reactions, as it does in some updates: [`ReactionCount::chosen_order`]
+    /// and [`PaidReactor::is_me`] are then unset even where the account reacted.
+    pub is_partial: bool,
 }
 
 impl MessageReactions {
@@ -24,6 +27,7 @@ impl MessageReactions {
             are_tags: r.reactions_as_tags,
             paid_reactors: r.top_reactors.iter().flatten().map(|p| PaidReactor::parse(p, entities)).collect(),
             can_get_added_reactions: r.can_see_list,
+            is_partial: r.min,
         }
     }
 }
@@ -56,6 +60,7 @@ mod tests {
         };
         let parsed = reactions(raw);
         assert!(parsed.are_tags && !parsed.can_get_added_reactions && parsed.paid_reactors.is_empty());
+        assert!(parsed.is_partial);
         let counts: Vec<_> = parsed.reactions.iter().map(|r| (r.kind.clone(), r.total_count)).collect();
         assert_eq!(counts, [(ReactionType::Emoji("👍".into()), 2)]);
     }
@@ -72,7 +77,7 @@ mod tests {
             top_reactors: Some(vec![base::MessageReactor::MessageReactor(Box::new(reactor))]),
         };
         let parsed = reactions(raw);
-        assert!(parsed.can_get_added_reactions && !parsed.are_tags);
+        assert!(parsed.can_get_added_reactions && !parsed.are_tags && !parsed.is_partial);
         assert_eq!(parsed.paid_reactors.iter().map(|p| (p.star_count, p.is_me)).collect::<Vec<_>>(), [(5, true)]);
     }
 }
