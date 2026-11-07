@@ -120,6 +120,7 @@ pub use get_direct_messages_topics::GetDirectMessagesTopics;
 pub use get_forum_topics::GetForumTopics;
 pub use get_message_public_forwards::GetMessagePublicForwards;
 pub use mute_chat::MuteChat;
+pub use promote_chat_member::PromoteChatMember;
 pub use restrict_chat_member::RestrictChatMember;
 pub use set_chat_accent_color::SetChatAccentColor;
 pub use set_chat_photo::SetChatPhoto;
