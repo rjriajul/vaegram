@@ -98,6 +98,7 @@ mod search_posts;
 mod search_posts_count;
 mod send_animation;
 mod send_audio;
+mod send_bot_requested_peer;
 mod send_cached_media;
 mod send_chat_action;
 mod send_checklist;
