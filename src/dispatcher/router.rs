@@ -11,12 +11,12 @@ use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
 use crate::handlers::{Callback, ErrorCallback, HandlerId, RawCallback, Registered, Routed, callback};
 use crate::raw::base;
 use crate::types::{
-    BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated,
-    ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
-    DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PinnedMessagesUpdated, PollAnswer,
-    PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ShippingQuery, Story, TonWalletState,
-    UserStatusUpdated,
+    BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatActionUpdated, ChatBoostRemoved,
+    ChatBoostUpdated, ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages,
+    DeletedEphemeralMessages, DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
+    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated,
+    PendingJoinRequestsUpdated, PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
+    RawUpdate, ReadHistoryUpdated, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, UserStatusUpdated,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -326,10 +326,14 @@ update_kinds! {
     bot_subscription_updated: BotSubscriptionUpdated => BotSubscriptionUpdated {
         UpdateBotStarsSubscription(u) => BotSubscriptionUpdated::parse(client, &u, entities),
     }
+    // A private chat's typing update may also be a stopped draft, so `dispatch` routes it to both kinds.
     /// Streamed message drafts that were stopped:
     /// [`on_message_generation_stopped`](crate::Client::on_message_generation_stopped).
-    message_generation_stopped: MessageGenerationStopped => MessageGenerationStopped {
-        UpdateUserTyping(u) => MessageGenerationStopped::parse(client, &u, entities),
+    message_generation_stopped: MessageGenerationStopped => MessageGenerationStopped {}
+    /// Typing and other activities shown in a chat: [`on_chat_action`](crate::Client::on_chat_action).
+    chat_action: ChatAction => ChatActionUpdated {
+        UpdateChatUserTyping(u) => ChatActionUpdated::parse_chat(client, &u, entities),
+        UpdateChannelUserTyping(u) => ChatActionUpdated::parse_channel(client, &u, entities),
     }
     /// Updates to bots this account manages: [`on_managed_bot`](crate::Client::on_managed_bot).
     managed_bot: ManagedBot => ManagedBotUpdated {
@@ -415,6 +419,20 @@ update_kinds! {
         UpdatePinnedMessages(u) => PinnedMessagesUpdated::parse(client, *u, entities),
         UpdatePinnedChannelMessages(u) => PinnedMessagesUpdated::parse_channel(client, *u, entities),
     }
+    /// Read receipts: [`on_read_history`](crate::Client::on_read_history).
+    read_history: ReadHistory => ReadHistoryUpdated {
+        UpdateReadHistoryInbox(u) => ReadHistoryUpdated::parse_inbox(client, &u, entities),
+        UpdateReadHistoryOutbox(u) => ReadHistoryUpdated::parse_outbox(client, &u, entities),
+        UpdateReadChannelInbox(u) => ReadHistoryUpdated::parse_channel_inbox(client, &u, entities),
+        UpdateReadChannelOutbox(u) => ReadHistoryUpdated::parse_channel_outbox(client, &u, entities),
+        UpdateReadChannelDiscussionInbox(u) => ReadHistoryUpdated::parse_thread_inbox(client, &u, entities),
+        UpdateReadChannelDiscussionOutbox(u) => ReadHistoryUpdated::parse_thread_outbox(client, &u, entities),
+    }
+    /// The number of pending join requests in a chat changed:
+    /// [`on_pending_join_requests`](crate::Client::on_pending_join_requests).
+    pending_join_requests: PendingJoinRequests => PendingJoinRequestsUpdated {
+        UpdatePendingJoinRequests(u) => PendingJoinRequestsUpdated::parse(client, &u, entities),
+    }
     /// A user's online status changed: [`on_user_status`](crate::Client::on_user_status).
     user_status: UserStatus => UserStatusUpdated {
         UpdateUserStatus(u) => UserStatusUpdated::parse(client, &u, entities),
@@ -422,6 +440,10 @@ update_kinds! {
     /// This account's TON wallet state changed: [`on_ton_wallet_state`](crate::Client::on_ton_wallet_state).
     ton_wallet_state: TonWalletState => TonWalletState {
         UpdateWalletState(u) => TonWalletState::parse(client, &u.state),
+    }
+    /// This account's Stars balance changed: [`on_stars_balance`](crate::Client::on_stars_balance).
+    stars_balance: StarsBalance => StarsBalanceUpdated {
+        UpdateStarsBalance(u) => StarsBalanceUpdated::parse(client, &u),
     }
     // A deleted story parses to `None`, so it never reaches a handler.
     /// Stories, apart from deleted ones: [`on_story`](crate::Client::on_story).
@@ -502,6 +524,19 @@ impl Router {
                 self.member_update(tasks, &me, me.id, || {
                     ChatMemberUpdated::parse_bot_stopped(client, &me, &u, entities)
                 })
+            }
+            U::UpdateUserTyping(u) => {
+                if !self.message_generation_stopped.0.is_empty() {
+                    if let Some(item) = MessageGenerationStopped::parse(client, &u, entities) {
+                        let kind = UpdateKind::MessageGenerationStopped;
+                        self.message_generation_stopped.finish(kind, tasks, &me(), PARSED, item);
+                    }
+                }
+                if !self.chat_action.0.is_empty() {
+                    if let Some(item) = ChatActionUpdated::parse_user(client, &u, entities) {
+                        self.chat_action.finish(UpdateKind::ChatAction, tasks, &me(), PARSED, item);
+                    }
+                }
             }
             _ => {}
         }
@@ -1456,5 +1491,142 @@ mod tests {
         let mut seen = seen.lock().unwrap().clone();
         seen.sort_unstable();
         assert_eq!(seen, [(get_channel_id(42), vec![2, 3], false), (7, vec![1], true)]);
+    }
+
+    #[tokio::test]
+    async fn read_receipts_of_every_kind_reach_on_read_history() {
+        let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
+        let sink = seen.clone();
+        client.on_read_history(filters::all(), move |r| {
+            sink.lock().unwrap().push((r.chat.id, r.max_id, r.is_outgoing, r.message_thread_id, r.unread_count));
+            async { Ok(()) }
+        });
+        let router = router_of(&client);
+        let inbox = types::UpdateReadHistoryInbox {
+            folder_id: None,
+            peer: get_peer(7),
+            top_msg_id: None,
+            max_id: 5,
+            still_unread_count: 2,
+            pts: 1,
+            pts_count: 1,
+        };
+        dispatch(&router, base::Update::UpdateReadHistoryInbox(Box::new(inbox)));
+        let outbox = types::UpdateReadHistoryOutbox { peer: get_peer(8), max_id: 6, pts: 2, pts_count: 1 };
+        dispatch(&router, base::Update::UpdateReadHistoryOutbox(Box::new(outbox)));
+        let channel =
+            types::UpdateReadChannelInbox { folder_id: None, channel_id: 42, max_id: 7, still_unread_count: 0, pts: 3 };
+        dispatch(&router, base::Update::UpdateReadChannelInbox(Box::new(channel)));
+        let channel = types::UpdateReadChannelOutbox { channel_id: 42, max_id: 8 };
+        dispatch(&router, base::Update::UpdateReadChannelOutbox(Box::new(channel)));
+        let thread = types::UpdateReadChannelDiscussionInbox {
+            channel_id: 43,
+            top_msg_id: 3,
+            read_max_id: 9,
+            broadcast_id: None,
+            broadcast_post: None,
+        };
+        dispatch(&router, base::Update::UpdateReadChannelDiscussionInbox(Box::new(thread)));
+        let thread = types::UpdateReadChannelDiscussionOutbox { channel_id: 43, top_msg_id: 3, read_max_id: 10 };
+        dispatch(&router, base::Update::UpdateReadChannelDiscussionOutbox(Box::new(thread)));
+        settle().await;
+        let mut seen = seen.lock().unwrap().clone();
+        seen.sort_unstable_by_key(|r| r.1);
+        let (a, b) = (get_channel_id(42), get_channel_id(43));
+        assert_eq!(
+            seen,
+            [
+                (7, 5, false, None, Some(2)),
+                (8, 6, true, None, None),
+                (a, 7, false, None, Some(0)),
+                (a, 8, true, None, None),
+                (b, 9, false, Some(3), None),
+                (b, 10, true, Some(3), None),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn join_request_counts_reach_on_pending_join_requests() {
+        let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
+        let chat = get_channel_id(42);
+        let sink = seen.clone();
+        client.on_pending_join_requests(filters::chat(chat), move |r| {
+            let requesters: Vec<_> = r.recent_requesters.iter().map(|u| u.id).collect();
+            sink.lock().unwrap().push((r.chat.id, r.pending_count, requesters));
+            async { Ok(()) }
+        });
+        let router = router_of(&client);
+        for peer in [get_peer(-5), get_peer(chat)] {
+            let update = types::UpdatePendingJoinRequests { peer, requests_pending: 2, recent_requesters: vec![7, 8] };
+            dispatch(&router, base::Update::UpdatePendingJoinRequests(Box::new(update)));
+        }
+        settle().await;
+        assert_eq!(*seen.lock().unwrap(), [(chat, 2, vec![7, 8])]);
+    }
+
+    #[tokio::test]
+    async fn typing_goes_to_on_chat_action_and_stopped_drafts_to_their_own_kind() {
+        let (client, log) = (Client::offline(), Log::default());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        client.on_chat_action(filters::user(7), move |a| {
+            let sender = a.from_user.map(|u| u.id);
+            sink.lock().unwrap().push((a.chat.id, sender, a.action, a.progress, a.message_thread_id));
+            async { Ok(()) }
+        });
+        let stopped = log.clone();
+        client.on_message_generation_stopped(filters::all(), move |_| {
+            stopped.lock().unwrap().push("stopped");
+            async { Ok(()) }
+        });
+        let router = router_of(&client);
+        let user = |action| {
+            base::Update::UpdateUserTyping(Box::new(types::UpdateUserTyping { user_id: 7, top_msg_id: None, action }))
+        };
+        dispatch(&router, user(base::SendMessageAction::SendMessageTypingAction));
+        let stop = types::SendMessageStopDraftAction { random_id: 1 };
+        dispatch(&router, user(base::SendMessageAction::SendMessageStopDraftAction(stop)));
+        let upload = types::SendMessageUploadPhotoAction { progress: 40 };
+        let channel = types::UpdateChannelUserTyping {
+            channel_id: 42,
+            top_msg_id: Some(3),
+            from_id: get_peer(7),
+            action: base::SendMessageAction::SendMessageUploadPhotoAction(upload),
+        };
+        dispatch(&router, base::Update::UpdateChannelUserTyping(Box::new(channel)));
+        let group = types::UpdateChatUserTyping {
+            chat_id: 5,
+            from_id: get_peer(8),
+            action: base::SendMessageAction::SendMessageTypingAction,
+        };
+        dispatch(&router, base::Update::UpdateChatUserTyping(Box::new(group)));
+        settle().await;
+        let mut seen = seen.lock().unwrap().clone();
+        seen.sort_unstable_by_key(|a| a.0);
+        let channel = get_channel_id(42);
+        assert_eq!(
+            seen,
+            [
+                (channel, Some(7), crate::enums::ChatAction::UploadPhoto, Some(40), Some(3)),
+                (7, Some(7), crate::enums::ChatAction::Typing, None, None),
+            ]
+        );
+        assert_eq!(*log.lock().unwrap(), ["stopped"]);
+    }
+
+    #[tokio::test]
+    async fn balance_changes_reach_on_stars_balance() {
+        let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
+        let sink = seen.clone();
+        client.on_stars_balance(filters::all(), move |b| {
+            sink.lock().unwrap().push(b.balance);
+            async { Ok(()) }
+        });
+        let balance = base::StarsAmount::StarsAmount(Box::new(types::StarsAmount { amount: 5, nanos: 0 }));
+        let update = base::Update::UpdateStarsBalance(Box::new(types::UpdateStarsBalance { balance }));
+        dispatch(&router_of(&client), update);
+        settle().await;
+        assert_eq!(*seen.lock().unwrap(), [crate::types::StarAmount::new(5)]);
     }
 }

@@ -6,12 +6,12 @@ use crate::Client;
 use crate::dispatcher::Router;
 use crate::errors::{Error, Result};
 use crate::types::{
-    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated, ChatJoinRequest,
-    ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages,
-    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PinnedMessagesUpdated, PollAnswer,
-    PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ShippingQuery, Story, TonWalletState,
-    UserStatusUpdated,
+    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatActionUpdated, ChatBoostRemoved, ChatBoostUpdated,
+    ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
+    DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
+    MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PendingJoinRequestsUpdated,
+    PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate,
+    ReadHistoryUpdated, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, UserStatusUpdated,
 };
 
 pub use crate::dispatcher::listeners::Listenable;
@@ -318,6 +318,30 @@ impl Routed for UserStatusUpdated {
 }
 
 impl Routed for TonWalletState {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+}
+
+impl Routed for ChatActionUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for ReadHistoryUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for PendingJoinRequestsUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for StarsBalanceUpdated {
     fn chat_id(&self) -> Option<i64> {
         None
     }

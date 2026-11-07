@@ -2,12 +2,12 @@ use super::facts::{Facts, PeerKinds};
 use crate::Client;
 use crate::client::Me;
 use crate::types::{
-    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatBoostRemoved, ChatBoostSource,
-    ChatBoostUpdated, ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages,
+    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatActionUpdated, ChatBoostRemoved,
+    ChatBoostSource, ChatBoostUpdated, ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages,
     DeletedEphemeralMessages, DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
     MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated,
-    PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery, Story,
-    TonWalletState, User, UserStatusUpdated,
+    PendingJoinRequestsUpdated, PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
+    ReadHistoryUpdated, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, User, UserStatusUpdated,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -165,10 +165,21 @@ subject!(DeletedMessages: HasChat; |s, me| chat_query(s.chat.as_ref(), me));
 
 subject!(PinnedMessagesUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
 
+subject!(ReadHistoryUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
+
+subject!(PendingJoinRequestsUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
+
+subject!(ChatActionUpdated: HasChat, HasSender; |s, me| {
+    let (sender_id, sender_bot) = sender_of(s.from_user.as_ref(), s.sender_chat.as_ref());
+    Facts::query(s.chat.id, sender_id, &[], PeerKinds::of(Some(&s.chat), sender_bot), me)
+});
+
 subject!(UserStatusUpdated: HasSender; |s, me| {
     Facts::query(0, s.user.id, &[], PeerKinds::of(None, s.user.is_bot), me)
 });
 
 subject!(TonWalletState: ; |_s, me| Facts::query(0, 0, &[], PeerKinds::of(None, false), me));
+
+subject!(StarsBalanceUpdated: ; |_s, me| Facts::query(0, 0, &[], PeerKinds::of(None, false), me));
 
 subject!(Story: HasChat; |s, me| chat_query(Some(&s.chat), me));
