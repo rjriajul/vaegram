@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{Notify, mpsc, oneshot};
 
-use crate::connection::{Connection, Device, Options, Proxy, Reader, Writer};
+use crate::connection::{Connection, Device, MAX_PACKET, Options, Proxy, Reader, Writer};
 use crate::crypto::rsa::PublicKey;
 use crate::crypto::{mtproto, random};
 use crate::enums::ClientEvent;
@@ -455,10 +455,16 @@ impl Session {
     }
 
     /// A request that times out is forgotten: the server is asked not to send its answer, and the connection
-    /// carries on.
+    /// carries on. A request with a string or bytes field of 16 MiB or more, or a body over 16 MiB, fails with
+    /// `Error::InvalidArgument` before it is sent.
     pub async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
+        let body = crate::raw::core::checked_bytes(request)
+            .ok_or(Error::InvalidArgument("a string or bytes field of the request is 16 MiB or longer"))?;
+        if body.len() > MAX_PACKET {
+            return Err(Error::InvalidArgument("a request can't be over 16 MiB"));
+        }
         let (answer, rx) = oneshot::channel();
-        let request = Request { name: R::NAME, body: request.to_bytes(), answer };
+        let request = Request { name: R::NAME, body, answer };
         self.requests.send(request).map_err(|_| Error::Disconnected)?;
         let answer = tokio::time::timeout(timeout, rx).await.map_err(|_| Error::Timeout)?;
         let body = answer.map_err(|_| Error::Disconnected)??;

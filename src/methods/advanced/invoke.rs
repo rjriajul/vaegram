@@ -605,4 +605,25 @@ mod tests {
         client.invoke(&status()).await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), functions::InvokeWithoutUpdates { query: status() }.to_bytes());
     }
+
+    #[tokio::test]
+    async fn a_field_too_long_for_tl_is_an_invalid_argument() {
+        let (client, mut sent) = Client::recording();
+        let text = "a".repeat(16 << 20);
+        let result = client.send_message(crate::types::PeerRef::Me, text.as_str()).await;
+        assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
+        assert!(sent.try_recv().is_err());
+        // The check is only on for that call: a raw serialization still panics as documented.
+        assert!(std::panic::catch_unwind(|| text.as_bytes().to_bytes()).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_request_over_16_mib_is_an_invalid_argument() {
+        let (client, mut sent) = Client::recording();
+        // 8 bytes each and no field too long: only the total is over the cap.
+        let id = vec![base::InputMessage::InputMessageID(types::InputMessageID { id: 1 }); 2_200_000];
+        let result = client.invoke(&functions::messages::GetMessages { id }).await;
+        assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
+        assert!(sent.try_recv().is_err());
+    }
 }

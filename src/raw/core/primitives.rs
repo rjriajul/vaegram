@@ -1,4 +1,4 @@
-use super::{Deserializable, Error, Serializable};
+use super::{Deserializable, Error, MAX_BYTES, Serializable, mark_oversized};
 
 const VECTOR_ID: u32 = 0x1cb5c415;
 const BOOL_TRUE_ID: u32 = 0x997275b5;
@@ -60,7 +60,13 @@ impl Deserializable for bool {
 
 impl Serializable for [u8] {
     fn serialize(&self, buf: &mut Vec<u8>) {
-        assert!(self.len() < 1 << 24, "TL bytes can't be 16 MiB or longer; split the data first");
+        if self.len() >= MAX_BYTES {
+            // `checked_bytes` turns this into an error for the caller and drops the bytes.
+            if mark_oversized() {
+                return;
+            }
+            panic!("TL bytes can't be 16 MiB or longer; split the data first");
+        }
         let header = if self.len() < 254 { 1 } else { 4 };
         let end = buf.len() + (header + self.len()).next_multiple_of(4);
         // Reserve the padding with the data, so a full buffer doesn't double just to fit up to 3 zeros.
