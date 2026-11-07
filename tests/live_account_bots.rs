@@ -98,10 +98,16 @@ async fn user_checks_usernames_and_lists_owned_bots() {
         let result = user.check_username("me", own).await;
         assert!(result.is_ok() || result.as_ref().is_err_and(|e| e.rpc().is_some()), "{result:?}");
     }
-    let channel = user.create_channel("vaegram username check", "").await.unwrap();
-    let free = user.check_username(channel.id, format!("vaegram_free_{}", test_number())).await;
-    support::cleanup(user.delete_channel(channel.id).await, "deleting the channel \"vaegram username check\"");
-    assert!(free.unwrap());
+    match user.create_channel("vaegram username check", "").await {
+        Ok(channel) => {
+            let free = user.check_username(channel.id, format!("vaegram_free_{}", test_number())).await;
+            support::cleanup(user.delete_channel(channel.id).await, "deleting the channel \"vaegram username check\"");
+            assert!(free.unwrap());
+        }
+        // The rest doesn't need the channel.
+        Err(e) if support::flood_limited(&e, "creating a channel to check a free username") => {}
+        Err(e) => panic!("creating a channel failed: {e:?}"),
+    }
 
     let taken = user.check_bot_username("BotFather").await;
     assert!(matches!(taken, Ok(false)) || taken.as_ref().is_err_and(|e| e.rpc().is_some()), "{taken:?}");
