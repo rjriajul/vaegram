@@ -31,9 +31,10 @@ impl Client {
 
     /// Everything `run` does before it takes updates: who the account is, where the update state starts, and the
     /// start hook. `None` when `disconnect` cut it short: that stops the client before it ends the connection, so a
-    /// start request failing with `Disconnected` then ends a stopped run, not a lost one.
+    /// start request failing with `Disconnected` then ends a stopped run, not a lost one. Untagged, like all of
+    /// `run`: what it sends is vaegram's own doing, even inside a caller's tag.
     pub(super) async fn prepare(&self) -> Result<Option<Dispatcher>> {
-        match self.start_dispatcher().await {
+        match crate::observe::untagged(self.start_dispatcher()).await {
             Err(Error::Disconnected) if *self.0.stop.borrow() => {
                 // Cleared as `drive` clears it when a run ends.
                 self.0.stop.send_replace(false);
@@ -58,15 +59,20 @@ impl Client {
         Ok(dispatcher)
     }
 
+    /// Takes updates until `stop` or a lost connection, then runs the stop hook; untagged, as [`prepare`] is.
+    ///
+    /// [`prepare`]: Self::prepare
     pub(super) async fn drive(&self, mut dispatcher: Dispatcher) -> Result<()> {
-        // What the dispatcher sends, getDifference included, is vaegram's own doing, even inside the caller's tag.
-        let stopped = crate::observe::untagged(dispatcher.run(&mut *self.0.updates.lock().await)).await;
-        // Dropped first, so the update state is back in the client when the stop hook runs.
-        drop(dispatcher);
-        self.lifecycle_hook(UpdateKind::Stop).await;
-        // Cleared here, not on entry, so a stop() that lands before run gets going still counts.
-        self.0.stop.send_replace(false);
-        if stopped { Ok(()) } else { Err(Error::Disconnected) }
+        crate::observe::untagged(async {
+            let stopped = dispatcher.run(&mut *self.0.updates.lock().await).await;
+            // Dropped first, so the update state is back in the client when the stop hook runs.
+            drop(dispatcher);
+            self.lifecycle_hook(UpdateKind::Stop).await;
+            // Cleared here, not on entry, so a stop() that lands before run gets going still counts.
+            self.0.stop.send_replace(false);
+            if stopped { Ok(()) } else { Err(Error::Disconnected) }
+        })
+        .await
     }
 
     /// Makes `run` stop taking updates, wait for the handlers already running, and return `Ok(())`.
@@ -207,6 +213,26 @@ pub(super) mod tests {
         assert!(!run.is_finished(), "run returned before the running handler finished");
         release.notify_one();
         assert!(run.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn run_inside_tagged_sends_nothing_tagged() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
+        let pong = || Ok(base::Pong::Pong(Box::new(types::Pong { msg_id: 0, ping_id: 1 })).to_bytes());
+        let replies = vec![Ok(me.to_bytes()), pong(), Ok(empty.to_bytes()), pong()];
+        let (client, mut sent) = Client::scripted_tags(replies);
+        *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
+        let ping = |client: Client| async move { client.invoke(&crate::raw::functions::Ping { ping_id: 1 }).await };
+        client.on_start(ping);
+        client.on_stop(ping);
+
+        assert!(crate::observe::tagged(7, client.run()).await.is_err());
+        let id = |body: &[u8]| u32::from_le_bytes(body[..4].try_into().unwrap());
+        let sent: Vec<_> = std::iter::from_fn(|| sent.try_recv().ok()).map(|(body, tag)| (id(&body), tag)).collect();
+        let ping = <crate::raw::functions::Ping as Identifiable>::CONSTRUCTOR_ID;
+        let expected = [users::GetUsers::CONSTRUCTOR_ID, ping, updates::GetDifference::CONSTRUCTOR_ID, ping];
+        assert_eq!(sent, expected.map(|id| (id, None)));
     }
 
     #[tokio::test]

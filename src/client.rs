@@ -889,6 +889,13 @@ impl Client {
         (Client::with_session(session), sent)
     }
 
+    /// [`scripted`](Self::scripted), handing back each request's tag along with its body.
+    #[cfg(test)]
+    pub(crate) fn scripted_tags(replies: Vec<Result<Vec<u8>>>) -> (Client, crate::session::TaggedBodies) {
+        let (session, sent) = Session::scripted_tags(replies);
+        (Client::with_session(session), sent)
+    }
+
     /// An offline client whose main and transfer session is `session`.
     #[cfg(test)]
     pub(crate) fn with_session(session: Session) -> Client {

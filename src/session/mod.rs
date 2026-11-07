@@ -77,6 +77,10 @@ const ACK_EVERY: Duration = Duration::from_secs(15);
 
 type Answer = Result<Vec<u8>>;
 
+/// The body and tag of each request a scripted test session took.
+#[cfg(test)]
+pub(crate) type TaggedBodies = mpsc::UnboundedReceiver<(Vec<u8>, Option<u64>)>;
+
 struct Request {
     name: &'static str,
     body: Vec<u8>,
@@ -328,12 +332,26 @@ impl Session {
 
     #[cfg(test)]
     pub(crate) fn scripted(replies: Vec<Result<Vec<u8>>>) -> (Session, mpsc::UnboundedReceiver<Vec<u8>>) {
+        Session::scripted_as(replies, |r| std::mem::take(&mut r.body))
+    }
+
+    /// [`scripted`](Self::scripted), handing back each request's tag along with its body.
+    #[cfg(test)]
+    pub(crate) fn scripted_tags(replies: Vec<Result<Vec<u8>>>) -> (Session, TaggedBodies) {
+        Session::scripted_as(replies, |r| (std::mem::take(&mut r.body), r.tag))
+    }
+
+    #[cfg(test)]
+    fn scripted_as<T: Send + 'static>(
+        replies: Vec<Result<Vec<u8>>>,
+        seen: fn(&mut Request) -> T,
+    ) -> (Session, mpsc::UnboundedReceiver<T>) {
         let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
-        let (bodies, sent) = mpsc::unbounded_channel();
+        let (log, sent) = mpsc::unbounded_channel();
         tokio::spawn(async move {
             let mut replies = replies.into_iter();
-            while let Some(request) = rx.recv().await {
-                let _ = bodies.send(request.body);
+            while let Some(mut request) = rx.recv().await {
+                let _ = log.send(seen(&mut request));
                 if let Some(reply) = replies.next() {
                     let _ = request.answer.send(reply);
                 }
