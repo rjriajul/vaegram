@@ -31,7 +31,7 @@ async fn albums_and_links(user: &Client, group: i64) {
 async fn user_votes_views_and_links_messages() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let user = kit.user.client.clone();
-    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap().id;
+    let Some(group) = support::test_supergroup(&user).await else { return };
     // The steps run in their own task so a failed assertion still reaches the cleanup below.
     let steps = tokio::spawn({
         let user = user.clone();

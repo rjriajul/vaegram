@@ -59,11 +59,15 @@ async fn text_tools(user: &Client) {
 async fn pins_cached_media_and_post_counts(user: &Client, group: i64) {
     let pinned = |m: Option<Message>| m.map(|m| m.id);
     let sent = user.send_message(group, "pin me").await.unwrap();
-    user.pin_chat_message(group, sent.id).await.unwrap();
-    assert_eq!(pinned(user.get_pinned_message(group).await.unwrap()), Some(sent.id));
-    user.unpin_chat_message(group, sent.id).await.unwrap();
-    // Nothing else in the fresh group was ever pinned.
-    assert_eq!(pinned(user.get_pinned_message(group).await.unwrap()), None);
+    match user.pin_chat_message(group, sent.id).await {
+        Ok(_) => {
+            assert_eq!(pinned(user.get_pinned_message(group).await.unwrap()), Some(sent.id));
+            user.unpin_chat_message(group, sent.id).await.unwrap();
+            // Nothing else in the fresh group was ever pinned.
+            assert_eq!(pinned(user.get_pinned_message(group).await.unwrap()), None);
+        }
+        Err(e) => assert!(support::flood_limited(&e, "pinning a message"), "{e:?}"),
+    }
 
     let document = user.send_document(group, Upload::bytes("a.txt", b"hi")).await.unwrap();
     let file_id = document.document().expect("not a document").file_id.clone();
@@ -79,7 +83,7 @@ async fn user_uses_message_extras() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let kit = std::sync::Arc::new(kit);
     let user = kit.user.client.clone();
-    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap().id;
+    let Some(group) = support::test_supergroup(&user).await else { return };
     // The steps run in their own task so a failed assertion still reaches the cleanup below.
     let steps = tokio::spawn({
         let kit = kit.clone();

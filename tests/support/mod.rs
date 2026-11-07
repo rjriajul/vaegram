@@ -102,6 +102,17 @@ pub fn cleanup(result: Result<()>, what: &str) {
     }
 }
 
+/// Creates the supergroup "vaegram live test" for a test to work in, or says why not and returns `None` when
+/// Telegram flood-limits it. The test deletes it through [`cleanup`].
+#[allow(dead_code)] // not every binary that leaves the module's lints on makes a supergroup
+pub async fn test_supergroup(user: &Client) -> Option<i64> {
+    match user.create_supergroup("vaegram live test", "deleted right away").await {
+        Ok(chat) => Some(chat.id),
+        Err(e) if flood_limited(&e, "creating a supergroup") => None,
+        Err(e) => panic!("creating a supergroup failed: {e:?}"),
+    }
+}
+
 impl User {
     /// Sends `text` to `bot` in private and waits up to 30 s for the bot's answer there: a message newer than the
     /// one sent that, if it is a reply, replies to it. Older messages and replies to others are other tests' traffic.

@@ -25,7 +25,12 @@ async fn user_checks_forwards_and_copies_a_story() {
     };
     let Some(user) = user_client().await else { return };
     let me = user.get_me().await.unwrap();
-    assert!(user.get_story_post_count(me.id).await.unwrap() > 0);
+    // A limit already reached comes back as STORIES_TOO_MUCH instead of a count.
+    match user.get_story_post_count(me.id).await {
+        Ok(left) => assert!(left > 0),
+        Err(e) if support::story_limit_reached(&e) => return,
+        Err(e) => panic!("{e:?}"),
+    }
 
     // Telegram forwards only public stories (STORY_PUBLIC_MISSING otherwise), and everyone sees a public story while
     // it's up, so the forward runs only with VAEGRAM_POST_STORIES=1.
@@ -82,8 +87,8 @@ async fn user_reorders_sticker_sets_and_restores_them() {
 }
 
 #[tokio::test]
-#[ignore = "needs the kit bot and user in VAEGRAM_CHAT_ID; deletes the bot's welcome messages there"]
-async fn bot_stores_and_deletes_a_welcome_message() {
+#[ignore = "needs the kit bot and user in VAEGRAM_CHAT_ID; the bot sends and deletes a welcome message there"]
+async fn bot_sends_and_deletes_a_welcome_message() {
     let Ok(chat_id) = std::env::var("VAEGRAM_CHAT_ID") else {
         eprintln!("skipped: set VAEGRAM_CHAT_ID (a group with the kit bot and user)");
         return;
@@ -121,13 +126,28 @@ async fn bot_stores_and_deletes_a_welcome_message() {
         random_id,
         reply_to: None,
     };
-    bot.invoke(&request).await.unwrap();
+    let updates = bot.invoke(&request).await.unwrap();
 
-    let stored = user.get_welcome_messages(chat_id).await.unwrap();
-    let welcome = stored.iter().find(|m| m.text == "welcome").expect("the welcome message wasn't stored");
-    bot.delete_welcome_message(chat_id, welcome.id).await.unwrap();
-    assert!(!user.get_welcome_messages(chat_id).await.unwrap().iter().any(|m| m.id == welcome.id));
-    bot.delete_all_welcome_messages(chat_id).await.unwrap();
+    // An admin user manages the chat's stored welcome messages; a bot with the right "directly sends them" (Bot API
+    // `can_send_welcome_messages`). So the bot's welcome comes back as an ephemeral message sent to the user, and the
+    // stored list doesn't get it: a live run with the right granted found it missing there.
+    let sent = match &updates {
+        base::Updates::Updates(u) => &u.updates[..],
+        base::Updates::UpdatesCombined(u) => &u.updates[..],
+        base::Updates::UpdateShort(u) => std::slice::from_ref(&u.update),
+        _ => &[],
+    };
+    let sent = sent.iter().find_map(|u| match u {
+        base::Update::UpdateNewEphemeralMessage(u) => Some(&u.message),
+        _ => None,
+    });
+    let Some(base::EphemeralMessage::EphemeralMessage(sent)) = sent else {
+        panic!("no sent ephemeral message came back: {updates:?}")
+    };
+    bot.delete_ephemeral_message(chat_id, me.id, sent.id).await.unwrap();
+    assert_eq!((sent.message.as_str(), sent.receiver_id), ("welcome", me.id));
+    // The admin's list still reads, whatever it holds.
+    user.get_welcome_messages(chat_id).await.unwrap();
 }
 
 #[tokio::test]
