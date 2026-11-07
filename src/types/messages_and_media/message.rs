@@ -566,6 +566,11 @@ impl Message {
         self.raw.suggested_post.as_ref().map(SuggestedPostInfo::parse)
     }
 
+    /// The quick reply shortcut this message belongs to. `None` for messages outside quick replies.
+    pub fn quick_reply_shortcut_id(&self) -> Option<i32> {
+        self.raw.quick_reply_shortcut_id
+    }
+
     /// Every request built from a business message has to go through the connection it arrived on.
     pub(super) fn on_behalf<B: OnBehalf>(&self, mut request: B) -> B {
         request.business_connection().clone_from(&self.business_connection_id);
@@ -767,6 +772,17 @@ impl Message {
     /// Returns `None` if there is no command, or if it names another bot.
     pub fn command_with(&self, prefixes: &str) -> Option<Command<'_>> {
         let command = Command::parse(self.content(), prefixes)?;
+        (command.bot.is_none() || command.is_for(self.client.0.me.lock().unwrap().username.as_deref()))
+            .then_some(command)
+    }
+
+    /// Parses a command from the text or caption, with any of the `prefixes` strings starting it, as
+    /// [`filters::command_with_prefixes`](crate::filters::command_with_prefixes) matches it: the longest prefix the
+    /// text starts with wins, and empty prefixes never match.
+    ///
+    /// Returns `None` if there is no command, or if it names another bot.
+    pub fn command_with_prefixes<S: AsRef<str>>(&self, prefixes: &[S]) -> Option<Command<'_>> {
+        let command = Command::parse_prefixed(self.content(), prefixes)?;
         (command.bot.is_none() || command.is_for(self.client.0.me.lock().unwrap().username.as_deref()))
             .then_some(command)
     }

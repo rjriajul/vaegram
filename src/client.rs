@@ -247,7 +247,10 @@ impl ClientBuilder {
     /// updates Telegram still holds for a bot and sends again after a restart, even ones an earlier run handled.
     /// For a bot, what Telegram dated from the moment `run` was called on is still delivered; updates without a
     /// date, such as deletions and poll votes, that come before Telegram's held updates are read are skipped with the
-    /// old ones. Gaps while it runs, such as after a reconnect, are still filled. `true` by default.
+    /// old ones. Gaps while it runs, such as after a reconnect, are still filled. `true` by default: a client that
+    /// starts from a saved update state first replays what came since it was saved, as far back as Telegram still
+    /// has it, and so does every client started from a copy of the same session. See [`Client::run`] for clients
+    /// sharing one login.
     pub fn catch_up(mut self, catch_up: bool) -> Self {
         self.catch_up = catch_up;
         self
@@ -385,8 +388,11 @@ impl ClientBuilder {
     }
 
     /// FLOOD_WAITs up to this long are slept off and retried, at most `max_flood_sleeps` times per call; longer
-    /// ones go to the caller as `Error::Rpc`. 60 seconds by default; `Duration::ZERO` hands every one to the caller.
-    /// [`retry_policy`](Self::retry_policy) replaces this and `max_flood_sleeps`.
+    /// ones go to the caller as `Error::Rpc`. 60 seconds by default.
+    ///
+    /// To turn automatic sleeping off, pass `Duration::ZERO`: every FLOOD_WAIT then fails its call at once with
+    /// `Error::Rpc`, and [`Error::flood_wait`] says how long to wait before trying again. `max_flood_sleeps(0)`
+    /// does the same. [`retry_policy`](Self::retry_policy) replaces this and `max_flood_sleeps`.
     pub fn flood_sleep_threshold(mut self, threshold: Duration) -> Self {
         self.auto_sleep.threshold = threshold;
         self

@@ -203,7 +203,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   kept across restarts (not yet tested live)
 - [x] Perfect forward secrecy with temporary keys: `.pfs()`
 - [ ] Abridged and padded transports, obfuscation, SOCKS5/SOCKS4/HTTP proxies and MTProxy including fake-TLS `ee` secrets: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
-- [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member`, `promote_chat_member`, `join_chat`,
+- [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member(..).revoke_messages(true)`,
+  `promote_chat_member(..).title("Mod")`, `remove_chat_member`, `unban_chat_member(..).only_if_banned()`, `join_chat`,
   `get_pinned_message`, group call members via `get_call_members`, `get_welcome_messages`, `delete_welcome_message`,
   `delete_all_welcome_messages` (not yet tested live)
 - [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)
@@ -242,7 +243,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Suggested posts and channel direct messages: `approve_suggested_post(chat, id).send_date(..)`,
   `.suggested_post_parameters(..)`, `.direct_messages_topic_id(user)`, `msg.direct_messages_topic` (not yet tested live)
 - [ ] Ephemeral messages: send, edit, delete, handlers and callback queries (not yet tested live)
-- [ ] Reactions: `send_reaction`, `msg.react(..)`, `msg.reactions`, `on_message_reaction`, `on_message_reaction_count` (not yet tested live)
+- [ ] Reactions: `send_reaction`, `msg.react(..)`, `msg.reactions`, `on_message_reaction`, `on_message_reaction_count`,
+  `on_reactions` for user accounts, `filters::reacted()` (not yet tested live)
 - [ ] Forum topics, also in private chats with bots: `create_forum_topic(chat, "Ideas")`, `get_forum_topics(chat)`,
   `pin_forum_topic(chat, id)`, `msg.service` (`ServiceAction::ForumTopicCreated`, ..), `msg.message_thread_id` (not
   yet tested live)
@@ -270,7 +272,9 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Boosts, profile photos and stories: `get_user_chat_boosts(chat, user)`, `on_chat_boost`, `on_removed_chat_boost`,
   `ServiceAction::BoostAdded`, `get_chat_photos(user)`, `set_user_emoji_status(user)`, business `post_business_story`,
   `edit_business_story`, `repost_business_story`, `delete_business_story` (not yet tested live)
-- [ ] Chat member, poll, poll answer, deleted message and user status handlers, business callback queries
+- [ ] Chat member, poll, poll answer, deleted message and user status handlers, business callback queries; pins, read
+  receipts, typing, pending join requests and Stars balance: `on_pinned_messages`, `on_read_history`,
+  `on_chat_action`, `on_pending_join_requests`, `on_stars_balance`; `client.handlers()` lists what is registered
   (not yet tested live)
 - [ ] Chat and profile photos: `set_chat_photo(chat, "a.jpg")`, `set_profile_photo("a.jpg").video()`,
   `delete_chat_photo`, `remove_profile_photo`, business account photos (not yet tested live)
@@ -290,9 +294,9 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   `on_chat_member_updated` (not yet tested live)
 - [ ] Send by URL: `send_photo(chat, FileSource::url("https://..")?)` and `send_document`; Telegram fetches the file
   (not yet tested live)
-- [ ] Graceful shutdown: `client.stop()` makes `run()` return `Ok(())` once the running handlers finish; wire Ctrl-C
-  with your own `tokio::signal::ctrl_c()`; `disconnect`, `restart`, `stop_transmission`, hooks `on_start`, `on_stop`,
-  `on_connect`, `on_disconnect`, `remove_handler(id)` (not yet tested live)
+- [ ] Graceful shutdown: `client.stop()` makes `run()` return `Ok(())` once the running handlers finish, and
+  `run_until_ctrl_c()` does that on Ctrl-C; `disconnect`, `restart`, `is_connected`, `stop_transmission`, hooks
+  `on_start`, `on_stop`, `on_connect`, `on_disconnect`, `remove_handler(id)` (not yet tested live)
 - [ ] Request observer, per-call timeouts and `.flood_sleep_threshold(Duration::ZERO)` to get every FLOOD_WAIT;
   `.max_flood_sleeps(..)`, `.updates_capacity(..)`, `.catch_up(false)`, `invoke_in_dc` (not yet tested live)
 - [ ] Conversations: `listen`, `ask`, `wait_for_message`, `wait_for_callback_query`, `register_next_step_handler`,
@@ -324,9 +328,11 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [ ] Installed, archived, featured, recent and favorite stickers, sticker search, emoji status lists, gift resale,
   hiding and pinning gifts, Stars balance and history for owned chats (not yet tested live)
 - [ ] Attachment menu bots, bot apps, popular and similar bots: `get_attach_menu_bots`, `get_bot_app` (not yet tested live)
-- [ ] Mini Apps: `request_web_view` and friends, write access, custom methods, preview media (not yet tested live)
-- [ ] Business account settings: opening hours, location, intro, greeting and away messages, quick replies, chat links
-  and connected bots: `create_business_chat_link`, `update_connected_bot` (not yet tested live)
+- [ ] Mini Apps: `request_web_view` and friends, write access, custom methods, preview media; bots check the init
+  data with `utils::validate_web_app_data` (not yet tested live)
+- [ ] Business account settings: opening hours, location, intro, greeting and away messages, quick replies
+  (`add_quick_reply_message`, `get_quick_reply_messages`, `edit_quick_reply_message`), chat links and connected bots:
+  `create_business_chat_link`, `update_connected_bot` (not yet tested live)
 - [ ] App config, countries, terms of service and language packs: `get_app_config()`, `get_languages("android")`
   (not yet tested live)
 - [ ] Themes, wallpapers and accent colors: `get_themes`, `set_chat_wallpaper`, `set_chat_accent_color`

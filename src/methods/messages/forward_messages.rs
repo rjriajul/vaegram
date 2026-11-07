@@ -15,6 +15,7 @@ pub struct ForwardMessages<'a> {
     options: SendOptions,
     // Why awaiting fails before anything is sent, when the source can't be forwarded at all.
     refused: Option<&'static str>,
+    video_start_timestamp: Option<i32>,
 }
 
 impl Client {
@@ -34,6 +35,7 @@ impl Client {
             message_ids,
             options: SendOptions::default(),
             refused: None,
+            video_start_timestamp: None,
         }
     }
 }
@@ -41,6 +43,13 @@ impl Client {
 impl ForwardMessages<'_> {
     pub(crate) fn refuse(mut self, reason: &'static str) -> Self {
         self.refused = Some(reason);
+        self
+    }
+
+    /// Starts the forwarded videos playing at this many seconds (the request's `video_timestamp`) instead of at the
+    /// start.
+    pub fn video_start_timestamp(mut self, seconds: i32) -> Self {
+        self.video_start_timestamp = Some(seconds);
         self
     }
 
@@ -56,7 +65,8 @@ impl ForwardMessages<'_> {
         let from_peer = client.resolve(&self.from_chat_id).await?.1;
         // Forwards name the topic in top_msg_id, so the reply carries none.
         let reply_to = self.options.input_reply_to(client, chat_id, None).await?;
-        let request = request(from_peer, to_peer, self.message_ids, reply_to, self.options);
+        let mut request = request(from_peer, to_peer, self.message_ids, reply_to, self.options);
+        request.video_timestamp = self.video_start_timestamp;
         let updates = client.invoke(&request).await?;
         Ok(Message::all_from_updates(client, updates).collect())
     }
@@ -101,6 +111,7 @@ pub(super) fn request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::raw::Serializable;
 
     #[test]
     fn one_random_id_per_message() {
@@ -134,5 +145,19 @@ mod tests {
         let options = SendOptions { message_thread_id: Some(1), ..Default::default() };
         let r = request(base::InputPeer::InputPeerSelf, base::InputPeer::InputPeerEmpty, &[1], None, options);
         assert_eq!(r.top_msg_id, None);
+    }
+
+    #[tokio::test]
+    async fn the_video_start_timestamp_goes_on_the_wire() {
+        let (client, mut rx) = Client::recording();
+        let _ = client.forward_messages(-5, -6, &[3]).video_start_timestamp(15).await;
+        let body = rx.try_recv().expect("no request sent");
+        let chat = |chat_id| base::InputPeer::InputPeerChat(crate::raw::types::InputPeerChat { chat_id });
+        // The constructor, flags, from_peer, the id vector and the random_id vector header come first.
+        let at = 8 + chat(6).to_bytes().len() + 12 + 8;
+        let mut expected = request(chat(6), chat(5), &[3], None, SendOptions::default());
+        expected.video_timestamp = Some(15);
+        expected.random_id = vec![i64::from_le_bytes(body[at..at + 8].try_into().unwrap())];
+        assert_eq!(body, expected.to_bytes());
     }
 }

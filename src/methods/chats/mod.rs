@@ -60,6 +60,7 @@ mod pin_chat;
 mod pin_forum_topic;
 mod process_chat_has_protected_content_disable_request;
 mod promote_chat_member;
+mod remove_chat_member;
 mod reopen_forum_topic;
 mod reopen_general_forum_topic;
 mod report_chat;
@@ -120,6 +121,8 @@ pub use get_direct_messages_topics::GetDirectMessagesTopics;
 pub use get_forum_topics::GetForumTopics;
 pub use get_message_public_forwards::GetMessagePublicForwards;
 pub use mute_chat::MuteChat;
+pub use promote_chat_member::PromoteChatMember;
+pub use remove_chat_member::RemoveChatMember;
 pub use restrict_chat_member::RestrictChatMember;
 pub use set_chat_accent_color::SetChatAccentColor;
 pub use set_chat_photo::SetChatPhoto;
@@ -127,6 +130,7 @@ pub use set_chat_wallpaper::SetChatWallpaper;
 pub use set_upgraded_gift_colors::SetUpgradedGiftColors;
 pub use toggle_forum_topics::ToggleForumTopics;
 pub use toggle_signatures::ToggleSignatures;
+pub use unban_chat_member::UnbanChatMember;
 pub use update_chat_notifications::UpdateChatNotifications;
 
 #[cfg(test)]

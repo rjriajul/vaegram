@@ -13,8 +13,15 @@ use crate::session::internals::now;
 const CLOCK_SLACK: i64 = 1;
 
 impl Client {
-    /// Returns `Ok(())` after `stop`, or `Error::Disconnected` when the connection ends. Fails at once with
-    /// `Error::InvalidArgument` while this client is already running, here or in [`compose`](Client::compose).
+    /// Takes updates and runs the handlers until `stop`, then returns `Ok(())`; it returns `Error::Disconnected`
+    /// when the connection ends. Fails at once with `Error::InvalidArgument` while this client is already running,
+    /// here or in [`compose`](Client::compose).
+    ///
+    /// Telegram sends updates to every connected session of an account, bots included, so several clients logged
+    /// in as the same bot or user, in one process or several, each get every update and each run their handlers:
+    /// a handler that replies then replies once per client. With [`catch_up`](crate::ClientBuilder::catch_up) on,
+    /// the default, `run` first replays what came since the saved update state, so a client started from an old
+    /// session, or from a copy of another client's, handles those updates again too.
     pub async fn run(&self) -> Result<()> {
         let running = self.claim_run()?;
         match self.prepare().await? {
@@ -93,8 +100,7 @@ impl Client {
 
     /// Makes `run` stop taking updates, wait for the handlers already running, and return `Ok(())`.
     ///
-    /// For Ctrl-C, spawn `async move { tokio::signal::ctrl_c().await.ok(); client.stop() }` with the
-    /// application's own `signal`-enabled tokio.
+    /// For Ctrl-C, use [`run_until_ctrl_c`](Self::run_until_ctrl_c) in place of `run`.
     pub fn stop(&self) {
         self.0.stop.send_replace(true);
     }

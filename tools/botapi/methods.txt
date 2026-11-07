@@ -182,7 +182,7 @@ deleteStickerSet                   delete_sticker_set
 
 ## Rich messages
 sendRichMessage                    send_rich_message
-sendRichMessageDraft               todo send_rich_message_draft
+sendRichMessageDraft               send_rich_message_draft
 
 ## Inline mode
 answerInlineQuery                  answer_inline_query

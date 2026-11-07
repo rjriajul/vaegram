@@ -6,11 +6,12 @@ use crate::Client;
 use crate::dispatcher::Router;
 use crate::errors::{Error, Result};
 use crate::types::{
-    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated, ChatJoinRequest,
-    ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages,
-    EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
-    RawUpdate, ShippingQuery, Story, TonWalletState, UserStatusUpdated,
+    BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatActionUpdated, ChatBoostRemoved, ChatBoostUpdated,
+    ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
+    DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
+    MessageReactionCountUpdated, MessageReactionUpdated, PendingJoinRequestsUpdated, PinnedMessagesUpdated, PollAnswer,
+    PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ReactionsUpdated, ReadHistoryUpdated, ShippingQuery,
+    StarsBalanceUpdated, Story, TonWalletState, UserStatusUpdated,
 };
 
 pub use crate::dispatcher::listeners::Listenable;
@@ -87,6 +88,26 @@ pub(crate) enum Registered {
     Route(UpdateKind, u32),
     /// A next-step handler, which lives in the listener registry.
     Listener(u64),
+}
+
+/// A registered handler, as [`Client::handlers`] lists it.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct HandlerInfo {
+    /// The id [`Client::remove_handler`] takes.
+    pub id: HandlerId,
+    /// The route the handler is on, named after the `Client::on_*` method that registered it.
+    pub kind: UpdateKind,
+    /// The group the handler runs in. `None` for raw handlers and lifecycle hooks, which have no group.
+    pub group: Option<i32>,
+    /// `true` if a match keeps the later groups from running for that update.
+    pub stops: bool,
+}
+
+impl HandlerInfo {
+    pub(crate) fn new(kind: UpdateKind, id: u32, group: Option<i32>, stops: bool) -> HandlerInfo {
+        HandlerInfo { id: HandlerId(Registered::Route(kind, id)), kind, group, stops }
+    }
 }
 
 impl Client {
@@ -220,6 +241,12 @@ impl Routed for MessageReactionCountUpdated {
     }
 }
 
+impl Routed for ReactionsUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
 impl Routed for BusinessConnection {
     fn chat_id(&self) -> Option<i64> {
         Some(self.user.id)
@@ -294,6 +321,12 @@ impl Routed for DeletedMessages {
     }
 }
 
+impl Routed for PinnedMessagesUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
 impl Routed for UserStatusUpdated {
     fn chat_id(&self) -> Option<i64> {
         None
@@ -305,6 +338,30 @@ impl Routed for UserStatusUpdated {
 }
 
 impl Routed for TonWalletState {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+}
+
+impl Routed for ChatActionUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for ReadHistoryUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for PendingJoinRequestsUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for StarsBalanceUpdated {
     fn chat_id(&self) -> Option<i64> {
         None
     }
