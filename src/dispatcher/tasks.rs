@@ -12,10 +12,17 @@ use crate::enums::ClientEvent;
 use crate::handlers::{BoxFuture, Callback, ErrorCallback, HandlerError, Routed, UpdateKind};
 use crate::session::Events;
 
+/// With `max_concurrent_handlers`, how many handler tasks may wait for a slot before the dispatcher stops taking
+/// updates. Past it, updates wait in the update queue, whose overflow getDifference fetches again, instead of
+/// piling up in memory.
+pub(crate) const MAX_WAITING_HANDLERS: usize = 1024;
+
 #[derive(Default)]
 pub(crate) struct Tasks {
     lanes: Option<Lanes>,
     permits: Option<Arc<Semaphore>>,
+    // Started and unfinished tasks past which `full` says so; only with a handler cap.
+    limit: Option<usize>,
     pub(crate) on_error: Option<ErrorCallback>,
     pub(crate) events: Arc<Events>,
     running: JoinSet<()>,
@@ -25,6 +32,7 @@ impl Tasks {
     pub(crate) fn new(ordered: bool, permits: Option<Arc<Semaphore>>) -> Self {
         Tasks {
             lanes: ordered.then(Lanes::default),
+            limit: permits.as_ref().map(|p| p.available_permits().saturating_add(MAX_WAITING_HANDLERS)),
             permits,
             on_error: None,
             events: Arc::default(),
@@ -35,6 +43,18 @@ impl Tasks {
     /// Waits for every handler started so far.
     pub(crate) async fn finish(&mut self) {
         while self.running.join_next().await.is_some() {}
+    }
+
+    /// Whether so many handlers wait for a slot that no more updates should be taken until one ends.
+    pub(crate) fn full(&mut self) -> bool {
+        let Some(limit) = self.limit else { return false };
+        while self.running.try_join_next().is_some() {}
+        self.running.len() >= limit
+    }
+
+    /// Returns once a started handler task ends.
+    pub(crate) async fn one_done(&mut self) {
+        self.running.join_next().await;
     }
 
     /// Runs `task`; a panic in it is caught and reported as `HandlerPanicked` for `kind` and `chat_id`.

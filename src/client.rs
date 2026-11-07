@@ -250,7 +250,9 @@ impl ClientBuilder {
         self
     }
 
-    /// Caps how many handlers run at once, at least 1; updates past the cap wait for a slot. No cap by default.
+    /// Caps how many handlers run at once, at least 1; updates past the cap wait for a slot. Once 1024 wait, `run`
+    /// takes no more updates until a handler ends: they queue up to `updates_capacity`, and what overflows that is
+    /// fetched again with getDifference. No cap by default.
     pub fn max_concurrent_handlers(mut self, n: usize) -> Self {
         self.max_concurrent_handlers = Some(n);
         self

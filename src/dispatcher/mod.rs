@@ -111,6 +111,8 @@ impl Dispatcher {
                     None => Ok(updates.recv().await),
                 }
             };
+            // With a handler cap and the waiting room full, updates wait in the update queue instead.
+            let full = self.tasks.full();
             let next = tokio::select! {
                 biased;
                 // The watch guard `wait_for` returns isn't Send, so it is dropped before awaiting the handlers.
@@ -128,7 +130,8 @@ impl Dispatcher {
                     }
                     return true;
                 }
-                next = next => next,
+                next = next, if !full => next,
+                () = self.tasks.one_done(), if full => continue,
                 // After the updates, and one request a turn, so a tight `recover_gaps` loop can't starve them.
                 Some(request) = recoveries.recv() => {
                     self.recover(request).await;
@@ -902,5 +905,40 @@ mod tests {
             _ = tokio::time::timeout(std::time::Duration::from_secs(5), reached) => {}
         }
         assert_eq!(*handled.lock().unwrap(), [5]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn with_a_handler_cap_updates_wait_in_the_queue_once_the_waiting_room_is_full() {
+        use super::tasks::MAX_WAITING_HANDLERS;
+        let mut client = Client::offline();
+        Arc::get_mut(&mut client.0).unwrap().handler_permits = Some(Arc::new(tokio::sync::Semaphore::new(1)));
+        // The first handler never ends, so every later one waits for its slot.
+        client.on_raw_update(|_, _| std::future::pending::<crate::errors::Result<()>>());
+        let mut d = Dispatcher::new(client.clone(), &state());
+        let (updates, mut rx) = UpdatesRx::channel_with(client.0.events.clone());
+        let status = || {
+            let status = types::UpdateUserStatus { user_id: 7, status: base::UserStatus::UserStatusEmpty };
+            let update = types::UpdateShort { update: base::Update::UpdateUserStatus(Box::new(status)), date: 0 };
+            Incoming { updates: base::Updates::UpdateShort(Box::new(update)), from_request: false }
+        };
+        let offered = 3 * MAX_WAITING_HANDLERS;
+        let feed = async {
+            let mut taken = 0;
+            while taken < offered {
+                let send = tokio::time::timeout(std::time::Duration::from_secs(1), updates.send(status()));
+                if send.await.is_err() {
+                    break;
+                }
+                taken += 1;
+            }
+            taken
+        };
+        let taken = tokio::select! {
+            _ = d.run(&mut rx) => panic!("run ended"),
+            taken = feed => taken,
+        };
+        // One running, the waiting room, and what the update queue holds (8 in tests).
+        let room = MAX_WAITING_HANDLERS..=1 + MAX_WAITING_HANDLERS + 8 + 1;
+        assert!(room.contains(&taken), "the dispatcher took {taken} of {offered} updates");
     }
 }
