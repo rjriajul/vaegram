@@ -13,7 +13,7 @@ impl Client {
     pub async fn run(&self) -> Result<()> {
         let running = self.claim_run()?;
         match self.prepare().await? {
-            Some(dispatcher) => self.drive(dispatcher, running).await,
+            Some(dispatcher) => self.drive(running, dispatcher).await,
             None => Ok(()),
         }
     }
@@ -93,7 +93,9 @@ impl Client {
         }
     }
 
-    pub(super) async fn drive(&self, mut dispatcher: Dispatcher, running: Running) -> Result<()> {
+    // `dispatcher` comes after `running`, so a cancelled `drive` drops it first: it hands its state back to the
+    // client before `Running` saves it for a disconnected client.
+    pub(super) async fn drive(&self, running: Running, mut dispatcher: Dispatcher) -> Result<()> {
         let stopped = dispatcher.run(&mut *self.0.updates.lock().await).await;
         // Dropped first, so the update state is back in the client when the stop hook runs.
         drop(dispatcher);
@@ -120,12 +122,17 @@ impl Client {
     }
 }
 
-/// Held while a `run` owns the client's updates; dropping it, however `run` ends, lets the next one start.
+/// Held while a `run` owns the client's updates; dropping it, however `run` ends, lets the next one start, and
+/// closes the storage of a client `disconnect` was called on meanwhile.
 pub(super) struct Running(Client);
 
 impl Drop for Running {
     fn drop(&mut self) {
-        self.0.0.running.store(false, Ordering::Release);
+        let inner = &self.0.0;
+        inner.running.store(false, Ordering::SeqCst);
+        if inner.disconnected.load(Ordering::SeqCst) {
+            inner.finish_store();
+        }
     }
 }
 
@@ -148,7 +155,7 @@ pub(super) mod tests {
     use crate::raw::functions::{updates, users};
     use crate::raw::{Identifiable, Serializable, base, types};
     use crate::session::{Incoming, UpdatesRx};
-    use crate::storage::{MemoryStorage, Storage, UpdateState};
+    use crate::storage::{FileStorage, MemoryStorage, Storage, UpdateState};
 
     type Log = Arc<Mutex<Vec<&'static str>>>;
 
@@ -288,6 +295,46 @@ pub(super) mod tests {
         assert!(first.await.unwrap().is_ok());
         assert_eq!(starts.load(Ordering::Relaxed), 1);
         assert!(!client.0.running.load(Ordering::Relaxed), "a later run would be refused too");
+    }
+
+    // The test kit's way to end: a handler holds a clone of its client, `disconnect`, then the runtime goes and
+    // cancels `run`.
+    #[tokio::test]
+    async fn a_disconnected_run_saves_and_lets_go_of_the_session_file_as_it_ends() {
+        let dir = std::env::temp_dir().join(format!("vaegram-run-disconnect-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
+        let (mut client, mut sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
+        client.save().await.unwrap();
+        *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
+        let (_updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let own = client.clone();
+        client.on_raw_update(move |_, _| {
+            let _own = &own;
+            ready(Ok(()))
+        });
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        // users.getUsers, then updates.getDifference: the run is taking updates.
+        sent.recv().await;
+        sent.recv().await;
+
+        client.disconnect();
+        run.abort();
+        let _ = run.await;
+        let second = FileStorage::new(dir.join("bot"));
+        let reopened = second.open().await;
+        let saved = second.load_state().await.ok().flatten().and_then(|s| s.update).map(|u| (u.pts, u.date));
+        drop(second);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(reopened.is_ok(), "{reopened:?}");
+        assert_eq!(saved, Some((10, 2)), "the run's state is saved before the file is let go");
     }
 
     #[tokio::test]

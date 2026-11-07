@@ -680,6 +680,8 @@ pub(crate) struct Inner {
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
     // Set while a `run` (or a client in `compose`) owns the updates, so a second one is refused.
     pub(crate) running: AtomicBool,
+    // Set by `disconnect`: the storage is let go of then, or when the running `run` ends.
+    pub(crate) disconnected: AtomicBool,
     // Where `recover_gaps` sends its requests while `run` is taking updates.
     pub(crate) recover: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Recover>>>,
     pub(crate) caches: Caches,
@@ -781,6 +783,7 @@ impl Inner {
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
             running: AtomicBool::new(false),
+            disconnected: AtomicBool::new(false),
             recover: Mutex::new(None),
             caches: Caches::default(),
             fetch: Fetch::default(),
@@ -810,11 +813,11 @@ impl Inner {
         self.store = Arc::new(Store::new(engine, self.events.clone()));
         self.peers.get_mut().unwrap().set_store(self.store.clone());
     }
-}
 
-impl Drop for Inner {
-    fn drop(&mut self) {
-        let update = self.state.get_mut().ok().and_then(Option::take);
+    /// Saves the update state and the salt, then closes the storage for good, waiting for it at most `DROP_WAIT`.
+    /// Once is enough: later calls, the one on drop included, do nothing.
+    pub(crate) fn finish_store(&self) {
+        let update = self.state.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let state = self.stored(update);
         if state.update.is_some() {
             self.store.finish(Some(state));
@@ -825,6 +828,12 @@ impl Drop for Inner {
             }
             self.store.finish(None);
         }
+    }
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        self.finish_store();
     }
 }
 

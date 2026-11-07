@@ -56,7 +56,7 @@ impl Compose<'_> {
                 }
             }
             for (client, dispatcher, running) in started {
-                runs.spawn(async move { client.drive(dispatcher, running).await });
+                runs.spawn(async move { client.drive(running, dispatcher).await });
             }
         } else {
             for client in clients {

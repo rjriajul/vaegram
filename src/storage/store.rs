@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, mpsc as std_mpsc};
 use std::time::Duration;
 
@@ -55,11 +56,13 @@ pub(crate) struct Store {
     // Where the thread reports what it can't write; the engine's failures never stop the client.
     events: Arc<Events>,
     worker: OnceLock<io::Result<mpsc::UnboundedSender<Message>>>,
+    // Set by the first `finish`; the engine is closed for good after it.
+    finished: AtomicBool,
 }
 
 impl Store {
     pub(crate) fn new(engine: Arc<dyn Storage>, events: Arc<Events>) -> Store {
-        Store { engine, pending: Arc::default(), events, worker: OnceLock::new() }
+        Store { engine, pending: Arc::default(), events, worker: OnceLock::new(), finished: AtomicBool::new(false) }
     }
 
     fn worker(&self) -> io::Result<&mpsc::UnboundedSender<Message>> {
@@ -246,8 +249,12 @@ impl Store {
     }
 
     /// Queues `state`, writes what is queued and closes the engine, waiting at most `DROP_WAIT`. Called when the
-    /// client is dropped, from whatever thread drops it.
+    /// client is disconnected or dropped, from whatever thread does it. Only the first call does anything: the store
+    /// thread ends with it, so later calls to the engine fail and later writes are dropped.
     pub(crate) fn finish(&self, state: Option<StoredState>) {
+        if self.finished.swap(true, Ordering::AcqRel) {
+            return;
+        }
         if let Some(state) = state {
             self.queue_state(state);
         }
