@@ -88,6 +88,11 @@ pub mod filters;
 #[cfg(test)]
 mod fuzz;
 /// Handler registration: groups, stopping propagation and removing a handler.
+///
+/// Updates that come back inside the answer to this client's own request, such as the message `send_message` sent
+/// or the edit `edit_message_text` made, reach no handler, raw handler or listener: they only move the update state,
+/// and the method returns what they hold. The same account's actions from another session or device arrive as
+/// usual.
 pub mod handlers;
 /// The friendly API methods, all on [`Client`], and the request builders some of them return.
 pub mod methods;
