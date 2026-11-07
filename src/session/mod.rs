@@ -772,7 +772,9 @@ impl Runner {
     async fn reconnect(&mut self, requests: &mpsc::UnboundedReceiver<Request>, renewing: bool, restarting: bool) {
         let mut delay = RECONNECT_DELAY;
         let mut attempt = 0;
-        while !requests.is_closed() && self.updates.as_ref().is_none_or(|u| !u.is_closed()) && !self.control.closed() {
+        // A session whose update receiver is gone (replaced by a DC switch, or dropped by a raw caller) still serves
+        // its requests, so it reconnects like any other; only the dropped handles end it.
+        while !requests.is_closed() && !self.control.closed() {
             attempt += 1;
             if !(renewing && attempt == 1) {
                 self.link(false);
@@ -812,8 +814,10 @@ impl Runner {
         }
     }
 
+    /// Only a main connection whose updates someone takes reports its link: not a file connection, and not a main
+    /// one a DC switch replaced.
     fn link(&mut self, up: bool) {
-        if self.updates.is_some() && up != self.link_up {
+        if self.updates.as_ref().is_some_and(|u| !u.is_closed()) && up != self.link_up {
             self.link_up = up;
             self.events.link(up);
         }

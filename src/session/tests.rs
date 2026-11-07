@@ -1258,3 +1258,72 @@ async fn leased_connections_are_numbered_apart() {
     seen.sort_unstable();
     assert_eq!(seen, [(4, 1, 0), (4, 2, 0)]);
 }
+
+/// A stream that counts its reads, for telling a connection that waits from one that spins.
+struct CountedReads(tokio::io::DuplexStream, Arc<std::sync::atomic::AtomicUsize>);
+
+impl tokio::io::AsyncRead for CountedReads {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        std::pin::Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+
+impl tokio::io::AsyncWrite for CountedReads {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_main_connection_nobody_takes_updates_from_still_reconnects() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let (reads, dials) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let first = Mutex::new(Some(CountedReads(ours, reads.clone())));
+    let dialed = dials.clone();
+    // The first dial gets the pipe; later ones are refused, as by a network that's still down.
+    let factory = move |_: std::net::SocketAddr| {
+        dialed.fetch_add(1, Ordering::Relaxed);
+        let stream = first.lock().unwrap().take();
+        async move { stream.ok_or_else(|| std::io::Error::other("still down")) }
+    };
+    let options = Options::new().transport(crate::connection::Transport::Intermediate);
+    let options = Options { connection_factory: Some(Arc::new(factory)), ..options };
+    let dc = Dc { id: 2, addr: "127.0.0.1:1".parse().unwrap(), test: false };
+    let conn = Connection::connect(&dc, &options).await.unwrap();
+    let (tx, rx) = mpsc::channel(8);
+    let r = Runner::new(dc, Arc::new(options), conn, ([7; 256], Salt::default(), true), Arc::default(), Some(tx));
+    // Nobody takes this connection's updates any more, but its requests still have a caller.
+    drop(rx);
+    let (_requests, requests) = mpsc::unbounded_channel();
+    let task = tokio::spawn(r.run(requests));
+    drop(theirs);
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let (reads, dials) = (reads.load(Ordering::Relaxed), dials.load(Ordering::Relaxed));
+    task.abort();
+    assert!(dials >= 2, "it never dialed again");
+    assert!(reads < 1000, "it spun on the dead link: {reads} reads");
+}
