@@ -244,7 +244,9 @@ impl ClientBuilder {
     }
 
     /// `false` makes every `run` start from now: what came while the client was stopped is skipped. Gaps while it
-    /// runs, such as after a reconnect, are still filled. `true` by default.
+    /// runs, such as after a reconnect, are still filled. `true` by default: a client that starts from a saved
+    /// update state first replays what came since it was saved, as far back as Telegram still has it, and so does
+    /// every client started from a copy of the same session. See [`Client::run`] for clients sharing one login.
     pub fn catch_up(mut self, catch_up: bool) -> Self {
         self.catch_up = catch_up;
         self
