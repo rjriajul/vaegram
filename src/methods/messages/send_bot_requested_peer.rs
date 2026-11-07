@@ -41,7 +41,7 @@ mod tests {
     use crate::Client;
     use crate::errors::Error;
     use crate::raw::{Serializable, base, functions, types};
-    use crate::types::Message;
+    use crate::types::ServiceAction;
     use crate::utils::get_peer;
 
     const BOT: i64 = 42;
@@ -53,7 +53,27 @@ mod tests {
 
     #[tokio::test]
     async fn shares_the_chosen_peers_with_the_bot_and_returns_the_message() {
-        let message = base::Message::Message(Box::new(Message::bare(6, get_peer(BOT), 1)));
+        // Telegram answers with the service message that records the share, in the bot's chat.
+        let action = types::MessageActionRequestedPeer { button_id: 1, peers: vec![get_peer(FRIEND), get_peer(-9)] };
+        let service = types::MessageService {
+            out: true,
+            mentioned: false,
+            media_unread: false,
+            reactions_are_possible: false,
+            silent: false,
+            post: false,
+            legacy: false,
+            id: 6,
+            from_id: None,
+            peer_id: get_peer(BOT),
+            saved_peer_id: None,
+            reply_to: None,
+            date: 1,
+            action: base::MessageAction::MessageActionRequestedPeer(Box::new(action)),
+            reactions: None,
+            ttl_period: None,
+        };
+        let message = base::Message::MessageService(Box::new(service));
         let update = types::UpdateNewMessage { message, pts: 1, pts_count: 1 };
         let update = base::Update::UpdateNewMessage(Box::new(update));
         let updates = types::Updates { updates: vec![update], users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
@@ -63,6 +83,9 @@ mod tests {
         }
         let message = client.send_bot_requested_peer(BOT, 5, 1, [FRIEND, -9]).await.unwrap();
         assert_eq!((message.id, message.chat.id), (6, BOT));
+        let shared =
+            matches!(&message.service, Some(ServiceAction::ChatShared(c)) if (c.request_id, c.chat_id) == (1, -9));
+        assert!(shared, "{:?}", message.service);
         let request = functions::messages::SendBotRequestedPeer {
             peer: user(BOT),
             msg_id: Some(5),

@@ -376,9 +376,13 @@ mod tests {
         let merged = INIT_DATA
             .replace(&format!("&user={user}"), "")
             .replace("signature=abc%2Bdef%2Fghi", &format!("signature=abc%2Bdef%2Fghi%0Auser%3D{user}"));
-        assert!(security(BOT_TOKEN, &merged));
-        assert!(security(BOT_TOKEN, &INIT_DATA.replace("query_id=", "query_id%0A=")));
-        assert!(security(BOT_TOKEN, &INIT_DATA.replace("query_id=", "query%3Did=")));
+        let merged_field = |data: &str| {
+            let result = validate_web_app_data(BOT_TOKEN, data, None);
+            matches!(result, Err(Error::Security("Mini App data has a line break or `=` inside a field")))
+        };
+        assert!(merged_field(&merged));
+        assert!(merged_field(&INIT_DATA.replace("query_id=", "query_id%0A=")));
+        assert!(merged_field(&INIT_DATA.replace("query_id=", "query%3Did=")));
         let broken = format!("{INIT_DATA}&x=%E");
         assert!(matches!(validate_web_app_data(BOT_TOKEN, &broken, None), Err(Error::InvalidArgument(_))));
     }
