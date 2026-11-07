@@ -24,7 +24,7 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::session::{Incoming, UpdatesRx};
 use crate::storage::UpdateState;
-use crate::utils::{channel_id_of, get_channel_id};
+use crate::utils::{CHANNEL_OFFSET, channel_id_of, get_channel_id};
 
 const SAVE_EVERY: Duration = Duration::from_secs(10);
 
@@ -165,7 +165,8 @@ impl Dispatcher {
                 for chat in chats {
                     if chat == 0 {
                         t.mark(Key::Pts);
-                    } else if t.state.channels.contains_key(&channel_id_of(chat)) {
+                    } else if chat <= -CHANNEL_OFFSET && t.state.channels.contains_key(&channel_id_of(chat)) {
+                        // Only `-100…` ids are channels; a user's or group's id names no box.
                         t.mark(Key::Channel(channel_id_of(chat)));
                     }
                 }
@@ -639,6 +640,19 @@ mod tests {
         d.recover(super::Recover { chats: Some(vec![get_channel_id(9), get_channel_id(77)]), reply }).await;
         assert_eq!(answer.await.unwrap(), (1, 0));
         assert_eq!(d.tracker.state.channels[&9], 5);
+    }
+
+    #[tokio::test]
+    async fn recovery_skips_ids_that_are_no_channel() {
+        let (client, mut sent) = Client::recording();
+        let mut d = Dispatcher::new(client, &state());
+        d.tracker.state.channels.insert(9, 1);
+        d.tracker.due.clear();
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        let chats = vec![i64::MAX, 7, -7, -super::CHANNEL_OFFSET + 1, i64::MIN];
+        d.recover(super::Recover { chats: Some(chats), reply }).await;
+        assert_eq!(answer.await.unwrap(), (0, 0));
+        assert!(sent.try_recv().is_err(), "a box was fetched");
     }
 
     #[tokio::test]
