@@ -45,15 +45,19 @@ impl Client {
     }
 
     // Telegram answers a non-member with no user object, so fetch it to fill the Left member. A chat that posts
-    // as itself is no user and has nothing to fetch.
+    // as itself is no user and has nothing to fetch, and a user this account never met can't be fetched.
     async fn left_member(&self, user_id: i64) -> Result<ChatMember> {
+        let left = |entities: &Entities| ChatMember::new(user_id, ChatMemberStatus::Left, entities);
         if user_id < 0 {
-            return Ok(ChatMember::new(user_id, ChatMemberStatus::Left, &Entities::default()));
+            return Ok(left(&Entities::default()));
         }
-        let id = vec![self.resolve_user(&PeerRef::Id(user_id)).await?];
+        let id = match self.resolve_user(&PeerRef::Id(user_id)).await {
+            Ok(user) => vec![user],
+            Err(Error::PeerNotFound(_)) => return Ok(left(&Entities::default())),
+            Err(e) => return Err(e),
+        };
         let users = self.invoke(&functions::users::GetUsers { id }).await?;
-        let entities = Entities::new(self, users, Vec::new());
-        Ok(ChatMember::new(user_id, ChatMemberStatus::Left, &entities))
+        Ok(left(&Entities::new(self, users, Vec::new())))
     }
 }
 
@@ -113,5 +117,27 @@ mod tests {
         let id = |body: &[u8]| u32::from_le_bytes(body[..4].try_into().unwrap());
         assert_eq!(id(&sent.try_recv().unwrap()), channels::GetParticipant::CONSTRUCTOR_ID);
         assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_user_never_met_is_left_in_a_basic_group() {
+        use crate::raw::Serializable;
+
+        // messages.chatFull of basic group 5 with its member list hidden, then no user for the lookup.
+        let mut full = Vec::new();
+        types::messages::ChatFull::CONSTRUCTOR_ID.serialize(&mut full);
+        types::ChatFull::CONSTRUCTOR_ID.serialize(&mut full);
+        0u32.serialize(&mut full);
+        5i64.serialize(&mut full);
+        String::new().serialize(&mut full);
+        let participants = types::ChatParticipantsForbidden { chat_id: 5, self_participant: None };
+        base::ChatParticipants::ChatParticipantsForbidden(Box::new(participants)).serialize(&mut full);
+        types::PeerNotifySettings::CONSTRUCTOR_ID.serialize(&mut full);
+        0u32.serialize(&mut full);
+        Vec::<i64>::new().serialize(&mut full);
+        Vec::<i64>::new().serialize(&mut full);
+        let (client, _sent) = Client::scripted(vec![Ok(full), Ok(Vec::<i64>::new().to_bytes())]);
+        let member = client.get_chat_member(-5, 777).await.unwrap();
+        assert_eq!((member.status, member.is_member, member.user.id), (ChatMemberStatus::Left, false, 777));
     }
 }
