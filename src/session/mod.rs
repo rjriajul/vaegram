@@ -117,7 +117,7 @@ pub struct Call<'a> {
     /// The msg_id it was last sent under; 0 if it never went out.
     pub msg_id: i64,
     /// The whole call as sent, credentials included (bot tokens, SRP proofs, exported authorizations): don't log
-    /// it as is. A recording keeps the redacted form, and so does `request_json` (with the `json` feature).
+    /// it as is. A recording keeps the redacted form; `request_json` (with the `json` feature) gives it as JSON.
     pub request: &'a [u8],
     /// From when the connection's task took the request in to its end, re-sends included.
     pub duration: Duration,
@@ -134,6 +134,25 @@ pub struct Call<'a> {
     /// (pings, the dispatcher's `getDifference`, the background loop of a repeated chat action). Requests a vaegram
     /// method sends from a task it starts for that call carry the caller's tag, and a re-sent request keeps its own.
     pub tag: Option<u64>,
+}
+
+#[cfg(feature = "json")]
+impl Call<'_> {
+    /// [`request`](Self::request) as JSON in the shape of [`ToJson`](crate::raw::ToJson), with credentials cut as
+    /// a [recording](crate::storage::recording) cuts them: a call that carries one comes out as its outermost name
+    /// only, such as `{"cut":"auth.signIn"}`, or `{"cut":"invokeWithLayer"}` when it went out wrapped.
+    pub fn request_json(&self) -> String {
+        crate::storage::recording::request_json(self.request)
+    }
+
+    /// The answer as JSON in the shape of [`ToJson`](crate::raw::ToJson), read as the type the request returns, so
+    /// a bare vector such as the answer to `users.getUsers` comes out whole. As in a
+    /// [recording](crate::storage::recording), the answer to a request that was cut is cut too, as is one that holds
+    /// a credential itself: only its name is left, such as `{"cut":"auth.authorization"}`. `None` when
+    /// [`result`](Self::result) is an error; the error itself carries no credentials.
+    pub fn result_json(&self) -> Option<String> {
+        self.result.ok().map(|answer| crate::storage::recording::answer_json(self.request, answer))
+    }
 }
 
 /// The per-request hook: it runs on the connection's task for every request that ends, so it should return

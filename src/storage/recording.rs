@@ -126,6 +126,29 @@ fn body_json(body: &[u8], out: &mut String, depth: usize) {
     }
 }
 
+/// A call's request as JSON, cut as a recording cuts it.
+#[cfg(feature = "json")]
+pub(crate) fn request_json(request: &[u8]) -> String {
+    let (kept, _) = redact(true, request, false, &HashSet::new());
+    let mut out = String::new();
+    body_json(&kept, &mut out, 0);
+    out
+}
+
+/// A call's answer as JSON: cut when its request is or when it holds a credential itself, as in a recording, and
+/// otherwise read as the type the request returns, so a bare vector comes out whole.
+#[cfg(feature = "json")]
+pub(crate) fn answer_json(request: &[u8], answer: &[u8]) -> String {
+    let (_, request_cut) = redact(true, request, false, &HashSet::new());
+    let (kept, cut) = redact(false, answer, request_cut, &HashSet::new());
+    let typed = if cut { None } else { query_id(request).and_then(|id| crate::raw::answer_json_of(id, &kept)) };
+    typed.unwrap_or_else(|| {
+        let mut out = String::new();
+        body_json(&kept, &mut out, 0);
+        out
+    })
+}
+
 /// Writes a recording as the [module](self) describes, for [`ClientBuilder::record`](crate::ClientBuilder::record)
 /// or [`Options::record`](crate::connection::Options::record). Clones share the file, so every session of a client,
 /// including other DCs', lands in one recording.
@@ -152,7 +175,15 @@ impl Recorder {
     pub(crate) fn record(&self, outgoing: bool, msg_id: i64, body: &[u8]) -> io::Result<()> {
         let unix_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
         let mut log = self.0.lock().unwrap();
-        let body = redact(outgoing, msg_id, body, &mut log.hidden);
+        let (body, cut) = redact(outgoing, body, false, &log.hidden);
+        if outgoing && cut {
+            log.hidden.retain(|&id| (msg_id >> 32) - (id >> 32) < HIDDEN_FOR_SECS);
+            log.hidden.insert(msg_id);
+        }
+        // Answered, cut or not: the request is no longer waiting.
+        if let (false, Some(RPC_RESULT), Some(req)) = (outgoing, constructor_id(&body), body.get(4..12)) {
+            log.hidden.remove(&i64::from_le_bytes(req.try_into().unwrap()));
+        }
         let mut buf = Vec::with_capacity(HEADER + body.len());
         buf.extend_from_slice(&(body.len() as u32).to_le_bytes());
         buf.push(outgoing.into());
@@ -169,42 +200,47 @@ impl Recorder {
     }
 }
 
-fn redact<'a>(outgoing: bool, msg_id: i64, body: &'a [u8], hidden: &mut HashSet<i64>) -> Cow<'a, [u8]> {
+/// The rules of the [module](self) for one message: what's kept of `body`, and whether it was cut. `hidden` holds
+/// the msg_ids of cut requests, so that the `rpc_result`s answering them are cut too; `answers_cut` says `body` is
+/// itself the bare answer of a cut request. The recorder and the JSON of a [`Call`](crate::session::Call) both
+/// redact through here.
+pub(crate) fn redact<'a>(
+    outgoing: bool,
+    body: &'a [u8],
+    answers_cut: bool,
+    hidden: &HashSet<i64>,
+) -> (Cow<'a, [u8]>, bool) {
     // A message-level gzip_packed is recorded unpacked, so what it holds is cut and redacted like any other message;
     // replay reads both forms.
     if constructor_id(body) == Some(gzip_packed::ID) {
         if let Ok(plain) = gzip_packed::unpack(body) {
-            return Cow::Owned(redact_plain(outgoing, msg_id, &plain, hidden).into_owned());
+            let (kept, cut) = redact_plain(outgoing, &plain, answers_cut, hidden);
+            return (Cow::Owned(kept.into_owned()), cut);
         }
     }
-    redact_plain(outgoing, msg_id, body, hidden)
+    redact_plain(outgoing, body, answers_cut, hidden)
 }
 
-fn redact_plain<'a>(outgoing: bool, msg_id: i64, body: &'a [u8], hidden: &mut HashSet<i64>) -> Cow<'a, [u8]> {
+fn redact_plain<'a>(outgoing: bool, body: &'a [u8], answers_cut: bool, hidden: &HashSet<i64>) -> (Cow<'a, [u8]>, bool) {
+    let id = constructor_id(body);
     // Zeroed rather than cut: a replay still has to see the new session to fetch the difference.
-    if matches!(constructor_id(body), Some(NEW_SESSION_CREATED | BAD_SERVER_SALT)) && body.len() >= 28 {
+    if matches!(id, Some(NEW_SESSION_CREATED | BAD_SERVER_SALT)) && body.len() >= 28 {
         let mut b = body.to_vec();
         b[20..28].fill(0);
-        return Cow::Owned(b);
+        return (Cow::Owned(b), false);
     }
-    let cut = secret(body, hidden, 0);
-    if let (false, Some(RPC_RESULT), Some(req)) = (outgoing, constructor_id(body), body.get(4..12)) {
-        hidden.remove(&i64::from_le_bytes(req.try_into().unwrap()));
-    }
-    if !cut {
-        return match without_autologin(body, 0).filter(|_| !outgoing) {
+    if !(answers_cut && id != Some(RPC_ERROR)) && !secret(body, hidden, 0) {
+        let kept = match without_autologin(body, 0).filter(|_| !outgoing) {
             Some(clean) => Cow::Owned(clean),
             None => Cow::Borrowed(body),
         };
+        return (kept, false);
     }
-    if outgoing {
-        hidden.retain(|&id| (msg_id >> 32) - (id >> 32) < HIDDEN_FOR_SECS);
-        hidden.insert(msg_id);
-    }
-    Cow::Borrowed(match constructor_id(body) {
+    let kept = match id {
         Some(RPC_RESULT) if body.len() >= 12 => &body[..12],
         _ => &body[..4.min(body.len())],
-    })
+    };
+    (Cow::Borrowed(kept), true)
 }
 
 fn secret(body: &[u8], hidden: &HashSet<i64>, depth: usize) -> bool {
@@ -221,13 +257,6 @@ fn secret(body: &[u8], hidden: &HashSet<i64>, depth: usize) -> bool {
             let req = i64::deserialize(&mut b);
             req.map(|req| hidden.contains(&req) && constructor_id(b) != Some(RPC_ERROR))
         }
-        INVOKE_WITH_LAYER => i32::deserialize(&mut b).map(|_| false),
-        INVOKE_AFTER_MSG | INVOKE_WITH_TAKEOUT => i64::deserialize(&mut b).map(|_| false),
-        INVOKE_AFTER_MSGS => Vec::<i64>::deserialize(&mut b).map(|_| false),
-        INVOKE_WITHOUT_UPDATES => Ok(false),
-        INVOKE_WITH_MESSAGES_RANGE => base::MessageRange::deserialize(&mut b).map(|_| false),
-        INVOKE_WITH_BUSINESS_CONNECTION => Vec::<u8>::deserialize(&mut b).map(|_| false),
-        INIT_CONNECTION => skip_init_connection(&mut b).map(|()| false),
         // A login code's hash comes as updateSentPhoneCode too; the whole batch goes.
         UPDATE_SHORT | UPDATES | UPDATES_COMBINED => {
             return base::Updates::from_bytes(body).map_or(true, |u| match u {
@@ -244,9 +273,41 @@ fn secret(body: &[u8], hidden: &HashSet<i64>, depth: usize) -> bool {
                 _ => false,
             });
         }
-        _ => return false,
+        _ => match skip_wrapper(id, &mut b) {
+            Some(skipped) => skipped.map(|()| false),
+            None => return false,
+        },
     };
     skipped.map_or(true, |hit| hit || deeper(b))
+}
+
+// Reads the fields a wrapper call puts before the query it carries; `None` for a call that isn't a wrapper.
+fn skip_wrapper(id: u32, b: &mut &[u8]) -> Option<Result<(), Error>> {
+    Some(match id {
+        INVOKE_WITH_LAYER => i32::deserialize(b).map(drop),
+        INVOKE_AFTER_MSG | INVOKE_WITH_TAKEOUT => i64::deserialize(b).map(drop),
+        INVOKE_AFTER_MSGS => Vec::<i64>::deserialize(b).map(drop),
+        INVOKE_WITHOUT_UPDATES => Ok(()),
+        INVOKE_WITH_MESSAGES_RANGE => base::MessageRange::deserialize(b).map(drop),
+        INVOKE_WITH_BUSINESS_CONNECTION => Vec::<u8>::deserialize(b).map(drop),
+        INIT_CONNECTION => skip_init_connection(b),
+        _ => return None,
+    })
+}
+
+/// The constructor id of the query inside a call's wrappers (`invokeWithLayer`, `initConnection` and the like).
+#[cfg(feature = "json")]
+fn query_id(mut body: &[u8]) -> Option<u32> {
+    for _ in 0..=MAX_DEPTH {
+        let id = constructor_id(body)?;
+        let mut rest = &body[4..];
+        match skip_wrapper(id, &mut rest) {
+            None => return Some(id),
+            Some(Ok(())) => body = rest,
+            Some(Err(_)) => return None,
+        }
+    }
+    None
 }
 
 fn has_credential(updates: &[base::Update]) -> bool {
@@ -581,6 +642,115 @@ mod tests {
         assert!(users.ends_with(r#""body":{"_":"users.getUsers","id":[{"_":"inputUserSelf"}]}}"#), "{users}");
         let vector = json(rpc_result(8, &Vec::<i64>::new().to_bytes()));
         assert!(vector.ends_with(r#""result":{"cut":"vector"}}}"#), "{vector}");
+    }
+
+    #[cfg(feature = "json")]
+    fn call<'a>(request: &'a [u8], result: Result<&'a [u8], &'a crate::Error>) -> crate::session::Call<'a> {
+        let duration = std::time::Duration::ZERO;
+        let (name, msg_id, dc, connection, resent, tag) = ("test", 4, 2, 0, 0, None);
+        crate::session::Call { name, msg_id, request, duration, result, dc, connection, resent, tag }
+    }
+
+    #[cfg(feature = "json")]
+    #[test]
+    fn call_json_cuts_logins_and_every_answer_to_them() {
+        let sign_in = functions::auth::SignIn {
+            phone_number: "+15550100".into(),
+            phone_code_hash: "code-hash-secret".into(),
+            phone_code: Some("12345".into()),
+            email_verification: None,
+        };
+        let mut srp = Vec::new();
+        0xd27ff082u32.serialize(&mut srp);
+        7i64.serialize(&mut srp);
+        vec![0x3cu8; 256].serialize(&mut srp);
+        b"srp-proof-secret".to_vec().serialize(&mut srp);
+        let check = functions::auth::CheckPassword { password: base::InputCheckPasswordSRP::from_bytes(&srp).unwrap() };
+        let bot = functions::auth::ImportBotAuthorization {
+            flags: 0,
+            api_id: 1,
+            api_hash: "api-hash-secret".into(),
+            bot_auth_token: "4242:bot-token-secret".into(),
+        };
+        let import = functions::auth::ImportAuthorization { id: 1, bytes: b"exported-secret".to_vec() };
+        let calls = [
+            (sign_in.to_bytes(), r#"{"cut":"auth.signIn"}"#),
+            (check.to_bytes(), r#"{"cut":"auth.checkPassword"}"#),
+            (bot.to_bytes(), r#"{"cut":"auth.importBotAuthorization"}"#),
+            (init(bot).to_bytes(), r#"{"cut":"invokeWithLayer"}"#),
+            (import.to_bytes(), r#"{"cut":"auth.importAuthorization"}"#),
+        ];
+        // Harmless on its own: only the request it answers gets it cut.
+        let pong = types::Pong { msg_id: 1, ping_id: 2 };
+        let pong = base::Pong::Pong(Box::new(pong)).to_bytes();
+        for (request, cut) in &calls {
+            let c = call(request, Ok(&pong));
+            assert_eq!((c.request_json().as_str(), c.result_json().as_deref()), (*cut, Some(r#"{"cut":"pong"}"#)));
+        }
+        let ping = functions::Ping { ping_id: 2 }.to_bytes();
+        assert_eq!(call(&ping, Ok(&pong)).result_json().unwrap(), r#"{"_":"pong","msg_id":1,"ping_id":2}"#);
+
+        let export = functions::auth::ExportAuthorization { dc_id: 4 }.to_bytes();
+        let exported = types::auth::ExportedAuthorization { id: 1, bytes: b"exported-secret".to_vec() };
+        let exported = base::auth::ExportedAuthorization::ExportedAuthorization(Box::new(exported)).to_bytes();
+        let c = call(&export, Ok(&exported));
+        assert_eq!(c.request_json(), r#"{"cut":"auth.exportAuthorization"}"#);
+        assert_eq!(c.result_json().unwrap(), r#"{"cut":"auth.exportedAuthorization"}"#);
+    }
+
+    #[cfg(feature = "json")]
+    #[test]
+    fn call_json_keeps_ordinary_calls_whole_and_reads_vectors_by_their_request() {
+        use crate::raw::ToJson;
+        let send = functions::messages::SendMessage {
+            no_webpage: false,
+            silent: false,
+            background: false,
+            clear_draft: false,
+            noforwards: false,
+            update_stickersets_order: false,
+            invert_media: false,
+            allow_paid_floodskip: false,
+            peer: base::InputPeer::InputPeerSelf,
+            reply_to: None,
+            message: "hello".into(),
+            random_id: 9,
+            reply_markup: None,
+            entities: None,
+            schedule_date: None,
+            schedule_repeat_period: None,
+            send_as: None,
+            quick_reply_shortcut: None,
+            effect: None,
+            allow_paid_stars: None,
+            suggested_post: None,
+            rich_message: None,
+        };
+        let sent = types::UpdateShortSentMessage {
+            out: true,
+            id: 3,
+            pts: 10,
+            pts_count: 1,
+            date: 1_700_000_000,
+            media: None,
+            entities: None,
+            ttl_period: None,
+        };
+        let sent = base::Updates::UpdateShortSentMessage(Box::new(sent));
+        let (request, answer) = (send.to_bytes(), sent.to_bytes());
+        let c = call(&request, Ok(&answer));
+        assert_eq!((c.request_json(), c.result_json()), (send.json(), Some(sent.json())));
+
+        let users = vec![base::User::UserEmpty(types::UserEmpty { id: 5 })];
+        let get = functions::users::GetUsers { id: vec![base::InputUser::InputUserSelf] };
+        let quiet = functions::InvokeWithoutUpdates { query: init(get.clone()) };
+        for request in [get.to_bytes(), init(get).to_bytes(), quiet.to_bytes()] {
+            let json = call(&request, Ok(&users.to_bytes())).result_json();
+            assert_eq!(json.as_deref(), Some(r#"[{"_":"userEmpty","id":5}]"#));
+        }
+
+        let error = crate::Error::Timeout;
+        assert_eq!(call(&request, Err(&error)).result_json(), None);
     }
 
     #[cfg(feature = "json")]

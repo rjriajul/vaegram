@@ -307,7 +307,9 @@ fn gen_reads(out: &mut String, d: &Def) -> Vec<String> {
     names
 }
 
-/// `json_of(body)`: any object or call as JSON, picked by its constructor id, and `tl_name(id)`.
+/// `json_of(body)`: any object or call as JSON, picked by its constructor id; `tl_name(id)`; and
+/// `answer_json_of(function, body)`: the answer to a call, read as the type the call returns, picked by the call's
+/// constructor id, which is how a bare vector can be read at all.
 fn gen_json_of(out: &mut String, defs: &[Def]) {
     writeln!(out, "pub(crate) fn tl_name(id: u32) -> ::std::option::Option<&'static str> {{").unwrap();
     writeln!(out, "    Some(match id {{").unwrap();
@@ -372,6 +374,24 @@ fn gen_json_of(out: &mut String, defs: &[Def]) {
         } else {
             writeln!(out, "        {:#010x} => {}(buf).ok(),", d.id, call_fn(d)).unwrap();
         }
+    }
+    writeln!(out, "        _ => None,\n    }}\n}}").unwrap();
+
+    // Grouped by return type, so each type's reader appears once.
+    let mut by_return: BTreeMap<String, Vec<u32>> = BTreeMap::new();
+    for d in defs.iter().filter(|d| d.function && !d.generic) {
+        by_return.entry(rust_ty(&d.ty, false)).or_default().push(d.id);
+    }
+    writeln!(
+        out,
+        "pub(crate) fn answer_json_of(function: u32, body: &[u8]) -> ::std::option::Option<::std::string::String> {{"
+    )
+    .unwrap();
+    writeln!(out, "    match function {{").unwrap();
+    for (ty, ids) in &by_return {
+        let ids: Vec<String> = ids.iter().map(|id| format!("{id:#010x}")).collect();
+        let read = format!("<{ty} as crate::raw::Deserializable>::from_bytes(body)");
+        writeln!(out, "        {} => {read}.ok().map(|v| crate::raw::ToJson::json(&v)),", ids.join(" | ")).unwrap();
     }
     writeln!(out, "        _ => None,\n    }}\n}}").unwrap();
 }
