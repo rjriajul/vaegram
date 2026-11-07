@@ -2,22 +2,17 @@
 
 # vaegram
 
+**A Telegram MTProto client in Rust, for bots and user accounts**
+
+[Documentation](https://docs.rs/vaegram) • [Examples](examples) • [Releases](https://github.com/rjriajul/vaegram/releases)
+
 [![Crates.io](https://img.shields.io/crates/v/vaegram)](https://crates.io/crates/vaegram)
 [![Docs.rs](https://img.shields.io/docsrs/vaegram)](https://docs.rs/vaegram)
 [![Downloads](https://img.shields.io/crates/d/vaegram)](https://crates.io/crates/vaegram)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](https://www.rust-lang.org)
 [![License](https://img.shields.io/github/license/rjriajul/vaegram)](https://github.com/rjriajul/vaegram/blob/main/LICENSE)
 
-**Fast, modern and asynchronous Telegram MTProto API framework in Rust for users and bots**
-
 </div>
-
-**vaegram** talks to Telegram's main API directly over [MTProto](https://core.telegram.org/mtproto), written from
-scratch in Rust. Run it as a bot, as a full alternative to the Bot API with no HTTP server in between, or as a user
-account, a custom Telegram client. You get typed handlers and filters, conversations, media upload and download,
-sessions that survive restarts, and a friendly method for most of what Telegram offers: chats, messages, stories,
-payments, gifts and business accounts. Anything else is one `invoke` away, with every function of the latest API
-layer generated from Telegram's own schema.
 
 ```rust
 use vaegram::prelude::*;
@@ -38,21 +33,25 @@ async fn main() -> Result<()> {
 }
 ```
 
-### Key Features
+vaegram talks to Telegram's main API over [MTProto](https://core.telegram.org/mtproto), the protocol the official
+apps use. A bot can use it in place of the Bot API, and a user account can use it as a custom client. The transport,
+encryption and session are written from scratch in Rust, and the types for all 876 functions of API layer 233 are
+generated from Telegram's schema.
 
-- **Pure Rust**: its own MTProto 2.0 transport, auth key handshake and encrypted session, with all of Telegram's
-  security checks.
-- **Up to date**: all functions of the latest layer (233), generated from the TL schema at build time.
-- **Users and bots**: phone login with 2FA, QR login, bot tokens, and business connections.
-- **Handlers and conversations**: `on_message` and 40-odd other handlers, composable filters, `ask`, `listen` and
-  next-step handlers.
-- **Reliable updates**: gap recovery after reconnects and restarts, with the update state saved in the session.
-- **Pluggable storage**: a session file by default; SQLite, redb, Redis, MongoDB, S3 and Vault behind features.
-- **Observable**: an observer sees every request, `ClientEvent` reports what went wrong, and traffic can be
-  recorded and replayed in tests.
-- **Fast**: crypto by [WarpCrypto](https://github.com/rjriajul/WarpCrypto).
+## Features
 
-### Installing
+- Bot login with a token, and user login with a phone code, a 2FA password or a QR code.
+- 45 `on_*` handlers and hooks, with filters you combine with `&`, `|` and `!`.
+- Conversations with `ask`, `listen`, `wait_for_click` and next-step handlers.
+- Friendly methods for chats, messages, media, stories, payments, gifts and business accounts, and `invoke` for
+  any raw function.
+- A session file that keeps the login, the chats the client has seen and the update state, so a restart picks up
+  the updates it missed. SQLite, redb, Redis, MongoDB, S3 and Vault storage come behind cargo features.
+- Rate limiting, FLOOD_WAIT retries, and reconnects that fill update gaps.
+- An observer for every request, events for failures, and recorded traffic you can replay in tests.
+- Crypto from [WarpCrypto](https://github.com/rjriajul/WarpCrypto).
+
+## Installing
 
 ```toml
 [dependencies]
@@ -60,22 +59,54 @@ vaegram = "0.2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-Requires Rust 1.85+. Prefer a shorter name? `vae = "0.2"` is the same crate: `use vae::Client;`.
+vaegram needs Rust 1.85 or newer. The `vae` crate is the same library under a shorter name: `vae = "0.2"`, then
+`use vae::Client;`.
 
-You need an `api_id` and `api_hash` from [my.telegram.org](https://my.telegram.org), and for a bot, a token from
-[@BotFather](https://t.me/BotFather). Leave out `.bot_token(..)` and `start()` logs in a user account, asking for
-the phone number, the code and the 2FA password. More in [examples](examples).
+Get an `api_id` and `api_hash` from [my.telegram.org](https://my.telegram.org). A bot also needs a token from
+[@BotFather](https://t.me/BotFather).
 
-### Sessions
+## Logging in as a user
 
-The first run logs in and writes `my_bot.session`; later runs reuse it, with the chats it knows and the updates
-missed while offline. Only one client at a time can use a session file. `.in_memory()` keeps nothing on disk,
-`.storage_engine(..)` stores it anywhere, and `export_session_string()` puts the login in one line for an env var.
+Leave out `.bot_token(..)` and `start()` asks for the phone number, the login code and the 2FA password:
 
-> A session file or string **is** the login: anyone who has it is logged in as that account. Never commit or share
-> it.
+```rust
+let app = Client::builder("my_account", api_id, api_hash).start().await?;
+let me = app.get_me().await?;
+println!("Logged in as {}", me.first_name);
+app.send_message("me", "Hello from vaegram").await?;
+```
 
-### Raw API and Errors
+## Examples
+
+Buttons and callback queries ([examples/demo_bot.rs](examples/demo_bot.rs)):
+
+```rust
+app.on_message(filters::command("menu"), |msg| async move {
+    let keyboard = InlineKeyboardMarkup::new([vec![
+        InlineKeyboardButton::callback("Yes", "yes"),
+        InlineKeyboardButton::callback("No", "no"),
+    ]]);
+    msg.answer("Pick one").reply_markup(keyboard).await?;
+    Ok(())
+});
+
+app.on_callback_query(filters::all(), |query| async move {
+    query.answer().text(format!("You pressed {}", query.data)).await?;
+    Ok(())
+});
+```
+
+A question and its answer:
+
+```rust
+app.on_message(filters::command("name"), |msg| async move {
+    let answer = msg.client().ask(msg.chat.id, "What's your name?").filter(filters::text()).await?;
+    answer.reply(format!("Hi {}", answer.text())).await?;
+    Ok(())
+});
+```
+
+Raw API calls and Telegram errors:
 
 ```rust
 use vaegram::raw::functions;
@@ -84,28 +115,30 @@ let config = app.invoke(&functions::help::GetConfig {}).await?;
 
 match app.send_message(chat_id, "hi").await {
     Err(e) if e.is("CHAT_WRITE_FORBIDDEN") => println!("no rights to write there"),
-    Err(e) if e.flood_wait().is_some() => println!("slow down"),
+    Err(e) if e.flood_wait().is_some() => println!("rate limited"),
     other => { other?; }
 }
 ```
 
-FLOOD_WAITs up to a minute are slept off and retried. Chat ids follow the Bot API: users positive, groups negative,
-channels `-100…`; methods also take `"me"`, `"@username"`, a `t.me` link or a `&Chat`, `&User` or `&Message`.
+Chat ids follow the Bot API: users are positive, groups negative, and channels start with `-100`. A method that takes
+a chat also accepts `"me"`, `"@username"`, a `t.me` link, or a `&Chat`, `&User` or `&Message`.
 
-### Testing Offline
+## Sessions
 
-`.record("bot.rec")` writes a client's traffic, and `session::Replay` serves it back on localhost, so handlers run
-against real Telegram traffic with no network and no credentials. See
-[examples/replay_test.rs](examples/replay_test.rs).
+The first run logs in and writes `my_bot.session`, and later runs reuse it. One client at a time can open a session
+file. `.in_memory()` keeps nothing on disk, `.storage_engine(..)` stores the session anywhere, and
+`export_session_string()` puts the login in a single line for an environment variable.
 
-### Resources
+> A session file or string is the login itself. Anyone who has it is logged in as that account, so never commit or
+> share it.
 
-- [Documentation](https://docs.rs/vaegram)
-- [Releases](https://github.com/rjriajul/vaegram/releases)
-- [Examples](examples)
-- [Issue tracker](https://github.com/rjriajul/vaegram/issues)
+## Testing offline
 
-### Development
+`.record("bot.rec")` writes everything a client sends and receives, and `session::Replay` serves that file back on
+localhost. Your handlers then run against real Telegram traffic with no network or credentials.
+[examples/replay_test.rs](examples/replay_test.rs) shows the whole loop.
+
+## Development
 
 ```bash
 cargo test --workspace                                         # offline tests
@@ -113,7 +146,7 @@ cargo test --features unstable-raw --test live -- --ignored    # live tests agai
 cargo bench --bench tl                                         # benchmarks
 ```
 
-### License
+## License
 
 [Apache-2.0](LICENSE). Use it, fork it, change it, ship it. Every copy and fork must keep the [NOTICE](NOTICE) file
 crediting vaegram and Riajul, and may not use the vaegram or vae name to promote itself.
