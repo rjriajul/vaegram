@@ -446,7 +446,14 @@ async fn user_account_talks_to_bot() {
     let me_again = again.get_me().await.unwrap();
     assert_eq!(me_again.id, me.id);
 
-    let bot = Client::builder("target/vaegram-live-bot-chat", api_id, api_hash).bot_token(token).start().await.unwrap();
+    // Without catch-up, `run` starts from now instead of replaying what the saved sessions missed, so the handlers
+    // below don't answer other tests' old messages.
+    let bot = Client::builder("target/vaegram-live-bot-chat", api_id, api_hash)
+        .bot_token(token)
+        .catch_up(false)
+        .start()
+        .await
+        .unwrap();
     let bot_me = bot.get_me().await.unwrap();
     let bot_id = user.resolve_username(bot_me.username.as_deref().unwrap()).await.unwrap();
     assert_eq!(bot_id, bot_me.id);
@@ -462,12 +469,13 @@ async fn user_account_talks_to_bot() {
         counter.fetch_add(1, Ordering::Relaxed);
         async { Ok(()) }
     });
-    bot.on_message(filters::private() & filters::text(), |msg| async move {
+    // Incoming only: a bot also gets the messages its other sessions send.
+    bot.on_message(filters::private() & filters::text() & filters::incoming(), |msg| async move {
         let tap = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Tap", "tap")]]);
         msg.reply(format!("pong: {}", msg.text())).reply_markup(tap).await?;
         Ok(())
     });
-    bot.on_edited_message(filters::private(), |msg| async move {
+    bot.on_edited_message(filters::private() & filters::incoming(), |msg| async move {
         msg.reply(format!("edited: {}", msg.text())).await?;
         Ok(())
     });
@@ -483,7 +491,7 @@ async fn user_account_talks_to_bot() {
     });
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let from_bot = filters::user(bot_id) & filters::incoming();
+    let from_bot = filters::private() & filters::user(bot_id) & filters::incoming();
     let sent = tx.clone();
     user.on_message(from_bot.clone(), move |msg| {
         let tx = sent.clone();
@@ -502,15 +510,19 @@ async fn user_account_talks_to_bot() {
     let (bot_runner, user_runner) = (bot.clone(), user.clone());
     tokio::spawn(async move { bot_runner.run().await });
     tokio::spawn(async move { user_runner.run().await });
+    let _disconnect = support::Disconnect(vec![bot.clone(), user.clone()]);
     tokio::time::sleep(Duration::from_secs(2)).await;
 
+    // Each wait takes only the bot's answer to this test's message, newer than it: the chat may also bring older
+    // messages that the user's saved session missed.
     let ping = user.send_message(bot_id, "ping").await.unwrap();
-    let pong = next(&mut rx, "new").await;
+    let pong = next(&mut rx, "new", |m| m.id > ping.id && m.reply_to_message_id == Some(ping.id)).await;
     assert_eq!(pong.text(), "pong: ping");
     assert!(pong.reply_markup().is_some());
 
     let ping = ping.edit_text("ping 2").await.unwrap();
-    assert_eq!(next(&mut rx, "new").await.text(), "edited: ping 2");
+    let edited = next(&mut rx, "new", |m| m.id > pong.id && m.reply_to_message_id == Some(ping.id)).await;
+    assert_eq!(edited.text(), "edited: ping 2");
 
     let peer = user.resolve_peer(bot_id).await.unwrap();
     let request = functions::messages::GetBotCallbackAnswer {
@@ -522,7 +534,7 @@ async fn user_account_talks_to_bot() {
     };
     let base::messages::BotCallbackAnswer::BotCallbackAnswer(answer) = user.invoke(&request).await.unwrap();
     assert_eq!(answer.message.as_deref(), Some("tapped"));
-    let tapped = next(&mut rx, "edit").await;
+    let tapped = next(&mut rx, "edit", |m| m.id == pong.id).await;
     assert_eq!((tapped.id, tapped.text()), (pong.id, "tapped!"));
 
     let base::InputPeer::InputPeerUser(bot_peer) = &peer else { panic!("the bot is not a user peer") };
@@ -580,7 +592,7 @@ async fn user_keeps_peers_across_restarts() {
 #[ignore = "uses a logged-in user session and a bot"]
 async fn user_gets_the_bots_reply_through_the_kit() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::text(), |m| async move {
+    kit.bot.on_message(filters::private() & filters::text() & filters::incoming(), |m| async move {
         m.reply(format!("echo: {}", m.text())).await?;
         Ok(())
     });
@@ -588,13 +600,18 @@ async fn user_gets_the_bots_reply_through_the_kit() {
     assert_eq!((reply.text(), reply.outgoing), ("echo: hi from the kit", false));
 }
 
-async fn next(rx: &mut tokio::sync::mpsc::UnboundedReceiver<(&'static str, Message)>, kind: &str) -> Message {
+/// The next `kind` message on `rx` that `wanted` accepts; the others are skipped.
+async fn next(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<(&'static str, Message)>,
+    kind: &str,
+    wanted: impl Fn(&Message) -> bool,
+) -> Message {
     loop {
         let (k, msg) = tokio::time::timeout(Duration::from_secs(30), rx.recv())
             .await
             .unwrap_or_else(|_| panic!("no {kind} message from the bot within 30s"))
             .unwrap();
-        if k == kind {
+        if k == kind && wanted(&msg) {
             return msg;
         }
     }
@@ -819,14 +836,21 @@ async fn user_posts_and_edits_a_story() {
     if !me.is_premium {
         eprintln!("skipped the formatted caption: the VAEGRAM_USER_SESSION account has no Premium");
     }
-    let story = user
+    let sent = user
         .send_story(me.id, InputStoryContent::photo(photo.as_str()))
         .caption(caption)
         .html()
         .privacy(StoriesPrivacyRules::CloseFriends)
         .protect_content()
-        .await
-        .unwrap();
+        .await;
+    let story = match sent {
+        // The account is at its `story_expiring_limit_*` of active stories (a few without Premium).
+        Err(e) if e.is("STORIES_TOO_MUCH") => {
+            eprintln!("skipped: the account has too many active stories; delete some or wait for them to expire");
+            return;
+        }
+        sent => sent.unwrap(),
+    };
     assert_eq!((story.chat.id, story.caption.as_deref(), story.is_close_friends), (me.id, Some("vaegram"), true));
 
     let edited = user.edit_story_caption(me.id, story.id, "edited").await.unwrap();
@@ -1228,8 +1252,8 @@ async fn user_changes_supergroup_settings() {
 }
 
 #[tokio::test]
-#[ignore = "flips and restores four settings of a chat the user owns; the chat must qualify for anti-spam, hidden \
-            members, auto-translation and sponsored-message limits"]
+#[ignore = "flips and restores the settings of a chat the user owns: anti-spam and hidden members in a supergroup, \
+            sponsored messages and auto-translation in a channel with enough boosts"]
 async fn owner_flips_and_restores_channel_toggles() {
     let Some(user) = user_client().await else { return };
     let Ok(chat) = std::env::var("VAEGRAM_OWNED_CHAT_ID") else {
@@ -1237,35 +1261,45 @@ async fn owner_flips_and_restores_channel_toggles() {
         return;
     };
     let chat: i64 = chat.parse().unwrap();
-    let read = |full: types::ChannelFull| (full.antispam, full.participants_hidden, full.restricted_sponsored);
-    let (antispam, hidden, restricted) = read(channel_full(&user, chat).await);
-    let translated = channel_info(&user, chat).await.autotranslation;
+    // Anti-spam and hidden members are supergroup settings; sponsored messages and auto-translation are a broadcast
+    // channel's, and Telegram answers CHANNEL_INVALID for them in a supergroup.
+    if channel_info(&user, chat).await.megagroup {
+        eprintln!("skipped sponsored messages and auto-translation: VAEGRAM_OWNED_CHAT_ID is a supergroup");
+        let read = |full: types::ChannelFull| (full.antispam, full.participants_hidden);
+        let (antispam, hidden) = read(channel_full(&user, chat).await);
+        user.toggle_anti_spam(chat, !antispam).await.unwrap();
+        // Hiding members needs `hidden_members_group_size_min` (100) of them, more than a test chat usually has.
+        let hides = match user.toggle_participants_hidden(chat, !hidden).await {
+            Err(e) if e.is("PARTICIPANTS_TOO_FEW") => {
+                eprintln!("skipped toggle_participants_hidden: the chat has too few members to hide them");
+                false
+            }
+            result => {
+                result.unwrap();
+                true
+            }
+        };
+        assert_eq!(read(channel_full(&user, chat).await), (!antispam, hidden != hides));
 
-    user.toggle_anti_spam(chat, !antispam).await.unwrap();
-    // Hiding members needs `hidden_members_group_size_min` (100) of them, more than a test chat usually has.
-    let hides = match user.toggle_participants_hidden(chat, !hidden).await {
-        Err(e) if e.is("PARTICIPANTS_TOO_FEW") => {
-            eprintln!("skipped toggle_participants_hidden: the chat has too few members to hide them");
-            false
+        user.toggle_anti_spam(chat, antispam).await.unwrap();
+        if hides {
+            user.toggle_participants_hidden(chat, hidden).await.unwrap();
         }
-        result => {
-            result.unwrap();
-            true
-        }
-    };
-    user.restrict_sponsored_messages(chat, !restricted).await.unwrap();
-    user.toggle_auto_translation(chat, !translated).await.unwrap();
-    assert_eq!(read(channel_full(&user, chat).await), (!antispam, hidden != hides, !restricted));
-    assert_eq!(channel_info(&user, chat).await.autotranslation, !translated);
+        assert_eq!(read(channel_full(&user, chat).await), (antispam, hidden));
+    } else {
+        eprintln!("skipped anti-spam and hidden members: VAEGRAM_OWNED_CHAT_ID is a broadcast channel");
+        let restricted = channel_full(&user, chat).await.restricted_sponsored;
+        let translated = channel_info(&user, chat).await.autotranslation;
+        user.restrict_sponsored_messages(chat, !restricted).await.unwrap();
+        user.toggle_auto_translation(chat, !translated).await.unwrap();
+        assert_eq!(channel_full(&user, chat).await.restricted_sponsored, !restricted);
+        assert_eq!(channel_info(&user, chat).await.autotranslation, !translated);
 
-    user.toggle_anti_spam(chat, antispam).await.unwrap();
-    if hides {
-        user.toggle_participants_hidden(chat, hidden).await.unwrap();
+        user.restrict_sponsored_messages(chat, restricted).await.unwrap();
+        user.toggle_auto_translation(chat, translated).await.unwrap();
+        assert_eq!(channel_full(&user, chat).await.restricted_sponsored, restricted);
+        assert_eq!(channel_info(&user, chat).await.autotranslation, translated);
     }
-    user.restrict_sponsored_messages(chat, restricted).await.unwrap();
-    user.toggle_auto_translation(chat, translated).await.unwrap();
-    assert_eq!(read(channel_full(&user, chat).await), (antispam, hidden, restricted));
-    assert_eq!(channel_info(&user, chat).await.autotranslation, translated);
 }
 
 #[tokio::test]
