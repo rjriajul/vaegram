@@ -123,8 +123,9 @@ pub(crate) fn story_music(file_id: &str) -> Result<base::InputDocument> {
 mod tests {
     use super::story_music;
     use crate::Client;
+    use crate::enums::FileType;
     use crate::errors::Error;
-    use crate::file_id::{FileId, FileType, ThumbnailSource};
+    use crate::file_id::{FileId, ThumbnailSource};
     use crate::raw::{base, types};
     use crate::types::{InputStoryContent, StoryArea, StoryAreaPosition, StoryAreaType, Text};
 

@@ -77,9 +77,14 @@ const ACK_EVERY: Duration = Duration::from_secs(15);
 
 type Answer = Result<Vec<u8>>;
 
+/// The body and tag of each request a scripted test session took.
+#[cfg(test)]
+pub(crate) type TaggedBodies = mpsc::UnboundedReceiver<(Vec<u8>, Option<u64>)>;
+
 struct Request {
     name: &'static str,
     body: Vec<u8>,
+    tag: Option<u64>,
     answer: oneshot::Sender<Answer>,
 }
 
@@ -116,11 +121,13 @@ pub struct Call<'a> {
     /// The msg_id it was last sent under; 0 if it never went out.
     pub msg_id: i64,
     /// The whole call as sent, credentials included (bot tokens, SRP proofs, exported authorizations): don't log
-    /// it as is. A recording keeps the redacted form.
+    /// it as is. A recording keeps the redacted form; `request_json` (with the `json` feature) gives it as JSON.
     pub request: &'a [u8],
     /// From when the connection's task took the request in to its end, re-sends included.
     pub duration: Duration,
-    /// The answer's TL bytes, or the error the caller got. A caller that stopped waiting got `Error::Timeout`.
+    /// The answer's TL bytes, or the error the caller got. A caller that stopped waiting got `Error::Timeout`. The
+    /// bytes hold credentials too (exported authorizations, login tokens, temporary passwords): don't log them as
+    /// they are. `result_json` (with the `json` feature) gives the answer with them cut.
     pub result: Result<&'a [u8], &'a Error>,
     /// The data center the request went to.
     pub dc: i32,
@@ -128,6 +135,32 @@ pub struct Call<'a> {
     pub connection: u32,
     /// Times it went out again: after a bad_server_salt, a bad_msg_notification or a lost connection.
     pub resent: u16,
+    /// The tag of the innermost [`tagged`](crate::observe::tagged) the request was sent inside, read on the
+    /// sending task when it sent it; `None` for a request sent outside one, and for what vaegram sends on its own:
+    /// pings, everything `run` and `compose` send (the account and update state at start, the dispatcher's
+    /// `getDifference`, the difference `recover_gaps` asks for), hooks and handlers. Requests a vaegram method sends
+    /// from a task it starts for that call (a message stream, a repeated chat action) carry the caller's tag, and a
+    /// re-sent request keeps its own.
+    pub tag: Option<u64>,
+}
+
+#[cfg(feature = "json")]
+impl Call<'_> {
+    /// [`request`](Self::request) as JSON in the shape of [`ToJson`](crate::raw::ToJson), with credentials cut as
+    /// a [recording](crate::storage::recording) cuts them: a call that carries one comes out as its outermost name
+    /// only, such as `{"cut":"auth.signIn"}`, or `{"cut":"invokeWithLayer"}` when it went out wrapped.
+    pub fn request_json(&self) -> String {
+        crate::storage::recording::request_json(self.request)
+    }
+
+    /// The answer as JSON in the shape of [`ToJson`](crate::raw::ToJson), read as the type the request returns, so
+    /// a bare vector such as the answer to `users.getUsers` comes out whole. As in a
+    /// [recording](crate::storage::recording), the answer to a request that was cut is cut too, as is one that holds
+    /// a credential itself: only its name is left, such as `{"cut":"auth.authorization"}`. `None` when
+    /// [`result`](Self::result) is an error; the error itself carries no credentials.
+    pub fn result_json(&self) -> Option<String> {
+        self.result.ok().map(|answer| crate::storage::recording::answer_json(self.request, answer))
+    }
 }
 
 /// The per-request hook: it runs on the connection's task for every request that ends, so it should return
@@ -306,12 +339,26 @@ impl Session {
 
     #[cfg(test)]
     pub(crate) fn scripted(replies: Vec<Result<Vec<u8>>>) -> (Session, mpsc::UnboundedReceiver<Vec<u8>>) {
+        Session::scripted_as(replies, |r| std::mem::take(&mut r.body))
+    }
+
+    /// [`scripted`](Self::scripted), handing back each request's tag along with its body.
+    #[cfg(test)]
+    pub(crate) fn scripted_tags(replies: Vec<Result<Vec<u8>>>) -> (Session, TaggedBodies) {
+        Session::scripted_as(replies, |r| (std::mem::take(&mut r.body), r.tag))
+    }
+
+    #[cfg(test)]
+    fn scripted_as<T: Send + 'static>(
+        replies: Vec<Result<Vec<u8>>>,
+        seen: fn(&mut Request) -> T,
+    ) -> (Session, mpsc::UnboundedReceiver<T>) {
         let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
-        let (bodies, sent) = mpsc::unbounded_channel();
+        let (log, sent) = mpsc::unbounded_channel();
         tokio::spawn(async move {
             let mut replies = replies.into_iter();
-            while let Some(request) = rx.recv().await {
-                let _ = bodies.send(request.body);
+            while let Some(mut request) = rx.recv().await {
+                let _ = log.send(seen(&mut request));
                 if let Some(reply) = replies.next() {
                     let _ = request.answer.send(reply);
                 }
@@ -493,7 +540,7 @@ impl Session {
             return Err(Error::InvalidArgument("a request can't be over 16 MiB"));
         }
         let (answer, rx) = oneshot::channel();
-        let request = Request { name: R::NAME, body, answer };
+        let request = Request { name: R::NAME, body, tag: crate::observe::current_tag(), answer };
         self.requests.send(request).map_err(|_| Error::Disconnected)?;
         let answer = tokio::time::timeout(timeout, rx).await.map_err(|_| Error::Timeout)?;
         let body = answer.map_err(|_| Error::Disconnected)??;
@@ -636,6 +683,7 @@ enum Role {
 struct Pending {
     name: &'static str,
     body: Vec<u8>,
+    tag: Option<u64>,
     answer: oneshot::Sender<Answer>,
     // Kept across re-sends, so the observer sees the whole wait.
     start: Instant,
@@ -949,8 +997,8 @@ impl Runner {
     }
 
     fn enqueue(&mut self, r: Request) {
-        let Request { name, body, answer } = r;
-        let p = Pending { name, body, answer, start: Instant::now(), container: 0, acked: false, resent: 0 };
+        let Request { name, body, tag, answer } = r;
+        let p = Pending { name, body, tag, answer, start: Instant::now(), container: 0, acked: false, resent: 0 };
         if p.answer.is_closed() {
             self.finish(0, p, Err(Error::Timeout));
         } else {
@@ -1006,6 +1054,7 @@ impl Runner {
                 dc: self.dc.id,
                 connection: self.connection,
                 resent: p.resent,
+                tag: p.tag,
             };
             // A panicking observer would otherwise take the connection down with it.
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| observe(&call)));

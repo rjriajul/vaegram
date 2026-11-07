@@ -192,7 +192,9 @@ impl Runner {
                 let (answer, rx) = oneshot::channel();
                 p._init_answer = Some(rx);
                 let (name, start, body) = ("invokeWithLayer", std::time::Instant::now(), p.init.clone());
-                self.queue.push_front(Pending { name, body, answer, start, container: 0, acked: false, resent: 0 });
+                // Sent on the connection's own account, so it carries no caller's tag.
+                let init = Pending { name, body, tag: None, answer, start, container: 0, acked: false, resent: 0 };
+                self.queue.push_front(init);
                 Bind::Done
             }
             Ok(false) => Bind::Failed(Error::Security("server refused to bind the temporary key")),

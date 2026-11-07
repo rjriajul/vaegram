@@ -1,7 +1,6 @@
 use crate::Client;
 use crate::dispatcher::Entities;
-use crate::enums::MediaKind;
-use crate::file_id::FileType;
+use crate::enums::{FileType, MediaKind};
 use crate::raw::base;
 use crate::types::{
     Animation, Audio, Checklist, Contact, Dice, Document, FileLocation, Game, Giveaway, GiveawayWinners, Invoice,

@@ -21,6 +21,8 @@ use crate::raw::{Deserializable, Identifiable, Serializable, base, functions, ty
 use crate::storage::{SessionData, recording, session_string};
 
 type Any = functions::Ping;
+/// The name and tag of every call an observer saw, in order.
+pub(crate) type Tags = Arc<Mutex<Vec<(&'static str, Option<u64>)>>>;
 pub(crate) const INVOKE_WITHOUT_UPDATES: u32 = <functions::InvokeWithoutUpdates<Any> as Identifiable>::CONSTRUCTOR_ID;
 pub(super) const BIND: u32 = <functions::auth::BindTempAuthKey as Identifiable>::CONSTRUCTOR_ID;
 pub(crate) const INVOKE_WITH_LAYER: u32 = <functions::InvokeWithLayer<Any> as Identifiable>::CONSTRUCTOR_ID;
@@ -135,6 +137,15 @@ impl TestDc {
     pub(crate) async fn client(&self, auth_key: [u8; 256]) -> crate::Client {
         let builder = crate::Client::builder("test-dc", 1, "test-dc").session_string(self.session_string(auth_key));
         builder.connect().await.unwrap()
+    }
+
+    /// [`client`](Self::client), with an observer that logs each call's name and tag.
+    pub(crate) async fn observed_client(&self, auth_key: [u8; 256]) -> (crate::Client, Tags) {
+        let tags = Tags::default();
+        let log = tags.clone();
+        let builder = crate::Client::builder("test-dc", 1, "test-dc").session_string(self.session_string(auth_key));
+        let builder = builder.observer(move |c| log.lock().unwrap().push((c.name, c.tag)));
+        (builder.connect().await.unwrap(), tags)
     }
 
     /// Makes the account `user_id`, as if the key had signed in.
