@@ -1,6 +1,7 @@
 mod compose;
 mod disconnect;
 mod export_session_string;
+mod handlers;
 mod is_connected;
 mod remove_handler;
 mod restart;

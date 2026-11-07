@@ -8,7 +8,7 @@ pub(crate) use super::tasks::run_hook;
 use crate::Client;
 use crate::client::Me;
 use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
-use crate::handlers::{Callback, ErrorCallback, HandlerId, RawCallback, Registered, Routed, callback};
+use crate::handlers::{Callback, ErrorCallback, HandlerId, HandlerInfo, RawCallback, Registered, Routed, callback};
 use crate::raw::base;
 use crate::types::{
     BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatActionUpdated, ChatBoostRemoved,
@@ -56,6 +56,10 @@ impl<T> Handlers<T> {
         let before = self.0.len();
         self.0.retain(|r| r.id != id);
         self.0.len() != before
+    }
+
+    fn describe(&self, kind: UpdateKind, list: &mut Vec<HandlerInfo>) {
+        list.extend(self.0.iter().map(|r| HandlerInfo::new(kind, r.id, Some(r.group), r.stop)));
     }
 }
 
@@ -204,6 +208,18 @@ impl Hooks {
         };
         hook.as_ref().map(|(_, hook)| hook.clone())
     }
+
+    fn describe(&self, list: &mut Vec<HandlerInfo>) {
+        let hooks = [
+            (UpdateKind::Start, &self.start),
+            (UpdateKind::Stop, &self.stop),
+            (UpdateKind::Connect, &self.connect),
+            (UpdateKind::Disconnect, &self.disconnect),
+        ];
+        for (kind, hook) in hooks {
+            list.extend(hook.as_ref().map(|(id, _)| HandlerInfo::new(kind, *id, None, false)));
+        }
+    }
 }
 
 /// Each kind line gives its `UpdateKind`, `Router` list and `configure` arm; its routes get the standard arm.
@@ -267,6 +283,15 @@ macro_rules! update_kinds {
                         self.hooks.remove(kind, id)
                     }
                 }
+            }
+
+            /// Every route by kind, each in the order it runs; then the raw handlers and the hooks.
+            pub(crate) fn list(&self) -> Vec<HandlerInfo> {
+                let mut list = Vec::new();
+                $(self.$field.describe(UpdateKind::$kind, &mut list);)*
+                list.extend(self.raw.iter().map(|(id, _)| HandlerInfo::new(UpdateKind::Raw, *id, None, false)));
+                self.hooks.describe(&mut list);
+                list
             }
 
             fn route(

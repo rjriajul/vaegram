@@ -90,6 +90,26 @@ pub(crate) enum Registered {
     Listener(u64),
 }
 
+/// A registered handler, as [`Client::handlers`] lists it.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct HandlerInfo {
+    /// The id [`Client::remove_handler`] takes.
+    pub id: HandlerId,
+    /// The route the handler is on, named after the `Client::on_*` method that registered it.
+    pub kind: UpdateKind,
+    /// The group the handler runs in. `None` for raw handlers and lifecycle hooks, which have no group.
+    pub group: Option<i32>,
+    /// `true` if a match keeps the later groups from running for that update.
+    pub stops: bool,
+}
+
+impl HandlerInfo {
+    pub(crate) fn new(kind: UpdateKind, id: u32, group: Option<i32>, stops: bool) -> HandlerInfo {
+        HandlerInfo { id: HandlerId(Registered::Route(kind, id)), kind, group, stops }
+    }
+}
+
 impl Client {
     pub(crate) fn register(&self, kind: UpdateKind, add: impl FnOnce(&mut Router, u32)) -> HandlerRef<'_> {
         let id = self.0.handlers.add(|r| {
