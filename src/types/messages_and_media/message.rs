@@ -1376,6 +1376,36 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn a_reply_through_a_connection_keeps_it() {
+        // Telegram's answer to a send through a connection carries the sent message with an empty connection id.
+        let update = types::UpdateBotNewBusinessMessage {
+            connection_id: String::new(),
+            message: base::Message::Message(Box::new(Message::bare(9, get_peer(7), 0))),
+            reply_to_message: None,
+            qts: 0,
+        };
+        let update = base::Update::UpdateBotNewBusinessMessage(Box::new(update));
+        let answer = base::Updates::UpdateShort(Box::new(types::UpdateShort { update, date: 0 }));
+        let (client, mut rx) = Client::scripted(vec![Ok(answer.to_bytes())]);
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.0.caches.know_business("c", 7, 2);
+        let mut message = Message::parse(&client, Box::new(Message::bare(5, get_peer(7), 0)), &Entities::default());
+        message.business_connection_id = Some("c".into());
+
+        let sent = message.reply("hi").await.unwrap();
+        assert_eq!(sent.business_connection_id.as_deref(), Some("c"));
+        let _reply = rx.try_recv().expect("no reply sent");
+        // What follows on the sent message goes through the same connection.
+        assert!(sent.edit_text("edited").await.is_err());
+        assert!(sent.delete().await.is_err());
+        for _ in 0..2 {
+            let body = rx.try_recv().expect("no request sent");
+            assert_eq!((&body[..4], &body[4..6]), (&0xdd289f8e_u32.to_le_bytes()[..], &b"\x01c"[..]));
+        }
+    }
+
+    #[tokio::test]
     async fn business_messages_never_touch_the_bots_own_chat() {
         let (client, mut rx) = seeded();
         let raw = types::Message { message: "hi".into(), ..Message::bare(5, get_peer(7), 0) };

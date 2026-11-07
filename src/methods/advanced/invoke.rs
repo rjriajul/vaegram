@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::ops::ControlFlow;
 use std::time::Duration;
 
@@ -5,7 +6,7 @@ use crate::Client;
 use crate::client::{Borrowed, quiet};
 use crate::dispatcher::cache::BusinessHome;
 use crate::errors::{Error, Result, RpcError};
-use crate::raw::{RemoteCall, functions};
+use crate::raw::{RemoteCall, base, functions};
 use crate::session::no_updates::needs_updates;
 use crate::session::transfer::invoke_part;
 use crate::session::{RateCategory, Session};
@@ -137,7 +138,10 @@ impl Client {
         &self,
         connection_id: Option<&str>,
         request: R,
-    ) -> Result<(R::Return, R)> {
+    ) -> Result<(R::Return, R)>
+    where
+        R::Return: 'static,
+    {
         let Some(connection_id) = connection_id else { return Ok((self.invoke(&request).await?, request)) };
         let mut dc_id = self.business_home(connection_id).await?.dc_id;
         // Counted as the request inside, not as the wrapper, and updates go off inside it.
@@ -163,7 +167,11 @@ impl Client {
                     self.0.caches.move_business(connection_id, to);
                     (dc_id, moved) = (to, true);
                 }
-                _ => return Ok((result?, request)),
+                _ => {
+                    let mut answer = result?;
+                    name_connection(&mut answer, connection_id);
+                    return Ok((answer, request));
+                }
             }
         }
     }
@@ -198,6 +206,28 @@ impl Client {
                 }
                 _ => return result,
             }
+        }
+    }
+}
+
+/// Telegram answers a request sent through a business connection with business updates whose connection id is
+/// empty; they get the one the request went through, so the messages parsed from them carry it.
+fn name_connection(answer: &mut dyn Any, connection_id: &str) {
+    let Some(updates) = answer.downcast_mut::<base::Updates>() else { return };
+    let updates = match updates {
+        base::Updates::Updates(u) => u.updates.as_mut_slice(),
+        base::Updates::UpdatesCombined(u) => u.updates.as_mut_slice(),
+        base::Updates::UpdateShort(u) => std::slice::from_mut(&mut u.update),
+        _ => return,
+    };
+    for update in updates {
+        let named = match update {
+            base::Update::UpdateBotNewBusinessMessage(u) => &mut u.connection_id,
+            base::Update::UpdateBotEditBusinessMessage(u) => &mut u.connection_id,
+            _ => continue,
+        };
+        if named.is_empty() {
+            connection_id.clone_into(named);
         }
     }
 }
