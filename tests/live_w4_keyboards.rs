@@ -19,11 +19,8 @@ async fn sends_and_reads_inline_kinds() {
         return;
     };
     let chat: i64 = chat.parse().expect("VAEGRAM_CHAT_ID isn't a chat id");
-    let bot = vaegram::Client::builder("target/vaegram-keyboards-bot", api_id.parse().unwrap(), api_hash)
-        .bot_token(token)
-        .start()
-        .await
-        .unwrap();
+    let bot = vaegram::Client::builder("target/vaegram-keyboards-bot", api_id.parse().unwrap(), api_hash);
+    let Some(bot) = support::start_bot(bot.bot_token(token)).await else { return };
     let markup = InlineKeyboardMarkup::new([vec![
         InlineKeyboardButton::web_app("app", WebAppInfo::new("https://telegram.org")),
         InlineKeyboardButton::switch_inline_query_chosen_chat(

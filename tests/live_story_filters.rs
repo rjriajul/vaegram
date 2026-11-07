@@ -28,7 +28,11 @@ async fn on_story_sees_a_posted_story() {
     });
 
     let only_me = StoriesPrivacyRules::SelectedUsers(vec![me.id]);
-    let story = user.send_story(me.id, InputStoryContent::photo(photo.as_str())).privacy(only_me).await.unwrap();
+    let story = match user.send_story(me.id, InputStoryContent::photo(photo.as_str())).privacy(only_me).await {
+        Ok(story) => story,
+        Err(e) if support::story_limit_reached(&e) => return,
+        Err(e) => panic!("{e:?}"),
+    };
     let arrived = tokio::time::timeout(WAIT, async {
         while let Some(id) = seen.recv().await {
             if id == story.id {

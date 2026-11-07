@@ -35,17 +35,18 @@ async fn polls(user: &Client, group: i64) {
     assert_eq!((poll.question.as_str(), poll.options.len()), ("Lunch?", 2));
 }
 
-async fn screenshots_and_rich_messages(kit: &support::Kit, group: i64) {
+/// Only bots send rich messages (a user account gets RICH_MESSAGE_UNSUPPORTED) and only users read them back whole,
+/// so the bot answers with one and the user fetches it.
+async fn screenshots_and_rich_messages(kit: &support::Kit) {
     kit.bot.on_message(filters::private() & filters::text(), |m| async move {
-        m.reply("ok").await?;
+        m.client().send_rich_message(m.chat.id, InputRichMessage::html("<b>hi</b>")).await?;
         Ok(())
     });
     let reply = kit.user.send_and_wait_reply(&kit.bot, "hi").await.unwrap();
     let user = &kit.user.client;
     user.send_screenshot_notification(reply.chat.id).await.unwrap();
 
-    let sent = user.send_rich_message(group, InputRichMessage::html("<b>hi</b>")).await.unwrap();
-    let found = user.get_rich_message(group, sent.id).await.unwrap().expect("the rich message is gone");
+    let found = user.get_rich_message(reply.chat.id, reply.id).await.unwrap().expect("the rich message is gone");
     assert!(found.rich_message.is_some_and(|r| !r.is_partial));
 }
 
@@ -85,7 +86,7 @@ async fn user_uses_message_extras() {
         async move {
             let user = &kit.user.client;
             polls(user, group).await;
-            screenshots_and_rich_messages(&kit, group).await;
+            screenshots_and_rich_messages(&kit).await;
             pins_cached_media_and_post_counts(user, group).await;
             if premium() {
                 checklists(user, group).await;
@@ -94,7 +95,7 @@ async fn user_uses_message_extras() {
         }
     })
     .await;
-    user.delete_supergroup(group).await.unwrap();
+    support::cleanup(user.delete_supergroup(group).await, "deleting the supergroup \"vaegram live test\"");
     if let Err(failed) = steps {
         std::panic::resume_unwind(failed.into_panic());
     }

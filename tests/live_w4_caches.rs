@@ -1,3 +1,6 @@
+#[allow(dead_code)]
+mod support;
+
 use std::future::IntoFuture;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -27,10 +30,8 @@ async fn callback_on_a_cached_message_needs_no_request() {
             if call.name == "messages.getMessages" {
                 counted.fetch_add(1, Ordering::Relaxed);
             }
-        })
-        .start()
-        .await
-        .unwrap();
+        });
+    let Some(bot) = support::start_bot(bot).await else { return };
     let user = Client::builder(session, api_id, api_hash).connect().await.unwrap();
 
     bot.on_message(filters::private() & filters::command("tap"), |m| async move {

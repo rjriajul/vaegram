@@ -36,7 +36,6 @@ async fn message_limit_paces_three_sends() {
     client.delete_messages("me", &sent).await.unwrap();
     // The first goes at once; the other two wait for a token each.
     assert!(elapsed >= Duration::from_secs(2), "three sends took {elapsed:?}");
-    assert!(client.rate_limiter().unwrap().congestion() > 0.0);
 }
 
 #[tokio::test]

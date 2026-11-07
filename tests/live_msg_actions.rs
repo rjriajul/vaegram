@@ -41,7 +41,7 @@ async fn user_votes_views_and_links_messages() {
         }
     })
     .await;
-    user.delete_supergroup(group).await.unwrap();
+    support::cleanup(user.delete_supergroup(group).await, "deleting the supergroup \"vaegram live test\"");
     if let Err(failed) = steps {
         std::panic::resume_unwind(failed.into_panic());
     }
@@ -59,7 +59,12 @@ async fn bot_edits_the_media_it_sent() {
     });
 
     let user = &kit.user.client;
-    let done = kit.user.send_and_wait_reply(&kit.bot, "/edit").await.unwrap();
+    let me = kit.bot.get_me().await.unwrap();
+    let bot_id = user.resolve_username(&me.username.expect("the bot has no username")).await.unwrap();
+    // The bot's document arrives before its text answer, so the user waits for the text.
+    let done = user.wait_for_message(bot_id).filter(filters::text()).timeout(WAIT).into_future();
+    let (done, asked) = tokio::join!(done, user.send_message(bot_id, "/edit").into_future());
+    let (done, _) = (done.unwrap(), asked.unwrap());
     let mut pages = user.get_chat_history(done.chat.id).limit(3);
     let mut history = Vec::new();
     while let Some(message) = pages.next().await.unwrap() {

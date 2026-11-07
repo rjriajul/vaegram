@@ -1,3 +1,6 @@
+#[allow(dead_code)]
+mod support;
+
 use std::future::IntoFuture;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -36,10 +39,8 @@ async fn fetch_replies_needs_no_request_in_the_handler() {
             if call.name == "messages.getMessages" {
                 counted.fetch_add(1, Ordering::Relaxed);
             }
-        })
-        .start()
-        .await
-        .unwrap();
+        });
+    let Some(bot) = support::start_bot(bot).await else { return };
     let user = Client::builder(session, api_id, api_hash).connect().await.unwrap();
 
     let (tx, mut seen) = mpsc::unbounded_channel();
@@ -72,12 +73,9 @@ async fn fetch_replies_needs_no_request_in_the_handler() {
 async fn fetch_stickers_names_the_set() {
     let Some((session, token, api_id, api_hash)) = credentials() else { return };
     let set_name = std::env::var("VAEGRAM_STICKER_SET").unwrap_or_else(|_| "Animals".to_owned());
-    let bot = Client::builder("target/vaegram-fetch-bot", api_id, api_hash.clone())
-        .bot_token(token)
-        .fetch_stickers(true)
-        .start()
-        .await
-        .unwrap();
+    let bot =
+        Client::builder("target/vaegram-fetch-bot", api_id, api_hash.clone()).bot_token(token).fetch_stickers(true);
+    let Some(bot) = support::start_bot(bot).await else { return };
     let user = Client::builder(session, api_id, api_hash).connect().await.unwrap();
 
     let (tx, mut seen) = mpsc::unbounded_channel();

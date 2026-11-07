@@ -36,7 +36,13 @@ async fn pinned_message_sees_a_pin() {
     });
 
     let sent = user.send_message(chat, "pin me").await.unwrap();
-    user.pin_chat_message(chat, sent.id).await.unwrap();
+    if let Err(e) = user.pin_chat_message(chat, sent.id).await {
+        user.delete_messages(chat, &[sent.id]).await.unwrap();
+        user.stop();
+        let _ = running.await;
+        assert!(support::flood_limited(&e, "pinning a message"), "{e:?}");
+        return;
+    }
     let seen = tokio::time::timeout(WAIT, pins.recv()).await;
     user.unpin_chat_message(chat, sent.id).await.unwrap();
     user.delete_messages(chat, &[sent.id]).await.unwrap();

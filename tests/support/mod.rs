@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 use vaegram::types::{Message, Text};
-use vaegram::{Client, Error, Result, filters};
+use vaegram::{Client, ClientBuilder, Error, Result, filters};
 
 const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -29,7 +29,7 @@ pub struct User {
 }
 
 impl Kit {
-    /// `None` (after saying so) when the env isn't set, so callers skip.
+    /// `None` (after saying so) when the env isn't set or the bot's login is flood-limited, so callers skip.
     pub async fn from_env() -> Option<Kit> {
         let vars = (std::env::var("VAEGRAM_USER_SESSION"), std::env::var("VAEGRAM_BOT_TOKEN"));
         let (Ok(session), Ok(token)) = vars else {
@@ -41,12 +41,9 @@ impl Kit {
         // Without catch-up, `run` starts from now: a saved session would otherwise get every update since it was
         // last used, and the bot's handlers would answer other tests' old messages.
         let user = Client::builder(session, api_id, api_hash.clone()).catch_up(false).connect().await.unwrap();
-        let bot = Client::builder("target/vaegram-kit-bot", api_id, api_hash)
-            .bot_token(token)
-            .catch_up(false)
-            .start()
-            .await
-            .unwrap();
+        let bot =
+            start_bot(Client::builder("target/vaegram-kit-bot", api_id, api_hash).bot_token(token).catch_up(false))
+                .await?;
 
         let (tx, received) = mpsc::unbounded_channel();
         user.on_message(filters::private(), move |m| {
@@ -62,6 +59,46 @@ impl Kit {
         let disconnect = Disconnect(vec![user.clone(), bot.clone()]);
         let user = User { client: user, received: tokio::sync::Mutex::new(received) };
         Some(Kit { user, bot, _disconnect: disconnect })
+    }
+}
+
+/// Says so and returns `true` when `error` is a FLOOD_WAIT: Telegram is rate-limiting the account, so `what` can't
+/// run now. Any other error is left to the caller.
+pub fn flood_limited(error: &Error, what: &str) -> bool {
+    let Some(wait) = error.flood_wait() else { return false };
+    eprintln!("skipped: {what} is flood-limited for {}s", wait.as_secs());
+    true
+}
+
+/// Says so and returns `true` when `error` is STORIES_TOO_MUCH: the account has posted as many stories as Telegram
+/// allows it for now, far fewer without Premium.
+#[allow(dead_code)] // not every binary that leaves the module's lints on posts stories
+pub fn story_limit_reached(error: &Error) -> bool {
+    if !error.is("STORIES_TOO_MUCH") {
+        return false;
+    }
+    eprintln!("skipped: the account can't post another story for now (STORIES_TOO_MUCH)");
+    true
+}
+
+/// Logs a bot in with `builder`, or says why not and returns `None` when Telegram flood-limits the login: a token
+/// logging into new storage (`auth.importBotAuthorization`) too often waits for up to an hour.
+pub async fn start_bot(builder: ClientBuilder) -> Option<Client> {
+    match builder.start().await {
+        Ok(bot) => Some(bot),
+        Err(e) if flood_limited(&e, "logging the bot into new storage") => None,
+        Err(e) => panic!("the bot didn't log in: {e:?}"),
+    }
+}
+
+/// Checks a cleanup step that runs after the test's checks. A FLOOD_WAIT is only reported: what the test made
+/// stays behind, and `what` names it so it can be removed by hand.
+#[allow(dead_code)] // not every binary that leaves the module's lints on makes something to clean up
+pub fn cleanup(result: Result<()>, what: &str) {
+    let Err(e) = result else { return };
+    match e.flood_wait() {
+        Some(wait) => eprintln!("skipped the cleanup: {what} is flood-limited for {}s; do it by hand", wait.as_secs()),
+        None => panic!("{what} failed: {e:?}"),
     }
 }
 

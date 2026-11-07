@@ -72,7 +72,7 @@ async fn user_reads_previews_reactions_and_scheduled_messages() {
         }
     })
     .await;
-    user.delete_supergroup(group).await.unwrap();
+    support::cleanup(user.delete_supergroup(group).await, "deleting the supergroup \"vaegram live test\"");
     if let Err(failed) = steps {
         std::panic::resume_unwind(failed.into_panic());
     }

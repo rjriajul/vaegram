@@ -27,15 +27,33 @@ async fn user_checks_forwards_and_copies_a_story() {
     let me = user.get_me().await.unwrap();
     assert!(user.get_story_post_count(me.id).await.unwrap() > 0);
 
+    // Telegram forwards only public stories (STORY_PUBLIC_MISSING otherwise), and everyone sees a public story while
+    // it's up, so the forward runs only with VAEGRAM_POST_STORIES=1.
+    let public = std::env::var("VAEGRAM_POST_STORIES").is_ok_and(|v| v == "1");
     let only_me = StoriesPrivacyRules::SelectedUsers(vec![me.id]);
-    let story =
-        user.send_story(me.id, InputStoryContent::photo(photo.as_str())).privacy(only_me.clone()).await.unwrap();
+    let privacy = if public { StoriesPrivacyRules::default() } else { only_me.clone() };
+    let story = match user.send_story(me.id, InputStoryContent::photo(photo.as_str())).privacy(privacy).await {
+        Ok(story) => story,
+        Err(e) if support::story_limit_reached(&e) => return,
+        Err(e) => panic!("{e:?}"),
+    };
 
-    let forwarded = user.forward_story("me", me.id, story.id).await.unwrap();
-    assert_eq!(forwarded.chat.id, me.id);
-    user.delete_messages("me", &[forwarded.id]).await.unwrap();
+    if public {
+        let forwarded = user.forward_story("me", me.id, story.id).await.unwrap();
+        assert_eq!(forwarded.chat.id, me.id);
+        user.delete_messages("me", &[forwarded.id]).await.unwrap();
+    } else {
+        eprintln!("skipped the forward: Telegram forwards only public stories; set VAEGRAM_POST_STORIES=1 to post one");
+    }
 
-    let copy = user.copy_story(me.id, me.id, story.id).caption("copy").privacy(only_me).await.unwrap();
+    let copy = match user.copy_story(me.id, me.id, story.id).caption("copy").privacy(only_me).await {
+        Ok(copy) => copy,
+        Err(e) if support::story_limit_reached(&e) => {
+            user.delete_stories(me.id, &[story.id]).await.unwrap();
+            return;
+        }
+        Err(e) => panic!("{e:?}"),
+    };
     assert_ne!(copy.id, story.id);
     assert_eq!(copy.caption.as_deref(), Some("copy"));
     assert!(copy.media.is_some());
@@ -73,6 +91,13 @@ async fn bot_stores_and_deletes_a_welcome_message() {
     let chat_id: i64 = chat_id.parse().unwrap();
     let Some(kit) = support::Kit::from_env().await else { return };
     let (user, bot) = (&kit.user.client, &kit.bot);
+    // A bot sends welcome messages only with the admin right for them (Bot API `can_send_welcome_messages`).
+    let bot_me = bot.get_me().await.unwrap();
+    let rights = bot.get_chat_member(chat_id, bot_me.id).await.unwrap().privileges;
+    if !rights.is_some_and(|r| r.can_send_welcome_messages) {
+        eprintln!("skipped: the bot isn't an admin of VAEGRAM_CHAT_ID with the right to send welcome messages");
+        return;
+    }
     let me = user.get_me().await.unwrap();
 
     let base::InputPeer::InputPeerUser(receiver) = bot.resolve_peer(me.id).await.unwrap() else {
@@ -127,7 +152,14 @@ async fn user_lists_group_call_members() {
 #[ignore = "needs a user account with Telegram's TON wallet available"]
 async fn user_looks_up_ton_wallet_addresses() {
     let Some(user) = user_client().await else { return };
-    let found = user.get_user_ton_wallet_addresses(["me"]).await.unwrap();
+    let found = match user.get_user_ton_wallet_addresses(["me"]).await {
+        Ok(found) => found,
+        Err(e) if e.is("WALLET_UNAVAILABLE") => {
+            eprintln!("skipped: Telegram's wallet isn't available to this account (WALLET_UNAVAILABLE)");
+            return;
+        }
+        Err(e) => panic!("{e:?}"),
+    };
     let Some(first) = found.first() else {
         eprintln!("skipped the address lookup: the account has no wallet");
         return;
