@@ -16,6 +16,10 @@ pub struct RestrictChatMember<'a> {
 impl Client {
     /// Limits what a member can do in a supergroup. Pass `ChatPermissions::default()` to mute the user.
     ///
+    /// Every permission is set on its own, like the Bot API's `use_independent_chat_permissions`: allowing other
+    /// messages, link previews or polls does not also allow text messages or media. Set those fields together if
+    /// one should imply the other.
+    ///
     /// Basic groups have no per-user restrictions, so a basic group fails with `Error::InvalidArgument` and nothing
     /// is sent. Restrict every member there with [`Client::set_chat_permissions`], or upgrade the group to a
     /// supergroup first.
