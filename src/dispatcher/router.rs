@@ -14,8 +14,8 @@ use crate::types::{
     BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated,
     ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
     DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
-    RawUpdate, ShippingQuery, Story, TonWalletState, UserStatusUpdated,
+    MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PollAnswer, PollUpdated,
+    PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ShippingQuery, Story, TonWalletState, UserStatusUpdated,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -354,6 +354,11 @@ update_kinds! {
     /// [`on_message_reaction_count`](crate::Client::on_message_reaction_count).
     message_reaction_count: MessageReactionCount => MessageReactionCountUpdated {
         UpdateBotMessageReactions(u) => MessageReactionCountUpdated::parse(client, &u, entities),
+    }
+    /// The reactions on a message changed, as user accounts see them:
+    /// [`on_message_reactions`](crate::Client::on_message_reactions).
+    message_reactions: MessageReactions => MessageReactionsUpdated {
+        UpdateMessageReactions(u) => MessageReactionsUpdated::parse(client, &u, entities),
     }
     /// A business connection of the bot changed: [`on_business_connection`](crate::Client::on_business_connection).
     business_connection: BusinessConnection => BusinessConnection {
@@ -1383,5 +1388,41 @@ mod tests {
         let mut seen = log.lock().unwrap().clone();
         seen.sort_unstable();
         assert_eq!(seen, ["business", "parsed"]);
+    }
+
+    #[tokio::test]
+    async fn user_reaction_updates_reach_on_message_reactions() {
+        let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
+        let chat = get_channel_id(42);
+        let sink = seen.clone();
+        client.on_message_reactions(filters::chat(chat), move |r| {
+            let counts: Vec<_> = r.reactions.reactions.iter().map(|c| c.total_count).collect();
+            sink.lock().unwrap().push((r.chat.id, r.message_id, r.message_thread_id, counts));
+            async { Ok(()) }
+        });
+        let update = |peer| {
+            let reaction = base::Reaction::ReactionEmoji(Box::new(types::ReactionEmoji { emoticon: "👍".into() }));
+            let count = types::ReactionCount { chosen_order: None, reaction, count: 2 };
+            let reactions = types::MessageReactions {
+                min: false,
+                can_see_list: false,
+                reactions_as_tags: false,
+                results: vec![base::ReactionCount::ReactionCount(Box::new(count))],
+                recent_reactions: None,
+                top_reactors: None,
+            };
+            base::Update::UpdateMessageReactions(Box::new(types::UpdateMessageReactions {
+                peer,
+                msg_id: 10,
+                top_msg_id: Some(3),
+                saved_peer_id: None,
+                reactions: base::MessageReactions::MessageReactions(Box::new(reactions)),
+            }))
+        };
+        let router = router_of(&client);
+        dispatch(&router, update(get_peer(8)));
+        dispatch(&router, update(get_peer(chat)));
+        settle().await;
+        assert_eq!(*seen.lock().unwrap(), [(chat, 10, Some(3), vec![2])]);
     }
 }

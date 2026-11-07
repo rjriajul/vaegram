@@ -9,8 +9,8 @@ use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated, ChatJoinRequest,
     ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages,
     EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
-    RawUpdate, ShippingQuery, Story, TonWalletState, UserStatusUpdated,
+    MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PollAnswer, PollUpdated,
+    PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ShippingQuery, Story, TonWalletState, UserStatusUpdated,
 };
 
 pub use crate::dispatcher::listeners::Listenable;
@@ -215,6 +215,12 @@ impl Routed for DeletedEphemeralMessages {
 }
 
 impl Routed for MessageReactionCountUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for MessageReactionsUpdated {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }

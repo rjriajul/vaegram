@@ -5,8 +5,8 @@ use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatBoostRemoved, ChatBoostSource,
     ChatBoostUpdated, ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages,
     DeletedEphemeralMessages, DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
-    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PollAnswer, PollUpdated,
-    PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery, Story, TonWalletState, User, UserStatusUpdated,
+    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PollAnswer,
+    PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery, Story, TonWalletState, User, UserStatusUpdated,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -121,6 +121,8 @@ subject!(MessageReactionUpdated: HasChat, HasSender; |s, me| {
 });
 
 subject!(MessageReactionCountUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
+
+subject!(MessageReactionsUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
 
 subject!(BusinessConnection: HasSender; |s, me| user_query(&s.user, me));
 

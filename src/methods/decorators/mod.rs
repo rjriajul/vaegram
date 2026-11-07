@@ -24,6 +24,7 @@ mod on_message;
 mod on_message_generation_stopped;
 mod on_message_reaction;
 mod on_message_reaction_count;
+mod on_message_reactions;
 mod on_my_chat_member;
 mod on_poll;
 mod on_poll_answer;
