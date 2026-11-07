@@ -37,11 +37,10 @@ impl BanChatMember<'_> {
         self
     }
 
-    /// Whether to also delete every message the user sent in the chat. Off by default.
+    /// Whether to delete the chat's messages for the removed user, so the chat leaves their history. Off by default.
     ///
-    /// A basic group does it in the same request. A supergroup or channel needs a second request
-    /// (`channels.deleteParticipantHistory`) after the ban: if that one fails, the user stays banned and its error is
-    /// returned.
+    /// Only basic groups use it: supergroups and channels always do this, so there it changes nothing. To delete the
+    /// messages the user sent, for everyone, use [`Client::delete_user_history`].
     pub fn revoke_messages(mut self, revoke_messages: bool) -> Self {
         self.revoke_messages = revoke_messages;
         self
@@ -65,13 +64,6 @@ impl BanChatMember<'_> {
                     banned_rights: base::ChatBannedRights::ChatBannedRights(Box::new(rights)),
                 };
                 client.invoke(&request).await?;
-                if self.revoke_messages {
-                    let functions::channels::EditBanned { channel, participant, .. } = request;
-                    let chat_id = client.peer_id(self.chat_id).await?;
-                    let request = functions::channels::DeleteParticipantHistory { channel, participant };
-                    client.affected_history(chat_id, &request).await?;
-                    client.0.caches.evict_chat(chat_id);
-                }
             }
         }
         Ok(())
@@ -119,14 +111,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn supergroup_deletes_the_history_after_the_ban() {
+    async fn supergroup_ban_is_one_request_even_when_revoking() {
         let updates = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
-        let affected = types::messages::AffectedHistory { pts: 3, pts_count: 1, offset: 0 };
-        let replies = vec![
-            Ok(base::Updates::Updates(Box::new(updates)).to_bytes()),
-            Ok(base::messages::AffectedHistory::AffectedHistory(Box::new(affected)).to_bytes()),
-        ];
-        let (client, mut rx) = client(replies);
+        let (client, mut rx) = client(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
         client.ban_chat_member(get_channel_id(9), USER).revoke_messages(true).await.unwrap();
 
         let mut rights = ChatPermissions::default().write(0);
@@ -134,8 +121,6 @@ mod tests {
         let banned_rights = base::ChatBannedRights::ChatBannedRights(Box::new(rights));
         let ban = functions::channels::EditBanned { channel: channel(), participant: user(), banned_rights };
         assert_eq!(rx.try_recv().unwrap(), ban.to_bytes());
-        let history = functions::channels::DeleteParticipantHistory { channel: channel(), participant: user() };
-        assert_eq!(rx.try_recv().unwrap(), history.to_bytes());
         assert!(rx.try_recv().is_err());
     }
 }
