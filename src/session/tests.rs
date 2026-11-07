@@ -1232,13 +1232,13 @@ async fn dropped_updates_without_pts_are_counted_as_lost() {
     assert!(matches!(events.try_recv(), Ok(ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 })));
 }
 
-type Contexts = Arc<Mutex<Vec<(i32, u32, u16)>>>;
+type Contexts = Arc<Mutex<Vec<(i32, u32, u16, Option<u64>)>>>;
 
 fn observe_context(options: &mut Options) -> Contexts {
     let seen = Contexts::default();
     let log = seen.clone();
     options.observer =
-        Some(Observer(Arc::new(move |c: &Call<'_>| log.lock().unwrap().push((c.dc, c.connection, c.resent)))));
+        Some(Observer(Arc::new(move |c: &Call<'_>| log.lock().unwrap().push((c.dc, c.connection, c.resent, c.tag)))));
     seen
 }
 
@@ -1249,7 +1249,8 @@ async fn observer_sees_the_connection_and_resends() {
     drop(request(&mut r, ping(1)));
     r.drop_abandoned();
 
-    let mut answer = request(&mut r, ping(2));
+    let (answer, mut answered) = oneshot::channel();
+    r.enqueue(Request { name: "ping", body: ping(2), tag: Some(6), answer });
     r.flush().await.unwrap();
     let (bad_msg_id, bad_msg_seqno, _) = recv(&mut frames, &r).await;
     let salt = types::BadServerSalt { bad_msg_id, bad_msg_seqno, error_code: 48, new_server_salt: 1 };
@@ -1258,8 +1259,9 @@ async fn observer_sees_the_connection_and_resends() {
     let (msg_id, _, body) = recv(&mut frames, &r).await;
     assert_eq!(body, ping(2));
     r.handle_message(5, 1, &rpc_result(msg_id, b"pong"));
-    assert!(answer.try_recv().unwrap().is_ok());
-    assert_eq!(*seen.lock().unwrap(), [(2, 0, 0), (2, 0, 1)]);
+    assert!(answered.try_recv().unwrap().is_ok());
+    // The re-send keeps the tag of the task that sent it first.
+    assert_eq!(*seen.lock().unwrap(), [(2, 0, 0, None), (2, 0, 1, Some(6))]);
 }
 
 #[tokio::test]
@@ -1283,5 +1285,5 @@ async fn leased_connections_are_numbered_apart() {
     tokio::time::timeout(Duration::from_secs(10), reported).await.expect("a runner never reported its ping");
     let mut seen = seen.lock().unwrap().clone();
     seen.sort_unstable();
-    assert_eq!(seen, [(4, 1, 0), (4, 2, 0)]);
+    assert_eq!(seen, [(4, 1, 0, None), (4, 2, 0, None)]);
 }

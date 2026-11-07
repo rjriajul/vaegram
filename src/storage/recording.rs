@@ -755,6 +755,38 @@ mod tests {
 
     #[cfg(feature = "json")]
     #[test]
+    fn result_json_drops_the_autologin_token_and_unpacks_before_it_cuts() {
+        use crate::raw::ToJson;
+        let get_config = init(functions::help::GetConfig {}).to_bytes();
+        let json = call(&get_config, Ok(&config().to_bytes())).result_json().unwrap();
+        let mut clean = config();
+        let base::Config::Config(c) = &mut clean;
+        c.autologin_token = None;
+        assert_eq!(json, clean.json());
+
+        let import = functions::auth::ImportLoginToken { token: vec![7; 32] }.to_bytes();
+        let token = types::auth::LoginToken { expires: 1, token: b"login-token-secret".to_vec() };
+        let token = base::auth::LoginToken::LoginToken(Box::new(token)).to_bytes();
+        let json = call(&import, Ok(&gzip(&token))).result_json().unwrap();
+        assert_eq!(json, r#"{"cut":"auth.loginToken"}"#);
+        let pong = base::Pong::Pong(Box::new(types::Pong { msg_id: 1, ping_id: 2 })).to_bytes();
+        let ping = functions::Ping { ping_id: 2 }.to_bytes();
+        assert_eq!(call(&ping, Ok(&gzip(&pong))).result_json().unwrap(), r#"{"_":"pong","msg_id":1,"ping_id":2}"#);
+    }
+
+    #[cfg(feature = "json")]
+    #[test]
+    fn result_json_reads_bools_and_vectors_of_numbers_by_their_request() {
+        let status = functions::account::UpdateStatus { offline: true }.to_bytes();
+        assert_eq!(call(&status, Ok(&true.to_bytes())).result_json().as_deref(), Some("true"));
+        assert_eq!(call(&status, Ok(&false.to_bytes())).result_json().as_deref(), Some("false"));
+        let queue = functions::messages::ReceivedQueue { max_qts: 1 }.to_bytes();
+        let ids = vec![1i64, 1 << 60].to_bytes();
+        assert_eq!(call(&queue, Ok(&ids)).result_json().as_deref(), Some(r#"[1,"1152921504606846976"]"#));
+    }
+
+    #[cfg(feature = "json")]
+    #[test]
     fn a_dump_stops_at_nested_gzip_past_the_depth_limit() {
         let mut body = functions::updates::GetState {}.to_bytes();
         for _ in 0..=super::MAX_DEPTH + 1 {
