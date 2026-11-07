@@ -117,6 +117,7 @@ mod send_photo;
 mod send_poll;
 mod send_reaction;
 mod send_rich_message;
+mod send_rich_message_draft;
 mod send_scheduled_now;
 mod send_screenshot_notification;
 mod send_sticker;
