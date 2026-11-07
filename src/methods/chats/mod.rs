@@ -130,6 +130,7 @@ pub use set_chat_wallpaper::SetChatWallpaper;
 pub use set_upgraded_gift_colors::SetUpgradedGiftColors;
 pub use toggle_forum_topics::ToggleForumTopics;
 pub use toggle_signatures::ToggleSignatures;
+pub use unban_chat_member::UnbanChatMember;
 pub use update_chat_notifications::UpdateChatNotifications;
 
 #[cfg(test)]
