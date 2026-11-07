@@ -28,6 +28,12 @@ impl FileSource<'_> {
     /// A malformed id, a web id or an id that can only be downloaded, such as a thumbnail or chat photo, fails
     /// here with [`Error::InvalidArgument`]. A stale id or one from another bot fails only when Telegram answers,
     /// as [`Error::Rpc`].
+    ///
+    /// A file id is made for the account that received it. Telegram's Bot API says a file id "is unique for each
+    /// individual bot and can't be transferred from one bot to another"; the ids this crate builds carry the access
+    /// hash and file reference this account was given, so another bot or a user account may be refused as well.
+    /// To send the same file from several accounts, keep one file id per account, taken from a message that
+    /// account received or sent, or upload the file again.
     pub fn file_id(file_id: &str) -> Result<Self> {
         let id = FileId::decode(file_id).map_err(Error::InvalidArgument)?;
         if matches!(id.file_type, FileType::Thumbnail | FileType::ChatPhoto) {
