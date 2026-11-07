@@ -106,7 +106,8 @@ pub enum Error {
     Transport(i32),
     /// Telegram's answer couldn't be read as the TL type expected.
     Deserialize(raw::Error),
-    /// A security check failed, such as a nonce, hash or DH value in the key exchange, so the data was refused.
+    /// A security check failed, such as a nonce, hash or DH value in the key exchange, or the hash of Mini App data
+    /// in `utils::validate_web_app_data`, so the data was refused.
     Security(&'static str),
     /// Telegram refused the message carrying the request with this `bad_msg_notification` code. The time and
     /// sequence codes (16, 17, 32, 33) are fixed and resent instead, so they never get here. See

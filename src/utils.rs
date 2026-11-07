@@ -1,7 +1,8 @@
 use std::fmt::Write;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::crypto::password::Srp;
-use crate::crypto::random;
+use crate::crypto::{hmac_sha256, random};
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 
@@ -201,6 +202,103 @@ pub fn decode_svg_path(encoded: &[u8]) -> String {
     path
 }
 
+/// Validates the `initData` a Mini App received (`Telegram.WebApp.initData`) with the bot's token, as
+/// <https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app> describes, and returns its
+/// fields in the order they came, `hash` included. Keys and values are decoded the way a browser's
+/// `URLSearchParams` decodes them: `%XX` escapes, and `+` as a space.
+///
+/// With `max_age`, `auth_date` must also be at most that old by this machine's clock; a date ahead of the clock
+/// passes. Only the hash made with the bot token is checked, not the Ed25519 `signature` meant for third parties.
+///
+/// Fails with [`Error::Security`] when there is no single `hash` of 64 hex digits, when it doesn't match, or when
+/// `max_age` is given and `auth_date` is missing, not a number or too old; with [`Error::InvalidArgument`] when
+/// `init_data` has a broken `%` escape or decodes to invalid UTF-8.
+pub fn validate_web_app_data(
+    bot_token: &str,
+    init_data: &str,
+    max_age: Option<Duration>,
+) -> Result<Vec<(String, String)>> {
+    let fields = init_data
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+        .map(|pair| {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            Ok((form_decode(key)?, form_decode(value)?))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let no_hash = Error::Security("Mini App data needs one hash of 64 hex digits");
+    let mut hash = None;
+    let mut checked = Vec::with_capacity(fields.len());
+    for (key, value) in &fields {
+        if key != "hash" {
+            checked.push((key.as_str(), value.as_str()));
+        } else if hash.replace(value).is_some() {
+            return Err(no_hash);
+        }
+    }
+    let Some(hash) = hash.and_then(|h| hex_32(h)) else { return Err(no_hash) };
+    checked.sort_by(|a, b| a.0.cmp(b.0));
+    let mut data_check = String::with_capacity(init_data.len());
+    for (i, (key, value)) in checked.into_iter().enumerate() {
+        if i > 0 {
+            data_check.push('\n');
+        }
+        let _ = write!(data_check, "{key}={value}");
+    }
+    let secret = hmac_sha256(b"WebAppData", &[bot_token.as_bytes()]);
+    let expected = hmac_sha256(&secret, &[data_check.as_bytes()]);
+    // Constant time, so the comparison doesn't tell how many leading bytes of a forged hash are right.
+    let diff = expected.iter().zip(&hash).fold(0, |acc, (a, b)| acc | (a ^ b));
+    if std::hint::black_box(diff) != 0 {
+        return Err(Error::Security("Mini App data doesn't match its hash"));
+    }
+    if let Some(max_age) = max_age {
+        let auth_date =
+            fields.iter().find(|(key, _)| key == "auth_date").and_then(|(_, date)| date.parse::<u64>().ok());
+        let auth_date = auth_date.ok_or(Error::Security("Mini App data has no auth_date"))?;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |now| now.as_secs());
+        if Duration::from_secs(now.saturating_sub(auth_date)) > max_age {
+            return Err(Error::Security("Mini App data is older than max_age"));
+        }
+    }
+    Ok(fields)
+}
+
+/// Decodes one key or value of a query string: `%XX` escapes, and `+` as a space.
+fn form_decode(s: &str) -> Result<String> {
+    let broken = || Error::InvalidArgument("Mini App data isn't a valid query string");
+    let mut out = Vec::with_capacity(s.len());
+    let mut bytes = s.bytes();
+    while let Some(b) = bytes.next() {
+        out.push(match b {
+            b'+' => b' ',
+            b'%' => {
+                let (hi, lo) = (bytes.next().and_then(hex_digit), bytes.next().and_then(hex_digit));
+                hi.zip(lo).map(|(hi, lo)| (hi << 4) | lo).ok_or_else(broken)?
+            }
+            b => b,
+        });
+    }
+    String::from_utf8(out).map_err(|_| broken())
+}
+
+fn hex_digit(b: u8) -> Option<u8> {
+    char::from(b).to_digit(16).map(|d| d as u8)
+}
+
+/// 64 hex digits, in either case, as 32 bytes.
+fn hex_32(s: &str) -> Option<[u8; 32]> {
+    let s = s.as_bytes();
+    if s.len() != 64 {
+        return None;
+    }
+    let mut out = [0; 32];
+    for (byte, pair) in out.iter_mut().zip(s.chunks_exact(2)) {
+        *byte = (hex_digit(pair[0])? << 4) | hex_digit(pair[1])?;
+    }
+    Some(out)
+}
+
 pub(crate) fn known_algo(
     algo: &base::PasswordKdfAlgo,
 ) -> Result<&types::PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow> {
@@ -226,9 +324,66 @@ pub(crate) fn compute_password_check(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::{
         base64_decode, base64_encode, base64url_decode, base64url_encode, decode_svg_path, expand_inline_bytes,
+        form_decode, validate_web_app_data,
     };
+    use crate::Error;
+
+    const BOT_TOKEN: &str = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11";
+    // Signed with an independent HMAC-SHA256 implementation; `signature` is only part of the checked string here.
+    const INIT_DATA: &str = "query_id=AAHdF6IQAAAAAN0XohDhrOrc&user=%7B%22id%22%3A279058397%2C%22first_name%22%3A%22Vlad\
+        %22%2C%22username%22%3A%22vdkfrost%22%2C%22language_code%22%3A%22ru%22%7D&auth_date=1662771648\
+        &signature=abc%2Bdef%2Fghi&hash=e3321ee2178b3e170a45df19e51faebff0901dfe274900304106e0bba5f8f9dd";
+
+    #[test]
+    fn web_app_data_passes_with_the_right_token() {
+        let fields = validate_web_app_data(BOT_TOKEN, INIT_DATA, None).unwrap();
+        let keys: Vec<&str> = fields.iter().map(|(key, _)| key.as_str()).collect();
+        assert_eq!(keys, ["query_id", "user", "auth_date", "signature", "hash"]);
+        assert_eq!(fields[1].1, r#"{"id":279058397,"first_name":"Vlad","username":"vdkfrost","language_code":"ru"}"#);
+        assert_eq!(fields[3].1, "abc+def/ghi");
+        let upper = INIT_DATA.replace("e3321ee2", "E3321EE2");
+        assert!(validate_web_app_data(BOT_TOKEN, &upper, None).is_ok());
+        // The order of the fields doesn't matter, only their sorted check string.
+        let (head, hash) = INIT_DATA.split_once("&hash=").unwrap();
+        assert!(validate_web_app_data(BOT_TOKEN, &format!("hash={hash}&{head}&"), None).is_ok());
+    }
+
+    #[test]
+    fn web_app_data_refuses_tampering() {
+        let security = |token, data: &str| matches!(validate_web_app_data(token, data, None), Err(Error::Security(_)));
+        assert!(security("123456:other", INIT_DATA));
+        assert!(security(BOT_TOKEN, &INIT_DATA.replace("1662771648", "1662771649")));
+        assert!(security(BOT_TOKEN, &INIT_DATA.replace("Vlad", "Vlae")));
+        assert!(security(BOT_TOKEN, &INIT_DATA.replace("e3321ee2", "e3321ee3")));
+        assert!(security(BOT_TOKEN, &INIT_DATA.replace("query_id=", "query_iD=")));
+        assert!(security(BOT_TOKEN, &format!("{INIT_DATA}&extra=1")));
+        assert!(security(BOT_TOKEN, &format!("{INIT_DATA}&hash=00")));
+        assert!(security(BOT_TOKEN, INIT_DATA.split_once("&hash=").unwrap().0));
+        assert!(security(BOT_TOKEN, &INIT_DATA.replace("bba5f8f9dd", "bba5f8f9d")));
+        assert!(security(BOT_TOKEN, &INIT_DATA.replace("bba5f8f9dd", "bba5f8f9dg")));
+        let broken = format!("{INIT_DATA}&x=%E");
+        assert!(matches!(validate_web_app_data(BOT_TOKEN, &broken, None), Err(Error::InvalidArgument(_))));
+    }
+
+    #[test]
+    fn web_app_data_max_age_reads_auth_date() {
+        let years = Duration::from_secs(100 * 365 * 24 * 3600);
+        assert!(validate_web_app_data(BOT_TOKEN, INIT_DATA, Some(years)).is_ok());
+        let old = validate_web_app_data(BOT_TOKEN, INIT_DATA, Some(Duration::from_secs(3600)));
+        assert!(matches!(old, Err(Error::Security("Mini App data is older than max_age"))), "{old:?}");
+    }
+
+    #[test]
+    fn form_decoding_follows_url_search_params() {
+        assert_eq!(form_decode("a+b%20c%2B%e2%9C%93").unwrap(), "a b c+✓");
+        for broken in ["%", "%4", "%zz", "%ff"] {
+            assert!(matches!(form_decode(broken), Err(Error::InvalidArgument(_))), "{broken}");
+        }
+    }
 
     #[test]
     fn base64url_is_strict_and_proxy_secrets_are_not() {
