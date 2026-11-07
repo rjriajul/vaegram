@@ -99,6 +99,8 @@ impl Client {
                 .find_map(|c| match c {
                     base::Chat::Channel(c) if c.id == channel_id => c.access_hash,
                     base::Chat::ChannelForbidden(c) if c.id == channel_id => Some(c.access_hash),
+                    base::Chat::Community(c) if c.id == channel_id => c.access_hash,
+                    base::Chat::CommunityForbidden(c) if c.id == channel_id => c.access_hash,
                     _ => None,
                 })
                 .ok_or(Error::PeerNotFound(chat_id))?;
@@ -441,5 +443,34 @@ mod tests {
         let channel = types::InputChannelFromMessage { peer: group, msg_id: 42, channel_id: 55 };
         let channel = base::InputChannel::InputChannelFromMessage(Box::new(channel));
         assert_eq!(sent.try_recv().unwrap(), crate::raw::functions::channels::GetFullChannel { channel }.to_bytes());
+    }
+
+    fn community(id: i64, access_hash: i64) -> base::Chat {
+        base::Chat::Community(Box::new(types::Community {
+            creator: false,
+            left: false,
+            min: false,
+            collapsed_in_dialogs: false,
+            id,
+            access_hash: Some(access_hash),
+            title: "Hub".into(),
+            photo: base::ChatPhoto::ChatPhotoEmpty,
+            date: 0,
+            admin_rights: None,
+            default_banned_rights: None,
+        }))
+    }
+
+    #[tokio::test]
+    async fn a_community_keeps_its_access_hash() {
+        let chats = types::messages::Chats { chats: vec![community(71, 4)] };
+        let (client, mut sent) = Client::scripted(vec![Ok(base::messages::Chats::Chats(Box::new(chats)).to_bytes())]);
+        crate::dispatcher::Entities::new(&client, Vec::new(), vec![community(70, 3)]);
+        let peer = |channel_id, access_hash| {
+            base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id, access_hash }))
+        };
+        assert_eq!(client.resolve_peer(get_channel_id(70)).await.unwrap(), peer(70, 3));
+        assert!(sent.try_recv().is_err(), "a request went out for a community already seen");
+        assert_eq!(client.resolve_peer(get_channel_id(71)).await.unwrap(), peer(71, 4));
     }
 }

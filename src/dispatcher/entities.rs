@@ -40,8 +40,21 @@ impl Entities {
                     peers.remember(id, c.access_hash, &[], None);
                     id
                 }
-                base::Chat::Community(c) => get_channel_id(c.id),
-                base::Chat::CommunityForbidden(c) => get_channel_id(c.id),
+                // Communities are addressed like channels.
+                base::Chat::Community(c) => {
+                    let id = get_channel_id(c.id);
+                    if let (false, Some(access_hash)) = (c.min, c.access_hash) {
+                        peers.remember(id, access_hash, &[], None);
+                    }
+                    id
+                }
+                base::Chat::CommunityForbidden(c) => {
+                    let id = get_channel_id(c.id);
+                    if let Some(access_hash) = c.access_hash {
+                        peers.remember(id, access_hash, &[], None);
+                    }
+                    id
+                }
                 _ => continue,
             };
             entities.chats.insert(id, chat);
