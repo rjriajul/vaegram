@@ -246,9 +246,9 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   yet tested live)
 - [ ] Business accounts: `on_business_message`, `on_business_connection`, `on_deleted_business_messages`, replies on
   behalf of the account, `read_business_message`, name, bio, username, gift settings and Stars (not yet tested live)
-- [ ] Rich messages: `send_rich_message(chat, InputRichMessage::html("<b>hi</b>"))`, blocks such as
-  `RichBlock::paragraph(Text::new().bold("hi"))`, rich drafts and edits, `msg.rich_message`, `get_rich_message` (not
-  yet tested live)
+- [ ] Rich messages: bots send them with `send_rich_message(chat, InputRichMessage::html("<b>hi</b>"))`, blocks such
+  as `RichBlock::paragraph(Text::new().bold("hi"))`, rich drafts and edits, `msg.rich_message`; users fetch a whole one
+  with `get_rich_message` (not yet tested live)
 - [ ] Gifts and verification: `send_gift(chat, id)`, `get_chat_gifts(chat)`, `upgrade_gift(id)`, `transfer_gift(id, chat)`,
   `msg.service` (`ServiceAction::Gift`, ..), `verify_chat(chat)`; upgraded gifts: `get_upgraded_gift`,
   `get_upgraded_gift_value_info`, `get_gift_upgrade_preview`, `get_gift_upgrade_variants`, `buy_gift_upgrade`,

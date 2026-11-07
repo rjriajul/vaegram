@@ -15,7 +15,8 @@ pub struct ForwardStory<'a> {
 }
 
 impl Client {
-    /// Sends a story from `from_chat_id` to `chat_id` as a message and returns the sent [`Message`].
+    /// Sends a story from `from_chat_id` to `chat_id` as a message and returns the sent [`Message`]. Only public
+    /// stories can be forwarded: Telegram answers any other with `STORY_PUBLIC_MISSING`.
     pub fn forward_story(
         &self,
         chat_id: impl Into<PeerRef>,
