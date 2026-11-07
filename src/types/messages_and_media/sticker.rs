@@ -1,5 +1,4 @@
-use crate::enums::{StickerFormat, StickerType};
-use crate::file_id::FileType;
+use crate::enums::{FileType, StickerFormat, StickerType};
 use crate::raw::{base, types};
 use crate::types::{Document, FileLocation, MaskPosition, Thumbnail};
 

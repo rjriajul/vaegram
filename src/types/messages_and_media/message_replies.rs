@@ -288,8 +288,8 @@ mod tests {
 
     use crate::Client;
     use crate::dispatcher::Entities;
-    use crate::enums::ChatAction;
-    use crate::file_id::{FileId, FileType, ThumbnailSource};
+    use crate::enums::{ChatAction, FileType};
+    use crate::file_id::{FileId, ThumbnailSource};
     use crate::raw::{Identifiable, base, functions, types};
     use crate::types::{
         DirectMessagesTopic, FileSource, InputChecklist, InputInvoice, InputMedia, InputRichMessage, LabeledPrice,

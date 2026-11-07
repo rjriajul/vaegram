@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use super::{input_document, input_photo};
+use crate::enums::FileType;
 use crate::errors::{Error, Result};
-use crate::file_id::{FileId, FileType};
+use crate::file_id::FileId;
 use crate::raw::{base, types};
 use crate::types::{
     Animation, Audio, Document, LivePhoto, Photo, Sticker, Upload, UploadedFile, Video, VideoNote, Voice,
@@ -34,6 +35,10 @@ impl FileSource<'_> {
     /// hash and file reference this account was given, so another bot or a user account may be refused as well.
     /// To send the same file from several accounts, keep one file id per account, taken from a message that
     /// account received or sent, or upload the file again.
+    ///
+    /// vaegram sends the stored file as it is, whichever sender takes it, and doesn't check that its kind fits the
+    /// sender: only a photo id given to a sender of other files, or another id given to a photo sender, fails with
+    /// [`Error::InvalidArgument`]. Where the kind matters, check it first with [`FileType::of`].
     pub fn file_id(file_id: &str) -> Result<Self> {
         let id = FileId::decode(file_id).map_err(Error::InvalidArgument)?;
         if matches!(id.file_type, FileType::Thumbnail | FileType::ChatPhoto) {

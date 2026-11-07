@@ -1,5 +1,6 @@
+use crate::enums::FileType;
 use crate::errors::Error;
-use crate::file_id::{FileId, FileType, ThumbnailSource};
+use crate::file_id::{FileId, ThumbnailSource};
 use crate::raw::{base, types};
 use crate::types::{Document, Photo};
 use crate::utils::CHANNEL_OFFSET;

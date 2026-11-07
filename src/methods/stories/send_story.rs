@@ -162,9 +162,9 @@ into_future!(SendStory, Story);
 #[cfg(test)]
 mod tests {
     use crate::Client;
-    use crate::enums::StoriesPrivacyRules;
+    use crate::enums::{FileType, StoriesPrivacyRules};
     use crate::errors::Error;
-    use crate::file_id::{FileId, FileType};
+    use crate::file_id::FileId;
     use crate::raw::{base, types};
     use crate::types::{InputStoryContent, Text};
     use crate::types::{StoryArea, StoryAreaPosition, StoryAreaType};
