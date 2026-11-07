@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
 
 vaegram talks to Telegram's main API over [MTProto](https://core.telegram.org/mtproto), the protocol the official
 apps use. A bot can use it in place of the Bot API, and a user account can use it as a custom client. The transport,
-encryption and session are written from scratch in Rust, and the types for all 876 functions of API layer 233 are
+encryption and session are written from scratch in Rust, and the types for every function of API layer 233 are
 generated from Telegram's schema.
 
 ## Features
