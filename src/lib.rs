@@ -93,6 +93,12 @@ mod fuzz;
 /// or the edit `edit_message_text` made, reach no handler, raw handler or listener: they only move the update state,
 /// and the method returns what they hold. The same account's actions from another session or device arrive as
 /// usual.
+///
+/// A panic in a handler, its filter, a raw handler or a lifecycle hook is caught where it happens and sent to
+/// [`Client::on_event`] as [`ClientEvent::HandlerPanicked`](enums::ClientEvent::HandlerPanicked), with the route,
+/// the chat and the panic's message; [`Client::on_error`] doesn't get it. Update delivery carries on: a panicking
+/// handler stops the later groups for its update as an `Err` does, a panicking filter counts as not matching, the
+/// raw handlers and the next updates still run, and with `ordered` the chat moves on to its next update.
 pub mod handlers;
 /// The friendly API methods, all on [`Client`], and the request builders some of them return.
 pub mod methods;

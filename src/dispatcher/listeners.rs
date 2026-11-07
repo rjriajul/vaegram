@@ -5,10 +5,11 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::time::Instant;
 
+use super::tasks::guard;
 use crate::client::Me;
 use crate::errors::{Error, Result};
 use crate::filters::{Filter, Inspect, Subject};
-use crate::handlers::Callback;
+use crate::handlers::{Callback, UpdateKind};
 use crate::types::{CallbackQuery, InlineMessageId, Message};
 
 pub(crate) static UNEXPECTED_CLICK: LazyLock<Arc<str>> =
@@ -18,6 +19,8 @@ pub(crate) static UNEXPECTED_CLICK: LazyLock<Arc<str>> =
 pub trait Listenable: Listened {}
 
 pub trait Listened: Subject + Inspect + Sized {
+    /// The route a panic in a listener's filter is reported under.
+    const KIND: UpdateKind;
     fn book(listeners: &Listeners) -> &Book<Self>;
     fn identity<'a>(&'a self, me: &Me) -> Option<Identity<'a>>;
 
@@ -38,6 +41,8 @@ pub struct Identity<'a> {
 impl Listenable for Message {}
 
 impl Listened for Message {
+    const KIND: UpdateKind = UpdateKind::Message;
+
     fn book(listeners: &Listeners) -> &Book<Message> {
         &listeners.messages
     }
@@ -59,6 +64,8 @@ impl Listened for Message {
 impl Listenable for CallbackQuery {}
 
 impl Listened for CallbackQuery {
+    const KIND: UpdateKind = UpdateKind::CallbackQuery;
+
     fn book(listeners: &Listeners) -> &Book<CallbackQuery> {
         &listeners.callbacks
     }
@@ -352,7 +359,7 @@ impl<T: Listened> Book<T> {
     /// Hands `item` to the oldest listener that matches it. Filters run outside the lock.
     pub(crate) fn offer(&self, mut item: T, me: &Me) -> Offer<T> {
         let now = Instant::now();
-        let (mut candidates, stranger, expired) = {
+        let (mut candidates, stranger, expired, chat) = {
             let Some(identity) = item.identity(me) else { return Offer::Unclaimed(item) };
             let mut shelf = self.shelf();
             let expired = prune(&mut shelf, now);
@@ -364,12 +371,14 @@ impl<T: Listened> Book<T> {
                 .map(|e| (e.id, e.criteria.filter.clone()))
                 .collect();
             let stranger = live.find_map(|e| e.criteria.stranger(&identity));
-            (candidates, stranger, expired)
+            (candidates, stranger, expired, identity.chat)
         };
         drop(expired);
         if candidates.iter().any(|(_, filter)| filter.is_some()) {
-            let facts = item.facts(me);
-            candidates.retain(|(_, filter)| filter.as_ref().is_none_or(|f| f.eval(&facts, &item)));
+            let (facts, events) = (item.facts(me), &item.client().0.events);
+            // A panicking filter counts as a miss, as on a handler.
+            let test = |f: &Filter<T>| guard(events, T::KIND, chat, || f.eval(&facts, &item)).unwrap_or(false);
+            candidates.retain(|(_, filter)| filter.as_deref().is_none_or(test));
         }
         for (id, _) in candidates {
             let Some(entry) = self.take(id) else { continue };
@@ -510,6 +519,21 @@ pub(crate) mod tests {
         assert!(claimed(book.offer(message(&client, 2, 7, None, false), &me())));
         assert_eq!((first.try_recv().unwrap().id, second.try_recv().unwrap().id), (1, 2));
         assert!(!book.waiting());
+    }
+
+    #[test]
+    fn a_panicking_listener_filter_is_a_reported_miss() {
+        let (client, book) = (Client::offline(), Book::<Message>::default());
+        let events = client.0.events.record();
+        let boom = crate::filters::create(|_: &Message| -> bool { panic!("boom") });
+        let _panicking = book.wait(1, Criteria { filter: Some(Arc::new(boom)), ..Criteria::default() }).unwrap();
+        let mut plain = book.wait(2, Criteria::default()).unwrap();
+        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me())));
+        assert_eq!(plain.try_recv().unwrap().id, 1);
+        let event = events.try_recv().unwrap();
+        let panicked = matches!(&event, crate::enums::ClientEvent::HandlerPanicked {
+            kind: UpdateKind::Message, chat_id: Some(7), message: Some(m) } if m == "boom");
+        assert!(panicked, "{event:?}");
     }
 
     #[test]
