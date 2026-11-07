@@ -53,7 +53,10 @@ async fn user_replies_to_a_story() {
     let Some(user) = user_client().await else { return };
     let me = user.get_me().await.unwrap();
     let only_me = StoriesPrivacyRules::SelectedUsers(vec![me.id]);
-    let story = user.send_story(me.id, InputStoryContent::photo(photo.as_str())).privacy(only_me).await.unwrap();
+    let story = match user.send_story(me.id, InputStoryContent::photo(photo.as_str())).privacy(only_me).await {
+        Err(e) if support::story_limit_reached(&e) => return,
+        sent => sent.unwrap(),
+    };
 
     let reply = story.reply("hi").await;
     user.delete_stories(me.id, &[story.id]).await.unwrap();

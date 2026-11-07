@@ -2,14 +2,19 @@
 // Live behaviour is unverified: these tests have not been run.
 // VAEGRAM_OWNED_BOT must be a disposable bot: its round-trip test leaves it without a profile photo.
 
-#[allow(dead_code)] // this binary drives only the user half of the kit
-mod support;
-
 use vaegram::Client;
 use vaegram::enums::BlockList;
 
+/// The logged-in user alone: these tests need no bot and no updates. Taking the user out of a `support::Kit`
+/// would drop the kit, whose guard disconnects its clients.
 async fn user() -> Option<Client> {
-    Some(support::Kit::from_env().await?.user.client)
+    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
+        return None;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let client = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
+    Some(client.connect().await.unwrap())
 }
 
 fn env_id(name: &str) -> Option<i64> {

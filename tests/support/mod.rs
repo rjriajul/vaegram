@@ -6,6 +6,8 @@ use vaegram::{Client, ClientBuilder, Error, Result, filters};
 
 const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// A logged-in user and the test bot, both running. Dropping the kit disconnects both clients, clones included,
+/// so keep it alive while any of them is in use.
 pub struct Kit {
     pub user: User,
     pub bot: Client,
