@@ -10,7 +10,7 @@ use std::sync::Arc;
 #[cfg(feature = "regex")]
 pub use self::regex::{Searchable, matches, regex};
 pub(crate) use facts::{Facts, PeerKinds};
-use pred::Pred;
+use pred::{Pred, Prefixes};
 pub(crate) use subjects::private::Inspect;
 pub use subjects::{HasChat, HasData, HasMedia, HasSender, HasText, Subject};
 
@@ -105,8 +105,8 @@ impl From<Vec<i64>> for Ids {
     }
 }
 
-/// Command names for `command`: `"start"` or `["ban", "kick"]`. `command` and `command_with` match them without
-/// case, in any script; `command_case_sensitive` needs the exact case.
+/// Command names for `command`: `"start"` or `["ban", "kick"]`. `command`, `command_with` and
+/// `command_with_prefixes` match them without case, in any script; `command_case_sensitive` needs the exact case.
 pub trait CommandNames {
     /// The names, in the form a command filter keeps them.
     fn names(self) -> Box<[Box<str>]>;
@@ -185,6 +185,23 @@ pub fn command_with<T: HasText>(prefixes: &str, names: impl CommandNames) -> Fil
     command_filter(prefixes, names, false)
 }
 
+/// Like [`command`], but any of the `prefixes` strings starts a command: `[".", "!x"]` takes `.start` and
+/// `!xstart`. When several prefixes start the text, the longest one is taken, so with `["!", "!x"]` the text
+/// `!xstart` is the command `start`. Read it in the handler with `Message::command_with_prefixes`.
+///
+/// # Panics
+///
+/// If `prefixes` is empty or holds an empty string.
+pub fn command_with_prefixes<T: HasText>(
+    prefixes: impl IntoIterator<Item = impl AsRef<str>>,
+    names: impl CommandNames,
+) -> Filter<T> {
+    let prefixes: Box<[Box<str>]> = prefixes.into_iter().map(|p| p.as_ref().into()).collect();
+    assert!(!prefixes.is_empty(), "command prefixes can't be empty; use [\"/\"] for bot commands");
+    assert!(prefixes.iter().all(|p| !p.is_empty()), "a command prefix can't be an empty string");
+    Filter(Pred::Commands { prefixes: Prefixes::Strings(prefixes), names: names.names(), case_sensitive: false })
+}
+
 /// Like `command_with`, but the name must have the case it was given: `/Start` isn't `/start`.
 pub fn command_case_sensitive<T: HasText>(prefixes: &str, names: impl CommandNames) -> Filter<T> {
     command_filter(prefixes, names, true)
@@ -192,7 +209,7 @@ pub fn command_case_sensitive<T: HasText>(prefixes: &str, names: impl CommandNam
 
 fn command_filter<T: HasText>(prefixes: &str, names: impl CommandNames, case_sensitive: bool) -> Filter<T> {
     assert!(!prefixes.is_empty(), "command prefixes can't be empty; use \"/\" for bot commands");
-    Filter(Pred::Commands { prefixes: prefixes.into(), names: names.names(), case_sensitive })
+    Filter(Pred::Commands { prefixes: Prefixes::Chars(prefixes.into()), names: names.names(), case_sensitive })
 }
 
 /// Text, caption or inline query that starts with `prefix`, compared case-sensitively.
@@ -639,6 +656,39 @@ mod tests {
         assert!(!hit(&f, says("/приветик")));
         let exact: Filter = command_case_sensitive("/", "Привет");
         assert!(hit(&exact, says("/Привет")) && !hit(&exact, says("/привет")));
+    }
+
+    #[test]
+    fn string_prefixes_take_the_longest_match() {
+        let says = |text| Facts { text, me: Some("Bot"), ..Facts::default() };
+        let f: Filter = command_with_prefixes([".", "!x"], ["ban", "Start"]);
+        assert!(hit(&f, says(".ban 1")) && hit(&f, says("!xSTART@bot now")));
+        assert!(!hit(&f, says("!ban")) && !hit(&f, says("/ban")) && !hit(&f, says("!xstart@other")));
+        assert!(!hit(&f, says("x.ban")) && !hit(&f, says(". ban")) && !hit(&f, says("!x")));
+        // `!xban` is `ban` after `!x`, never `xban` after `!`.
+        let both: Filter = command_with_prefixes(vec!["!".to_owned(), "!x".to_owned()], "ban");
+        assert!(hit(&both, says("!xban")) && hit(&both, says("!ban")));
+        let short: Filter = command_with_prefixes(["!"], "ban");
+        assert!(!hit(&short, says("!xban")));
+        let xban: Filter = command_with_prefixes(["!", "!x"], "xban");
+        assert!(!hit(&xban, says("!xban")));
+
+        let client = Client::offline();
+        let read =
+            |text| message(&client, 5, text, None).command_with_prefixes(&["!", "!x"]).map(|c| c.name.to_owned());
+        assert_eq!((read("!xban 1"), read("!ban"), read("/ban")), (Some("ban".into()), Some("ban".into()), None));
+    }
+
+    #[test]
+    #[should_panic(expected = "empty string")]
+    fn string_prefixes_refuse_an_empty_prefix() {
+        let _: Filter = command_with_prefixes([".", ""], "ban");
+    }
+
+    #[test]
+    #[should_panic(expected = "can't be empty")]
+    fn string_prefixes_refuse_an_empty_list() {
+        let _: Filter = command_with_prefixes(Vec::<String>::new(), "ban");
     }
 
     #[test]

@@ -700,6 +700,17 @@ impl Message {
             .then_some(command)
     }
 
+    /// Parses a command from the text or caption, with any of the `prefixes` strings starting it, as
+    /// [`filters::command_with_prefixes`](crate::filters::command_with_prefixes) matches it: the longest prefix the
+    /// text starts with wins, and empty prefixes never match.
+    ///
+    /// Returns `None` if there is no command, or if it names another bot.
+    pub fn command_with_prefixes<S: AsRef<str>>(&self, prefixes: &[S]) -> Option<Command<'_>> {
+        let command = Command::parse_prefixed(self.content(), prefixes)?;
+        (command.bot.is_none() || command.is_for(self.client.0.me.lock().unwrap().username.as_deref()))
+            .then_some(command)
+    }
+
     /// Fetches the message this one replies to, on demand, or takes what `fetch_replies` fetched, or the message
     /// cache's copy when that's on; `None` when it isn't a reply or that message is gone. A business message has
     /// only the replied message its update carried.
