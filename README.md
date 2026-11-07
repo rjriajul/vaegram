@@ -75,7 +75,8 @@ More in [examples](examples).
 The first run logs in and writes `my_bot.session`. Later runs reuse it, so you log in once. The same file
 keeps known chats, the update state and the server salt, so after a restart you can still message chats by
 id, `run()` delivers the updates you missed while offline, and the first request doesn't bounce off a stale
-salt. `.workdir(dir)` puts it in another directory.
+salt. `.workdir(dir)` puts it in another directory. One client at a time per file: while a client has it open, a
+second one built with the same name fails with `ResourceBusy` (it holds `my_bot.session.lock` beside it).
 
 `.in_memory()` writes nothing, and `.storage_engine(engine)` keeps everything in any type implementing
 `storage::Storage`, such as a database; optional engines come behind cargo features. Session files written

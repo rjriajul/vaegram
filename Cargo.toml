@@ -39,6 +39,10 @@ serde_json = { version = "1", optional = true }
 tokio-rustls = { version = "0.26.6", optional = true, default-features = false, features = ["ring", "tls12"] }
 webpki-roots = { version = "1", optional = true }
 
+# `flock` for the session file lock. Already in the dependency graph through tokio on Unix.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [features]
 # `ToJson` for every TL type and function; off by default to keep the generated code small.
 json = []

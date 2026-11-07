@@ -13,8 +13,10 @@ const MIN_COMPACT: usize = 1 << 20;
 /// Keeps everything in one file, `<name>.session`, that each save appends to and that is rewritten whole once
 /// the appended bytes outgrow what it holds. Every record is also kept in memory.
 ///
-/// The file is created private to the user (0600 on Unix). One client per file: two processes writing the same
-/// file would interleave their records. A file vaegram didn't write is refused and left as it is.
+/// The file is created private to the user (0600 on Unix). One client per file: while one has it open, it holds
+/// `<name>.session.lock`, and another client opening the same file, in this process or another, fails with
+/// `ResourceBusy` instead of interleaving its records. The lock goes with the process, so a crash leaves none
+/// behind; the empty `.lock` file itself stays. A file vaegram didn't write is refused and left as it is.
 pub struct FileStorage {
     path: PathBuf,
     file: Mutex<Open>,
@@ -29,6 +31,8 @@ struct Open {
     // Whole records of kinds this version skips, kept for a newer vaegram through compaction.
     skipped: Vec<u8>,
     handle: Option<File>,
+    // Held from the first read until `close`: no other FileStorage can open the same file meanwhile.
+    lock: Option<File>,
     // Where the next record goes: the end of the last whole record.
     end: usize,
     // Set after a torn write, so the next write cuts the garbage off first.
@@ -74,6 +78,9 @@ impl FileStorage {
     }
 
     fn read(&self, open: &mut Open) -> io::Result<()> {
+        if open.lock.is_none() {
+            open.lock = Some(lock_file(&self.path)?);
+        }
         let bytes = match fs::read(&self.path) {
             Ok(bytes) => bytes,
             Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
@@ -154,6 +161,43 @@ fn write_at(handle: &mut File, at: u64, truncate: bool, bytes: &[u8]) -> io::Res
     handle.sync_data()
 }
 
+/// Opens `<path>.lock` and holds it exclusively, or fails with `ResourceBusy` when another client holds it. The OS
+/// releases it when the handle closes or the process ends, so it never goes stale.
+fn lock_file(path: &Path) -> io::Result<File> {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".lock");
+    let mut options = fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    let in_use = || io::Error::new(io::ErrorKind::ResourceBusy, "already open in another client; one client per file");
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // No sharing: nobody else can open it while this handle lives.
+        const ERROR_SHARING_VIOLATION: i32 = 32;
+        match options.share_mode(0).open(name) {
+            Err(e) if e.raw_os_error() == Some(ERROR_SHARING_VIOLATION) => Err(in_use()),
+            opened => opened,
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::io::AsRawFd;
+        let file = options.mode(0o600).open(name)?;
+        // SAFETY: flock only reads the descriptor, which `file` keeps open for the whole call.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            let e = io::Error::last_os_error();
+            return Err(if e.kind() == io::ErrorKind::WouldBlock { in_use() } else { e });
+        }
+        Ok(file)
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = in_use;
+        options.open(name)
+    }
+}
+
 impl fmt::Debug for FileStorage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FileStorage").field("path", &self.path).finish_non_exhaustive()
@@ -180,9 +224,13 @@ impl Storage for FileStorage {
     fn delete(&self) -> StorageFuture<'_, ()> {
         Box::pin(async move {
             let mut open = self.lock();
+            let lock = match open.lock.take() {
+                Some(lock) => lock,
+                None => lock_file(&self.path).map_err(|e| self.named(e))?,
+            };
             open.handle = None;
             super::delete(&self.path).map_err(|e| self.named(e))?;
-            *open = Open { opened: true, compact_at: open.compact_at, ..Open::default() };
+            *open = Open { opened: true, lock: Some(lock), compact_at: open.compact_at, ..Open::default() };
             Ok(())
         })
     }
@@ -318,6 +366,7 @@ mod tests {
         let mut torn = good.clone();
         torn.extend_from_slice(&[40, 0, 0, 0, 1, 2, 3, 4, 3, 9, 9]);
         std::fs::write(storage.path(), &torn).unwrap();
+        drop(storage);
 
         let reopened = FileStorage::new(dir.join("bot"));
         let before = reopened.export_peers(None).await.unwrap();
@@ -339,6 +388,7 @@ mod tests {
         let mut torn = std::fs::read(storage.path()).unwrap();
         torn.extend_from_slice(&[40, 0, 0, 0, 1, 2, 3, 4, 3, 9, 9]);
         std::fs::write(storage.path(), &torn).unwrap();
+        drop(storage);
 
         let reopened = FileStorage::new(dir.join("bot"));
         let reports = conformance::collect_reports(&reopened);
@@ -387,6 +437,7 @@ mod tests {
         let mut bytes = std::fs::read(storage.path()).unwrap();
         bytes[after_session + 12] ^= 0xff;
         std::fs::write(storage.path(), &bytes).unwrap();
+        drop(storage);
 
         let reopened = FileStorage::new(dir.join("bot"));
         let loaded = (reopened.load_session().await.unwrap().map(|s| s.user_id), reopened.export_peers(None).await);
@@ -407,6 +458,7 @@ mod tests {
         storage.clear_peers().await.unwrap();
         storage.update_peers(&[peer(3, 1)]).await.unwrap();
         let size = std::fs::metadata(storage.path()).unwrap().len();
+        drop(storage);
         let reopened = FileStorage::new(dir.join("bot"));
         let loaded = (reopened.load_session().await.unwrap().map(|s| s.user_id), reopened.export_peers(None).await);
         let _ = std::fs::remove_dir_all(&dir);
@@ -473,6 +525,7 @@ mod tests {
         storage.lock().compact_at = 1;
         storage.update_peers(&[peer(3, 1)]).await.unwrap();
         let compacted = storage.lock().appended == 0;
+        drop(storage);
         let reopened = FileStorage::new(dir.join("bot"));
         let owner = reopened.get_peer_by_username("shared").await.unwrap().map(|p| p.id);
         let _ = std::fs::remove_dir_all(&dir);
@@ -518,5 +571,25 @@ mod tests {
         let compacted = std::fs::metadata(storage.path()).unwrap().permissions().mode() & 0o777;
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!((created, compacted), (0o600, 0o600));
+    }
+
+    #[tokio::test]
+    async fn a_second_client_on_the_same_file_is_refused_until_the_first_closes() {
+        let dir = temp_dir("one-client");
+        let first = FileStorage::new(dir.join("bot"));
+        first.save_session(&session()).await.unwrap();
+        let second = FileStorage::new(dir.join("bot"));
+        let refused = second.open().await.err().map(|e| e.kind());
+        let refused_write = second.save_state(&StoredState::new(77, Salt::default(), None)).await.is_err();
+        first.update_peers(&[peer(1, 5), peer(2, 6), peer(3, 7)]).await.unwrap();
+        first.close().await.unwrap();
+        let after_close = second.open().await;
+        let peers = second.export_peers(None).await.unwrap();
+        drop(second);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(refused, Some(std::io::ErrorKind::ResourceBusy));
+        assert!(refused_write, "a refused storage still wrote");
+        assert!(after_close.is_ok(), "{after_close:?}");
+        assert_eq!(peers.len(), 3, "the first client's records were overwritten");
     }
 }

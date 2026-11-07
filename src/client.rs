@@ -1294,12 +1294,13 @@ mod tests {
         let session = file.load_session().await.unwrap().map(|s| (s.user_id, s.is_bot));
         let state = file.load_state().await.unwrap();
         let peers = file.export_peers(None).await.unwrap();
-        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        names.sort();
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(session, Some((1001, true)));
         assert_eq!(state.map(|s| (s.owner, s.update)), Some((1001, Some(update_state))));
         assert_eq!(peers.iter().map(|p| (p.id, p.access_hash)).collect::<Vec<_>>(), [(777, 5)]);
-        assert_eq!(names, ["bot.session"], "one file, no .state");
+        assert_eq!(names, ["bot.session", "bot.session.lock"], "the login and its lock, no .state");
     }
 
     #[tokio::test]
