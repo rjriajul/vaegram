@@ -724,7 +724,7 @@ async fn user_creates_and_manages_a_supergroup() {
 }
 
 /// Creates a supergroup, or a channel if `broadcast`, runs `test` in it and deletes it again, also when `test`
-/// returns an error.
+/// returns an error or panics.
 ///
 /// Telegram slows down accounts that create and change many groups in a row: calls on the new chats then answer
 /// FLOOD_WAIT for about 15 minutes. That is the account's state rather than a vaegram failure, so the test is
@@ -737,10 +737,27 @@ async fn in_new_chat(user: &Client, broadcast: bool, test: impl AsyncFnOnce(Chat
     };
     let Some(chat) = flood_skipped(created) else { return };
     let id = chat.id;
-    let result = test(chat).await;
+    // A failed assertion is caught here so the chat is still deleted, then goes on unwinding below.
+    let mut step = std::pin::pin!(test(chat));
+    let outcome = std::future::poll_fn(|cx| {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| step.as_mut().poll(cx))) {
+            Ok(poll) => poll.map(Ok),
+            Err(panic) => std::task::Poll::Ready(Err(panic)),
+        }
+    })
+    .await;
     let deleted = match broadcast {
         true => user.delete_channel(id).await,
         false => user.delete_supergroup(id).await,
+    };
+    let result = match outcome {
+        Ok(result) => result,
+        Err(panic) => {
+            if let Err(e) = deleted {
+                eprintln!("chat {id} was left behind: {e}");
+            }
+            std::panic::resume_unwind(panic);
+        }
     };
     if flood_skipped(result).is_some() {
         flood_skipped(deleted);
@@ -749,13 +766,10 @@ async fn in_new_chat(user: &Client, broadcast: bool, test: impl AsyncFnOnce(Chat
     }
 }
 
-/// Unwraps `result`, except that a FLOOD_WAIT prints why the test is skipped and gives `None`.
+/// Unwraps `result`, except that a flood wait prints why the test is skipped and gives `None`.
 fn flood_skipped<T>(result: vaegram::Result<T>) -> Option<T> {
     match result {
-        Err(e) if e.is("FLOOD_WAIT") => {
-            eprintln!("skipped: {e}; Telegram slows down accounts that create and change many groups, so rerun later");
-            None
-        }
+        Err(e) if support::flood_limited(&e, "creating or changing a test chat") => None,
         result => Some(result.unwrap()),
     }
 }
@@ -845,10 +859,7 @@ async fn user_posts_and_edits_a_story() {
         .await;
     let story = match sent {
         // The account is at its `story_expiring_limit_*` of active stories (a few without Premium).
-        Err(e) if e.is("STORIES_TOO_MUCH") => {
-            eprintln!("skipped: the account has too many active stories; delete some or wait for them to expire");
-            return;
-        }
+        Err(e) if support::story_limit_reached(&e) => return,
         sent => sent.unwrap(),
     };
     assert_eq!((story.chat.id, story.caption.as_deref(), story.is_close_friends), (me.id, Some("vaegram"), true));
