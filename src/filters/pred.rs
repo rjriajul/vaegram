@@ -15,7 +15,7 @@ pub(crate) enum Pred<T> {
     Chats(Box<[i64]>),
     Users(Box<[i64]>),
     Commands {
-        prefixes: Box<str>,
+        prefixes: Prefixes,
         names: Box<[Box<str>]>,
         case_sensitive: bool,
     },
@@ -68,7 +68,7 @@ impl<T> Pred<T> {
             &Pred::ChatKinds(mask) => f.chat.is_some_and(|c| mask & (1 << c as u8) != 0),
             Pred::Chats(ids) => ids.binary_search(&f.chat_id).is_ok(),
             Pred::Users(ids) => ids.binary_search(&f.sender_id).is_ok(),
-            Pred::Commands { prefixes, names, case_sensitive } => Command::parse(f.text, prefixes).is_some_and(|c| {
+            Pred::Commands { prefixes, names, case_sensitive } => prefixes.parse(f.text).is_some_and(|c| {
                 c.is_for(f.me)
                     && names.iter().any(|n| if *case_sensitive { **n == *c.name } else { same_text(n, c.name) })
             }),
@@ -149,6 +149,22 @@ impl<T> Pred<T> {
         match self {
             Pred::Or(p) => p.into_vec(),
             p => vec![p],
+        }
+    }
+}
+
+/// What starts a command: any one character of a set, or any one of several strings.
+#[derive(Clone)]
+pub(crate) enum Prefixes {
+    Chars(Box<str>),
+    Strings(Box<[Box<str>]>),
+}
+
+impl Prefixes {
+    fn parse<'a>(&self, text: &'a str) -> Option<Command<'a>> {
+        match self {
+            Prefixes::Chars(set) => Command::parse(text, set),
+            Prefixes::Strings(list) => Command::parse_prefixed(text, list),
         }
     }
 }

@@ -35,6 +35,7 @@ pub(crate) const ADMIN: u32 = 1 << 25;
 pub(crate) const SCHEDULED: u32 = 1 << 26;
 pub(crate) const OFFER_ACCEPTED: u32 = 1 << 27;
 pub(crate) const OFFER_REJECTED: u32 = 1 << 28;
+pub(crate) const REACTED: u32 = 1 << 29;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PeerKinds {
@@ -107,7 +108,7 @@ impl<'a> Facts<'a> {
             base::Message::MessageEmpty(_) => return Facts::default(),
         };
         let mut facts = Facts::common(&m.peer_id, m.from_id.as_ref(), m.out, m.post, kinds, me);
-        facts.flags |= SERVICE | flag(m.mentioned, MENTIONED);
+        facts.flags |= SERVICE | flag(m.mentioned, MENTIONED) | reacted(m.reactions.as_ref());
         facts.service = Some(ServiceKind::of(&m.action, kinds.chat));
         facts.reply(m.reply_to.as_ref());
         match &m.action {
@@ -146,7 +147,8 @@ impl<'a> Facts<'a> {
             | flag(m.paid_message_stars.is_some_and(|stars| stars > 0), PAID_MESSAGE)
             | flag(linked_channel(m.fwd_from.as_ref(), facts.sender_id), LINKED_CHANNEL)
             | media_traits(m.media.as_ref())
-            | keyboard(m.reply_markup.as_ref());
+            | keyboard(m.reply_markup.as_ref())
+            | reacted(m.reactions.as_ref());
         (facts.media, facts.text) = (media, &m.message);
         facts.reply(m.reply_to.as_ref());
         facts
@@ -269,6 +271,12 @@ fn keyboard(markup: Option<&base::ReplyMarkup>) -> u32 {
         Some(base::ReplyMarkup::ReplyKeyboardMarkup(_)) => REPLY_KEYBOARD,
         _ => 0,
     }
+}
+
+/// At least one reaction is counted in the reaction block.
+fn reacted(reactions: Option<&base::MessageReactions>) -> u32 {
+    let Some(base::MessageReactions::MessageReactions(r)) = reactions else { return 0 };
+    flag(r.results.iter().any(|base::ReactionCount::ReactionCount(c)| c.count > 0), REACTED)
 }
 
 /// An automatic forward from a linked channel: a channel post whose origin is the chat that sent it.
@@ -449,6 +457,51 @@ mod tests {
         let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
         assert_eq!(facts.flags & SENDER_BOT, 0);
         assert_eq!(facts, Message::parse(&client, Box::new(m), &entities).facts(&me));
+    }
+
+    #[test]
+    fn reacted_needs_a_counted_reaction_on_both_paths() {
+        let (client, entities, me) = (Client::offline(), entities(), Me::default());
+        let block = |counts: &[i32]| {
+            let results = counts
+                .iter()
+                .map(|&count| {
+                    let reaction =
+                        base::Reaction::ReactionEmoji(Box::new(types::ReactionEmoji { emoticon: "👍".into() }));
+                    base::ReactionCount::ReactionCount(Box::new(types::ReactionCount {
+                        chosen_order: None,
+                        reaction,
+                        count,
+                    }))
+                })
+                .collect();
+            let raw = types::MessageReactions {
+                min: false,
+                can_see_list: false,
+                reactions_as_tags: false,
+                results,
+                recent_reactions: None,
+                top_reactors: None,
+            };
+            Some(base::MessageReactions::MessageReactions(Box::new(raw)))
+        };
+        let filter: crate::filters::Filter = crate::filters::reacted();
+        for (reactions, reacted) in [(None, false), (block(&[]), false), (block(&[0]), false), (block(&[0, 2]), true)] {
+            let m = edited(|m| m.reactions = reactions.clone());
+            let raw = base::Message::Message(Box::new(m.clone()));
+            let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
+            let parsed = Message::parse(&client, Box::new(m), &entities);
+            assert_eq!(facts, parsed.facts(&me));
+            assert_eq!((facts.flags & REACTED != 0, filter.check(&parsed)), (reacted, reacted), "{reactions:?}");
+
+            let photo =
+                types::MessageService { reactions, ..service(base::MessageAction::MessageActionChatDeletePhoto) };
+            let raw = base::Message::MessageService(Box::new(photo));
+            let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
+            let parsed = Message::from_raw(&client, raw.clone(), &entities).unwrap();
+            assert_eq!(facts, parsed.facts(&me));
+            assert_eq!((facts.flags & REACTED != 0, filter.check(&parsed)), (reacted, reacted));
+        }
     }
 
     #[test]

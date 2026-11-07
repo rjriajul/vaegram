@@ -91,8 +91,8 @@ impl fmt::Display for RpcError {
 
 impl std::error::Error for RpcError {}
 
-/// Everything a vaegram call can fail with. Telegram's own errors are [`Error::Rpc`]; [`is`](Self::is) and
-/// [`flood_wait`](Self::flood_wait) look into them without a match.
+/// Everything a vaegram call can fail with. Telegram's own errors are [`Error::Rpc`]; [`is`](Self::is),
+/// [`flood_wait`](Self::flood_wait) and the `is_*` helpers look into them without a match.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -106,7 +106,8 @@ pub enum Error {
     Transport(i32),
     /// Telegram's answer couldn't be read as the TL type expected.
     Deserialize(raw::Error),
-    /// A security check failed, such as a nonce, hash or DH value in the key exchange, so the data was refused.
+    /// A security check failed, such as a nonce, hash or DH value in the key exchange, or the hash of Mini App data
+    /// in `utils::validate_web_app_data`, so the data was refused.
     Security(&'static str),
     /// Telegram refused the message carrying the request with this `bad_msg_notification` code. The time and
     /// sequence codes (16, 17, 32, 33) are fixed and resent instead, so they never get here. See
@@ -159,6 +160,17 @@ pub enum Error {
     ListenerLimitReached(usize),
 }
 
+// `is_<name>` helpers on `Error`, each an exact [`Error::is`] check of one Telegram error name.
+macro_rules! named_errors {
+    ($($(#[$doc:meta])* $fn:ident => $name:literal),* $(,)?) => {$(
+        $(#[$doc])* ///
+        /// Always `false` for any other error.
+        pub fn $fn(&self) -> bool {
+            self.is($name)
+        }
+    )*};
+}
+
 impl Error {
     /// The Telegram error inside, or `None` for any other error.
     pub fn rpc(&self) -> Option<&RpcError> {
@@ -174,6 +186,53 @@ impl Error {
     /// [`RpcError::flood_wait`] of a Telegram error; `None` for any other error.
     pub fn flood_wait(&self) -> Option<Duration> {
         self.rpc().and_then(RpcError::flood_wait)
+    }
+
+    /// Whether this is a 420 error that asks to wait before retrying, the ones [`flood_wait`](Self::flood_wait)
+    /// gives a duration for: `FLOOD_WAIT_X`, `FLOOD_PREMIUM_WAIT_X`, `SLOWMODE_WAIT_X` and the other waits. Read
+    /// the duration with `flood_wait`.
+    pub fn is_flood_wait(&self) -> bool {
+        self.flood_wait().is_some()
+    }
+
+    /// Whether this is a 401 Telegram error: the login is missing, revoked or deactivated (`AUTH_KEY_UNREGISTERED`,
+    /// `SESSION_REVOKED`, `USER_DEACTIVATED`, …), or, while logging in, it still needs the two-step verification
+    /// password (`SESSION_PASSWORD_NEEDED`).
+    pub fn is_unauthorized(&self) -> bool {
+        self.rpc().is_some_and(|e| e.code == 401)
+    }
+
+    /// Whether this is a `FILE_REFERENCE_*` error, such as `FILE_REFERENCE_EXPIRED`, `FILE_REFERENCE_INVALID` or
+    /// `FILE_REFERENCE_<n>_EXPIRED` for one item of an album: the file reference is stale, so fetch the message or
+    /// other source of the file again for a fresh one. Downloads of a known source already do that once.
+    pub fn is_file_reference_error(&self) -> bool {
+        self.rpc().is_some_and(|e| e.name.starts_with("FILE_REFERENCE_"))
+    }
+
+    named_errors! {
+        /// Whether this is `MESSAGE_NOT_MODIFIED`: an edit that changes nothing.
+        is_message_not_modified => "MESSAGE_NOT_MODIFIED",
+        /// Whether this is `MESSAGE_ID_INVALID`: the message doesn't exist, or this account can't act on it.
+        is_message_id_invalid => "MESSAGE_ID_INVALID",
+        /// Whether this is `PEER_ID_INVALID`: the chat or user can't be used with this account.
+        is_peer_id_invalid => "PEER_ID_INVALID",
+        /// Whether this is `USER_IS_BLOCKED`: the user blocked this account, or stopped this bot.
+        is_user_is_blocked => "USER_IS_BLOCKED",
+        /// Whether this is `CHAT_ADMIN_REQUIRED`: the call needs admin rights this account doesn't have.
+        is_chat_admin_required => "CHAT_ADMIN_REQUIRED",
+        /// Whether this is `CHAT_WRITE_FORBIDDEN`: this account can't send messages in the chat.
+        is_chat_write_forbidden => "CHAT_WRITE_FORBIDDEN",
+        /// Whether this is `USER_NOT_PARTICIPANT`: the user isn't a member of the chat.
+        is_user_not_participant => "USER_NOT_PARTICIPANT",
+        /// Whether this is `CHANNEL_PRIVATE`: the channel or supergroup can't be seen, for example after a ban.
+        is_channel_private => "CHANNEL_PRIVATE",
+        /// Whether this is `QUERY_ID_INVALID`: the callback or inline query was already answered or has expired.
+        is_query_id_invalid => "QUERY_ID_INVALID",
+        /// Whether this is `AUTH_KEY_UNREGISTERED`: the stored login isn't valid any more, so log in again.
+        is_auth_key_unregistered => "AUTH_KEY_UNREGISTERED",
+        /// Whether this is `SESSION_PASSWORD_NEEDED`: the account has two-step verification, so finish the login
+        /// with its password.
+        is_session_password_needed => "SESSION_PASSWORD_NEEDED",
     }
 }
 
@@ -276,6 +335,50 @@ mod tests {
         let e = Error::Rpc(RpcError::parse(400, "MESSAGE_NOT_MODIFIED"));
         assert!(e.is("MESSAGE_NOT_MODIFIED") && !e.is("PEER_ID_INVALID"));
         assert!(!Error::Disconnected.is("MESSAGE_NOT_MODIFIED") && Error::Disconnected.rpc().is_none());
+    }
+
+    #[test]
+    fn named_helpers_match_their_errors_only() {
+        type Case = (fn(&Error) -> bool, i32, &'static str);
+        let rpc = |code: i32, msg: &str| Error::Rpc(RpcError::parse(code, msg));
+        let helpers: [Case; 11] = [
+            (Error::is_message_not_modified, 400, "MESSAGE_NOT_MODIFIED"),
+            (Error::is_message_id_invalid, 400, "MESSAGE_ID_INVALID"),
+            (Error::is_peer_id_invalid, 400, "PEER_ID_INVALID"),
+            (Error::is_user_is_blocked, 400, "USER_IS_BLOCKED"),
+            (Error::is_chat_admin_required, 400, "CHAT_ADMIN_REQUIRED"),
+            (Error::is_chat_write_forbidden, 403, "CHAT_WRITE_FORBIDDEN"),
+            (Error::is_user_not_participant, 400, "USER_NOT_PARTICIPANT"),
+            (Error::is_channel_private, 406, "CHANNEL_PRIVATE"),
+            (Error::is_query_id_invalid, 400, "QUERY_ID_INVALID"),
+            (Error::is_auth_key_unregistered, 401, "AUTH_KEY_UNREGISTERED"),
+            (Error::is_session_password_needed, 401, "SESSION_PASSWORD_NEEDED"),
+        ];
+        for (i, (helper, code, name)) in helpers.iter().enumerate() {
+            assert!(helper(&rpc(*code, name)), "{name}");
+            for (j, (_, other_code, other)) in helpers.iter().enumerate() {
+                assert_eq!(helper(&rpc(*other_code, other)), i == j, "{name} on {other}");
+            }
+            assert!(!helper(&Error::Disconnected) && !helper(&Error::Unexpected("PEER_ID_INVALID")), "{name}");
+            assert!(!helper(&rpc(*code, &format!("{name}_X"))), "{name}");
+        }
+
+        assert!(rpc(420, "FLOOD_WAIT_30").is_flood_wait() && rpc(420, "FLOOD_PREMIUM_WAIT_5").is_flood_wait());
+        assert!(rpc(420, "SLOWMODE_WAIT_10").is_flood_wait() && rpc(420, "FLOOD_SKIP_FAILED_WAIT").is_flood_wait());
+        assert!(!rpc(420, "FLOOD_WAIT").is_flood_wait() && !rpc(420, "STORY_SEND_FLOOD_60").is_flood_wait());
+        assert!(!rpc(400, "FLOOD_WAIT_30").is_flood_wait() && !Error::Timeout.is_flood_wait());
+
+        assert!(rpc(401, "AUTH_KEY_UNREGISTERED").is_unauthorized() && rpc(401, "SESSION_REVOKED").is_unauthorized());
+        assert!(!rpc(400, "PEER_ID_INVALID").is_unauthorized() && !Error::Transport(404).is_unauthorized());
+
+        for name in ["FILE_REFERENCE_EXPIRED", "FILE_REFERENCE_INVALID", "FILE_REFERENCE_3_EXPIRED"] {
+            assert!(rpc(400, name).is_file_reference_error(), "{name}");
+        }
+        assert!(
+            !rpc(400, "FILE_REFERENCE").is_file_reference_error()
+                && !rpc(400, "FILE_ID_INVALID").is_file_reference_error()
+        );
+        assert!(!Error::Disconnected.is_file_reference_error());
     }
 
     #[test]

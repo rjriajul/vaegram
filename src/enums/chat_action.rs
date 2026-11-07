@@ -72,4 +72,30 @@ impl ChatAction {
             ChatAction::Cancel => A::SendMessageCancelAction,
         }
     }
+
+    /// The action with its upload progress, if it has one. `None` for actions this enum has no variant for, such
+    /// as streamed drafts and emoji interactions.
+    pub(crate) fn parse(raw: &base::SendMessageAction) -> Option<(ChatAction, Option<i32>)> {
+        use base::SendMessageAction as A;
+        let (action, progress) = match raw {
+            A::SendMessageTypingAction => (ChatAction::Typing, None),
+            A::SendMessageUploadPhotoAction(a) => (ChatAction::UploadPhoto, Some(a.progress)),
+            A::SendMessageRecordVideoAction => (ChatAction::RecordVideo, None),
+            A::SendMessageUploadVideoAction(a) => (ChatAction::UploadVideo, Some(a.progress)),
+            A::SendMessageRecordAudioAction => (ChatAction::RecordAudio, None),
+            A::SendMessageUploadAudioAction(a) => (ChatAction::UploadAudio, Some(a.progress)),
+            A::SendMessageUploadDocumentAction(a) => (ChatAction::UploadDocument, Some(a.progress)),
+            A::SendMessageGeoLocationAction => (ChatAction::FindLocation, None),
+            A::SendMessageRecordRoundAction => (ChatAction::RecordVideoNote, None),
+            A::SendMessageUploadRoundAction(a) => (ChatAction::UploadVideoNote, Some(a.progress)),
+            A::SendMessageGamePlayAction => (ChatAction::Playing, None),
+            A::SendMessageChooseContactAction => (ChatAction::ChooseContact, None),
+            A::SendMessageChooseStickerAction => (ChatAction::ChooseSticker, None),
+            A::SpeakingInGroupCallAction => (ChatAction::Speaking, None),
+            A::SendMessageHistoryImportAction(a) => (ChatAction::ImportHistory, Some(a.progress)),
+            A::SendMessageCancelAction => (ChatAction::Cancel, None),
+            _ => return None,
+        };
+        Some((action, progress))
+    }
 }

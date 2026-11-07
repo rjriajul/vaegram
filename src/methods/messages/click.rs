@@ -19,7 +19,8 @@ impl Message {
     /// Callback and game buttons ask the bot for an answer. URL, web view, copy, switch-inline and
     /// user-profile buttons return their payload without a request. A plain reply keyboard button sends its
     /// label as a message. Awaiting fails with [`Error::InvalidArgument`] if the message has no such button
-    /// or the button can't be pressed from a client.
+    /// or the button can't be pressed from a client. Answer a button that asks for users or chats with
+    /// [`Client::send_bot_requested_peer`](crate::Client::send_bot_requested_peer).
     pub fn click<'a>(&'a self, button: impl Into<ButtonRef<'a>>) -> Click<'a> {
         Click { message: self, button: button.into(), password: None }
     }
@@ -58,7 +59,9 @@ impl Click<'_> {
                         return refuse("this button shares a location: use send_location");
                     }
                     B::ButtonTypeRequestPoll(_) => return refuse("this button asks for a poll: use send_poll"),
-                    _ => return refuse("this button can't be pressed from a client"),
+                    B::ButtonTypeRequestPeer(_) | B::InputButtonTypeRequestPeer(_) => {
+                        return refuse("this button asks for chats: use send_bot_requested_peer");
+                    }
                 }
                 // The label is the bot's text, not markup of ours, so no parse mode may run over it.
                 let text = Text::new().plain(b.text.as_str());
@@ -116,8 +119,8 @@ mod tests {
     use crate::errors::Error;
     use crate::raw::{Identifiable, Serializable, base, functions, types};
     use crate::types::{
-        ButtonRef, ClickResult, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message,
-        ReplyKeyboardMarkup,
+        ButtonRef, ClickResult, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardButtonRequestUsers,
+        Message, ReplyKeyboardMarkup,
     };
     use crate::utils::get_peer;
 
@@ -187,6 +190,7 @@ mod tests {
             KeyboardButton::new("Phone").request_contact(true),
             KeyboardButton::new("Here").request_location(true),
             KeyboardButton::new("App"),
+            KeyboardButton::new("Pick").request_users(KeyboardButtonRequestUsers::new(1)),
         ]])
         .write();
         if let base::ReplyMarkup::ReplyKeyboardMarkup(k) = &mut markup {
@@ -200,6 +204,8 @@ mod tests {
         assert!(matches!(message.click("Phone").await, Err(Error::InvalidArgument(e)) if e.contains("send_contact")));
         assert!(matches!(message.click("Here").await, Err(Error::InvalidArgument(e)) if e.contains("send_location")));
         assert!(matches!(message.click("App").await, Ok(ClickResult::Url(u)) if u == "https://app.example"));
+        let pick = message.click("Pick").await;
+        assert!(matches!(pick, Err(Error::InvalidArgument(e)) if e.contains("send_bot_requested_peer")));
         assert!(rx.try_recv().is_err());
     }
 }

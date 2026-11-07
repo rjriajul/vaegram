@@ -20,6 +20,7 @@ pub struct SendPoll<'a> {
     explanation: Option<Text>,
     explanation_parse_mode: Option<ParseMode>,
     options: SendOptions,
+    allows_revoting: Option<bool>,
     poll_media: PollMedia<'a>,
 }
 
@@ -58,6 +59,7 @@ impl Client {
             explanation: None,
             explanation_parse_mode: None,
             options: SendOptions::default(),
+            allows_revoting: None,
             poll_media,
         }
     }
@@ -135,6 +137,27 @@ impl<'a> SendPoll<'a> {
         self
     }
 
+    /// Whether voters may change their vote once cast; sent as the poll's `revoting_disabled` flag, inverted.
+    /// When not set, quizzes don't allow it and other polls do, like the Bot API's `allows_revoting`.
+    pub fn allows_revoting(mut self, allows_revoting: bool) -> Self {
+        self.allows_revoting = Some(allows_revoting);
+        self
+    }
+
+    /// Shows the options to each voter in a random order (the poll's `shuffle_answers` flag).
+    pub fn shuffle_options(mut self) -> Self {
+        self.poll.shuffle_answers = true;
+        self
+    }
+
+    /// Hides the results from everyone until the poll closes (the poll's `hide_results_until_close` flag). The poll
+    /// closes at [`close_date`](Self::close_date), after [`open_period`](Self::open_period), or when stopped with
+    /// [`Client::stop_poll`].
+    pub fn hide_results_until_closes(mut self) -> Self {
+        self.poll.hide_results_until_close = true;
+        self
+    }
+
     /// Limits the poll to users from these countries, given as two-letter ISO codes.
     pub fn country_codes(mut self, codes: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.poll.countries_iso2 = Some(codes.into_iter().map(Into::into).collect());
@@ -180,7 +203,8 @@ impl<'a> SendPoll<'a> {
         client.send_media(chat_id, media, "", None, options).await
     }
 
-    fn media(self, solution: Option<(String, Vec<base::MessageEntity>)>) -> base::InputMedia {
+    fn media(mut self, solution: Option<(String, Vec<base::MessageEntity>)>) -> base::InputMedia {
+        self.poll.revoting_disabled = !self.allows_revoting.unwrap_or(!self.poll.quiz);
         // solution and solution_entities share flags.1, so they must be set together.
         let (solution, solution_entities) = solution.unzip();
         base::InputMedia::InputMediaPoll(Box::new(types::InputMediaPoll {
@@ -274,7 +298,8 @@ mod tests {
         let mut buf = Vec::new();
         media.poll.serialize(&mut buf);
         let flags = u32::from_le_bytes(buf[12..16].try_into().unwrap());
-        assert_eq!(flags, (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 11) | (1 << 12));
+        // A quiz disallows changing votes unless told otherwise (flag 7).
+        assert_eq!(flags, (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 7) | (1 << 11) | (1 << 12));
     }
 
     #[test]
@@ -284,7 +309,7 @@ mod tests {
         let base::InputMedia::InputMediaPoll(media) = media else { panic!("not a poll") };
         assert!(media.correct_answers.is_none() && media.solution.is_none() && media.solution_entities.is_none());
         let base::Poll::Poll(poll) = &media.poll;
-        assert!(poll.multiple_choice && !poll.public_voters && !poll.quiz);
+        assert!(poll.multiple_choice && !poll.public_voters && !poll.quiz && !poll.revoting_disabled);
         assert_eq!(poll.countries_iso2, None);
     }
 
@@ -295,6 +320,50 @@ mod tests {
         let base::InputMedia::InputMediaPoll(media) = media else { panic!("not a poll") };
         let base::Poll::Poll(poll) = &media.poll;
         assert!(poll.open_answers && !poll.quiz && !poll.multiple_choice);
+    }
+
+    #[test]
+    fn revoting_follows_the_poll_kind_unless_set() {
+        let client = Client::offline();
+        let revoting_disabled = |send: super::SendPoll<'_>| {
+            let base::InputMedia::InputMediaPoll(media) = send.media(None) else { panic!("not a poll") };
+            let base::Poll::Poll(poll) = &media.poll;
+            poll.revoting_disabled
+        };
+        let poll = || client.send_poll(1, "Lunch?", ["Pizza", "Sushi"]);
+        assert!(!revoting_disabled(poll()));
+        assert!(revoting_disabled(poll().quiz([0])));
+        assert!(revoting_disabled(poll().allows_revoting(false)));
+        assert!(!revoting_disabled(poll().quiz([0]).allows_revoting(true)));
+        assert!(!revoting_disabled(poll().allows_revoting(true)));
+        assert!(revoting_disabled(poll().quiz([0]).allows_revoting(false)));
+    }
+
+    #[tokio::test]
+    async fn revoting_shuffling_and_hidden_results_set_their_flags() {
+        let (client, mut sent) = Client::recording();
+        let request = client.send_poll(-5, "Lunch?", ["Pizza", "Sushi"]).allows_revoting(false).shuffle_options();
+        let _ = request.hide_results_until_closes().await;
+        let body = sent.try_recv().expect("no request sent");
+        let answer = |text: &str| {
+            let answer = types::InputPollAnswer { text: text_with_entities(text.into()), media: None };
+            base::PollAnswer::InputPollAnswer(Box::new(answer))
+        };
+        let mut poll = super::poll(0, "Lunch?".into(), vec![answer("Pizza"), answer("Sushi")]);
+        (poll.revoting_disabled, poll.shuffle_answers, poll.hide_results_until_close) = (true, true, true);
+        let expected = base::InputMedia::InputMediaPoll(Box::new(types::InputMediaPoll {
+            poll: base::Poll::Poll(Box::new(poll)),
+            correct_answers: None,
+            attached_media: None,
+            solution: None,
+            solution_entities: None,
+            solution_media: None,
+        }))
+        .to_bytes();
+        assert!(body.windows(expected.len()).any(|w| w == expected), "the poll flags are missing");
+        // The InputMediaPoll constructor and flags, then the Poll constructor and id: the poll's flags follow.
+        let flags = u32::from_le_bytes(expected[20..24].try_into().unwrap());
+        assert_eq!(flags, (1 << 7) | (1 << 8) | (1 << 9));
     }
 
     #[tokio::test]

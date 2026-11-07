@@ -1027,6 +1027,33 @@ async fn closing_reports_down_but_dropping_the_handles_does_not() {
 }
 
 #[tokio::test]
+async fn is_connected_follows_the_link_and_ends_with_close() {
+    let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
+    let mut session = Session::local(mpsc::unbounded_channel().0);
+    session.control = r.control.clone();
+    assert!(session.is_connected(), "a fresh runner has a connection");
+
+    // What each link change looked like to is_connected at the moment the hooks heard of it.
+    let (seen, control) = (Arc::new(Mutex::new(Vec::new())), r.control.clone());
+    let log = seen.clone();
+    r.events.on_link(Arc::new(move |up| {
+        log.lock().unwrap().push((up, control.connected.load(std::sync::atomic::Ordering::Acquire)));
+    }));
+    let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
+    let (_sender, requests) = mpsc::unbounded_channel();
+    r.reconnect(&requests, false, true).await;
+    let _server = server.await.unwrap();
+    assert_eq!(*seen.lock().unwrap(), [(false, false), (true, true)]);
+    assert!(session.is_connected());
+
+    let task = tokio::spawn(r.run(requests));
+    session.close();
+    assert!(!session.is_connected(), "close is seen before the task gets to it");
+    tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+    assert!(!session.control.connected.load(std::sync::atomic::Ordering::Acquire));
+}
+
+#[tokio::test]
 async fn a_silent_server_does_not_pin_the_pfs_reconnect() {
     let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
     // Already expired, so the reconnect runs a new key exchange on the fresh connection.

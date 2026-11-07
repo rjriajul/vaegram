@@ -18,7 +18,17 @@ impl<'a> Command<'a> {
         if !prefixes.contains(chars.next()?) {
             return None;
         }
-        let body = chars.as_str();
+        Command::read(chars.as_str())
+    }
+
+    /// The longest of `prefixes` that starts `text` starts the command; empty prefixes never match.
+    pub(crate) fn parse_prefixed<S: AsRef<str>>(text: &'a str, prefixes: &[S]) -> Option<Command<'a>> {
+        let len =
+            prefixes.iter().map(AsRef::as_ref).filter(|p| !p.is_empty() && text.starts_with(p)).map(str::len).max()?;
+        Command::read(&text[len..])
+    }
+
+    fn read(body: &'a str) -> Option<Command<'a>> {
         let (first, rest) = body.split_once(char::is_whitespace).unwrap_or((body, ""));
         let (name, bot) = match first.split_once('@') {
             Some((name, bot)) => (name, Some(bot)),
@@ -75,6 +85,19 @@ mod tests {
         assert_eq!((c.name, c.bot, c.rest(), c.arg(1), c.arg(2)), ("ban", None, "42 spam  ", Some("spam"), None));
         assert_eq!(Command::parse(".ban", "!.").map(|c| c.name), Some("ban"));
         assert_eq!(Command::parse("/ban", "!."), None);
+    }
+
+    #[test]
+    fn string_prefixes_take_the_longest_match() {
+        let c = Command::parse_prefixed("!xban@MyBot 42", &["!", "!x"]).unwrap();
+        assert_eq!((c.name, c.bot, c.rest()), ("ban", Some("MyBot"), "42"));
+        assert_eq!(Command::parse_prefixed("!ban", &["!", "!x"]).map(|c| c.name), Some("ban"));
+        assert_eq!(Command::parse_prefixed("..go", &[".", ".."]).map(|c| c.name), Some("go"));
+        assert_eq!(Command::parse_prefixed("/go", &[".", "!x"]), None);
+        assert_eq!(Command::parse_prefixed("!x", &["!x"]), None);
+        assert_eq!(Command::parse_prefixed("!x go", &["!x"]), None);
+        assert_eq!(Command::parse_prefixed("go", &[""]), None);
+        assert_eq!(Command::parse_prefixed("пуск", &["пу"]).map(|c| c.name), Some("ск"));
     }
 
     #[test]

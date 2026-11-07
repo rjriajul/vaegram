@@ -18,6 +18,7 @@ mod install_sticker_set;
 mod read_featured_sticker_sets;
 mod remove_favorite_sticker;
 mod remove_recent_sticker;
+mod remove_sticker_mask_position;
 mod reorder_installed_sticker_sets;
 mod replace_sticker_in_set;
 mod search_sticker_sets;
