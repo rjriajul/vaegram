@@ -69,28 +69,8 @@ impl Client {
     }
 
     async fn resolve_id(&self, chat_id: i64) -> Result<base::InputPeer> {
-        if let Some(peer) = self.0.peers.lock().unwrap().get(&chat_id) {
-            return Ok(peer.clone());
-        }
-        if chat_id == self.0.me.lock().unwrap().id {
-            return Ok(base::InputPeer::InputPeerSelf);
-        }
-        // A peer saved in an earlier run: one hop to the store thread, no request. Basic groups need no hash. A
-        // failing engine only costs the request.
-        if chat_id > 0 || chat_id <= -CHANNEL_OFFSET {
-            match self.0.store.get_peer(chat_id).await {
-                Ok(Some(record)) => {
-                    if let Some(peer) = input_peer(record.id, record.access_hash) {
-                        self.0.peers.lock().unwrap().load([record]);
-                        return Ok(peer);
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => self.0.events.storage_failed(
-                    e.kind(),
-                    format_args!("couldn't look chat {chat_id} up in storage, asking Telegram: {e}"),
-                ),
-            }
+        if let Some(peer) = self.known_peer(chat_id).await {
+            return Ok(peer);
         }
 
         let peer = if chat_id > 0 {
@@ -129,6 +109,34 @@ impl Client {
 
         self.0.peers.lock().unwrap().insert(chat_id, peer.clone());
         Ok(peer)
+    }
+
+    /// The peer of a user or channel this account can address without a request: from memory, or saved in the
+    /// store by an earlier run (one hop to the store thread). A failing engine is reported and counts as unknown.
+    pub(crate) async fn known_peer(&self, chat_id: i64) -> Option<base::InputPeer> {
+        if let Some(peer) = self.0.peers.lock().unwrap().get(&chat_id) {
+            return Some(peer.clone());
+        }
+        if chat_id == self.0.me.lock().unwrap().id {
+            return Some(base::InputPeer::InputPeerSelf);
+        }
+        // Basic groups need no hash.
+        if chat_id > 0 || chat_id <= -CHANNEL_OFFSET {
+            match self.0.store.get_peer(chat_id).await {
+                Ok(Some(record)) => {
+                    if let Some(peer) = input_peer(record.id, record.access_hash) {
+                        self.0.peers.lock().unwrap().load([record]);
+                        return Some(peer);
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => self.0.events.storage_failed(
+                    e.kind(),
+                    format_args!("couldn't look chat {chat_id} up in storage, asking Telegram: {e}"),
+                ),
+            }
+        }
+        None
     }
 
     pub(crate) async fn peer_id(&self, chat: PeerRef) -> Result<i64> {
