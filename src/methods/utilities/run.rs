@@ -8,8 +8,10 @@ use crate::raw::{base, functions};
 impl Client {
     /// Returns `Ok(())` after `stop`, or `Error::Disconnected` when the connection ends.
     pub async fn run(&self) -> Result<()> {
-        let dispatcher = self.prepare().await?;
-        self.drive(dispatcher).await
+        match self.prepare().await? {
+            Some(dispatcher) => self.drive(dispatcher).await,
+            None => Ok(()),
+        }
     }
 
     /// What anything that waits for updates checks first: a client built with `no_updates` never gets any.
@@ -21,8 +23,20 @@ impl Client {
     }
 
     /// Everything `run` does before it takes updates: who the account is, where the update state starts, and the
-    /// start hook.
-    pub(super) async fn prepare(&self) -> Result<Dispatcher> {
+    /// start hook. `None` when `disconnect` cut it short: that stops the client before it ends the connection, so a
+    /// start request failing with `Disconnected` then ends a stopped run, not a lost one.
+    pub(super) async fn prepare(&self) -> Result<Option<Dispatcher>> {
+        match self.start_dispatcher().await {
+            Err(Error::Disconnected) if *self.0.stop.borrow() => {
+                // Cleared as `drive` clears it when a run ends.
+                self.0.stop.send_replace(false);
+                Ok(None)
+            }
+            started => started.map(Some),
+        }
+    }
+
+    async fn start_dispatcher(&self) -> Result<Dispatcher> {
         self.require_updates()?;
         self.set_me(&self.get_me_raw().await?);
         let saved = self.0.state.lock().unwrap().take().filter(|_| self.0.catch_up);
@@ -302,6 +316,24 @@ pub(super) mod tests {
         client.on_stop(log_hook(&log, "stop"));
         assert!(client.run().await.is_err());
         assert!(log.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_disconnect_during_the_start_ends_run_with_ok() {
+        // `disconnect` stops the client, then fails the start's waiting request with `Disconnected`.
+        let (client, _sent) = Client::scripted(vec![Err(Error::Disconnected)]);
+        let log = Log::default();
+        client.on_start(log_hook(&log, "start"));
+        client.on_stop(log_hook(&log, "stop"));
+        client.disconnect();
+        let result = client.run().await;
+        assert!(result.is_ok(), "{result:?}");
+        assert!(log.lock().unwrap().is_empty(), "the start never finished, so neither hook runs");
+        assert!(!*client.0.stop.borrow(), "a finished run clears the stop");
+
+        // Without a stop, a connection that ends during the start is still an error.
+        let (client, _sent) = Client::scripted(vec![Err(Error::Disconnected)]);
+        assert!(matches!(client.run().await, Err(Error::Disconnected)));
     }
 
     #[tokio::test]

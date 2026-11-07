@@ -45,7 +45,8 @@ impl Compose<'_> {
             let mut started = Vec::with_capacity(clients.len());
             for client in clients {
                 match client.prepare().await {
-                    Ok(dispatcher) => started.push((client.clone(), dispatcher)),
+                    Ok(Some(dispatcher)) => started.push((client.clone(), dispatcher)),
+                    Ok(None) => {}
                     Err(error) if result.is_ok() => result = Err(error),
                     Err(_) => {}
                 }
