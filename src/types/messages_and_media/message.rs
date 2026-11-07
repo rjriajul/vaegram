@@ -394,7 +394,11 @@ impl Message {
             base::messages::Messages::ChannelMessages(m) => (m.messages, m.users, m.chats),
             base::messages::Messages::MessagesNotModified(_) => Default::default(),
         };
-        (messages, Entities::new(client, users, chats))
+        let entities = Entities::new(client, users, chats);
+        for message in &messages {
+            entities.remember_min_peers(client, message);
+        }
+        (messages, entities)
     }
 
     pub(crate) fn from_updates(
@@ -447,6 +451,7 @@ impl Message {
                 _ => return None,
             };
             if !scheduled && business.is_none() {
+                entities.remember_min_peers(client, &message);
                 client.0.caches.store(&message, &entities);
             }
             let mut message = Message::from_raw(client, message, &entities)?;
@@ -1703,5 +1708,29 @@ pub(crate) mod tests {
         let both = types::MessageReplyHeader { quote_text: Some("hello".into()), ..rich };
         raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(both)));
         assert_eq!(parse(&raw).quote.unwrap().text, "hello");
+    }
+
+    #[tokio::test]
+    async fn a_fetched_min_sender_is_reached_through_its_message() {
+        let client = Client::offline();
+        let group =
+            base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 9, access_hash: 1 }));
+        client.0.peers.lock().unwrap().insert(get_channel_id(9), group.clone());
+        let mut buf = Vec::new();
+        (1u32 << 20).serialize(&mut buf);
+        0u32.serialize(&mut buf);
+        7i64.serialize(&mut buf);
+        let min_user = base::User::User(Box::new(types::User::deserialize_bare(&mut &buf[..]).unwrap()));
+        let mut raw = Message::bare(42, get_peer(get_channel_id(9)), 0);
+        raw.from_id = Some(get_peer(7));
+        let page = types::messages::Messages {
+            messages: vec![base::Message::Message(Box::new(raw))],
+            topics: Vec::new(),
+            chats: Vec::new(),
+            users: vec![min_user],
+        };
+        Message::unpack(&client, base::messages::Messages::Messages(Box::new(page)));
+        let seen = types::InputPeerUserFromMessage { peer: group, msg_id: 42, user_id: 7 };
+        assert_eq!(client.resolve_peer(7).await.unwrap(), base::InputPeer::InputPeerUserFromMessage(Box::new(seen)));
     }
 }
