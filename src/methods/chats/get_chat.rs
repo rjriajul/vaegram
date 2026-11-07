@@ -29,6 +29,8 @@ impl Client {
                 add_full_photo(&mut chat, full.as_ref());
             }
             chat.bio = user.about.take().filter(|about| !about.is_empty());
+            // Either side can protect a private chat's content.
+            chat.has_protected_content = user.noforwards_my_enabled || user.noforwards_peer_enabled;
             chat.community = Community::linked(chat_id, &entities);
             chat.full_info = Some(Box::new(ChatFullInfo::parse_user(*user, &entities)));
             return Ok(chat);
@@ -393,6 +395,16 @@ mod tests {
         // The public photo shows to those who may not see the main one.
         let full = types::UserFull { fallback_photo: Some(animated_photo(55)), ..user_full(USER) };
         assert!(user_chat(Some(profile(false)), full).await.photo.unwrap().animation.is_some());
+    }
+
+    #[tokio::test]
+    async fn private_chat_protection_comes_from_the_full_user() {
+        for (mine, theirs) in [(true, false), (false, true)] {
+            let full =
+                types::UserFull { noforwards_my_enabled: mine, noforwards_peer_enabled: theirs, ..user_full(USER) };
+            assert!(user_chat(None, full).await.has_protected_content, "mine {mine}, theirs {theirs}");
+        }
+        assert!(!user_chat(None, user_full(USER)).await.has_protected_content);
     }
 
     fn recipients() -> base::BusinessRecipients {
