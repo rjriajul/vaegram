@@ -165,6 +165,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_private_chat_but_some_is_a_selection() {
+        let (client, mut rx) = recording_client();
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        let rights = BusinessBotRights::new().can_reply(true);
+        let all_but_7 = BusinessRecipients::new().exclude_selected(true).exclude_users([7]);
+        let body = sent(&mut rx, client.update_connected_bot(42, rights, &all_but_7)).await;
+        let input_user =
+            |user_id, access_hash| base::InputUser::InputUser(Box::new(types::InputUser { user_id, access_hash }));
+        let recipients = types::InputBusinessBotRecipients {
+            existing_chats: false,
+            new_chats: false,
+            contacts: false,
+            non_contacts: false,
+            exclude_selected: true,
+            users: None,
+            exclude_users: Some(vec![input_user(7, 1)]),
+        };
+        let expected = account::UpdateConnectedBot {
+            deleted: false,
+            rights: Some(rights.write()),
+            bot: input_user(42, 7),
+            recipients: base::InputBusinessBotRecipients::InputBusinessBotRecipients(Box::new(recipients)),
+        };
+        assert_eq!(body, expected.to_bytes());
+    }
+
+    #[tokio::test]
     async fn business_stories_fetch_the_connection_once() {
         let connection = types::BotBusinessConnection {
             disabled: false,
