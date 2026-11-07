@@ -66,6 +66,10 @@ impl Store {
     }
 
     fn worker(&self) -> io::Result<&mpsc::UnboundedSender<Message>> {
+        // Also when `finish` came before the thread ever started: a closed store never starts one.
+        if self.finished.load(Ordering::Acquire) {
+            return Err(stopped());
+        }
         let worker = self.worker.get_or_init(|| {
             let (tx, rx) = mpsc::unbounded_channel();
             let (engine, pending, events) = (self.engine.clone(), self.pending.clone(), self.events.clone());
@@ -220,6 +224,10 @@ impl Store {
     }
 
     fn start_flushing(&self) {
+        // A finished store writes nothing more; what is queued after it stays in memory.
+        if self.finished.load(Ordering::Acquire) {
+            return;
+        }
         if let Err(e) = self.worker() {
             self.events.storage_failed(e.kind(), format_args!("{e}; saves wait until it starts"));
         }
@@ -569,6 +577,19 @@ mod tests {
         saved.unwrap();
         assert_eq!(engine.load_state().await.unwrap(), Some(state(9)));
         assert_eq!(engine.export_peers(None).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_store_finished_before_it_started_never_touches_the_engine() {
+        let engine = Arc::new(Recording::default());
+        let store = Store::new(engine.clone(), Arc::default());
+        store.finish(None);
+        store.queue_peers([PeerRecord::new(1, 1)]);
+        let loaded = store.get_peer(2).await;
+        store.flush().await;
+        assert!(loaded.is_err(), "{loaded:?}");
+        assert!(!store.started(), "a thread started after finish");
+        assert!(engine.calls().is_empty(), "{:?}", engine.calls());
     }
 
     #[tokio::test]

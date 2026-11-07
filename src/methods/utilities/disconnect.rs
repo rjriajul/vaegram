@@ -10,7 +10,8 @@ impl Client {
     /// await `run`, then `disconnect`.
     ///
     /// The storage is saved and closed here, or as the running `run` returns, even while clones of the client live,
-    /// so a new client can open the same session file. Nothing is read from or written to it after that.
+    /// so a new client can open the same session file. Nothing is read from or written to it after that. The final
+    /// save blocks the thread it runs on, this one or the one `run` returns on, for up to 10 seconds.
     pub fn disconnect(&self) {
         self.stop();
         self.session().close();
