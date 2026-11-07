@@ -2,12 +2,13 @@ use crate::dispatcher::Entities;
 use crate::enums::{PhoneCallDiscardReason, ServiceKind, SuggestedPostRefundReason};
 use crate::raw::{base, types};
 use crate::types::{
-    Birthday, Chat, ChatBackground, ChatShared, ChatTheme, ChecklistTask, ChecklistTasksAdded, ChecklistTasksDone,
-    Community, ForumTopicCreated, ForumTopicEdited, GiftInfo, GiftedGrams, GiftedPremium, GiftedStars,
-    GiveawayPrizeStars, PhoneCallEnded, Photo, PollOption, PremiumGiftCode, ProximityAlertTriggered, RefundedPayment,
-    SharedUser, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined,
-    SuggestedPostPaid, SuggestedPostPrice, SuggestedPostRefunded, TonConnectRequest, TonWalletTransfer, UniqueGiftInfo,
-    UpgradedGiftPurchaseOffer, UpgradedGiftPurchaseOfferRejected, User, UsersShared, WebAppData, WriteAccessAllowed,
+    Birthday, Chat, ChatBackground, ChatShared, ChatSides, ChatTheme, ChecklistTask, ChecklistTasksAdded,
+    ChecklistTasksDone, Community, ForumTopicCreated, ForumTopicEdited, GiftInfo, GiftedGrams, GiftedPremium,
+    GiftedStars, GiveawayPrizeStars, PhoneCallEnded, Photo, PollOption, PremiumGiftCode, ProximityAlertTriggered,
+    RefundedPayment, SharedUser, SuccessfulPayment, SuggestedPostApprovalFailed, SuggestedPostApproved,
+    SuggestedPostDeclined, SuggestedPostPaid, SuggestedPostPrice, SuggestedPostRefunded, TonConnectRequest,
+    TonWalletTransfer, UniqueGiftInfo, UpgradedGiftPurchaseOffer, UpgradedGiftPurchaseOfferRejected, User, UsersShared,
+    WebAppData, WriteAccessAllowed,
 };
 use crate::utils::{get_channel_id, get_peer_id};
 
@@ -262,8 +263,8 @@ pub enum ServiceAction {
 impl ServiceAction {
     /// The variant `ServiceKind::of` names, so `filters::service_kind` and `service` always agree. `None` for
     /// `messageActionEmpty`, which reports nothing, and for a known kind whose payload is malformed (a pin without its
-    /// header).
-    pub(crate) fn parse(raw: &types::MessageService, entities: &Entities) -> Option<ServiceAction> {
+    /// header). `me` is the account's id, 0 if unknown: a gift in a private chat is between it and the other side.
+    pub(crate) fn parse(raw: &types::MessageService, me: i64, entities: &Entities) -> Option<ServiceAction> {
         use ServiceKind as K;
         use base::MessageAction as A;
         let chat = Chat::kind_of(&raw.peer_id, entities, raw.post);
@@ -397,10 +398,11 @@ impl ServiceAction {
             (K::GeneralForumTopicUnhidden, _) => ServiceAction::GeneralForumTopicUnhidden,
             // The service message's own id addresses a gift a user keeps.
             (K::Gift, A::MessageActionStarGift(a)) => {
-                ServiceAction::Gift(Box::new(GiftInfo::parse(a, raw.id, entities)?))
+                ServiceAction::Gift(Box::new(GiftInfo::parse(a, raw.id, ChatSides::of(raw, me), entities)?))
             }
             (K::UniqueGift, A::MessageActionStarGiftUnique(a)) => {
-                ServiceAction::UniqueGift(Box::new(UniqueGiftInfo::parse(a, raw.id, entities)?))
+                let sides = ChatSides::of(raw, me);
+                ServiceAction::UniqueGift(Box::new(UniqueGiftInfo::parse(a, raw.id, sides, entities)?))
             }
             (K::SuccessfulPayment, A::MessageActionPaymentSentMe(a)) => {
                 ServiceAction::SuccessfulPayment(Box::new(SuccessfulPayment::parse(a)))
@@ -690,7 +692,7 @@ mod tests {
     }
 
     fn parse(action: base::MessageAction) -> Option<ServiceAction> {
-        ServiceAction::parse(&service(action), &Entities::default())
+        ServiceAction::parse(&service(action), 0, &Entities::default())
     }
 
     fn reply_to(reply_to_msg_id: i32) -> Option<base::MessageReplyHeader> {
@@ -1212,7 +1214,7 @@ mod tests {
         let mut seen = HashSet::new();
         for raw in every_kind() {
             let kind = ServiceKind::of(&raw.action, Some(Chat::kind_of(&raw.peer_id, &entities, raw.post)));
-            let action = ServiceAction::parse(&raw, &entities).expect("a well-formed payload");
+            let action = ServiceAction::parse(&raw, 0, &entities).expect("a well-formed payload");
             assert_eq!(action.kind(), kind);
             seen.insert(kind);
         }
@@ -1225,7 +1227,7 @@ mod tests {
         use base::MessageAction as A;
         let entities = Entities::default();
         let kind_and_action =
-            |raw: types::MessageService| (ServiceKind::of(&raw.action, None), ServiceAction::parse(&raw, &entities));
+            |raw: types::MessageService| (ServiceKind::of(&raw.action, None), ServiceAction::parse(&raw, 0, &entities));
         let empty = types::MessageActionChatEditPhoto { photo: base::Photo::PhotoEmpty(types::PhotoEmpty { id: 1 }) };
         let joined = types::MessageService { from_id: None, ..service(A::MessageActionChatJoinedByRequest) };
         let cases = [
@@ -1271,7 +1273,7 @@ mod tests {
         let link = A::MessageActionChatJoinedByLink(types::MessageActionChatJoinedByLink { inviter_id: 3 });
         assert!(matches!(parse(link), Some(ServiceAction::NewChatMembers(u)) if u.iter().map(|u| u.id).eq([9])));
         let pin = types::MessageService { reply_to: reply_to(5), ..service(A::MessageActionPinMessage) };
-        assert_eq!(ServiceAction::parse(&pin, &Entities::default()), Some(ServiceAction::PinnedMessage(5)));
+        assert_eq!(ServiceAction::parse(&pin, 0, &Entities::default()), Some(ServiceAction::PinnedMessage(5)));
 
         let channel = types::RequestedPeerChannel { channel_id: 3, title: None, username: None, photo: None };
         let peers = vec![base::RequestedPeer::RequestedPeerChannel(Box::new(channel))];
@@ -1343,7 +1345,7 @@ mod tests {
         let entities = Entities::default();
         let channel = types::MessageService { post: true, ..service(paid_price(true)) };
         assert_eq!(
-            ServiceAction::parse(&channel, &entities),
+            ServiceAction::parse(&channel, 0, &entities),
             Some(ServiceAction::DirectMessagePriceChanged { is_enabled: true, paid_message_star_count: 10 })
         );
         assert_eq!(
@@ -1424,7 +1426,7 @@ mod tests {
     fn parses_payload_structs() {
         use crate::types::{Chat, GiftedGrams, GiftedStars, GiveawayPrizeStars, WebAppData};
         let entities = Entities::default();
-        let actions: Vec<_> = every_kind().iter().filter_map(|raw| ServiceAction::parse(raw, &entities)).collect();
+        let actions: Vec<_> = every_kind().iter().filter_map(|raw| ServiceAction::parse(raw, 0, &entities)).collect();
         let stars = GiftedStars {
             currency: "USD".into(),
             amount: 5,
@@ -1456,5 +1458,39 @@ mod tests {
         for action in expected {
             assert!(actions.contains(&action), "missing {action:?}");
         }
+    }
+
+    #[test]
+    fn private_gifts_name_both_sides_of_the_chat() {
+        const ME: i64 = 42;
+        let client = crate::Client::offline();
+        client.0.me.lock().unwrap().id = ME;
+        // (sender, receiver, owned_gift_id) of a gift sent in the private chat with user 5.
+        let sides = |action: base::MessageAction, out: bool| {
+            let from = if out { ME } else { 5 };
+            let raw =
+                types::MessageService { out, from_id: Some(get_peer(from)), peer_id: get_peer(5), ..service(action) };
+            let message = base::Message::MessageService(Box::new(raw));
+            match crate::types::Message::from_raw(&client, message, &Entities::default()).unwrap().service {
+                Some(ServiceAction::Gift(g)) => (g.sender.map(|c| c.id), g.receiver.map(|c| c.id), g.owned_gift_id),
+                Some(ServiceAction::UniqueGift(g)) => {
+                    (g.sender.map(|c| c.id), g.receiver.map(|c| c.id), g.owned_gift_id)
+                }
+                other => panic!("not a gift: {other:?}"),
+            }
+        };
+        let gift = |raw: types::MessageActionStarGift| base::MessageAction::MessageActionStarGift(Box::new(raw));
+        assert_eq!(sides(gift(star_gift()), false), (Some(5), Some(ME), Some("1".into())));
+        // The sender's copy has the receiver's gift, which the sender can't address by its own message id.
+        assert_eq!(sides(gift(star_gift()), true), (Some(ME), Some(5), None));
+        let hidden = types::MessageActionStarGift { name_hidden: true, ..star_gift() };
+        assert_eq!(sides(gift(hidden), false), (None, Some(ME), Some("1".into())));
+
+        let unique = |raw| base::MessageAction::MessageActionStarGiftUnique(Box::new(raw));
+        assert_eq!(sides(unique(unique_gift()), false), (Some(5), Some(ME), Some("1".into())));
+        assert_eq!(sides(unique(unique_gift()), true), (Some(ME), Some(5), None));
+        // An upgrade names no one either way: the gift stays with whoever had it.
+        let upgrade = types::MessageActionStarGiftUnique { upgrade: true, ..unique_gift() };
+        assert_eq!(sides(unique(upgrade), true), (None, None, Some("1".into())));
     }
 }

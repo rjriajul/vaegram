@@ -358,7 +358,8 @@ impl Message {
 
     // `raw` holds a bare message with the service header fields, since only `Message` carries a sender and chat.
     fn parse_service(client: &Client, raw: &types::MessageService, entities: &Entities) -> Option<Message> {
-        let service = ServiceAction::parse(raw, entities)?;
+        let me = client.0.me.lock().unwrap().id;
+        let service = ServiceAction::parse(raw, me, entities)?;
         let mut bare = Message::bare(raw.id, raw.peer_id.clone(), raw.date);
         (bare.out, bare.mentioned, bare.post, bare.from_id) = (raw.out, raw.mentioned, raw.post, raw.from_id.clone());
         (bare.silent, bare.media_unread) = (raw.silent, raw.media_unread);

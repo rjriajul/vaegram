@@ -3,7 +3,7 @@ use crate::dispatcher::Entities;
 use crate::enums::UniqueGiftOrigin;
 use crate::raw::{base, types};
 use crate::types::{Chat, Gift, MessageEntity, UniqueGift};
-use crate::utils::get_peer_id;
+use crate::utils::{get_peer, get_peer_id};
 
 /// A regular gift sent or received in a chat, taken from a service message.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,7 +12,7 @@ pub struct GiftInfo {
     /// The gift.
     pub gift: Gift,
     /// Id that addresses the gift in calls such as [`Client::show_gift`](crate::Client::show_gift).
-    /// Always set when parsed from a service message.
+    /// Set when parsed from a service message, except on the sender's copy of a gift sent to someone else.
     pub owned_gift_id: Option<String>,
     /// Stars the receiver gets for converting the gift.
     pub convert_star_count: Option<i64>,
@@ -30,7 +30,7 @@ pub struct GiftInfo {
     pub is_private: bool,
     /// Serial number of the gift.
     pub unique_gift_number: Option<i32>,
-    /// Chat that sent the gift.
+    /// Chat that sent the gift. `None` if the sender hid their name.
     pub sender: Option<Chat>,
     /// Chat that received the gift.
     pub receiver: Option<Chat>,
@@ -67,7 +67,7 @@ pub struct UniqueGiftInfo {
     /// TON amount the gift last sold for. `None` if it wasn't a TON resale.
     pub last_resale_ton_amount: Option<i64>,
     /// Id that addresses the gift in calls such as [`Client::show_gift`](crate::Client::show_gift).
-    /// Always set when parsed from a service message.
+    /// Set when parsed from a service message, except on the sender's copy of a gift sent to someone else.
     pub owned_gift_id: Option<String>,
     /// Stars a transfer costs.
     pub transfer_star_count: Option<i64>,
@@ -79,7 +79,8 @@ pub struct UniqueGiftInfo {
     pub entities: Option<Vec<MessageEntity>>,
     /// Whether the sender's name is hidden.
     pub is_private: bool,
-    /// Chat that sent the gift.
+    /// Chat that sent the gift. `None` if the sender hid their name, and for an upgrade, craft or purchase that
+    /// names no sender.
     pub sender: Option<Chat>,
     /// Chat that received the gift.
     pub receiver: Option<Chat>,
@@ -99,14 +100,56 @@ pub struct UniqueGiftInfo {
     pub drop_original_details_star_count: Option<i64>,
 }
 
+/// The two sides of the private chat a gift's service message is in. The action names neither there: the message's
+/// sender gave the gift and the other side got it.
+#[derive(Clone, Copy)]
+pub(crate) struct ChatSides {
+    sender: i64,
+    receiver: i64,
+    /// The account got the gift, so the service message's id addresses it.
+    is_received: bool,
+}
+
+impl ChatSides {
+    /// `None` outside private chats, and before the client knows its own id.
+    pub(crate) fn of(raw: &types::MessageService, me: i64) -> Option<ChatSides> {
+        let base::Peer::PeerUser(other) = &raw.peer_id else { return None };
+        if me == 0 {
+            return None;
+        }
+        let (sender, receiver) = if raw.out { (me, other.user_id) } else { (other.user_id, me) };
+        Some(ChatSides { sender, receiver, is_received: receiver == me })
+    }
+}
+
+/// Sender, receiver and the id of the message that addresses the gift, taking what the action leaves out from `sides`.
+fn parties(
+    from_id: Option<&base::Peer>,
+    to_id: Option<&base::Peer>,
+    name_hidden: bool,
+    msg_id: i32,
+    sides: Option<ChatSides>,
+) -> (Option<base::Peer>, Option<base::Peer>, Option<i32>) {
+    let sender = from_id.cloned().or_else(|| sides.filter(|_| !name_hidden).map(|s| get_peer(s.sender)));
+    let receiver = to_id.cloned().or_else(|| sides.map(|s| get_peer(s.receiver)));
+    (sender, receiver, sides.is_none_or(|s| s.is_received).then_some(msg_id))
+}
+
 impl GiftInfo {
-    pub(crate) fn parse(raw: &types::MessageActionStarGift, msg_id: i32, entities: &Entities) -> Option<GiftInfo> {
+    pub(crate) fn parse(
+        raw: &types::MessageActionStarGift,
+        msg_id: i32,
+        sides: Option<ChatSides>,
+        entities: &Entities,
+    ) -> Option<GiftInfo> {
         let base::StarGift::StarGift(gift) = &raw.gift else { return None };
         let owner_id = raw.peer.as_ref().map_or(0, get_peer_id);
         let (text, text_entities) = split_text(raw.message.as_ref(), entities);
+        let to_id = raw.to_id.as_ref().or(raw.peer.as_ref());
+        let (sender, receiver, msg_id) = parties(raw.from_id.as_ref(), to_id, raw.name_hidden, msg_id, sides);
         Some(GiftInfo {
             gift: Gift::parse(gift, entities)?,
-            owned_gift_id: owned_gift_id(owner_id, Some(msg_id), raw.saved_id),
+            owned_gift_id: owned_gift_id(owner_id, msg_id, raw.saved_id),
             convert_star_count: raw.convert_stars,
             prepaid_upgrade_star_count: raw.upgrade_stars,
             is_upgrade_separate: raw.upgrade_separate,
@@ -115,8 +158,8 @@ impl GiftInfo {
             entities: text_entities,
             is_private: raw.name_hidden,
             unique_gift_number: raw.gift_num,
-            sender: raw.from_id.as_ref().map(|p| Chat::parse(p, entities, true)),
-            receiver: raw.to_id.as_ref().or(raw.peer.as_ref()).map(|p| Chat::parse(p, entities, true)),
+            sender: sender.map(|p| Chat::parse(&p, entities, true)),
+            receiver: receiver.map(|p| Chat::parse(&p, entities, true)),
             is_saved: raw.saved,
             was_converted: raw.converted,
             was_upgraded: raw.upgraded,
@@ -134,6 +177,7 @@ impl UniqueGiftInfo {
     pub(crate) fn parse(
         raw: &types::MessageActionStarGiftUnique,
         msg_id: i32,
+        sides: Option<ChatSides>,
         entities: &Entities,
     ) -> Option<UniqueGiftInfo> {
         let base::StarGift::StarGiftUnique(gift) = &raw.gift else { return None };
@@ -160,19 +204,23 @@ impl UniqueGiftInfo {
         };
         let owner_id = raw.peer.as_ref().map_or(0, get_peer_id);
         let (text, text_entities) = split_text(raw.message.as_ref(), entities);
+        // Only a gift handed over in the chat has the chat's sides as its parties.
+        let sides = sides.filter(|_| origin == UniqueGiftOrigin::Transfer);
+        let (sender, receiver, msg_id) =
+            parties(raw.from_id.as_ref(), raw.peer.as_ref(), raw.name_hidden, msg_id, sides);
         Some(UniqueGiftInfo {
             gift: UniqueGift::parse(gift, entities),
             origin,
             last_resale_star_count,
             last_resale_ton_amount,
-            owned_gift_id: owned_gift_id(owner_id, Some(msg_id), raw.saved_id),
+            owned_gift_id: owned_gift_id(owner_id, msg_id, raw.saved_id),
             transfer_star_count: raw.transfer_stars,
             next_transfer_date: raw.can_transfer_at,
             text,
             entities: text_entities,
             is_private: raw.name_hidden,
-            sender: raw.from_id.as_ref().map(|p| Chat::parse(p, entities, true)),
-            receiver: raw.peer.as_ref().map(|p| Chat::parse(p, entities, true)),
+            sender: sender.map(|p| Chat::parse(&p, entities, true)),
+            receiver: receiver.map(|p| Chat::parse(&p, entities, true)),
             is_saved: raw.saved,
             was_refunded: raw.refunded,
             is_prepaid_upgrade: raw.prepaid_upgrade,
@@ -250,7 +298,7 @@ mod tests {
     #[test]
     fn maps_unique_gift_origin() {
         let origin = |a: types::MessageActionStarGiftUnique| {
-            let info = UniqueGiftInfo::parse(&a, 5, &Entities::default()).unwrap();
+            let info = UniqueGiftInfo::parse(&a, 5, None, &Entities::default()).unwrap();
             (info.origin, info.last_resale_star_count, info.owned_gift_id)
         };
         assert_eq!(origin(action()), (UniqueGiftOrigin::Transfer, None, Some("5".into())));
@@ -272,7 +320,7 @@ mod tests {
     #[test]
     fn assigned_gift_comes_from_the_blockchain() {
         let assigned = types::MessageActionStarGiftUnique { assigned: true, ..action() };
-        let info = UniqueGiftInfo::parse(&assigned, 5, &Entities::default()).unwrap();
+        let info = UniqueGiftInfo::parse(&assigned, 5, None, &Entities::default()).unwrap();
         assert_eq!(info.origin, UniqueGiftOrigin::Blockchain);
         let flags = types::MessageActionStarGiftUnique {
             saved: true,
@@ -286,7 +334,7 @@ mod tests {
             peer: Some(crate::utils::get_peer(9)),
             ..action()
         };
-        let info = UniqueGiftInfo::parse(&flags, 5, &Entities::default()).unwrap();
+        let info = UniqueGiftInfo::parse(&flags, 5, None, &Entities::default()).unwrap();
         assert!(info.is_saved && info.was_refunded && info.is_prepaid_upgrade);
         assert_eq!((info.export_date, info.next_resale_date, info.craft_date), (Some(1), Some(2), Some(3)));
         assert_eq!(info.drop_original_details_star_count, Some(4));
@@ -361,7 +409,7 @@ mod tests {
     #[test]
     fn gift_message_reads_sender_receiver_and_flags() {
         let raw = regular_action();
-        let info = GiftInfo::parse(&raw, 5, &Entities::default()).unwrap();
+        let info = GiftInfo::parse(&raw, 5, None, &Entities::default()).unwrap();
         assert_eq!((info.sender.map(|c| c.id), info.receiver.map(|c| c.id)), (Some(8), Some(9)));
         assert!(info.is_saved && info.was_converted && info.was_upgraded && info.was_refunded);
         assert!(info.is_prepaid_upgrade && info.is_from_auction);
@@ -376,7 +424,7 @@ mod tests {
         let mut raw = regular_action();
         raw.to_id = None;
         raw.peer = Some(crate::utils::get_peer(7));
-        let info = GiftInfo::parse(&raw, 5, &Entities::default()).unwrap();
+        let info = GiftInfo::parse(&raw, 5, None, &Entities::default()).unwrap();
         assert_eq!(info.receiver.map(|c| c.id), Some(7));
     }
 }
