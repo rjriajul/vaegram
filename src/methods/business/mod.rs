@@ -1,3 +1,4 @@
+mod add_quick_reply_message;
 mod check_quick_reply_shortcut;
 mod create_business_chat_link;
 mod delete_business_away_message;
@@ -13,12 +14,14 @@ mod delete_quick_reply_shortcut;
 mod disable_peer_connected_bot;
 mod edit_business_chat_link;
 mod edit_business_story;
+mod edit_quick_reply_message;
 mod edit_quick_reply_shortcut;
 mod get_business_account_star_balance;
 mod get_business_chat_links;
 mod get_business_connection;
 mod get_connected_bots;
 mod get_quick_replies;
+mod get_quick_reply_messages;
 mod post_business_story;
 mod read_business_message;
 mod remove_business_account_profile_photo;
@@ -41,9 +44,12 @@ mod toggle_connected_bot_paused;
 mod transfer_business_account_stars;
 mod update_connected_bot;
 
+pub use add_quick_reply_message::AddQuickReplyMessage;
 pub use create_business_chat_link::CreateBusinessChatLink;
 pub use edit_business_chat_link::EditBusinessChatLink;
 pub use edit_business_story::EditBusinessStory;
+pub use edit_quick_reply_message::EditQuickReplyMessage;
+pub use get_quick_reply_messages::GetQuickReplyMessages;
 pub use post_business_story::PostBusinessStory;
 pub use repost_business_story::RepostBusinessStory;
 pub use set_business_account_gift_settings::SetBusinessAccountGiftSettings;
@@ -183,7 +189,127 @@ mod tests {
         let (client, mut rx) = recording_client();
         assert!(refused(client.edit_quick_reply_shortcut(1, "").await));
         assert!(refused(client.check_quick_reply_shortcut("").await));
+        assert!(refused(client.add_quick_reply_message("", "hi").await));
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn reading_no_quick_reply_messages_is_refused() {
+        let (client, mut rx) = recording_client();
+        assert!(refused(client.get_quick_reply_messages(4).message_ids([]).await));
+        assert!(rx.try_recv().is_err());
+    }
+
+    fn quick_reply_raw(id: i32, text: &str) -> base::Message {
+        let mut message = crate::types::Message::bare(id, crate::utils::get_peer(42), 1);
+        (message.out, message.message, message.quick_reply_shortcut_id) = (true, text.into(), Some(4));
+        base::Message::Message(Box::new(message))
+    }
+
+    fn quick_reply_answer(updates: Vec<base::Update>) -> Vec<u8> {
+        let updates = types::Updates { updates, users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
+        base::Updates::Updates(Box::new(updates)).to_bytes()
+    }
+
+    #[tokio::test]
+    async fn quick_reply_messages_are_read() {
+        let found = types::messages::Messages {
+            messages: vec![quick_reply_raw(9, "hi"), quick_reply_raw(10, "bye")],
+            topics: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        let answer = base::messages::Messages::Messages(Box::new(found)).to_bytes();
+        let (client, mut rx) = Client::scripted(vec![Ok(answer.clone()), Ok(answer)]);
+
+        let all = client.get_quick_reply_messages(4).await.unwrap();
+        let request = messages::GetQuickReplyMessages { shortcut_id: 4, id: None, hash: 0 };
+        assert_eq!(rx.try_recv().unwrap(), request.to_bytes());
+        let read = |m: &crate::types::Message| (m.id, m.text().to_owned(), m.quick_reply_shortcut_id());
+        let expected = [(9, "hi".to_owned(), Some(4)), (10, "bye".to_owned(), Some(4))];
+        assert_eq!(all.iter().map(read).collect::<Vec<_>>(), expected);
+
+        let _ = client.get_quick_reply_messages(4).message_ids([9, 10]).await.unwrap();
+        let request = messages::GetQuickReplyMessages { shortcut_id: 4, id: Some(vec![9, 10]), hash: 0 };
+        assert_eq!(rx.try_recv().unwrap(), request.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn adding_a_quick_reply_message_sends_it_to_the_shortcut_name() {
+        let reply = types::QuickReply { shortcut_id: 4, shortcut: "hello".into(), top_message: 9, count: 1 };
+        let created = types::UpdateNewQuickReply { quick_reply: base::QuickReply::QuickReply(Box::new(reply)) };
+        let added = types::UpdateQuickReplyMessage { message: quick_reply_raw(9, "hi") };
+        let answer = quick_reply_answer(vec![
+            base::Update::UpdateNewQuickReply(Box::new(created)),
+            base::Update::UpdateQuickReplyMessage(Box::new(added)),
+        ]);
+        let (client, mut rx) = Client::scripted(vec![Ok(answer)]);
+        let message = client.add_quick_reply_message("hello", "<b>hi</b>").html().await.unwrap();
+        assert_eq!((message.id, message.text(), message.quick_reply_shortcut_id()), (9, "hi", Some(4)));
+
+        let bold = base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 });
+        let shortcut = Box::new(types::InputQuickReplyShortcut { shortcut: "hello".into() });
+        let request = messages::SendMessage {
+            no_webpage: false,
+            silent: false,
+            background: false,
+            clear_draft: false,
+            noforwards: false,
+            update_stickersets_order: false,
+            invert_media: false,
+            allow_paid_floodskip: false,
+            peer: base::InputPeer::InputPeerSelf,
+            reply_to: None,
+            message: "hi".into(),
+            random_id: 0,
+            reply_markup: None,
+            entities: Some(vec![bold]),
+            schedule_date: None,
+            schedule_repeat_period: None,
+            send_as: None,
+            quick_reply_shortcut: Some(base::InputQuickReplyShortcut::InputQuickReplyShortcut(shortcut)),
+            effect: None,
+            allow_paid_stars: None,
+            suggested_post: None,
+            rich_message: None,
+        }
+        .to_bytes();
+        let mut body = rx.try_recv().unwrap();
+        // random_id is random: it follows the constructor, the flags, inputPeerSelf and the text.
+        let at = 12 + String::from("hi").to_bytes().len();
+        body[at..at + 8].fill(0);
+        assert_eq!(body, request);
+    }
+
+    #[tokio::test]
+    async fn editing_a_quick_reply_message_names_its_shortcut() {
+        let edited = types::UpdateQuickReplyMessage { message: quick_reply_raw(9, "hey") };
+        let answer = quick_reply_answer(vec![base::Update::UpdateQuickReplyMessage(Box::new(edited))]);
+        let (client, mut rx) = Client::scripted(vec![Ok(answer)]);
+        let message = client.edit_quick_reply_message(4, 9, "hey").await.unwrap();
+        assert_eq!((message.id, message.text(), message.quick_reply_shortcut_id()), (9, "hey", Some(4)));
+
+        let request = messages::EditMessage {
+            no_webpage: false,
+            invert_media: false,
+            peer: base::InputPeer::InputPeerSelf,
+            id: 9,
+            message: Some("hey".into()),
+            media: None,
+            reply_markup: None,
+            entities: None,
+            schedule_date: None,
+            schedule_repeat_period: None,
+            quick_reply_shortcut_id: Some(4),
+            rich_message: None,
+        };
+        assert_eq!(rx.try_recv().unwrap(), request.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn a_quick_reply_answer_without_the_message_fails() {
+        let (client, _rx) = Client::scripted(vec![Ok(quick_reply_answer(Vec::new()))]);
+        assert!(matches!(client.edit_quick_reply_message(4, 9, "hey").await, Err(Error::Unexpected(_))));
     }
 
     #[tokio::test]

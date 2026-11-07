@@ -515,6 +515,11 @@ impl Message {
         self.raw.suggested_post.as_ref().map(SuggestedPostInfo::parse)
     }
 
+    /// The quick reply shortcut this message belongs to. `None` for messages outside quick replies.
+    pub fn quick_reply_shortcut_id(&self) -> Option<i32> {
+        self.raw.quick_reply_shortcut_id
+    }
+
     /// Every request built from a business message has to go through the connection it arrived on.
     pub(super) fn on_behalf<B: OnBehalf>(&self, mut request: B) -> B {
         request.business_connection().clone_from(&self.business_connection_id);
