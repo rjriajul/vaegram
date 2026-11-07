@@ -70,6 +70,11 @@ impl Store {
         if self.finished.load(Ordering::Acquire) {
             return Err(stopped());
         }
+        self.start()
+    }
+
+    /// Starts the store thread if it isn't running yet, finished or not.
+    fn start(&self) -> io::Result<&mpsc::UnboundedSender<Message>> {
         let worker = self.worker.get_or_init(|| {
             let (tx, rx) = mpsc::unbounded_channel();
             let (engine, pending, events) = (self.engine.clone(), self.pending.clone(), self.events.clone());
@@ -263,10 +268,23 @@ impl Store {
         if self.finished.swap(true, Ordering::AcqRel) {
             return;
         }
-        if let Some(state) = state {
-            self.queue_state(state);
-        }
-        let Some(Ok(worker)) = self.worker.get() else { return };
+        let worker = match state {
+            Some(state) => {
+                self.queue_state(state);
+                // The last state is saved even when nothing started the thread before.
+                match self.start() {
+                    Ok(worker) => worker,
+                    Err(e) => {
+                        self.events.storage_failed(e.kind(), format_args!("{e}; the last update state isn't saved"));
+                        return;
+                    }
+                }
+            }
+            None => match self.worker.get() {
+                Some(Ok(worker)) => worker,
+                _ => return,
+            },
+        };
         let (tx, rx) = std_mpsc::channel();
         if worker.send(Message::Finish(tx)).is_ok() && rx.recv_timeout(DROP_WAIT).is_err() {
             self.events.storage_failed(
@@ -597,6 +615,15 @@ mod tests {
         let store = Store::new(Arc::new(MemoryStorage::new()), Arc::default());
         store.finish(None);
         assert!(!store.started());
+    }
+
+    // An offline client, or one given its store with `set_store`, may never have started the thread.
+    #[tokio::test]
+    async fn finish_saves_the_last_state_of_a_store_that_never_started() {
+        let engine = Arc::new(MemoryStorage::new());
+        let store = Store::new(engine.clone(), Arc::default());
+        tokio::task::spawn_blocking(move || store.finish(Some(state(9)))).await.unwrap();
+        assert_eq!(engine.load_state().await.unwrap(), Some(state(9)));
     }
 
     /// Never finishes a state save.
