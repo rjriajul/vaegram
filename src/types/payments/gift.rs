@@ -3,7 +3,7 @@ use super::{
 };
 use crate::dispatcher::Entities;
 use crate::raw::{base, types};
-use crate::types::{Chat, Media, Sticker};
+use crate::types::{Chat, Sticker};
 use crate::utils::get_peer_id;
 
 /// A regular gift that can be sent to a chat.
@@ -312,11 +312,10 @@ pub(super) fn backdrop(raw: &types::StarGiftAttributeBackdrop) -> UniqueGiftBack
     }
 }
 
+/// A gift's sticker. Telegram sends gift stickers as custom emoji documents, which a message's media wouldn't count as
+/// stickers, so this reads both kinds.
 pub(super) fn sticker(document: &base::Document) -> Option<Sticker> {
-    match Media::from_document(document)? {
-        Media::Sticker(sticker) => Some(sticker),
-        _ => None,
-    }
+    Sticker::parse(document)
 }
 
 #[cfg(test)]
