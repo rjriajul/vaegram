@@ -141,7 +141,9 @@ impl Bucket {
             state.tokens -= 1.0;
             return Ok(());
         }
-        Err(Duration::from_secs_f64((1.0 - state.tokens) / state.rate).max(Duration::from_micros(1)))
+        // A rate far below one a second can put the next token past what a Duration holds: that's never.
+        let wait = Duration::try_from_secs_f64((1.0 - state.tokens) / state.rate).unwrap_or(Duration::MAX);
+        Err(wait.max(Duration::from_micros(1)))
     }
 
     async fn take(&self) {
@@ -363,5 +365,16 @@ mod tests {
         for (name, expected) in cases {
             assert_eq!(RateCategory::of(name), expected, "{name}");
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_tiny_rate_waits_instead_of_panicking() {
+        let limits = RateLimits::default().limit(RateCategory::Query, 1e-30, 1.0);
+        assert!(limits.validate().is_ok());
+        let limiter = limiter(RateCategory::Query, 1e-30, 1.0);
+        assert!(limiter.try_acquire(RateCategory::Query));
+        assert!(!limiter.try_acquire(RateCategory::Query));
+        let next = tokio::time::timeout(Duration::from_secs(3600), limiter.acquire(RateCategory::Query)).await;
+        assert!(next.is_err(), "the second token came");
     }
 }
