@@ -245,7 +245,9 @@ impl ClientBuilder {
 
     /// `false` makes every `run` start from now: what came while the client was stopped is skipped, and so are the
     /// updates Telegram still holds for a bot and sends again after a restart, even ones an earlier run handled.
-    /// Gaps while it runs, such as after a reconnect, are still filled. `true` by default.
+    /// What Telegram dated from the moment `run` was called on is still delivered; updates without a date, such as
+    /// deletions and poll votes, that it held at the start are skipped with the old ones. Gaps while it runs, such
+    /// as after a reconnect, are still filled. `true` by default.
     pub fn catch_up(mut self, catch_up: bool) -> Self {
         self.catch_up = catch_up;
         self

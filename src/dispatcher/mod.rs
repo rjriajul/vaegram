@@ -47,6 +47,9 @@ pub(crate) struct Dispatcher {
     tasks: Tasks,
     // Messages and other updates the differences have brought in, counted by `difference.rs`.
     recovered: (usize, usize),
+    // Set by `from_now` until the first difference is read whole: what it brings dated before this, Telegram held
+    // from before the run, and it is dropped unseen.
+    held_before: Option<i32>,
 }
 
 impl Dispatcher {
@@ -58,6 +61,18 @@ impl Dispatcher {
 
     pub(crate) fn resume(client: Client, state: UpdateState) -> Self {
         Dispatcher::with(client, Tracker { state, due: vec![Key::Pts], ..Tracker::default() })
+    }
+
+    /// Starts at `state` without catch-up. A bot's updates.getState names the last update Telegram knows it got, and
+    /// the ones after it come again, even those an earlier run handled, so `run` reads them first: those dated
+    /// before `since` are dropped, and those dated later, which came in since the run began, reach the handlers.
+    /// Updates that carry no date, such as deletions and poll votes, can't be told apart and are dropped too.
+    pub(crate) fn from_now(client: Client, state: &types::updates::State, since: i32) -> Self {
+        let mut tracker = Tracker { due: vec![Key::Pts], ..Tracker::default() };
+        tracker.set_state(state);
+        let mut dispatcher = Dispatcher::with(client, tracker);
+        dispatcher.held_before = Some(since);
+        dispatcher
     }
 
     fn with(client: Client, mut tracker: Tracker) -> Self {
@@ -79,6 +94,7 @@ impl Dispatcher {
             account,
             tasks,
             recovered: (0, 0),
+            held_before: None,
         }
     }
 
@@ -221,7 +237,14 @@ impl Dispatcher {
             self.dispatch_ready();
             let result = match key {
                 Key::Channel(id) => self.channel_difference(id).await,
-                _ => self.difference().await,
+                _ => {
+                    let read = self.difference().await;
+                    // Only the first difference read whole holds what came before the run.
+                    if read.is_ok() {
+                        self.held_before = None;
+                    }
+                    read
+                }
             };
             let skipped = self.tracker.recover(&result, key);
             self.report(result);

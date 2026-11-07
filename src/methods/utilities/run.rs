@@ -5,7 +5,12 @@ use crate::dispatcher::Dispatcher;
 use crate::dispatcher::router::run_hook;
 use crate::errors::{Error, Result};
 use crate::handlers::UpdateKind;
-use crate::raw::{base, functions, types};
+use crate::raw::{base, functions};
+use crate::session::internals::now;
+
+// The clock offset is learned in whole seconds, so the run's start, in Telegram's time, may read up to a second
+// late.
+const CLOCK_SLACK: i64 = 1;
 
 impl Client {
     /// Returns `Ok(())` after `stop`, or `Error::Disconnected` when the connection ends. Fails at once with
@@ -50,47 +55,24 @@ impl Client {
 
     async fn start_dispatcher(&self) -> Result<Dispatcher> {
         self.require_updates()?;
+        // When the run begins, in Telegram's time: without catch-up, what Telegram dated before it is dropped.
+        let started = now() + self.session().salt().time_offset - CLOCK_SLACK;
         self.set_me(&self.get_me_raw().await?);
         let saved = self.0.state.lock().unwrap().take().filter(|_| self.0.catch_up);
         let dispatcher = match saved {
             Some(state) => Dispatcher::resume(self.clone(), state),
             None => {
                 let base::updates::State::State(state) = self.invoke(&functions::updates::GetState {}).await?;
-                // With catch-up on and nothing saved, what Telegram still holds is delivered as it comes.
-                let state = if self.0.catch_up { *state } else { self.skip_pending(*state).await? };
-                Dispatcher::new(self.clone(), &state)
+                if self.0.catch_up {
+                    // With nothing saved, what Telegram still holds is delivered as it comes.
+                    Dispatcher::new(self.clone(), &state)
+                } else {
+                    Dispatcher::from_now(self.clone(), &state, i32::try_from(started).unwrap_or(i32::MAX))
+                }
             }
         };
         self.lifecycle_hook(UpdateKind::Start).await;
         Ok(dispatcher)
-    }
-
-    /// The state after everything Telegram still holds for this account, which is dropped unseen.
-    ///
-    /// A bot's updates.getState answers with the last update Telegram knows it got, and the ones after it come
-    /// again, even those an earlier run handled. Reading the difference past them skips them, and tells Telegram
-    /// they arrived.
-    async fn skip_pending(&self, mut state: types::updates::State) -> Result<types::updates::State> {
-        loop {
-            let request = functions::updates::GetDifference {
-                pts: state.pts,
-                pts_limit: None,
-                pts_total_limit: None,
-                date: state.date,
-                qts: state.qts,
-                qts_limit: None,
-            };
-            let next = match self.invoke(&request).await? {
-                base::updates::Difference::DifferenceEmpty(e) => {
-                    (state.date, state.seq) = (e.date, e.seq);
-                    return Ok(state);
-                }
-                base::updates::Difference::Difference(d) => return Ok(unboxed(d.state)),
-                base::updates::Difference::DifferenceSlice(d) => unboxed(d.intermediate_state),
-                base::updates::Difference::DifferenceTooLong(d) => types::updates::State { pts: d.pts, ..state },
-            };
-            state = next;
-        }
     }
 
     // `dispatcher` comes after `running`, so a cancelled `drive` drops it first: it hands its state back to the
@@ -136,11 +118,6 @@ impl Drop for Running {
     }
 }
 
-fn unboxed(state: base::updates::State) -> types::updates::State {
-    let base::updates::State::State(state) = state;
-    *state
-}
-
 #[cfg(test)]
 pub(super) mod tests {
     use std::future::{Ready, ready};
@@ -156,6 +133,7 @@ pub(super) mod tests {
     use crate::raw::{Identifiable, Serializable, base, types};
     use crate::session::{Incoming, UpdatesRx};
     use crate::storage::{FileStorage, MemoryStorage, Storage, UpdateState};
+    use crate::utils::get_peer;
 
     type Log = Arc<Mutex<Vec<&'static str>>>;
 
@@ -396,7 +374,8 @@ pub(super) mod tests {
     }
 
     // A bot's updates.getState names the last update Telegram knows it confirmed, so updates it pushed in an earlier
-    // run come again after it. Without catch-up they are skipped: the difference since then is read and dropped.
+    // run come again after it. Without catch-up they are skipped: the difference since then is read, and what it
+    // brings from before the run is dropped.
     #[tokio::test]
     async fn without_catch_up_updates_from_before_are_skipped() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
@@ -442,6 +421,94 @@ pub(super) mod tests {
         client.stop();
         assert!(run.await.unwrap().is_ok());
         assert_eq!(*seen.lock().unwrap(), ["new"]);
+    }
+
+    fn new_message(id: i32, date: i32, pts: i32) -> base::Update {
+        let message = base::Message::Message(Box::new(crate::types::Message::bare(id, get_peer(7), date)));
+        base::Update::UpdateNewMessage(Box::new(types::UpdateNewMessage { message, pts, pts_count: 1 }))
+    }
+
+    /// The ids of the new messages a run without catch-up hands to its handlers, waiting until `expected` came,
+    /// when getState says pts 50, the difference after it brings `held` and ends at pts `to`, and `pushed` waits on
+    /// the update stream.
+    async fn delivered_from_now(
+        held: Vec<base::Update>,
+        to: i32,
+        pushed: Vec<base::Update>,
+        expected: usize,
+    ) -> Vec<i32> {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let state = |pts| types::updates::State { pts, qts: 0, date: 2, seq: 0, unread_count: 0 };
+        let held = held.into_iter().map(|u| match u {
+            base::Update::UpdateNewMessage(u) => u.message,
+            _ => unreachable!("only new messages are held here"),
+        });
+        let pending = types::updates::Difference {
+            new_messages: held.collect(),
+            new_encrypted_messages: Vec::new(),
+            other_updates: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+            state: base::updates::State::State(Box::new(state(to))),
+        };
+        let replies = vec![
+            Ok(me.to_bytes()),
+            Ok(base::updates::State::State(Box::new(state(50))).to_bytes()),
+            Ok(base::updates::Difference::Difference(Box::new(pending)).to_bytes()),
+        ];
+        let (mut client, _sent) = Client::scripted(replies);
+        Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        let (updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        client.on_raw_update(move |_, raw| {
+            if let base::Update::UpdateNewMessage(u) = &raw.update {
+                if let base::Message::Message(m) = &u.message {
+                    log.lock().unwrap().push(m.id);
+                }
+            }
+            ready(Ok(()))
+        });
+        for update in pushed {
+            let batch = types::Updates { updates: vec![update], users: Vec::new(), chats: Vec::new(), date: 0, seq: 0 };
+            let incoming = Incoming { updates: base::Updates::Updates(Box::new(batch)), from_request: false };
+            updates.send(incoming).await.unwrap();
+        }
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        for _ in 0..1000 {
+            if seen.lock().unwrap().len() >= expected {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        client.stop();
+        assert!(run.await.unwrap().is_ok());
+        std::mem::take(&mut *seen.lock().unwrap())
+    }
+
+    fn now() -> i32 {
+        crate::session::internals::now() as i32
+    }
+
+    // The test kit's case: the user's message reaches Telegram while the bot's run reads what Telegram held.
+    #[tokio::test]
+    async fn without_catch_up_what_came_since_the_run_began_is_delivered() {
+        let held = vec![new_message(9, 1, 51), new_message(1, now(), 52)];
+        assert_eq!(delivered_from_now(held, 52, Vec::new(), 1).await, [1]);
+    }
+
+    // Telegram pushes a message it also puts in the difference, then one after it.
+    #[tokio::test]
+    async fn without_catch_up_a_message_both_held_and_pushed_runs_once() {
+        let pushed = vec![new_message(1, now(), 51), new_message(2, now(), 52)];
+        assert_eq!(delivered_from_now(vec![new_message(1, now(), 51)], 51, pushed, 2).await, [1, 2]);
     }
 
     #[tokio::test]

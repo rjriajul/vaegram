@@ -20,6 +20,49 @@ fn new_channel_message(message: base::Message) -> base::Update {
     base::Update::UpdateNewChannelMessage(Box::new(types::UpdateNewChannelMessage { message, pts: 0, pts_count: 0 }))
 }
 
+fn message_date(message: &base::Message) -> Option<i32> {
+    match message {
+        base::Message::Message(m) => Some(m.date),
+        base::Message::MessageService(m) => Some(m.date),
+        base::Message::MessageEmpty(_) => None,
+    }
+}
+
+fn edit_date(message: &base::Message) -> Option<i32> {
+    match message {
+        base::Message::Message(m) => Some(m.edit_date.unwrap_or(m.date)),
+        other => message_date(other),
+    }
+}
+
+/// When Telegram got `update`, for the updates that say.
+fn update_date(update: &base::Update) -> Option<i32> {
+    use base::Update as U;
+    match update {
+        U::UpdateNewMessage(u) => message_date(&u.message),
+        U::UpdateNewChannelMessage(u) => message_date(&u.message),
+        U::UpdateBotNewBusinessMessage(u) => message_date(&u.message),
+        U::UpdateEditMessage(u) => edit_date(&u.message),
+        U::UpdateEditChannelMessage(u) => edit_date(&u.message),
+        U::UpdateBotEditBusinessMessage(u) => edit_date(&u.message),
+        U::UpdateBotBusinessConnect(u) => {
+            let base::BotBusinessConnection::BotBusinessConnection(connection) = &u.connection;
+            Some(connection.date)
+        }
+        U::UpdateBotChatBoost(u) => {
+            let base::Boost::Boost(boost) = &u.boost;
+            Some(boost.date)
+        }
+        U::UpdateChatParticipant(u) => Some(u.date),
+        U::UpdateChannelParticipant(u) => Some(u.date),
+        U::UpdateBotStopped(u) => Some(u.date),
+        U::UpdateBotChatInviteRequester(u) => Some(u.date),
+        U::UpdateBotMessageReaction(u) => Some(u.date),
+        U::UpdateBotMessageReactions(u) => Some(u.date),
+        _ => None,
+    }
+}
+
 impl Dispatcher {
     pub(super) async fn difference(&mut self) -> Result<()> {
         loop {
@@ -43,7 +86,10 @@ impl Dispatcher {
                 }
                 base::updates::Difference::DifferenceTooLong(d) if d.pts != t.state.pts => {
                     let from = std::mem::replace(&mut t.state.pts, d.pts);
-                    self.skipped(Key::Pts, from, d.pts, SkipReason::TooLong);
+                    // Without catch-up, skipping what came before the run is what was asked for.
+                    if self.held_before.is_none() {
+                        self.skipped(Key::Pts, from, d.pts, SkipReason::TooLong);
+                    }
                     continue;
                 }
                 base::updates::Difference::DifferenceTooLong(_) => return Ok(()),
@@ -57,11 +103,13 @@ impl Dispatcher {
                 }
             };
             let entities = Arc::new(Entities::new(&self.client, users, chats));
-            for message in messages {
+            let held_before = self.held_before;
+            let since_run = |date: Option<i32>| held_before.is_none_or(|since| date.is_some_and(|date| date >= since));
+            for message in messages.into_iter().filter(|m| since_run(message_date(m))) {
                 t.emit(new_message(message), &entities);
                 self.recovered.0 += 1;
             }
-            for update in others {
+            for update in others.into_iter().filter(|u| since_run(update_date(u))) {
                 self.recovered.1 += 1;
                 if matches!(update, base::Update::UpdateChannelTooLong(_)) || channel_of(&update).is_some() {
                     t.update(update, &entities, false);
