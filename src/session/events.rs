@@ -123,6 +123,9 @@ impl Events {
             Some(e) => *e = a,
             None => affected.push(a),
         }
+        drop(affected);
+        // As for nested updates: a waiting dispatcher takes it now, not with the next update.
+        self.wake.notify_one();
     }
 
     pub(crate) fn take_affected(&self) -> Option<Affected> {

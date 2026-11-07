@@ -426,6 +426,18 @@ async fn affected_pts_come_back_as_quiet_updates() {
 }
 
 #[tokio::test]
+async fn affected_pts_wake_a_waiting_receiver() {
+    // The update stream stays open and quiet: only the affected counter can end the wait.
+    let (_stream, mut updates) = UpdatesRx::channel();
+    let events = updates.events.clone();
+    let waiting = tokio::spawn(async move { updates.recv().await.map(|incoming| incoming.from_request) });
+    tokio::task::yield_now().await;
+    events.affected(Affected { channel_id: None, pts: 9, pts_count: 2 });
+    let got = tokio::time::timeout(Duration::from_secs(5), waiting).await;
+    assert!(matches!(got, Ok(Ok(Some(true)))), "the receiver slept through it: {got:?}");
+}
+
+#[tokio::test]
 async fn drops_replayed_and_stale_server_messages() {
     let (mut r, _frames, _updates) = runner().await;
     let now = crate::session::internals::now();
