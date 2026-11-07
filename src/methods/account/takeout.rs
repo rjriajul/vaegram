@@ -109,9 +109,10 @@ impl Drop for TakeoutSession {
         }
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             let client = self.client.clone();
-            runtime.spawn(async move {
+            // Ends the caller's session, so it carries the tag of the task that dropped it.
+            runtime.spawn(crate::observe::carry_tag(async move {
                 let _ = client.invoke(&functions::account::FinishTakeoutSession { success: false }).await;
-            });
+            }));
         }
     }
 }
@@ -194,6 +195,24 @@ mod tests {
         // A spawned abort would hold its own handle to the client.
         assert_eq!(Arc::strong_count(&client.0), 1);
         assert!(sent.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn the_abort_on_drop_carries_the_droppers_tag() {
+        let dc = crate::session::test_dc::TestDc::start([5; 256], false).await;
+        let (client, tags) = dc.observed_client([5; 256]).await;
+        let session = TakeoutSession { client: Client(client.0.clone(), Some(9)), finished: false };
+        crate::observe::tagged(4, async move { drop(session) }).await;
+        let aborted = || tags.lock().unwrap().iter().find(|c| c.0 == "invokeWithTakeout").map(|c| c.1);
+        let seen = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(tag) = aborted() {
+                    break tag;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        });
+        assert_eq!(seen.await.expect("no abort sent"), Some(4));
     }
 
     #[tokio::test]

@@ -91,6 +91,7 @@ impl RepeatChatAction<'_> {
         // The first send is awaited, so a chat or right that fails comes back here rather than ending a task.
         let (client, delay) = (self.send.client.clone(), self.delay);
         let (mut request, connection) = self.send.request().await?;
+        // It outlives the call, so its repeats go out untagged; only the first send carries the caller's tag.
         let task = tokio::spawn(async move {
             loop {
                 tokio::time::sleep(delay).await;

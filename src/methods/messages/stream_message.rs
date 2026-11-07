@@ -11,6 +11,7 @@ use crate::Client;
 use crate::crypto::random;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
+use crate::observe::carry_tag;
 use crate::raw::base;
 use crate::types::{Message, PeerRef};
 
@@ -70,7 +71,8 @@ impl StreamMessage<'_> {
             ..State::default()
         };
         let shared = Arc::new(StreamShared { state: Mutex::new(state), ..StreamShared::default() });
-        let task = tokio::spawn(run(self.client.clone(), self.chat_id, self.options, shared.clone()));
+        // The drafts and messages are the caller's, so they carry its tag.
+        let task = tokio::spawn(carry_tag(run(self.client.clone(), self.chat_id, self.options, shared.clone())));
         MessageStream { shared, task: Some(task) }
     }
 }
@@ -324,5 +326,22 @@ mod tests {
             () = std::future::ready(()) => {}
         }
         assert!(client.0.streams.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_messages_its_task_sends_carry_the_callers_tag() {
+        let dc = crate::session::test_dc::TestDc::start([5; 256], false).await;
+        let (client, tags) = dc.observed_client([5; 256]).await;
+        let finished = crate::observe::tagged(9, async {
+            let stream = client.stream_message("me").start();
+            assert!(stream.push("hi"));
+            stream.finish().await
+        })
+        .await;
+        // The test DC refuses every message, after the observer saw it.
+        assert!(finished.is_err());
+        let sends: Vec<_> =
+            tags.lock().unwrap().iter().filter(|c| c.0 == "messages.sendMessage").map(|c| c.1).collect();
+        assert_eq!(sends, [Some(9)]);
     }
 }

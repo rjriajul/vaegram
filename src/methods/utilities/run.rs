@@ -59,7 +59,8 @@ impl Client {
     }
 
     pub(super) async fn drive(&self, mut dispatcher: Dispatcher) -> Result<()> {
-        let stopped = dispatcher.run(&mut *self.0.updates.lock().await).await;
+        // What the dispatcher sends, getDifference included, is vaegram's own doing, even inside the caller's tag.
+        let stopped = crate::observe::untagged(dispatcher.run(&mut *self.0.updates.lock().await)).await;
         // Dropped first, so the update state is back in the client when the stop hook runs.
         drop(dispatcher);
         self.lifecycle_hook(UpdateKind::Stop).await;
