@@ -44,15 +44,19 @@ impl Compose<'_> {
         if self.sequential {
             let mut started = Vec::with_capacity(clients.len());
             for client in clients {
-                match client.prepare().await {
-                    Ok(Some(dispatcher)) => started.push((client.clone(), dispatcher)),
+                let prepared = match client.claim_run() {
+                    Ok(running) => client.prepare().await.map(|dispatcher| dispatcher.map(|d| (d, running))),
+                    Err(error) => Err(error),
+                };
+                match prepared {
+                    Ok(Some((dispatcher, running))) => started.push((client.clone(), dispatcher, running)),
                     Ok(None) => {}
                     Err(error) if result.is_ok() => result = Err(error),
                     Err(_) => {}
                 }
             }
-            for (client, dispatcher) in started {
-                runs.spawn(async move { client.drive(dispatcher).await });
+            for (client, dispatcher, running) in started {
+                runs.spawn(async move { client.drive(dispatcher, running).await });
             }
         } else {
             for client in clients {

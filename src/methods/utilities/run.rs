@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use crate::Client;
 use crate::dispatcher::Dispatcher;
 use crate::dispatcher::router::run_hook;
@@ -6,12 +8,22 @@ use crate::handlers::UpdateKind;
 use crate::raw::{base, functions};
 
 impl Client {
-    /// Returns `Ok(())` after `stop`, or `Error::Disconnected` when the connection ends.
+    /// Returns `Ok(())` after `stop`, or `Error::Disconnected` when the connection ends. Fails at once with
+    /// `Error::InvalidArgument` while this client is already running, here or in [`compose`](Client::compose).
     pub async fn run(&self) -> Result<()> {
+        let running = self.claim_run()?;
         match self.prepare().await? {
-            Some(dispatcher) => self.drive(dispatcher).await,
+            Some(dispatcher) => self.drive(dispatcher, running).await,
             None => Ok(()),
         }
+    }
+
+    /// The client's updates for one `run`, until the returned guard is dropped.
+    pub(super) fn claim_run(&self) -> Result<Running> {
+        if self.0.running.swap(true, Ordering::AcqRel) {
+            return Err(Error::InvalidArgument("this client is already running"));
+        }
+        Ok(Running(self.clone()))
     }
 
     /// What anything that waits for updates checks first: a client built with `no_updates` never gets any.
@@ -51,13 +63,14 @@ impl Client {
         Ok(dispatcher)
     }
 
-    pub(super) async fn drive(&self, mut dispatcher: Dispatcher) -> Result<()> {
+    pub(super) async fn drive(&self, mut dispatcher: Dispatcher, running: Running) -> Result<()> {
         let stopped = dispatcher.run(&mut *self.0.updates.lock().await).await;
         // Dropped first, so the update state is back in the client when the stop hook runs.
         drop(dispatcher);
         self.lifecycle_hook(UpdateKind::Stop).await;
         // Cleared here, not on entry, so a stop() that lands before run gets going still counts.
         self.0.stop.send_replace(false);
+        drop(running);
         if stopped { Ok(()) } else { Err(Error::Disconnected) }
     }
 
@@ -74,6 +87,15 @@ impl Client {
         if let Some(hook) = hook {
             run_hook(self.clone(), kind, hook).await;
         }
+    }
+}
+
+/// Held while a `run` owns the client's updates; dropping it, however `run` ends, lets the next one start.
+pub(super) struct Running(Client);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.0.running.store(false, Ordering::Release);
     }
 }
 
@@ -200,6 +222,37 @@ pub(super) mod tests {
         assert!(!run.is_finished(), "run returned before the running handler finished");
         release.notify_one();
         assert!(run.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_second_run_while_one_is_running_is_refused() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
+        let (client, mut sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
+        let (_updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = starts.clone();
+        client.on_start(move |_| {
+            counted.fetch_add(1, Ordering::Relaxed);
+            ready(Ok(()))
+        });
+        let first = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        // users.getUsers, then updates.getDifference: the first run is taking updates.
+        sent.recv().await;
+        sent.recv().await;
+
+        let second = client.run().await;
+        assert!(matches!(second, Err(Error::InvalidArgument(_))), "{second:?}");
+        assert!(sent.try_recv().is_err(), "the second run sent something");
+        client.stop();
+        assert!(first.await.unwrap().is_ok());
+        assert_eq!(starts.load(Ordering::Relaxed), 1);
+        assert!(!client.0.running.load(Ordering::Relaxed), "a later run would be refused too");
     }
 
     #[tokio::test]

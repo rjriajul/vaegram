@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::Duration;
 
@@ -676,6 +676,8 @@ pub(crate) struct Inner {
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
+    // Set while a `run` (or a client in `compose`) owns the updates, so a second one is refused.
+    pub(crate) running: AtomicBool,
     // Where `recover_gaps` sends its requests while `run` is taking updates.
     pub(crate) recover: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Recover>>>,
     pub(crate) caches: Caches,
@@ -776,6 +778,7 @@ impl Inner {
             auto_no_updates: false,
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
+            running: AtomicBool::new(false),
             recover: Mutex::new(None),
             caches: Caches::default(),
             fetch: Fetch::default(),
