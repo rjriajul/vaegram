@@ -29,7 +29,8 @@ async fn wait_for_callback_query_gets_the_click() {
 
     let user = &kit.user.client;
     let asked = kit.user.send_and_wait_reply(&kit.bot, "/pick").await.unwrap();
-    let picked = user.wait_for_message(asked.chat.id).filter(filters::text()).timeout(WAIT).into_future();
+    let command = asked.reply_to_message_id.expect("the keyboard replies to the command");
+    let picked = kit.user.wait_reply(asked.chat.id, command);
     let click = user.request_callback_answer(asked.chat.id, asked.id, "pick").into_future();
     let (picked, click) = tokio::join!(picked, click);
     let picked = picked.unwrap();
@@ -46,7 +47,8 @@ async fn ask_returns_the_users_answer() {
     kit.bot.on_message(filters::private() & filters::command("ask"), move |m| {
         let bot = bot.clone();
         async move {
-            let answer = bot.ask(m.chat.id, "Your name?").filter(filters::text()).timeout(WAIT).await?;
+            let answer = bot.ask(m.chat.id, "Your name?").prompt(|q| q.reply_to(m.id));
+            let answer = answer.filter(filters::text()).timeout(WAIT).await?;
             answer.reply(format!("Hi {}", answer.text())).await?;
             Ok(())
         }

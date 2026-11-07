@@ -116,28 +116,36 @@ pub async fn test_supergroup(user: &Client) -> Option<i64> {
 }
 
 impl User {
-    /// Sends `text` to `bot` in private and waits up to 30 s for the bot's answer there: a message newer than the
-    /// one sent that, if it is a reply, replies to it. Older messages and replies to others are other tests' traffic.
+    /// Sends `text` to `bot` in private and waits up to 30 s for the bot's answer there: a reply to the message sent.
+    /// Every other message is another answer, or another test's traffic, and is dropped.
     pub async fn send_and_wait_reply(&self, bot: &Client, text: impl Into<Text>) -> Result<Message> {
         let me = bot.get_me().await?;
         let username = me.username.ok_or(Error::Unexpected("the bot has no username"))?;
         let bot_id = self.client.resolve_username(&username).await?;
         let mut received = self.received.lock().await;
         let sent = self.client.send_message(bot_id, text).await?.id;
-        tokio::time::timeout(REPLY_TIMEOUT, async {
-            loop {
-                match received.recv().await {
-                    Some(m)
-                        if m.chat.id == bot_id && m.id > sent && m.reply_to_message_id.is_none_or(|id| id == sent) =>
-                    {
-                        return Ok(m);
-                    }
-                    Some(_) => {}
-                    None => return Err(Error::Disconnected),
-                }
-            }
-        })
-        .await
-        .map_err(|_| Error::Timeout)?
+        next_reply(&mut received, bot_id, sent).await
     }
+
+    /// Waits up to 30 s for the bot's next reply to the user's message `to` in the bot's private chat `bot_id`, as
+    /// [`send_and_wait_reply`](Self::send_and_wait_reply) does for its first one. The kit collects the bot's
+    /// messages from its start, so a reply that came in before this call is still found.
+    #[allow(dead_code)] // not every binary that leaves the module's lints on waits for a second reply
+    pub async fn wait_reply(&self, bot_id: i64, to: i32) -> Result<Message> {
+        next_reply(&mut *self.received.lock().await, bot_id, to).await
+    }
+}
+
+async fn next_reply(received: &mut mpsc::UnboundedReceiver<Message>, bot_id: i64, to: i32) -> Result<Message> {
+    tokio::time::timeout(REPLY_TIMEOUT, async {
+        loop {
+            match received.recv().await {
+                Some(m) if m.chat.id == bot_id && m.id > to && m.reply_to_message_id == Some(to) => return Ok(m),
+                Some(_) => {}
+                None => return Err(Error::Disconnected),
+            }
+        }
+    })
+    .await
+    .map_err(|_| Error::Timeout)?
 }

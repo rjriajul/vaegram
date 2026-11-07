@@ -36,7 +36,7 @@ async fn polls(user: &Client, group: i64) {
 }
 
 /// Only bots send rich messages (a user account gets RICH_MESSAGE_UNSUPPORTED) and only users read them back whole,
-/// so the bot answers with one, as a reply like every answer `send_and_wait_reply` waits for, and the user fetches it.
+/// so the bot answers with one, as a reply because `send_and_wait_reply` takes only replies, and the user fetches it.
 async fn screenshots_and_rich_messages(kit: &support::Kit) {
     kit.bot.on_message(filters::private() & filters::text(), |m| async move {
         m.client().send_rich_message(m.chat.id, InputRichMessage::html("<b>hi</b>")).reply_to(m.id).await?;
