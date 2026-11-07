@@ -13,6 +13,8 @@ pub struct ForwardMessages<'a> {
     from_chat_id: PeerRef,
     message_ids: &'a [i32],
     options: SendOptions,
+    // Why awaiting fails before anything is sent, when the source can't be forwarded at all.
+    refused: Option<&'static str>,
 }
 
 impl Client {
@@ -31,12 +33,21 @@ impl Client {
             from_chat_id: from_chat_id.into(),
             message_ids,
             options: SendOptions::default(),
+            refused: None,
         }
     }
 }
 
 impl ForwardMessages<'_> {
+    pub(crate) fn refuse(mut self, reason: &'static str) -> Self {
+        self.refused = Some(reason);
+        self
+    }
+
     async fn send(self) -> Result<Vec<Message>> {
+        if let Some(reason) = self.refused {
+            return Err(Error::InvalidArgument(reason));
+        }
         if !(1..=100).contains(&self.message_ids.len()) {
             return Err(Error::InvalidArgument("forwards take 1 to 100 message ids"));
         }

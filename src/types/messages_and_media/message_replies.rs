@@ -269,14 +269,23 @@ impl Message {
     }
 
     /// Sends an inline bot result as a reply to this message.
+    ///
+    /// On a message that came through a business connection awaiting fails with `Error::InvalidArgument`, as for
+    /// [`answer_inline_bot_result`](Message::answer_inline_bot_result).
     pub fn reply_inline_bot_result(&self, query_id: i64, result_id: impl Into<String>) -> SendInlineBotResult<'_> {
         self.answer_inline_bot_result(query_id, result_id).reply_to(self.id)
     }
 
     /// Sends an inline bot result to this chat, in the same forum topic and direct-messages topic.
-    /// messages.sendInlineBotResult takes no business connection, so it isn't kept.
+    ///
+    /// messages.sendInlineBotResult can't go through a business connection, so on a message that came through one
+    /// awaiting fails with `Error::InvalidArgument`.
     pub fn answer_inline_bot_result(&self, query_id: i64, result_id: impl Into<String>) -> SendInlineBotResult<'_> {
-        self.route_topic(self.client().send_inline_bot_result(self.chat.id, query_id, result_id))
+        let send = self.route_topic(self.client().send_inline_bot_result(self.chat.id, query_id, result_id));
+        match self.business_connection_id {
+            Some(_) => send.refuse("an inline bot result can't be sent through a business connection"),
+            None => send,
+        }
     }
 }
 

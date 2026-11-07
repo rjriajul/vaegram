@@ -80,12 +80,25 @@ impl Message {
     }
 
     /// Copies the album this message belongs to into `chat_id`.
+    ///
+    /// The album is fetched by id, so on a message that came through a business connection awaiting fails with
+    /// `Error::InvalidArgument`.
     pub fn copy_media_group(&self, chat_id: impl Into<PeerRef>) -> CopyMediaGroup<'_> {
-        self.client().copy_media_group(chat_id, self.chat.id, self.id)
+        let copy = self.client().copy_media_group(chat_id, self.chat.id, self.id);
+        match self.business_connection_id {
+            Some(_) => copy.refuse("a business message's album can't be fetched"),
+            None => copy,
+        }
     }
 
     /// Every message of the album this message belongs to.
+    ///
+    /// Fails with `Error::InvalidArgument` on a message that came through a business connection, whose album can't
+    /// be fetched.
     pub async fn get_media_group(&self) -> Result<Vec<Message>> {
+        if self.business_connection_id.is_some() {
+            return Err(Error::InvalidArgument("a business message's album can't be fetched"));
+        }
         self.client().get_media_group(self.chat.id, self.id).await
     }
 

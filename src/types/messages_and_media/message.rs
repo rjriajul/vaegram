@@ -618,7 +618,8 @@ impl Message {
 
     /// Forwards this message to another chat.
     ///
-    /// Awaiting the request returns the forwarded messages as a `Vec` of [`Message`].
+    /// Awaiting the request returns the forwarded messages as a `Vec` of [`Message`]. A message that came through
+    /// a business connection can't be forwarded: awaiting fails with `Error::InvalidArgument`.
     ///
     /// ```no_run
     /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
@@ -626,12 +627,17 @@ impl Message {
     /// # Ok(()) }
     /// ```
     pub fn forward(&self, chat_id: impl Into<PeerRef>) -> ForwardMessages<'_> {
-        self.client.forward_messages(chat_id, self.chat.id, std::slice::from_ref(&self.id))
+        let forward = self.client.forward_messages(chat_id, self.chat.id, std::slice::from_ref(&self.id));
+        match self.business_connection_id {
+            Some(_) => forward.refuse("a business message can't be forwarded"),
+            None => forward,
+        }
     }
 
     /// Copies this message to another chat, without a link to the original.
     ///
-    /// Awaiting the request returns the new [`Message`].
+    /// Awaiting the request returns the new [`Message`]. A message that came through a business connection is
+    /// copied as this `Message` holds it, since it can't be fetched again.
     ///
     /// ```no_run
     /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
@@ -639,7 +645,11 @@ impl Message {
     /// # Ok(()) }
     /// ```
     pub fn copy(&self, chat_id: impl Into<PeerRef>) -> CopyMessage<'_> {
-        self.client.copy_message(chat_id, self.chat.id, self.id)
+        let copy = self.client.copy_message(chat_id, self.chat.id, self.id);
+        match self.business_connection_id {
+            Some(_) => copy.held(self.raw.clone()),
+            None => copy,
+        }
     }
 
     /// Pins this message in its chat.
@@ -652,10 +662,16 @@ impl Message {
         self.on_behalf(self.client.unpin_chat_message(self.chat.id, self.id))
     }
 
-    // Business bot rights don't cover reactions, so the bot reacts as itself.
-    /// Adds a reaction to this message. On a business message the bot reacts as itself, not as the business account.
+    /// Adds a reaction to this message.
+    ///
+    /// Telegram takes no reaction through a business connection, so on a message that came through one awaiting
+    /// fails with `Error::InvalidArgument`.
     pub fn react(&self, reaction: impl Into<ReactionType>) -> SendReaction<'_> {
-        self.client.send_reaction(self.chat.id, self.id).reaction(reaction)
+        let react = self.client.send_reaction(self.chat.id, self.id).reaction(reaction);
+        match self.business_connection_id {
+            Some(_) => react.refuse("a business message can't take a reaction"),
+            None => react,
+        }
     }
 
     /// The [`Client`] that received this message.
@@ -704,7 +720,12 @@ impl Message {
     }
 
     /// Marks the contents of this message, such as a voice note, as played.
+    ///
+    /// Fails with `Error::InvalidArgument` on a message that came through a business connection.
     pub async fn read_contents(&self) -> Result<()> {
+        if self.business_connection_id.is_some() {
+            return Err(Error::InvalidArgument("a business message's contents can't be marked as read"));
+        }
         self.client.read_message_contents(self.chat.id, &[self.id]).await
     }
 
@@ -1348,6 +1369,30 @@ pub(crate) mod tests {
             assert!(sent.is_err());
             assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
         }
+    }
+
+    #[tokio::test]
+    async fn business_messages_never_touch_the_bots_own_chat() {
+        let (client, mut rx) = seeded();
+        let raw = types::Message { message: "hi".into(), ..Message::bare(5, get_peer(7), 0) };
+        let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
+        message.business_connection_id = Some("c".into());
+        let refused = |result: Result<(), Error>| matches!(result, Err(Error::InvalidArgument(_)));
+        assert!(refused(message.forward(7).await.map(drop)));
+        assert!(refused(message.react("👍").await));
+        assert!(refused(message.read_contents().await));
+        assert!(refused(message.get_media_group().await.map(drop)));
+        assert!(refused(message.copy_media_group(7).await.map(drop)));
+        assert!(refused(message.answer_inline_bot_result(1, "r").await.map(drop)));
+        assert!(refused(message.reply_inline_bot_result(1, "r").await.map(drop)));
+        assert!(rx.try_recv().is_err(), "nothing was sent");
+
+        // A copy is made of the message as held: message id 5 of the bot's own chat is never fetched.
+        let _ = message.copy(7).await;
+        let body = rx.try_recv().expect("no request sent");
+        assert_eq!(body[..4], functions::messages::SendMessage::CONSTRUCTOR_ID.to_le_bytes());
+        assert!(body.windows(3).any(|w| w == b"\x02hi"));
+        assert!(rx.try_recv().is_err());
     }
 
     #[tokio::test]
