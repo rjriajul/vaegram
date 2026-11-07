@@ -52,6 +52,7 @@ mod tests {
             dc: 2,
             connection: 0,
             resent,
+            tag: None,
         }
     }
 

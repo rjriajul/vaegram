@@ -70,6 +70,7 @@ mod tests {
             dc: 2,
             connection: 1,
             resent: 3,
+            tag: None,
         }
     }
 
