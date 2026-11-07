@@ -45,6 +45,10 @@ pub struct Message {
     /// Media of a kind with no variant is [`Media::Unknown`].
     pub media: Option<Media>,
     /// The link preview of a text message; `media` stays `None` and the text stays in [`text`](Message::text).
+    ///
+    /// `None` while Telegram is still building the preview. When it finishes, the message cache's copy (see
+    /// `max_message_cache_size`) gets the preview, without an edited-message update; this value doesn't change, so
+    /// read the message again from the cache, as `reply_to_message()` or `CallbackQuery::message()` do.
     pub web_page: Option<Box<WebPage>>,
     /// The structured content of a rich message. `None` for other messages.
     pub rich_message: Option<RichMessage>,

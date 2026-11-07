@@ -57,6 +57,11 @@ impl<K: Hash + Eq + Clone, V> Lru<K, V> {
             kept
         });
     }
+
+    /// Every value, without counting as a use.
+    fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+        self.entries.values_mut().map(|(value, _)| value)
+    }
 }
 
 /// A message as it came, with the users and chats of its batch, parsed again on every hit. A parsed `Message` holds
@@ -126,8 +131,9 @@ impl Caches {
 
     /// Learns from an update before it's routed: new and edited messages are kept, deleted ones dropped, and an
     /// edited topic forgotten. Reactions, views, forwards, pins and widget data change a message without an edit, so
-    /// they drop it too; a later read asks Telegram. Other flag-only changes (a voice note marked listened, say)
-    /// aren't tracked, so a cached message can show them stale.
+    /// they drop it too; a later read asks Telegram. A link preview Telegram finishes later is filled into the cached
+    /// messages that show it. Other flag-only changes (a voice note marked listened, say) aren't tracked, so a cached
+    /// message can show them stale.
     pub(crate) fn observe(&self, update: &base::Update, entities: &Arc<Entities>) {
         use base::Update as U;
         match update {
@@ -149,7 +155,21 @@ impl Caches {
                     self.store_poll(poll, entities);
                 }
             }
+            U::UpdateWebPage(u) => self.update_web_page(&u.webpage),
+            U::UpdateChannelWebPage(u) => self.update_web_page(&u.webpage),
             _ => {}
+        }
+    }
+
+    /// Puts a link preview Telegram finished building into the cached messages that still hold an older state of it.
+    fn update_web_page(&self, page: &base::WebPage) {
+        let (Some(id), Some(messages)) = (web_page_id(page), &self.messages) else { return };
+        for cached in messages.lock().unwrap().values_mut() {
+            let base::Message::Message(m) = &mut cached.raw else { continue };
+            let Some(base::MessageMedia::MessageMediaWebPage(media)) = &mut m.media else { continue };
+            if web_page_id(&media.webpage) == Some(id) {
+                media.webpage = page.clone();
+            }
         }
     }
 
@@ -245,6 +265,16 @@ fn channel_of(peer: &base::Peer) -> i64 {
 
 fn channel_of_chat(chat_id: i64) -> i64 {
     if chat_id < -CHANNEL_OFFSET { channel_id_of(chat_id) } else { 0 }
+}
+
+/// `None` for `webPageNotModified`, which names no page.
+fn web_page_id(page: &base::WebPage) -> Option<i64> {
+    match page {
+        base::WebPage::WebPage(p) => Some(p.id),
+        base::WebPage::WebPageEmpty(p) => Some(p.id),
+        base::WebPage::WebPagePending(p) => Some(p.id),
+        base::WebPage::WebPageNotModified(_) => None,
+    }
 }
 
 #[cfg(test)]
@@ -625,6 +655,46 @@ mod tests {
         assert_eq!(
             (cached_ids(&caches, 7, &[2, 5]), cached_ids(&caches, channel, &[4])),
             (vec![false, true], vec![false])
+        );
+    }
+
+    #[test]
+    fn a_finished_link_preview_fills_the_cached_messages_that_show_it() {
+        use crate::types::messages_and_media::web_page::tests::{page, web_page_media};
+        let caches = Caches::new(10, 0);
+        let channel = get_channel_id(9);
+        let pending = |id| base::WebPage::WebPagePending(Box::new(types::WebPagePending { id, url: None, date: 1 }));
+        let with_preview = |id, chat_id, preview| {
+            let message =
+                types::Message { media: Some(web_page_media(preview)), ..Message::bare(id, get_peer(chat_id), 1) };
+            base::Message::Message(Box::new(message))
+        };
+        // The finished page has id 5; message 7 shows another one.
+        caches.store(&with_preview(5, 7, pending(5)), &Arc::default());
+        caches.store(&with_preview(6, channel, pending(5)), &Arc::default());
+        caches.store(&with_preview(7, 7, pending(6)), &Arc::default());
+        let finished = base::WebPage::WebPage(Box::new(page("https://x.y")));
+        let update = types::UpdateWebPage { webpage: finished.clone(), pts: 1, pts_count: 1 };
+        caches.observe(&base::Update::UpdateWebPage(Box::new(update)), &Arc::default());
+        let shown = |chat_id, id| {
+            let cached = caches.message(chat_id, id).expect("still cached");
+            let message = Message::from_raw(&Client::offline(), cached.raw, &cached.entities).unwrap();
+            message.web_page.map(|p| p.title)
+        };
+        assert_eq!(
+            (shown(7, 5), shown(channel, 6), shown(7, 7)),
+            (Some(Some("A clip".into())), Some(Some("A clip".into())), None)
+        );
+
+        let empty = base::WebPage::WebPageEmpty(Box::new(types::WebPageEmpty { id: 6, url: None }));
+        let update = types::UpdateChannelWebPage { channel_id: 9, webpage: empty, pts: 1, pts_count: 1 };
+        caches.observe(&base::Update::UpdateChannelWebPage(Box::new(update)), &Arc::default());
+        let raw = |chat_id, id| match caches.message(chat_id, id).unwrap().raw {
+            base::Message::Message(m) => m.media,
+            other => panic!("not a message: {other:?}"),
+        };
+        assert!(
+            matches!(raw(7, 7), Some(base::MessageMedia::MessageMediaWebPage(m)) if matches!(m.webpage, base::WebPage::WebPageEmpty(_)))
         );
     }
 }
