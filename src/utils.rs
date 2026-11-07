@@ -208,11 +208,13 @@ pub fn decode_svg_path(encoded: &[u8]) -> String {
 /// `URLSearchParams` decodes them: `%XX` escapes, and `+` as a space.
 ///
 /// With `max_age`, `auth_date` must also be at most that old by this machine's clock; a date ahead of the clock
-/// passes. Only the hash made with the bot token is checked, not the Ed25519 `signature` meant for third parties.
+/// passes. Pass one (Telegram recommends checking `auth_date`): with `None`, data captured once stays valid forever.
+/// Only the hash made with the bot token is checked, not the Ed25519 `signature` meant for third parties.
 ///
-/// Fails with [`Error::Security`] when there is no single `hash` of 64 hex digits, when it doesn't match, or when
-/// `max_age` is given and `auth_date` is missing, not a number or too old; with [`Error::InvalidArgument`] when
-/// `init_data` has a broken `%` escape or decodes to invalid UTF-8.
+/// Fails with [`Error::Security`] when there is no single `hash` of 64 hex digits, when a decoded key holds `=` or
+/// a line break or a decoded value holds a line break (either would let one field pass for others in the check
+/// string), when the hash doesn't match, or when `max_age` is given and `auth_date` is missing, not a number or
+/// too old; with [`Error::InvalidArgument`] when `init_data` has a broken `%` escape or decodes to invalid UTF-8.
 pub fn validate_web_app_data(
     bot_token: &str,
     init_data: &str,
@@ -226,6 +228,10 @@ pub fn validate_web_app_data(
             Ok((form_decode(key)?, form_decode(value)?))
         })
         .collect::<Result<Vec<_>>>()?;
+    // The check string joins `key=value` lines, so these characters would let fields merge or split unnoticed.
+    if fields.iter().any(|(key, value)| key.contains(['=', '\n']) || value.contains('\n')) {
+        return Err(Error::Security("Mini App data has a line break or `=` inside a field"));
+    }
     let no_hash = Error::Security("Mini App data needs one hash of 64 hex digits");
     let mut hash = None;
     let mut checked = Vec::with_capacity(fields.len());
@@ -365,6 +371,14 @@ mod tests {
         assert!(security(BOT_TOKEN, INIT_DATA.split_once("&hash=").unwrap().0));
         assert!(security(BOT_TOKEN, &INIT_DATA.replace("bba5f8f9dd", "bba5f8f9d")));
         assert!(security(BOT_TOKEN, &INIT_DATA.replace("bba5f8f9dd", "bba5f8f9dg")));
+        // A line break inside a value would let one field swallow the next while the check string stays the same.
+        let user = INIT_DATA.split_once("&user=").unwrap().1.split_once('&').unwrap().0;
+        let merged = INIT_DATA
+            .replace(&format!("&user={user}"), "")
+            .replace("signature=abc%2Bdef%2Fghi", &format!("signature=abc%2Bdef%2Fghi%0Auser%3D{user}"));
+        assert!(security(BOT_TOKEN, &merged));
+        assert!(security(BOT_TOKEN, &INIT_DATA.replace("query_id=", "query_id%0A=")));
+        assert!(security(BOT_TOKEN, &INIT_DATA.replace("query_id=", "query%3Did=")));
         let broken = format!("{INIT_DATA}&x=%E");
         assert!(matches!(validate_web_app_data(BOT_TOKEN, &broken, None), Err(Error::InvalidArgument(_))));
     }
