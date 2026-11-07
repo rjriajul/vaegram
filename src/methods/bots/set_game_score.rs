@@ -68,7 +68,7 @@ impl SetGameScore<'_> {
         if !self.edit_message {
             return Ok(None);
         }
-        Message::from_updates(client, updates, chat_id, (String::new(), None)).map(Some)
+        Message::from_updates(client, updates, Message::request(chat_id, String::new(), None)).map(Some)
     }
 }
 

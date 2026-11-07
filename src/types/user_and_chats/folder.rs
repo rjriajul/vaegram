@@ -4,7 +4,7 @@ use crate::enums::MessageEntityType;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::types::MessageEntity;
-use crate::utils::get_channel_id;
+use crate::utils::input_peer_id;
 
 /// A chat folder.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -342,15 +342,7 @@ fn chat_ids(client: &Client, peers: Vec<base::InputPeer>) -> Vec<i64> {
     let mut cache = client.0.peers.lock().unwrap();
     let mut ids = Vec::with_capacity(peers.len());
     for peer in peers {
-        let id = match &peer {
-            base::InputPeer::InputPeerEmpty => continue,
-            base::InputPeer::InputPeerSelf => me,
-            base::InputPeer::InputPeerChat(p) => -p.chat_id,
-            base::InputPeer::InputPeerUser(p) => p.user_id,
-            base::InputPeer::InputPeerChannel(p) => get_channel_id(p.channel_id),
-            base::InputPeer::InputPeerUserFromMessage(p) => p.user_id,
-            base::InputPeer::InputPeerChannelFromMessage(p) => get_channel_id(p.channel_id),
-        };
+        let Some(id) = input_peer_id(&peer, me) else { continue };
         if matches!(peer, base::InputPeer::InputPeerUser(_) | base::InputPeer::InputPeerChannel(_)) {
             cache.insert(id, peer);
         }

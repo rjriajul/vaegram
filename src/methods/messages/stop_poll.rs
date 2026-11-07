@@ -81,7 +81,7 @@ impl StopPoll<'_> {
         };
         let (mut updates, _) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;
         let Some((mut message, entities)) = read else {
-            return Message::from_updates(client, updates, chat_id, (String::new(), None));
+            return Message::from_updates(client, updates, Message::request(chat_id, String::new(), None));
         };
         // Telegram may answer with only the poll's new state and no edited message, so the message read above
         // takes that state.

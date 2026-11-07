@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::Client;
+use crate::client::Me;
 use crate::raw::{base, types};
 use crate::utils::{channel_id_of, get_channel_id, get_peer_id};
 
@@ -11,6 +12,70 @@ pub(crate) struct Entities {
 }
 
 impl Entities {
+    /// Only the account itself, from what the client knows of it, for a reply that carries no users.
+    pub(crate) fn own(me: &Me) -> Entities {
+        let mut entities = Entities::default();
+        if me.id == 0 {
+            return entities;
+        }
+        let user = types::User {
+            is_self: true,
+            contact: false,
+            mutual_contact: false,
+            deleted: false,
+            bot: me.is_bot,
+            bot_chat_history: false,
+            bot_nochats: false,
+            verified: false,
+            restricted: false,
+            min: false,
+            bot_inline_geo: false,
+            support: false,
+            scam: false,
+            apply_min_photo: false,
+            fake: false,
+            bot_attach_menu: false,
+            premium: me.premium.unwrap_or(false),
+            attach_menu_enabled: false,
+            bot_can_edit: false,
+            close_friend: false,
+            stories_hidden: false,
+            stories_unavailable: false,
+            contact_require_premium: false,
+            bot_business: false,
+            bot_has_main_app: false,
+            bot_forum_view: false,
+            bot_forum_can_manage_topics: false,
+            bot_can_manage_bots: false,
+            bot_guestchat: false,
+            bot_guard: false,
+            bot_forum_sidebar: false,
+            id: me.id,
+            access_hash: None,
+            first_name: None,
+            last_name: None,
+            username: me.username.as_deref().map(String::from),
+            phone: None,
+            photo: None,
+            status: None,
+            bot_info_version: None,
+            restriction_reason: None,
+            bot_inline_placeholder: None,
+            lang_code: None,
+            emoji_status: None,
+            usernames: None,
+            stories_max_id: None,
+            color: None,
+            profile_color: None,
+            bot_active_users: None,
+            bot_verification_icon: None,
+            send_paid_messages_stars: None,
+            linked_community_id: None,
+        };
+        entities.users.insert(me.id, base::User::User(Box::new(user)));
+        entities
+    }
+
     pub(crate) fn new(client: &Client, users: Vec<base::User>, chats: Vec<base::Chat>) -> Entities {
         let mut peers = client.0.peers.lock().unwrap();
         let mut entities = Entities::default();

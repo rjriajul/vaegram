@@ -19,6 +19,19 @@ pub fn get_peer_id(peer: &base::Peer) -> i64 {
     }
 }
 
+/// The Bot-API-style id of an input peer, with `me` standing for `InputPeerSelf`. `None` for `InputPeerEmpty`.
+pub(crate) fn input_peer_id(peer: &base::InputPeer, me: i64) -> Option<i64> {
+    Some(match peer {
+        base::InputPeer::InputPeerEmpty => return None,
+        base::InputPeer::InputPeerSelf => me,
+        base::InputPeer::InputPeerChat(p) => -p.chat_id,
+        base::InputPeer::InputPeerUser(p) => p.user_id,
+        base::InputPeer::InputPeerChannel(p) => get_channel_id(p.channel_id),
+        base::InputPeer::InputPeerUserFromMessage(p) => p.user_id,
+        base::InputPeer::InputPeerChannelFromMessage(p) => get_channel_id(p.channel_id),
+    })
+}
+
 pub(crate) fn get_chat_id(chat: &base::Chat) -> Option<i64> {
     match chat {
         base::Chat::ChatEmpty(c) => Some(-c.id),

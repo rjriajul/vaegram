@@ -454,7 +454,7 @@ mod tests {
             ttl_period: None,
         };
         let short = base::Updates::UpdateShortSentMessage(Box::new(short));
-        Message::from_updates(&client, short, 7, ("hi".into(), None)).unwrap();
+        Message::from_updates(&client, short, Message::request(7, "hi".into(), None)).unwrap();
         let new = types::UpdateNewMessage { message: raw(6, get_channel_id(9)), pts: 1, pts_count: 1 };
         let scheduled = types::UpdateNewScheduledMessage { message: raw(7, 7) };
         let updates = types::Updates {

@@ -16,7 +16,7 @@ use crate::types::{
     ReplyMarkup, RestrictionReason, RichMessage, RichText, ServiceAction, Story, SuggestedPostInfo, Text, TextQuote,
     User, WebPage,
 };
-use crate::utils::{get_peer, get_peer_id};
+use crate::utils::{get_peer, get_peer_id, input_peer_id};
 
 /// A message in a chat, with its sender, content and metadata.
 ///
@@ -401,28 +401,69 @@ impl Message {
         (messages, entities)
     }
 
-    pub(crate) fn from_updates(
-        client: &Client,
-        updates: base::Updates,
-        chat_id: i64,
-        sent: (String, Option<Vec<base::MessageEntity>>),
-    ) -> Result<Message> {
+    /// The message a send or edit request describes, with the id, date and sender still to come from the reply.
+    pub(crate) fn request(chat_id: i64, message: String, entities: Option<Vec<base::MessageEntity>>) -> types::Message {
+        types::Message { message, entities, ..Message::bare(0, get_peer(chat_id), 0) }
+    }
+
+    /// `sent` is the message as the request described it ([`Message::request`]). A short "sent" reply carries only
+    /// the id, date, media and entities, so the keyboard, reply header and flags come from `sent`.
+    pub(crate) fn from_updates(client: &Client, updates: base::Updates, sent: types::Message) -> Result<Message> {
         if let base::Updates::UpdateShortSentMessage(u) = updates {
+            let me = client.0.me.lock().unwrap().clone();
             let raw = types::Message {
                 out: u.out,
-                from_id: u.out.then(|| get_peer(client.0.me.lock().unwrap().id)),
-                message: sent.0,
-                entities: u.entities.or(sent.1),
+                id: u.id,
+                date: u.date,
+                from_id: u.out.then(|| get_peer(me.id)),
+                entities: u.entities.or(sent.entities),
                 media: u.media,
-                ..Message::bare(u.id, get_peer(chat_id), u.date)
+                ttl_period: u.ttl_period,
+                ..sent
             };
+            let entities = Arc::new(Entities::own(&me));
             // Own sends never come back as updates, so this is how a button on the bot's own message gets cached.
             if client.0.caches.caches_messages() {
-                client.0.caches.store(&base::Message::Message(Box::new(raw.clone())), &Arc::default());
+                client.0.caches.store(&base::Message::Message(Box::new(raw.clone())), &entities);
             }
-            return Ok(Message::parse(client, Box::new(raw), &Entities::default()));
+            return Ok(Message::parse(client, Box::new(raw), &entities));
         }
         Message::all_from_updates(client, updates).next().ok_or(Error::Unexpected("Telegram sent no message back"))
+    }
+
+    /// The header Telegram puts on a message sent with `reply`, for a short "sent" reply, which has none. `in_topic`
+    /// tells a send into a topic from a reply, since both name the message as `reply_to_msg_id`.
+    pub(crate) fn reply_header(reply: base::InputReplyTo, me: i64, in_topic: bool) -> Option<base::MessageReplyHeader> {
+        let peer = |p: &base::InputPeer| input_peer_id(p, me).map(get_peer);
+        match reply {
+            base::InputReplyTo::InputReplyToMessage(r) => {
+                let header = types::MessageReplyHeader {
+                    reply_to_scheduled: false,
+                    forum_topic: in_topic,
+                    quote: r.quote_text.is_some(),
+                    reply_to_ephemeral: false,
+                    reply_to_msg_id: Some(r.reply_to_msg_id),
+                    reply_to_peer_id: r.reply_to_peer_id.as_ref().and_then(peer),
+                    reply_from: None,
+                    reply_media: None,
+                    reply_to_top_id: r.top_msg_id,
+                    quote_text: r.quote_text,
+                    quote_entities: r.quote_entities,
+                    quote_offset: r.quote_offset,
+                    todo_item_id: r.todo_item_id,
+                    poll_option: r.poll_option,
+                    quote_rich: r.quote_rich,
+                };
+                Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(header)))
+            }
+            base::InputReplyTo::InputReplyToStory(r) => {
+                let header = types::MessageReplyStoryHeader { peer: peer(&r.peer)?, story_id: r.story_id };
+                Some(base::MessageReplyHeader::MessageReplyStoryHeader(Box::new(header)))
+            }
+            // Direct messages topics live in channels and ephemeral replies in bot chats' own lists; neither is
+            // answered with a short reply.
+            base::InputReplyTo::InputReplyToMonoForum(_) | base::InputReplyTo::InputReplyToEphemeralMessage(_) => None,
+        }
     }
 
     pub(crate) fn all_from_updates(client: &Client, updates: base::Updates) -> impl Iterator<Item = Message> + '_ {

@@ -123,5 +123,5 @@ pub(super) async fn edit_live_location(
         ..edit_request(peer, message_id)
     };
     let (updates, _) = client.invoke_business(business_connection_id, request).await?;
-    Message::from_updates(client, updates, chat_id, (String::new(), None))
+    Message::from_updates(client, updates, Message::request(chat_id, String::new(), None))
 }

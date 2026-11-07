@@ -81,7 +81,7 @@ impl SendInlineBotResult<'_> {
             allow_paid_stars: options.paid_message_star_count,
         };
         let updates = client.invoke(&request).await?;
-        Message::from_updates(client, updates, chat_id, (String::new(), None))
+        Message::from_updates(client, updates, Message::request(chat_id, String::new(), None))
     }
 }
 

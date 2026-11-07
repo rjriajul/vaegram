@@ -39,7 +39,7 @@ impl EditFactCheck<'_> {
         let text = base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities }));
         let updates =
             client.invoke(&functions::messages::EditFactCheck { peer, msg_id: self.message_id, text }).await?;
-        Message::from_updates(client, updates, chat_id, (String::new(), None))
+        Message::from_updates(client, updates, Message::request(chat_id, String::new(), None))
     }
 }
 

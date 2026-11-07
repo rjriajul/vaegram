@@ -23,7 +23,7 @@ impl Client {
             start_param: start_param.into(),
         };
         let updates = self.invoke(&request).await?;
-        Message::from_updates(self, updates, chat_id, (format!("/start {start_param}"), None))
+        Message::from_updates(self, updates, Message::request(chat_id, format!("/start {start_param}"), None))
     }
 }
 
