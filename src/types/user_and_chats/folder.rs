@@ -217,7 +217,7 @@ impl Folder {
     pub(crate) async fn write(&self, client: &Client) -> Result<base::DialogFilter> {
         let mut entities = Vec::with_capacity(self.title_entities.len());
         for entity in &self.title_entities {
-            entities.push(write_entity(client, entity).await?);
+            entities.extend(write_entity(client, entity).await?);
         }
         let title = types::TextWithEntities { text: self.title.clone(), entities };
         let title = base::TextWithEntities::TextWithEntities(Box::new(title));
@@ -263,11 +263,12 @@ fn title_entities(title: &base::TextWithEntities) -> Vec<MessageEntity> {
     MessageEntity::parse_all(&t.entities, &Entities::default()).unwrap_or_default()
 }
 
-async fn write_entity(client: &Client, e: &MessageEntity) -> Result<base::MessageEntity> {
+/// `None` for a mention of a user this account has never met: the title keeps the text without the link.
+async fn write_entity(client: &Client, e: &MessageEntity) -> Result<Option<base::MessageEntity>> {
     use MessageEntityType as T;
     use base::MessageEntity as E;
     let (offset, length) = (e.offset, e.length);
-    Ok(match e.kind {
+    Ok(Some(match e.kind {
         T::Unknown => E::MessageEntityUnknown(types::MessageEntityUnknown { offset, length }),
         T::Mention => E::MessageEntityMention(types::MessageEntityMention { offset, length }),
         T::Hashtag => E::MessageEntityHashtag(types::MessageEntityHashtag { offset, length }),
@@ -287,7 +288,7 @@ async fn write_entity(client: &Client, e: &MessageEntity) -> Result<base::Messag
         }
         T::TextMention => {
             let user = e.user.as_ref().ok_or(Error::InvalidArgument("a text mention needs its user"))?;
-            let user_id = client.resolve_user(&user.id.into()).await?;
+            let Some(user_id) = client.resolve_mentioned(user.id).await? else { return Ok(None) };
             E::InputMessageEntityMentionName(Box::new(types::InputMessageEntityMentionName { offset, length, user_id }))
         }
         T::PhoneNumber => E::MessageEntityPhone(types::MessageEntityPhone { offset, length }),
@@ -327,7 +328,7 @@ async fn write_entity(client: &Client, e: &MessageEntity) -> Result<base::Messag
         }
         T::DiffDelete => E::MessageEntityDiffDelete(types::MessageEntityDiffDelete { offset, length }),
         T::TonAddress => E::MessageEntityTonAddress(types::MessageEntityTonAddress { offset, length }),
-    })
+    }))
 }
 
 fn title(title: base::TextWithEntities) -> String {
@@ -380,5 +381,24 @@ mod tests {
         );
         assert!(f.groups && f.exclude_read && !f.contacts && !f.broadcasts && !f.title_noanimate);
         assert!(f.include_peers.is_empty() && f.color.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_title_mention_of_a_user_never_met_is_dropped() {
+        use crate::raw::Serializable;
+        use crate::types::User;
+
+        let (client, _sent) = Client::scripted(vec![Ok(Vec::<i64>::new().to_bytes())]);
+        let mut user = User::empty();
+        user.id = 777;
+        let mention = MessageEntity::new(MessageEntityType::TextMention, 0, 3).user(user);
+        let bold = MessageEntity::new(MessageEntityType::Bold, 0, 3);
+        let Ok(base::DialogFilter::DialogFilter(f)) =
+            Folder::new("Ann").title_entities([mention, bold]).write(&client).await
+        else {
+            panic!("expected a plain folder");
+        };
+        let base::TextWithEntities::TextWithEntities(title) = &f.title;
+        assert!(matches!(&title.entities[..], [base::MessageEntity::MessageEntityBold(_)]), "{:?}", title.entities);
     }
 }
