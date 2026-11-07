@@ -5,6 +5,8 @@ use crate::types::{ChatPermissions, PeerRef};
 
 impl Client {
     /// Sets the permissions every member has by default in a group or supergroup.
+    ///
+    /// Works in basic groups too; these defaults are the only member limits a basic group has.
     pub async fn set_chat_permissions(&self, chat_id: impl Into<PeerRef>, permissions: ChatPermissions) -> Result<()> {
         let request = functions::messages::EditChatDefaultBannedRights {
             peer: self.resolve_peer(chat_id).await?,
