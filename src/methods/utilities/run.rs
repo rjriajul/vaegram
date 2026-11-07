@@ -5,7 +5,7 @@ use crate::dispatcher::Dispatcher;
 use crate::dispatcher::router::run_hook;
 use crate::errors::{Error, Result};
 use crate::handlers::UpdateKind;
-use crate::raw::{base, functions};
+use crate::raw::{base, functions, types};
 
 impl Client {
     /// Returns `Ok(())` after `stop`, or `Error::Disconnected` when the connection ends. Fails at once with
@@ -56,11 +56,41 @@ impl Client {
             Some(state) => Dispatcher::resume(self.clone(), state),
             None => {
                 let base::updates::State::State(state) = self.invoke(&functions::updates::GetState {}).await?;
+                // With catch-up on and nothing saved, what Telegram still holds is delivered as it comes.
+                let state = if self.0.catch_up { *state } else { self.skip_pending(*state).await? };
                 Dispatcher::new(self.clone(), &state)
             }
         };
         self.lifecycle_hook(UpdateKind::Start).await;
         Ok(dispatcher)
+    }
+
+    /// The state after everything Telegram still holds for this account, which is dropped unseen.
+    ///
+    /// A bot's updates.getState answers with the last update Telegram knows it got, and the ones after it come
+    /// again, even those an earlier run handled. Reading the difference past them skips them, and tells Telegram
+    /// they arrived.
+    async fn skip_pending(&self, mut state: types::updates::State) -> Result<types::updates::State> {
+        loop {
+            let request = functions::updates::GetDifference {
+                pts: state.pts,
+                pts_limit: None,
+                pts_total_limit: None,
+                date: state.date,
+                qts: state.qts,
+                qts_limit: None,
+            };
+            let next = match self.invoke(&request).await? {
+                base::updates::Difference::DifferenceEmpty(e) => {
+                    (state.date, state.seq) = (e.date, e.seq);
+                    return Ok(state);
+                }
+                base::updates::Difference::Difference(d) => return Ok(unboxed(d.state)),
+                base::updates::Difference::DifferenceSlice(d) => unboxed(d.intermediate_state),
+                base::updates::Difference::DifferenceTooLong(d) => types::updates::State { pts: d.pts, ..state },
+            };
+            state = next;
+        }
     }
 
     pub(super) async fn drive(&self, mut dispatcher: Dispatcher, running: Running) -> Result<()> {
@@ -97,6 +127,11 @@ impl Drop for Running {
     fn drop(&mut self) {
         self.0.0.running.store(false, Ordering::Release);
     }
+}
+
+fn unboxed(state: base::updates::State) -> types::updates::State {
+    let base::updates::State::State(state) = state;
+    *state
 }
 
 #[cfg(test)]
@@ -278,17 +313,88 @@ pub(super) mod tests {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let now = types::updates::State { pts: 50, qts: 0, date: 2, seq: 0, unread_count: 0 };
         let now = base::updates::State::State(Box::new(now));
-        let (mut client, mut sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(now.to_bytes())]);
+        let nothing_pending =
+            base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 3, seq: 0 });
+        let replies = vec![Ok(me.to_bytes()), Ok(now.to_bytes()), Ok(nothing_pending.to_bytes())];
+        let (mut client, mut sent) = Client::scripted(replies);
         Arc::get_mut(&mut client.0).unwrap().catch_up = false;
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
 
         assert!(client.run().await.is_err());
 
-        let ids: Vec<u32> = std::iter::from_fn(|| sent.try_recv().ok())
-            .map(|b| u32::from_le_bytes(b[..4].try_into().unwrap()))
-            .collect();
-        assert_eq!(ids, [users::GetUsers::CONSTRUCTOR_ID, updates::GetState::CONSTRUCTOR_ID]);
-        assert_eq!(client.0.state.lock().unwrap().as_ref().map(|s| s.pts), Some(50));
+        let bodies: Vec<Vec<u8>> = std::iter::from_fn(|| sent.try_recv().ok()).collect();
+        let ids: Vec<u32> = bodies.iter().map(|b| u32::from_le_bytes(b[..4].try_into().unwrap())).collect();
+        let expected = [
+            users::GetUsers::CONSTRUCTOR_ID,
+            updates::GetState::CONSTRUCTOR_ID,
+            updates::GetDifference::CONSTRUCTOR_ID,
+        ];
+        assert_eq!(ids, expected);
+        // The difference starts from getState's answer, not the saved state.
+        assert_eq!(bodies[2][8..12], 50i32.to_le_bytes());
+        assert_eq!(client.0.state.lock().unwrap().as_ref().map(|s| (s.pts, s.date)), Some((50, 3)));
+    }
+
+    fn connected(id: &str, qts: i32) -> base::Update {
+        let connection = types::BotBusinessConnection {
+            disabled: false,
+            connection_id: id.into(),
+            user_id: 7,
+            dc_id: 2,
+            date: 1,
+            rights: None,
+        };
+        let connection = base::BotBusinessConnection::BotBusinessConnection(Box::new(connection));
+        base::Update::UpdateBotBusinessConnect(Box::new(types::UpdateBotBusinessConnect { connection, qts }))
+    }
+
+    // A bot's updates.getState names the last update Telegram knows it confirmed, so updates it pushed in an earlier
+    // run come again after it. Without catch-up they are skipped: the difference since then is read and dropped.
+    #[tokio::test]
+    async fn without_catch_up_updates_from_before_are_skipped() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let confirmed = types::updates::State { pts: 50, qts: 5, date: 2, seq: 0, unread_count: 0 };
+        let now = types::updates::State { qts: 6, date: 3, ..confirmed.clone() };
+        let pending = types::updates::Difference {
+            new_messages: Vec::new(),
+            new_encrypted_messages: Vec::new(),
+            other_updates: vec![connected("old", 6)],
+            chats: Vec::new(),
+            users: Vec::new(),
+            state: base::updates::State::State(Box::new(now)),
+        };
+        let pending = base::updates::Difference::Difference(Box::new(pending));
+        let confirmed = base::updates::State::State(Box::new(confirmed));
+        let replies = vec![Ok(me.to_bytes()), Ok(confirmed.to_bytes()), Ok(pending.to_bytes())];
+        let (mut client, _sent) = Client::scripted(replies);
+        Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        let (updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        client.on_business_connection(crate::filters::all(), move |c| {
+            log.lock().unwrap().push(c.id);
+            ready(Ok(()))
+        });
+        // Telegram pushes the old one again, then a new one.
+        for (id, qts) in [("old", 6), ("new", 7)] {
+            let short = types::UpdateShort { update: connected(id, qts), date: 3 };
+            let incoming = Incoming { updates: base::Updates::UpdateShort(Box::new(short)), from_request: false };
+            updates.send(incoming).await.unwrap();
+        }
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        while seen.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        client.stop();
+        assert!(run.await.unwrap().is_ok());
+        assert_eq!(*seen.lock().unwrap(), ["new"]);
     }
 
     #[tokio::test]
