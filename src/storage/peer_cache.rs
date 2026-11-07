@@ -9,8 +9,11 @@ use crate::utils::{CHANNEL_OFFSET, get_channel_id};
 /// How long a username learned from Telegram is trusted before it is looked up again: names change hands.
 pub(crate) const USERNAME_TTL: Duration = Duration::from_secs(8 * 60 * 60);
 
-/// The peers a client can reach without asking Telegram, in memory. Every change to a user or channel also goes
-/// to the store, which writes it on its next flush.
+/// Peers kept in memory. Past it the eighth seen longest ago goes; the store still has them, one lookup away.
+const MAX_PEERS: usize = 100_000;
+
+/// The peers a client can reach without asking Telegram, in memory, up to [`MAX_PEERS`]. Every change to a user
+/// or channel also goes to the store, which writes it on its next flush.
 pub(crate) struct PeerCache {
     peers: HashMap<i64, base::InputPeer>,
     // What the engine has, or has queued, for each peer: a peer seen again unchanged is never written again.
@@ -19,6 +22,7 @@ pub(crate) struct PeerCache {
     usernames: HashMap<String, (i64, i64)>,
     phones: HashMap<String, (i64, i64)>,
     store: Arc<Store>,
+    cap: usize,
 }
 
 impl PeerCache {
@@ -29,6 +33,7 @@ impl PeerCache {
             usernames: HashMap::new(),
             phones: HashMap::new(),
             store,
+            cap: MAX_PEERS,
         }
     }
 
@@ -72,7 +77,9 @@ impl PeerCache {
         if let Some(access_hash) = access_hash(&peer) {
             self.remember(id, access_hash, &[], None);
         }
-        self.peers.insert(id, peer)
+        let old = self.peers.insert(id, peer);
+        self.trim();
+        old
     }
 
     #[cfg(test)]
@@ -124,14 +131,7 @@ impl PeerCache {
     }
 
     fn keep(&mut self, record: PeerRecord) {
-        if let Some(old) = self.known.remove(&record.id) {
-            for name in &old.usernames {
-                release(&mut self.usernames, name, old.id);
-            }
-            if let Some(phone) = &old.phone_number {
-                release(&mut self.phones, phone, old.id);
-            }
-        }
+        self.forget(record.id);
         let claim = (record.updated, record.id);
         for name in &record.usernames {
             take(&mut self.usernames, name, claim);
@@ -140,6 +140,39 @@ impl PeerCache {
             take(&mut self.phones, phone, claim);
         }
         self.known.insert(record.id, record);
+        self.trim();
+    }
+
+    fn forget(&mut self, id: i64) {
+        if let Some(old) = self.known.remove(&id) {
+            for name in &old.usernames {
+                release(&mut self.usernames, name, old.id);
+            }
+            if let Some(phone) = &old.phone_number {
+                release(&mut self.phones, phone, old.id);
+            }
+        }
+    }
+
+    /// Past the cap, drops peers down to seven eighths of it: first the stored ones written longest ago, which a
+    /// lookup gets back from the store, and only then the ones the store doesn't keep (basic groups, senders known
+    /// only from a message), which come back when they're seen again.
+    fn trim(&mut self) {
+        if self.peers.len().max(self.known.len()) <= self.cap {
+            return;
+        }
+        let keep = self.cap - self.cap / 8;
+        let mut ages: Vec<(i64, i64)> = self.known.values().map(|r| (r.updated, r.id)).collect();
+        ages.extend(self.peers.keys().filter(|id| !self.known.contains_key(id)).map(|&id| (i64::MAX, id)));
+        let excess = ages.len().saturating_sub(keep);
+        if excess == 0 {
+            return;
+        }
+        ages.select_nth_unstable(excess - 1);
+        for &(_, id) in &ages[..excess] {
+            self.peers.remove(&id);
+            self.forget(id);
+        }
     }
 }
 
@@ -239,5 +272,27 @@ mod tests {
         assert!(!cache.contains_key(&-42), "basic groups need no hash");
         cache.remember(-1_000_000_001_234, 9, &["news"], None);
         assert!(store.pending_is_empty());
+    }
+
+    #[tokio::test]
+    async fn past_the_cap_the_cache_lets_go_of_peers_the_store_still_has() {
+        let (mut cache, store, _) = cache();
+        cache.cap = 8;
+        for id in 1..=20 {
+            let name = format!("user{id}");
+            cache.remember(id, id * 3, &[&name], None);
+        }
+        let group = crate::raw::base::InputPeer::InputPeerChat(crate::raw::types::InputPeerChat { chat_id: 42 });
+        cache.insert(-42, group);
+        assert!(cache.len() <= 8 && cache.known.len() <= 8, "{} peers, {} records", cache.len(), cache.known.len());
+        let gone = (1..=20).find(|id| cache.get(id).is_none()).expect("nothing was let go");
+        assert!(cache.by_username(&format!("user{gone}")).is_none());
+        // Not written yet: the store finds it in its queue.
+        assert_eq!(store.get_peer(gone).await.unwrap().map(|p| p.access_hash), Some(gone * 3));
+        let by_name = store.get_peer_by_username(format!("user{gone}")).await.unwrap();
+        assert_eq!(by_name.map(|p| p.id), Some(gone));
+        store.flush().await;
+        assert!(store.pending_is_empty());
+        assert_eq!(store.get_peer(gone).await.unwrap().map(|p| p.access_hash), Some(gone * 3));
     }
 }

@@ -133,16 +133,32 @@ impl Store {
         self.call(|e| async move { e.export_peers(Some(WARM_PEERS)).await }).await
     }
 
+    // Each lookup checks the peers queued for the next flush first: the peer cache can let go of one the engine
+    // doesn't have yet. A flush runs on the store thread like the lookup, so a peer is always in one or the other.
     pub(crate) async fn get_peer(&self, id: i64) -> io::Result<Option<PeerRecord>> {
+        if let Some(queued) = self.pending.lock().peers.get(&id) {
+            return Ok(Some(queued.clone()));
+        }
         self.call(move |e| async move { e.get_peer_by_id(id).await }).await
     }
 
     pub(crate) async fn get_peer_by_username(&self, username: String) -> io::Result<Option<PeerRecord>> {
+        if let Some(queued) = self.queued(|p| p.usernames.iter().any(|u| u.eq_ignore_ascii_case(&username))) {
+            return Ok(Some(queued));
+        }
         self.call(move |e| async move { e.get_peer_by_username(&username).await }).await
     }
 
     pub(crate) async fn get_peer_by_phone_number(&self, phone_number: String) -> io::Result<Option<PeerRecord>> {
+        if let Some(queued) = self.queued(|p| p.phone_number.as_ref() == Some(&phone_number)) {
+            return Ok(Some(queued));
+        }
         self.call(move |e| async move { e.get_peer_by_phone_number(&phone_number).await }).await
+    }
+
+    /// The newest queued peer `found` picks, as the engine would pick among its own.
+    fn queued(&self, found: impl Fn(&PeerRecord) -> bool) -> Option<PeerRecord> {
+        self.pending.lock().peers.values().filter(|p| found(p)).max_by_key(|p| (p.updated, p.id)).cloned()
     }
 
     pub(crate) async fn save_session(&self, session: SessionData) -> io::Result<()> {
