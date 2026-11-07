@@ -251,6 +251,8 @@ struct Learned {
 struct Control {
     closed: AtomicBool,
     restart: AtomicBool,
+    // Whether the task has a working connection: set as the link goes down and comes back, cleared when it ends.
+    connected: AtomicBool,
     // notify_one keeps a permit, so a runner busy elsewhere still sees the signal on its next wait.
     wake: Notify,
 }
@@ -393,6 +395,11 @@ impl Session {
         self.control.restart.store(true, Ordering::Release);
         self.control.wake.notify_one();
         Ok(())
+    }
+
+    /// Whether the connection is up: `false` while it reconnects and once it is closed or ended.
+    pub(crate) fn is_connected(&self) -> bool {
+        !self.control.closed() && self.control.connected.load(Ordering::Acquire)
     }
 
     /// The key, with its salt and when this process made it, for another connection on it.
@@ -673,7 +680,7 @@ impl Runner {
             updates,
             events,
             pfs: None,
-            control: Arc::default(),
+            control: Arc::new(Control { connected: AtomicBool::new(true), ..Control::default() }),
             link_up: true,
             last_read: tokio::time::Instant::now(),
             probed: false,
@@ -748,6 +755,7 @@ impl Runner {
         if self.control.closed() || !requests.is_closed() {
             self.link(false);
         }
+        self.control.connected.store(false, Ordering::Release);
         let queued = std::mem::take(&mut self.queue).into_iter().map(|p| (0, p));
         for (msg_id, p) in std::mem::take(&mut self.pending).into_iter().chain(queued) {
             self.finish(msg_id, p, Err(code.map_or(Error::Disconnected, Error::Transport)));
@@ -798,6 +806,7 @@ impl Runner {
     }
 
     fn link(&mut self, up: bool) {
+        self.control.connected.store(up, Ordering::Release);
         if self.updates.is_some() && up != self.link_up {
             self.link_up = up;
             self.events.link(up);
