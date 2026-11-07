@@ -2,7 +2,10 @@
 mod support;
 
 use std::future::IntoFuture;
+use std::sync::Arc;
 use std::time::Duration;
+
+use tokio::sync::Notify;
 
 use support::Kit;
 use vaegram::filters;
@@ -14,13 +17,23 @@ const WAIT: Duration = Duration::from_secs(30);
 #[ignore = "uses a bot token and a logged-in user session"]
 async fn wait_for_callback_query_gets_the_click() {
     let Some(kit) = Kit::from_env().await else { return };
-    let bot = kit.bot.clone();
+    // The user presses only once the bot listens for it: see the same test in live_msg_actions.
+    let (bot, listening) = (kit.bot.clone(), Arc::new(Notify::new()));
+    let ready = listening.clone();
     kit.bot.on_message(filters::private() & filters::command("pick"), move |m| {
-        let bot = bot.clone();
+        let (bot, ready) = (bot.clone(), ready.clone());
         async move {
             let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Pick", "pick")]]);
             let sent = m.reply("Pick one").reply_markup(keyboard).await?;
-            let press = bot.wait_for_callback_query(m.chat.id).message_id(sent.id).timeout(WAIT).await?;
+            let press = bot.wait_for_callback_query(m.chat.id).message_id(sent.id).timeout(WAIT);
+            let mut press = std::pin::pin!(press.into_future());
+            tokio::select! {
+                biased;
+                early = &mut press => early.map(drop)?,
+                () = std::future::ready(()) => {}
+            }
+            ready.notify_one();
+            let press = press.await?;
             press.answer().await?;
             m.reply(format!("picked {}", press.data)).await?;
             Ok(())
@@ -29,6 +42,7 @@ async fn wait_for_callback_query_gets_the_click() {
 
     let user = &kit.user.client;
     let asked = kit.user.send_and_wait_reply(&kit.bot, "/pick").await.unwrap();
+    tokio::time::timeout(WAIT, listening.notified()).await.expect("the bot never listened for the press");
     let command = asked.reply_to_message_id.expect("the keyboard replies to the command");
     let picked = kit.user.wait_reply(asked.chat.id, command);
     let click = user.request_callback_answer(asked.chat.id, asked.id, "pick").into_future();

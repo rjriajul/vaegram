@@ -1,7 +1,10 @@
 mod support;
 
 use std::future::IntoFuture;
+use std::sync::Arc;
 use std::time::Duration;
+
+use tokio::sync::Notify;
 
 use vaegram::types::{InlineKeyboardButton, InlineKeyboardMarkup, InputMedia, Upload};
 use vaegram::{Client, filters};
@@ -78,17 +81,33 @@ async fn bot_edits_the_media_it_sent() {
 #[ignore = "uses a bot token and a logged-in user session"]
 async fn wait_for_click_gets_the_press_on_the_sent_keyboard() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::command("click"), |m| async move {
-        let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Pick", "pick")]]);
-        let sent = m.reply("Pick one").reply_markup(keyboard).await?;
-        let press = sent.wait_for_click().timeout(WAIT).await?;
-        press.answer().await?;
-        m.reply(format!("clicked {}", press.data)).await?;
-        Ok(())
+    // Telegram may show the keyboard to the user before it answers the bot's send, so a press can arrive before the
+    // bot listens for it and go unclaimed. The user presses only once the bot's listener is in place: its first poll
+    // registers it, since a known chat id resolves without a request.
+    let listening = Arc::new(Notify::new());
+    let ready = listening.clone();
+    kit.bot.on_message(filters::private() & filters::command("click"), move |m| {
+        let ready = ready.clone();
+        async move {
+            let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Pick", "pick")]]);
+            let sent = m.reply("Pick one").reply_markup(keyboard).await?;
+            let mut press = std::pin::pin!(sent.wait_for_click().timeout(WAIT).into_future());
+            tokio::select! {
+                biased;
+                early = &mut press => early.map(drop)?,
+                () = std::future::ready(()) => {}
+            }
+            ready.notify_one();
+            let press = press.await?;
+            press.answer().await?;
+            m.reply(format!("clicked {}", press.data)).await?;
+            Ok(())
+        }
     });
 
     let user = &kit.user.client;
     let asked = kit.user.send_and_wait_reply(&kit.bot, "/click").await.unwrap();
+    tokio::time::timeout(WAIT, listening.notified()).await.expect("the bot never listened for the press");
     let command = asked.reply_to_message_id.expect("the keyboard replies to the command");
     let clicked = kit.user.wait_reply(asked.chat.id, command);
     let click = user.request_callback_answer(asked.chat.id, asked.id, "pick").into_future();

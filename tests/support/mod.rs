@@ -54,9 +54,21 @@ impl Kit {
             }
             async { Ok(()) }
         });
+        // Without catch-up, each `run` treats everything up to its updates.getState as seen. A message sent before
+        // both have read it can fall on the old side: the bot never answers it, or the user drops the answer. So the
+        // kit is handed over only once both runs have started.
+        let (started_tx, mut started) = mpsc::unbounded_channel();
         for client in [&user, &bot] {
+            let started_tx = started_tx.clone();
+            client.on_start(move |_| {
+                let _ = started_tx.send(());
+                async { Ok(()) }
+            });
             let client = client.clone();
             tokio::spawn(async move { client.run().await });
+        }
+        for _ in 0..2 {
+            tokio::time::timeout(REPLY_TIMEOUT, started.recv()).await.expect("a kit client's run didn't start");
         }
         let disconnect = Disconnect(vec![user.clone(), bot.clone()]);
         let user = User { client: user, received: tokio::sync::Mutex::new(received) };
@@ -124,7 +136,7 @@ impl User {
         let bot_id = self.client.resolve_username(&username).await?;
         let mut received = self.received.lock().await;
         let sent = self.client.send_message(bot_id, text).await?.id;
-        next_reply(&mut received, bot_id, sent).await
+        self.next_reply(&mut received, bot_id, sent).await
     }
 
     /// Waits up to 30 s for the bot's next reply to the user's message `to` in the bot's private chat `bot_id`, as
@@ -132,20 +144,34 @@ impl User {
     /// messages from its start, so a reply that came in before this call is still found.
     #[allow(dead_code)] // not every binary that leaves the module's lints on waits for a second reply
     pub async fn wait_reply(&self, bot_id: i64, to: i32) -> Result<Message> {
-        next_reply(&mut *self.received.lock().await, bot_id, to).await
+        self.next_reply(&mut *self.received.lock().await, bot_id, to).await
     }
-}
 
-async fn next_reply(received: &mut mpsc::UnboundedReceiver<Message>, bot_id: i64, to: i32) -> Result<Message> {
-    tokio::time::timeout(REPLY_TIMEOUT, async {
-        loop {
-            match received.recv().await {
-                Some(m) if m.chat.id == bot_id && m.id > to && m.reply_to_message_id == Some(to) => return Ok(m),
-                Some(_) => {}
-                None => return Err(Error::Disconnected),
+    async fn next_reply(
+        &self,
+        received: &mut mpsc::UnboundedReceiver<Message>,
+        bot_id: i64,
+        to: i32,
+    ) -> Result<Message> {
+        let waited = tokio::time::timeout(REPLY_TIMEOUT, async {
+            loop {
+                match received.recv().await {
+                    Some(m) if m.chat.id == bot_id && m.id > to && m.reply_to_message_id == Some(to) => return Ok(m),
+                    Some(_) => {}
+                    None => return Err(Error::Disconnected),
+                }
             }
-        }
-    })
-    .await
-    .map_err(|_| Error::Timeout)?
+        })
+        .await;
+        let Ok(reply) = waited else {
+            // Tells a reply the bot never sent from one the user's updates didn't bring: the server's copy of the chat.
+            let last = self.client.get_chat_history(bot_id).limit(5).await;
+            let last: Vec<_> = last.iter().flatten().map(|m| (m.id, m.outgoing, m.reply_to_message_id)).collect();
+            eprintln!(
+                "no reply to {to} within {REPLY_TIMEOUT:?}; the chat's last messages (id, outgoing, reply to): {last:?}"
+            );
+            return Err(Error::Timeout);
+        };
+        reply
+    }
 }
