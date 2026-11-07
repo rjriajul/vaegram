@@ -75,6 +75,14 @@ impl Dispatcher {
         }
     }
 
+    /// updatePtsChanged: the common box's state comes again from updates.getState, straight to the session like
+    /// getDifference.
+    pub(super) async fn refetch_state(&mut self) -> Result<()> {
+        let base::updates::State::State(state) = self.client.session().invoke(&functions::updates::GetState {}).await?;
+        self.tracker.restate(&state);
+        Ok(())
+    }
+
     pub(super) async fn channel_difference(&mut self, channel_id: i64) -> Result<()> {
         let Some(&local) = self.tracker.state.channels.get(&channel_id) else { return Ok(()) };
         let mut pts = local;

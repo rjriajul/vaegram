@@ -202,6 +202,13 @@ impl Dispatcher {
     }
 
     async fn resolve(&mut self) {
+        // Before any getDifference, which would otherwise start from the old numbering.
+        if std::mem::take(&mut self.tracker.refetch) {
+            let result = self.refetch_state().await;
+            // A failure is reported like a failed difference and asked again on the next turn.
+            self.tracker.refetch = result.is_err();
+            self.report(result);
+        }
         while let Some(key) = self.tracker.due.pop() {
             let result = match key {
                 Key::Channel(id) => self.channel_difference(id).await,
@@ -653,6 +660,26 @@ mod tests {
         d.recover(super::Recover { chats: Some(chats), reply }).await;
         assert_eq!(answer.await.unwrap(), (0, 0));
         assert!(sent.try_recv().is_err(), "a box was fetched");
+    }
+
+    #[tokio::test]
+    async fn pts_changed_refetches_the_state() {
+        let fresh = types::updates::State { pts: 500, qts: 3, date: 9, seq: 4, unread_count: 0 };
+        let fresh = base::updates::State::State(Box::new(fresh));
+        let (client, mut sent) = Client::scripted(vec![Ok(fresh.to_bytes())]);
+        let mut d = Dispatcher::new(client, &state());
+        // Held for a gap under the old numbering.
+        d.tracker.update(new_message(3), &Arc::default(), false);
+        let short = types::UpdateShort { update: base::Update::UpdatePtsChanged, date: 0 };
+        d.process(Incoming { updates: base::Updates::UpdateShort(Box::new(short)), from_request: false });
+        d.resolve().await;
+        assert_eq!(sent.try_recv().unwrap(), crate::raw::functions::updates::GetState {}.to_bytes());
+        assert!(sent.try_recv().is_err(), "more than getState was asked");
+        let s = &d.tracker.state;
+        assert_eq!((s.pts, s.qts, s.date, s.seq), (500, 3, 9, 4));
+        assert!(d.tracker.pending.is_empty() && !d.tracker.refetch);
+        // Raw handlers still see it.
+        assert!(matches!(d.tracker.ready[..], [(base::Update::UpdatePtsChanged, _)]));
     }
 
     #[tokio::test]
