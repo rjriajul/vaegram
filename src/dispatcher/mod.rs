@@ -270,7 +270,12 @@ impl Dispatcher {
 
     /// Hands every update the tracker has released to the handlers, in order.
     fn dispatch_ready(&mut self) {
+        let held_before = self.held_before;
         for (update, entities) in std::mem::take(&mut self.tracker.ready) {
+            // Telegram pushes what it held again, so until a difference is read, a pushed update may be held too.
+            if held_before.is_some_and(|since| difference::held(&update, since)) {
+                continue;
+            }
             self.dispatch(update, &entities);
         }
     }

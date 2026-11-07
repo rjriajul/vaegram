@@ -511,6 +511,51 @@ pub(super) mod tests {
         assert_eq!(delivered_from_now(vec![new_message(1, now(), 51)], 51, pushed, 2).await, [1, 2]);
     }
 
+    // Telegram pushes what it held again, and reading it fails at first: until a difference is read, only what
+    // came since the run began is delivered from the stream too.
+    #[tokio::test]
+    async fn without_catch_up_a_held_update_pushed_before_the_first_difference_is_skipped() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let confirmed = types::updates::State { pts: 50, qts: 5, date: 2, seq: 0, unread_count: 0 };
+        let confirmed = base::updates::State::State(Box::new(confirmed));
+        let flood = Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_1")));
+        let (mut client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(confirmed.to_bytes()), flood]);
+        Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        let (updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        client.on_raw_update(move |_, raw| {
+            log.lock().unwrap().push(match &raw.update {
+                base::Update::UpdateBotBusinessConnect(_) => "old connection",
+                base::Update::UpdateNewMessage(_) => "new message",
+                _ => "other",
+            });
+            ready(Ok(()))
+        });
+        for update in [connected("old", 6), new_message(1, now(), 51)] {
+            let short = types::UpdateShort { update, date: 3 };
+            let incoming = Incoming { updates: base::Updates::UpdateShort(Box::new(short)), from_request: false };
+            updates.send(incoming).await.unwrap();
+        }
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        for _ in 0..1000 {
+            if !seen.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        client.stop();
+        assert!(run.await.unwrap().is_ok());
+        assert_eq!(*seen.lock().unwrap(), ["new message"]);
+    }
+
     #[tokio::test]
     async fn start_and_stop_hooks_bracket_run() {
         let (client, _updates) = stopped_client().await;

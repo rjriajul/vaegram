@@ -35,7 +35,15 @@ fn edit_date(message: &base::Message) -> Option<i32> {
     }
 }
 
-/// When Telegram got `update`, for the updates that say.
+/// Whether `update`, released before `run` has read what Telegram held, may be one of those: Telegram holds what
+/// moves a counter, and it isn't dated `since` or later. Others, such as callback queries, are never held.
+pub(super) fn held(update: &base::Update, since: i32) -> bool {
+    let counted = update.pts().is_some() || update.qts().is_some() || channel_of(update).is_some();
+    counted && !update_date(update).is_some_and(|date| date >= since)
+}
+
+/// When Telegram got `update`, for the updates that say. A business connection and a boost give when they were
+/// made instead, so a change to an old one is taken for a held update and dropped, as an undated one is.
 fn update_date(update: &base::Update) -> Option<i32> {
     use base::Update as U;
     match update {
