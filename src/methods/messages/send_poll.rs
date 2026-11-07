@@ -135,6 +135,27 @@ impl<'a> SendPoll<'a> {
         self
     }
 
+    /// Stops voters from changing their vote once cast (the poll's `revoting_disabled` flag). Voters can change
+    /// their vote by default.
+    pub fn disallow_revoting(mut self) -> Self {
+        self.poll.revoting_disabled = true;
+        self
+    }
+
+    /// Shows the options to each voter in a random order (the poll's `shuffle_answers` flag).
+    pub fn shuffle_options(mut self) -> Self {
+        self.poll.shuffle_answers = true;
+        self
+    }
+
+    /// Hides the results from everyone until the poll closes (the poll's `hide_results_until_close` flag). The poll
+    /// closes at [`close_date`](Self::close_date), after [`open_period`](Self::open_period), or when stopped with
+    /// [`Client::stop_poll`].
+    pub fn hide_results_until_closes(mut self) -> Self {
+        self.poll.hide_results_until_close = true;
+        self
+    }
+
     /// Limits the poll to users from these countries, given as two-letter ISO codes.
     pub fn country_codes(mut self, codes: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.poll.countries_iso2 = Some(codes.into_iter().map(Into::into).collect());
@@ -295,6 +316,33 @@ mod tests {
         let base::InputMedia::InputMediaPoll(media) = media else { panic!("not a poll") };
         let base::Poll::Poll(poll) = &media.poll;
         assert!(poll.open_answers && !poll.quiz && !poll.multiple_choice);
+    }
+
+    #[tokio::test]
+    async fn revoting_shuffling_and_hidden_results_set_their_flags() {
+        let (client, mut sent) = Client::recording();
+        let request = client.send_poll(-5, "Lunch?", ["Pizza", "Sushi"]).disallow_revoting().shuffle_options();
+        let _ = request.hide_results_until_closes().await;
+        let body = sent.try_recv().expect("no request sent");
+        let answer = |text: &str| {
+            let answer = types::InputPollAnswer { text: text_with_entities(text.into()), media: None };
+            base::PollAnswer::InputPollAnswer(Box::new(answer))
+        };
+        let mut poll = super::poll(0, "Lunch?".into(), vec![answer("Pizza"), answer("Sushi")]);
+        (poll.revoting_disabled, poll.shuffle_answers, poll.hide_results_until_close) = (true, true, true);
+        let expected = base::InputMedia::InputMediaPoll(Box::new(types::InputMediaPoll {
+            poll: base::Poll::Poll(Box::new(poll)),
+            correct_answers: None,
+            attached_media: None,
+            solution: None,
+            solution_entities: None,
+            solution_media: None,
+        }))
+        .to_bytes();
+        assert!(body.windows(expected.len()).any(|w| w == expected), "the poll flags are missing");
+        // The InputMediaPoll constructor and flags, then the Poll constructor and id: the poll's flags follow.
+        let flags = u32::from_le_bytes(expected[20..24].try_into().unwrap());
+        assert_eq!(flags, (1 << 7) | (1 << 8) | (1 << 9));
     }
 
     #[tokio::test]
