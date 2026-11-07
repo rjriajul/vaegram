@@ -4,12 +4,13 @@ use crate::file_id::FileId;
 /// What kind of file a file id stores, as [`FileType::of`] reads it.
 ///
 /// A sender given a [`FileSource::file_id`](crate::types::FileSource::file_id) sends the stored file as it is,
-/// without checking that its kind fits; this is how to check it first.
+/// without checking its kind beyond photo versus other files; this is how to check it first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 // The order is the number a file id stores for its kind: append new kinds, never reorder.
 pub enum FileType {
-    /// A thumbnail of a photo, sticker, video or other file; it can only be downloaded.
+    /// A preview of a sticker, video or other document; it can only be downloaded. A photo's smaller sizes are
+    /// [`Photo`](Self::Photo).
     Thumbnail,
     /// A user's or chat's profile photo; it can only be downloaded.
     ChatPhoto,
@@ -33,7 +34,7 @@ pub enum FileType {
     Animation,
     /// The thumbnail of a file from a secret chat; vaegram never makes ids of this kind.
     EncryptedThumbnail,
-    /// A chat wallpaper, stored as a photo.
+    /// A chat wallpaper, stored as a photo; vaegram never makes ids of this kind.
     Wallpaper,
     /// A round video message.
     VideoNote,
@@ -41,9 +42,10 @@ pub enum FileType {
     SecureRaw,
     /// A Telegram Passport file; vaegram never makes ids of this kind.
     Secure,
-    /// A chat background.
+    /// A chat background; vaegram never makes ids of this kind.
     Background,
-    /// A file sent as a plain document even though it has a more specific kind, such as a video.
+    /// A file sent as a plain document even though it has a more specific kind, such as a video; vaegram never
+    /// makes ids of this kind.
     DocumentAsFile,
 }
 
