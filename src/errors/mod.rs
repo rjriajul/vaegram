@@ -205,7 +205,7 @@ impl Error {
     /// Whether this is a `FILE_REFERENCE_*` error, such as `FILE_REFERENCE_EXPIRED`, `FILE_REFERENCE_INVALID` or
     /// `FILE_REFERENCE_<n>_EXPIRED` for one item of an album: the file reference is stale, so fetch the message or
     /// other source of the file again for a fresh one. Downloads of a known source already do that once.
-    pub fn is_file_reference_expired(&self) -> bool {
+    pub fn is_file_reference_error(&self) -> bool {
         self.rpc().is_some_and(|e| e.name.starts_with("FILE_REFERENCE_"))
     }
 
@@ -372,13 +372,13 @@ mod tests {
         assert!(!rpc(400, "PEER_ID_INVALID").is_unauthorized() && !Error::Transport(404).is_unauthorized());
 
         for name in ["FILE_REFERENCE_EXPIRED", "FILE_REFERENCE_INVALID", "FILE_REFERENCE_3_EXPIRED"] {
-            assert!(rpc(400, name).is_file_reference_expired(), "{name}");
+            assert!(rpc(400, name).is_file_reference_error(), "{name}");
         }
         assert!(
-            !rpc(400, "FILE_REFERENCE").is_file_reference_expired()
-                && !rpc(400, "FILE_ID_INVALID").is_file_reference_expired()
+            !rpc(400, "FILE_REFERENCE").is_file_reference_error()
+                && !rpc(400, "FILE_ID_INVALID").is_file_reference_error()
         );
-        assert!(!Error::Disconnected.is_file_reference_expired());
+        assert!(!Error::Disconnected.is_file_reference_error());
     }
 
     #[test]
