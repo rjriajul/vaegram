@@ -288,8 +288,8 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   `on_chat_member_updated` (not yet tested live)
 - [ ] Send by URL: `send_photo(chat, FileSource::url("https://..")?)` and `send_document`; Telegram fetches the file
   (not yet tested live)
-- [ ] Graceful shutdown: `client.stop()` makes `run()` return `Ok(())` once the running handlers finish; wire Ctrl-C
-  with your own `tokio::signal::ctrl_c()`; `disconnect`, `restart`, `is_connected`, `stop_transmission`, hooks
+- [ ] Graceful shutdown: `client.stop()` makes `run()` return `Ok(())` once the running handlers finish, and
+  `run_until_ctrl_c()` does that on Ctrl-C; `disconnect`, `restart`, `is_connected`, `stop_transmission`, hooks
   `on_start`, `on_stop`, `on_connect`, `on_disconnect`, `remove_handler(id)` (not yet tested live)
 - [ ] Request observer, per-call timeouts and `.flood_sleep_threshold(Duration::ZERO)` to get every FLOOD_WAIT;
   `.max_flood_sleeps(..)`, `.updates_capacity(..)`, `.catch_up(false)`, `invoke_in_dc` (not yet tested live)

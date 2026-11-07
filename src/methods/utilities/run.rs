@@ -63,8 +63,7 @@ impl Client {
 
     /// Makes `run` stop taking updates, wait for the handlers already running, and return `Ok(())`.
     ///
-    /// For Ctrl-C, spawn `async move { tokio::signal::ctrl_c().await.ok(); client.stop() }` with the
-    /// application's own `signal`-enabled tokio.
+    /// For Ctrl-C, use [`run_until_ctrl_c`](Self::run_until_ctrl_c) in place of `run`.
     pub fn stop(&self) {
         self.0.stop.send_replace(true);
     }
