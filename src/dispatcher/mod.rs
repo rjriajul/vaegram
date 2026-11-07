@@ -237,7 +237,16 @@ impl Dispatcher {
     }
 
     fn dispatch(&mut self, update: base::Update, entities: &Arc<Entities>) {
-        entities.remember_min_sender(&self.client, &update);
+        let message = match &update {
+            base::Update::UpdateNewMessage(u) => Some(&u.message),
+            base::Update::UpdateNewChannelMessage(u) => Some(&u.message),
+            base::Update::UpdateEditMessage(u) => Some(&u.message),
+            base::Update::UpdateEditChannelMessage(u) => Some(&u.message),
+            _ => None,
+        };
+        if let Some(message) = message {
+            entities.remember_min_peers(&self.client, message);
+        }
         self.client.stop_stream(&update);
         let handlers = &self.client.0.handlers;
         let generation = handlers.generation();
