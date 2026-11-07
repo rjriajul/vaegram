@@ -98,6 +98,8 @@ impl MessageStream {
 
     /// Sends everything pushed so far as regular messages and returns them. After a stop this is
     /// still the way to keep the partial text: a kept draft disappears once the bot sends a message.
+    /// Dropping the returned future (a timeout around it) doesn't stop the sending: the parts still go
+    /// out, but nobody learns which ones did.
     pub async fn finish(mut self) -> Result<Vec<Message>> {
         self.shared.state.lock().unwrap().finishing = true;
         self.shared.notify.notify_one();
