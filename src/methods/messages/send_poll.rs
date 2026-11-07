@@ -127,6 +127,9 @@ impl<'a> SendPoll<'a> {
     }
 
     /// Lets members add options later, through [`Client::add_poll_option`].
+    ///
+    /// Telegram allows it only on a regular poll with [`public_voters`](Self::public_voters): an anonymous poll or a
+    /// quiz with it fails with `ANONYMOUS_OPEN_INVALID`.
     pub fn allow_adding_options(mut self) -> Self {
         self.poll.open_answers = true;
         self
