@@ -15,6 +15,9 @@ pub struct UnbanChatMember<'a> {
 impl Client {
     /// Lifts a ban or restriction in a supergroup or channel; the user has to join again by themselves.
     ///
+    /// Unlike the Bot API's `unbanChatMember`, it never removes a current member; use
+    /// [`remove_chat_member`](Client::remove_chat_member) for that.
+    ///
     /// Fails with `Error::InvalidArgument` for a basic group: it has no ban list, and a removed member can simply
     /// be added back.
     pub fn unban_chat_member(&self, chat_id: impl Into<PeerRef>, user_id: impl Into<PeerRef>) -> UnbanChatMember<'_> {

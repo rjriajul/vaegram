@@ -202,7 +202,7 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
 - [x] Perfect forward secrecy with temporary keys: `.pfs()`
 - [ ] Abridged and padded transports, obfuscation, SOCKS5/SOCKS4/HTTP proxies and MTProxy including fake-TLS `ee` secrets: `.transport(Transport::Abridged)`, `.proxy(..)` (not yet tested live)
 - [ ] Chats and members: `get_chat`, `get_chat_members`, `ban_chat_member(..).revoke_messages(true)`,
-  `promote_chat_member(..).title("Mod")`, `kick_chat_member`, `unban_chat_member(..).only_if_banned()`, `join_chat`,
+  `promote_chat_member(..).title("Mod")`, `remove_chat_member`, `unban_chat_member(..).only_if_banned()`, `join_chat`,
   `get_pinned_message`, group call members via `get_call_members`, `get_welcome_messages`, `delete_welcome_message`,
   `delete_all_welcome_messages` (not yet tested live)
 - [ ] Message history and search, get, forward, copy, pin, read, chat actions; received keyboards via `msg.reply_markup()` (not yet tested live)

@@ -4,9 +4,9 @@ use crate::methods::advanced::ChatPeer;
 use crate::raw::{base, functions};
 use crate::types::{ChatPermissions, PeerRef};
 
-/// Request built by [`Client::kick_chat_member`]. Awaiting it returns `()`.
+/// Request built by [`Client::remove_chat_member`]. Awaiting it returns `()`.
 #[must_use = "a request does nothing until it is awaited"]
-pub struct KickChatMember<'a> {
+pub struct RemoveChatMember<'a> {
     client: &'a Client,
     chat_id: PeerRef,
     user_id: PeerRef,
@@ -16,14 +16,15 @@ impl Client {
     /// Removes a user or chat from a group, supergroup or channel without banning them, so they can join again.
     ///
     /// A basic group removes the member in one request. A supergroup or channel has no such request, so this bans
-    /// and then unbans, which also lifts any restriction the member had. It is not atomic: if the unban fails, the
-    /// member stays banned and its error is returned.
-    pub fn kick_chat_member(&self, chat_id: impl Into<PeerRef>, user_id: impl Into<PeerRef>) -> KickChatMember<'_> {
-        KickChatMember { client: self, chat_id: chat_id.into(), user_id: user_id.into() }
+    /// and then unbans, which also lifts any restriction the member had and any ban they already had: a banned user
+    /// ends up free to join again. It is not atomic: if the unban fails, the member stays banned and its error is
+    /// returned.
+    pub fn remove_chat_member(&self, chat_id: impl Into<PeerRef>, user_id: impl Into<PeerRef>) -> RemoveChatMember<'_> {
+        RemoveChatMember { client: self, chat_id: chat_id.into(), user_id: user_id.into() }
     }
 }
 
-impl KickChatMember<'_> {
+impl RemoveChatMember<'_> {
     async fn send(self) -> Result<()> {
         let client = self.client;
         match client.resolve_chat(&self.chat_id).await? {
@@ -49,7 +50,7 @@ impl KickChatMember<'_> {
     }
 }
 
-into_future!(KickChatMember, ());
+into_future!(RemoveChatMember, ());
 
 #[cfg(test)]
 mod tests {
@@ -79,7 +80,7 @@ mod tests {
     #[tokio::test]
     async fn basic_group_deletes_the_member() {
         let (client, mut rx) = client(vec![updates()]);
-        client.kick_chat_member(-5, USER).await.unwrap();
+        client.remove_chat_member(-5, USER).await.unwrap();
         let user_id = base::InputUser::InputUser(Box::new(types::InputUser { user_id: USER, access_hash: 1 }));
         let request = functions::messages::DeleteChatUser { revoke_history: false, chat_id: 5, user_id };
         assert_eq!(rx.try_recv().unwrap(), request.to_bytes());
@@ -89,7 +90,7 @@ mod tests {
     #[tokio::test]
     async fn supergroup_bans_then_unbans() {
         let (client, mut rx) = client(vec![updates(), updates()]);
-        client.kick_chat_member(get_channel_id(9), USER).await.unwrap();
+        client.remove_chat_member(get_channel_id(9), USER).await.unwrap();
         let edit = |rights| functions::channels::EditBanned {
             channel: base::InputChannel::InputChannel(Box::new(types::InputChannel { channel_id: 9, access_hash: 1 })),
             participant: base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser {
