@@ -14,9 +14,9 @@ use crate::types::{
     BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatActionUpdated, ChatBoostRemoved,
     ChatBoostUpdated, ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages,
     DeletedEphemeralMessages, DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
-    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated,
-    PendingJoinRequestsUpdated, PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
-    RawUpdate, ReadHistoryUpdated, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, UserStatusUpdated,
+    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PendingJoinRequestsUpdated,
+    PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ReactionsUpdated,
+    ReadHistoryUpdated, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, UserStatusUpdated,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -386,9 +386,9 @@ update_kinds! {
         UpdateBotMessageReactions(u) => MessageReactionCountUpdated::parse(client, &u, entities),
     }
     /// The reactions on a message changed, as user accounts see them:
-    /// [`on_message_reactions`](crate::Client::on_message_reactions).
-    message_reactions: MessageReactions => MessageReactionsUpdated {
-        UpdateMessageReactions(u) => MessageReactionsUpdated::parse(client, &u, entities),
+    /// [`on_reactions`](crate::Client::on_reactions).
+    reactions: Reactions => ReactionsUpdated {
+        UpdateMessageReactions(u) => ReactionsUpdated::parse(client, &u, entities),
     }
     /// A business connection of the bot changed: [`on_business_connection`](crate::Client::on_business_connection).
     business_connection: BusinessConnection => BusinessConnection {
@@ -1461,7 +1461,7 @@ mod tests {
         let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
         let chat = get_channel_id(42);
         let sink = seen.clone();
-        client.on_message_reactions(filters::chat(chat), move |r| {
+        client.on_reactions(filters::chat(chat), move |r| {
             let counts: Vec<_> = r.reactions.reactions.iter().map(|c| c.total_count).collect();
             sink.lock().unwrap().push((r.chat.id, r.message_id, r.message_thread_id, counts));
             async { Ok(()) }

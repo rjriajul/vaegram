@@ -242,7 +242,7 @@ keep them private. On Unix only the owner can read the file; on Windows it gets 
   `.suggested_post_parameters(..)`, `.direct_messages_topic_id(user)`, `msg.direct_messages_topic` (not yet tested live)
 - [ ] Ephemeral messages: send, edit, delete, handlers and callback queries (not yet tested live)
 - [ ] Reactions: `send_reaction`, `msg.react(..)`, `msg.reactions`, `on_message_reaction`, `on_message_reaction_count`,
-  `on_message_reactions` for user accounts, `filters::reacted()` (not yet tested live)
+  `on_reactions` for user accounts, `filters::reacted()` (not yet tested live)
 - [ ] Forum topics, also in private chats with bots: `create_forum_topic(chat, "Ideas")`, `get_forum_topics(chat)`,
   `pin_forum_topic(chat, id)`, `msg.service` (`ServiceAction::ForumTopicCreated`, ..), `msg.message_thread_id` (not
   yet tested live)

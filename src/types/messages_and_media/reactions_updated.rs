@@ -6,7 +6,7 @@ use crate::types::{Chat, MessageReactions};
 /// The reactions on a message changed, as a user account sees them: the full new set, not who changed what.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
-pub struct MessageReactionsUpdated {
+pub struct ReactionsUpdated {
     /// The chat the message is in.
     pub chat: Chat,
     /// Id of the message whose reactions changed.
@@ -18,13 +18,9 @@ pub struct MessageReactionsUpdated {
     client: Client,
 }
 
-impl MessageReactionsUpdated {
-    pub(crate) fn parse(
-        client: &Client,
-        raw: &types::UpdateMessageReactions,
-        entities: &Entities,
-    ) -> MessageReactionsUpdated {
-        MessageReactionsUpdated {
+impl ReactionsUpdated {
+    pub(crate) fn parse(client: &Client, raw: &types::UpdateMessageReactions, entities: &Entities) -> ReactionsUpdated {
+        ReactionsUpdated {
             chat: Chat::parse(&raw.peer, entities, false),
             message_id: raw.msg_id,
             message_thread_id: raw.top_msg_id,

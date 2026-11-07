@@ -9,9 +9,9 @@ use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatActionUpdated, ChatBoostRemoved, ChatBoostUpdated,
     ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
     DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PendingJoinRequestsUpdated,
-    PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate,
-    ReadHistoryUpdated, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, UserStatusUpdated,
+    MessageReactionCountUpdated, MessageReactionUpdated, PendingJoinRequestsUpdated, PinnedMessagesUpdated, PollAnswer,
+    PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ReactionsUpdated, ReadHistoryUpdated, ShippingQuery,
+    StarsBalanceUpdated, Story, TonWalletState, UserStatusUpdated,
 };
 
 pub use crate::dispatcher::listeners::Listenable;
@@ -241,7 +241,7 @@ impl Routed for MessageReactionCountUpdated {
     }
 }
 
-impl Routed for MessageReactionsUpdated {
+impl Routed for ReactionsUpdated {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }

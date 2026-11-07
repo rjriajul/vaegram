@@ -5,8 +5,8 @@ use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatActionUpdated, ChatBoostRemoved,
     ChatBoostSource, ChatBoostUpdated, ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages,
     DeletedEphemeralMessages, DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
-    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated,
-    PendingJoinRequestsUpdated, PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
+    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PendingJoinRequestsUpdated,
+    PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, ReactionsUpdated,
     ReadHistoryUpdated, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, User, UserStatusUpdated,
 };
 
@@ -123,7 +123,7 @@ subject!(MessageReactionUpdated: HasChat, HasSender; |s, me| {
 
 subject!(MessageReactionCountUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
 
-subject!(MessageReactionsUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
+subject!(ReactionsUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
 
 subject!(BusinessConnection: HasSender; |s, me| user_query(&s.user, me));
 
