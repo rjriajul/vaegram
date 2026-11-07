@@ -14,7 +14,7 @@ async fn preview_options_round_trip() {
     kit.user.client.delete_messages("me", &[sent.id]).await.unwrap();
     let shown = shown.expect("no link preview on the sent message");
     // The url is the web page's as Telegram stores it, which normalizes it to "https://telegram.org/".
-    assert_eq!(shown.url.as_deref().map(|u| u.trim_end_matches('/')), Some("https://telegram.org"));
+    assert_eq!(shown.url.as_deref(), Some("https://telegram.org/"));
     assert!(shown.prefer_large_media);
 }
 
@@ -25,5 +25,5 @@ async fn send_web_page_shows_url() {
     let sent = kit.user.client.send_web_page("me", "look", "https://telegram.org").await.unwrap();
     let url = sent.link_preview_options.as_ref().and_then(|o| o.url.clone());
     kit.user.client.delete_messages("me", &[sent.id]).await.unwrap();
-    assert_eq!(url.as_deref().map(|u| u.trim_end_matches('/')), Some("https://telegram.org"));
+    assert_eq!(url.as_deref(), Some("https://telegram.org/"));
 }
