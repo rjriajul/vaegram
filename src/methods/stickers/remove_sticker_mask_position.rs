@@ -4,11 +4,11 @@ use crate::raw::functions;
 use crate::types::{Sticker, StickerSet};
 
 impl Client {
-    /// Removes the position of a mask sticker, so it no longer sits on a fixed spot of a face, and returns the
-    /// updated set.
+    /// Asks Telegram to remove the position of a mask sticker and returns the updated set.
     ///
-    /// Sends `stickers.changeSticker` with no emoji, mask position or keywords, the same request Telegram's own Bot
-    /// API server sends to clear a mask position.
+    /// Sends `stickers.changeSticker` with no emoji, mask position or keywords. That this clears the position, rather
+    /// than leaving the sticker unchanged, hasn't been checked against Telegram: read `mask_position` in the returned
+    /// set to see what it did.
     pub async fn remove_sticker_mask_position(&self, sticker: &Sticker) -> Result<StickerSet> {
         let request = functions::stickers::ChangeSticker {
             sticker: sticker.input_document(),
