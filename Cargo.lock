@@ -3060,14 +3060,14 @@ dependencies = [
 
 [[package]]
 name = "vae"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "vaegram",
 ]
 
 [[package]]
 name = "vaegram"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crc32fast",
  "flate2",

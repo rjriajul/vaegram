@@ -1,7 +1,7 @@
 [package]
 name = "vaegram"
 description = "Telegram MTProto client library for users and bots"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"
@@ -9,6 +9,7 @@ repository = "https://github.com/rjriajul/vaegram"
 readme = "README.md"
 keywords = ["telegram", "mtproto", "bot", "client", "async"]
 categories = ["api-bindings", "network-programming", "asynchronous"]
+exclude = [".github", "tools", "tests/botapi_coverage.rs"]
 
 [workspace]
 members = ["vae"]
