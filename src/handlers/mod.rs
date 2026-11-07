@@ -9,8 +9,9 @@ use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated, ChatJoinRequest,
     ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages, DeletedMessages,
     EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PollAnswer, PollUpdated,
-    PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ShippingQuery, Story, TonWalletState, UserStatusUpdated,
+    MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PinnedMessagesUpdated, PollAnswer,
+    PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ShippingQuery, Story, TonWalletState,
+    UserStatusUpdated,
 };
 
 pub use crate::dispatcher::listeners::Listenable;
@@ -297,6 +298,12 @@ impl Routed for PollAnswer {
 impl Routed for DeletedMessages {
     fn chat_id(&self) -> Option<i64> {
         self.chat.as_ref().map(|c| c.id)
+    }
+}
+
+impl Routed for PinnedMessagesUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
     }
 }
 

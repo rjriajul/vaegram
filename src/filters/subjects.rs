@@ -5,8 +5,9 @@ use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatBoostRemoved, ChatBoostSource,
     ChatBoostUpdated, ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages,
     DeletedEphemeralMessages, DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
-    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PollAnswer,
-    PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery, Story, TonWalletState, User, UserStatusUpdated,
+    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated,
+    PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, ShippingQuery, Story,
+    TonWalletState, User, UserStatusUpdated,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -161,6 +162,8 @@ subject!(PollAnswer: HasSender; |s, me| {
 });
 
 subject!(DeletedMessages: HasChat; |s, me| chat_query(s.chat.as_ref(), me));
+
+subject!(PinnedMessagesUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
 
 subject!(UserStatusUpdated: HasSender; |s, me| {
     Facts::query(0, s.user.id, &[], PeerKinds::of(None, s.user.is_bot), me)

@@ -14,8 +14,9 @@ use crate::types::{
     BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatBoostRemoved, ChatBoostUpdated,
     ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
     DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PollAnswer, PollUpdated,
-    PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ShippingQuery, Story, TonWalletState, UserStatusUpdated,
+    MessageReactionCountUpdated, MessageReactionUpdated, MessageReactionsUpdated, PinnedMessagesUpdated, PollAnswer,
+    PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ShippingQuery, Story, TonWalletState,
+    UserStatusUpdated,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -408,6 +409,11 @@ update_kinds! {
     deleted_messages: DeletedMessages => DeletedMessages {
         UpdateDeleteMessages(u) => DeletedMessages::parse(client, *u),
         UpdateDeleteChannelMessages(u) => DeletedMessages::parse_channel(client, *u, entities),
+    }
+    /// Messages pinned or unpinned in a chat: [`on_pinned_messages`](crate::Client::on_pinned_messages).
+    pinned_messages: PinnedMessages => PinnedMessagesUpdated {
+        UpdatePinnedMessages(u) => PinnedMessagesUpdated::parse(client, *u, entities),
+        UpdatePinnedChannelMessages(u) => PinnedMessagesUpdated::parse_channel(client, *u, entities),
     }
     /// A user's online status changed: [`on_user_status`](crate::Client::on_user_status).
     user_status: UserStatus => UserStatusUpdated {
@@ -1424,5 +1430,31 @@ mod tests {
         dispatch(&router, update(get_peer(chat)));
         settle().await;
         assert_eq!(*seen.lock().unwrap(), [(chat, 10, Some(3), vec![2])]);
+    }
+
+    #[tokio::test]
+    async fn pins_in_any_chat_reach_on_pinned_messages() {
+        let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
+        let sink = seen.clone();
+        client.on_pinned_messages(filters::all(), move |p| {
+            sink.lock().unwrap().push((p.chat.id, p.message_ids, p.is_pinned));
+            async { Ok(()) }
+        });
+        let router = router_of(&client);
+        let pinned =
+            types::UpdatePinnedMessages { pinned: true, peer: get_peer(7), messages: vec![1], pts: 1, pts_count: 1 };
+        dispatch(&router, base::Update::UpdatePinnedMessages(Box::new(pinned)));
+        let unpinned = types::UpdatePinnedChannelMessages {
+            pinned: false,
+            channel_id: 42,
+            messages: vec![2, 3],
+            pts: 1,
+            pts_count: 2,
+        };
+        dispatch(&router, base::Update::UpdatePinnedChannelMessages(Box::new(unpinned)));
+        settle().await;
+        let mut seen = seen.lock().unwrap().clone();
+        seen.sort_unstable();
+        assert_eq!(seen, [(get_channel_id(42), vec![2, 3], false), (7, vec![1], true)]);
     }
 }
