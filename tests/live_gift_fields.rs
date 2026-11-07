@@ -17,13 +17,12 @@ async fn available_gifts_read_limits() {
         panic!("payments.getStarGifts returned no gift list")
     };
     let listed = shop.gifts.iter().filter(|g| matches!(g, base::StarGift::StarGift(_))).count();
-    if listed == 0 {
-        eprintln!("skipped: Telegram's gift shop lists no regular gifts for this account");
-        return;
-    }
-
     let gifts = client.get_available_gifts().await.unwrap();
     assert_eq!(gifts.len(), listed, "gifts were dropped while parsing");
+    if gifts.is_empty() {
+        eprintln!("skipped the field checks: Telegram's gift shop lists no regular gifts for this account");
+        return;
+    }
     assert!(
         gifts.iter().any(|g| g.title.is_some() || g.convert_star_count > 0),
         "no gift has a title or a conversion price: {:?}",

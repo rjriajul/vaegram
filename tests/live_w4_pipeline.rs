@@ -25,7 +25,20 @@ fn user_builder() -> Option<ClientBuilder> {
 async fn message_limit_paces_three_sends() {
     let Some(builder) = user_builder() else { return };
     let limits = RateLimits::default().limit(RateCategory::Message, 1.0, 1.0);
-    let client = builder.rate_limits(limits).connect().await.unwrap();
+    // When each send got the limiter's go-ahead: the connection takes a request in right after it, and `duration`
+    // runs from there.
+    let go_aheads = Arc::new(Mutex::new(Vec::new()));
+    let seen = go_aheads.clone();
+    let client = builder
+        .rate_limits(limits)
+        .observer(move |call| {
+            if call.name == "messages.sendMessage" {
+                seen.lock().unwrap().push(Instant::now() - call.duration);
+            }
+        })
+        .connect()
+        .await
+        .unwrap();
 
     let start = Instant::now();
     let mut sent = Vec::new();
@@ -34,8 +47,15 @@ async fn message_limit_paces_three_sends() {
     }
     let elapsed = start.elapsed();
     client.delete_messages("me", &sent).await.unwrap();
-    // The first goes at once; the other two wait for a token each.
+    // The first goes at once; the other two wait for a token each, one a second.
     assert!(elapsed >= Duration::from_secs(2), "three sends took {elapsed:?}");
+    let mut go_aheads = go_aheads.lock().unwrap().clone();
+    go_aheads.sort_unstable();
+    assert_eq!(go_aheads.len(), 3, "the observer didn't see the three sends");
+    for pair in go_aheads.windows(2) {
+        let gap = pair[1] - pair[0];
+        assert!(gap >= Duration::from_millis(950), "two sends went out {gap:?} apart");
+    }
 }
 
 #[tokio::test]
