@@ -277,8 +277,9 @@ impl ClientBuilder {
     /// Keeps up to `n` received, sent and edited messages, so `reply_to_message()` and
     /// `CallbackQuery::message()` can answer without asking Telegram. Off (0) by default. Deleted messages
     /// (yours included) leave it, and so do messages whose reactions, views or pins change; polls and business
-    /// messages never enter it. `n` counts messages, not bytes: each entry also keeps the users and chats of the
-    /// update it came in, which a big batch shares among all its messages.
+    /// messages never enter it. Up to `n` polls are kept apart, so `on_poll` gets result updates that leave the poll
+    /// out. `n` counts messages, not bytes: each entry also keeps the users and chats of the update it came in, which
+    /// a big batch shares among all its messages.
     pub fn max_message_cache_size(mut self, n: usize) -> Self {
         self.max_message_cache_size = n;
         self

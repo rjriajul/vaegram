@@ -70,10 +70,15 @@ pub(crate) struct Cached {
 // Outside channels message ids are per account, so 0 stands for every chat that isn't a channel.
 type MessageKey = (i64, i32);
 
-/// The message, forum topic and sticker set name caches, each off (`None`) unless its size is set.
+/// A poll as a message or update carried it, with that batch's users and chats.
+pub(crate) type CachedPoll = (base::Poll, Arc<Entities>);
+
+/// The message, poll, forum topic and sticker set name caches, each off (`None`) unless its size is set. Polls share
+/// the message cache's size.
 #[derive(Default)]
 pub(crate) struct Caches {
     messages: Option<Mutex<Lru<MessageKey, Cached>>>,
+    polls: Option<Mutex<Lru<i64, CachedPoll>>>,
     topics: Option<Mutex<Lru<(i64, i32), ForumTopic>>>,
     set_names: Option<Mutex<Lru<i64, String>>>,
 }
@@ -82,6 +87,7 @@ impl Caches {
     pub(crate) fn new(messages: usize, topics: usize) -> Caches {
         Caches {
             messages: (messages > 0).then(|| Mutex::new(Lru::new(messages))),
+            polls: (messages > 0).then(|| Mutex::new(Lru::new(messages))),
             topics: (topics > 0).then(|| Mutex::new(Lru::new(topics))),
             set_names: None,
         }
@@ -107,6 +113,17 @@ impl Caches {
         self.messages.is_some()
     }
 
+    /// The poll with this id as a message or update last carried it.
+    pub(crate) fn poll(&self, poll_id: i64) -> Option<CachedPoll> {
+        self.polls.as_ref()?.lock().unwrap().get(&poll_id).cloned()
+    }
+
+    fn store_poll(&self, poll: &base::Poll, entities: &Arc<Entities>) {
+        let Some(polls) = &self.polls else { return };
+        let base::Poll::Poll(p) = poll;
+        polls.lock().unwrap().insert(p.id, (poll.clone(), entities.clone()));
+    }
+
     /// Learns from an update before it's routed: new and edited messages are kept, deleted ones dropped, and an
     /// edited topic forgotten. Reactions, views, forwards, pins and widget data change a message without an edit, so
     /// they drop it too; a later read asks Telegram. Other flag-only changes (a voice note marked listened, say)
@@ -127,12 +144,17 @@ impl Caches {
             U::UpdatePinnedChannelMessages(u) => self.evict_ids(u.channel_id, &u.messages),
             U::UpdateMessageWidgetData(u) => self.evict_ids(channel_of(&u.peer), &[u.msg_id]),
             U::UpdateEditForumTopic(u) => self.evict_topic(crate::utils::get_peer_id(&u.peer), u.topic_id),
+            U::UpdateMessagePoll(u) => {
+                if let Some(poll) = &u.poll {
+                    self.store_poll(poll, entities);
+                }
+            }
             _ => {}
         }
     }
 
-    /// Keeps a regular message, sent or received; scheduled and business messages never come here. Polls are left
-    /// out: their votes change without an edit.
+    /// Keeps a regular message, sent or received; scheduled and business messages never come here. A poll's message
+    /// is left out, since its votes change without an edit, but the poll itself is kept, for updates that leave it out.
     pub(crate) fn store(&self, raw: &base::Message, entities: &Arc<Entities>) {
         let topic_edit = match raw {
             base::Message::MessageService(m) if matches!(m.action, base::MessageAction::MessageActionTopicEdit(_)) => {
@@ -145,8 +167,10 @@ impl Caches {
         }
         let Some(messages) = &self.messages else { return };
         let (peer, id) = match raw {
-            base::Message::Message(m) if matches!(m.media, Some(base::MessageMedia::MessageMediaPoll(_))) => return,
-            base::Message::Message(m) => (&m.peer_id, m.id),
+            base::Message::Message(m) => match &m.media {
+                Some(base::MessageMedia::MessageMediaPoll(media)) => return self.store_poll(&media.poll, entities),
+                _ => (&m.peer_id, m.id),
+            },
             base::Message::MessageService(m) => (&m.peer_id, m.id),
             base::Message::MessageEmpty(_) => return,
         };
