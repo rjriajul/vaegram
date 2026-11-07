@@ -20,6 +20,7 @@ pub struct SendPoll<'a> {
     explanation: Option<Text>,
     explanation_parse_mode: Option<ParseMode>,
     options: SendOptions,
+    allows_revoting: Option<bool>,
     poll_media: PollMedia<'a>,
 }
 
@@ -58,6 +59,7 @@ impl Client {
             explanation: None,
             explanation_parse_mode: None,
             options: SendOptions::default(),
+            allows_revoting: None,
             poll_media,
         }
     }
@@ -135,10 +137,10 @@ impl<'a> SendPoll<'a> {
         self
     }
 
-    /// Stops voters from changing their vote once cast (the poll's `revoting_disabled` flag). Voters can change
-    /// their vote by default.
-    pub fn disallow_revoting(mut self) -> Self {
-        self.poll.revoting_disabled = true;
+    /// Whether voters may change their vote once cast; sent as the poll's `revoting_disabled` flag, inverted.
+    /// When not set, quizzes don't allow it and other polls do, like the Bot API's `allows_revoting`.
+    pub fn allows_revoting(mut self, allows_revoting: bool) -> Self {
+        self.allows_revoting = Some(allows_revoting);
         self
     }
 
@@ -201,7 +203,8 @@ impl<'a> SendPoll<'a> {
         client.send_media(chat_id, media, "", None, options).await
     }
 
-    fn media(self, solution: Option<(String, Vec<base::MessageEntity>)>) -> base::InputMedia {
+    fn media(mut self, solution: Option<(String, Vec<base::MessageEntity>)>) -> base::InputMedia {
+        self.poll.revoting_disabled = !self.allows_revoting.unwrap_or(!self.poll.quiz);
         // solution and solution_entities share flags.1, so they must be set together.
         let (solution, solution_entities) = solution.unzip();
         base::InputMedia::InputMediaPoll(Box::new(types::InputMediaPoll {
@@ -295,7 +298,8 @@ mod tests {
         let mut buf = Vec::new();
         media.poll.serialize(&mut buf);
         let flags = u32::from_le_bytes(buf[12..16].try_into().unwrap());
-        assert_eq!(flags, (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 11) | (1 << 12));
+        // A quiz disallows changing votes unless told otherwise (flag 7).
+        assert_eq!(flags, (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 7) | (1 << 11) | (1 << 12));
     }
 
     #[test]
@@ -305,7 +309,7 @@ mod tests {
         let base::InputMedia::InputMediaPoll(media) = media else { panic!("not a poll") };
         assert!(media.correct_answers.is_none() && media.solution.is_none() && media.solution_entities.is_none());
         let base::Poll::Poll(poll) = &media.poll;
-        assert!(poll.multiple_choice && !poll.public_voters && !poll.quiz);
+        assert!(poll.multiple_choice && !poll.public_voters && !poll.quiz && !poll.revoting_disabled);
         assert_eq!(poll.countries_iso2, None);
     }
 
@@ -318,10 +322,27 @@ mod tests {
         assert!(poll.open_answers && !poll.quiz && !poll.multiple_choice);
     }
 
+    #[test]
+    fn revoting_follows_the_poll_kind_unless_set() {
+        let client = Client::offline();
+        let revoting_disabled = |send: super::SendPoll<'_>| {
+            let base::InputMedia::InputMediaPoll(media) = send.media(None) else { panic!("not a poll") };
+            let base::Poll::Poll(poll) = &media.poll;
+            poll.revoting_disabled
+        };
+        let poll = || client.send_poll(1, "Lunch?", ["Pizza", "Sushi"]);
+        assert!(!revoting_disabled(poll()));
+        assert!(revoting_disabled(poll().quiz([0])));
+        assert!(revoting_disabled(poll().allows_revoting(false)));
+        assert!(!revoting_disabled(poll().quiz([0]).allows_revoting(true)));
+        assert!(!revoting_disabled(poll().allows_revoting(true)));
+        assert!(revoting_disabled(poll().quiz([0]).allows_revoting(false)));
+    }
+
     #[tokio::test]
     async fn revoting_shuffling_and_hidden_results_set_their_flags() {
         let (client, mut sent) = Client::recording();
-        let request = client.send_poll(-5, "Lunch?", ["Pizza", "Sushi"]).disallow_revoting().shuffle_options();
+        let request = client.send_poll(-5, "Lunch?", ["Pizza", "Sushi"]).allows_revoting(false).shuffle_options();
         let _ = request.hide_results_until_closes().await;
         let body = sent.try_recv().expect("no request sent");
         let answer = |text: &str| {
