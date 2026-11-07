@@ -6,7 +6,7 @@ use crate::utils::get_peer_id;
 
 impl Client {
     /// The whole rich message, for one Telegram sent only in part ([`RichMessage::is_partial`]). `None` when the
-    /// message is gone.
+    /// message is gone. User accounts only: a bot gets `BOT_METHOD_INVALID`.
     ///
     /// [`RichMessage::is_partial`]: crate::types::RichMessage::is_partial
     pub async fn get_rich_message(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> Result<Option<Message>> {

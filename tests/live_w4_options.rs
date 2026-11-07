@@ -21,15 +21,16 @@ fn user_builder() -> Option<ClientBuilder> {
     Some(Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH")))
 }
 
-/// A running bot that answers every private message with "echo", and the id a user finds it by.
+/// A running bot that answers every private message with "echo", and the id a user finds it by. `None` (after
+/// saying why) without a token or when the bot's login is flood-limited.
 async fn echo_bot(user: &Client) -> Option<(Client, i64)> {
     let Ok(token) = std::env::var("VAEGRAM_BOT_TOKEN") else {
         eprintln!("skipped: set VAEGRAM_BOT_TOKEN too");
         return None;
     };
     let (api_id, api_hash) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
-    let bot =
-        Client::builder("target/vaegram-w4-options-bot", api_id, api_hash).bot_token(token).start().await.unwrap();
+    let bot = Client::builder("target/vaegram-w4-options-bot", api_id, api_hash).bot_token(token);
+    let bot = support::start_bot(bot).await?;
     bot.on_message(filters::private(), |m| async move {
         m.reply("echo").await?;
         Ok(())

@@ -61,7 +61,7 @@ async fn user_reads_previews_reactions_and_scheduled_messages() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let kit = std::sync::Arc::new(kit);
     let user = kit.user.client.clone();
-    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap().id;
+    let Some(group) = support::test_supergroup(&user).await else { return };
     // The steps run in their own task so a failed assertion still reaches the cleanup below.
     let steps = tokio::spawn({
         let kit = kit.clone();
@@ -72,7 +72,7 @@ async fn user_reads_previews_reactions_and_scheduled_messages() {
         }
     })
     .await;
-    user.delete_supergroup(group).await.unwrap();
+    support::cleanup(user.delete_supergroup(group).await, "deleting the supergroup \"vaegram live test\"");
     if let Err(failed) = steps {
         std::panic::resume_unwind(failed.into_panic());
     }

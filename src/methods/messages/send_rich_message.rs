@@ -13,7 +13,8 @@ pub struct SendRichMessage<'a> {
 }
 
 impl Client {
-    /// Sends a message built from an [`InputRichMessage`]: blocks, HTML or Markdown.
+    /// Sends a message built from an [`InputRichMessage`]: blocks, HTML or Markdown. Bots only: Telegram answers a
+    /// user account with `RICH_MESSAGE_UNSUPPORTED`.
     ///
     /// Awaiting the request returns the sent [`Message`].
     pub fn send_rich_message(

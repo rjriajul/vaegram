@@ -82,7 +82,9 @@ async fn attached_recent_stickers_and_old_featured_load() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let user = &kit.user.client;
     user.get_recent_stickers().attached().await.unwrap();
-    let current = user.get_featured_sticker_sets().await.unwrap();
-    let older = user.get_featured_sticker_sets().offset(current.len() as i32).limit(5).await.unwrap();
+    user.get_featured_sticker_sets().await.unwrap();
+    // The offset counts into the older sets alone, not on from the current ones: 0 is the newest of them. Starting
+    // at the number of current sets got OFFSET_INVALID.
+    let older = user.get_featured_sticker_sets().offset(0).limit(5).await.unwrap();
     assert!(older.len() <= 5, "{}", older.len());
 }

@@ -37,7 +37,8 @@ async fn compose_runs_a_bot_and_a_user() {
     };
     let user = builder.connect().await.unwrap();
     let (api_id, api_hash) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
-    let bot = Client::builder("target/vaegram-compose-bot", api_id, api_hash).bot_token(token).start().await.unwrap();
+    let builder = Client::builder("target/vaegram-compose-bot", api_id, api_hash).bot_token(token);
+    let Some(bot) = support::start_bot(builder).await else { return };
     bot.on_message(filters::private(), |m| async move {
         m.reply("echo").await?;
         Ok(())

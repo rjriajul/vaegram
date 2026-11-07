@@ -31,7 +31,7 @@ async fn albums_and_links(user: &Client, group: i64) {
 async fn user_votes_views_and_links_messages() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let user = kit.user.client.clone();
-    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap().id;
+    let Some(group) = support::test_supergroup(&user).await else { return };
     // The steps run in their own task so a failed assertion still reaches the cleanup below.
     let steps = tokio::spawn({
         let user = user.clone();
@@ -41,7 +41,7 @@ async fn user_votes_views_and_links_messages() {
         }
     })
     .await;
-    user.delete_supergroup(group).await.unwrap();
+    support::cleanup(user.delete_supergroup(group).await, "deleting the supergroup \"vaegram live test\"");
     if let Err(failed) = steps {
         std::panic::resume_unwind(failed.into_panic());
     }
@@ -52,24 +52,26 @@ async fn user_votes_views_and_links_messages() {
 async fn bot_edits_the_media_it_sent() {
     let Some(kit) = support::Kit::from_env().await else { return };
     kit.bot.on_message(filters::private() & filters::command("edit"), |m| async move {
-        let sent = m.client().send_document(m.chat.id, Upload::bytes("old.txt", b"old")).await?;
+        let sent = m.reply_document(Upload::bytes("old.txt", b"old")).await?;
         sent.edit_media(InputMedia::document(Upload::bytes("new.txt", b"new"))).await?;
         m.reply("edited").await?;
         Ok(())
     });
 
+    // Both answers reply to the command, and the user's handlers may pass them on in either order; the document
+    // was sent first, so it has the lower id.
+    let first = kit.user.send_and_wait_reply(&kit.bot, "/edit").await.unwrap();
+    let asked = first.reply_to_message_id.expect("the answer replies to the command");
+    let second = kit.user.wait_reply(first.chat.id, asked).await.unwrap();
+    let mut answers = [first, second];
+    answers.sort_by_key(|m| m.id);
+    let [document, done] = answers;
     let user = &kit.user.client;
-    let done = kit.user.send_and_wait_reply(&kit.bot, "/edit").await.unwrap();
-    let mut pages = user.get_chat_history(done.chat.id).limit(3);
-    let mut history = Vec::new();
-    while let Some(message) = pages.next().await.unwrap() {
-        history.push(message);
-    }
-    let file_names: Vec<_> = history.iter().filter_map(|m| m.document().and_then(|d| d.file_name.clone())).collect();
-    let ids: Vec<_> = history.iter().map(|m| m.id).collect();
-    user.delete_messages(done.chat.id, &ids).await.unwrap();
+    let edited = user.get_messages(document.chat.id, &[document.id]).await.unwrap().pop().flatten();
+    let file_name = edited.and_then(|m| m.document().and_then(|d| d.file_name.clone()));
+    user.delete_messages(document.chat.id, &[asked, document.id, done.id]).await.unwrap();
     assert_eq!(done.text(), "edited");
-    assert_eq!(file_names, ["new.txt"]);
+    assert_eq!(file_name.as_deref(), Some("new.txt"));
 }
 
 #[tokio::test]
@@ -87,7 +89,8 @@ async fn wait_for_click_gets_the_press_on_the_sent_keyboard() {
 
     let user = &kit.user.client;
     let asked = kit.user.send_and_wait_reply(&kit.bot, "/click").await.unwrap();
-    let clicked = user.wait_for_message(asked.chat.id).filter(filters::text()).timeout(WAIT).into_future();
+    let command = asked.reply_to_message_id.expect("the keyboard replies to the command");
+    let clicked = kit.user.wait_reply(asked.chat.id, command);
     let click = user.request_callback_answer(asked.chat.id, asked.id, "pick").into_future();
     let (clicked, click) = tokio::join!(clicked, click);
     let clicked = clicked.unwrap();

@@ -20,7 +20,6 @@ async fn message_helpers_format_reply_read_and_refetch() {
         Ok(())
     });
 
-    // Asked first, so a late album item can't be taken for this reply.
     let formatted = kit.user.send_and_wait_reply(&kit.bot, "format").await.unwrap();
     assert_eq!(formatted.html_text(), "<b>b</b> <a href=\"https://t.me/\">l</a>");
     assert_eq!(formatted.markdown_text(), "**b** [l](https://t.me/)");

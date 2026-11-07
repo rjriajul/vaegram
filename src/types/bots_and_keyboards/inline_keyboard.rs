@@ -172,7 +172,8 @@ impl InlineKeyboardButton {
         Self::new(text, InlineAction::CallbackGame)
     }
 
-    /// A button that opens a mini app.
+    /// A button that opens a mini app. Only in a private chat with the bot: Telegram refuses it anywhere else with
+    /// `BUTTON_TYPE_INVALID`.
     pub fn web_app(text: impl Into<String>, web_app: WebAppInfo) -> Self {
         Self::new(text, InlineAction::WebApp(web_app))
     }
@@ -336,5 +337,30 @@ mod tests {
         assert_eq!(button.r#type, base::InlineButtonType::InlineButtonTypeDisabled);
         assert_eq!(row.buttons[0].to_bytes()[..4], 0x11c1a322u32.to_le_bytes());
         assert_eq!(button.r#type.to_bytes(), 0xa438619du32.to_le_bytes());
+    }
+
+    #[test]
+    fn web_app_and_chosen_chat_buttons_write_their_schema_types() {
+        let kind = |b: InlineKeyboardButton| {
+            let base::KeyboardInlineButton::KeyboardInlineButton(button) = b.write_offline().unwrap();
+            button.r#type
+        };
+        let app = kind(InlineKeyboardButton::web_app("app", WebAppInfo::new("https://telegram.org")));
+        let mut expected = 0x3bcab5b4u32.to_le_bytes().to_vec();
+        "https://telegram.org".to_owned().serialize(&mut expected);
+        assert_eq!(app.to_bytes(), expected, "inlineButtonTypeWebView url:string");
+
+        let chosen = SwitchInlineQueryChosenChat::new("q").allow_user_chats(true).allow_group_chats(true);
+        let chosen = kind(InlineKeyboardButton::switch_inline_query_chosen_chat("chosen", chosen));
+        let mut expected = 0x93773ff5u32.to_le_bytes().to_vec();
+        (1u32 << 1).serialize(&mut expected);
+        "q".to_owned().serialize(&mut expected);
+        let peer_types = vec![
+            base::InlineQueryPeerType::InlineQueryPeerTypePM,
+            base::InlineQueryPeerType::InlineQueryPeerTypeChat,
+            base::InlineQueryPeerType::InlineQueryPeerTypeMegagroup,
+        ];
+        peer_types.serialize(&mut expected);
+        assert_eq!(chosen.to_bytes(), expected, "inlineButtonTypeSwitchInline with peer_types, not same_peer");
     }
 }

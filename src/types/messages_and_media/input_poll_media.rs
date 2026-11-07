@@ -7,7 +7,9 @@ use crate::types::{InputMedia, Location, PeerRef, Venue};
 
 /// Media attached to a poll, its explanation or one of its options.
 ///
-/// Build one from an [`InputMedia`], a [`Location`], a [`Venue`], or with [`link`](InputPollMedia::link).
+/// Build one from an [`InputMedia`], a [`Location`], a [`Venue`], or with [`link`](InputPollMedia::link). Telegram
+/// takes a link or a sticker only on an option, and an audio file or a document only on the poll or its
+/// explanation; elsewhere it refuses the poll with `ATTACH_MEDIA_TYPE_INVALID`.
 #[derive(Debug, Clone)]
 pub struct InputPollMedia<'a>(Kind<'a>);
 
@@ -32,7 +34,7 @@ impl InputPollMedia<'_> {
         Venue::new(latitude, longitude, title, address).into()
     }
 
-    /// Creates a web page preview for the URL.
+    /// Creates a web page preview for the URL. Only an option takes one.
     pub fn link(url: impl Into<String>) -> Self {
         InputPollMedia(Kind::Ready(base::InputMedia::InputMediaWebPage(Box::new(types::InputMediaWebPage {
             force_large_media: false,

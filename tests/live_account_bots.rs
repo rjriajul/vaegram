@@ -43,11 +43,16 @@ async fn test_account_logs_in_with_a_resent_code() {
     assert!(!client.is_authorized().await.unwrap());
 
     let phone = test_number();
-    let mut hash = client.send_code(&phone).await.unwrap().phone_code_hash;
+    let mut hash = match client.send_code(&phone).await {
+        Ok(code) => code.phone_code_hash,
+        Err(e) if support::flood_limited(&e, "sending a test-server login code") => return,
+        Err(e) => panic!("{e}"),
+    };
     match client.resend_code(&phone, &hash).await {
         Ok(code) => hash = code.phone_code_hash,
         // Test numbers may have no second delivery method; the first hash stays valid then.
         Err(e) if rpc_is(&e, "SEND_CODE_UNAVAILABLE") => {}
+        Err(e) if support::flood_limited(&e, "resending a test-server login code") => return,
         Err(e) => panic!("{e}"),
     }
     match client.sign_in(&phone, &hash, "22222").await {
@@ -95,7 +100,7 @@ async fn user_checks_usernames_and_lists_owned_bots() {
     }
     let channel = user.create_channel("vaegram username check", "").await.unwrap();
     let free = user.check_username(channel.id, format!("vaegram_free_{}", test_number())).await;
-    user.delete_channel(channel.id).await.unwrap();
+    support::cleanup(user.delete_channel(channel.id).await, "deleting the channel \"vaegram username check\"");
     assert!(free.unwrap());
 
     let taken = user.check_bot_username("BotFather").await;

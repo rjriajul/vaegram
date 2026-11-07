@@ -133,11 +133,11 @@ async fn bot_skips_missed_updates_without_catch_up() {
     let user = Client::builder(session, api_id, api_hash.clone()).connect().await.unwrap();
     let bot = |catch_up| {
         let builder = Client::builder("target/vaegram-catch-up-bot", api_id, api_hash.clone());
-        builder.bot_token(token.clone()).catch_up(catch_up).start()
+        builder.bot_token(token.clone()).catch_up(catch_up)
     };
 
     // A run that stops at once leaves the state saved.
-    let first = bot(true).await.unwrap();
+    let Some(first) = support::start_bot(bot(true)).await else { return };
     first.stop();
     first.run().await.unwrap();
     let me = first.get_me().await.unwrap();
@@ -145,7 +145,7 @@ async fn bot_skips_missed_updates_without_catch_up() {
     let bot_id = user.resolve_username(&me.username.expect("the bot has no username")).await.unwrap();
     let missed = user.send_message(bot_id, "/missed").await.unwrap();
 
-    let second = bot(false).await.unwrap();
+    let second = bot(false).start().await.unwrap();
     let (tx, mut texts) = mpsc::unbounded_channel();
     second.on_message(filters::private(), move |m| {
         let _ = tx.send(m.text().to_owned());

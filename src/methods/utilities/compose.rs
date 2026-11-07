@@ -45,7 +45,8 @@ impl Compose<'_> {
             let mut started = Vec::with_capacity(clients.len());
             for client in clients {
                 match client.prepare().await {
-                    Ok(dispatcher) => started.push((client.clone(), dispatcher)),
+                    Ok(Some(dispatcher)) => started.push((client.clone(), dispatcher)),
+                    Ok(None) => {}
                     Err(error) if result.is_ok() => result = Err(error),
                     Err(_) => {}
                 }
@@ -158,6 +159,19 @@ mod tests {
         log_to(&running, &log, "start", "stop");
         let result = Client::compose(&[failing_client(), running]).sequential().await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "AUTH_KEY_UNREGISTERED"), "{result:?}");
+        assert_eq!(*log.lock().unwrap(), ["start", "stop"], "the other client didn't run");
+    }
+
+    #[tokio::test]
+    async fn sequential_skips_a_client_disconnected_during_its_start_without_an_error() {
+        // `disconnect` stops the client, then fails the start's waiting request with `Disconnected`.
+        let (disconnected, _sent) = Client::scripted(vec![Err(Error::Disconnected)]);
+        disconnected.disconnect();
+        let (running, _updates) = stopped_client().await;
+        let log = Log::default();
+        log_to(&running, &log, "start", "stop");
+        let result = Client::compose(&[disconnected, running]).sequential().await;
+        assert!(result.is_ok(), "{result:?}");
         assert_eq!(*log.lock().unwrap(), ["start", "stop"], "the other client didn't run");
     }
 }

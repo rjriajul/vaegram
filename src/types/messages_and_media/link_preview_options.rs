@@ -10,7 +10,8 @@ use crate::raw::{base, types};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LinkPreviewOptions {
-    /// The link to preview instead of the first one in the text.
+    /// The link to preview instead of the first one in the text. On a received message it's the previewed page's
+    /// url as Telegram normalized it, so `https://telegram.org` reads back as `https://telegram.org/`.
     pub url: Option<String>,
     /// Send without any preview. Wins over `url`. Never set on received messages.
     pub is_disabled: bool,

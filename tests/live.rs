@@ -17,9 +17,9 @@ use vaegram::raw::{base, functions, types};
 use vaegram::session::{Dc, Session};
 use vaegram::storage::{FileStorage, Storage};
 use vaegram::types::{
-    ButtonStyle, FileSource, Folder, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMedia,
-    InputPollMedia, InputPollOption, InputRichMessage, InputSticker, InputStoryContent, Json, KeyboardButton, Media,
-    Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
+    ButtonStyle, Chat, FileSource, Folder, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle,
+    InputMedia, InputPollMedia, InputPollOption, InputRichMessage, InputSticker, InputStoryContent, Json,
+    KeyboardButton, Media, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, RichBlock, Text, Upload,
 };
 use vaegram::utils::get_channel_id;
 use vaegram::{Client, filters};
@@ -292,15 +292,13 @@ async fn bot_sends_live_photos_paid_media_and_poll_media() {
     assert!(matches!(sent.media, Some(Media::PaidMedia(ref m)) if m.star_count == 5));
     sent.delete().await.unwrap();
 
+    // A link goes only on an option, so the description gets the photo.
     let options = [
         InputPollOption::new("Here").media(InputPollMedia::location(48.85, 2.35)),
-        InputPollOption::new("This").media(InputMedia::photo(photo.as_str())),
+        InputPollOption::new("This").media(InputPollMedia::link("https://telegram.org")),
     ];
-    let sent = app
-        .send_poll(chat_id, "Where?", options)
-        .description_media(InputPollMedia::link("https://telegram.org"))
-        .await
-        .unwrap();
+    let sent =
+        app.send_poll(chat_id, "Where?", options).description_media(InputMedia::photo(photo.as_str())).await.unwrap();
     assert!(sent.poll().is_some());
     sent.delete().await.unwrap();
 }
@@ -448,7 +446,14 @@ async fn user_account_talks_to_bot() {
     let me_again = again.get_me().await.unwrap();
     assert_eq!(me_again.id, me.id);
 
-    let bot = Client::builder("target/vaegram-live-bot-chat", api_id, api_hash).bot_token(token).start().await.unwrap();
+    // Without catch-up, `run` starts from now instead of replaying what the saved sessions missed, so the handlers
+    // below don't answer other tests' old messages.
+    let bot = Client::builder("target/vaegram-live-bot-chat", api_id, api_hash)
+        .bot_token(token)
+        .catch_up(false)
+        .start()
+        .await
+        .unwrap();
     let bot_me = bot.get_me().await.unwrap();
     let bot_id = user.resolve_username(bot_me.username.as_deref().unwrap()).await.unwrap();
     assert_eq!(bot_id, bot_me.id);
@@ -464,12 +469,13 @@ async fn user_account_talks_to_bot() {
         counter.fetch_add(1, Ordering::Relaxed);
         async { Ok(()) }
     });
-    bot.on_message(filters::private() & filters::text(), |msg| async move {
+    // Incoming only: a bot also gets the messages its other sessions send.
+    bot.on_message(filters::private() & filters::text() & filters::incoming(), |msg| async move {
         let tap = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Tap", "tap")]]);
         msg.reply(format!("pong: {}", msg.text())).reply_markup(tap).await?;
         Ok(())
     });
-    bot.on_edited_message(filters::private(), |msg| async move {
+    bot.on_edited_message(filters::private() & filters::incoming(), |msg| async move {
         msg.reply(format!("edited: {}", msg.text())).await?;
         Ok(())
     });
@@ -485,7 +491,7 @@ async fn user_account_talks_to_bot() {
     });
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let from_bot = filters::user(bot_id) & filters::incoming();
+    let from_bot = filters::private() & filters::user(bot_id) & filters::incoming();
     let sent = tx.clone();
     user.on_message(from_bot.clone(), move |msg| {
         let tx = sent.clone();
@@ -504,15 +510,19 @@ async fn user_account_talks_to_bot() {
     let (bot_runner, user_runner) = (bot.clone(), user.clone());
     tokio::spawn(async move { bot_runner.run().await });
     tokio::spawn(async move { user_runner.run().await });
+    let _disconnect = support::Disconnect(vec![bot.clone(), user.clone()]);
     tokio::time::sleep(Duration::from_secs(2)).await;
 
+    // Each wait takes only the bot's answer to this test's message, newer than it: the chat may also bring older
+    // messages that the user's saved session missed.
     let ping = user.send_message(bot_id, "ping").await.unwrap();
-    let pong = next(&mut rx, "new").await;
+    let pong = next(&mut rx, "new", |m| m.id > ping.id && m.reply_to_message_id == Some(ping.id)).await;
     assert_eq!(pong.text(), "pong: ping");
     assert!(pong.reply_markup().is_some());
 
     let ping = ping.edit_text("ping 2").await.unwrap();
-    assert_eq!(next(&mut rx, "new").await.text(), "edited: ping 2");
+    let edited = next(&mut rx, "new", |m| m.id > pong.id && m.reply_to_message_id == Some(ping.id)).await;
+    assert_eq!(edited.text(), "edited: ping 2");
 
     let peer = user.resolve_peer(bot_id).await.unwrap();
     let request = functions::messages::GetBotCallbackAnswer {
@@ -524,7 +534,7 @@ async fn user_account_talks_to_bot() {
     };
     let base::messages::BotCallbackAnswer::BotCallbackAnswer(answer) = user.invoke(&request).await.unwrap();
     assert_eq!(answer.message.as_deref(), Some("tapped"));
-    let tapped = next(&mut rx, "edit").await;
+    let tapped = next(&mut rx, "edit", |m| m.id == pong.id).await;
     assert_eq!((tapped.id, tapped.text()), (pong.id, "tapped!"));
 
     let base::InputPeer::InputPeerUser(bot_peer) = &peer else { panic!("the bot is not a user peer") };
@@ -537,10 +547,17 @@ async fn user_account_talks_to_bot() {
         query: "hi".into(),
         offset: String::new(),
     };
-    let base::messages::BotResults::BotResults(results) = user.invoke(&request).await.unwrap();
-    assert!(
-        matches!(results.results.first(), Some(base::BotInlineResult::BotInlineResult(r)) if r.title.as_deref() == Some("Result"))
-    );
+    match user.invoke(&request).await {
+        Err(e) if e.is("BOT_INLINE_DISABLED") => {
+            eprintln!("skipped the inline query: turn on inline mode for the bot with /setinline in @BotFather")
+        }
+        results => {
+            let base::messages::BotResults::BotResults(results) = results.unwrap();
+            assert!(
+                matches!(results.results.first(), Some(base::BotInlineResult::BotInlineResult(r)) if r.title.as_deref() == Some("Result"))
+            );
+        }
+    }
 
     assert!(raw_updates.load(Ordering::Relaxed) >= 3);
     user.delete_messages(bot_id, &[ping.id, pong.id]).await.unwrap();
@@ -575,7 +592,7 @@ async fn user_keeps_peers_across_restarts() {
 #[ignore = "uses a logged-in user session and a bot"]
 async fn user_gets_the_bots_reply_through_the_kit() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::text(), |m| async move {
+    kit.bot.on_message(filters::private() & filters::text() & filters::incoming(), |m| async move {
         m.reply(format!("echo: {}", m.text())).await?;
         Ok(())
     });
@@ -583,13 +600,18 @@ async fn user_gets_the_bots_reply_through_the_kit() {
     assert_eq!((reply.text(), reply.outgoing), ("echo: hi from the kit", false));
 }
 
-async fn next(rx: &mut tokio::sync::mpsc::UnboundedReceiver<(&'static str, Message)>, kind: &str) -> Message {
+/// The next `kind` message on `rx` that `wanted` accepts; the others are skipped.
+async fn next(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<(&'static str, Message)>,
+    kind: &str,
+    wanted: impl Fn(&Message) -> bool,
+) -> Message {
     loop {
         let (k, msg) = tokio::time::timeout(Duration::from_secs(30), rx.recv())
             .await
             .unwrap_or_else(|_| panic!("no {kind} message from the bot within 30s"))
             .unwrap();
-        if k == kind {
+        if k == kind && wanted(&msg) {
             return msg;
         }
     }
@@ -664,7 +686,12 @@ async fn account_settings_round_trip() {
     let days = user.get_account_ttl().await.unwrap();
     user.set_account_ttl(days).await.unwrap();
     let days = user.get_active_sessions().await.unwrap().inactive_session_ttl_days;
-    user.set_inactive_session_ttl(days).await.unwrap();
+    match user.set_inactive_session_ttl(days).await {
+        Err(e) if e.is("FRESH_RESET_AUTHORISATION_FORBIDDEN") => {
+            eprintln!("skipped set_inactive_session_ttl: Telegram refuses it for 24 hours after a login")
+        }
+        result => result.unwrap(),
+    }
 
     let key = vaegram::enums::PrivacyKey::Bio;
     let rules = user.get_privacy(key).await.unwrap();
@@ -684,24 +711,67 @@ async fn account_settings_round_trip() {
 #[tokio::test]
 #[ignore = "creates and deletes a supergroup with a logged-in user session"]
 async fn user_creates_and_manages_a_supergroup() {
-    let Ok(session) = std::env::var("VAEGRAM_USER_SESSION") else {
-        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name)");
-        return;
-    };
-    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
-    let user = Client::builder(session, env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
-        .connect()
-        .await
-        .unwrap();
+    let Some(user) = user_client().await else { return };
+    in_new_chat(&user, false, async |group| {
+        assert_eq!(group.kind, vaegram::enums::ChatType::Supergroup);
+        user.set_slow_mode(group.id, Some(10)).await?;
+        user.set_chat_protected_content(group.id, true).await?;
+        user.toggle_forum_topics(group.id, true).await?;
+        user.delete_chat_history(group.id).revoke().await?;
+        Ok(())
+    })
+    .await;
+}
 
-    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
-    assert_eq!(group.kind, vaegram::enums::ChatType::Supergroup);
-    user.set_slow_mode(group.id, Some(10)).await.unwrap();
-    user.set_chat_protected_content(group.id, true).await.unwrap();
-    user.toggle_forum_topics(group.id, true).await.unwrap();
-    assert!(!user.get_send_as_chats(group.id).await.unwrap().is_empty());
-    user.delete_chat_history(group.id).revoke().await.unwrap();
-    user.delete_supergroup(group.id).await.unwrap();
+/// Creates a supergroup, or a channel if `broadcast`, runs `test` in it and deletes it again, also when `test`
+/// returns an error or panics.
+///
+/// Telegram slows down accounts that create and change many groups in a row: calls on the new chats then answer
+/// FLOOD_WAIT for about 15 minutes. That is the account's state rather than a vaegram failure, so the test is
+/// skipped with the wait printed instead of sleeping it off.
+async fn in_new_chat(user: &Client, broadcast: bool, test: impl AsyncFnOnce(Chat) -> vaegram::Result<()>) {
+    let (title, about) = ("vaegram live test", "deleted right away");
+    let created = match broadcast {
+        true => user.create_channel(title, about).await,
+        false => user.create_supergroup(title, about).await,
+    };
+    let Some(chat) = flood_skipped(created) else { return };
+    let id = chat.id;
+    // A failed assertion is caught here so the chat is still deleted, then goes on unwinding below.
+    let mut step = std::pin::pin!(test(chat));
+    let outcome = std::future::poll_fn(|cx| {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| step.as_mut().poll(cx))) {
+            Ok(poll) => poll.map(Ok),
+            Err(panic) => std::task::Poll::Ready(Err(panic)),
+        }
+    })
+    .await;
+    let deleted = match broadcast {
+        true => user.delete_channel(id).await,
+        false => user.delete_supergroup(id).await,
+    };
+    let result = match outcome {
+        Ok(result) => result,
+        Err(panic) => {
+            if let Err(e) = deleted {
+                eprintln!("chat {id} was left behind: {e}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+    };
+    if flood_skipped(result).is_some() {
+        flood_skipped(deleted);
+    } else if let Err(e) = deleted {
+        eprintln!("chat {id} was left behind: {e}");
+    }
+}
+
+/// Unwraps `result`, except that a flood wait prints why the test is skipped and gives `None`.
+fn flood_skipped<T>(result: vaegram::Result<T>) -> Option<T> {
+    match result {
+        Err(e) if support::flood_limited(&e, "creating or changing a test chat") => None,
+        result => Some(result.unwrap()),
+    }
 }
 
 #[tokio::test]
@@ -775,14 +845,23 @@ async fn user_posts_and_edits_a_story() {
     };
     let Some(user) = user_client().await else { return };
     let me = user.get_me().await.unwrap();
-    let story = user
+    // Formatted story captions need Premium while Telegram's `stories_entities` setting is `premium`.
+    let caption = if me.is_premium { "<b>vaegram</b>" } else { "vaegram" };
+    if !me.is_premium {
+        eprintln!("skipped the formatted caption: the VAEGRAM_USER_SESSION account has no Premium");
+    }
+    let sent = user
         .send_story(me.id, InputStoryContent::photo(photo.as_str()))
-        .caption("<b>vaegram</b>")
+        .caption(caption)
         .html()
         .privacy(StoriesPrivacyRules::CloseFriends)
         .protect_content()
-        .await
-        .unwrap();
+        .await;
+    let story = match sent {
+        // The account is at its `story_expiring_limit_*` of active stories (a few without Premium).
+        Err(e) if support::story_limit_reached(&e) => return,
+        sent => sent.unwrap(),
+    };
     assert_eq!((story.chat.id, story.caption.as_deref(), story.is_close_friends), (me.id, Some("vaegram"), true));
 
     let edited = user.edit_story_caption(me.id, story.id, "edited").await.unwrap();
@@ -909,8 +988,10 @@ async fn user_searches_and_translates() {
     user.search_global_count("telegram", MessagesFilter::Url).await.unwrap();
     saved.delete().await.unwrap();
 
+    // Translations keep their formatting only for Premium accounts.
+    let premium = user.get_me().await.unwrap().is_premium;
     let spanish = user.translate_text("<b>Good morning</b>", "es").html().await.unwrap();
-    assert_eq!((spanish.text.is_empty(), spanish.entities.map(|e| e.len())), (false, Some(1)));
+    assert_eq!((spanish.text.is_empty(), spanish.entities.map(|e| e.len())), (false, premium.then_some(1)));
 }
 
 #[tokio::test]
@@ -990,6 +1071,10 @@ async fn user_manages_business_links_and_quick_replies() {
     let replies = user.get_quick_replies().await.unwrap();
     assert!(replies.iter().all(|q| !q.shortcut.is_empty()));
     user.get_connected_bots().await.unwrap();
+    if !user.get_me().await.unwrap().is_premium {
+        eprintln!("skipped the business chat links: they need Telegram Premium on the VAEGRAM_USER_SESSION account");
+        return;
+    }
 
     let link = user.create_business_chat_link("**hi** from vaegram").markdown().title("vaegram").await.unwrap();
     let got = (link.text.as_str(), link.title.as_deref(), link.entities.as_ref().map(Vec::len));
@@ -1025,23 +1110,25 @@ async fn user_reads_app_config_and_languages() {
 #[ignore = "creates and deletes a supergroup with a logged-in user session"]
 async fn user_lists_and_pins_forum_topics() {
     let Some(user) = user_client().await else { return };
-    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
-    user.toggle_forum_topics(group.id, true).await.unwrap();
-    let first = user.create_forum_topic(group.id, "first").await.unwrap();
-    let second = user.create_forum_topic(group.id, "second").await.unwrap();
+    in_new_chat(&user, false, async |group| {
+        user.toggle_forum_topics(group.id, true).await?;
+        let first = user.create_forum_topic(group.id, "first").await?;
+        let second = user.create_forum_topic(group.id, "second").await?;
 
-    let mut topics = user.get_forum_topics(group.id).limit(10);
-    let mut ids = Vec::new();
-    while let Some(topic) = topics.next().await.unwrap() {
-        ids.push(topic.id);
-    }
-    assert!(ids.contains(&first.id) && ids.contains(&second.id), "{ids:?}");
+        let mut topics = user.get_forum_topics(group.id).limit(10);
+        let mut ids = Vec::new();
+        while let Some(topic) = topics.next().await? {
+            ids.push(topic.id);
+        }
+        assert!(ids.contains(&first.id) && ids.contains(&second.id), "{ids:?}");
 
-    user.pin_forum_topic(group.id, first.id).await.unwrap();
-    assert!(user.get_forum_topics_by_id(group.id, &[first.id]).await.unwrap()[0].is_pinned);
-    user.unpin_forum_topic(group.id, first.id).await.unwrap();
-    assert!(!user.get_forum_topics_by_id(group.id, &[first.id]).await.unwrap()[0].is_pinned);
-    user.delete_supergroup(group.id).await.unwrap();
+        user.pin_forum_topic(group.id, first.id).await?;
+        assert!(user.get_forum_topics_by_id(group.id, &[first.id]).await?[0].is_pinned);
+        user.unpin_forum_topic(group.id, first.id).await?;
+        assert!(!user.get_forum_topics_by_id(group.id, &[first.id]).await?[0].is_pinned);
+        Ok(())
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -1070,16 +1157,19 @@ async fn user_copies_and_forwards_an_album() {
 #[ignore = "creates and deletes a supergroup with a logged-in user session"]
 async fn user_adds_and_deletes_poll_options() {
     let Some(user) = user_client().await else { return };
-    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
-    let sent = user.send_poll(group.id, "Lunch?", ["A", "B"]).allow_adding_options().await.unwrap();
-    user.add_poll_option(group.id, sent.id, "C").await.unwrap();
-    let options = |messages: Vec<Option<Message>>| {
-        messages[0].as_ref().and_then(Message::poll).map(|p| p.options.len()).expect("the poll is gone")
-    };
-    assert_eq!(options(user.get_messages(group.id, &[sent.id]).await.unwrap()), 3);
-    user.delete_poll_option(group.id, sent.id, 2).await.unwrap();
-    assert_eq!(options(user.get_messages(group.id, &[sent.id]).await.unwrap()), 2);
-    user.delete_supergroup(group.id).await.unwrap();
+    in_new_chat(&user, false, async |group| {
+        // Telegram lets members add options only to a poll that shows its voters.
+        let sent = user.send_poll(group.id, "Lunch?", ["A", "B"]).public_voters().allow_adding_options().await?;
+        user.add_poll_option(group.id, sent.id, "C").await?;
+        let options = |messages: Vec<Option<Message>>| {
+            messages[0].as_ref().and_then(Message::poll).map(|p| p.options.len()).expect("the poll is gone")
+        };
+        assert_eq!(options(user.get_messages(group.id, &[sent.id]).await?), 3);
+        user.delete_poll_option(group.id, sent.id, 2).await?;
+        assert_eq!(options(user.get_messages(group.id, &[sent.id]).await?), 2);
+        Ok(())
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -1087,25 +1177,27 @@ async fn user_adds_and_deletes_poll_options() {
 async fn user_manages_invite_links() {
     let Some(user) = user_client().await else { return };
     let me = user.get_me().await.unwrap();
-    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
-    let link = user.create_chat_invite_link(group.id).name("t").await.unwrap().invite_link;
+    in_new_chat(&user, false, async |group| {
+        let link = user.create_chat_invite_link(group.id).name("t").await?.invite_link;
 
-    assert_eq!(user.get_chat_invite_link(group.id, &link).await.unwrap().name.as_deref(), Some("t"));
-    assert!(user.get_chat_invite_link_joiners(group.id, &link).await.unwrap().is_empty());
-    assert_eq!(user.get_chat_invite_link_joiners_count(group.id, &link).await.unwrap(), 0);
+        assert_eq!(user.get_chat_invite_link(group.id, &link).await?.name.as_deref(), Some("t"));
+        assert!(user.get_chat_invite_link_joiners(group.id, &link).await?.is_empty());
+        assert_eq!(user.get_chat_invite_link_joiners_count(group.id, &link).await?, 0);
 
-    let active = user.get_chat_admin_invite_links(group.id, "me").await.unwrap();
-    assert!(active.iter().any(|l| l.invite_link == link));
-    assert!(user.get_chat_admin_invite_links_count(group.id, "me", false).await.unwrap() >= 1);
-    let admins = user.get_chat_admins_with_invite_links(group.id).await.unwrap();
-    assert!(admins.iter().any(|a| a.admin.id == me.id));
+        let active = user.get_chat_admin_invite_links(group.id, "me").await?;
+        assert!(active.iter().any(|l| l.invite_link == link));
+        assert!(user.get_chat_admin_invite_links_count(group.id, "me", false).await? >= 1);
+        let admins = user.get_chat_admins_with_invite_links(group.id).await?;
+        assert!(admins.iter().any(|a| a.admin.id == me.id));
 
-    user.revoke_chat_invite_link(group.id, &link).await.unwrap();
-    let revoked = user.get_chat_admin_invite_links(group.id, "me").revoked().await.unwrap();
-    assert!(revoked.iter().any(|l| l.invite_link == link));
-    user.delete_chat_invite_link(group.id, &link).await.unwrap();
-    user.delete_chat_admin_invite_links(group.id, "me").await.unwrap();
-    user.delete_supergroup(group.id).await.unwrap();
+        user.revoke_chat_invite_link(group.id, &link).await?;
+        let revoked = user.get_chat_admin_invite_links(group.id, "me").revoked().await?;
+        assert!(revoked.iter().any(|l| l.invite_link == link));
+        user.delete_chat_invite_link(group.id, &link).await?;
+        user.delete_chat_admin_invite_links(group.id, "me").await?;
+        Ok(())
+    })
+    .await;
 }
 
 async fn input_channel(user: &Client, chat_id: i64) -> base::InputChannel {
@@ -1145,32 +1237,34 @@ async fn channel_info(user: &Client, chat_id: i64) -> types::Channel {
 #[ignore = "creates and deletes a supergroup with a logged-in user session"]
 async fn user_changes_supergroup_settings() {
     let Some(user) = user_client().await else { return };
-    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
-    let hidden = channel_full(&user, group.id).await.hidden_prehistory;
-    user.toggle_pre_history_hidden(group.id, !hidden).await.unwrap();
-    assert_eq!(channel_full(&user, group.id).await.hidden_prehistory, !hidden);
-    user.toggle_pre_history_hidden(group.id, hidden).await.unwrap();
-    assert_eq!(channel_full(&user, group.id).await.hidden_prehistory, hidden);
+    in_new_chat(&user, false, async |group| {
+        let hidden = channel_full(&user, group.id).await.hidden_prehistory;
+        user.toggle_pre_history_hidden(group.id, !hidden).await?;
+        assert_eq!(channel_full(&user, group.id).await.hidden_prehistory, !hidden);
+        user.toggle_pre_history_hidden(group.id, hidden).await?;
+        assert_eq!(channel_full(&user, group.id).await.hidden_prehistory, hidden);
 
-    user.set_chat_ttl(group.id, 86400).await.unwrap();
-    assert_eq!(channel_full(&user, group.id).await.ttl_period, Some(86400));
-    user.set_chat_ttl(group.id, 0).await.unwrap();
-    assert_eq!(channel_full(&user, group.id).await.ttl_period.unwrap_or(0), 0);
+        user.set_chat_ttl(group.id, 86400).await?;
+        assert_eq!(channel_full(&user, group.id).await.ttl_period, Some(86400));
+        user.set_chat_ttl(group.id, 0).await?;
+        assert_eq!(channel_full(&user, group.id).await.ttl_period.unwrap_or(0), 0);
 
-    let first = user.send_message(group.id, "x").await.unwrap().id;
-    let second = user.send_message(group.id, "x").await.unwrap().id;
-    user.delete_user_history(group.id, "me").await.unwrap();
-    assert!(user.get_messages(group.id, &[first, second]).await.unwrap().iter().all(Option::is_none));
+        let first = user.send_message(group.id, "x").await?.id;
+        let second = user.send_message(group.id, "x").await?.id;
+        user.delete_user_history(group.id, "me").await?;
+        assert!(user.get_messages(group.id, &[first, second]).await?.iter().all(Option::is_none));
 
-    user.toggle_forum_topics(group.id, true).await.unwrap();
-    user.toggle_view_forum_as_messages(group.id, true).await.unwrap();
-    assert!(channel_full(&user, group.id).await.view_forum_as_messages);
-    user.delete_supergroup(group.id).await.unwrap();
+        user.toggle_forum_topics(group.id, true).await?;
+        user.toggle_view_forum_as_messages(group.id, true).await?;
+        assert!(channel_full(&user, group.id).await.view_forum_as_messages);
+        Ok(())
+    })
+    .await;
 }
 
 #[tokio::test]
-#[ignore = "flips and restores four settings of a chat the user owns; the chat must qualify for anti-spam, hidden \
-            members, auto-translation and sponsored-message limits"]
+#[ignore = "flips and restores the settings of a chat the user owns: anti-spam and hidden members in a supergroup, \
+            sponsored messages and auto-translation in a channel with enough boosts"]
 async fn owner_flips_and_restores_channel_toggles() {
     let Some(user) = user_client().await else { return };
     let Ok(chat) = std::env::var("VAEGRAM_OWNED_CHAT_ID") else {
@@ -1178,54 +1272,81 @@ async fn owner_flips_and_restores_channel_toggles() {
         return;
     };
     let chat: i64 = chat.parse().unwrap();
-    let read = |full: types::ChannelFull| (full.antispam, full.participants_hidden, full.restricted_sponsored);
-    let (antispam, hidden, restricted) = read(channel_full(&user, chat).await);
-    let translated = channel_info(&user, chat).await.autotranslation;
+    // Anti-spam and hidden members are supergroup settings; sponsored messages and auto-translation are a broadcast
+    // channel's, and Telegram answers CHANNEL_INVALID for them in a supergroup.
+    if channel_info(&user, chat).await.megagroup {
+        eprintln!("skipped sponsored messages and auto-translation: VAEGRAM_OWNED_CHAT_ID is a supergroup");
+        let read = |full: types::ChannelFull| (full.antispam, full.participants_hidden);
+        let (antispam, hidden) = read(channel_full(&user, chat).await);
+        user.toggle_anti_spam(chat, !antispam).await.unwrap();
+        // Hiding members needs `hidden_members_group_size_min` (100) of them, more than a test chat usually has.
+        let hides = match user.toggle_participants_hidden(chat, !hidden).await {
+            Err(e) if e.is("PARTICIPANTS_TOO_FEW") => {
+                eprintln!("skipped toggle_participants_hidden: the chat has too few members to hide them");
+                false
+            }
+            result => {
+                result.unwrap();
+                true
+            }
+        };
+        assert_eq!(read(channel_full(&user, chat).await), (!antispam, hidden != hides));
 
-    user.toggle_anti_spam(chat, !antispam).await.unwrap();
-    user.toggle_participants_hidden(chat, !hidden).await.unwrap();
-    user.restrict_sponsored_messages(chat, !restricted).await.unwrap();
-    user.toggle_auto_translation(chat, !translated).await.unwrap();
-    assert_eq!(read(channel_full(&user, chat).await), (!antispam, !hidden, !restricted));
-    assert_eq!(channel_info(&user, chat).await.autotranslation, !translated);
+        user.toggle_anti_spam(chat, antispam).await.unwrap();
+        if hides {
+            user.toggle_participants_hidden(chat, hidden).await.unwrap();
+        }
+        assert_eq!(read(channel_full(&user, chat).await), (antispam, hidden));
+    } else {
+        eprintln!("skipped anti-spam and hidden members: VAEGRAM_OWNED_CHAT_ID is a broadcast channel");
+        let restricted = channel_full(&user, chat).await.restricted_sponsored;
+        let translated = channel_info(&user, chat).await.autotranslation;
+        user.restrict_sponsored_messages(chat, !restricted).await.unwrap();
+        user.toggle_auto_translation(chat, !translated).await.unwrap();
+        assert_eq!(channel_full(&user, chat).await.restricted_sponsored, !restricted);
+        assert_eq!(channel_info(&user, chat).await.autotranslation, !translated);
 
-    user.toggle_anti_spam(chat, antispam).await.unwrap();
-    user.toggle_participants_hidden(chat, hidden).await.unwrap();
-    user.restrict_sponsored_messages(chat, restricted).await.unwrap();
-    user.toggle_auto_translation(chat, translated).await.unwrap();
-    assert_eq!(read(channel_full(&user, chat).await), (antispam, hidden, restricted));
-    assert_eq!(channel_info(&user, chat).await.autotranslation, translated);
+        user.restrict_sponsored_messages(chat, restricted).await.unwrap();
+        user.toggle_auto_translation(chat, translated).await.unwrap();
+        assert_eq!(channel_full(&user, chat).await.restricted_sponsored, restricted);
+        assert_eq!(channel_info(&user, chat).await.autotranslation, translated);
+    }
 }
 
 #[tokio::test]
 #[ignore = "creates and deletes a channel and a supergroup with a logged-in user session"]
 async fn user_links_a_discussion_group() {
     let Some(user) = user_client().await else { return };
-    let channel = user.create_channel("vaegram live test", "deleted right away").await.unwrap();
-    let group = user.create_supergroup("vaegram live test", "deleted right away").await.unwrap();
-    let suitable = user.get_suitable_discussion_chats().await.unwrap();
-    assert!(suitable.iter().any(|c| c.id == group.id), "{suitable:?}");
+    in_new_chat(&user, true, async |channel| {
+        in_new_chat(&user, false, async |group| {
+            let suitable = user.get_suitable_discussion_chats().await?;
+            assert!(suitable.iter().any(|c| c.id == group.id), "{suitable:?}");
 
-    user.set_chat_discussion_group(channel.id, Some(group.id.into())).await.unwrap();
-    assert_eq!(channel_full(&user, channel.id).await.linked_chat_id.map(get_channel_id), Some(group.id));
-    user.set_chat_discussion_group(channel.id, None).await.unwrap();
-    assert_eq!(channel_full(&user, channel.id).await.linked_chat_id, None);
+            user.set_chat_discussion_group(channel.id, Some(group.id.into())).await?;
+            assert_eq!(channel_full(&user, channel.id).await.linked_chat_id.map(get_channel_id), Some(group.id));
+            // Telegram offers other senders only in public and discussion groups, so not in a new group alone.
+            assert!(!user.get_send_as_chats(group.id).await?.is_empty());
+            user.set_chat_discussion_group(channel.id, None).await?;
+            assert_eq!(channel_full(&user, channel.id).await.linked_chat_id, None);
+            Ok(())
+        })
+        .await;
 
-    user.set_main_profile_tab(channel.id, ProfileTab::Media).await.unwrap();
-    assert_eq!(channel_full(&user, channel.id).await.main_tab, Some(base::ProfileTab::ProfileTabMedia));
-    user.get_personal_channels().await.unwrap();
+        user.set_main_profile_tab(channel.id, ProfileTab::Media).await?;
+        assert_eq!(channel_full(&user, channel.id).await.main_tab, Some(base::ProfileTab::ProfileTabMedia));
+        user.get_personal_channels().await?;
 
-    user.set_chat_direct_messages_group(channel.id, true, 0).await.unwrap();
-    let info = channel_info(&user, channel.id).await;
-    assert!(info.broadcast_messages_allowed);
-    let monoforum = info.linked_monoforum_id.map(get_channel_id).expect("no direct messages chat");
-    let me = user.get_me().await.unwrap();
-    // Nobody has written to the new direct messages chat yet.
-    assert!(user.get_direct_messages_topics_by_id(monoforum, &[me.id]).await.unwrap().is_empty());
-    user.set_chat_direct_messages_group(channel.id, false, 0).await.unwrap();
-
-    user.delete_supergroup(group.id).await.unwrap();
-    user.delete_channel(channel.id).await.unwrap();
+        user.set_chat_direct_messages_group(channel.id, true, 0).await?;
+        let info = channel_info(&user, channel.id).await;
+        assert!(info.broadcast_messages_allowed);
+        let monoforum = info.linked_monoforum_id.map(get_channel_id).expect("no direct messages chat");
+        let me = user.get_me().await?;
+        // Nobody has written to the new direct messages chat yet.
+        assert!(user.get_direct_messages_topics_by_id(monoforum, &[me.id]).await?.is_empty());
+        user.set_chat_direct_messages_group(channel.id, false, 0).await?;
+        Ok(())
+    })
+    .await;
 }
 
 #[tokio::test]

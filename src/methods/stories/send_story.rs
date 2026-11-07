@@ -52,6 +52,9 @@ impl Client {
 
 impl SendStory<'_> {
     /// Adds a caption, parsed with the builder's parse mode.
+    ///
+    /// Telegram's `stories_entities` setting decides who may format a story caption; while it is `premium`, a
+    /// caption with entities from an account without Premium fails with `PREMIUM_ACCOUNT_REQUIRED`.
     pub fn caption(mut self, caption: impl Into<Text>) -> Self {
         self.caption = caption.into();
         self
