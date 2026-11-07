@@ -1,10 +1,11 @@
 use crate::Client;
 use crate::errors::{Error, Result};
 use crate::raw::functions;
-use crate::types::PeerRef;
+use crate::types::{Message, PeerRef};
 
 impl Client {
-    /// Answers a bot's "request users" or "request chat" reply keyboard button by sharing `peers` with the bot.
+    /// Answers a bot's "request users" or "request chat" reply keyboard button by sharing `peers` with the bot, and
+    /// returns the service message that records the share.
     ///
     /// `message_id` is the bot message that carries the keyboard, and `button_id` the `request_id` of the pressed
     /// button ([`KeyboardButtonRequestUsers`](crate::types::KeyboardButtonRequestUsers) or
@@ -17,11 +18,12 @@ impl Client {
         message_id: i32,
         button_id: i32,
         peers: impl IntoIterator<Item = impl Into<PeerRef>>,
-    ) -> Result<()> {
+    ) -> Result<Message> {
         let requested_peers = self.resolve_peers(peers).await?;
         if requested_peers.is_empty() {
             return Err(Error::InvalidArgument("share at least one chat"));
         }
+        let chat_id = self.peer_id(chat_id.into()).await?;
         let request = functions::messages::SendBotRequestedPeer {
             peer: self.resolve_peer(chat_id).await?,
             msg_id: Some(message_id),
@@ -29,8 +31,8 @@ impl Client {
             button_id,
             requested_peers,
         };
-        self.invoke(&request).await?;
-        Ok(())
+        let updates = self.invoke(&request).await?;
+        Message::from_updates(self, updates, chat_id, (String::new(), None))
     }
 }
 
@@ -39,6 +41,8 @@ mod tests {
     use crate::Client;
     use crate::errors::Error;
     use crate::raw::{Serializable, base, functions, types};
+    use crate::types::Message;
+    use crate::utils::get_peer;
 
     const BOT: i64 = 42;
     const FRIEND: i64 = 7;
@@ -48,12 +52,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shares_the_chosen_peers_with_the_bot() {
-        let (client, mut rx) = Client::recording();
+    async fn shares_the_chosen_peers_with_the_bot_and_returns_the_message() {
+        let message = base::Message::Message(Box::new(Message::bare(6, get_peer(BOT), 1)));
+        let update = types::UpdateNewMessage { message, pts: 1, pts_count: 1 };
+        let update = base::Update::UpdateNewMessage(Box::new(update));
+        let updates = types::Updates { updates: vec![update], users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
+        let (client, mut rx) = Client::scripted(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
         for id in [BOT, FRIEND] {
             client.0.peers.lock().unwrap().insert(id, user(id));
         }
-        let _ = client.send_bot_requested_peer(BOT, 5, 1, [FRIEND, -9]).await;
+        let message = client.send_bot_requested_peer(BOT, 5, 1, [FRIEND, -9]).await.unwrap();
+        assert_eq!((message.id, message.chat.id), (6, BOT));
         let request = functions::messages::SendBotRequestedPeer {
             peer: user(BOT),
             msg_id: Some(5),
