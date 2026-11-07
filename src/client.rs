@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::Duration;
 
@@ -243,16 +243,22 @@ impl ClientBuilder {
         self
     }
 
-    /// `false` makes every `run` start from now: what came while the client was stopped is skipped. Gaps while it
-    /// runs, such as after a reconnect, are still filled. `true` by default: a client that starts from a saved
-    /// update state first replays what came since it was saved, as far back as Telegram still has it, and so does
-    /// every client started from a copy of the same session. See [`Client::run`] for clients sharing one login.
+    /// `false` makes every `run` start from now: what came while the client was stopped is skipped, and so are the
+    /// updates Telegram still holds for a bot and sends again after a restart, even ones an earlier run handled.
+    /// For a bot, what Telegram dated from the moment `run` was called on is still delivered; updates without a
+    /// date, such as deletions and poll votes, that come before Telegram's held updates are read are skipped with the
+    /// old ones. Gaps while it runs, such as after a reconnect, are still filled. `true` by default: a client that
+    /// starts from a saved update state first replays what came since it was saved, as far back as Telegram still
+    /// has it, and so does every client started from a copy of the same session. See [`Client::run`] for clients
+    /// sharing one login.
     pub fn catch_up(mut self, catch_up: bool) -> Self {
         self.catch_up = catch_up;
         self
     }
 
-    /// Caps how many handlers run at once, at least 1; updates past the cap wait for a slot. No cap by default.
+    /// Caps how many handlers run at once, at least 1; updates past the cap wait for a slot. Once 1024 wait, `run`
+    /// takes no more updates until a handler ends: they queue up to `updates_capacity`, and what overflows that is
+    /// fetched again with getDifference. No cap by default.
     pub fn max_concurrent_handlers(mut self, n: usize) -> Self {
         self.max_concurrent_handlers = Some(n);
         self
@@ -277,8 +283,9 @@ impl ClientBuilder {
     /// Keeps up to `n` received, sent and edited messages, so `reply_to_message()` and
     /// `CallbackQuery::message()` can answer without asking Telegram. Off (0) by default. Deleted messages
     /// (yours included) leave it, and so do messages whose reactions, views or pins change; polls and business
-    /// messages never enter it. `n` counts messages, not bytes: each entry also keeps the users and chats of the
-    /// update it came in, which a big batch shares among all its messages.
+    /// messages never enter it. Up to `n` polls are kept apart, so `on_poll` gets result updates that leave the poll
+    /// out. `n` counts messages, not bytes: each entry also keeps the users and chats of the update it came in, which
+    /// a big batch shares among all its messages.
     pub fn max_message_cache_size(mut self, n: usize) -> Self {
         self.max_message_cache_size = n;
         self
@@ -679,6 +686,10 @@ pub(crate) struct Inner {
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
+    // Set while a `run` (or a client in `compose`) owns the updates, so a second one is refused.
+    pub(crate) running: AtomicBool,
+    // Set by `disconnect`: the storage is let go of then, or when the running `run` ends.
+    pub(crate) disconnected: AtomicBool,
     // Where `recover_gaps` sends its requests while `run` is taking updates.
     pub(crate) recover: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Recover>>>,
     pub(crate) caches: Caches,
@@ -779,6 +790,8 @@ impl Inner {
             auto_no_updates: false,
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
+            running: AtomicBool::new(false),
+            disconnected: AtomicBool::new(false),
             recover: Mutex::new(None),
             caches: Caches::default(),
             fetch: Fetch::default(),
@@ -808,11 +821,11 @@ impl Inner {
         self.store = Arc::new(Store::new(engine, self.events.clone()));
         self.peers.get_mut().unwrap().set_store(self.store.clone());
     }
-}
 
-impl Drop for Inner {
-    fn drop(&mut self) {
-        let update = self.state.get_mut().ok().and_then(Option::take);
+    /// Saves the update state and the salt, then closes the storage for good, waiting for it at most `DROP_WAIT`.
+    /// Once is enough: later calls, the one on drop included, do nothing.
+    pub(crate) fn finish_store(&self) {
+        let update = self.state.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let state = self.stored(update);
         if state.update.is_some() {
             self.store.finish(Some(state));
@@ -823,6 +836,12 @@ impl Drop for Inner {
             }
             self.store.finish(None);
         }
+    }
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        self.finish_store();
     }
 }
 
@@ -1299,12 +1318,13 @@ mod tests {
         let session = file.load_session().await.unwrap().map(|s| (s.user_id, s.is_bot));
         let state = file.load_state().await.unwrap();
         let peers = file.export_peers(None).await.unwrap();
-        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        names.sort();
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(session, Some((1001, true)));
         assert_eq!(state.map(|s| (s.owner, s.update)), Some((1001, Some(update_state))));
         assert_eq!(peers.iter().map(|p| (p.id, p.access_hash)).collect::<Vec<_>>(), [(777, 5)]);
-        assert_eq!(names, ["bot.session"], "one file, no .state");
+        assert_eq!(names, ["bot.session", "bot.session.lock"], "the login and its lock, no .state");
     }
 
     #[tokio::test]

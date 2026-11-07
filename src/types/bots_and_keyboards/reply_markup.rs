@@ -42,8 +42,10 @@ impl ReplyMarkup {
         }
     }
 
-    /// `None` when any button can't be read: an inline callback whose data isn't UTF-8, or a profile button naming the
-    /// sender's own account. Every other button kind Telegram has is read.
+    /// `None` when a profile button names the sender's own account, which can't be read. Every other button kind
+    /// Telegram has is read; callback data that isn't UTF-8 is read lossily, as [`CallbackQuery::data`] is.
+    ///
+    /// [`CallbackQuery::data`]: crate::types::CallbackQuery::data
     pub(crate) fn parse(raw: &base::ReplyMarkup) -> Option<ReplyMarkup> {
         Some(match raw {
             base::ReplyMarkup::ReplyKeyboardHide(m) => {
@@ -126,10 +128,11 @@ fn inline_button(raw: &base::KeyboardInlineButton) -> Option<InlineKeyboardButto
     use base::InlineButtonType as T;
     let base::KeyboardInlineButton::KeyboardInlineButton(b) = raw;
     let action = match &b.r#type {
+        // Bots built with other libraries may send any bytes; reading them lossily keeps the rest of the keyboard.
         T::InlineButtonTypeCallback(t) if t.requires_password => {
-            InlineAction::CallbackWithPassword(std::str::from_utf8(&t.data).ok()?.to_owned())
+            InlineAction::CallbackWithPassword(String::from_utf8_lossy(&t.data).into_owned())
         }
-        T::InlineButtonTypeCallback(t) => InlineAction::Callback(std::str::from_utf8(&t.data).ok()?.to_owned()),
+        T::InlineButtonTypeCallback(t) => InlineAction::Callback(String::from_utf8_lossy(&t.data).into_owned()),
         T::InlineButtonTypeUrl(t) => InlineAction::Url(t.url.clone()),
         T::InlineButtonTypeSwitchInline(t) if t.peer_types.is_none() && t.same_peer => {
             InlineAction::SwitchInlineQueryCurrentChat(t.query.clone())
@@ -375,7 +378,15 @@ mod tests {
         let own = types::InputInlineButtonTypeUserProfile { user_id: base::InputUser::InputUserSelf };
         let unknown = button(base::InlineButtonType::InputInlineButtonTypeUserProfile(Box::new(own)));
         assert_eq!(ReplyMarkup::parse(&markup(vec![callback(b"ok"), unknown])), None);
-        assert_eq!(ReplyMarkup::parse(&markup(vec![callback(&[0xff])])), None);
+        // Callback data that isn't UTF-8 is read lossily, as `CallbackQuery::data` reads it, and the keyboard stays.
+        let url = button(base::InlineButtonType::InlineButtonTypeUrl(Box::new(types::InlineButtonTypeUrl {
+            url: "https://x.y".into(),
+        })));
+        let Some(ReplyMarkup::Inline(keyboard)) = ReplyMarkup::parse(&markup(vec![url, callback(&[b'o', 0xff])]))
+        else {
+            panic!("the keyboard was dropped")
+        };
+        assert_eq!(keyboard.rows[0][1].action, crate::types::InlineAction::Callback("o\u{fffd}".into()));
         let buy = button(base::InlineButtonType::InlineButtonTypeBuy);
         assert!(ReplyMarkup::parse(&markup(vec![buy])).is_some());
     }

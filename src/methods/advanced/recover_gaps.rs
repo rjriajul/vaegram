@@ -25,7 +25,8 @@ impl Client {
 impl RecoverGaps<'_> {
     /// Recovers only these: `0` for the common update box, `-100...` ids for channels.
     ///
-    /// A channel this client has no update state for is skipped. By default everything is recovered.
+    /// A channel this client has no update state for, and any other id, is skipped. By default everything is
+    /// recovered.
     pub fn chat_ids(mut self, ids: impl IntoIterator<Item = i64>) -> Self {
         self.chat_ids = Some(ids.into_iter().collect());
         self

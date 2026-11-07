@@ -24,7 +24,7 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::session::{Incoming, UpdatesRx};
 use crate::storage::UpdateState;
-use crate::utils::{channel_id_of, get_channel_id};
+use crate::utils::{CHANNEL_OFFSET, channel_id_of, get_channel_id};
 
 const SAVE_EVERY: Duration = Duration::from_secs(10);
 
@@ -47,6 +47,9 @@ pub(crate) struct Dispatcher {
     tasks: Tasks,
     // Messages and other updates the differences have brought in, counted by `difference.rs`.
     recovered: (usize, usize),
+    // Set by `from_now` until the first difference is read whole or given up on: what it brings, and what is pushed
+    // meanwhile, dated before this, Telegram may have held from before the run, and it is dropped unseen.
+    held_before: Option<i32>,
 }
 
 impl Dispatcher {
@@ -58,6 +61,20 @@ impl Dispatcher {
 
     pub(crate) fn resume(client: Client, state: UpdateState) -> Self {
         Dispatcher::with(client, Tracker { state, due: vec![Key::Pts], ..Tracker::default() })
+    }
+
+    /// Starts at `state` without catch-up. A bot's updates.getState names the last update Telegram knows it got, and
+    /// the ones after it come again, even those an earlier run handled, so `run` reads them first: those dated
+    /// before `since` are dropped, and those dated later, which came in since the run began, reach the handlers.
+    /// Updates that carry no date, such as deletions and poll votes, can't be told apart and are dropped too. Until
+    /// that first difference is read whole or given up on, pushed updates are filtered the same way, since Telegram
+    /// pushes what it held again.
+    pub(crate) fn from_now(client: Client, state: &types::updates::State, since: i32) -> Self {
+        let mut tracker = Tracker { due: vec![Key::Pts], ..Tracker::default() };
+        tracker.set_state(state);
+        let mut dispatcher = Dispatcher::with(client, tracker);
+        dispatcher.held_before = Some(since);
+        dispatcher
     }
 
     fn with(client: Client, mut tracker: Tracker) -> Self {
@@ -79,6 +96,7 @@ impl Dispatcher {
             account,
             tasks,
             recovered: (0, 0),
+            held_before: None,
         }
     }
 
@@ -94,9 +112,7 @@ impl Dispatcher {
         *self.client.0.recover.lock().unwrap_or_else(PoisonError::into_inner) = Some(requests);
         self.resolve().await;
         loop {
-            for (update, entities) in std::mem::take(&mut self.tracker.ready) {
-                self.dispatch(update, &entities);
-            }
+            self.dispatch_ready();
             // Saved every SAVE_EVERY when it moved, and on drop, so a crash replays at most that much. Peers are
             // written by the store on its own timer.
             if self.saved_at.elapsed() >= SAVE_EVERY {
@@ -113,6 +129,8 @@ impl Dispatcher {
                     None => Ok(updates.recv().await),
                 }
             };
+            // With a handler cap and the waiting room full, updates wait in the update queue instead.
+            let full = self.tasks.full();
             let next = tokio::select! {
                 biased;
                 // The watch guard `wait_for` returns isn't Send, so it is dropped before awaiting the handlers.
@@ -130,10 +148,15 @@ impl Dispatcher {
                     }
                     return true;
                 }
-                next = next => next,
+                next = next, if !full => next,
+                () = self.tasks.one_done(), if full => continue,
                 // After the updates, and one request a turn, so a tight `recover_gaps` loop can't starve them.
                 Some(request) = recoveries.recv() => {
                     self.recover(request).await;
+                    continue;
+                }
+                () = self.client.0.handlers.listeners.returned().notified() => {
+                    self.redeliver();
                     continue;
                 }
             };
@@ -152,7 +175,8 @@ impl Dispatcher {
         }
     }
 
-    /// Marks what was asked for as due and resolves it now, so the counts include whatever else was already due; the updates it finds are dispatched on the next turn.
+    /// Marks what was asked for as due and resolves it now, so the counts include whatever else was already due; the
+    /// updates it finds reach the handlers page by page, the last page's on the next turn.
     async fn recover(&mut self, request: Recover) {
         let t = &mut self.tracker;
         match request.chats {
@@ -165,7 +189,8 @@ impl Dispatcher {
                 for chat in chats {
                     if chat == 0 {
                         t.mark(Key::Pts);
-                    } else if t.state.channels.contains_key(&channel_id_of(chat)) {
+                    } else if chat <= -CHANNEL_OFFSET && t.state.channels.contains_key(&channel_id_of(chat)) {
+                        // Only `-100…` ids are channels; a user's or group's id names no box.
                         t.mark(Key::Channel(channel_id_of(chat)));
                     }
                 }
@@ -201,12 +226,29 @@ impl Dispatcher {
     }
 
     async fn resolve(&mut self) {
+        // Before any getDifference, which would otherwise start from the old numbering.
+        if std::mem::take(&mut self.tracker.refetch) {
+            let result = self.refetch_state().await;
+            // A failure is reported like a failed difference and asked again on the next turn.
+            self.tracker.refetch = result.is_err();
+            self.report(result);
+        }
         while let Some(key) = self.tracker.due.pop() {
+            // Nothing waits in `ready` across an await: a dropped `run` would hand back a state past updates no
+            // handler saw.
+            self.dispatch_ready();
             let result = match key {
                 Key::Channel(id) => self.channel_difference(id).await,
                 _ => self.difference().await,
             };
             let skipped = self.tracker.recover(&result, key);
+            // Read whole or given up on: either way what Telegram held is settled, so the window closes, after what
+            // settling released went through it.
+            let settled = !matches!(key, Key::Channel(_)) && !self.tracker.retries.iter().any(|(_, k)| *k == key);
+            if settled && self.held_before.is_some() {
+                self.dispatch_ready();
+                self.held_before = None;
+            }
             self.report(result);
             for s in skipped {
                 self.skipped(s.key, s.from, s.to, s.reason);
@@ -228,16 +270,47 @@ impl Dispatcher {
         self.client.0.events.emit(ClientEvent::UpdatesSkipped { chat_id, from, to, reason });
     }
 
+    /// Hands every update the tracker has released to the handlers, in order.
+    fn dispatch_ready(&mut self) {
+        let held_before = self.held_before;
+        for (update, entities) in std::mem::take(&mut self.tracker.ready) {
+            // Telegram pushes what it held again, so until a difference is read, a pushed update may be held too.
+            if held_before.is_some_and(|since| difference::held(&update, since)) {
+                continue;
+            }
+            self.dispatch(update, &entities);
+        }
+    }
+
     fn dispatch(&mut self, update: base::Update, entities: &Arc<Entities>) {
-        entities.remember_min_sender(&self.client, &update);
+        let message = match &update {
+            base::Update::UpdateNewMessage(u) => Some(&u.message),
+            base::Update::UpdateNewChannelMessage(u) => Some(&u.message),
+            base::Update::UpdateEditMessage(u) => Some(&u.message),
+            base::Update::UpdateEditChannelMessage(u) => Some(&u.message),
+            _ => None,
+        };
+        if let Some(message) = message {
+            entities.remember_min_peers(&self.client, message);
+        }
         self.client.stop_stream(&update);
+        self.refresh_router();
+        self.router.dispatch(&self.client, update, entities, &mut self.tasks);
+    }
+
+    /// Routes again the updates listeners were handed but dropped before reading.
+    fn redeliver(&mut self) {
+        self.refresh_router();
+        self.router.redeliver(&self.client, &mut self.tasks);
+    }
+
+    fn refresh_router(&mut self) {
         let handlers = &self.client.0.handlers;
         let generation = handlers.generation();
         if generation != self.generation {
             (self.router, self.generation) = (handlers.current(), generation);
             self.tasks.on_error = self.router.on_error.clone();
         }
-        self.router.dispatch(&self.client, update, entities, &mut self.tasks);
     }
 }
 
@@ -261,7 +334,7 @@ mod tests {
     use crate::dispatcher::listeners::tests::until_waiting;
     use crate::errors::{Error, RpcError};
     use crate::raw::{Identifiable, Serializable};
-    use crate::session::UpdatesRx;
+    use crate::session::{Session, UpdatesRx};
     use crate::storage::{Recording, Storage, UpdateState};
     use crate::types::{Message, RawUpdate};
     use crate::utils::{get_channel_id, get_peer};
@@ -334,12 +407,16 @@ mod tests {
         let page = base::updates::ChannelDifference::ChannelDifference(Box::new(page));
         let refused = || Err(Error::Rpc(RpcError::parse(400, "CHANNEL_BROKEN")));
         let (client, _sent) = Client::scripted(vec![Ok(page.to_bytes()), refused()]);
+        let seen = raw_updates(&client);
         let peer = types::InputPeerChannel { channel_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(get_channel_id(7), base::InputPeer::InputPeerChannel(Box::new(peer)));
         let mut d = Dispatcher::new(client, &state());
         d.tracker.state.channels.insert(7, 1);
         assert!(d.channel_difference(7).await.is_err());
-        assert_eq!((d.tracker.state.channels[&7], d.tracker.ready.len()), (5, 1));
+        settle().await;
+        // The first page's message went to the handlers before the second page was asked for.
+        let handled = seen.lock().unwrap().len();
+        assert_eq!((d.tracker.state.channels[&7], d.tracker.ready.len(), handled), (5, 0, 1));
     }
 
     #[tokio::test(start_paused = true)]
@@ -388,15 +465,19 @@ mod tests {
         seen
     }
 
+    async fn settle() {
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+    }
+
     async fn deliver(d: &mut Dispatcher, updates: base::Updates) {
         d.process(Incoming { updates, from_request: false });
         d.resolve().await;
         for (update, entities) in std::mem::take(&mut d.tracker.ready) {
             d.dispatch(update, &entities);
         }
-        for _ in 0..20 {
-            tokio::task::yield_now().await;
-        }
+        settle().await;
     }
 
     #[tokio::test]
@@ -642,6 +723,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn recovery_skips_ids_that_are_no_channel() {
+        let (client, mut sent) = Client::recording();
+        let mut d = Dispatcher::new(client, &state());
+        d.tracker.state.channels.insert(9, 1);
+        d.tracker.due.clear();
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        let chats = vec![i64::MAX, 7, -7, -super::CHANNEL_OFFSET + 1, i64::MIN];
+        d.recover(super::Recover { chats: Some(chats), reply }).await;
+        assert_eq!(answer.await.unwrap(), (0, 0));
+        assert!(sent.try_recv().is_err(), "a box was fetched");
+    }
+
+    #[tokio::test]
+    async fn pts_changed_refetches_the_state() {
+        let fresh = types::updates::State { pts: 500, qts: 3, date: 9, seq: 4, unread_count: 0 };
+        let fresh = base::updates::State::State(Box::new(fresh));
+        let (client, mut sent) = Client::scripted(vec![Ok(fresh.to_bytes())]);
+        let mut d = Dispatcher::new(client, &state());
+        // Held for a gap under the old numbering.
+        d.tracker.update(new_message(3), &Arc::default(), false);
+        let short = types::UpdateShort { update: base::Update::UpdatePtsChanged, date: 0 };
+        d.process(Incoming { updates: base::Updates::UpdateShort(Box::new(short)), from_request: false });
+        d.resolve().await;
+        assert_eq!(sent.try_recv().unwrap(), crate::raw::functions::updates::GetState {}.to_bytes());
+        assert!(sent.try_recv().is_err(), "more than getState was asked");
+        let s = &d.tracker.state;
+        assert_eq!((s.pts, s.qts, s.date, s.seq), (500, 3, 9, 4));
+        assert!(d.tracker.pending.is_empty() && !d.tracker.refetch);
+        // Raw handlers still see it.
+        assert!(matches!(d.tracker.ready[..], [(base::Update::UpdatePtsChanged, _)]));
+    }
+
+    #[tokio::test]
     async fn too_long_differences_report_the_skipped_range() {
         let too_long = base::updates::Difference::DifferenceTooLong(types::updates::DifferenceTooLong { pts: 50 });
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 0, seq: 0 });
@@ -760,5 +874,102 @@ mod tests {
         let stopped = run_until_disconnected(&client, true).await;
         assert!(!stopped);
         assert!(!engine.calls().contains(&"save_state"), "{:?}", engine.calls());
+    }
+
+    #[tokio::test]
+    async fn a_run_dropped_between_difference_pages_has_handled_what_it_hands_back() {
+        let state = types::updates::State { pts: 50, qts: 0, date: 5, seq: 0, unread_count: 0 };
+        let slice = types::updates::DifferenceSlice {
+            new_messages: vec![base::Message::Message(Box::new(Message::bare(42, get_peer(7), 0)))],
+            new_encrypted_messages: Vec::new(),
+            other_updates: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+            intermediate_state: base::updates::State::State(Box::new(state)),
+        };
+        let page = base::updates::Difference::DifferenceSlice(Box::new(slice));
+        // The first page is answered, the second never is.
+        let (session, mut sent) = Session::answering(vec![Ok(page.to_bytes())]);
+        let client = Client::with_session(session);
+        let seen = raw_updates(&client);
+        let (_updates, mut rx) = UpdatesRx::channel_with(client.0.events.clone());
+        let mut d = Dispatcher::resume(client.clone(), UpdateState { pts: 10, date: 1, ..Default::default() });
+        tokio::select! {
+            _ = d.run(&mut rx) => panic!("run ended"),
+            _ = async { sent.recv().await; sent.recv().await } => {}
+        }
+        drop(d);
+        settle().await;
+        let handed_back = client.0.state.lock().unwrap().as_ref().map(|s| s.pts);
+        assert_eq!((handed_back, seen.lock().unwrap().len()), (Some(50), 1));
+    }
+
+    #[tokio::test]
+    async fn a_message_a_dropped_listener_took_still_reaches_the_handlers() {
+        use crate::dispatcher::listeners::tests::new_message;
+        let client = Client::offline();
+        let handled = Arc::new(Mutex::new(Vec::new()));
+        let log = handled.clone();
+        client.on_message(crate::filters::all(), move |m| {
+            log.lock().unwrap().push(m.id);
+            async { Ok(()) }
+        });
+        let mut d = Dispatcher::new(client.clone(), &state());
+        let mut listen = std::future::IntoFuture::into_future(client.listen::<Message>());
+        tokio::select! {
+            biased;
+            _ = &mut listen => panic!("nothing was offered"),
+            () = std::future::ready(()) => {}
+        }
+        // The listener takes the message, then is dropped before it reads it, as a `select!` that picks another
+        // branch does.
+        d.dispatch(new_message(5, 7), &Arc::default());
+        drop(listen);
+        let (_updates, mut rx) = UpdatesRx::channel_with(client.0.events.clone());
+        let reached = async {
+            while handled.lock().unwrap().is_empty() {
+                tokio::task::yield_now().await;
+            }
+        };
+        tokio::select! {
+            _ = d.run(&mut rx) => panic!("run ended"),
+            _ = tokio::time::timeout(std::time::Duration::from_secs(5), reached) => {}
+        }
+        assert_eq!(*handled.lock().unwrap(), [5]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn with_a_handler_cap_updates_wait_in_the_queue_once_the_waiting_room_is_full() {
+        use super::tasks::MAX_WAITING_HANDLERS;
+        let mut client = Client::offline();
+        Arc::get_mut(&mut client.0).unwrap().handler_permits = Some(Arc::new(tokio::sync::Semaphore::new(1)));
+        // The first handler never ends, so every later one waits for its slot.
+        client.on_raw_update(|_, _| std::future::pending::<crate::errors::Result<()>>());
+        let mut d = Dispatcher::new(client.clone(), &state());
+        let (updates, mut rx) = UpdatesRx::channel_with(client.0.events.clone());
+        let status = || {
+            let status = types::UpdateUserStatus { user_id: 7, status: base::UserStatus::UserStatusEmpty };
+            let update = types::UpdateShort { update: base::Update::UpdateUserStatus(Box::new(status)), date: 0 };
+            Incoming { updates: base::Updates::UpdateShort(Box::new(update)), from_request: false }
+        };
+        let offered = 3 * MAX_WAITING_HANDLERS;
+        let feed = async {
+            let mut taken = 0;
+            while taken < offered {
+                let send = tokio::time::timeout(std::time::Duration::from_secs(1), updates.send(status()));
+                if send.await.is_err() {
+                    break;
+                }
+                taken += 1;
+            }
+            taken
+        };
+        let taken = tokio::select! {
+            _ = d.run(&mut rx) => panic!("run ended"),
+            taken = feed => taken,
+        };
+        // One running, the waiting room, and what the update queue holds (8 in tests).
+        let room = MAX_WAITING_HANDLERS..=1 + MAX_WAITING_HANDLERS + 8 + 1;
+        assert!(room.contains(&taken), "the dispatcher took {taken} of {offered} updates");
     }
 }

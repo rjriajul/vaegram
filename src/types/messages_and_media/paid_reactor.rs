@@ -12,7 +12,7 @@ pub struct PaidReactor {
     pub star_count: i64,
     /// The sender is among the top senders.
     pub is_top: bool,
-    /// The current account sent them.
+    /// The current account sent them. Always `false` in a [partial](crate::types::MessageReactions::is_partial) list.
     pub is_me: bool,
     /// The sender chose to react anonymously.
     pub is_anonymous: bool,

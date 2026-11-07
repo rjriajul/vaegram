@@ -224,12 +224,29 @@ impl Client {
         options: SendOptions,
     ) -> Result<Message> {
         let (chat_id, peer) = self.resolve(&chat_id.into()).await?;
+        let in_topic = options.thread().is_some();
         let reply_to = options.input_reply_to(self, chat_id, options.thread()).await?;
         // Telegram drops a second message with the same random_id, so retries can't double-send.
         let random_id = i64::from_le_bytes(random());
         let reply_markup = ReplyMarkup::write_option(options.reply_markup.as_ref(), self).await?;
         let suggested_post = options.suggested_post_parameters.map(SuggestedPostParameters::write);
         let connection_id = options.business_connection_id;
+        let me = self.0.me.lock().unwrap().id;
+        // The message as the request describes it, for a short "sent" reply that carries little more than its id.
+        macro_rules! sent {
+            ($request:ident) => {
+                types::Message {
+                    silent: $request.silent,
+                    noforwards: $request.noforwards,
+                    invert_media: $request.invert_media,
+                    reply_to: $request.reply_to.and_then(|reply| Message::reply_header(reply, me, in_topic)),
+                    reply_markup: $request.reply_markup,
+                    effect: $request.effect,
+                    paid_message_stars: $request.allow_paid_stars,
+                    ..Message::request(chat_id, $request.message, $request.entities)
+                }
+            };
+        }
         let (updates, sent, rich_message) = match media {
             Some(media) => {
                 let request = functions::messages::SendMedia {
@@ -256,7 +273,7 @@ impl Client {
                     suggested_post,
                 };
                 let (updates, request) = self.invoke_business(connection_id.as_deref(), request).await?;
-                (updates, (request.message, request.entities), None)
+                (updates, sent!(request), None)
             }
             None => {
                 let request = functions::messages::SendMessage {
@@ -284,13 +301,15 @@ impl Client {
                     rich_message,
                 };
                 let (updates, request) = self.invoke_business(connection_id.as_deref(), request).await?;
-                (updates, (request.message, request.entities), request.rich_message)
+                let rich_message = request.rich_message;
+                (updates, sent!(request), rich_message)
             }
         };
-        let Some(rich_message) = rich_message else { return Message::from_updates(self, updates, chat_id, sent) };
+        let Some(rich_message) = rich_message else { return Message::from_updates(self, updates, sent) };
         // A short "sent" reply has no rich message, so it is rebuilt from the request, minus photos and documents.
         let (text, sent_rich) = RichMessage::sent(rich_message);
-        let mut message = Message::from_updates(self, updates, chat_id, (text, None))?;
+        let sent = types::Message { message: text, entities: None, ..sent };
+        let mut message = Message::from_updates(self, updates, sent)?;
         if message.rich_message.is_none() {
             message.rich_message = sent_rich;
         }
@@ -300,8 +319,15 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
-    use crate::types::Text;
+    use crate::client::Me;
+    use crate::dispatcher::Entities;
+    use crate::dispatcher::cache::Caches;
+    use crate::raw::Serializable;
+    use crate::types::{CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Text};
+    use crate::utils::get_peer;
 
     const GROUP: i64 = -5;
 
@@ -398,5 +424,57 @@ mod tests {
         };
         let story = types::InputReplyToStory { peer: user, story_id: 8 };
         assert_eq!(written(client, options).await, Some(base::InputReplyTo::InputReplyToStory(Box::new(story))));
+    }
+
+    #[tokio::test]
+    async fn a_short_sent_reply_keeps_what_the_request_carried() {
+        let short = base::Updates::UpdateShortSentMessage(Box::new(types::UpdateShortSentMessage {
+            out: true,
+            id: 9,
+            pts: 0,
+            pts_count: 0,
+            date: 0,
+            media: None,
+            entities: None,
+            ttl_period: None,
+        }));
+        let (mut client, _rx) = Client::scripted(vec![Ok(short.to_bytes())]);
+        Arc::get_mut(&mut client.0).unwrap().caches = Caches::new(10, 0);
+        *client.0.me.lock().unwrap() = Me { id: 42, is_bot: true, premium: None, username: Some("bot".into()) };
+        let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
+        client.0.peers.lock().unwrap().insert(7, user);
+
+        let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Go", "go")]]);
+        let sent = client
+            .send_message(7, "hi")
+            .reply_to(ReplyParameters::new(3).quote("hi"))
+            .protect_content()
+            .disable_notification()
+            .message_effect_id(5)
+            .reply_markup(keyboard.clone())
+            .await
+            .unwrap();
+        let check = |m: &Message| {
+            assert_eq!(m.reply_markup(), Some(ReplyMarkup::Inline(keyboard.clone())));
+            assert_eq!((m.reply_to_message_id, m.quote.as_ref().map(|q| q.text.as_str())), (Some(3), Some("hi")));
+            assert!(m.has_protected_content && m.silent);
+            assert_eq!(m.effect_id, Some(5));
+            let from = m.from_user.as_deref().unwrap();
+            assert_eq!((from.id, from.is_bot, from.is_self, from.username.as_deref()), (42, true, true, Some("bot")));
+        };
+        check(&sent);
+
+        // A press on the keyboard reads the message back from the cache.
+        let press = types::UpdateBotCallbackQuery {
+            query_id: 1,
+            user_id: 7,
+            peer: get_peer(7),
+            msg_id: 9,
+            chat_instance: 3,
+            data: Some(b"go".to_vec()),
+            game_short_name: None,
+        };
+        let query = CallbackQuery::parse(&client, &press, &Entities::default());
+        check(&query.message().await.unwrap().unwrap());
     }
 }

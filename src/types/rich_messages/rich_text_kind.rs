@@ -152,8 +152,8 @@ pub enum RichTextKind {
     Button {
         /// Label of the button.
         text: RichText,
-        /// What the button does. `None` for a button the keyboard parser can't read, such as a callback whose
-        /// data isn't UTF-8.
+        /// What the button does. `None` for a button the keyboard parser can't read, such as a profile button naming
+        /// the sender's own account.
         action: Option<InlineKeyboardButton>,
         /// Visual style of the button.
         style: RichButtonStyle,
@@ -352,7 +352,7 @@ mod tests {
             style: None,
         };
         let K::Button { action, .. } = kind(T::TextButton(Box::new(odd))) else { panic!("not a button") };
-        assert_eq!(action, None);
+        assert_eq!(action, Some(InlineKeyboardButton::callback("Odd", "\u{fffd}\u{fffd}")));
     }
 
     #[test]

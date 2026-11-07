@@ -1,13 +1,21 @@
+use std::sync::atomic::Ordering;
+
 use crate::Client;
 use crate::dispatcher::Dispatcher;
 use crate::dispatcher::router::run_hook;
 use crate::errors::{Error, Result};
 use crate::handlers::UpdateKind;
 use crate::raw::{base, functions};
+use crate::session::internals::now;
+
+// The server's clock is read in whole seconds, so the run's start, in Telegram's time, may read up to a second
+// late.
+const CLOCK_SLACK: i64 = 1;
 
 impl Client {
     /// Takes updates and runs the handlers until `stop`, then returns `Ok(())`; it returns `Error::Disconnected`
-    /// when the connection ends.
+    /// when the connection ends. Fails at once with `Error::InvalidArgument` while this client is already running,
+    /// here or in [`compose`](Client::compose).
     ///
     /// Telegram sends updates to every connected session of an account, bots included, so several clients logged
     /// in as the same bot or user, in one process or several, each get every update and each run their handlers:
@@ -15,10 +23,19 @@ impl Client {
     /// the default, `run` first replays what came since the saved update state, so a client started from an old
     /// session, or from a copy of another client's, handles those updates again too.
     pub async fn run(&self) -> Result<()> {
+        let running = self.claim_run()?;
         match self.prepare().await? {
-            Some(dispatcher) => self.drive(dispatcher).await,
+            Some(dispatcher) => self.drive(running, dispatcher).await,
             None => Ok(()),
         }
+    }
+
+    /// The client's updates for one `run`, until the returned guard is dropped.
+    pub(super) fn claim_run(&self) -> Result<Running> {
+        if self.0.running.swap(true, Ordering::AcqRel) {
+            return Err(Error::InvalidArgument("this client is already running"));
+        }
+        Ok(Running(self.clone()))
     }
 
     /// What anything that waits for updates checks first: a client built with `no_updates` never gets any.
@@ -45,26 +62,39 @@ impl Client {
 
     async fn start_dispatcher(&self) -> Result<Dispatcher> {
         self.require_updates()?;
+        let local_start = now();
         self.set_me(&self.get_me_raw().await?);
+        // When the run began, in Telegram's time, as the getMe reply just showed its clock: without catch-up, a bot
+        // drops what Telegram dated before it.
+        let started = local_start + self.session().seen_offset() - CLOCK_SLACK;
         let saved = self.0.state.lock().unwrap().take().filter(|_| self.0.catch_up);
         let dispatcher = match saved {
             Some(state) => Dispatcher::resume(self.clone(), state),
             None => {
                 let base::updates::State::State(state) = self.invoke(&functions::updates::GetState {}).await?;
-                Dispatcher::new(self.clone(), &state)
+                if self.0.catch_up || !self.0.me.lock().unwrap().is_bot {
+                    // With catch-up on and nothing saved, what Telegram still holds is delivered as it comes. A
+                    // user's getState is current, so there is nothing from before to skip.
+                    Dispatcher::new(self.clone(), &state)
+                } else {
+                    Dispatcher::from_now(self.clone(), &state, i32::try_from(started).unwrap_or(i32::MAX))
+                }
             }
         };
         self.lifecycle_hook(UpdateKind::Start).await;
         Ok(dispatcher)
     }
 
-    pub(super) async fn drive(&self, mut dispatcher: Dispatcher) -> Result<()> {
+    // `dispatcher` comes after `running`, so a cancelled `drive` drops it first: it hands its state back to the
+    // client before `Running` saves it for a disconnected client.
+    pub(super) async fn drive(&self, running: Running, mut dispatcher: Dispatcher) -> Result<()> {
         let stopped = dispatcher.run(&mut *self.0.updates.lock().await).await;
         // Dropped first, so the update state is back in the client when the stop hook runs.
         drop(dispatcher);
         self.lifecycle_hook(UpdateKind::Stop).await;
         // Cleared here, not on entry, so a stop() that lands before run gets going still counts.
         self.0.stop.send_replace(false);
+        drop(running);
         if stopped { Ok(()) } else { Err(Error::Disconnected) }
     }
 
@@ -83,6 +113,20 @@ impl Client {
     }
 }
 
+/// Held while a `run` owns the client's updates; dropping it, however `run` ends, lets the next one start, and
+/// closes the storage of a client `disconnect` was called on meanwhile.
+pub(super) struct Running(Client);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let inner = &self.0.0;
+        inner.running.store(false, Ordering::SeqCst);
+        if inner.disconnected.load(Ordering::SeqCst) {
+            inner.finish_store();
+        }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use std::future::{Ready, ready};
@@ -92,12 +136,14 @@ pub(super) mod tests {
     use tokio::sync::{Notify, mpsc, oneshot};
 
     use crate::Client;
+    use crate::client::Me;
     use crate::errors::{Error, Result, RpcError};
     use crate::handlers::UpdateKind;
     use crate::raw::functions::{updates, users};
     use crate::raw::{Identifiable, Serializable, base, types};
     use crate::session::{Incoming, UpdatesRx};
-    use crate::storage::{MemoryStorage, Storage, UpdateState};
+    use crate::storage::{FileStorage, MemoryStorage, Storage, UpdateState};
+    use crate::utils::get_peer;
 
     type Log = Arc<Mutex<Vec<&'static str>>>;
 
@@ -209,6 +255,77 @@ pub(super) mod tests {
     }
 
     #[tokio::test]
+    async fn a_second_run_while_one_is_running_is_refused() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
+        let (client, mut sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
+        let (_updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = starts.clone();
+        client.on_start(move |_| {
+            counted.fetch_add(1, Ordering::Relaxed);
+            ready(Ok(()))
+        });
+        let first = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        // users.getUsers, then updates.getDifference: the first run is taking updates.
+        sent.recv().await;
+        sent.recv().await;
+
+        let second = client.run().await;
+        assert!(matches!(second, Err(Error::InvalidArgument(_))), "{second:?}");
+        assert!(sent.try_recv().is_err(), "the second run sent something");
+        client.stop();
+        assert!(first.await.unwrap().is_ok());
+        assert_eq!(starts.load(Ordering::Relaxed), 1);
+        assert!(!client.0.running.load(Ordering::Relaxed), "a later run would be refused too");
+    }
+
+    // The test kit's way to end: a handler holds a clone of its client, `disconnect`, then the runtime goes and
+    // cancels `run`.
+    #[tokio::test]
+    async fn a_disconnected_run_saves_and_lets_go_of_the_session_file_as_it_ends() {
+        let dir = std::env::temp_dir().join(format!("vaegram-run-disconnect-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
+        let (mut client, mut sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
+        client.save().await.unwrap();
+        *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
+        let (_updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let own = client.clone();
+        client.on_raw_update(move |_, _| {
+            let _own = &own;
+            ready(Ok(()))
+        });
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        // users.getUsers, then updates.getDifference: the run is taking updates.
+        sent.recv().await;
+        sent.recv().await;
+
+        client.disconnect();
+        run.abort();
+        let _ = run.await;
+        let second = FileStorage::new(dir.join("bot"));
+        let reopened = second.open().await;
+        let saved = second.load_state().await.ok().flatten().and_then(|s| s.update).map(|u| (u.pts, u.date));
+        drop(second);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(reopened.is_ok(), "{reopened:?}");
+        assert_eq!(saved, Some((10, 2)), "the run's state is saved before the file is let go");
+    }
+
+    #[tokio::test]
     async fn restart_catches_up_from_saved_state() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = types::updates::DifferenceEmpty { date: 2, seq: 3 };
@@ -227,13 +344,42 @@ pub(super) mod tests {
     }
 
     #[tokio::test]
-    async fn without_catch_up_run_starts_from_get_state() {
+    async fn without_catch_up_a_bot_starts_from_get_state() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let now = types::updates::State { pts: 50, qts: 0, date: 2, seq: 0, unread_count: 0 };
         let now = base::updates::State::State(Box::new(now));
-        let (mut client, mut sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(now.to_bytes())]);
+        let nothing_pending =
+            base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 3, seq: 0 });
+        let replies = vec![Ok(me.to_bytes()), Ok(now.to_bytes()), Ok(nothing_pending.to_bytes())];
+        let (mut client, mut sent) = Client::scripted(replies);
         Arc::get_mut(&mut client.0).unwrap().catch_up = false;
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
+
+        assert!(client.run().await.is_err());
+
+        let bodies: Vec<Vec<u8>> = std::iter::from_fn(|| sent.try_recv().ok()).collect();
+        let ids: Vec<u32> = bodies.iter().map(|b| u32::from_le_bytes(b[..4].try_into().unwrap())).collect();
+        let expected = [
+            users::GetUsers::CONSTRUCTOR_ID,
+            updates::GetState::CONSTRUCTOR_ID,
+            updates::GetDifference::CONSTRUCTOR_ID,
+        ];
+        assert_eq!(ids, expected);
+        // The difference starts from getState's answer, not the saved state.
+        assert_eq!(bodies[2][8..12], 50i32.to_le_bytes());
+        assert_eq!(client.0.state.lock().unwrap().as_ref().map(|s| (s.pts, s.date)), Some((50, 3)));
+    }
+
+    // A user's getState is current, so a user's run starts from it as it is.
+    #[tokio::test]
+    async fn without_catch_up_a_user_starts_from_get_state_without_a_difference() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let now = types::updates::State { pts: 50, qts: 0, date: 2, seq: 0, unread_count: 0 };
+        let (mut client, mut sent) =
+            Client::scripted(vec![Ok(me.to_bytes()), Ok(base::updates::State::State(Box::new(now)).to_bytes())]);
+        Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        // Test clients are bots; this one is a user.
+        *client.0.me.lock().unwrap() = Me { id: 1, is_bot: false, ..Me::default() };
 
         assert!(client.run().await.is_err());
 
@@ -241,7 +387,265 @@ pub(super) mod tests {
             .map(|b| u32::from_le_bytes(b[..4].try_into().unwrap()))
             .collect();
         assert_eq!(ids, [users::GetUsers::CONSTRUCTOR_ID, updates::GetState::CONSTRUCTOR_ID]);
-        assert_eq!(client.0.state.lock().unwrap().as_ref().map(|s| s.pts), Some(50));
+        assert_eq!(client.0.state.lock().unwrap().as_ref().map(|s| (s.pts, s.date)), Some((50, 2)));
+    }
+
+    fn connected(id: &str, qts: i32) -> base::Update {
+        let connection = types::BotBusinessConnection {
+            disabled: false,
+            connection_id: id.into(),
+            user_id: 7,
+            dc_id: 2,
+            date: 1,
+            rights: None,
+        };
+        let connection = base::BotBusinessConnection::BotBusinessConnection(Box::new(connection));
+        base::Update::UpdateBotBusinessConnect(Box::new(types::UpdateBotBusinessConnect { connection, qts }))
+    }
+
+    // A bot's updates.getState names the last update Telegram knows it confirmed, so updates it pushed in an earlier
+    // run come again after it. Without catch-up they are skipped: the difference since then is read, and what it
+    // brings from before the run is dropped.
+    #[tokio::test]
+    async fn without_catch_up_updates_from_before_are_skipped() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let confirmed = types::updates::State { pts: 50, qts: 5, date: 2, seq: 0, unread_count: 0 };
+        let now = types::updates::State { qts: 6, date: 3, ..confirmed.clone() };
+        let pending = types::updates::Difference {
+            new_messages: Vec::new(),
+            new_encrypted_messages: Vec::new(),
+            other_updates: vec![connected("old", 6)],
+            chats: Vec::new(),
+            users: Vec::new(),
+            state: base::updates::State::State(Box::new(now)),
+        };
+        let pending = base::updates::Difference::Difference(Box::new(pending));
+        let confirmed = base::updates::State::State(Box::new(confirmed));
+        let replies = vec![Ok(me.to_bytes()), Ok(confirmed.to_bytes()), Ok(pending.to_bytes())];
+        let (mut client, _sent) = Client::scripted(replies);
+        Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        let (updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        client.on_business_connection(crate::filters::all(), move |c| {
+            log.lock().unwrap().push(c.id);
+            ready(Ok(()))
+        });
+        // Telegram pushes the old one again, then a new one.
+        for (id, qts) in [("old", 6), ("new", 7)] {
+            let short = types::UpdateShort { update: connected(id, qts), date: 3 };
+            let incoming = Incoming { updates: base::Updates::UpdateShort(Box::new(short)), from_request: false };
+            updates.send(incoming).await.unwrap();
+        }
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        while seen.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        client.stop();
+        assert!(run.await.unwrap().is_ok());
+        assert_eq!(*seen.lock().unwrap(), ["new"]);
+    }
+
+    fn new_message(id: i32, date: i32, pts: i32) -> base::Update {
+        let message = base::Message::Message(Box::new(crate::types::Message::bare(id, get_peer(7), date)));
+        base::Update::UpdateNewMessage(Box::new(types::UpdateNewMessage { message, pts, pts_count: 1 }))
+    }
+
+    /// The ids of the new messages a run without catch-up hands to its handlers, waiting until `expected` came,
+    /// when getState says pts 50, the difference after it brings `held` and ends at pts `to`, `pushed` waits on
+    /// the update stream, and the server's clock runs `server_ahead` seconds ahead of this one.
+    async fn delivered_from_now(
+        held: Vec<base::Update>,
+        to: i32,
+        pushed: Vec<base::Update>,
+        expected: usize,
+        server_ahead: i64,
+    ) -> Vec<i32> {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let state = |pts| types::updates::State { pts, qts: 0, date: 2, seq: 0, unread_count: 0 };
+        let held = held.into_iter().map(|u| match u {
+            base::Update::UpdateNewMessage(u) => u.message,
+            _ => unreachable!("only new messages are held here"),
+        });
+        let pending = types::updates::Difference {
+            new_messages: held.collect(),
+            new_encrypted_messages: Vec::new(),
+            other_updates: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+            state: base::updates::State::State(Box::new(state(to))),
+        };
+        let replies = vec![
+            Ok(me.to_bytes()),
+            Ok(base::updates::State::State(Box::new(state(50))).to_bytes()),
+            Ok(base::updates::Difference::Difference(Box::new(pending)).to_bytes()),
+        ];
+        let (mut client, _sent) = Client::scripted(replies);
+        Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        client.session().set_seen_offset(server_ahead);
+        let (updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        client.on_raw_update(move |_, raw| {
+            if let base::Update::UpdateNewMessage(u) = &raw.update {
+                if let base::Message::Message(m) = &u.message {
+                    log.lock().unwrap().push(m.id);
+                }
+            }
+            ready(Ok(()))
+        });
+        for update in pushed {
+            let batch = types::Updates { updates: vec![update], users: Vec::new(), chats: Vec::new(), date: 0, seq: 0 };
+            let incoming = Incoming { updates: base::Updates::Updates(Box::new(batch)), from_request: false };
+            updates.send(incoming).await.unwrap();
+        }
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        for _ in 0..1000 {
+            if seen.lock().unwrap().len() >= expected {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        client.stop();
+        assert!(run.await.unwrap().is_ok());
+        std::mem::take(&mut *seen.lock().unwrap())
+    }
+
+    fn now() -> i32 {
+        crate::session::internals::now() as i32
+    }
+
+    // The test kit's case: the user's message reaches Telegram while the bot's run reads what Telegram held.
+    #[tokio::test]
+    async fn without_catch_up_what_came_since_the_run_began_is_delivered() {
+        let held = vec![new_message(9, 1, 51), new_message(1, now(), 52)];
+        assert_eq!(delivered_from_now(held, 52, Vec::new(), 1, 0).await, [1]);
+    }
+
+    // Telegram pushes a message it also puts in the difference, then one after it.
+    #[tokio::test]
+    async fn without_catch_up_a_message_both_held_and_pushed_runs_once() {
+        let pushed = vec![new_message(1, now(), 51), new_message(2, now(), 52)];
+        assert_eq!(delivered_from_now(vec![new_message(1, now(), 51)], 51, pushed, 2, 0).await, [1, 2]);
+    }
+
+    // The run's start is read off the clock the server's messages show, not the offset saved with the salt: here
+    // the server runs an hour ahead, so a message dated by this clock's now came before the run began.
+    #[tokio::test]
+    async fn without_catch_up_the_run_begins_by_the_server_clock() {
+        let held = vec![new_message(1, now(), 51), new_message(2, now() + 3600, 52)];
+        assert_eq!(delivered_from_now(held, 52, Vec::new(), 1, 3600).await, [2]);
+    }
+
+    // Telegram pushes what it held again, and reading it fails at first: until a difference is read, only what
+    // came since the run began is delivered from the stream too.
+    #[tokio::test]
+    async fn without_catch_up_a_held_update_pushed_before_the_first_difference_is_skipped() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let confirmed = types::updates::State { pts: 50, qts: 5, date: 2, seq: 0, unread_count: 0 };
+        let confirmed = base::updates::State::State(Box::new(confirmed));
+        let flood = Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_1")));
+        let (mut client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(confirmed.to_bytes()), flood]);
+        Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        let (updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        client.on_raw_update(move |_, raw| {
+            log.lock().unwrap().push(match &raw.update {
+                base::Update::UpdateBotBusinessConnect(_) => "old connection",
+                base::Update::UpdateNewMessage(_) => "new message",
+                base::Update::UpdateBotCallbackQuery(_) => "callback query",
+                _ => "other",
+            });
+            ready(Ok(()))
+        });
+        let query = types::UpdateBotCallbackQuery {
+            query_id: 1,
+            user_id: 7,
+            peer: get_peer(7),
+            msg_id: 1,
+            chat_instance: 3,
+            data: Some(b"tap".to_vec()),
+            game_short_name: None,
+        };
+        // A callback query moves no counter, so Telegram never holds one: it passes.
+        let query = base::Update::UpdateBotCallbackQuery(Box::new(query));
+        for update in [connected("old", 6), new_message(1, now(), 51), query] {
+            let short = types::UpdateShort { update, date: 3 };
+            let incoming = Incoming { updates: base::Updates::UpdateShort(Box::new(short)), from_request: false };
+            updates.send(incoming).await.unwrap();
+        }
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        for _ in 0..1000 {
+            if seen.lock().unwrap().len() >= 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        client.stop();
+        assert!(run.await.unwrap().is_ok());
+        assert_eq!(*seen.lock().unwrap(), ["new message", "callback query"]);
+    }
+
+    // Telegram refuses the first difference, so what it held won't be read: from then on nothing more is taken for
+    // it, and an undated update pushed after reaches the handlers.
+    #[tokio::test]
+    async fn without_catch_up_a_refused_first_difference_ends_the_skipping() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let confirmed = types::updates::State { pts: 50, qts: 0, date: 2, seq: 0, unread_count: 0 };
+        let confirmed = base::updates::State::State(Box::new(confirmed));
+        let refused = Err(Error::Rpc(RpcError::parse(400, "X_INVALID")));
+        let (mut client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(confirmed.to_bytes()), refused]);
+        Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        let (updates, rx) = UpdatesRx::channel();
+        *client.0.updates.lock().await = rx;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        client.on_raw_update(move |_, raw| {
+            if let base::Update::UpdateDeleteMessages(u) = &raw.update {
+                log.lock().unwrap().push(u.pts);
+            }
+            ready(Ok(()))
+        });
+        // The run reads the stream only after its first difference was refused.
+        let deleted = types::UpdateDeleteMessages { messages: vec![1], pts: 51, pts_count: 1 };
+        let short = types::UpdateShort { update: base::Update::UpdateDeleteMessages(Box::new(deleted)), date: 3 };
+        let incoming = Incoming { updates: base::Updates::UpdateShort(Box::new(short)), from_request: false };
+        updates.send(incoming).await.unwrap();
+        let run = tokio::spawn({
+            let client = client.clone();
+            async move { client.run().await }
+        });
+        for _ in 0..1000 {
+            if !seen.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        client.stop();
+        assert!(run.await.unwrap().is_ok());
+        assert_eq!(*seen.lock().unwrap(), [51]);
     }
 
     #[tokio::test]

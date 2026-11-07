@@ -120,6 +120,7 @@ mod tests {
             date: 0,
         }));
         let (client, _rx) = Client::scripted(vec![Ok(updates.to_bytes())]);
+        client.0.caches.know_business("conn", 7, 2);
         let message =
             client.send_rich_message("me", InputRichMessage::html("hi")).business_connection_id("conn").await.unwrap();
         assert_eq!(message.business_connection_id.as_deref(), Some("conn"));

@@ -590,100 +590,125 @@ fn page_caption(block: &mut base::PageBlock) -> Option<&mut base::PageCaption> {
     })
 }
 
-pub(crate) fn for_each_text<'a>(block: &'a base::PageBlock, f: &mut impl FnMut(&'a base::RichText)) {
-    use base::PageBlock as B;
-    fn caption<'a>(caption: &'a base::PageCaption, f: &mut impl FnMut(&'a base::RichText)) {
-        let base::PageCaption::PageCaption(c) = caption;
-        f(&c.text);
-        f(&c.credit);
-    }
-    fn blocks<'a>(blocks: &'a [base::PageBlock], f: &mut impl FnMut(&'a base::RichText)) {
-        blocks.iter().for_each(|b| for_each_text(b, f));
-    }
-    match block {
-        B::PageBlockUnsupported
-        | B::PageBlockDivider
-        | B::PageBlockAnchor(_)
-        | B::PageBlockChannel(_)
-        | B::PageBlockMath(_) => {}
-        B::PageBlockTitle(b) => f(&b.text),
-        B::PageBlockSubtitle(b) => f(&b.text),
-        B::PageBlockAuthorDate(b) => f(&b.author),
-        B::PageBlockHeader(b) => f(&b.text),
-        B::PageBlockSubheader(b) => f(&b.text),
-        B::PageBlockParagraph(b) => f(&b.text),
-        B::PageBlockPreformatted(b) => f(&b.text),
-        B::PageBlockFooter(b) => f(&b.text),
-        B::PageBlockKicker(b) => f(&b.text),
-        B::PageBlockHeading1(b) => f(&b.text),
-        B::PageBlockHeading2(b) => f(&b.text),
-        B::PageBlockHeading3(b) => f(&b.text),
-        B::PageBlockHeading4(b) => f(&b.text),
-        B::PageBlockHeading5(b) => f(&b.text),
-        B::PageBlockHeading6(b) => f(&b.text),
-        B::PageBlockThinking(b) => f(&b.text),
-        B::PageBlockBlockquote(b) => {
-            f(&b.text);
-            f(&b.caption);
-        }
-        B::PageBlockPullquote(b) => {
-            f(&b.text);
-            f(&b.caption);
-        }
-        B::PageBlockBlockquoteBlocks(b) => {
-            blocks(&b.blocks, f);
-            f(&b.caption);
-        }
-        B::PageBlockList(b) => b.items.iter().for_each(|item| match item {
-            base::PageListItem::PageListItemText(i) => f(&i.text),
-            base::PageListItem::PageListItemBlocks(i) => blocks(&i.blocks, f),
-        }),
-        B::PageBlockOrderedList(b) => b.items.iter().for_each(|item| match item {
-            base::PageListOrderedItem::PageListOrderedItemText(i) => f(&i.text),
-            base::PageListOrderedItem::PageListOrderedItemBlocks(i) => blocks(&i.blocks, f),
-        }),
-        B::PageBlockTable(b) => {
-            f(&b.title);
-            for base::PageTableRow::PageTableRow(row) in &b.rows {
-                for base::PageTableCell::PageTableCell(c) in &row.cells {
-                    if let Some(text) = &c.text {
-                        f(text);
+// One walk over every rich text of a block, written once for shared and once for mutable references.
+macro_rules! text_walk {
+    ($(#[$doc:meta])* $name:ident $(, $m:tt)?) => {
+        $(#[$doc])*
+        pub(crate) fn $name(block: &$($m)? base::PageBlock, f: &mut impl FnMut(&$($m)? base::RichText)) {
+            use base::PageBlock as B;
+            fn caption(caption: &$($m)? base::PageCaption, f: &mut impl FnMut(&$($m)? base::RichText)) {
+                let base::PageCaption::PageCaption(c) = caption;
+                f(&$($m)? c.text);
+                f(&$($m)? c.credit);
+            }
+            fn blocks(blocks: &$($m)? [base::PageBlock], f: &mut impl FnMut(&$($m)? base::RichText)) {
+                for b in blocks {
+                    $name(b, f);
+                }
+            }
+            match block {
+                B::PageBlockUnsupported
+                | B::PageBlockDivider
+                | B::PageBlockAnchor(_)
+                | B::PageBlockChannel(_)
+                | B::PageBlockMath(_) => {}
+                B::PageBlockTitle(b) => f(&$($m)? b.text),
+                B::PageBlockSubtitle(b) => f(&$($m)? b.text),
+                B::PageBlockAuthorDate(b) => f(&$($m)? b.author),
+                B::PageBlockHeader(b) => f(&$($m)? b.text),
+                B::PageBlockSubheader(b) => f(&$($m)? b.text),
+                B::PageBlockParagraph(b) => f(&$($m)? b.text),
+                B::PageBlockPreformatted(b) => f(&$($m)? b.text),
+                B::PageBlockFooter(b) => f(&$($m)? b.text),
+                B::PageBlockKicker(b) => f(&$($m)? b.text),
+                B::PageBlockHeading1(b) => f(&$($m)? b.text),
+                B::PageBlockHeading2(b) => f(&$($m)? b.text),
+                B::PageBlockHeading3(b) => f(&$($m)? b.text),
+                B::PageBlockHeading4(b) => f(&$($m)? b.text),
+                B::PageBlockHeading5(b) => f(&$($m)? b.text),
+                B::PageBlockHeading6(b) => f(&$($m)? b.text),
+                B::PageBlockThinking(b) => f(&$($m)? b.text),
+                B::PageBlockBlockquote(b) => {
+                    f(&$($m)? b.text);
+                    f(&$($m)? b.caption);
+                }
+                B::PageBlockPullquote(b) => {
+                    f(&$($m)? b.text);
+                    f(&$($m)? b.caption);
+                }
+                B::PageBlockBlockquoteBlocks(b) => {
+                    blocks(&$($m)? b.blocks, f);
+                    f(&$($m)? b.caption);
+                }
+                B::PageBlockList(b) => {
+                    for item in &$($m)? b.items {
+                        match item {
+                            base::PageListItem::PageListItemText(i) => f(&$($m)? i.text),
+                            base::PageListItem::PageListItemBlocks(i) => blocks(&$($m)? i.blocks, f),
+                        }
+                    }
+                }
+                B::PageBlockOrderedList(b) => {
+                    for item in &$($m)? b.items {
+                        match item {
+                            base::PageListOrderedItem::PageListOrderedItemText(i) => f(&$($m)? i.text),
+                            base::PageListOrderedItem::PageListOrderedItemBlocks(i) => blocks(&$($m)? i.blocks, f),
+                        }
+                    }
+                }
+                B::PageBlockTable(b) => {
+                    f(&$($m)? b.title);
+                    for base::PageTableRow::PageTableRow(row) in &$($m)? b.rows {
+                        for base::PageTableCell::PageTableCell(c) in &$($m)? row.cells {
+                            if let Some(text) = &$($m)? c.text {
+                                f(text);
+                            }
+                        }
+                    }
+                }
+                B::PageBlockDetails(b) => {
+                    f(&$($m)? b.title);
+                    blocks(&$($m)? b.blocks, f);
+                }
+                B::PageBlockRelatedArticles(b) => f(&$($m)? b.title),
+                B::PageBlockCover(b) => $name(&$($m)? b.cover, f),
+                B::PageBlockCollage(b) => {
+                    blocks(&$($m)? b.items, f);
+                    caption(&$($m)? b.caption, f);
+                }
+                B::PageBlockSlideshow(b) => {
+                    blocks(&$($m)? b.items, f);
+                    caption(&$($m)? b.caption, f);
+                }
+                B::PageBlockEmbedPost(b) => {
+                    blocks(&$($m)? b.blocks, f);
+                    caption(&$($m)? b.caption, f);
+                }
+                B::PageBlockPhoto(b) => caption(&$($m)? b.caption, f),
+                B::PageBlockVideo(b) => caption(&$($m)? b.caption, f),
+                B::PageBlockAudio(b) => caption(&$($m)? b.caption, f),
+                B::PageBlockDocument(b) => caption(&$($m)? b.caption, f),
+                B::PageBlockEmbed(b) => caption(&$($m)? b.caption, f),
+                B::PageBlockMap(b) => caption(&$($m)? b.caption, f),
+                B::InputPageBlockMap(b) => caption(&$($m)? b.caption, f),
+                B::PageBlockButtonRow(b) => {
+                    for base::PageButton::PageButton(button) in &$($m)? b.buttons {
+                        f(&$($m)? button.text);
                     }
                 }
             }
         }
-        B::PageBlockDetails(b) => {
-            f(&b.title);
-            blocks(&b.blocks, f);
-        }
-        B::PageBlockRelatedArticles(b) => f(&b.title),
-        B::PageBlockCover(b) => for_each_text(&b.cover, f),
-        B::PageBlockCollage(b) => {
-            blocks(&b.items, f);
-            caption(&b.caption, f);
-        }
-        B::PageBlockSlideshow(b) => {
-            blocks(&b.items, f);
-            caption(&b.caption, f);
-        }
-        B::PageBlockEmbedPost(b) => {
-            blocks(&b.blocks, f);
-            caption(&b.caption, f);
-        }
-        B::PageBlockPhoto(b) => caption(&b.caption, f),
-        B::PageBlockVideo(b) => caption(&b.caption, f),
-        B::PageBlockAudio(b) => caption(&b.caption, f),
-        B::PageBlockDocument(b) => caption(&b.caption, f),
-        B::PageBlockEmbed(b) => caption(&b.caption, f),
-        B::PageBlockMap(b) => caption(&b.caption, f),
-        B::InputPageBlockMap(b) => caption(&b.caption, f),
-        B::PageBlockButtonRow(b) => {
-            for base::PageButton::PageButton(button) in &b.buttons {
-                f(&button.text);
-            }
-        }
-    }
+    };
 }
+
+text_walk!(
+    /// Calls `f` with every rich text of `block`, nested blocks included.
+    for_each_text
+);
+text_walk!(
+    /// [`for_each_text`], with each text open to change.
+    for_each_text_mut, mut
+);
 
 #[cfg(test)]
 mod tests {

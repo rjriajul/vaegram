@@ -3,8 +3,8 @@ use std::sync::{Arc, RwLock};
 
 use super::Entities;
 use super::listeners::{Listeners, Offer};
-use super::tasks::Tasks;
 pub(crate) use super::tasks::run_hook;
+use super::tasks::{Tasks, guard};
 use crate::Client;
 use crate::client::Me;
 use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
@@ -112,7 +112,9 @@ impl<T: Routed + Subject + Inspect> Handlers<T> {
     fn finish(&self, kind: UpdateKind, tasks: &mut Tasks, me: &Me, (mut matched, resume): Scan, item: T) {
         if let Some(start) = resume {
             let facts = item.facts(me);
-            self.walk(start, &mut matched, |f| Some(f.eval(&facts, &item)));
+            let events = &tasks.events;
+            let test = |f: &Filter<T>| guard(events, kind, item.chat_id(), || f.eval(&facts, &item)).unwrap_or(false);
+            self.walk(start, &mut matched, |f| Some(test(f)));
         }
         if !matched.is_empty() {
             tasks.run(kind, item, matched.iter().map(|&i| self.0[i].callback.clone()).collect());
@@ -154,15 +156,35 @@ impl Handlers<Message> {
             message.set_business(client, connection_id, reply_to, entities);
         }
         if listening {
-            match client.0.handlers.listeners.messages.offer(message, &me) {
-                Offer::Claimed => return,
-                Offer::Call(callback, m) => return tasks.run(kind, m, vec![callback]),
-                Offer::Unclaimed(m) | Offer::Stranger(m, _) => message = m,
+            match listened(kind, tasks, client, &me, message) {
+                Some(m) => message = m,
+                None => return,
             }
         }
         if let Some(scan) = scan {
             self.finish(kind, tasks, &me, scan, message);
         }
+    }
+
+    /// A new message a listener took but dropped unread: the other listeners, then the handlers, get it.
+    fn redeliver(&self, tasks: &mut Tasks, client: &Client, message: Message) {
+        let me = client.0.me.lock().unwrap().clone();
+        let Some(message) = listened(UpdateKind::Message, tasks, client, &me, message) else { return };
+        if !self.0.is_empty() {
+            self.finish(UpdateKind::Message, tasks, &me, PARSED, message);
+        }
+    }
+}
+
+/// Offers a new message to the listeners; `None` once one of them, or a next-step handler, took it.
+fn listened(kind: UpdateKind, tasks: &mut Tasks, client: &Client, me: &Me, message: Message) -> Option<Message> {
+    match client.0.handlers.listeners.messages.offer(message, me) {
+        Offer::Claimed => None,
+        Offer::Call(callback, m) => {
+            tasks.run(kind, m, vec![callback]);
+            None
+        }
+        Offer::Unclaimed(m) | Offer::Stranger(m, _) => Some(m),
     }
 }
 
@@ -489,9 +511,12 @@ impl Router {
     pub(crate) fn dispatch(&self, client: &Client, update: base::Update, entities: &Arc<Entities>, tasks: &mut Tasks) {
         use base::Update as U;
         client.0.caches.observe(&update, entities);
+        // Called here, in arrival order, before each future is spawned: `on_raw_update` promises it.
         for (_, callback) in &self.raw {
             let raw = RawUpdate { update: update.clone(), entities: entities.clone() };
-            tasks.raw(callback(client.clone(), raw));
+            if let Some(future) = guard(&tasks.events, UpdateKind::Raw, None, || callback(client.clone(), raw)) {
+                tasks.raw(future);
+            }
         }
         let update = if client.0.handlers.listeners.callbacks.waiting() {
             let Some(update) = self.listen_callback(client, update, entities, tasks) else { return };
@@ -583,6 +608,12 @@ impl Router {
             U::UpdateEphemeralBotCallbackQuery(u) => CallbackQuery::parse_ephemeral(client, *u, entities),
             update => return Some(update),
         };
+        self.offer_callback(client, query, tasks);
+        None
+    }
+
+    /// The listeners, then the handlers, get a callback query.
+    fn offer_callback(&self, client: &Client, query: CallbackQuery, tasks: &mut Tasks) {
         let me = client.0.me.lock().unwrap().clone();
         let kind = UpdateKind::CallbackQuery;
         match client.0.handlers.listeners.callbacks.offer(query, &me) {
@@ -600,7 +631,17 @@ impl Router {
                 tasks.run(kind, query, vec![answer]);
             }
         }
-        None
+    }
+
+    /// Routes again what listeners dropped before reading gave back, as if it had just arrived.
+    pub(crate) fn redeliver(&self, client: &Client, tasks: &mut Tasks) {
+        let listeners = &client.0.handlers.listeners;
+        for message in listeners.messages.take_returned() {
+            self.message.redeliver(tasks, client, message);
+        }
+        for query in listeners.callbacks.take_returned() {
+            self.offer_callback(client, query, tasks);
+        }
     }
 
     fn member_update(&self, tasks: &mut Tasks, me: &Me, user_id: i64, parse: impl FnOnce() -> ChatMemberUpdated) {
@@ -656,6 +697,7 @@ mod tests {
 
     use super::*;
     use crate::dispatcher::listeners::tests::{dispatch as dispatch_on, raw_inline_query, raw_query, until_waiting};
+    use crate::enums::ClientEvent;
     use crate::errors::Error;
     use crate::filters;
     use crate::raw::{Serializable, functions, types};
@@ -1096,24 +1138,65 @@ mod tests {
         assert!(!second_finishes_first(true).await);
     }
 
+    fn panics(events: &std::sync::mpsc::Receiver<ClientEvent>) -> Vec<(UpdateKind, Option<i64>, Option<String>)> {
+        let panicked = |e| match e {
+            ClientEvent::HandlerPanicked { kind, chat_id, message } => Some((kind, chat_id, message)),
+            _ => None,
+        };
+        events.try_iter().filter_map(panicked).collect()
+    }
+
     #[tokio::test]
-    async fn a_panicking_handler_does_not_wedge_its_chat() {
+    async fn a_panicking_handler_is_reported_and_frees_its_chat_and_slot() {
         let (client, log) = (Client::offline(), Log::default());
         let done = log.clone();
         client.on_message(filters::all(), move |m| {
             let done = done.clone();
             async move {
+                tokio::task::yield_now().await;
                 assert!(m.id != 1, "boom");
                 done.lock().unwrap().push("second");
                 Ok(())
             }
         });
-        let (router, mut tasks) = (router_of(&client), Tasks::new(true, None));
+        // One lane and one slot: the second update runs only once the panicked handler gave both back.
+        let (router, mut tasks) = (router_of(&client), Tasks::new(true, Some(Arc::new(Semaphore::new(1)))));
+        let events = tasks.events.record();
         for id in [1, 2] {
             router.dispatch(&client, new_message(id, false), &Arc::default(), &mut tasks);
         }
         settle().await;
         assert_eq!(*log.lock().unwrap(), ["second"]);
+        assert_eq!(panics(&events), [(UpdateKind::Message, Some(1), Some("boom".to_owned()))]);
+    }
+
+    #[tokio::test]
+    async fn a_panic_on_the_dispatcher_is_reported_and_the_update_goes_on() {
+        let (client, log) = (Client::offline(), Log::default());
+        client.on_raw_update(|_, _| -> std::future::Ready<crate::Result<()>> { panic!("raw boom") });
+        let first = log.clone();
+        client.on_raw_update(move |_, _| {
+            first.lock().unwrap().push("raw");
+            async { Ok(()) }
+        });
+        let filter = filters::create(|m: &Message| -> bool { panic!("filter {}", m.id) });
+        client.on_message(filter, |_| async { Ok(()) });
+        let after = log.clone();
+        client
+            .on_message(filters::all(), move |_| {
+                after.lock().unwrap().push("message");
+                async { Ok(()) }
+            })
+            .group(1);
+        let (router, mut tasks) = (router_of(&client), Tasks::default());
+        let events = tasks.events.record();
+        router.dispatch(&client, new_message(1, false), &Arc::default(), &mut tasks);
+        settle().await;
+        let mut ran = log.lock().unwrap().clone();
+        ran.sort_unstable();
+        assert_eq!(ran, ["message", "raw"]);
+        let raw = (UpdateKind::Raw, None, Some("raw boom".to_owned()));
+        assert_eq!(panics(&events), [raw, (UpdateKind::Message, Some(1), Some("filter 1".to_owned()))]);
     }
 
     #[tokio::test]

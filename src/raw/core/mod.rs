@@ -14,8 +14,35 @@ use std::cell::Cell;
 
 const MAX_DEPTH: u32 = 64;
 
+/// TL strings and bytes are shorter than this: their length takes 3 bytes.
+pub(crate) const MAX_BYTES: usize = 1 << 24;
+
 thread_local! {
     static DEPTH: Cell<u32> = const { Cell::new(0) };
+    // `Some` while `checked_bytes` runs, `Some(true)` once a field was too long for TL.
+    static OVERSIZED: Cell<Option<bool>> = const { Cell::new(None) };
+}
+
+/// `value`'s TL bytes, or `None` when one of its strings or bytes fields is [`MAX_BYTES`] or longer. Where
+/// `to_bytes` panics on such a field, this lets a caller's argument come back as an error.
+pub(crate) fn checked_bytes<T: Serializable + ?Sized>(value: &T) -> Option<Vec<u8>> {
+    // Restored on unwind too, so a panic elsewhere in `serialize` can't leave the thread checking.
+    struct Restore(Option<bool>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            OVERSIZED.set(self.0);
+        }
+    }
+    let restore = Restore(OVERSIZED.replace(Some(false)));
+    let bytes = value.to_bytes();
+    let oversized = OVERSIZED.get() == Some(true);
+    drop(restore);
+    (!oversized).then_some(bytes)
+}
+
+/// Notes a field too long for TL for the `checked_bytes` running on this thread; `false` when none is.
+fn mark_oversized() -> bool {
+    OVERSIZED.with(|checking| checking.get().map(|_| checking.set(Some(true))).is_some())
 }
 
 pub(crate) fn nested<T>(f: impl FnOnce() -> Result<T, Error>) -> Result<T, Error> {
@@ -69,6 +96,11 @@ pub trait Identifiable {
 pub trait Serializable {
     /// Appends the value's TL bytes to `buf`, little-endian and with the constructor id in front for boxed types
     /// and constructors.
+    ///
+    /// # Panics
+    ///
+    /// If a string or bytes field is 16 MiB or longer, which TL can't encode. `Client::invoke` returns
+    /// `Error::InvalidArgument` for such a request instead.
     fn serialize(&self, buf: &mut Vec<u8>);
 
     /// The value's TL bytes in a new buffer.

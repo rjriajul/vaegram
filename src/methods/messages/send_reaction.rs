@@ -1,5 +1,5 @@
 use crate::Client;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::raw::functions;
 use crate::types::{PeerRef, ReactionType};
 
@@ -11,6 +11,8 @@ pub struct SendReaction<'a> {
     message_id: i32,
     reactions: Vec<ReactionType>,
     big: bool,
+    // Why awaiting fails before anything is sent, when the message can't take a reaction at all.
+    refused: Option<&'static str>,
 }
 
 impl Client {
@@ -18,7 +20,14 @@ impl Client {
     ///
     /// Awaiting the request without adding any reaction removes the existing ones.
     pub fn send_reaction(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> SendReaction<'_> {
-        SendReaction { client: self, chat_id: chat_id.into(), message_id, reactions: Vec::new(), big: false }
+        SendReaction {
+            client: self,
+            chat_id: chat_id.into(),
+            message_id,
+            reactions: Vec::new(),
+            big: false,
+            refused: None,
+        }
     }
 }
 
@@ -35,7 +44,15 @@ impl SendReaction<'_> {
         self
     }
 
+    pub(crate) fn refuse(mut self, reason: &'static str) -> Self {
+        self.refused = Some(reason);
+        self
+    }
+
     async fn send(self) -> Result<()> {
+        if let Some(reason) = self.refused {
+            return Err(Error::InvalidArgument(reason));
+        }
         let (chat_id, peer) = self.client.resolve(&self.chat_id).await?;
         let reaction = (!self.reactions.is_empty()).then(|| self.reactions.iter().map(ReactionType::write).collect());
         let request = functions::messages::SendReaction {

@@ -6,7 +6,8 @@ use crate::types::{BusinessBotRights, BusinessRecipients, PeerRef};
 impl Client {
     /// Connects a bot to the account's business profile, or updates its rights and recipients.
     ///
-    /// Fails with `Error::InvalidArgument` unless `recipients` selects at least one kind of chat or user.
+    /// Fails with `Error::InvalidArgument` unless `recipients` selects at least one kind of chat or user, or sets
+    /// `exclude_selected`: on its own that picks every private chat, and with `exclude_users` every one but theirs.
     pub async fn update_connected_bot(
         &self,
         bot_id: impl Into<PeerRef>,
@@ -17,6 +18,7 @@ impl Client {
             || recipients.new_chats
             || recipients.contacts
             || recipients.non_contacts
+            || recipients.exclude_selected
             || !recipients.users.is_empty())
         {
             return Err(Error::InvalidArgument("update_connected_bot needs at least one kind of recipient"));

@@ -25,8 +25,11 @@ pub struct Poll {
     pub kind: PollType,
     /// A voter may pick more than one option.
     pub allows_multiple_answers: bool,
-    /// Index into [`Poll::options`] of the right answer of a quiz, once the client may see it.
+    /// Index into [`Poll::options`] of the right answer of a quiz, once the client may see it. The first one when
+    /// the quiz has several; see [`correct_option_ids`](Poll::correct_option_ids).
     pub correct_option_id: Option<usize>,
+    /// Indexes into [`Poll::options`] of every right answer of a quiz, once the client may see them. Empty otherwise.
+    pub correct_option_ids: Vec<usize>,
     /// Explanation of a quiz's right answer. `None` if there is none or the account can't see it yet.
     pub explanation: Option<String>,
     /// Formatting of the explanation. `None` if it has none.
@@ -69,7 +72,12 @@ impl Poll {
                 PollOption { voter_count: voters_of(&option.data).and_then(|v| v.voters).unwrap_or(0), ..option }
             })
             .collect();
-        let correct_option_id = options.iter().position(|o| voters_of(&o.data).is_some_and(|v| v.correct));
+        let correct_option_ids: Vec<usize> = options
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| voters_of(&o.data).is_some_and(|v| v.correct))
+            .map(|(i, _)| i)
+            .collect();
         let (question, question_entities) = text_with_entities(&poll.question, entities);
         let explanation_entities =
             results.solution_entities.as_deref().and_then(|e| MessageEntity::parse_all(e, entities));
@@ -83,7 +91,8 @@ impl Poll {
             is_anonymous: !poll.public_voters,
             kind: if poll.quiz { PollType::Quiz } else { PollType::Regular },
             allows_multiple_answers: poll.multiple_choice,
-            correct_option_id,
+            correct_option_id: correct_option_ids.first().copied(),
+            correct_option_ids,
             explanation: results.solution.clone(),
             explanation_entities,
             open_period: poll.close_period,
@@ -113,7 +122,7 @@ pub(crate) fn text_with_entities(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::Poll;
     use crate::dispatcher::Entities;
     use crate::enums::PollType;
@@ -126,8 +135,8 @@ mod tests {
         }))
     }
 
-    #[test]
-    fn matches_results_to_options() {
+    /// A closed quiz "2 + 2?" with options "3" (data 0) and "4" (data 1).
+    pub(crate) fn raw_poll() -> base::Poll {
         let answer = |t: &str, option: u8| {
             base::PollAnswer::PollAnswer(Box::new(types::PollAnswer {
                 text: text(t),
@@ -137,7 +146,7 @@ mod tests {
                 date: None,
             }))
         };
-        let poll = base::Poll::Poll(Box::new(types::Poll {
+        base::Poll::Poll(Box::new(types::Poll {
             id: 9,
             closed: true,
             public_voters: false,
@@ -155,31 +164,48 @@ mod tests {
             close_date: None,
             countries_iso2: None,
             hash: 0,
-        }));
-        let voters = |option: u8, voters: i32, correct: bool| {
-            base::PollAnswerVoters::PollAnswerVoters(Box::new(types::PollAnswerVoters {
-                chosen: false,
-                correct,
-                option: vec![option],
-                voters: Some(voters),
-                recent_voters: None,
-            }))
-        };
-        let results = base::PollResults::PollResults(Box::new(types::PollResults {
+        }))
+    }
+
+    /// Results with `(option data, voters, correct)` per option.
+    pub(crate) fn results(options: &[(u8, i32, bool)], total_voters: i32) -> base::PollResults {
+        let voters = options
+            .iter()
+            .map(|&(option, voters, correct)| {
+                base::PollAnswerVoters::PollAnswerVoters(Box::new(types::PollAnswerVoters {
+                    chosen: false,
+                    correct,
+                    option: vec![option],
+                    voters: Some(voters),
+                    recent_voters: None,
+                }))
+            })
+            .collect();
+        base::PollResults::PollResults(Box::new(types::PollResults {
             min: false,
             has_unread_votes: false,
             can_view_stats: false,
-            results: Some(vec![voters(1, 5, true)]),
-            total_voters: Some(5),
+            results: Some(voters),
+            total_voters: Some(total_voters),
             recent_voters: None,
             solution: Some("Math".into()),
             solution_entities: None,
             solution_media: None,
-        }));
-        let poll = Poll::parse(&poll, &results, &Entities::default());
+        }))
+    }
+
+    #[test]
+    fn matches_results_to_options() {
+        let poll = Poll::parse(&raw_poll(), &results(&[(1, 5, true)], 5), &Entities::default());
         let counts: Vec<_> = poll.options.iter().map(|o| (o.text.as_str(), o.voter_count)).collect();
         assert_eq!(counts, [("3", 0), ("4", 5)]);
         assert_eq!((poll.kind, poll.correct_option_id, poll.total_voter_count), (PollType::Quiz, Some(1), 5));
         assert_eq!((poll.is_closed, poll.is_anonymous, poll.explanation.as_deref()), (true, true, Some("Math")));
+    }
+
+    #[test]
+    fn a_quiz_with_several_right_answers_keeps_them_all() {
+        let poll = Poll::parse(&raw_poll(), &results(&[(0, 2, true), (1, 5, true)], 7), &Entities::default());
+        assert_eq!((poll.correct_option_id, poll.correct_option_ids), (Some(0), vec![0, 1]));
     }
 }

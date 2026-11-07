@@ -1,5 +1,8 @@
+use std::any::Any;
 use std::collections::HashMap;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
+use std::task::Poll;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::task::JoinSet;
@@ -9,10 +12,17 @@ use crate::enums::ClientEvent;
 use crate::handlers::{BoxFuture, Callback, ErrorCallback, HandlerError, Routed, UpdateKind};
 use crate::session::Events;
 
+/// With `max_concurrent_handlers`, how many handler tasks may wait for a slot before the dispatcher stops taking
+/// updates. Past it, updates wait in the update queue, whose overflow getDifference fetches again, instead of
+/// piling up in memory.
+pub(crate) const MAX_WAITING_HANDLERS: usize = 1024;
+
 #[derive(Default)]
 pub(crate) struct Tasks {
     lanes: Option<Lanes>,
     permits: Option<Arc<Semaphore>>,
+    // Started and unfinished tasks past which `full` says so; only with a handler cap.
+    limit: Option<usize>,
     pub(crate) on_error: Option<ErrorCallback>,
     pub(crate) events: Arc<Events>,
     running: JoinSet<()>,
@@ -22,6 +32,7 @@ impl Tasks {
     pub(crate) fn new(ordered: bool, permits: Option<Arc<Semaphore>>) -> Self {
         Tasks {
             lanes: ordered.then(Lanes::default),
+            limit: permits.as_ref().map(|p| p.available_permits().saturating_add(MAX_WAITING_HANDLERS)),
             permits,
             on_error: None,
             events: Arc::default(),
@@ -34,15 +45,34 @@ impl Tasks {
         while self.running.join_next().await.is_some() {}
     }
 
-    fn spawn(&mut self, task: impl Future<Output = ()> + Send + 'static) {
+    /// Whether so many handlers wait for a slot that no more updates should be taken until one ends.
+    pub(crate) fn full(&mut self) -> bool {
+        let Some(limit) = self.limit else { return false };
         while self.running.try_join_next().is_some() {}
-        self.running.spawn(task);
+        self.running.len() >= limit
+    }
+
+    /// Returns once a started handler task ends.
+    pub(crate) async fn one_done(&mut self) {
+        self.running.join_next().await;
+    }
+
+    /// Runs `task`; a panic in it is caught and reported as `HandlerPanicked` for `kind` and `chat_id`.
+    fn spawn(&mut self, kind: UpdateKind, chat_id: Option<i64>, task: impl Future<Output = ()> + Send + 'static) {
+        while self.running.try_join_next().is_some() {}
+        let events = self.events.clone();
+        self.running.spawn(async move {
+            if let Err(payload) = caught(task).await {
+                events.emit(panicked(kind, chat_id, payload));
+            }
+        });
     }
 
     pub(crate) fn run<T: Routed>(&mut self, kind: UpdateKind, item: T, callbacks: Vec<Callback<T>>) {
         let turn = self.lanes.as_mut().zip(item.order_key()).map(|(lanes, key)| lanes.turn(key));
         let (permits, on_error, events) = (self.permits.clone(), self.on_error.clone(), self.events.clone());
-        self.spawn(async move {
+        let chat_id = item.chat_id();
+        self.spawn(kind, chat_id, async move {
             let _done = match turn {
                 Some((previous, done)) => {
                     if let Some(previous) = previous {
@@ -53,7 +83,6 @@ impl Tasks {
                 None => None,
             };
             let _permit = permit(permits).await;
-            let chat_id = item.chat_id();
             let Some((last, rest)) = callbacks.split_last() else { return };
             let item = item.prepare().await;
             for callback in rest {
@@ -69,7 +98,7 @@ impl Tasks {
 
     pub(crate) fn raw(&mut self, future: BoxFuture) {
         let (permits, on_error, events) = (self.permits.clone(), self.on_error.clone(), self.events.clone());
-        self.spawn(async move {
+        self.spawn(UpdateKind::Raw, None, async move {
             let _permit = permit(permits).await;
             if let Err(error) = future.await {
                 report(on_error, events, HandlerError { kind: UpdateKind::Raw, chat_id: None, error }).await;
@@ -89,12 +118,43 @@ async fn permit(permits: Option<Arc<Semaphore>>) -> Option<OwnedSemaphorePermit>
     Some(permits?.acquire_owned().await.expect("the semaphore is never closed"))
 }
 
-/// Awaits a lifecycle hook; an `Err` goes where a handler's would.
+/// Awaits a lifecycle hook; an `Err` or a panic goes where a handler's would.
 pub(crate) async fn run_hook(client: Client, kind: UpdateKind, hook: Callback<Client>) {
-    if let Err(error) = hook(client.clone()).await {
-        let on_error = client.0.handlers.current().on_error.clone();
-        report(on_error, client.0.events.clone(), HandlerError { kind, chat_id: None, error }).await;
+    // Called inside `caught`, so a panic before the hook's first await is caught too.
+    match caught(async { hook(client.clone()).await }).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            let on_error = client.0.handlers.current().on_error.clone();
+            report(on_error, client.0.events.clone(), HandlerError { kind, chat_id: None, error }).await;
+        }
+        Err(payload) => client.0.events.emit(panicked(kind, None, payload)),
     }
+}
+
+/// Runs user code the dispatcher calls synchronously; a panic is reported as `HandlerPanicked` and gives `None`, so
+/// the dispatcher carries on with the next handler and update.
+pub(crate) fn guard<R>(events: &Events, kind: UpdateKind, chat_id: Option<i64>, f: impl FnOnce() -> R) -> Option<R> {
+    catch_unwind(AssertUnwindSafe(f)).map_err(|payload| events.emit(panicked(kind, chat_id, payload))).ok()
+}
+
+/// Awaits `future`, turning a panic in any of its polls into `Err` with the panic's payload. The future is dropped
+/// before this returns, so the lane and permit it holds are given back.
+async fn caught<F: Future>(future: F) -> Result<F::Output, Box<dyn Any + Send>> {
+    let mut future = std::pin::pin!(future);
+    std::future::poll_fn(|cx| match catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(cx))) {
+        Ok(Poll::Ready(output)) => Poll::Ready(Ok(output)),
+        Ok(Poll::Pending) => Poll::Pending,
+        Err(payload) => Poll::Ready(Err(payload)),
+    })
+    .await
+}
+
+fn panicked(kind: UpdateKind, chat_id: Option<i64>, payload: Box<dyn Any + Send>) -> ClientEvent {
+    let message = match payload.downcast::<String>() {
+        Ok(message) => Some(*message),
+        Err(payload) => payload.downcast_ref::<&str>().map(|message| (*message).to_owned()),
+    };
+    ClientEvent::HandlerPanicked { kind, chat_id, message }
 }
 
 async fn report(on_error: Option<ErrorCallback>, events: Arc<Events>, error: HandlerError) {
@@ -165,5 +225,49 @@ mod tests {
         tasks.raw(Box::pin(async { Err::<(), _>(Error::Unexpected("boom")) }));
         assert_eq!(taken.recv().await, Some(UpdateKind::Raw));
         assert!(events.try_recv().is_err());
+    }
+
+    async fn next_event(events: &std::sync::mpsc::Receiver<ClientEvent>) -> ClientEvent {
+        for _ in 0..1000 {
+            match events.try_recv() {
+                Ok(e) => return e,
+                Err(_) => tokio::task::yield_now().await,
+            }
+        }
+        panic!("no event came")
+    }
+
+    fn panicked_as(event: &ClientEvent) -> Option<(UpdateKind, Option<i64>, Option<&str>)> {
+        match event {
+            ClientEvent::HandlerPanicked { kind, chat_id, message } => Some((*kind, *chat_id, message.as_deref())),
+            _ => None,
+        }
+    }
+
+    async fn panics_after_a_yield() -> crate::Result<()> {
+        tokio::task::yield_now().await;
+        panic!("raw {}", 1)
+    }
+
+    async fn panics_with_a_number() -> crate::Result<()> {
+        std::panic::panic_any(5)
+    }
+
+    #[tokio::test]
+    async fn panics_in_raw_futures_and_hooks_are_reported() {
+        let mut tasks = Tasks::default();
+        let events = tasks.events.record();
+        tasks.raw(Box::pin(panics_after_a_yield()));
+        assert_eq!(panicked_as(&next_event(&events).await), Some((UpdateKind::Raw, None, Some("raw 1"))));
+        // A payload that isn't a string has no message.
+        tasks.raw(Box::pin(panics_with_a_number()));
+        assert_eq!(panicked_as(&next_event(&events).await), Some((UpdateKind::Raw, None, None)));
+
+        // The hook panics before returning its future.
+        let client = Client::offline();
+        let events = client.0.events.record();
+        let hook: Callback<Client> = Arc::new(|_: Client| -> BoxFuture { panic!("hook") });
+        run_hook(client, UpdateKind::Start, hook).await;
+        assert_eq!(panicked_as(&next_event(&events).await), Some((UpdateKind::Start, None, Some("hook"))));
     }
 }

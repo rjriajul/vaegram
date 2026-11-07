@@ -69,28 +69,8 @@ impl Client {
     }
 
     async fn resolve_id(&self, chat_id: i64) -> Result<base::InputPeer> {
-        if let Some(peer) = self.0.peers.lock().unwrap().get(&chat_id) {
-            return Ok(peer.clone());
-        }
-        if chat_id == self.0.me.lock().unwrap().id {
-            return Ok(base::InputPeer::InputPeerSelf);
-        }
-        // A peer saved in an earlier run: one hop to the store thread, no request. Basic groups need no hash. A
-        // failing engine only costs the request.
-        if chat_id > 0 || chat_id <= -CHANNEL_OFFSET {
-            match self.0.store.get_peer(chat_id).await {
-                Ok(Some(record)) => {
-                    if let Some(peer) = input_peer(record.id, record.access_hash) {
-                        self.0.peers.lock().unwrap().load([record]);
-                        return Ok(peer);
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => self.0.events.storage_failed(
-                    e.kind(),
-                    format_args!("couldn't look chat {chat_id} up in storage, asking Telegram: {e}"),
-                ),
-            }
+        if let Some(peer) = self.known_peer(chat_id).await {
+            return Ok(peer);
         }
 
         let peer = if chat_id > 0 {
@@ -119,6 +99,8 @@ impl Client {
                 .find_map(|c| match c {
                     base::Chat::Channel(c) if c.id == channel_id => c.access_hash,
                     base::Chat::ChannelForbidden(c) if c.id == channel_id => Some(c.access_hash),
+                    base::Chat::Community(c) if c.id == channel_id => c.access_hash,
+                    base::Chat::CommunityForbidden(c) if c.id == channel_id => c.access_hash,
                     _ => None,
                 })
                 .ok_or(Error::PeerNotFound(chat_id))?;
@@ -129,6 +111,40 @@ impl Client {
 
         self.0.peers.lock().unwrap().insert(chat_id, peer.clone());
         Ok(peer)
+    }
+
+    /// The peer of a user or channel this account can address without a request: from memory, or saved in the
+    /// store by an earlier run (one hop to the store thread). A failing engine is reported and counts as unknown.
+    /// A peer only known from a message it was seen in is checked against the store first: a hash saved in an
+    /// earlier run doesn't depend on that message.
+    pub(crate) async fn known_peer(&self, chat_id: i64) -> Option<base::InputPeer> {
+        let seen_in_message = match self.0.peers.lock().unwrap().get(&chat_id) {
+            Some(
+                peer @ (base::InputPeer::InputPeerUserFromMessage(_) | base::InputPeer::InputPeerChannelFromMessage(_)),
+            ) => Some(peer.clone()),
+            Some(peer) => return Some(peer.clone()),
+            None => None,
+        };
+        if chat_id == self.0.me.lock().unwrap().id {
+            return Some(base::InputPeer::InputPeerSelf);
+        }
+        // Basic groups need no hash.
+        if chat_id > 0 || chat_id <= -CHANNEL_OFFSET {
+            match self.0.store.get_peer(chat_id).await {
+                Ok(Some(record)) => {
+                    if let Some(peer) = input_peer(record.id, record.access_hash) {
+                        self.0.peers.lock().unwrap().load([record]);
+                        return Some(peer);
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => self.0.events.storage_failed(
+                    e.kind(),
+                    format_args!("couldn't look chat {chat_id} up in storage, asking Telegram: {e}"),
+                ),
+            }
+        }
+        seen_in_message
     }
 
     pub(crate) async fn peer_id(&self, chat: PeerRef) -> Result<i64> {
@@ -195,12 +211,7 @@ impl Client {
             let user_id = match known.get(&id) {
                 Some(user) => user.clone(),
                 None => {
-                    let user = match self.resolve_user(&id.into()).await {
-                        Ok(user) => Some(user),
-                        Err(Error::PeerNotFound(_)) => None,
-                        Err(e) if e.is("USER_ID_INVALID") || e.is("PEER_ID_INVALID") => None,
-                        Err(e) => return Err(e),
-                    };
+                    let user = self.resolve_mentioned(id).await?;
                     known.insert(id, user.clone());
                     user
                 }
@@ -213,12 +224,29 @@ impl Client {
         Ok(resolved)
     }
 
+    /// The input user for a mention of `user_id`, or `None` when this account has never met the user: a mention is
+    /// dropped and its text kept rather than failing the whole message.
+    pub(crate) async fn resolve_mentioned(&self, user_id: i64) -> Result<Option<base::InputUser>> {
+        match self.resolve_user(&user_id.into()).await {
+            Ok(user) => Ok(Some(user)),
+            Err(Error::PeerNotFound(_)) => Ok(None),
+            Err(e) if e.is("USER_ID_INVALID") || e.is("PEER_ID_INVALID") => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     pub(crate) async fn resolve_chat(&self, chat: &PeerRef) -> Result<ChatPeer> {
         match self.resolve(chat).await?.1 {
             base::InputPeer::InputPeerChat(p) => Ok(ChatPeer::Group(p.chat_id)),
             base::InputPeer::InputPeerChannel(p) => {
                 let channel = types::InputChannel { channel_id: p.channel_id, access_hash: p.access_hash };
                 Ok(ChatPeer::Channel(base::InputChannel::InputChannel(Box::new(channel))))
+            }
+            // A channel only seen as a min sender: reached through the message it was seen in.
+            base::InputPeer::InputPeerChannelFromMessage(p) => {
+                let channel =
+                    types::InputChannelFromMessage { peer: p.peer, msg_id: p.msg_id, channel_id: p.channel_id };
+                Ok(ChatPeer::Channel(base::InputChannel::InputChannelFromMessage(Box::new(channel))))
             }
             _ => Err(Error::InvalidArgument("chat_id is a user, not a group or channel")),
         }
@@ -405,5 +433,68 @@ mod tests {
         }
         assert!(sent.try_recv().is_ok(), "the stale name was looked up");
         assert!(sent.try_recv().is_err(), "the confirmed name was looked up again");
+    }
+
+    #[tokio::test]
+    async fn a_min_channel_is_reached_through_its_message() {
+        let (client, mut sent) = Client::scripted(vec![Err(Error::Unexpected("offline"))]);
+        let group = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
+        let group = base::InputPeer::InputPeerChannel(Box::new(group));
+        let seen = types::InputPeerChannelFromMessage { peer: group.clone(), msg_id: 42, channel_id: 55 };
+        let seen = base::InputPeer::InputPeerChannelFromMessage(Box::new(seen));
+        client.0.peers.lock().unwrap().insert(get_channel_id(55), seen);
+
+        let result = client.get_chat(get_channel_id(55)).await;
+        assert!(matches!(result, Err(Error::Unexpected("offline"))), "{result:?}");
+        let channel = types::InputChannelFromMessage { peer: group, msg_id: 42, channel_id: 55 };
+        let channel = base::InputChannel::InputChannelFromMessage(Box::new(channel));
+        assert_eq!(sent.try_recv().unwrap(), crate::raw::functions::channels::GetFullChannel { channel }.to_bytes());
+    }
+
+    fn community(id: i64, access_hash: i64) -> base::Chat {
+        base::Chat::Community(Box::new(types::Community {
+            creator: false,
+            left: false,
+            min: false,
+            collapsed_in_dialogs: false,
+            id,
+            access_hash: Some(access_hash),
+            title: "Hub".into(),
+            photo: base::ChatPhoto::ChatPhotoEmpty,
+            date: 0,
+            admin_rights: None,
+            default_banned_rights: None,
+        }))
+    }
+
+    #[tokio::test]
+    async fn a_community_keeps_its_access_hash() {
+        let chats = types::messages::Chats { chats: vec![community(71, 4)] };
+        let (client, mut sent) = Client::scripted(vec![Ok(base::messages::Chats::Chats(Box::new(chats)).to_bytes())]);
+        crate::dispatcher::Entities::new(&client, Vec::new(), vec![community(70, 3)]);
+        let peer = |channel_id, access_hash| {
+            base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id, access_hash }))
+        };
+        assert_eq!(client.resolve_peer(get_channel_id(70)).await.unwrap(), peer(70, 3));
+        assert!(sent.try_recv().is_err(), "a request went out for a community already seen");
+        assert_eq!(client.resolve_peer(get_channel_id(71)).await.unwrap(), peer(71, 4));
+    }
+
+    #[tokio::test]
+    async fn a_stored_hash_wins_over_a_message_context() {
+        use crate::storage::{MemoryStorage, PeerRecord, Storage};
+
+        let engine = std::sync::Arc::new(MemoryStorage::new());
+        engine.update_peers(&[PeerRecord::new(7, 5)]).await.unwrap();
+        let (mut client, mut sent) = Client::scripted(Vec::new());
+        std::sync::Arc::get_mut(&mut client.0).unwrap().set_store(engine);
+        let group =
+            base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 9, access_hash: 1 }));
+        let seen = types::InputPeerUserFromMessage { peer: group, msg_id: 42, user_id: 7 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUserFromMessage(Box::new(seen)));
+        let full = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 5 }));
+        assert_eq!(client.resolve_peer(7).await.unwrap(), full);
+        assert_eq!(client.0.peers.lock().unwrap().get(&7), Some(&full), "the stored hash replaced the context");
+        assert!(sent.try_recv().is_err());
     }
 }

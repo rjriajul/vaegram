@@ -108,7 +108,7 @@ mod video;
 mod video_note;
 mod voice;
 mod web_app_data;
-mod web_page;
+pub(crate) mod web_page;
 mod write_access_allowed;
 
 pub use animation::Animation;

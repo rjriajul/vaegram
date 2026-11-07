@@ -12,6 +12,10 @@ use crate::errors::Error;
 /// The policy alone bounds the retries: nothing else stops a request that keeps failing, so a policy that always
 /// answers `Continue` retries it for ever. A retried FLOOD_WAIT doesn't take new tokens from the client's rate
 /// limiter, which counted the request once.
+///
+/// `Error::Timeout` and `Error::Disconnected` don't say whether Telegram ran the request: it may have, and only
+/// the answer was lost. A retry sends the same bytes, so a request with a `random_id` (sending a message) is
+/// recognised and not run twice; one without may be.
 pub trait RetryPolicy: Send + Sync + 'static {
     /// `Continue(wait)` sleeps `wait` and sends the request again; `Break(())` hands the error to the caller.
     fn should_retry(&self, ctx: &RetryContext<'_>) -> ControlFlow<(), Duration>;

@@ -5,7 +5,7 @@ use crate::raw::{base, functions};
 use crate::types::BusinessConnection;
 
 impl Client {
-    /// Returns a business connection by id.
+    /// Returns a business connection by id, and remembers which data center serves it.
     ///
     /// Fails with `Error::Unexpected` if Telegram's answer holds no connection.
     pub async fn get_business_connection(
@@ -24,6 +24,7 @@ impl Client {
             .into_iter()
             .find_map(|u| match u {
                 base::Update::UpdateBotBusinessConnect(u) => {
+                    self.0.caches.store_business_connection(&u.connection);
                     Some(BusinessConnection::parse(self, u.connection, &entities))
                 }
                 _ => None,

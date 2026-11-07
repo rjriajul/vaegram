@@ -171,6 +171,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_private_chat_but_some_is_a_selection() {
+        let (client, mut rx) = recording_client();
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        let rights = BusinessBotRights::new().can_reply(true);
+        let all_but_7 = BusinessRecipients::new().exclude_selected(true).exclude_users([7]);
+        let body = sent(&mut rx, client.update_connected_bot(42, rights, &all_but_7)).await;
+        let input_user =
+            |user_id, access_hash| base::InputUser::InputUser(Box::new(types::InputUser { user_id, access_hash }));
+        let recipients = types::InputBusinessBotRecipients {
+            existing_chats: false,
+            new_chats: false,
+            contacts: false,
+            non_contacts: false,
+            exclude_selected: true,
+            users: None,
+            exclude_users: Some(vec![input_user(7, 1)]),
+        };
+        let expected = account::UpdateConnectedBot {
+            deleted: false,
+            rights: Some(rights.write()),
+            bot: input_user(42, 7),
+            recipients: base::InputBusinessBotRecipients::InputBusinessBotRecipients(Box::new(recipients)),
+        };
+        assert_eq!(body, expected.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn business_stories_fetch_the_connection_once() {
+        let connection = types::BotBusinessConnection {
+            disabled: false,
+            connection_id: "c".into(),
+            user_id: 42,
+            dc_id: 2,
+            date: 1,
+            rights: None,
+        };
+        let connection = base::BotBusinessConnection::BotBusinessConnection(Box::new(connection));
+        let update =
+            base::Update::UpdateBotBusinessConnect(Box::new(types::UpdateBotBusinessConnect { connection, qts: 0 }));
+        let connected = base::Updates::UpdateShort(Box::new(types::UpdateShort { update, date: 0 })).to_bytes();
+        let replies = vec![Ok(connected), Ok(vec![1_i32].to_bytes()), Ok(vec![2_i32].to_bytes())];
+        let (client, mut rx) = Client::scripted(replies);
+        let user = types::InputPeerUser { user_id: 42, access_hash: 7 };
+        client.0.peers.lock().unwrap().insert(42, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.delete_business_story("c", 1).await.unwrap();
+        client.delete_business_story("c", 2).await.unwrap();
+        let fetch = account::GetBotBusinessConnection { connection_id: "c".into() }.to_bytes();
+        let bodies: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        assert_eq!(bodies.iter().filter(|body| **body == fetch).count(), 1);
+        assert_eq!(bodies.len(), 3);
+    }
+
+    #[tokio::test]
     async fn deleting_no_quick_reply_messages_is_refused() {
         let (client, mut rx) = recording_client();
         assert!(refused(client.delete_quick_reply_messages(1, &[]).await));
@@ -345,6 +399,7 @@ mod tests {
         ];
         for (show_gift_button, accepted, settings) in cases {
             let (client, mut rx) = Client::scripted(vec![Ok(current.to_bytes())]);
+            client.0.caches.know_business("c", 7, 2);
             let mut request = client.set_business_account_gift_settings("c");
             if let Some(show) = show_gift_button {
                 request = request.show_gift_button(show);

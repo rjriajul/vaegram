@@ -74,7 +74,9 @@ impl RpcError {
     }
 
     /// The data center in any `*_MIGRATE_<dc>` error: `USER_`, `PHONE_` and `NETWORK_MIGRATE` move the account,
-    /// while `FILE_MIGRATE` and `STATS_MIGRATE` only say where that one request goes.
+    /// while `FILE_MIGRATE` and `STATS_MIGRATE` only say where that one request goes. A request sent through a
+    /// business connection is the exception: there `USER_MIGRATE` names the connection's data center, and the
+    /// client sends the request once more there by itself.
     pub fn migrate_dc(&self) -> Option<i32> {
         self.value.filter(|_| self.name.ends_with("_MIGRATE")).and_then(|dc| dc.try_into().ok())
     }
@@ -123,6 +125,9 @@ pub enum Error {
     InvalidDc(i32),
     /// The chat or user with this id (Bot API style) can't be used: it's neither in storage nor found by asking
     /// Telegram, or the call needs a user and the id names a group or channel.
+    ///
+    /// A user account can only address peers it has met: resolve the username, receive a message from the peer or
+    /// one naming it, or list the members of a chat it's in. Bots can reach most users that have talked to them.
     PeerNotFound(i64),
     /// An invite link to a private chat this account hasn't joined; join it first.
     ChatNotJoined,
@@ -249,7 +254,12 @@ impl fmt::Display for Error {
             Error::Disconnected => f.write_str("disconnected from Telegram"),
             Error::Timeout => f.write_str("Telegram did not answer in time"),
             Error::InvalidDc(dc) => write!(f, "unknown data center {dc}"),
-            Error::PeerNotFound(id) => write!(f, "chat {id} not found for this account"),
+            Error::PeerNotFound(id) => {
+                write!(
+                    f,
+                    "chat {id} not found for this account; meet it first (its username, a message, a member list)"
+                )
+            }
             Error::ChatNotJoined => f.write_str("this account hasn't joined the invite link's chat"),
             Error::GuardBotApprovalRequired { .. } => {
                 f.write_str("joining this chat needs the approval of its guard bot's web app")
@@ -412,5 +422,11 @@ mod tests {
         assert_eq!(RpcError::parse(420, "FLOOD_WAIT_30").to_string(), "Telegram error 420: FLOOD_WAIT_30");
         let e = Error::Rpc(RpcError::parse(400, "PEER_ID_INVALID"));
         assert_eq!(e.to_string(), "Telegram error 400: PEER_ID_INVALID");
+    }
+
+    #[test]
+    fn peer_not_found_says_how_to_meet_the_peer() {
+        let text = Error::PeerNotFound(42).to_string();
+        assert!(text.starts_with("chat 42 not found for this account") && text.contains("meet it first"), "{text}");
     }
 }

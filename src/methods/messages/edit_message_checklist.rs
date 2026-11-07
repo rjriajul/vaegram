@@ -58,7 +58,7 @@ impl EditMessageChecklist<'_> {
             ..edit_request(peer, self.message_id)
         };
         let (updates, _) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;
-        Message::from_updates(client, updates, chat_id, (String::new(), None))
+        Message::from_updates(client, updates, Message::request(chat_id, String::new(), None))
     }
 }
 

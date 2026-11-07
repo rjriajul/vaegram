@@ -20,6 +20,8 @@ pub struct SendInlineBotResult<'a> {
     result_id: String,
     hide_via: bool,
     options: SendOptions,
+    // Why awaiting fails before anything is sent, when the chat can't take the result at all.
+    refused: Option<&'static str>,
 }
 
 impl Client {
@@ -39,6 +41,7 @@ impl Client {
             result_id: result_id.into(),
             hide_via: false,
             options: SendOptions::default(),
+            refused: None,
         }
     }
 }
@@ -50,7 +53,15 @@ impl SendInlineBotResult<'_> {
         self
     }
 
+    pub(crate) fn refuse(mut self, reason: &'static str) -> Self {
+        self.refused = Some(reason);
+        self
+    }
+
     async fn send(self) -> Result<Message> {
+        if let Some(reason) = self.refused {
+            return Err(Error::InvalidArgument(reason));
+        }
         let options = &self.options;
         if options.protect_content
             || options.allow_paid_broadcast
@@ -81,7 +92,7 @@ impl SendInlineBotResult<'_> {
             allow_paid_stars: options.paid_message_star_count,
         };
         let updates = client.invoke(&request).await?;
-        Message::from_updates(client, updates, chat_id, (String::new(), None))
+        Message::from_updates(client, updates, Message::request(chat_id, String::new(), None))
     }
 }
 

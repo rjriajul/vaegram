@@ -269,14 +269,23 @@ impl Message {
     }
 
     /// Sends an inline bot result as a reply to this message.
+    ///
+    /// On a message that came through a business connection awaiting fails with `Error::InvalidArgument`, as for
+    /// [`answer_inline_bot_result`](Message::answer_inline_bot_result).
     pub fn reply_inline_bot_result(&self, query_id: i64, result_id: impl Into<String>) -> SendInlineBotResult<'_> {
         self.answer_inline_bot_result(query_id, result_id).reply_to(self.id)
     }
 
     /// Sends an inline bot result to this chat, in the same forum topic and direct-messages topic.
-    /// messages.sendInlineBotResult takes no business connection, so it isn't kept.
+    ///
+    /// messages.sendInlineBotResult can't go through a business connection, so on a message that came through one
+    /// awaiting fails with `Error::InvalidArgument`.
     pub fn answer_inline_bot_result(&self, query_id: i64, result_id: impl Into<String>) -> SendInlineBotResult<'_> {
-        self.route_topic(self.client().send_inline_bot_result(self.chat.id, query_id, result_id))
+        let send = self.route_topic(self.client().send_inline_bot_result(self.chat.id, query_id, result_id));
+        match self.business_connection_id {
+            Some(_) => send.refuse("an inline bot result can't be sent through a business connection"),
+            None => send,
+        }
     }
 }
 
@@ -303,6 +312,7 @@ mod tests {
         let (client, rx) = Client::recording();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.0.caches.know_business("c", 7, 2);
         let message = Message::parse(&client, Box::new(Message::bare(5, get_peer(7), 0)), &Entities::default());
         (client, rx, message)
     }

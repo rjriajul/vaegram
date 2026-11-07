@@ -106,7 +106,7 @@ pub struct Chat {
     pub is_call_not_empty: bool,
     /// The default rights of members.
     pub permissions: Option<ChatPermissions>,
-    /// `true` if forwarding and saving content from the chat is off.
+    /// `true` if forwarding and saving content from the chat is off. For a private chat, only `get_chat` fills it.
     pub has_protected_content: bool,
     /// You were removed from this group or channel.
     pub is_banned: bool,

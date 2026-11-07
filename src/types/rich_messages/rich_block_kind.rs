@@ -568,8 +568,8 @@ impl RichButton {
         self.style
     }
 
-    /// Returns what the button does. `None` for a button the keyboard parser can't read, such as a callback
-    /// whose data isn't UTF-8.
+    /// Returns what the button does. `None` for a button the keyboard parser can't read, such as a profile button
+    /// naming the sender's own account.
     pub fn action(&self) -> Option<InlineKeyboardButton> {
         button_action(&self.kind, &self.text)
     }
@@ -897,7 +897,7 @@ mod tests {
             r#type: base::InlineButtonType::InlineButtonTypeBuy,
             style: None,
         }));
-        let unreadable = base::PageButton::PageButton(Box::new(types::PageButton {
+        let odd = base::PageButton::PageButton(Box::new(types::PageButton {
             text: plain("Odd"),
             r#type: base::InlineButtonType::InlineButtonTypeCallback(Box::new(types::InlineButtonTypeCallback {
                 requires_password: false,
@@ -909,7 +909,7 @@ mod tests {
             align_left: false,
             align_center: false,
             align_right: true,
-            buttons: vec![go, pay, unreadable],
+            buttons: vec![go, pay, odd],
         };
         let K::Buttons { buttons, align } = block(B::PageBlockButtonRow(Box::new(row))).kind() else {
             panic!("not buttons")
@@ -917,10 +917,10 @@ mod tests {
         assert_eq!(align, Some(Align::Right));
         assert_eq!((buttons[0].text(), buttons[0].button_style()), ("Go", RichButtonStyle::Primary));
         assert_eq!(buttons[0].action(), Some(crate::types::InlineKeyboardButton::url("Go", "https://t.me")));
-        // Pay buttons are read like any keyboard button; only unreadable callback data gives no action.
+        // Pay buttons are read like any keyboard button, and callback data that isn't UTF-8 lossily.
         assert_eq!(buttons[1].action(), Some(crate::types::InlineKeyboardButton::pay("Pay")));
         assert_eq!(buttons[1].button_style(), RichButtonStyle::Default);
-        assert!(buttons[2].action().is_none());
+        assert_eq!(buttons[2].action(), Some(crate::types::InlineKeyboardButton::callback("Odd", "\u{fffd}\u{fffd}")));
     }
 
     fn document(id: i64, attributes: Vec<base::DocumentAttribute>) -> base::Document {

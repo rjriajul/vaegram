@@ -62,13 +62,19 @@ impl<'a> SetProfilePhoto<'a> {
     }
 
     async fn send(self) -> Result<()> {
-        let bot = match &self.bot {
-            Some(bot) => Some(self.client.resolve_user(bot).await?),
+        // A business account's photo isn't sent through the connection, which may be on another data center than
+        // the uploaded parts: the bot uploads it naming the account, as it does for a bot it owns.
+        let owner = match &self.business_connection_id {
+            Some(connection) => Some(PeerRef::from(self.client.business_home(connection).await?.user_id)),
+            None => self.bot,
+        };
+        let bot = match &owner {
+            Some(owner) => Some(self.client.resolve_user(owner).await?),
             None => None,
         };
         let (file, video) = uploaded(self.video, self.client.save_file(self.file).await?);
         let request = upload_request(bot, self.public, self.video_start_ts, file, video);
-        self.client.invoke_business(self.business_connection_id.as_deref(), request).await?;
+        self.client.invoke(&request).await?;
         Ok(())
     }
 }
@@ -92,7 +98,10 @@ fn upload_request(
 #[cfg(test)]
 mod tests {
     use super::upload_request;
-    use crate::raw::{base, types};
+    use crate::Client;
+    use crate::raw::functions::photos::UploadProfilePhoto;
+    use crate::raw::{Identifiable, Serializable, base, types};
+    use crate::types::Upload;
 
     #[test]
     fn bot_photo_sends_the_bot() {
@@ -100,5 +109,20 @@ mod tests {
         let request = upload_request(Some(bot.clone()), false, None, None, None);
         assert_eq!(request.bot, Some(bot));
         assert_eq!(upload_request(None, false, None, None, None).bot, None);
+    }
+
+    #[tokio::test]
+    async fn a_business_photo_is_uploaded_naming_the_account() {
+        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.0.caches.know_business("c", 7, 4);
+        let _ = client.set_business_account_profile_photo("c", Upload::bytes("p.jpg", b"jpeg")).await;
+        let _part = sent.try_recv().expect("no part sent");
+        // Not wrapped: the parts are on this client's data center, the connection's is 4.
+        let body = sent.try_recv().expect("no photo sent");
+        assert_eq!(body[..4], UploadProfilePhoto::CONSTRUCTOR_ID.to_le_bytes());
+        let account = base::InputUser::InputUser(Box::new(types::InputUser { user_id: 7, access_hash: 1 })).to_bytes();
+        assert!(body.windows(account.len()).any(|w| w == account));
     }
 }

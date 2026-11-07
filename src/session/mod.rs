@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{Notify, mpsc, oneshot};
 
-use crate::connection::{Connection, Device, Options, Proxy, Reader, Writer};
+use crate::connection::{Connection, Device, MAX_PACKET, Options, Proxy, Reader, Writer};
 use crate::crypto::rsa::PublicKey;
 use crate::crypto::{mtproto, random};
 use crate::enums::ClientEvent;
@@ -244,6 +244,9 @@ pub(crate) struct Known {
 struct Learned {
     salt: AtomicI64,
     time_offset: AtomicI64,
+    // Server time minus local time as the newest message from the server showed it. `time_offset` is only
+    // corrected when Telegram refuses a msg_id, so it misses a local clock that moved since it was saved.
+    seen_offset: AtomicI64,
 }
 
 // Close and restart are signals to the task that owns the connection, so it never races another owner.
@@ -320,13 +323,22 @@ impl Session {
     /// A session that takes requests and never answers them.
     #[cfg(test)]
     pub(crate) fn silent() -> (Session, mpsc::UnboundedReceiver<Vec<u8>>) {
+        Session::answering(Vec::new())
+    }
+
+    /// A session that answers the first requests with `replies`, in order, and never answers the ones after.
+    #[cfg(test)]
+    pub(crate) fn answering(replies: Vec<Result<Vec<u8>>>) -> (Session, mpsc::UnboundedReceiver<Vec<u8>>) {
         let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
         let (bodies, sent) = mpsc::unbounded_channel();
         tokio::spawn(async move {
-            let mut held = Vec::new();
+            let (mut replies, mut held) = (replies.into_iter(), Vec::new());
             while let Some(request) = rx.recv().await {
                 let _ = bodies.send(request.body);
-                held.push(request.answer);
+                match replies.next() {
+                    Some(reply) => drop(request.answer.send(reply)),
+                    None => held.push(request.answer),
+                }
             }
         });
         (Session::local(requests), sent)
@@ -456,16 +468,32 @@ impl Session {
         Salt { value: l.salt.load(Ordering::Relaxed), time_offset: l.time_offset.load(Ordering::Relaxed) }
     }
 
+    /// Server time minus local time, in seconds, as the newest message from the server showed it.
+    pub(crate) fn seen_offset(&self) -> i64 {
+        self.learned.seen_offset.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_seen_offset(&self, offset: i64) {
+        self.learned.seen_offset.store(offset, Ordering::Relaxed);
+    }
+
     /// Waits up to the `request_timeout` the session was connected with. Dropping the future abandons the request.
     pub async fn invoke<R: RemoteCall>(&self, request: &R) -> Result<R::Return> {
         self.invoke_with_timeout(request, self.options.request_timeout).await
     }
 
     /// A request that times out is forgotten: the server is asked not to send its answer, and the connection
-    /// carries on.
+    /// carries on. A request with a string or bytes field of 16 MiB or more, or a body over 16 MiB, fails with
+    /// `Error::InvalidArgument` before it is sent.
     pub async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
+        let body = crate::raw::core::checked_bytes(request)
+            .ok_or(Error::InvalidArgument("a string or bytes field of the request is 16 MiB or longer"))?;
+        if body.len() > MAX_PACKET {
+            return Err(Error::InvalidArgument("a request can't be over 16 MiB"));
+        }
         let (answer, rx) = oneshot::channel();
-        let request = Request { name: R::NAME, body: request.to_bytes(), answer };
+        let request = Request { name: R::NAME, body, answer };
         self.requests.send(request).map_err(|_| Error::Disconnected)?;
         let answer = tokio::time::timeout(timeout, rx).await.map_err(|_| Error::Timeout)?;
         let body = answer.map_err(|_| Error::Disconnected)??;
@@ -666,7 +694,11 @@ impl Runner {
             auth_key,
             auth_key_id: mtproto::auth_key_id(&auth_key),
             session_id: random(),
-            learned: Arc::new(Learned { salt: salt.value.into(), time_offset: salt.time_offset.into() }),
+            learned: Arc::new(Learned {
+                salt: salt.value.into(),
+                time_offset: salt.time_offset.into(),
+                seen_offset: salt.time_offset.into(),
+            }),
             msg_ids: MsgId::new(salt.time_offset),
             clock_synced,
             server_msg_ids: ServerMsgIds::default(),
@@ -765,7 +797,9 @@ impl Runner {
     async fn reconnect(&mut self, requests: &mpsc::UnboundedReceiver<Request>, renewing: bool, restarting: bool) {
         let mut delay = RECONNECT_DELAY;
         let mut attempt = 0;
-        while !requests.is_closed() && self.updates.as_ref().is_none_or(|u| !u.is_closed()) && !self.control.closed() {
+        // A session whose update receiver is gone (replaced by a DC switch, or dropped by a raw caller) still serves
+        // its requests, so it reconnects like any other; only the dropped handles end it.
+        while !requests.is_closed() && !self.control.closed() {
             attempt += 1;
             if !(renewing && attempt == 1) {
                 self.link(false);
@@ -805,9 +839,11 @@ impl Runner {
         }
     }
 
+    /// Only a main connection whose updates someone takes reports its link: not a file connection, and not a main
+    /// one a DC switch replaced.
     fn link(&mut self, up: bool) {
         self.control.connected.store(up, Ordering::Release);
-        if self.updates.is_some() && up != self.link_up {
+        if self.updates.as_ref().is_some_and(|u| !u.is_closed()) && up != self.link_up {
             self.link_up = up;
             self.events.link(up);
         }
@@ -1044,7 +1080,12 @@ impl Runner {
         }
         let now = (self.clock_synced && constructor_id(body) != Some(BAD_MSG_NOTIFICATION))
             .then(|| internals::now() + self.msg_ids.time_offset);
-        msg_id % 2 != 0 && self.server_msg_ids.accept(msg_id, now)
+        let fresh = msg_id % 2 != 0 && self.server_msg_ids.accept(msg_id, now);
+        if fresh {
+            // Its upper half is when the server sent it, in Unix seconds.
+            self.learned.seen_offset.store((msg_id >> 32) - internals::now(), Ordering::Relaxed);
+        }
+        fresh
     }
 
     fn handle_message(&mut self, msg_id: i64, seq_no: i32, body: &[u8]) {

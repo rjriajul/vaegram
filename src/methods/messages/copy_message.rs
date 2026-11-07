@@ -16,6 +16,8 @@ pub struct CopyMessage<'a> {
     caption: Option<Text>,
     parse_mode: Option<ParseMode>,
     options: SendOptions,
+    // The message to copy when the caller already holds it and it can't be fetched by id.
+    held: Option<Box<types::Message>>,
     video_start_timestamp: Option<i32>,
 }
 
@@ -37,6 +39,7 @@ impl Client {
             caption: None,
             parse_mode: None,
             options: SendOptions::default(),
+            held: None,
             video_start_timestamp: None,
         }
     }
@@ -49,6 +52,12 @@ impl CopyMessage<'_> {
         self
     }
 
+    /// Copies `message` as it is instead of fetching `message_id` from `from_chat_id`.
+    pub(crate) fn held(mut self, message: Box<types::Message>) -> Self {
+        self.held = Some(message);
+        self
+    }
+
     /// Starts the copied video playing at this many seconds (the media's `video_timestamp`), replacing the start
     /// time of the source. Ignored when the source is not a video.
     pub fn video_start_timestamp(mut self, seconds: i32) -> Self {
@@ -58,8 +67,13 @@ impl CopyMessage<'_> {
 
     async fn send(mut self) -> Result<Message> {
         let client = self.client;
-        let (mut found, _) = client.get_raw_messages(self.from_chat_id, &[self.message_id]).await?;
-        let source = *found.pop().flatten().ok_or(Error::Unexpected("getMessages returned no message to copy"))?;
+        let source = match self.held.take() {
+            Some(held) => *held,
+            None => {
+                let (mut found, _) = client.get_raw_messages(self.from_chat_id, &[self.message_id]).await?;
+                *found.pop().flatten().ok_or(Error::Unexpected("getMessages returned no message to copy"))?
+            }
+        };
         self.options.no_webpage = !matches!(source.media, Some(base::MessageMedia::MessageMediaWebPage(_)));
         self.options.invert_media = source.invert_media;
         let is_video = source.media.as_ref().is_some_and(is_video);

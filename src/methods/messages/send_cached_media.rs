@@ -114,6 +114,7 @@ mod tests {
     #[tokio::test]
     async fn cached_media_goes_through_the_business_connection() {
         let (client, mut rx) = Client::recording();
+        client.0.caches.know_business("c1", 7, 2);
         let media = client.send_cached_media(-5, DOCUMENT).business_connection_id("c1");
         assert_eq!(sent(&mut rx, media).await, InvokeWithBusinessConnection::<messages::SendMedia>::CONSTRUCTOR_ID);
     }

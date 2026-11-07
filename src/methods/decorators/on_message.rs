@@ -9,7 +9,8 @@ use crate::types::Message;
 impl Client {
     /// Registers a handler for new messages that pass `filter`.
     ///
-    /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
+    /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id. Messages
+    /// this client sends itself don't come here; see [`handlers`](crate::handlers).
     pub fn on_message<F, Fut, T>(&self, filter: Filter<Message>, f: F) -> HandlerRef<'_>
     where
         F: Fn(Message) -> Fut + Send + Sync + 'static,

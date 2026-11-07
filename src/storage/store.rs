@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, mpsc as std_mpsc};
 use std::time::Duration;
 
@@ -55,14 +56,25 @@ pub(crate) struct Store {
     // Where the thread reports what it can't write; the engine's failures never stop the client.
     events: Arc<Events>,
     worker: OnceLock<io::Result<mpsc::UnboundedSender<Message>>>,
+    // Set by the first `finish`; the engine is closed for good after it.
+    finished: AtomicBool,
 }
 
 impl Store {
     pub(crate) fn new(engine: Arc<dyn Storage>, events: Arc<Events>) -> Store {
-        Store { engine, pending: Arc::default(), events, worker: OnceLock::new() }
+        Store { engine, pending: Arc::default(), events, worker: OnceLock::new(), finished: AtomicBool::new(false) }
     }
 
     fn worker(&self) -> io::Result<&mpsc::UnboundedSender<Message>> {
+        // Also when `finish` came before the thread ever started: a closed store never starts one.
+        if self.finished.load(Ordering::Acquire) {
+            return Err(stopped());
+        }
+        self.start()
+    }
+
+    /// Starts the store thread if it isn't running yet, finished or not.
+    fn start(&self) -> io::Result<&mpsc::UnboundedSender<Message>> {
         let worker = self.worker.get_or_init(|| {
             let (tx, rx) = mpsc::unbounded_channel();
             let (engine, pending, events) = (self.engine.clone(), self.pending.clone(), self.events.clone());
@@ -133,16 +145,32 @@ impl Store {
         self.call(|e| async move { e.export_peers(Some(WARM_PEERS)).await }).await
     }
 
+    // Each lookup checks the peers queued for the next flush first: the peer cache can let go of one the engine
+    // doesn't have yet. A flush runs on the store thread like the lookup, so a peer is always in one or the other.
     pub(crate) async fn get_peer(&self, id: i64) -> io::Result<Option<PeerRecord>> {
+        if let Some(queued) = self.pending.lock().peers.get(&id) {
+            return Ok(Some(queued.clone()));
+        }
         self.call(move |e| async move { e.get_peer_by_id(id).await }).await
     }
 
     pub(crate) async fn get_peer_by_username(&self, username: String) -> io::Result<Option<PeerRecord>> {
+        if let Some(queued) = self.queued(|p| p.usernames.iter().any(|u| u.eq_ignore_ascii_case(&username))) {
+            return Ok(Some(queued));
+        }
         self.call(move |e| async move { e.get_peer_by_username(&username).await }).await
     }
 
     pub(crate) async fn get_peer_by_phone_number(&self, phone_number: String) -> io::Result<Option<PeerRecord>> {
+        if let Some(queued) = self.queued(|p| p.phone_number.as_ref() == Some(&phone_number)) {
+            return Ok(Some(queued));
+        }
         self.call(move |e| async move { e.get_peer_by_phone_number(&phone_number).await }).await
+    }
+
+    /// The newest queued peer `found` picks, as the engine would pick among its own.
+    fn queued(&self, found: impl Fn(&PeerRecord) -> bool) -> Option<PeerRecord> {
+        self.pending.lock().peers.values().filter(|p| found(p)).max_by_key(|p| (p.updated, p.id)).cloned()
     }
 
     pub(crate) async fn save_session(&self, session: SessionData) -> io::Result<()> {
@@ -201,6 +229,10 @@ impl Store {
     }
 
     fn start_flushing(&self) {
+        // A finished store writes nothing more; what is queued after it stays in memory.
+        if self.finished.load(Ordering::Acquire) {
+            return;
+        }
         if let Err(e) = self.worker() {
             self.events.storage_failed(e.kind(), format_args!("{e}; saves wait until it starts"));
         }
@@ -230,12 +262,29 @@ impl Store {
     }
 
     /// Queues `state`, writes what is queued and closes the engine, waiting at most `DROP_WAIT`. Called when the
-    /// client is dropped, from whatever thread drops it.
+    /// client is disconnected or dropped, from whatever thread does it. Only the first call does anything: the store
+    /// thread ends with it, so later calls to the engine fail and later writes are dropped.
     pub(crate) fn finish(&self, state: Option<StoredState>) {
-        if let Some(state) = state {
-            self.queue_state(state);
+        if self.finished.swap(true, Ordering::AcqRel) {
+            return;
         }
-        let Some(Ok(worker)) = self.worker.get() else { return };
+        let worker = match state {
+            Some(state) => {
+                self.queue_state(state);
+                // The last state is saved even when nothing started the thread before.
+                match self.start() {
+                    Ok(worker) => worker,
+                    Err(e) => {
+                        self.events.storage_failed(e.kind(), format_args!("{e}; the last update state isn't saved"));
+                        return;
+                    }
+                }
+            }
+            None => match self.worker.get() {
+                Some(Ok(worker)) => worker,
+                _ => return,
+            },
+        };
         let (tx, rx) = std_mpsc::channel();
         if worker.send(Message::Finish(tx)).is_ok() && rx.recv_timeout(DROP_WAIT).is_err() {
             self.events.storage_failed(
@@ -549,10 +598,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_store_finished_before_it_started_never_touches_the_engine() {
+        let engine = Arc::new(Recording::default());
+        let store = Store::new(engine.clone(), Arc::default());
+        store.finish(None);
+        store.queue_peers([PeerRecord::new(1, 1)]);
+        let loaded = store.get_peer(2).await;
+        store.flush().await;
+        assert!(loaded.is_err(), "{loaded:?}");
+        assert!(!store.started(), "a thread started after finish");
+        assert!(engine.calls().is_empty(), "{:?}", engine.calls());
+    }
+
+    #[tokio::test]
     async fn a_store_that_never_worked_starts_no_thread_on_drop() {
         let store = Store::new(Arc::new(MemoryStorage::new()), Arc::default());
         store.finish(None);
         assert!(!store.started());
+    }
+
+    // An offline client, or one given its store with `set_store`, may never have started the thread.
+    #[tokio::test]
+    async fn finish_saves_the_last_state_of_a_store_that_never_started() {
+        let engine = Arc::new(MemoryStorage::new());
+        let store = Store::new(engine.clone(), Arc::default());
+        tokio::task::spawn_blocking(move || store.finish(Some(state(9)))).await.unwrap();
+        assert_eq!(engine.load_state().await.unwrap(), Some(state(9)));
     }
 
     /// Never finishes a state save.

@@ -203,6 +203,10 @@ pub fn command_with_prefixes<T: HasText>(
 }
 
 /// Like `command_with`, but the name must have the case it was given: `/Start` isn't `/start`.
+///
+/// # Panics
+///
+/// If `prefixes` is empty.
 pub fn command_case_sensitive<T: HasText>(prefixes: &str, names: impl CommandNames) -> Filter<T> {
     command_filter(prefixes, names, true)
 }

@@ -33,6 +33,7 @@ pub use gift_auction_state::{
 };
 pub use gift_background::GiftBackground;
 pub use gift_collection::GiftCollection;
+pub(crate) use gift_info::ChatSides;
 pub use gift_info::{GiftInfo, UniqueGiftInfo};
 pub use gift_resale_parameters::GiftResaleParameters;
 pub use gift_upgrade_preview::{GiftUpgradePreview, GiftUpgradePrice};

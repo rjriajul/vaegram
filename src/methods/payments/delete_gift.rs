@@ -73,6 +73,7 @@ mod tests {
     #[tokio::test]
     async fn delete_gift_on_behalf_wraps_business() {
         let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        client.0.caches.know_business("conn", 7, 2);
         client.delete_gift("PlushPepe-3").business_connection_id("conn").await.unwrap();
         let body = sent.try_recv().unwrap();
         let wrapper = functions::InvokeWithBusinessConnection::<functions::payments::DeleteStarGift>::CONSTRUCTOR_ID;

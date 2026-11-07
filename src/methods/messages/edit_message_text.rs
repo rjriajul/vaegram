@@ -106,7 +106,11 @@ impl EditMessageText<'_> {
             ..edit_request(peer, self.message_id)
         };
         let (updates, request) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;
-        Message::from_updates(client, updates, chat_id, (request.message.unwrap_or_default(), request.entities))
+        Message::from_updates(
+            client,
+            updates,
+            Message::request(chat_id, request.message.unwrap_or_default(), request.entities),
+        )
     }
 }
 
@@ -187,6 +191,7 @@ mod tests {
     #[tokio::test]
     async fn business_edits_go_through_the_connection() {
         let (client, mut rx) = Client::recording();
+        client.0.caches.know_business("c", 7, 2);
         assert!(client.edit_message_text("me", 5, "hi").business_connection_id("c").await.is_err());
         let body = rx.try_recv().expect("no request sent");
         assert_eq!(body[..4], 0xdd289f8e_u32.to_le_bytes());

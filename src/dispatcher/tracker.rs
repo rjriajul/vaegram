@@ -75,12 +75,23 @@ pub(super) struct Tracker {
     pub(super) idle: Option<Instant>,
     pub(super) due: Vec<Key>,
     pub(super) ready: Vec<(base::Update, Arc<Entities>)>,
+    // updatePtsChanged came: the common box has to be read again with updates.getState.
+    pub(super) refetch: bool,
 }
 
 impl Tracker {
     pub(super) fn set_state(&mut self, s: &types::updates::State) {
         let state = &mut self.state;
         (state.pts, state.qts, state.date, state.seq) = (s.pts, s.qts, s.date, s.seq);
+    }
+
+    /// The state updates.getState gave after updatePtsChanged. Updates held for a pts gap were numbered the old
+    /// way, so they go; held qts and seq ones are checked against the fresh counters.
+    pub(super) fn restate(&mut self, s: &types::updates::State) {
+        self.set_state(s);
+        self.pending.retain(|(_, p)| p.key != Key::Pts);
+        self.drain(Key::Qts);
+        self.drain(Key::Seq);
     }
 
     pub(super) fn counter(&mut self, key: Key) -> &mut i32 {
@@ -115,6 +126,10 @@ impl Tracker {
     pub(super) fn update(&mut self, update: base::Update, entities: &Arc<Entities>, quiet: bool) {
         if let base::Update::UpdateChannelTooLong(u) = &update {
             return self.mark(Key::Channel(u.channel_id));
+        }
+        // https://core.telegram.org/constructor/updatePtsChanged: the pts were renumbered. Raw handlers still get it.
+        if matches!(update, base::Update::UpdatePtsChanged) {
+            self.refetch = true;
         }
         let channel = channel_of(&update);
         let channel_message =

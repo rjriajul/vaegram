@@ -170,6 +170,7 @@ mod tests {
         let (client, mut rx) = Client::recording();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.0.caches.know_business("c", 7, 2);
         assert!(client.send_chat_action(7, ChatAction::Typing).business_connection_id("c").await.is_err());
         assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
     }
@@ -227,6 +228,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_business_repeat_goes_through_the_connection() {
         let (client, mut rx) = chat(vec![ok(), ok()]);
+        client.0.caches.know_business("c", 7, 2);
         let action = client.send_chat_action(7, ChatAction::Typing).business_connection_id("c");
         let handle = action.repeat().repeat_delay(Duration::from_secs(1)).await.unwrap();
         sleep(Duration::from_millis(1500)).await;

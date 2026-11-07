@@ -24,8 +24,13 @@ impl Client {
             let types::users::UserFull { full_user: base::UserFull::UserFull(mut user), chats, users } = *full;
             let entities = Entities::new(self, users, chats);
             let mut chat = Chat::parse(&get_peer(chat_id), &entities, false);
-            add_full_photo(&mut chat, user.profile_photo.as_ref());
+            // Whichever of these the profile photo is, the full reply adds its video and sticker.
+            for full in [&user.profile_photo, &user.personal_photo, &user.fallback_photo] {
+                add_full_photo(&mut chat, full.as_ref());
+            }
             chat.bio = user.about.take().filter(|about| !about.is_empty());
+            // Either side can protect a private chat's content.
+            chat.has_protected_content = user.noforwards_my_enabled || user.noforwards_peer_enabled;
             chat.community = Community::linked(chat_id, &entities);
             chat.full_info = Some(Box::new(ChatFullInfo::parse_user(*user, &entities)));
             return Ok(chat);
@@ -344,6 +349,62 @@ mod tests {
         let empty = base::Photo::PhotoEmpty(types::PhotoEmpty { id: 55 });
         add_full_photo(&mut chat, Some(&empty));
         assert_eq!(chat.photo, Some(photo));
+    }
+
+    fn animated_photo(id: i64) -> base::Photo {
+        let video = types::VideoSize { r#type: "u".into(), w: 800, h: 800, size: 20, video_start_ts: None };
+        let photo = types::Photo {
+            has_stickers: false,
+            id,
+            access_hash: 1,
+            file_reference: Vec::new(),
+            date: 0,
+            sizes: Vec::new(),
+            video_sizes: Some(vec![base::VideoSize::VideoSize(video.into())]),
+            dc_id: 4,
+        };
+        base::Photo::Photo(photo.into())
+    }
+
+    async fn user_chat(photo: Option<types::UserProfilePhoto>, full: types::UserFull) -> Chat {
+        let base::User::User(user) = raw_user(USER, 77) else { unreachable!() };
+        let user = types::User { photo: photo.map(|p| base::UserProfilePhoto::UserProfilePhoto(p.into())), ..*user };
+        let reply = types::users::UserFull {
+            full_user: base::UserFull::UserFull(full.into()),
+            chats: Vec::new(),
+            users: vec![base::User::User(user.into())],
+        };
+        let (client, _rx) = Client::scripted(vec![Ok(base::users::UserFull::UserFull(reply.into()).to_bytes())]);
+        let peer = types::InputPeerUser { user_id: USER, access_hash: 77 };
+        client.0.peers.lock().unwrap().insert(USER, base::InputPeer::InputPeerUser(Box::new(peer)));
+        client.get_chat(USER).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn personal_and_fallback_photos_add_animation() {
+        let profile = |personal| types::UserProfilePhoto {
+            has_video: true,
+            personal,
+            photo_id: 55,
+            stripped_thumb: None,
+            dc_id: 4,
+        };
+        // The contact photo you set shows instead of the user's own.
+        let full = types::UserFull { personal_photo: Some(animated_photo(55)), ..user_full(USER) };
+        assert!(user_chat(Some(profile(true)), full).await.photo.unwrap().animation.is_some());
+        // The public photo shows to those who may not see the main one.
+        let full = types::UserFull { fallback_photo: Some(animated_photo(55)), ..user_full(USER) };
+        assert!(user_chat(Some(profile(false)), full).await.photo.unwrap().animation.is_some());
+    }
+
+    #[tokio::test]
+    async fn private_chat_protection_comes_from_the_full_user() {
+        for (mine, theirs) in [(true, false), (false, true)] {
+            let full =
+                types::UserFull { noforwards_my_enabled: mine, noforwards_peer_enabled: theirs, ..user_full(USER) };
+            assert!(user_chat(None, full).await.has_protected_content, "mine {mine}, theirs {theirs}");
+        }
+        assert!(!user_chat(None, user_full(USER)).await.has_protected_content);
     }
 
     fn recipients() -> base::BusinessRecipients {

@@ -104,7 +104,8 @@ pub struct InlineKeyboardButton {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InlineAction {
-    /// Sends the data to the bot as a [`CallbackQuery`](crate::types::CallbackQuery).
+    /// Sends the data to the bot as a [`CallbackQuery`](crate::types::CallbackQuery). Read from a received message,
+    /// data that isn't UTF-8 is decoded lossily.
     Callback(String),
     /// Opens a link.
     Url(String),

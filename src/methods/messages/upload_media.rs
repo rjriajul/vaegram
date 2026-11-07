@@ -74,13 +74,29 @@ impl Client {
             }
             Source::Upload(upload) => {
                 let file = self.save_file(*upload).progress(progress).into_future();
-                self.uploaded_media(media, media.upload_name(upload.name()), file, extras).await?
+                let uploaded = self.uploaded_media(media, media.upload_name(upload.name()), file, extras).await?;
+                self.stored_for_business(peer, uploaded, business_connection_id).await?
             }
-            Source::Uploaded(uploaded) => {
-                self.uploaded_media(media, media.upload_name(uploaded.name()), async { Ok(uploaded.0.clone()) }, extras)
-                    .await?
+            Source::Uploaded(file) => {
+                let name = media.upload_name(file.name());
+                let uploaded = self.uploaded_media(media, name, async { Ok(file.0.clone()) }, extras).await?;
+                self.stored_for_business(peer, uploaded, business_connection_id).await?
             }
         })
+    }
+
+    /// Uploaded parts stay on this client's data center, which needn't be the one serving a business connection, so
+    /// a business request gets the stored photo or document that messages.uploadMedia makes of them.
+    async fn stored_for_business(
+        &self,
+        peer: &base::InputPeer,
+        media: base::InputMedia,
+        business_connection_id: Option<&str>,
+    ) -> Result<base::InputMedia> {
+        match business_connection_id {
+            Some(_) => self.upload_media(peer, media, business_connection_id).await,
+            None => Ok(media),
+        }
     }
 
     async fn uploaded_media(
@@ -358,6 +374,26 @@ mod tests {
         assert_eq!((d.video_cover, d.video_timestamp), (Some(base::InputPhoto::InputPhoto(Box::new(cover))), Some(5)));
         let body = sent.try_recv().unwrap();
         assert!(body.windows(5).any(|w| w == b"\x04conn"), "uploadMedia went out without the connection");
+    }
+
+    #[tokio::test]
+    async fn a_business_send_stores_its_upload_first() {
+        let stored = document_media("application/pdf", Vec::new()).to_bytes();
+        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(stored)]);
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.0.caches.know_business("c", 7, 2);
+        let _ = client.send_document(7, Upload::bytes("a.pdf", b"x")).business_connection_id("c").await;
+        let bodies: Vec<_> = std::iter::from_fn(|| sent.try_recv().ok()).collect();
+        let ids: Vec<u32> = bodies.iter().map(|b| u32::from_le_bytes(b[..4].try_into().unwrap())).collect();
+        let wrapper = crate::raw::functions::InvokeWithBusinessConnection::<
+            crate::raw::functions::messages::SendMedia,
+        >::CONSTRUCTOR_ID;
+        assert_eq!(ids, [SaveFilePart::CONSTRUCTOR_ID, UploadMedia::CONSTRUCTOR_ID, wrapper]);
+        // The connection's data center gets the stored document, not parts it never saw.
+        let has = |id: u32| bodies[2].windows(4).any(|w| w == id.to_le_bytes());
+        assert!(has(types::InputMediaDocument::CONSTRUCTOR_ID));
+        assert!(!has(types::InputMediaUploadedDocument::CONSTRUCTOR_ID));
     }
 
     fn stored(name: &str) -> base::InputFile {

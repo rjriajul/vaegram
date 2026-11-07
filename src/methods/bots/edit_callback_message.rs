@@ -184,6 +184,7 @@ mod tests {
         let (client, mut sent) = Client::recording();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, peer);
+        client.0.caches.know_business("conn", 7, 2);
         let q = CallbackQuery::parse_business(&client, update, &Entities::default());
         assert!(q.edit_message_media(photo()).await.is_err());
         assert_eq!(sent.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());

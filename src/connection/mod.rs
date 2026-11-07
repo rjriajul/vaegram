@@ -17,7 +17,7 @@ mod websocket;
 pub use dns_config::{AccessPointRule, DnsConfig, IpPort};
 pub use proxy::{Proxy, Secret};
 pub use transport::Transport;
-pub(crate) use transport::{Framing, RecvBuf};
+pub(crate) use transport::{Framing, MAX_PACKET, RecvBuf};
 
 use std::io;
 use std::net::SocketAddr;

@@ -16,7 +16,7 @@ pub struct BusinessConnection {
     pub rights: BusinessBotRights,
     /// `false` once the account has disabled the connection.
     pub is_enabled: bool,
-    /// The data center of the connected account.
+    /// The data center that serves requests through this connection. The client sends them there by itself.
     pub dc_id: i32,
     client: Client,
 }

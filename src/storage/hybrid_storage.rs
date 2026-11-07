@@ -264,7 +264,8 @@ impl HybridStorage {
         self
     }
 
-    /// How long closing waits for the queue to reach the remote; 10 seconds unless set.
+    /// How long closing waits for the queue to reach the remote; 10 seconds unless set. `Duration::MAX` waits
+    /// for as long as it takes.
     #[must_use]
     pub fn flush_timeout(mut self, timeout: Duration) -> HybridStorage {
         self.flush_timeout = timeout;
@@ -320,7 +321,8 @@ impl HybridStorage {
     }
 
     async fn close(&self) -> io::Result<()> {
-        let deadline = Instant::now() + self.flush_timeout;
+        // A timeout too long to add to the clock means no deadline.
+        let deadline = Instant::now().checked_add(self.flush_timeout);
         self.shared.flush.notify_one();
         let mut drained = true;
         loop {
@@ -330,7 +332,14 @@ impl HybridStorage {
             if self.shared.drained() {
                 break;
             }
-            if tokio::time::timeout_at(deadline, idle).await.is_err() {
+            let woke = match deadline {
+                Some(deadline) => tokio::time::timeout_at(deadline, idle).await.is_ok(),
+                None => {
+                    idle.await;
+                    true
+                }
+            };
+            if !woke {
                 drained = self.shared.drained();
                 break;
             }
@@ -678,6 +687,24 @@ mod tests {
         hybrid.open().await.unwrap();
         hybrid.close().await.unwrap();
         assert_eq!(remote.inner.load_state().await.unwrap(), Some(state(7)), "the queue outlived the close");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_flush_timeout_of_duration_max_waits_for_the_remote() {
+        let remote = Arc::new(Remote::default());
+        let hybrid = Arc::new(HybridStorage::new(remote.clone()).flush_timeout(Duration::MAX));
+        hybrid.open().await.unwrap();
+        remote.down.store(true, Ordering::SeqCst);
+        hybrid.save_state(&state(7)).await.unwrap();
+        let closing = tokio::spawn({
+            let hybrid = hybrid.clone();
+            async move { hybrid.close().await }
+        });
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+        assert!(!closing.is_finished(), "close gave up on the queue");
+        remote.down.store(false, Ordering::SeqCst);
+        closing.await.unwrap().unwrap();
+        assert_eq!(remote.inner.load_state().await.unwrap(), Some(state(7)));
     }
 
     #[tokio::test]

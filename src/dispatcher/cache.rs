@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
@@ -20,12 +21,16 @@ impl<K: Hash + Eq + Clone, V> Lru<K, V> {
         Lru { entries: HashMap::new(), order: BTreeMap::new(), tick: 0, capacity }
     }
 
-    fn get(&mut self, key: &K) -> Option<&V> {
+    fn get<Q: Hash + Eq + ?Sized>(&mut self, key: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+    {
         self.tick += 1;
         let (value, used) = self.entries.get_mut(key)?;
-        self.order.remove(used);
+        if let Some(key) = self.order.remove(used) {
+            self.order.insert(self.tick, key);
+        }
         *used = self.tick;
-        self.order.insert(self.tick, key.clone());
         Some(value)
     }
 
@@ -57,6 +62,11 @@ impl<K: Hash + Eq + Clone, V> Lru<K, V> {
             kept
         });
     }
+
+    /// Every value, without counting as a use.
+    fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+        self.entries.values_mut().map(|(value, _)| value)
+    }
 }
 
 /// A message as it came, with the users and chats of its batch, parsed again on every hit. A parsed `Message` holds
@@ -70,20 +80,43 @@ pub(crate) struct Cached {
 // Outside channels message ids are per account, so 0 stands for every chat that isn't a channel.
 type MessageKey = (i64, i32);
 
-/// The message, forum topic and sticker set name caches, each off (`None`) unless its size is set.
-#[derive(Default)]
+/// A poll as a message or update carried it, with that batch's users and chats.
+pub(crate) type CachedPoll = (base::Poll, Arc<Entities>);
+
+/// Where a business connection lives: the account behind it, and the data center its requests have to go to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BusinessHome {
+    pub(crate) user_id: i64,
+    pub(crate) dc_id: i32,
+}
+
+/// How many business connections are remembered. A miss costs one `account.getBotBusinessConnection`.
+const BUSINESS_CONNECTIONS: usize = 1024;
+
+/// The message, poll, forum topic and sticker set name caches, each off (`None`) unless its size is set, and the
+/// business connections, which are always kept. Polls share the message cache's size.
 pub(crate) struct Caches {
     messages: Option<Mutex<Lru<MessageKey, Cached>>>,
+    polls: Option<Mutex<Lru<i64, CachedPoll>>>,
     topics: Option<Mutex<Lru<(i64, i32), ForumTopic>>>,
     set_names: Option<Mutex<Lru<i64, String>>>,
+    business: Mutex<Lru<String, BusinessHome>>,
+}
+
+impl Default for Caches {
+    fn default() -> Caches {
+        Caches::new(0, 0)
+    }
 }
 
 impl Caches {
     pub(crate) fn new(messages: usize, topics: usize) -> Caches {
         Caches {
             messages: (messages > 0).then(|| Mutex::new(Lru::new(messages))),
+            polls: (messages > 0).then(|| Mutex::new(Lru::new(messages))),
             topics: (topics > 0).then(|| Mutex::new(Lru::new(topics))),
             set_names: None,
+            business: Mutex::new(Lru::new(BUSINESS_CONNECTIONS)),
         }
     }
 
@@ -103,14 +136,50 @@ impl Caches {
         }
     }
 
+    /// Where the business connection `id` lives, if it was seen in an update or fetched.
+    pub(crate) fn business_home(&self, id: &str) -> Option<BusinessHome> {
+        self.business.lock().unwrap().get(id).copied()
+    }
+
+    pub(crate) fn store_business_connection(&self, connection: &base::BotBusinessConnection) {
+        let base::BotBusinessConnection::BotBusinessConnection(c) = connection;
+        let home = BusinessHome { user_id: c.user_id, dc_id: c.dc_id };
+        self.business.lock().unwrap().insert(c.connection_id.clone(), home);
+    }
+
+    /// Records that Telegram sent a request of the connection `id` to `dc_id`.
+    pub(crate) fn move_business(&self, id: &str, dc_id: i32) {
+        let mut business = self.business.lock().unwrap();
+        if let Some(&home) = business.get(id) {
+            business.insert(id.to_owned(), BusinessHome { dc_id, ..home });
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn know_business(&self, id: &str, user_id: i64, dc_id: i32) {
+        self.business.lock().unwrap().insert(id.to_owned(), BusinessHome { user_id, dc_id });
+    }
+
     pub(crate) fn caches_messages(&self) -> bool {
         self.messages.is_some()
     }
 
-    /// Learns from an update before it's routed: new and edited messages are kept, deleted ones dropped, and an
-    /// edited topic forgotten. Reactions, views, forwards, pins and widget data change a message without an edit, so
-    /// they drop it too; a later read asks Telegram. Other flag-only changes (a voice note marked listened, say)
-    /// aren't tracked, so a cached message can show them stale.
+    /// The poll with this id as a message or update last carried it.
+    pub(crate) fn poll(&self, poll_id: i64) -> Option<CachedPoll> {
+        self.polls.as_ref()?.lock().unwrap().get(&poll_id).cloned()
+    }
+
+    fn store_poll(&self, poll: &base::Poll, entities: &Arc<Entities>) {
+        let Some(polls) = &self.polls else { return };
+        let base::Poll::Poll(p) = poll;
+        polls.lock().unwrap().insert(p.id, (poll.clone(), entities.clone()));
+    }
+
+    /// Learns from an update before it's routed: new and edited messages are kept, deleted ones dropped, an edited
+    /// topic forgotten, and a business connection's account and data center remembered. Reactions, views, forwards,
+    /// pins and widget data change a message without an edit, so they drop it too; a later read asks Telegram. A link
+    /// preview Telegram finishes later is filled into the cached messages that show it. Other flag-only changes (a
+    /// voice note marked listened, say) aren't tracked, so a cached message can show them stale.
     pub(crate) fn observe(&self, update: &base::Update, entities: &Arc<Entities>) {
         use base::Update as U;
         match update {
@@ -127,12 +196,32 @@ impl Caches {
             U::UpdatePinnedChannelMessages(u) => self.evict_ids(u.channel_id, &u.messages),
             U::UpdateMessageWidgetData(u) => self.evict_ids(channel_of(&u.peer), &[u.msg_id]),
             U::UpdateEditForumTopic(u) => self.evict_topic(crate::utils::get_peer_id(&u.peer), u.topic_id),
+            U::UpdateMessagePoll(u) => {
+                if let Some(poll) = &u.poll {
+                    self.store_poll(poll, entities);
+                }
+            }
+            U::UpdateWebPage(u) => self.update_web_page(&u.webpage),
+            U::UpdateChannelWebPage(u) => self.update_web_page(&u.webpage),
+            U::UpdateBotBusinessConnect(u) => self.store_business_connection(&u.connection),
             _ => {}
         }
     }
 
-    /// Keeps a regular message, sent or received; scheduled and business messages never come here. Polls are left
-    /// out: their votes change without an edit.
+    /// Puts a link preview Telegram finished building into the cached messages that still hold an older state of it.
+    fn update_web_page(&self, page: &base::WebPage) {
+        let (Some(id), Some(messages)) = (web_page_id(page), &self.messages) else { return };
+        for cached in messages.lock().unwrap().values_mut() {
+            let base::Message::Message(m) = &mut cached.raw else { continue };
+            let Some(base::MessageMedia::MessageMediaWebPage(media)) = &mut m.media else { continue };
+            if web_page_id(&media.webpage) == Some(id) {
+                media.webpage = page.clone();
+            }
+        }
+    }
+
+    /// Keeps a regular message, sent or received; scheduled and business messages never come here. A poll's message
+    /// is left out, since its votes change without an edit, but the poll itself is kept, for updates that leave it out.
     pub(crate) fn store(&self, raw: &base::Message, entities: &Arc<Entities>) {
         let topic_edit = match raw {
             base::Message::MessageService(m) if matches!(m.action, base::MessageAction::MessageActionTopicEdit(_)) => {
@@ -145,8 +234,10 @@ impl Caches {
         }
         let Some(messages) = &self.messages else { return };
         let (peer, id) = match raw {
-            base::Message::Message(m) if matches!(m.media, Some(base::MessageMedia::MessageMediaPoll(_))) => return,
-            base::Message::Message(m) => (&m.peer_id, m.id),
+            base::Message::Message(m) => match &m.media {
+                Some(base::MessageMedia::MessageMediaPoll(media)) => return self.store_poll(&media.poll, entities),
+                _ => (&m.peer_id, m.id),
+            },
             base::Message::MessageService(m) => (&m.peer_id, m.id),
             base::Message::MessageEmpty(_) => return,
         };
@@ -221,6 +312,16 @@ fn channel_of(peer: &base::Peer) -> i64 {
 
 fn channel_of_chat(chat_id: i64) -> i64 {
     if chat_id < -CHANNEL_OFFSET { channel_id_of(chat_id) } else { 0 }
+}
+
+/// `None` for `webPageNotModified`, which names no page.
+fn web_page_id(page: &base::WebPage) -> Option<i64> {
+    match page {
+        base::WebPage::WebPage(p) => Some(p.id),
+        base::WebPage::WebPageEmpty(p) => Some(p.id),
+        base::WebPage::WebPagePending(p) => Some(p.id),
+        base::WebPage::WebPageNotModified(_) => None,
+    }
 }
 
 #[cfg(test)]
@@ -454,7 +555,7 @@ mod tests {
             ttl_period: None,
         };
         let short = base::Updates::UpdateShortSentMessage(Box::new(short));
-        Message::from_updates(&client, short, 7, ("hi".into(), None)).unwrap();
+        Message::from_updates(&client, short, Message::request(7, "hi".into(), None)).unwrap();
         let new = types::UpdateNewMessage { message: raw(6, get_channel_id(9)), pts: 1, pts_count: 1 };
         let scheduled = types::UpdateNewScheduledMessage { message: raw(7, 7) };
         let updates = types::Updates {
@@ -601,6 +702,46 @@ mod tests {
         assert_eq!(
             (cached_ids(&caches, 7, &[2, 5]), cached_ids(&caches, channel, &[4])),
             (vec![false, true], vec![false])
+        );
+    }
+
+    #[test]
+    fn a_finished_link_preview_fills_the_cached_messages_that_show_it() {
+        use crate::types::messages_and_media::web_page::tests::{page, web_page_media};
+        let caches = Caches::new(10, 0);
+        let channel = get_channel_id(9);
+        let pending = |id| base::WebPage::WebPagePending(Box::new(types::WebPagePending { id, url: None, date: 1 }));
+        let with_preview = |id, chat_id, preview| {
+            let message =
+                types::Message { media: Some(web_page_media(preview)), ..Message::bare(id, get_peer(chat_id), 1) };
+            base::Message::Message(Box::new(message))
+        };
+        // The finished page has id 5; message 7 shows another one.
+        caches.store(&with_preview(5, 7, pending(5)), &Arc::default());
+        caches.store(&with_preview(6, channel, pending(5)), &Arc::default());
+        caches.store(&with_preview(7, 7, pending(6)), &Arc::default());
+        let finished = base::WebPage::WebPage(Box::new(page("https://x.y")));
+        let update = types::UpdateWebPage { webpage: finished.clone(), pts: 1, pts_count: 1 };
+        caches.observe(&base::Update::UpdateWebPage(Box::new(update)), &Arc::default());
+        let shown = |chat_id, id| {
+            let cached = caches.message(chat_id, id).expect("still cached");
+            let message = Message::from_raw(&Client::offline(), cached.raw, &cached.entities).unwrap();
+            message.web_page.map(|p| p.title)
+        };
+        assert_eq!(
+            (shown(7, 5), shown(channel, 6), shown(7, 7)),
+            (Some(Some("A clip".into())), Some(Some("A clip".into())), None)
+        );
+
+        let empty = base::WebPage::WebPageEmpty(Box::new(types::WebPageEmpty { id: 6, url: None }));
+        let update = types::UpdateChannelWebPage { channel_id: 9, webpage: empty, pts: 1, pts_count: 1 };
+        caches.observe(&base::Update::UpdateChannelWebPage(Box::new(update)), &Arc::default());
+        let raw = |chat_id, id| match caches.message(chat_id, id).unwrap().raw {
+            base::Message::Message(m) => m.media,
+            other => panic!("not a message: {other:?}"),
+        };
+        assert!(
+            matches!(raw(7, 7), Some(base::MessageMedia::MessageMediaWebPage(m)) if matches!(m.webpage, base::WebPage::WebPageEmpty(_)))
         );
     }
 }

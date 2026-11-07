@@ -16,7 +16,7 @@ use crate::types::{
     ReplyMarkup, RestrictionReason, RichMessage, RichText, ServiceAction, Story, SuggestedPostInfo, Text, TextQuote,
     User, WebPage,
 };
-use crate::utils::{get_peer, get_peer_id};
+use crate::utils::{get_peer, get_peer_id, input_peer_id};
 
 /// A message in a chat, with its sender, content and metadata.
 ///
@@ -45,6 +45,10 @@ pub struct Message {
     /// Media of a kind with no variant is [`Media::Unknown`].
     pub media: Option<Media>,
     /// The link preview of a text message; `media` stays `None` and the text stays in [`text`](Message::text).
+    ///
+    /// `None` while Telegram is still building the preview. When it finishes, the message cache's copy (see
+    /// `max_message_cache_size`) gets the preview, without an edited-message update; this value doesn't change, so
+    /// read the message again from the cache, as `reply_to_message()` or `CallbackQuery::message()` do.
     pub web_page: Option<Box<WebPage>>,
     /// The structured content of a rich message. `None` for other messages.
     pub rich_message: Option<RichMessage>,
@@ -358,7 +362,8 @@ impl Message {
 
     // `raw` holds a bare message with the service header fields, since only `Message` carries a sender and chat.
     fn parse_service(client: &Client, raw: &types::MessageService, entities: &Entities) -> Option<Message> {
-        let service = ServiceAction::parse(raw, entities)?;
+        let me = client.0.me.lock().unwrap().id;
+        let service = ServiceAction::parse(raw, me, entities)?;
         let mut bare = Message::bare(raw.id, raw.peer_id.clone(), raw.date);
         (bare.out, bare.mentioned, bare.post, bare.from_id) = (raw.out, raw.mentioned, raw.post, raw.from_id.clone());
         (bare.silent, bare.media_unread) = (raw.silent, raw.media_unread);
@@ -394,31 +399,76 @@ impl Message {
             base::messages::Messages::ChannelMessages(m) => (m.messages, m.users, m.chats),
             base::messages::Messages::MessagesNotModified(_) => Default::default(),
         };
-        (messages, Entities::new(client, users, chats))
+        let entities = Entities::new(client, users, chats);
+        for message in &messages {
+            entities.remember_min_peers(client, message);
+        }
+        (messages, entities)
     }
 
-    pub(crate) fn from_updates(
-        client: &Client,
-        updates: base::Updates,
-        chat_id: i64,
-        sent: (String, Option<Vec<base::MessageEntity>>),
-    ) -> Result<Message> {
+    /// The message a send or edit request describes, with the id, date and sender still to come from the reply.
+    pub(crate) fn request(chat_id: i64, message: String, entities: Option<Vec<base::MessageEntity>>) -> types::Message {
+        types::Message { message, entities, ..Message::bare(0, get_peer(chat_id), 0) }
+    }
+
+    /// `sent` is the message as the request described it ([`Message::request`]). A short "sent" reply carries only
+    /// the id, date, media and entities, so the keyboard, reply header and flags come from `sent`.
+    pub(crate) fn from_updates(client: &Client, updates: base::Updates, sent: types::Message) -> Result<Message> {
         if let base::Updates::UpdateShortSentMessage(u) = updates {
+            let me = client.0.me.lock().unwrap().clone();
             let raw = types::Message {
                 out: u.out,
-                from_id: u.out.then(|| get_peer(client.0.me.lock().unwrap().id)),
-                message: sent.0,
-                entities: u.entities.or(sent.1),
+                id: u.id,
+                date: u.date,
+                from_id: u.out.then(|| get_peer(me.id)),
+                entities: u.entities.or(sent.entities),
                 media: u.media,
-                ..Message::bare(u.id, get_peer(chat_id), u.date)
+                ttl_period: u.ttl_period,
+                ..sent
             };
+            let entities = Arc::new(Entities::own(&me));
             // Own sends never come back as updates, so this is how a button on the bot's own message gets cached.
             if client.0.caches.caches_messages() {
-                client.0.caches.store(&base::Message::Message(Box::new(raw.clone())), &Arc::default());
+                client.0.caches.store(&base::Message::Message(Box::new(raw.clone())), &entities);
             }
-            return Ok(Message::parse(client, Box::new(raw), &Entities::default()));
+            return Ok(Message::parse(client, Box::new(raw), &entities));
         }
         Message::all_from_updates(client, updates).next().ok_or(Error::Unexpected("Telegram sent no message back"))
+    }
+
+    /// The header Telegram puts on a message sent with `reply`, for a short "sent" reply, which has none. `in_topic`
+    /// tells a send into a topic from a reply, since both name the message as `reply_to_msg_id`.
+    pub(crate) fn reply_header(reply: base::InputReplyTo, me: i64, in_topic: bool) -> Option<base::MessageReplyHeader> {
+        let peer = |p: &base::InputPeer| input_peer_id(p, me).map(get_peer);
+        match reply {
+            base::InputReplyTo::InputReplyToMessage(r) => {
+                let header = types::MessageReplyHeader {
+                    reply_to_scheduled: false,
+                    forum_topic: in_topic,
+                    quote: r.quote_text.is_some(),
+                    reply_to_ephemeral: false,
+                    reply_to_msg_id: Some(r.reply_to_msg_id),
+                    reply_to_peer_id: r.reply_to_peer_id.as_ref().and_then(peer),
+                    reply_from: None,
+                    reply_media: None,
+                    reply_to_top_id: r.top_msg_id,
+                    quote_text: r.quote_text,
+                    quote_entities: r.quote_entities,
+                    quote_offset: r.quote_offset,
+                    todo_item_id: r.todo_item_id,
+                    poll_option: r.poll_option,
+                    quote_rich: r.quote_rich,
+                };
+                Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(header)))
+            }
+            base::InputReplyTo::InputReplyToStory(r) => {
+                let header = types::MessageReplyStoryHeader { peer: peer(&r.peer)?, story_id: r.story_id };
+                Some(base::MessageReplyHeader::MessageReplyStoryHeader(Box::new(header)))
+            }
+            // Direct messages topics live in channels and ephemeral replies in bot chats' own lists; neither is
+            // answered with a short reply.
+            base::InputReplyTo::InputReplyToMonoForum(_) | base::InputReplyTo::InputReplyToEphemeralMessage(_) => None,
+        }
     }
 
     pub(crate) fn all_from_updates(client: &Client, updates: base::Updates) -> impl Iterator<Item = Message> + '_ {
@@ -447,6 +497,7 @@ impl Message {
                 _ => return None,
             };
             if !scheduled && business.is_none() {
+                entities.remember_min_peers(client, &message);
                 client.0.caches.store(&message, &entities);
             }
             let mut message = Message::from_raw(client, message, &entities)?;
@@ -572,7 +623,8 @@ impl Message {
 
     /// Forwards this message to another chat.
     ///
-    /// Awaiting the request returns the forwarded messages as a `Vec` of [`Message`].
+    /// Awaiting the request returns the forwarded messages as a `Vec` of [`Message`]. A message that came through
+    /// a business connection can't be forwarded: awaiting fails with `Error::InvalidArgument`.
     ///
     /// ```no_run
     /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
@@ -580,12 +632,17 @@ impl Message {
     /// # Ok(()) }
     /// ```
     pub fn forward(&self, chat_id: impl Into<PeerRef>) -> ForwardMessages<'_> {
-        self.client.forward_messages(chat_id, self.chat.id, std::slice::from_ref(&self.id))
+        let forward = self.client.forward_messages(chat_id, self.chat.id, std::slice::from_ref(&self.id));
+        match self.business_connection_id {
+            Some(_) => forward.refuse("a business message can't be forwarded"),
+            None => forward,
+        }
     }
 
     /// Copies this message to another chat, without a link to the original.
     ///
-    /// Awaiting the request returns the new [`Message`].
+    /// Awaiting the request returns the new [`Message`]. A message that came through a business connection is
+    /// copied as this `Message` holds it, since it can't be fetched again.
     ///
     /// ```no_run
     /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
@@ -593,7 +650,11 @@ impl Message {
     /// # Ok(()) }
     /// ```
     pub fn copy(&self, chat_id: impl Into<PeerRef>) -> CopyMessage<'_> {
-        self.client.copy_message(chat_id, self.chat.id, self.id)
+        let copy = self.client.copy_message(chat_id, self.chat.id, self.id);
+        match self.business_connection_id {
+            Some(_) => copy.held(self.raw.clone()),
+            None => copy,
+        }
     }
 
     /// Pins this message in its chat.
@@ -606,10 +667,16 @@ impl Message {
         self.on_behalf(self.client.unpin_chat_message(self.chat.id, self.id))
     }
 
-    // Business bot rights don't cover reactions, so the bot reacts as itself.
-    /// Adds a reaction to this message. On a business message the bot reacts as itself, not as the business account.
+    /// Adds a reaction to this message.
+    ///
+    /// Telegram takes no reaction through a business connection, so on a message that came through one awaiting
+    /// fails with `Error::InvalidArgument`.
     pub fn react(&self, reaction: impl Into<ReactionType>) -> SendReaction<'_> {
-        self.client.send_reaction(self.chat.id, self.id).reaction(reaction)
+        let react = self.client.send_reaction(self.chat.id, self.id).reaction(reaction);
+        match self.business_connection_id {
+            Some(_) => react.refuse("a business message can't take a reaction"),
+            None => react,
+        }
     }
 
     /// The [`Client`] that received this message.
@@ -622,6 +689,10 @@ impl Message {
     /// Awaiting the request returns the file as bytes. It fails with `Error::InvalidArgument` unless the media is a
     /// photo, live photo, document, animation, audio, video, video note, voice note or sticker. The returned
     /// [`DownloadMedia`] has the same setters as [`Client::download_media`].
+    ///
+    /// An expired file reference is renewed by fetching the message again, which a message that came through a
+    /// business connection can't be: its download fails with `FILE_REFERENCE_EXPIRED` once the reference is old, so
+    /// download it while handling it.
     ///
     /// ```no_run
     /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
@@ -658,7 +729,12 @@ impl Message {
     }
 
     /// Marks the contents of this message, such as a voice note, as played.
+    ///
+    /// Fails with `Error::InvalidArgument` on a message that came through a business connection.
     pub async fn read_contents(&self) -> Result<()> {
+        if self.business_connection_id.is_some() {
+            return Err(Error::InvalidArgument("a business message's contents can't be marked as read"));
+        }
         self.client.read_message_contents(self.chat.id, &[self.id]).await
     }
 
@@ -1297,6 +1373,7 @@ pub(crate) mod tests {
         let (client, mut rx) = Client::recording();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.0.caches.know_business("c", 7, 2);
         let raw = Message::bare(5, get_peer(7), 0);
         let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
         message.business_connection_id = Some("c".into());
@@ -1315,10 +1392,65 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn a_reply_through_a_connection_keeps_it() {
+        // Telegram's answer to a send through a connection carries the sent message with an empty connection id.
+        let update = types::UpdateBotNewBusinessMessage {
+            connection_id: String::new(),
+            message: base::Message::Message(Box::new(Message::bare(9, get_peer(7), 0))),
+            reply_to_message: None,
+            qts: 0,
+        };
+        let update = base::Update::UpdateBotNewBusinessMessage(Box::new(update));
+        let answer = base::Updates::UpdateShort(Box::new(types::UpdateShort { update, date: 0 }));
+        let (client, mut rx) = Client::scripted(vec![Ok(answer.to_bytes())]);
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.0.caches.know_business("c", 7, 2);
+        let mut message = Message::parse(&client, Box::new(Message::bare(5, get_peer(7), 0)), &Entities::default());
+        message.business_connection_id = Some("c".into());
+
+        let sent = message.reply("hi").await.unwrap();
+        assert_eq!(sent.business_connection_id.as_deref(), Some("c"));
+        let _reply = rx.try_recv().expect("no reply sent");
+        // What follows on the sent message goes through the same connection.
+        assert!(sent.edit_text("edited").await.is_err());
+        assert!(sent.delete().await.is_err());
+        for _ in 0..2 {
+            let body = rx.try_recv().expect("no request sent");
+            assert_eq!((&body[..4], &body[4..6]), (&0xdd289f8e_u32.to_le_bytes()[..], &b"\x01c"[..]));
+        }
+    }
+
+    #[tokio::test]
+    async fn business_messages_never_touch_the_bots_own_chat() {
+        let (client, mut rx) = seeded();
+        let raw = types::Message { message: "hi".into(), ..Message::bare(5, get_peer(7), 0) };
+        let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
+        message.business_connection_id = Some("c".into());
+        let refused = |result: Result<(), Error>| matches!(result, Err(Error::InvalidArgument(_)));
+        assert!(refused(message.forward(7).await.map(drop)));
+        assert!(refused(message.react("👍").await));
+        assert!(refused(message.read_contents().await));
+        assert!(refused(message.get_media_group().await.map(drop)));
+        assert!(refused(message.copy_media_group(7).await.map(drop)));
+        assert!(refused(message.answer_inline_bot_result(1, "r").await.map(drop)));
+        assert!(refused(message.reply_inline_bot_result(1, "r").await.map(drop)));
+        assert!(rx.try_recv().is_err(), "nothing was sent");
+
+        // A copy is made of the message as held: message id 5 of the bot's own chat is never fetched.
+        let _ = message.copy(7).await;
+        let body = rx.try_recv().expect("no request sent");
+        assert_eq!(body[..4], functions::messages::SendMessage::CONSTRUCTOR_ID.to_le_bytes());
+        assert!(body.windows(3).any(|w| w == b"\x02hi"));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
     async fn live_locations_and_polls_close_through_the_business_connection() {
         let (client, mut rx) = Client::recording();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.0.caches.know_business("c", 7, 2);
         let sent = [
             client.edit_message_live_location(7, 5, 1.0, 2.0).business_connection_id("c").await.map(drop),
             client.stop_message_live_location(7, 5).business_connection_id("c").await.map(drop),
@@ -1395,6 +1527,7 @@ pub(crate) mod tests {
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let channel = types::InputPeerChannel { channel_id: 9, access_hash: 2 };
         client.0.peers.lock().unwrap().insert(get_channel_id(9), base::InputPeer::InputPeerChannel(Box::new(channel)));
+        client.0.caches.know_business("c", 7, 2);
         (client, rx)
     }
 
@@ -1719,5 +1852,29 @@ pub(crate) mod tests {
         let both = types::MessageReplyHeader { quote_text: Some("hello".into()), ..rich };
         raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(both)));
         assert_eq!(parse(&raw).quote.unwrap().text, "hello");
+    }
+
+    #[tokio::test]
+    async fn a_fetched_min_sender_is_reached_through_its_message() {
+        let client = Client::offline();
+        let group =
+            base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 9, access_hash: 1 }));
+        client.0.peers.lock().unwrap().insert(get_channel_id(9), group.clone());
+        let mut buf = Vec::new();
+        (1u32 << 20).serialize(&mut buf);
+        0u32.serialize(&mut buf);
+        7i64.serialize(&mut buf);
+        let min_user = base::User::User(Box::new(types::User::deserialize_bare(&mut &buf[..]).unwrap()));
+        let mut raw = Message::bare(42, get_peer(get_channel_id(9)), 0);
+        raw.from_id = Some(get_peer(7));
+        let page = types::messages::Messages {
+            messages: vec![base::Message::Message(Box::new(raw))],
+            topics: Vec::new(),
+            chats: Vec::new(),
+            users: vec![min_user],
+        };
+        Message::unpack(&client, base::messages::Messages::Messages(Box::new(page)));
+        let seen = types::InputPeerUserFromMessage { peer: group, msg_id: 42, user_id: 7 };
+        assert_eq!(client.resolve_peer(7).await.unwrap(), base::InputPeer::InputPeerUserFromMessage(Box::new(seen)));
     }
 }

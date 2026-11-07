@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use super::SkipReason;
 use crate::errors::Error;
-use crate::handlers::HandlerError;
+use crate::handlers::{HandlerError, UpdateKind};
 
 /// Something the client noticed that no request returns: reconnects, dropped packets, updates it couldn't parse
 /// or deliver, failed handlers and storage calls. Receive them with [`Client::on_event`](crate::Client::on_event).
@@ -47,6 +47,23 @@ pub enum ClientEvent {
     HandlerFailed {
         /// The error, with the route it came from and the chat of the update.
         error: Arc<HandlerError>,
+    },
+    /// A handler, its filter, a raw handler or a lifecycle hook panicked. The panic is caught where it happened, so
+    /// update delivery carries on: a panicking handler stops the later groups for its update as an `Err` does, a
+    /// panicking filter counts as not matching, an [`ordered`] chat moves on to its next update and the handler's
+    /// [`max_concurrent_handlers`] slot is given back. [`on_error`](crate::Client::on_error) doesn't receive
+    /// panics, and the process's panic hook has already printed the panic by the time this is sent.
+    ///
+    /// [`ordered`]: crate::ClientBuilder::ordered
+    /// [`max_concurrent_handlers`]: crate::ClientBuilder::max_concurrent_handlers
+    #[non_exhaustive]
+    HandlerPanicked {
+        /// The route of the handler that panicked, as in [`HandlerError::kind`].
+        kind: UpdateKind,
+        /// Bot-API style id of the update's chat, as in [`HandlerError::chat_id`].
+        chat_id: Option<i64>,
+        /// The panic's message when it is a `&str` or a `String`, as `panic!`, `unwrap` and `expect` give.
+        message: Option<String>,
     },
     /// Fetching missed updates (`updates.getDifference` or `updates.getChannelDifference`) failed. Updates it gave
     /// up on, if any, follow as [`UpdatesSkipped`](Self::UpdatesSkipped).

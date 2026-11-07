@@ -19,6 +19,8 @@ pub struct CopyMediaGroup<'a> {
     captions: BTreeMap<usize, Text>,
     parse_mode: Option<ParseMode>,
     options: SendOptions,
+    // Why awaiting fails before anything is sent, when the album can't be fetched at all.
+    refused: Option<&'static str>,
 }
 
 impl Client {
@@ -37,6 +39,7 @@ impl Client {
             captions: BTreeMap::new(),
             parse_mode: None,
             options: SendOptions::default(),
+            refused: None,
         }
     }
 }
@@ -48,8 +51,16 @@ impl CopyMediaGroup<'_> {
         self
     }
 
+    pub(crate) fn refuse(mut self, reason: &'static str) -> Self {
+        self.refused = Some(reason);
+        self
+    }
+
     async fn send(mut self) -> Result<Vec<Message>> {
         let client = self.client;
+        if let Some(reason) = self.refused {
+            return Err(Error::InvalidArgument(reason));
+        }
         if self.options.suggested_post_parameters.is_some() {
             return Err(Error::InvalidArgument("an album can't be a suggested post"));
         }

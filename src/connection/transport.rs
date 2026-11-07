@@ -3,7 +3,8 @@ use std::io;
 use crate::crypto::random;
 use crate::errors::{Error, Result};
 
-const MAX_PACKET: usize = 16 << 20;
+/// The largest packet a connection reads, and the largest request body a session sends.
+pub(crate) const MAX_PACKET: usize = 16 << 20;
 
 /// Read bytes; taken packets leave the front only once they fill half the buffer, so each byte moves once.
 #[derive(Debug, Default)]
