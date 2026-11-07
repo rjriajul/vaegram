@@ -91,7 +91,6 @@ mod fuzz;
 pub mod handlers;
 /// The friendly API methods, all on [`Client`], and the request builders some of them return.
 pub mod methods;
-#[cfg(any(feature = "metrics", feature = "opentelemetry"))]
 pub mod observe;
 pub(crate) mod parser;
 /// The items most bots and user clients use, to bring in with `use vaegram::prelude::*;`: [`Client`] and

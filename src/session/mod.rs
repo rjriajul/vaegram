@@ -80,6 +80,7 @@ type Answer = Result<Vec<u8>>;
 struct Request {
     name: &'static str,
     body: Vec<u8>,
+    tag: Option<u64>,
     answer: oneshot::Sender<Answer>,
 }
 
@@ -116,7 +117,7 @@ pub struct Call<'a> {
     /// The msg_id it was last sent under; 0 if it never went out.
     pub msg_id: i64,
     /// The whole call as sent, credentials included (bot tokens, SRP proofs, exported authorizations): don't log
-    /// it as is. A recording keeps the redacted form.
+    /// it as is. A recording keeps the redacted form, and so does `request_json` (with the `json` feature).
     pub request: &'a [u8],
     /// From when the connection's task took the request in to its end, re-sends included.
     pub duration: Duration,
@@ -128,6 +129,11 @@ pub struct Call<'a> {
     pub connection: u32,
     /// Times it went out again: after a bad_server_salt, a bad_msg_notification or a lost connection.
     pub resent: u16,
+    /// The tag of the innermost [`tagged`](crate::observe::tagged) the request was sent inside, read on the
+    /// sending task when it sent it; `None` for a request sent outside one, and for what vaegram sends on its own
+    /// (pings, the dispatcher's `getDifference`, the background loop of a repeated chat action). Requests a vaegram
+    /// method sends from a task it starts for that call carry the caller's tag, and a re-sent request keeps its own.
+    pub tag: Option<u64>,
 }
 
 /// The per-request hook: it runs on the connection's task for every request that ends, so it should return
@@ -465,7 +471,7 @@ impl Session {
     /// carries on.
     pub async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
         let (answer, rx) = oneshot::channel();
-        let request = Request { name: R::NAME, body: request.to_bytes(), answer };
+        let request = Request { name: R::NAME, body: request.to_bytes(), tag: crate::observe::current_tag(), answer };
         self.requests.send(request).map_err(|_| Error::Disconnected)?;
         let answer = tokio::time::timeout(timeout, rx).await.map_err(|_| Error::Timeout)?;
         let body = answer.map_err(|_| Error::Disconnected)??;
@@ -608,6 +614,7 @@ enum Role {
 struct Pending {
     name: &'static str,
     body: Vec<u8>,
+    tag: Option<u64>,
     answer: oneshot::Sender<Answer>,
     // Kept across re-sends, so the observer sees the whole wait.
     start: Instant,
@@ -913,8 +920,8 @@ impl Runner {
     }
 
     fn enqueue(&mut self, r: Request) {
-        let Request { name, body, answer } = r;
-        let p = Pending { name, body, answer, start: Instant::now(), container: 0, acked: false, resent: 0 };
+        let Request { name, body, tag, answer } = r;
+        let p = Pending { name, body, tag, answer, start: Instant::now(), container: 0, acked: false, resent: 0 };
         if p.answer.is_closed() {
             self.finish(0, p, Err(Error::Timeout));
         } else {
@@ -970,6 +977,7 @@ impl Runner {
                 dc: self.dc.id,
                 connection: self.connection,
                 resent: p.resent,
+                tag: p.tag,
             };
             // A panicking observer would otherwise take the connection down with it.
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| observe(&call)));

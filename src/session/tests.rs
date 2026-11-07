@@ -60,7 +60,7 @@ async fn recv(frames: &mut Frames, r: &Runner) -> (i64, i32, Vec<u8>) {
 
 fn request(r: &mut Runner, body: Vec<u8>) -> oneshot::Receiver<Answer> {
     let (answer, rx) = oneshot::channel();
-    r.enqueue(Request { name: "ping", body, answer });
+    r.enqueue(Request { name: "ping", body, tag: None, answer });
     rx
 }
 
@@ -131,7 +131,7 @@ async fn forgets_abandoned_requests() {
     let ids: Vec<i64> = msg_container::parse(&body).unwrap().iter().map(|m| m.msg_id).collect();
 
     let (answer, _) = oneshot::channel();
-    r.enqueue(Request { name: "ping", body: ping(4), answer });
+    r.enqueue(Request { name: "ping", body: ping(4), tag: None, answer });
     assert!(r.queue.is_empty());
     r.drop_abandoned();
     assert!(live.try_recv().is_err());
@@ -545,7 +545,7 @@ async fn close_ends_the_runner_and_fails_waiting_requests() {
     let (requests, rx) = mpsc::unbounded_channel();
     let task = tokio::spawn(r.run(rx));
     let (answer, waiting) = oneshot::channel();
-    requests.send(Request { name: "ping", body: ping(1), answer }).unwrap();
+    requests.send(Request { name: "ping", body: ping(1), tag: None, answer }).unwrap();
     frames.recv().await.unwrap();
     control.close();
     tokio::time::timeout(Duration::from_secs(5), task).await.expect("the runner kept going").unwrap();
@@ -589,7 +589,7 @@ async fn a_request_racing_close_is_reported_to_the_observer() {
     r.control.closed.store(true, std::sync::atomic::Ordering::Release);
     let (requests, rx) = mpsc::unbounded_channel();
     let (answer, waiting) = oneshot::channel();
-    requests.send(Request { name: "ping", body: ping(1), answer }).unwrap();
+    requests.send(Request { name: "ping", body: ping(1), tag: None, answer }).unwrap();
     tokio::time::timeout(Duration::from_secs(5), r.run(rx)).await.expect("the runner kept going");
     assert!(matches!(waiting.await, Ok(Err(Error::Disconnected))));
     let disconnected = Err(Error::Disconnected.to_string());
@@ -664,7 +664,7 @@ async fn panicking_observer_keeps_the_connection() {
     Arc::make_mut(&mut r.options).observer = Some(Observer(Arc::new(|_: &Call<'_>| panic!("observer bug"))));
     // Its caller is already gone, so the runner reports it straight away.
     let (answer, _) = oneshot::channel();
-    r.enqueue(Request { name: "ping", body: ping(1), answer });
+    r.enqueue(Request { name: "ping", body: ping(1), tag: None, answer });
     let _rx = request(&mut r, ping(2));
     r.flush().await.unwrap();
     assert_eq!(recv(&mut frames, &r).await.2, ping(2));
