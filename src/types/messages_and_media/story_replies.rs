@@ -60,7 +60,8 @@ impl Story {
 mod tests {
     use crate::Client;
     use crate::dispatcher::Entities;
-    use crate::file_id::{FileId, FileType};
+    use crate::enums::FileType;
+    use crate::file_id::FileId;
     use crate::raw::{Serializable, base, types};
     use crate::types::{FileSource, InputMedia, Story};
     use crate::utils::get_peer;

@@ -1,4 +1,4 @@
-use crate::file_id::FileType;
+use crate::enums::FileType;
 use crate::raw::{base, types};
 use crate::types::{Document, FileLocation, Photo};
 

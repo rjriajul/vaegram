@@ -1,4 +1,5 @@
-use crate::file_id::{FileId, FileType, unique_id};
+use crate::enums::FileType;
+use crate::file_id::{FileId, unique_id};
 use crate::raw::base;
 use crate::types::{FileLocation, Thumbnail};
 

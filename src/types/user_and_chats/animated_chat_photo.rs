@@ -1,4 +1,5 @@
-use crate::file_id::{FileId, FileType, ThumbnailSource, thumbnail_unique_id};
+use crate::enums::FileType;
+use crate::file_id::{FileId, ThumbnailSource, thumbnail_unique_id};
 use crate::raw::{base, types};
 
 /// The video of an animated chat photo. Pass `file_id` to `download_media` to fetch it.

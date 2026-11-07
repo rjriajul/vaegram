@@ -1,6 +1,7 @@
 //! Bot API `file_id` and `file_unique_id` strings: little-endian TL fields, zero bytes run-length encoded, then
 //! base64url without padding. `file_unique_id` is not yet checked against the ids the Bot API itself gives out.
 
+use crate::enums::FileType;
 use crate::raw::{Deserializable, Serializable};
 use crate::utils::{base64url_decode as b64_decode, base64url_encode as b64_encode};
 
@@ -8,28 +9,7 @@ const WEB_LOCATION_FLAG: i32 = 1 << 24;
 const FILE_REFERENCE_FLAG: i32 = 1 << 25;
 const NO_VOLUME_AND_LOCAL_ID_MINOR: u8 = 32;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum FileType {
-    Thumbnail,
-    ChatPhoto,
-    Photo,
-    Voice,
-    Video,
-    Document,
-    Encrypted,
-    Temp,
-    Sticker,
-    Audio,
-    Animation,
-    EncryptedThumbnail,
-    Wallpaper,
-    VideoNote,
-    SecureRaw,
-    Secure,
-    Background,
-    DocumentAsFile,
-}
-
+// Indexed by the number an id stores for its kind.
 const FILE_TYPES: [FileType; 18] = {
     use FileType as T;
     [

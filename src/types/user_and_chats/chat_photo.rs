@@ -1,4 +1,5 @@
-use crate::file_id::{FileId, FileType, ThumbnailSource, unique_id};
+use crate::enums::FileType;
+use crate::file_id::{FileId, ThumbnailSource, unique_id};
 use crate::raw::types;
 use crate::types::{AnimatedChatPhoto, ChatPhotoSticker};
 

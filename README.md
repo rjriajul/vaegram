@@ -136,6 +136,11 @@ let app = Client::builder("my_account", api_id, api_hash)
 let config = app.invoke_with_timeout(&functions::help::GetConfig {}, Duration::from_secs(5)).await?;
 ```
 
+`vaegram::observe::tagged(tag, client.send_message(..))` marks every request a call causes, the ones a method sends
+from its own tasks included, and the observer sees it as `call.tag`; what vaegram does on its own stays untagged.
+With the `json` feature, `call.request_json()` and `call.result_json()` give a call as JSON with its credentials cut
+the way a recording cuts them.
+
 `on_raw_update` sees every update as Telegram sent it, with the users and chats that came with it:
 
 ```rust

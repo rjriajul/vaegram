@@ -370,6 +370,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_observer_sees_the_innermost_tag_of_each_call() {
+        use crate::observe::tagged;
+        use crate::session::test_dc::TestDc;
+        let dc = TestDc::start([5; 256], false).await;
+        let (client, tags) = dc.observed_client([5; 256]).await;
+        let client = &client;
+        let ping = |ping_id| async move { client.invoke(&functions::Ping { ping_id }).await };
+        ping(1).await.unwrap();
+        tagged(7, ping(2)).await.unwrap();
+        tagged(7, async {
+            tagged(8, ping(3)).await?;
+            ping(4).await
+        })
+        .await
+        .unwrap();
+        let pings: Vec<_> = tags.lock().unwrap().iter().filter(|(name, _)| *name == "ping").map(|c| c.1).collect();
+        assert_eq!(pings, [None, Some(7), Some(8), Some(7)]);
+    }
+
+    #[tokio::test]
+    async fn the_login_a_call_moves_to_another_dc_carries_its_tag() {
+        use crate::observe::tagged;
+        use crate::session::test_dc::TestDc;
+        let dc = TestDc::start([5; 256], false).await;
+        let (client, tags) = dc.observed_client([5; 256]).await;
+        let before = tags.lock().unwrap().len();
+        tagged(3, client.invoke_in_dc(FOREIGN_DC, &functions::Ping { ping_id: 1 })).await.unwrap();
+        let calls = tags.lock().unwrap()[before..].to_vec();
+        // The export on the home DC, then the import and the ping on the new connection.
+        assert_eq!(
+            calls,
+            [("auth.exportAuthorization", Some(3)), ("invokeWithLayer", Some(3)), ("invokeWithLayer", Some(3))]
+        );
+    }
+
+    #[tokio::test]
     async fn a_no_updates_client_wraps_what_it_sends_to_another_dc() {
         use crate::session::test_dc::INVOKE_WITH_LAYER as LAYER;
         use crate::session::test_dc::{
