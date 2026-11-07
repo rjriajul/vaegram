@@ -115,10 +115,16 @@ impl Client {
 
     /// The peer of a user or channel this account can address without a request: from memory, or saved in the
     /// store by an earlier run (one hop to the store thread). A failing engine is reported and counts as unknown.
+    /// A peer only known from a message it was seen in is checked against the store first: a hash saved in an
+    /// earlier run doesn't depend on that message.
     pub(crate) async fn known_peer(&self, chat_id: i64) -> Option<base::InputPeer> {
-        if let Some(peer) = self.0.peers.lock().unwrap().get(&chat_id) {
-            return Some(peer.clone());
-        }
+        let seen_in_message = match self.0.peers.lock().unwrap().get(&chat_id) {
+            Some(
+                peer @ (base::InputPeer::InputPeerUserFromMessage(_) | base::InputPeer::InputPeerChannelFromMessage(_)),
+            ) => Some(peer.clone()),
+            Some(peer) => return Some(peer.clone()),
+            None => None,
+        };
         if chat_id == self.0.me.lock().unwrap().id {
             return Some(base::InputPeer::InputPeerSelf);
         }
@@ -138,7 +144,7 @@ impl Client {
                 ),
             }
         }
-        None
+        seen_in_message
     }
 
     pub(crate) async fn peer_id(&self, chat: PeerRef) -> Result<i64> {
@@ -472,5 +478,23 @@ mod tests {
         assert_eq!(client.resolve_peer(get_channel_id(70)).await.unwrap(), peer(70, 3));
         assert!(sent.try_recv().is_err(), "a request went out for a community already seen");
         assert_eq!(client.resolve_peer(get_channel_id(71)).await.unwrap(), peer(71, 4));
+    }
+
+    #[tokio::test]
+    async fn a_stored_hash_wins_over_a_message_context() {
+        use crate::storage::{MemoryStorage, PeerRecord, Storage};
+
+        let engine = std::sync::Arc::new(MemoryStorage::new());
+        engine.update_peers(&[PeerRecord::new(7, 5)]).await.unwrap();
+        let (mut client, mut sent) = Client::scripted(Vec::new());
+        std::sync::Arc::get_mut(&mut client.0).unwrap().set_store(engine);
+        let group =
+            base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 9, access_hash: 1 }));
+        let seen = types::InputPeerUserFromMessage { peer: group, msg_id: 42, user_id: 7 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUserFromMessage(Box::new(seen)));
+        let full = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 5 }));
+        assert_eq!(client.resolve_peer(7).await.unwrap(), full);
+        assert_eq!(client.0.peers.lock().unwrap().get(&7), Some(&full), "the stored hash replaced the context");
+        assert!(sent.try_recv().is_err());
     }
 }
