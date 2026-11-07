@@ -19,7 +19,8 @@ impl Client {
     ///
     /// Only messages newer than the question count. An answer processed before `send_message` returns is
     /// missed. To wait for a button press instead, send the keyboard with `send_message` and await
-    /// `wait_for_callback_query(chat_id).message_id(sent.id)`.
+    /// `wait_for_callback_query(chat_id).message_id(sent.id)`. A question sent through a business connection gets
+    /// no answer here: business messages never reach listeners.
     pub fn ask(&self, chat_id: impl Into<PeerRef>, text: impl Into<Text>) -> Ask<'_> {
         Ask { prompt: self.send_message(chat_id, text), listen: self.listen() }
     }

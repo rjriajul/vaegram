@@ -20,7 +20,9 @@ impl Client {
     /// The update this listener takes skips every handler group; raw handlers still see it. When several
     /// listeners match, the oldest takes it. It waits for the client's `listener_timeout` (5 minutes unless set)
     /// unless `timeout` or `no_timeout` says otherwise, then fails with `Error::ListenerTimeout`. Service messages
-    /// count as messages: add `filters::text()` to wait for a text answer.
+    /// count as messages: add `filters::text()` to wait for a text answer. Messages that come through a business
+    /// connection never reach a listener; only [`on_business_message`](Client::on_business_message) handlers see
+    /// them.
     ///
     /// Fails with `Error::ListenerStopped` between runs and when `run` stops. A handler waiting here keeps its
     /// `max_concurrent_handlers` slot. Dropping the future (a `select!` or a timeout around it) removes the

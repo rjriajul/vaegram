@@ -685,6 +685,10 @@ impl Message {
     /// photo, live photo, document, animation, audio, video, video note, voice note or sticker. The returned
     /// [`DownloadMedia`] has the same setters as [`Client::download_media`].
     ///
+    /// An expired file reference is renewed by fetching the message again, which a message that came through a
+    /// business connection can't be: its download fails with `FILE_REFERENCE_EXPIRED` once the reference is old, so
+    /// download it while handling it.
+    ///
     /// ```no_run
     /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
     /// let bytes = message.download().await?;
