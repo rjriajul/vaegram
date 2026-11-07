@@ -220,6 +220,12 @@ impl Client {
                 let channel = types::InputChannel { channel_id: p.channel_id, access_hash: p.access_hash };
                 Ok(ChatPeer::Channel(base::InputChannel::InputChannel(Box::new(channel))))
             }
+            // A channel only seen as a min sender: reached through the message it was seen in.
+            base::InputPeer::InputPeerChannelFromMessage(p) => {
+                let channel =
+                    types::InputChannelFromMessage { peer: p.peer, msg_id: p.msg_id, channel_id: p.channel_id };
+                Ok(ChatPeer::Channel(base::InputChannel::InputChannelFromMessage(Box::new(channel))))
+            }
             _ => Err(Error::InvalidArgument("chat_id is a user, not a group or channel")),
         }
     }
@@ -405,5 +411,21 @@ mod tests {
         }
         assert!(sent.try_recv().is_ok(), "the stale name was looked up");
         assert!(sent.try_recv().is_err(), "the confirmed name was looked up again");
+    }
+
+    #[tokio::test]
+    async fn a_min_channel_is_reached_through_its_message() {
+        let (client, mut sent) = Client::scripted(vec![Err(Error::Unexpected("offline"))]);
+        let group = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
+        let group = base::InputPeer::InputPeerChannel(Box::new(group));
+        let seen = types::InputPeerChannelFromMessage { peer: group.clone(), msg_id: 42, channel_id: 55 };
+        let seen = base::InputPeer::InputPeerChannelFromMessage(Box::new(seen));
+        client.0.peers.lock().unwrap().insert(get_channel_id(55), seen);
+
+        let result = client.get_chat(get_channel_id(55)).await;
+        assert!(matches!(result, Err(Error::Unexpected("offline"))), "{result:?}");
+        let channel = types::InputChannelFromMessage { peer: group, msg_id: 42, channel_id: 55 };
+        let channel = base::InputChannel::InputChannelFromMessage(Box::new(channel));
+        assert_eq!(sent.try_recv().unwrap(), crate::raw::functions::channels::GetFullChannel { channel }.to_bytes());
     }
 }
