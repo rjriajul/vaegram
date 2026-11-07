@@ -23,7 +23,9 @@ impl Client {
     /// count as messages: add `filters::text()` to wait for a text answer.
     ///
     /// Fails with `Error::ListenerStopped` between runs and when `run` stops. A handler waiting here keeps its
-    /// `max_concurrent_handlers` slot.
+    /// `max_concurrent_handlers` slot. Dropping the future (a `select!` or a timeout around it) removes the
+    /// listener; an update it was already handed goes on to the other listeners and the handlers, unless the
+    /// client's fetch options were still filling it in.
     pub fn listen<T: Listenable>(&self) -> Listen<'_, T> {
         Listen { client: self, spec: Spec::new(self) }
     }

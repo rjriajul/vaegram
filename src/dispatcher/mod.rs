@@ -134,6 +134,10 @@ impl Dispatcher {
                     self.recover(request).await;
                     continue;
                 }
+                () = self.client.0.handlers.listeners.returned().notified() => {
+                    self.redeliver();
+                    continue;
+                }
             };
             match next {
                 Ok(Some(incoming)) => self.process(incoming),
@@ -256,13 +260,23 @@ impl Dispatcher {
             entities.remember_min_peers(&self.client, message);
         }
         self.client.stop_stream(&update);
+        self.refresh_router();
+        self.router.dispatch(&self.client, update, entities, &mut self.tasks);
+    }
+
+    /// Routes again the updates listeners were handed but dropped before reading.
+    fn redeliver(&mut self) {
+        self.refresh_router();
+        self.router.redeliver(&self.client, &mut self.tasks);
+    }
+
+    fn refresh_router(&mut self) {
         let handlers = &self.client.0.handlers;
         let generation = handlers.generation();
         if generation != self.generation {
             (self.router, self.generation) = (handlers.current(), generation);
             self.tasks.on_error = self.router.on_error.clone();
         }
-        self.router.dispatch(&self.client, update, entities, &mut self.tasks);
     }
 }
 
@@ -854,5 +868,39 @@ mod tests {
         settle().await;
         let handed_back = client.0.state.lock().unwrap().as_ref().map(|s| s.pts);
         assert_eq!((handed_back, seen.lock().unwrap().len()), (Some(50), 1));
+    }
+
+    #[tokio::test]
+    async fn a_message_a_dropped_listener_took_still_reaches_the_handlers() {
+        use crate::dispatcher::listeners::tests::new_message;
+        let client = Client::offline();
+        let handled = Arc::new(Mutex::new(Vec::new()));
+        let log = handled.clone();
+        client.on_message(crate::filters::all(), move |m| {
+            log.lock().unwrap().push(m.id);
+            async { Ok(()) }
+        });
+        let mut d = Dispatcher::new(client.clone(), &state());
+        let mut listen = std::future::IntoFuture::into_future(client.listen::<Message>());
+        tokio::select! {
+            biased;
+            _ = &mut listen => panic!("nothing was offered"),
+            () = std::future::ready(()) => {}
+        }
+        // The listener takes the message, then is dropped before it reads it, as a `select!` that picks another
+        // branch does.
+        d.dispatch(new_message(5, 7), &Arc::default());
+        drop(listen);
+        let (_updates, mut rx) = UpdatesRx::channel_with(client.0.events.clone());
+        let reached = async {
+            while handled.lock().unwrap().is_empty() {
+                tokio::task::yield_now().await;
+            }
+        };
+        tokio::select! {
+            _ = d.run(&mut rx) => panic!("run ended"),
+            _ = tokio::time::timeout(std::time::Duration::from_secs(5), reached) => {}
+        }
+        assert_eq!(*handled.lock().unwrap(), [5]);
     }
 }

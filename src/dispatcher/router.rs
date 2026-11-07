@@ -151,15 +151,35 @@ impl Handlers<Message> {
             message.set_business(client, connection_id, reply_to, entities);
         }
         if listening {
-            match client.0.handlers.listeners.messages.offer(message, &me) {
-                Offer::Claimed => return,
-                Offer::Call(callback, m) => return tasks.run(kind, m, vec![callback]),
-                Offer::Unclaimed(m) | Offer::Stranger(m, _) => message = m,
+            match listened(kind, tasks, client, &me, message) {
+                Some(m) => message = m,
+                None => return,
             }
         }
         if let Some(scan) = scan {
             self.finish(kind, tasks, &me, scan, message);
         }
+    }
+
+    /// A new message a listener took but dropped unread: the other listeners, then the handlers, get it.
+    fn redeliver(&self, tasks: &mut Tasks, client: &Client, message: Message) {
+        let me = client.0.me.lock().unwrap().clone();
+        let Some(message) = listened(UpdateKind::Message, tasks, client, &me, message) else { return };
+        if !self.0.is_empty() {
+            self.finish(UpdateKind::Message, tasks, &me, PARSED, message);
+        }
+    }
+}
+
+/// Offers a new message to the listeners; `None` once one of them, or a next-step handler, took it.
+fn listened(kind: UpdateKind, tasks: &mut Tasks, client: &Client, me: &Me, message: Message) -> Option<Message> {
+    match client.0.handlers.listeners.messages.offer(message, me) {
+        Offer::Claimed => None,
+        Offer::Call(callback, m) => {
+            tasks.run(kind, m, vec![callback]);
+            None
+        }
+        Offer::Unclaimed(m) | Offer::Stranger(m, _) => Some(m),
     }
 }
 
@@ -517,6 +537,12 @@ impl Router {
             U::UpdateEphemeralBotCallbackQuery(u) => CallbackQuery::parse_ephemeral(client, *u, entities),
             update => return Some(update),
         };
+        self.offer_callback(client, query, tasks);
+        None
+    }
+
+    /// The listeners, then the handlers, get a callback query.
+    fn offer_callback(&self, client: &Client, query: CallbackQuery, tasks: &mut Tasks) {
         let me = client.0.me.lock().unwrap().clone();
         let kind = UpdateKind::CallbackQuery;
         match client.0.handlers.listeners.callbacks.offer(query, &me) {
@@ -534,7 +560,17 @@ impl Router {
                 tasks.run(kind, query, vec![answer]);
             }
         }
-        None
+    }
+
+    /// Routes again what listeners dropped before reading gave back, as if it had just arrived.
+    pub(crate) fn redeliver(&self, client: &Client, tasks: &mut Tasks) {
+        let listeners = &client.0.handlers.listeners;
+        for message in listeners.messages.take_returned() {
+            self.message.redeliver(tasks, client, message);
+        }
+        for query in listeners.callbacks.take_returned() {
+            self.offer_callback(client, query, tasks);
+        }
     }
 
     fn member_update(&self, tasks: &mut Tasks, me: &Me, user_id: i64, parse: impl FnOnce() -> ChatMemberUpdated) {

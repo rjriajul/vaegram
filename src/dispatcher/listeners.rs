@@ -2,7 +2,7 @@ use std::mem;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock};
 
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::time::Instant;
 
 use super::tasks::guard;
@@ -80,13 +80,27 @@ impl Listened for CallbackQuery {
     }
 }
 
-#[derive(Default)]
 pub struct Listeners {
     pub(crate) messages: Book<Message>,
     pub(crate) callbacks: Book<CallbackQuery>,
+    // Shared with both books: told when one of them has an update to give back to the dispatcher.
+    returned: Arc<Notify>,
     next_id: AtomicU64,
     // The cap on listeners alive at once, set when the client opens; absent means no cap.
     budget: OnceLock<(usize, Arc<Semaphore>)>,
+}
+
+impl Default for Listeners {
+    fn default() -> Self {
+        let returned = Arc::new(Notify::new());
+        Listeners {
+            messages: Book::waking(returned.clone()),
+            callbacks: Book::waking(returned.clone()),
+            returned,
+            next_id: AtomicU64::new(0),
+            budget: OnceLock::new(),
+        }
+    }
 }
 
 impl Listeners {
@@ -132,6 +146,11 @@ impl Listeners {
 
     pub(crate) fn remove(&self, id: u64) -> bool {
         self.messages.remove(id) || self.callbacks.remove(id)
+    }
+
+    /// Fires when a listener dropped before it read its update gave the update back: see [`Book::take_returned`].
+    pub(crate) fn returned(&self) -> &Notify {
+        &self.returned
     }
 }
 
@@ -229,11 +248,15 @@ pub struct Book<T> {
     shelf: Mutex<Shelf<T>>,
     // The entry count, so the router skips all listener work with one load when nobody listens.
     waiting: AtomicUsize,
+    // Updates a listener took but never read, because its future was dropped first; the dispatcher routes them
+    // again, so they still reach the other listeners and the handlers.
+    returned: Mutex<Vec<T>>,
+    wake: Arc<Notify>,
 }
 
 impl<T> Default for Book<T> {
     fn default() -> Self {
-        Book { shelf: Mutex::new(Shelf { entries: Vec::new(), closed: false }), waiting: AtomicUsize::new(0) }
+        Book::waking(Arc::default())
     }
 }
 
@@ -247,6 +270,11 @@ pub(crate) enum Offer<T> {
 }
 
 impl<T> Book<T> {
+    fn waking(wake: Arc<Notify>) -> Book<T> {
+        let shelf = Mutex::new(Shelf { entries: Vec::new(), closed: false });
+        Book { shelf, waiting: AtomicUsize::new(0), returned: Mutex::new(Vec::new()), wake }
+    }
+
     pub(crate) fn waiting(&self) -> bool {
         self.waiting.load(Ordering::Acquire) != 0
     }
@@ -309,6 +337,24 @@ impl<T> Book<T> {
             mem::take(&mut shelf.entries)
         };
         drop(entries);
+        // Nobody routes them after a stop.
+        drop(self.take_returned());
+    }
+
+    /// An update a listener took but never read: its future was dropped first. Handed to the dispatcher to route
+    /// again, unless the listeners are closed.
+    fn give_back(&self, item: T) {
+        if self.shelf().closed {
+            return;
+        }
+        // No user code runs under this lock either.
+        self.returned.lock().unwrap().push(item);
+        self.wake.notify_one();
+    }
+
+    /// What dropped listeners gave back, oldest first.
+    pub(crate) fn take_returned(&self) -> Vec<T> {
+        mem::take(&mut *self.returned.lock().unwrap())
     }
 
     fn wait(&self, id: u64, criteria: Criteria<T>) -> Result<oneshot::Receiver<T>> {
@@ -334,19 +380,20 @@ impl<T> Book<T> {
         stopped.len()
     }
 
-    /// Waits for the update `criteria` describes. Dropping the future removes the listener.
+    /// Waits for the update `criteria` describes. Dropping the future removes the listener, and gives back an
+    /// update it was already handed.
     pub(crate) async fn listen(&self, id: u64, criteria: Criteria<T>) -> Result<T> {
         let deadline = criteria.deadline;
-        let mut rx = self.wait(id, criteria)?;
-        let _guard = Guard { book: self, id };
-        let Some(deadline) = deadline else { return rx.await.map_err(|_| Error::ListenerStopped) };
-        match tokio::time::timeout_at(deadline, &mut rx).await {
+        let rx = self.wait(id, criteria)?;
+        let mut guard = Guard { book: self, id, rx };
+        let Some(deadline) = deadline else { return (&mut guard.rx).await.map_err(|_| Error::ListenerStopped) };
+        match tokio::time::timeout_at(deadline, &mut guard.rx).await {
             Ok(got) => got.map_err(|_| Error::ListenerStopped),
-            Err(_) => self.expired(id, rx).await,
+            Err(_) => self.expired(id, &mut guard.rx).await,
         }
     }
 
-    async fn expired(&self, id: u64, rx: oneshot::Receiver<T>) -> Result<T> {
+    async fn expired(&self, id: u64, rx: &mut oneshot::Receiver<T>) -> Result<T> {
         // The dispatcher can take the entry as the timer fires; then the update is already in `rx`.
         if self.remove(id) {
             return Err(Error::ListenerTimeout);
@@ -412,11 +459,16 @@ fn prune<T>(shelf: &mut Shelf<T>, now: Instant) -> Vec<Entry<T>> {
 struct Guard<'a, T> {
     book: &'a Book<T>,
     id: u64,
+    rx: oneshot::Receiver<T>,
 }
 
 impl<T> Drop for Guard<'_, T> {
     fn drop(&mut self) {
         self.book.remove(self.id);
+        // Handed over after the last poll: the update is in `rx`, taken from every other listener and handler.
+        if let Ok(item) = self.rx.try_recv() {
+            self.book.give_back(item);
+        }
     }
 }
 
@@ -627,12 +679,12 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_timeout_racing_a_delivery_keeps_the_update() {
         let (client, book) = (Client::offline(), Book::<Message>::default());
-        let rx = book.wait(1, Criteria::default()).unwrap();
+        let mut rx = book.wait(1, Criteria::default()).unwrap();
         assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me())));
-        assert_eq!(book.expired(1, rx).await.unwrap().id, 1);
+        assert_eq!(book.expired(1, &mut rx).await.unwrap().id, 1);
 
-        let rx = book.wait(2, Criteria::default()).unwrap();
-        assert!(matches!(book.expired(2, rx).await, Err(Error::ListenerTimeout)));
+        let mut rx = book.wait(2, Criteria::default()).unwrap();
+        assert!(matches!(book.expired(2, &mut rx).await, Err(Error::ListenerTimeout)));
         assert!(!book.waiting());
     }
 
@@ -709,5 +761,33 @@ pub(crate) mod tests {
         listeners.close();
         assert_eq!(listeners.free_slots(), Some(2));
         drop(waiting);
+    }
+
+    #[tokio::test]
+    async fn a_listener_dropped_after_the_claim_gives_the_update_back() {
+        let (client, listeners) = (Client::offline(), Listeners::default());
+        let mut listen = Box::pin(listeners.messages.listen(1, Criteria::default()));
+        tokio::select! {
+            biased;
+            _ = &mut listen => panic!("nothing was offered"),
+            () = std::future::ready(()) => {}
+        }
+        assert!(claimed(listeners.messages.offer(message(&client, 5, 7, Some(7), false), &me())));
+        drop(listen);
+        let woken = tokio::time::timeout(Duration::from_secs(5), listeners.returned().notified()).await;
+        let back: Vec<i32> = listeners.messages.take_returned().iter().map(|m| m.id).collect();
+        assert!(woken.is_ok(), "the dispatcher wasn't told");
+        assert_eq!(back, [5]);
+
+        // A listener that read its update gives nothing back, and after a stop nothing is kept.
+        let reader = listeners.messages.listen(2, Criteria::default());
+        let offer = async {
+            until_waiting(&listeners.messages).await;
+            assert!(claimed(listeners.messages.offer(message(&client, 6, 7, Some(7), false), &me())));
+        };
+        let (read, ()) = tokio::join!(reader, offer);
+        assert_eq!(read.unwrap().id, 6);
+        listeners.close();
+        assert!(listeners.messages.take_returned().is_empty());
     }
 }
