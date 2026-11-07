@@ -79,13 +79,13 @@ impl StopPoll<'_> {
             reply_markup: ReplyMarkup::write_option(self.reply_markup.as_ref(), self.client).await?,
             ..edit_request(peer, self.message_id)
         };
-        let (updates, _) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;
+        let (mut updates, _) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;
         let Some((mut message, entities)) = read else {
             return Message::from_updates(client, updates, chat_id, (String::new(), None));
         };
         // Telegram may answer with only the poll's new state and no edited message, so the message read above
         // takes that state.
-        let state = poll_update(&updates).map(|u| (u.poll.clone(), u.results.clone()));
+        let state = take_poll_update(&mut updates);
         if let Some(edited) = Message::all_from_updates(client, updates).next() {
             return Ok(edited);
         }
@@ -104,18 +104,23 @@ impl StopPoll<'_> {
     }
 }
 
-/// The first poll state in `updates`.
-fn poll_update(updates: &base::Updates) -> Option<&types::UpdateMessagePoll> {
+/// Takes the first poll state out of `updates`, leaving the edited message, if any, for the caller. A lone update
+/// has no edited message beside it, so its state is copied instead.
+fn take_poll_update(updates: &mut base::Updates) -> Option<(Option<base::Poll>, base::PollResults)> {
     let updates = match updates {
-        base::Updates::Updates(u) => &u.updates,
-        base::Updates::UpdatesCombined(u) => &u.updates,
-        base::Updates::UpdateShort(u) => std::slice::from_ref(&u.update),
+        base::Updates::Updates(u) => &mut u.updates,
+        base::Updates::UpdatesCombined(u) => &mut u.updates,
+        base::Updates::UpdateShort(u) => match &u.update {
+            base::Update::UpdateMessagePoll(u) => return Some((u.poll.clone(), u.results.clone())),
+            _ => return None,
+        },
         _ => return None,
     };
-    updates.iter().find_map(|u| match u {
-        base::Update::UpdateMessagePoll(u) => Some(&**u),
+    let at = updates.iter().position(|u| matches!(u, base::Update::UpdateMessagePoll(_)))?;
+    match updates.remove(at) {
+        base::Update::UpdateMessagePoll(u) => Some((u.poll, u.results)),
         _ => None,
-    })
+    }
 }
 
 into_future!(StopPoll, Message);
@@ -167,13 +172,18 @@ mod tests {
         base::PollResults::PollResults(Box::new(results))
     }
 
-    // Message 5 in the chat with user 7, with an open quiz nobody voted in yet.
-    fn found() -> Vec<u8> {
+    // Message 5 in the chat with user 7, with the quiz open or closed and `voters` votes.
+    fn poll_message(closed: bool, voters: i32) -> base::Message {
         let mut raw = Message::bare(5, get_peer(7), 0);
-        let media = types::MessageMediaPoll { poll: quiz(false), results: results(0), attached_media: None };
+        let media = types::MessageMediaPoll { poll: quiz(closed), results: results(voters), attached_media: None };
         raw.media = Some(base::MessageMedia::MessageMediaPoll(Box::new(media)));
+        base::Message::Message(Box::new(raw))
+    }
+
+    // The read message: an open quiz nobody voted in yet.
+    fn found() -> Vec<u8> {
         let found = types::messages::Messages {
-            messages: vec![base::Message::Message(Box::new(raw))],
+            messages: vec![poll_message(false, 0)],
             topics: Vec::new(),
             chats: Vec::new(),
             users: Vec::new(),
@@ -181,8 +191,9 @@ mod tests {
         base::messages::Messages::Messages(Box::new(found)).to_bytes()
     }
 
-    // How Telegram answers the edit that closes a poll: the poll's new state, without the edited message.
-    fn closed(poll: Option<base::Poll>) -> Vec<u8> {
+    // How Telegram answers the edit that closes a poll: the poll's new state with 4 voters, then the edited
+    // message if there is one.
+    fn closed(poll: Option<base::Poll>, edited: Option<base::Message>) -> Vec<u8> {
         let update = types::UpdateMessagePoll {
             peer: Some(get_peer(7)),
             msg_id: Some(5),
@@ -191,19 +202,18 @@ mod tests {
             poll,
             results: results(4),
         };
-        let updates = types::Updates {
-            updates: vec![base::Update::UpdateMessagePoll(Box::new(update))],
-            users: Vec::new(),
-            chats: Vec::new(),
-            date: 1,
-            seq: 0,
-        };
+        let mut updates = vec![base::Update::UpdateMessagePoll(Box::new(update))];
+        if let Some(message) = edited {
+            let edit = types::UpdateEditMessage { message, pts: 1, pts_count: 1 };
+            updates.push(base::Update::UpdateEditMessage(Box::new(edit)));
+        }
+        let updates = types::Updates { updates, users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
         base::Updates::Updates(Box::new(updates)).to_bytes()
     }
 
     #[tokio::test]
     async fn an_answer_with_only_the_poll_state_returns_the_closed_poll() {
-        let (client, mut rx) = setup(vec![found(), closed(Some(quiz(true)))]);
+        let (client, mut rx) = setup(vec![found(), closed(Some(quiz(true)), None)]);
         let message = client.stop_poll(7, 5).await.unwrap();
         let poll = message.poll().expect("the message lost its poll");
         assert_eq!(
@@ -216,9 +226,19 @@ mod tests {
 
     #[tokio::test]
     async fn a_state_without_the_poll_still_marks_it_closed() {
-        let (client, _rx) = setup(vec![found(), closed(None)]);
+        let (client, _rx) = setup(vec![found(), closed(None, None)]);
         let message = client.stop_poll(7, 5).await.unwrap();
         let poll = message.poll().expect("the message lost its poll");
         assert_eq!((poll.question.as_str(), poll.is_closed, poll.total_voter_count), ("2 + 2?", true, 4));
+    }
+
+    #[tokio::test]
+    async fn an_edited_message_in_the_answer_wins_over_the_read_one() {
+        // The read message counts 0 voters, the poll state 4 and the edited message 7: only the edited one is
+        // Telegram's whole copy of the closed poll.
+        let (client, _rx) = setup(vec![found(), closed(Some(quiz(true)), Some(poll_message(true, 7)))]);
+        let message = client.stop_poll(7, 5).await.unwrap();
+        let poll = message.poll().expect("the message lost its poll");
+        assert_eq!((message.id, poll.is_closed, poll.total_voter_count), (5, true, 7));
     }
 }
