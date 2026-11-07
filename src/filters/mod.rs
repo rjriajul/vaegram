@@ -333,6 +333,9 @@ flag_filters! {
     paid_message: HasMedia => PAID_MESSAGE,
     /// Sent through a business connection. Only business message routes and their parsed messages see these.
     business: HasMedia => BUSINESS,
+    /// Has at least one reaction. A new message has none yet, so this is for edited messages and for fetched
+    /// messages tested with [`Filter::check`].
+    reacted: HasMedia => REACTED,
     /// In a forum supergroup.
     forum: HasChat => FORUM,
     /// In a chat where we have admin rights.
@@ -536,6 +539,7 @@ mod tests {
             (live_location(), on(LIVE_LOCATION), f),
             (self_destruction(), on(SELF_DESTRUCTION), f),
             (paid_message(), on(PAID_MESSAGE), f),
+            (reacted(), on(REACTED), on(MENTIONED)),
             (business(), on(BUSINESS), f),
             (forum(), on(FORUM), inside(ChatType::Supergroup)),
             (admin(), on(ADMIN), inside(ChatType::Group)),
