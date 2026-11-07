@@ -125,7 +125,9 @@ pub struct Call<'a> {
     pub request: &'a [u8],
     /// From when the connection's task took the request in to its end, re-sends included.
     pub duration: Duration,
-    /// The answer's TL bytes, or the error the caller got. A caller that stopped waiting got `Error::Timeout`.
+    /// The answer's TL bytes, or the error the caller got. A caller that stopped waiting got `Error::Timeout`. The
+    /// bytes hold credentials too (exported authorizations, login tokens, temporary passwords): don't log them as
+    /// they are. `result_json` (with the `json` feature) gives the answer with them cut.
     pub result: Result<&'a [u8], &'a Error>,
     /// The data center the request went to.
     pub dc: i32,
@@ -134,9 +136,11 @@ pub struct Call<'a> {
     /// Times it went out again: after a bad_server_salt, a bad_msg_notification or a lost connection.
     pub resent: u16,
     /// The tag of the innermost [`tagged`](crate::observe::tagged) the request was sent inside, read on the
-    /// sending task when it sent it; `None` for a request sent outside one, and for what vaegram sends on its own
-    /// (pings, the dispatcher's `getDifference`, the background loop of a repeated chat action). Requests a vaegram
-    /// method sends from a task it starts for that call carry the caller's tag, and a re-sent request keeps its own.
+    /// sending task when it sent it; `None` for a request sent outside one, and for what vaegram sends on its own:
+    /// pings, everything `run` and `compose` send (the account and update state at start, the dispatcher's
+    /// `getDifference`, the difference `recover_gaps` asks for), hooks and handlers. Requests a vaegram method sends
+    /// from a task it starts for that call (a message stream, a repeated chat action) carry the caller's tag, and a
+    /// re-sent request keeps its own.
     pub tag: Option<u64>,
 }
 

@@ -19,21 +19,25 @@ tokio::task_local! {
 }
 
 /// Runs `future` with every request it causes tagged with `tag`, which the observer sees as
-/// [`Call::tag`](crate::session::Call::tag).
+/// [`Call::tag`](crate::session::Call::tag). `future` can be a method's request builder as it is, such as
+/// `tagged(7, client.send_message("me", "hi"))`.
 ///
 /// The tag is read on the task that sends a request, when it sends it, and travels with the request to the
 /// connection's task; a request sent again after a reconnect keeps it. Requests a vaegram method sends from tasks it
 /// starts for that call carry the caller's tag too: the messages a [`stream_message`](crate::Client::stream_message)
-/// sends, and the `account.finishTakeoutSession` a dropped [`TakeoutSession`](crate::methods::TakeoutSession) sends.
-/// So do the requests a call makes on the way, such as the peer lookups of a high-level method or the
-/// authorization it exports to and imports into another data center before a download.
+/// sends, the repeats of [`send_chat_action(..).repeat()`](crate::methods::SendChatAction::repeat), and the
+/// `account.finishTakeoutSession` a dropped [`TakeoutSession`](crate::methods::TakeoutSession) sends. So do the
+/// requests a call makes on the way, such as the peer lookups of a high-level method or the authorization it exports
+/// to and imports into another data center before a download.
 ///
-/// What vaegram does on its own stays untagged: pings, what [`run`](crate::Client::run)'s dispatcher sends (such as
-/// `getDifference`) even when `run` itself is inside `tagged`, the background loop of
-/// [`send_chat_action(..).repeat()`](crate::methods::SendChatAction::repeat), connect and disconnect hooks, and
-/// tasks the caller spawns, since a tag stays with its task. Inside a nested `tagged`, the innermost tag wins.
-pub fn tagged<F: Future>(tag: u64, future: F) -> impl Future<Output = F::Output> {
-    TAG.scope(Some(tag), future)
+/// What vaegram does on its own stays untagged, even inside `tagged`: pings; everything [`run`](crate::Client::run)
+/// and [`compose`](crate::Client::compose) send, from the account and update state they read at start to the
+/// dispatcher's `getDifference`; the start, stop, connect and disconnect hooks; handlers; the difference
+/// [`recover_gaps`](crate::Client::recover_gaps) asks the dispatcher for, since one fetch serves everything due at
+/// that moment; and tasks the caller spawns, since a tag stays with its task. Inside a nested `tagged`, the innermost
+/// tag wins.
+pub fn tagged<F: IntoFuture>(tag: u64, future: F) -> impl Future<Output = F::Output> {
+    TAG.scope(Some(tag), future.into_future())
 }
 
 /// The tag of the running task: `None` outside [`tagged`].

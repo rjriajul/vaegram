@@ -91,8 +91,8 @@ impl RepeatChatAction<'_> {
         // The first send is awaited, so a chat or right that fails comes back here rather than ending a task.
         let (client, delay) = (self.send.client.clone(), self.delay);
         let (mut request, connection) = self.send.request().await?;
-        // It outlives the call, so its repeats go out untagged; only the first send carries the caller's tag.
-        let task = tokio::spawn(async move {
+        // The repeats are the caller's chat action, so they carry its tag, as the first send does.
+        let task = tokio::spawn(crate::observe::carry_tag(async move {
             loop {
                 tokio::time::sleep(delay).await;
                 match client.invoke_business(connection.as_deref(), request).await {
@@ -100,7 +100,7 @@ impl RepeatChatAction<'_> {
                     Err(e) => return Err::<(), _>(e),
                 }
             }
-        });
+        }));
         Ok(ChatActionHandle { task: Some(task) })
     }
 }
@@ -268,5 +268,18 @@ mod tests {
         handle.stop().await.unwrap();
         let bodies = sent(&mut rx);
         assert!(bodies.len() == 2 && bodies.iter().all(carries), "the repeat lost the topic");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_tagged_builder_tags_the_first_send_and_every_repeat() {
+        let (client, mut rx) = Client::scripted_tags(vec![ok(), ok(), ok()]);
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        // The builder goes in as it is, without `.into_future()`.
+        let handle = crate::observe::tagged(5, client.send_chat_action(7, ChatAction::Typing).repeat()).await.unwrap();
+        sleep(Duration::from_secs(9)).await;
+        handle.stop().await.unwrap();
+        let tags: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).map(|(_, tag)| tag).collect();
+        assert_eq!(tags, [Some(5); 3]);
     }
 }
