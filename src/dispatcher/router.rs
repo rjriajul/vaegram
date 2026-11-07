@@ -1457,7 +1457,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_reaction_updates_reach_on_message_reactions() {
+    async fn user_reaction_updates_reach_on_reactions() {
         let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
         let chat = get_channel_id(42);
         let sink = seen.clone();
