@@ -203,12 +203,7 @@ impl Client {
             let user_id = match known.get(&id) {
                 Some(user) => user.clone(),
                 None => {
-                    let user = match self.resolve_user(&id.into()).await {
-                        Ok(user) => Some(user),
-                        Err(Error::PeerNotFound(_)) => None,
-                        Err(e) if e.is("USER_ID_INVALID") || e.is("PEER_ID_INVALID") => None,
-                        Err(e) => return Err(e),
-                    };
+                    let user = self.resolve_mentioned(id).await?;
                     known.insert(id, user.clone());
                     user
                 }
@@ -219,6 +214,17 @@ impl Client {
             }
         }
         Ok(resolved)
+    }
+
+    /// The input user for a mention of `user_id`, or `None` when this account has never met the user: a mention is
+    /// dropped and its text kept rather than failing the whole message.
+    pub(crate) async fn resolve_mentioned(&self, user_id: i64) -> Result<Option<base::InputUser>> {
+        match self.resolve_user(&user_id.into()).await {
+            Ok(user) => Ok(Some(user)),
+            Err(Error::PeerNotFound(_)) => Ok(None),
+            Err(e) if e.is("USER_ID_INVALID") || e.is("PEER_ID_INVALID") => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     pub(crate) async fn resolve_chat(&self, chat: &PeerRef) -> Result<ChatPeer> {

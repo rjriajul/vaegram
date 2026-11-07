@@ -191,43 +191,70 @@ pub(crate) fn push_mentions(text: &base::RichText, out: &mut Vec<i64>) {
     }
 }
 
-fn inner(text: &base::RichText) -> Option<&base::RichText> {
-    use base::RichText as T;
-    Some(match text {
-        T::TextEmpty
-        | T::TextPlain(_)
-        | T::TextConcat(_)
-        | T::TextImage(_)
-        | T::TextMath(_)
-        | T::TextCustomEmoji(_) => return None,
-        T::TextBold(t) => &t.text,
-        T::TextItalic(t) => &t.text,
-        T::TextUnderline(t) => &t.text,
-        T::TextStrike(t) => &t.text,
-        T::TextFixed(t) => &t.text,
-        T::TextUrl(t) => &t.text,
-        T::TextEmail(t) => &t.text,
-        T::TextSubscript(t) => &t.text,
-        T::TextSuperscript(t) => &t.text,
-        T::TextMarked(t) => &t.text,
-        T::TextPhone(t) => &t.text,
-        T::TextAnchor(t) => &t.text,
-        T::TextSpoiler(t) => &t.text,
-        T::TextMention(t) => &t.text,
-        T::TextHashtag(t) => &t.text,
-        T::TextBotCommand(t) => &t.text,
-        T::TextCashtag(t) => &t.text,
-        T::TextAutoUrl(t) => &t.text,
-        T::TextAutoEmail(t) => &t.text,
-        T::TextAutoPhone(t) => &t.text,
-        T::TextBankCard(t) => &t.text,
-        T::TextMentionName(t) => &t.text,
-        T::TextDate(t) => &t.text,
-        T::TextDiff(t) => &t.text,
-        T::TextButton(t) => &t.text,
-        T::TextTonAddress(t) => &t.text,
-    })
+/// Replaces every mention of a user in `unknown` with the text it wraps.
+pub(crate) fn drop_mentions(text: &mut base::RichText, unknown: &[i64]) {
+    if let base::RichText::TextMentionName(t) = text {
+        if unknown.contains(&t.user_id) {
+            let inner = std::mem::replace(&mut t.text, base::RichText::TextEmpty);
+            *text = inner;
+            return drop_mentions(text, unknown);
+        }
+    }
+    match text {
+        base::RichText::TextConcat(t) => t.texts.iter_mut().for_each(|t| drop_mentions(t, unknown)),
+        _ => {
+            if let Some(inner) = inner_mut(text) {
+                drop_mentions(inner, unknown);
+            }
+        }
+    }
 }
+
+// The one text a formatting wrapper holds, by shared or by mutable reference.
+macro_rules! inner_fn {
+    ($name:ident $(, $m:tt)?) => {
+        fn $name(text: &$($m)? base::RichText) -> Option<&$($m)? base::RichText> {
+            use base::RichText as T;
+            Some(match text {
+                T::TextEmpty
+                | T::TextPlain(_)
+                | T::TextConcat(_)
+                | T::TextImage(_)
+                | T::TextMath(_)
+                | T::TextCustomEmoji(_) => return None,
+                T::TextBold(t) => &$($m)? t.text,
+                T::TextItalic(t) => &$($m)? t.text,
+                T::TextUnderline(t) => &$($m)? t.text,
+                T::TextStrike(t) => &$($m)? t.text,
+                T::TextFixed(t) => &$($m)? t.text,
+                T::TextUrl(t) => &$($m)? t.text,
+                T::TextEmail(t) => &$($m)? t.text,
+                T::TextSubscript(t) => &$($m)? t.text,
+                T::TextSuperscript(t) => &$($m)? t.text,
+                T::TextMarked(t) => &$($m)? t.text,
+                T::TextPhone(t) => &$($m)? t.text,
+                T::TextAnchor(t) => &$($m)? t.text,
+                T::TextSpoiler(t) => &$($m)? t.text,
+                T::TextMention(t) => &$($m)? t.text,
+                T::TextHashtag(t) => &$($m)? t.text,
+                T::TextBotCommand(t) => &$($m)? t.text,
+                T::TextCashtag(t) => &$($m)? t.text,
+                T::TextAutoUrl(t) => &$($m)? t.text,
+                T::TextAutoEmail(t) => &$($m)? t.text,
+                T::TextAutoPhone(t) => &$($m)? t.text,
+                T::TextBankCard(t) => &$($m)? t.text,
+                T::TextMentionName(t) => &$($m)? t.text,
+                T::TextDate(t) => &$($m)? t.text,
+                T::TextDiff(t) => &$($m)? t.text,
+                T::TextButton(t) => &$($m)? t.text,
+                T::TextTonAddress(t) => &$($m)? t.text,
+            })
+        }
+    };
+}
+
+inner_fn!(inner);
+inner_fn!(inner_mut, mut);
 
 #[cfg(test)]
 mod tests {

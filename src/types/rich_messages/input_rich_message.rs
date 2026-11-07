@@ -1,5 +1,5 @@
-use super::block::{Files, RichBlock, for_each_text, unzip};
-use super::rich_text::push_mentions;
+use super::block::{Files, RichBlock, for_each_text, for_each_text_mut, unzip};
+use super::rich_text::{drop_mentions, push_mentions};
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, types};
@@ -110,17 +110,28 @@ impl InputRichMessage {
         self
     }
 
-    pub(crate) async fn write(self, client: &Client) -> Result<base::InputRichMessage> {
+    /// Looks up the mentioned users. A mention of a user this account has never met becomes plain text, as in
+    /// [`Text`](crate::types::Text) messages, rather than failing the whole message.
+    pub(crate) async fn write(mut self, client: &Client) -> Result<base::InputRichMessage> {
         let mut users = Vec::new();
-        if let InputRichMessage::Blocks { blocks, .. } = &self {
+        if let InputRichMessage::Blocks { blocks, .. } = &mut self {
             let mut ids = Vec::new();
-            for block in blocks {
+            for block in blocks.iter() {
                 for_each_text(&block.block, &mut |text| push_mentions(text, &mut ids));
             }
             ids.sort_unstable();
             ids.dedup();
+            let mut unknown = Vec::new();
             for id in ids {
-                users.push(client.resolve_user(&id.into()).await?);
+                match client.resolve_mentioned(id).await? {
+                    Some(user) => users.push(user),
+                    None => unknown.push(id),
+                }
+            }
+            if !unknown.is_empty() {
+                for block in blocks {
+                    for_each_text_mut(&mut block.block, &mut |text| drop_mentions(text, &unknown));
+                }
             }
         }
         Ok(self.build(users))
@@ -247,6 +258,29 @@ mod tests {
         };
         let user = base::InputUser::InputUser(Box::new(types::InputUser { user_id: 42, access_hash: 7 }));
         assert_eq!(m.users, Some(vec![user]));
+    }
+
+    #[tokio::test]
+    async fn a_mention_of_a_user_never_met_becomes_text() {
+        use super::super::rich_text::{push_mentions, push_plain};
+        use crate::raw::Serializable;
+
+        let no_users: Vec<base::User> = Vec::new();
+        let (client, _sent) = Client::scripted(vec![Ok(no_users.to_bytes())]);
+        let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 42, access_hash: 7 }));
+        client.0.peers.lock().unwrap().insert(42, peer);
+        let text = Text::new().plain("hi ").mention("Bob", 42).plain(" and ").bold(Text::new().mention("Eve", 43));
+        let message = InputRichMessage::blocks([RichBlock::paragraph(text)]);
+        let base::InputRichMessage::InputRichMessage(m) = message.write(&client).await.unwrap() else {
+            panic!("expected block content");
+        };
+        let user = base::InputUser::InputUser(Box::new(types::InputUser { user_id: 42, access_hash: 7 }));
+        assert_eq!(m.users, Some(vec![user]));
+        let base::PageBlock::PageBlockParagraph(p) = &m.blocks[0] else { panic!("expected a paragraph") };
+        let (mut plain, mut mentioned) = (String::new(), Vec::new());
+        push_plain(&p.text, &mut plain);
+        push_mentions(&p.text, &mut mentioned);
+        assert_eq!((plain.as_str(), mentioned), ("hi Bob and Eve", vec![42]));
     }
 
     #[test]
