@@ -63,8 +63,9 @@ impl Client {
             Some(state) => Dispatcher::resume(self.clone(), state),
             None => {
                 let base::updates::State::State(state) = self.invoke(&functions::updates::GetState {}).await?;
-                if self.0.catch_up {
-                    // With nothing saved, what Telegram still holds is delivered as it comes.
+                if self.0.catch_up || !self.0.me.lock().unwrap().is_bot {
+                    // With catch-up on and nothing saved, what Telegram still holds is delivered as it comes. A
+                    // user's getState is current, so there is nothing from before to skip.
                     Dispatcher::new(self.clone(), &state)
                 } else {
                     Dispatcher::from_now(self.clone(), &state, i32::try_from(started).unwrap_or(i32::MAX))
@@ -127,6 +128,7 @@ pub(super) mod tests {
     use tokio::sync::{Notify, mpsc, oneshot};
 
     use crate::Client;
+    use crate::client::Me;
     use crate::errors::{Error, Result, RpcError};
     use crate::handlers::UpdateKind;
     use crate::raw::functions::{updates, users};
@@ -334,7 +336,7 @@ pub(super) mod tests {
     }
 
     #[tokio::test]
-    async fn without_catch_up_run_starts_from_get_state() {
+    async fn without_catch_up_a_bot_starts_from_get_state() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let now = types::updates::State { pts: 50, qts: 0, date: 2, seq: 0, unread_count: 0 };
         let now = base::updates::State::State(Box::new(now));
@@ -358,6 +360,26 @@ pub(super) mod tests {
         // The difference starts from getState's answer, not the saved state.
         assert_eq!(bodies[2][8..12], 50i32.to_le_bytes());
         assert_eq!(client.0.state.lock().unwrap().as_ref().map(|s| (s.pts, s.date)), Some((50, 3)));
+    }
+
+    // A user's getState is current, so a user's run starts from it as it is.
+    #[tokio::test]
+    async fn without_catch_up_a_user_starts_from_get_state_without_a_difference() {
+        let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
+        let now = types::updates::State { pts: 50, qts: 0, date: 2, seq: 0, unread_count: 0 };
+        let (mut client, mut sent) =
+            Client::scripted(vec![Ok(me.to_bytes()), Ok(base::updates::State::State(Box::new(now)).to_bytes())]);
+        Arc::get_mut(&mut client.0).unwrap().catch_up = false;
+        // Test clients are bots; this one is a user.
+        *client.0.me.lock().unwrap() = Me { id: 1, is_bot: false, ..Me::default() };
+
+        assert!(client.run().await.is_err());
+
+        let ids: Vec<u32> = std::iter::from_fn(|| sent.try_recv().ok())
+            .map(|b| u32::from_le_bytes(b[..4].try_into().unwrap()))
+            .collect();
+        assert_eq!(ids, [users::GetUsers::CONSTRUCTOR_ID, updates::GetState::CONSTRUCTOR_ID]);
+        assert_eq!(client.0.state.lock().unwrap().as_ref().map(|s| (s.pts, s.date)), Some((50, 2)));
     }
 
     fn connected(id: &str, qts: i32) -> base::Update {
