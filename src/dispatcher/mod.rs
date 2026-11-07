@@ -157,7 +157,8 @@ impl Dispatcher {
         }
     }
 
-    /// Marks what was asked for as due and resolves it now, so the counts include whatever else was already due; the updates it finds are dispatched on the next turn.
+    /// Marks what was asked for as due and resolves it now, so the counts include whatever else was already due; the
+    /// updates it finds reach the handlers page by page, the last page's on the next turn.
     async fn recover(&mut self, request: Recover) {
         let t = &mut self.tracker;
         match request.chats {
