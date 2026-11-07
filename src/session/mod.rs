@@ -318,13 +318,22 @@ impl Session {
     /// A session that takes requests and never answers them.
     #[cfg(test)]
     pub(crate) fn silent() -> (Session, mpsc::UnboundedReceiver<Vec<u8>>) {
+        Session::answering(Vec::new())
+    }
+
+    /// A session that answers the first requests with `replies`, in order, and never answers the ones after.
+    #[cfg(test)]
+    pub(crate) fn answering(replies: Vec<Result<Vec<u8>>>) -> (Session, mpsc::UnboundedReceiver<Vec<u8>>) {
         let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
         let (bodies, sent) = mpsc::unbounded_channel();
         tokio::spawn(async move {
-            let mut held = Vec::new();
+            let (mut replies, mut held) = (replies.into_iter(), Vec::new());
             while let Some(request) = rx.recv().await {
                 let _ = bodies.send(request.body);
-                held.push(request.answer);
+                match replies.next() {
+                    Some(reply) => drop(request.answer.send(reply)),
+                    None => held.push(request.answer),
+                }
             }
         });
         (Session::local(requests), sent)

@@ -23,6 +23,8 @@ fn new_channel_message(message: base::Message) -> base::Update {
 impl Dispatcher {
     pub(super) async fn difference(&mut self) -> Result<()> {
         loop {
+            // Each page's updates go to the handlers before the next request, with the state they moved it to.
+            self.dispatch_ready();
             let t = &mut self.tracker;
             let request = functions::updates::GetDifference {
                 pts: t.state.pts,
@@ -90,6 +92,7 @@ impl Dispatcher {
         let bot = self.client.0.me.lock().unwrap().is_bot;
         let limit = if bot { BOT_CHANNEL_DIFFERENCE_LIMIT } else { CHANNEL_DIFFERENCE_LIMIT };
         loop {
+            self.dispatch_ready();
             let request = functions::updates::GetChannelDifference {
                 force: false,
                 channel: channel.clone(),
