@@ -2,7 +2,8 @@ use crate::enums::ChatAction;
 use crate::methods::{
     OnBehalf, Routable, SendAnimation, SendAudio, SendCachedMedia, SendChatAction, SendChecklist, SendContact,
     SendDice, SendDocument, SendGame, SendInlineBotResult, SendInvoice, SendLivePhoto, SendLocation, SendPaidMedia,
-    SendPhoto, SendPoll, SendRichMessage, SendSticker, SendVenue, SendVideo, SendVideoNote, SendVoice,
+    SendPhoto, SendPoll, SendRichMessage, SendSharedWidget, SendSticker, SendVenue, SendVideo, SendVideoNote,
+    SendVoice, SendWidget,
 };
 use crate::types::{
     FileSource, InputChecklist, InputInvoice, InputMedia, InputPollOption, InputRichMessage, Message, Text,
@@ -261,6 +262,26 @@ impl Message {
         self.route(self.client().send_voice(self.chat.id, voice))
     }
 
+    /// Sends a widget as a reply to this message.
+    pub fn reply_widget(&self, html: impl Into<String>) -> SendWidget<'_> {
+        self.answer_widget(html).reply_to(self.id)
+    }
+
+    /// Sends a widget to this chat in the same topic and through the same business connection.
+    pub fn answer_widget(&self, html: impl Into<String>) -> SendWidget<'_> {
+        self.route(self.client().send_widget(self.chat.id, html))
+    }
+
+    /// Sends a shared widget as a reply to this message.
+    pub fn reply_shared_widget(&self, widget_id: i64) -> SendSharedWidget<'_> {
+        self.answer_shared_widget(widget_id).reply_to(self.id)
+    }
+
+    /// Sends a shared widget to this chat in the same topic and through the same business connection.
+    pub fn answer_shared_widget(&self, widget_id: i64) -> SendSharedWidget<'_> {
+        self.route(self.client().send_shared_widget(self.chat.id, widget_id))
+    }
+
     /// Shows `action` in this chat, through the same business connection.
     pub fn send_chat_action(&self, action: ChatAction) -> SendChatAction<'_> {
         let mut send = self.client().send_chat_action(self.chat.id, action);
@@ -430,6 +451,13 @@ mod tests {
                 media,
             ),
             ("voice", sent(rx, m.answer_voice(document())).await, sent(rx, m.reply_voice(document())).await, media),
+            ("widget", sent(rx, m.answer_widget("html")).await, sent(rx, m.reply_widget("html")).await, media),
+            (
+                "shared_widget",
+                sent(rx, m.answer_shared_widget(1)).await,
+                sent(rx, m.reply_shared_widget(1)).await,
+                media,
+            ),
         ];
         for (kind, answer, reply, id) in cases {
             assert_eq!((answer, reply), ((id, false), (id, true)), "{kind}");

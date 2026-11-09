@@ -26,6 +26,7 @@ mod pre_checkout_query;
 mod purchased_paid_media;
 mod reply_keyboard;
 mod reply_markup;
+mod shared_widget_query;
 mod shipping_address;
 mod shipping_option;
 mod shipping_query;
@@ -35,6 +36,8 @@ mod transaction_partner;
 mod users_shared;
 mod web_app_info;
 mod web_view;
+mod widget_public_data;
+mod widget_query;
 
 pub use attach_menu_bot::AttachMenuBot;
 pub use bot_access_settings::BotAccessSettings;
@@ -66,6 +69,7 @@ pub use reply_keyboard::{
     ForceReply, KeyboardButton, KeyboardButtonRequestManagedBot, ReplyKeyboardMarkup, ReplyKeyboardRemove,
 };
 pub use reply_markup::ReplyMarkup;
+pub use shared_widget_query::SharedWidgetQuery;
 pub use shipping_address::ShippingAddress;
 pub use shipping_option::ShippingOption;
 pub use shipping_query::ShippingQuery;
@@ -75,3 +79,5 @@ pub use transaction_partner::{AffiliateInfo, RevenueWithdrawalState, Transaction
 pub use users_shared::{SharedUser, UsersShared};
 pub use web_app_info::WebAppInfo;
 pub use web_view::{WebView, WebViewSession};
+pub use widget_public_data::WidgetPublicData;
+pub use widget_query::{WidgetQuery, WidgetQueryOrigin, WidgetQueryType, WidgetQueryWallet};

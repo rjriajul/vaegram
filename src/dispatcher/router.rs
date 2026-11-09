@@ -16,7 +16,8 @@ use crate::types::{
     DeletedEphemeralMessages, DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
     MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PendingJoinRequestsUpdated,
     PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ReactionsUpdated,
-    ReadHistoryUpdated, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, UserStatusUpdated,
+    ReadHistoryUpdated, SharedWidgetQuery, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState,
+    UserStatusUpdated, WidgetDataUpdated, WidgetQuery,
 };
 
 type Scan = (Vec<usize>, Option<usize>);
@@ -351,6 +352,19 @@ update_kinds! {
         UpdateEphemeralBotCallbackQuery(u) => CallbackQuery::parse_ephemeral(client, *u, entities),
         UpdateInlineBotCallbackQuery(u) => CallbackQuery::parse_inline(client, *u, entities),
         UpdateBusinessBotCallbackQuery(u) => CallbackQuery::parse_business(client, *u, entities),
+    }
+    /// Queries from widgets: [`on_widget_query`](crate::Client::on_widget_query).
+    widget_query: WidgetQuery => WidgetQuery {
+        UpdateBotWidgetQuery(u) => WidgetQuery::parse(client, &u, entities),
+        UpdateInlineBotWidgetQuery(u) => WidgetQuery::parse_inline(client, *u, entities),
+    }
+    /// Queries from shared widget copies: [`on_shared_widget_query`](crate::Client::on_shared_widget_query).
+    shared_widget_query: SharedWidgetQuery => SharedWidgetQuery {
+        UpdateBotWidgetCopyQuery(u) => SharedWidgetQuery::parse(client, &u, entities),
+    }
+    /// Changes to widget data: [`on_widget_data_updated`](crate::Client::on_widget_data_updated).
+    widget_data_updated: WidgetDataUpdated => WidgetDataUpdated {
+        UpdateMessageWidgetData(u) => WidgetDataUpdated::parse(client, &u, entities),
     }
     /// Queries typed after the bot's username: [`on_inline_query`](crate::Client::on_inline_query).
     inline_query: InlineQuery => InlineQuery {
@@ -884,6 +898,31 @@ mod tests {
         dispatch(&router_of(&client), update);
         settle().await;
         assert_eq!(*seen.lock().unwrap(), [(true, None)]);
+    }
+
+    #[tokio::test]
+    async fn widget_data_update_reaches_handler_through_chat_filter() {
+        let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
+        let sink = seen.clone();
+        client.on_widget_data_updated(filters::chat(7), move |event| {
+            sink.lock().unwrap().push((event.chat.id, event.message_id, event.public_data));
+            async { Ok(()) }
+        });
+        let router = router_of(&client);
+        for peer in [8, 7] {
+            let update = types::UpdateMessageWidgetData {
+                peer: get_peer(peer),
+                msg_id: 42,
+                public_data: Some("new".into()),
+                public_data_hash: Some(123),
+                chat_data: None,
+                pts: 1,
+                pts_count: 1,
+            };
+            dispatch(&router, base::Update::UpdateMessageWidgetData(Box::new(update)));
+        }
+        settle().await;
+        assert_eq!(*seen.lock().unwrap(), [(7, 42, Some("new".into()))]);
     }
 
     #[tokio::test]
