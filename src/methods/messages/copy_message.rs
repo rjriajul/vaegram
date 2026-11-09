@@ -115,20 +115,27 @@ pub(super) fn input_media(media: base::MessageMedia) -> Result<Option<base::Inpu
     let unsupported = Error::Unexpected("getMessages returned media that can't be copied");
     let media = match media {
         M::MessageMediaEmpty | M::MessageMediaWebPage(_) => return Ok(None),
-        M::MessageMediaWidget(m) => {
-            let html = Widget::parse(&m)
-                .ok_or(Error::InvalidArgument("widget payload could not be inflated as UTF-8 HTML"))?
-                .html;
-            base::InputMedia::InputMediaWidget(Box::new(types::InputMediaWidget {
-                allow_queries: m.can_query,
-                shared_widget: false,
-                width: m.width,
-                height: m.height,
-                html,
-                public_data: m.public_data,
-                chat_data: None,
-            }))
-        }
+        M::MessageMediaWidget(m) => match m.widget_id {
+            // A shared widget stays the same object, so its shared data keeps following edits; Telegram refuses
+            // the id when the copying bot didn't create it.
+            Some(widget_id) => {
+                base::InputMedia::InputMediaWidgetId(Box::new(types::InputMediaWidgetId { widget_id, chat_data: None }))
+            }
+            None => {
+                let html = Widget::parse(&m)
+                    .ok_or(Error::InvalidArgument("widget payload could not be inflated as UTF-8 HTML"))?
+                    .html;
+                base::InputMedia::InputMediaWidget(Box::new(types::InputMediaWidget {
+                    allow_queries: m.can_query,
+                    shared_widget: false,
+                    width: m.width,
+                    height: m.height,
+                    html,
+                    public_data: m.public_data,
+                    chat_data: None,
+                }))
+            }
+        },
         M::MessageMediaPhoto(m) => {
             let id = m.photo.and_then(input_photo_of).ok_or(unsupported)?;
             let video = m.video.and_then(input_document_of);
@@ -277,6 +284,25 @@ mod tests {
     async fn the_video_start_timestamp_skips_other_documents() {
         let (body, expected) = (copied(false).await, input_document(None));
         assert!(body.windows(expected.len()).any(|w| w == expected), "a non-video got a start time");
+    }
+
+    #[test]
+    fn copies_a_shared_widget_by_its_id() {
+        let widget = types::MessageMediaWidget {
+            is_copy: false,
+            can_query: true,
+            background_query: false,
+            width: 0,
+            height: 0,
+            payload: Vec::new(),
+            public_data: Some("public".into()),
+            public_data_hash: Some(1),
+            chat_data: Some("private".into()),
+            widget_id: Some(77),
+        };
+        let media = super::input_media(base::MessageMedia::MessageMediaWidget(Box::new(widget))).unwrap();
+        let expected = types::InputMediaWidgetId { widget_id: 77, chat_data: None };
+        assert_eq!(media, Some(base::InputMedia::InputMediaWidgetId(Box::new(expected))));
     }
 
     #[tokio::test]

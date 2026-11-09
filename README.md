@@ -41,10 +41,12 @@ generated from Telegram's schema.
 ## Features
 
 - Bot login with a token, and user login with a phone code, a 2FA password or a QR code.
-- 45 `on_*` handlers and hooks, with filters you combine with `&`, `|` and `!`.
+- `on_*` handlers and hooks, with filters you combine with `&`, `|` and `!`.
 - Conversations with `ask`, `listen`, `wait_for_click` and next-step handlers.
 - Friendly methods for chats, messages, media, stories, payments, gifts and business accounts, and `invoke` for
   any raw function.
+- HTML widgets over MTProto: bots send widgets and answer queries; user accounts read widgets, send queries and
+  poll shared data. Shared-widget copies retain their id. Rendering HTML requires a host application.
 - A session file that keeps the login, the chats the client has seen and the update state, so a restart picks up
   the updates it missed. SQLite, redb, Redis, MongoDB, S3 and Vault storage come behind cargo features.
 - Rate limiting, FLOOD_WAIT retries, and reconnects that fill update gaps.
