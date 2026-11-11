@@ -4,6 +4,7 @@ use crate::raw::types;
 
 /// An HTML widget in a message: a self-contained page the app runs offline, with data only the bot can change.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Widget {
     /// Id of the shared widget, to send it again with [`Client::send_shared_widget`](crate::Client::send_shared_widget).
     /// `None` unless the widget is shared.

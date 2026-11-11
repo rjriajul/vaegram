@@ -176,6 +176,19 @@ impl WidgetQueryType {
 }
 
 impl WidgetQueryWallet {
+    /// Creates a wallet with its `address` and its balance, `amount`, in nanotons, without a key.
+    pub fn new(address: impl Into<String>, amount: i64) -> Self {
+        WidgetQueryWallet { address: address.into(), amount, public_key: None, state_init: None }
+    }
+
+    /// Shares the wallet's public key and initial state. Telegram takes the two only together.
+    #[must_use]
+    pub fn keys(mut self, public_key: impl Into<Vec<u8>>, state_init: impl Into<Vec<u8>>) -> Self {
+        self.public_key = Some(public_key.into());
+        self.state_init = Some(state_init.into());
+        self
+    }
+
     fn parse(raw: &base::UserWallet) -> Self {
         let base::UserWallet::UserWallet(wallet) = raw;
         WidgetQueryWallet {

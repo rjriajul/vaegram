@@ -130,12 +130,7 @@ mod tests {
         {
             client.0.peers.lock().unwrap().insert(42, peer.clone());
         }
-        let wallet = WidgetQueryWallet {
-            address: "wallet".into(),
-            amount: 123,
-            public_key: Some(vec![1, 2]),
-            state_init: Some(vec![3, 4]),
-        };
+        let wallet = WidgetQueryWallet::new("wallet", 123).keys([1, 2], [3, 4]);
         let raw_wallet = || {
             base::UserWallet::UserWallet(Box::new(types::UserWallet {
                 address: "wallet".into(),
@@ -173,9 +168,10 @@ mod tests {
         use crate::types::WidgetQueryWallet;
 
         let (client, mut sent) = Client::recording();
-        let key_only =
-            WidgetQueryWallet { address: "w".into(), amount: 1, public_key: Some(vec![1]), state_init: None };
-        let init_only = WidgetQueryWallet { public_key: None, state_init: Some(vec![2]), ..key_only.clone() };
+        let mut key_only = WidgetQueryWallet::new("w", 1);
+        key_only.public_key = Some(vec![1]);
+        let mut init_only = WidgetQueryWallet::new("w", 1);
+        init_only.state_init = Some(vec![2]);
         let send = client.request_widget_query_answer(42, 12, b"q".to_vec()).sign_data(key_only, "{}");
         assert!(matches!(send.await, Err(Error::InvalidArgument(_))));
         let send = client.request_widget_query_answer(42, 12, b"q".to_vec()).sent_transaction(init_only, "hash");

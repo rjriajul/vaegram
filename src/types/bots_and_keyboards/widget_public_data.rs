@@ -2,8 +2,10 @@ use crate::raw::base;
 
 /// The result of polling a widget's public data.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum WidgetPublicData {
     /// The public data has changed.
+    #[non_exhaustive]
     Modified {
         /// Hash to pass to the next poll.
         hash: i64,
@@ -13,6 +15,7 @@ pub enum WidgetPublicData {
         period: i32,
     },
     /// The supplied hash still matches the public data.
+    #[non_exhaustive]
     NotModified {
         /// Seconds to wait until polling again.
         period: i32,
