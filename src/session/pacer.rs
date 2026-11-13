@@ -21,8 +21,10 @@ pub(crate) const LARGE: u64 = 8 << 20;
 // FLOOD_WAITs) on 4 unpaced; the 2,000 MiB run went at 20.25 and 20.37. wzgram paces every bot at 40 parts a second,
 // the same 20 MiB/s. Nothing is measured on other DCs, nor for several processes on one bot token: the pace is per
 // client and per DC. Those are sustained transfers, and nothing shows a short burst floods, so a bot's transfer
-// under LARGE goes as a user's, unpaced, and doesn't wait for 8 handshakes before its first byte. User accounts are
-// not measured at all, so they keep the shape they had, unpaced.
+// under LARGE goes as a user's, unpaced, and doesn't wait for 8 handshakes before its first byte. So does a download
+// of unknown size, which is anything fetched by file_id, a large file too, and chat photos: as before, its chunks
+// go one at a time on one connection, and a pace or a gate would only queue many of them behind each other. User
+// accounts are not measured at all, so they keep the shape they had, unpaced.
 const BOT: Shapes = Shapes { download: Shape::new(8, 1), upload: Shape::new(8, 2) };
 const BOT_DOWNLOAD_RATE: u64 = 20 << 20;
 const BOT_UPLOAD_RATE: u64 = 39 << 19;
@@ -106,15 +108,16 @@ impl TransferSettings {
     }
 
     /// How a transfer of `bytes` in `direction` goes for a bot or a user account with or without Premium; `None`
-    /// bytes, as for a download of unknown size, count as large. Only large transfers are paced.
+    /// bytes, as for a download of unknown size, count as small. Only large transfers are paced.
     pub(crate) fn plan(&self, direction: Direction, bot: bool, premium: bool, bytes: Option<u64>) -> Plan {
-        let large = bytes.is_none_or(|bytes| bytes >= LARGE);
+        let large = bytes.is_some_and(|bytes| bytes >= LARGE);
         let bot = bot && large;
         let rate = if large { self.rate(direction, bot) } else { None };
         Plan { shape: self.shape(direction, bot, premium), rate, gated: bot && direction == Direction::Download }
     }
 
-    /// The shape a download from a CDN gets, whatever the account: nothing is measured there.
+    /// The shape a download from a CDN gets, whatever the account: nothing is measured there. Without the builder's
+    /// download connections, the 4 connections it had before, 8 with Premium.
     pub(crate) fn cdn_shape(&self, premium: bool) -> Shape {
         self.shape(Direction::Download, false, premium)
     }
@@ -310,13 +313,13 @@ mod tests {
         let settings = TransferSettings::default();
         let bot = |direction, bytes| settings.plan(direction, true, false, bytes);
         let rate = 19 * (1 << 20) + (1 << 19);
-        for large in [Some(LARGE), None] {
-            assert_eq!(bot(Direction::Download, large), plan(Shape::new(8, 1), Some(20 << 20), true));
-            assert_eq!(bot(Direction::Upload, large), plan(Shape::new(8, 2), Some(rate), false));
-        }
-        // Under 8 MiB a bot's transfer goes as a user's.
+        assert_eq!(bot(Direction::Download, Some(LARGE)), plan(Shape::new(8, 1), Some(20 << 20), true));
+        assert_eq!(bot(Direction::Upload, Some(LARGE)), plan(Shape::new(8, 2), Some(rate), false));
+        // Under 8 MiB, or of unknown size, a bot's transfer goes as a user's.
         for direction in [Direction::Download, Direction::Upload] {
-            assert_eq!(bot(direction, Some(LARGE - 1)), settings.plan(direction, false, false, Some(LARGE - 1)));
+            for small in [Some(LARGE - 1), None] {
+                assert_eq!(bot(direction, small), settings.plan(direction, false, false, small));
+            }
         }
         assert_eq!(settings.cdn_shape(false), Shape::new(4, 1));
     }
@@ -329,6 +332,8 @@ mod tests {
         let large = |direction, bot, premium| settings.plan(direction, bot, premium, Some(LARGE));
         assert_eq!(large(Direction::Download, true, false), plan(Shape::new(2, 1), None, true));
         assert_eq!(large(Direction::Download, false, true), plan(Shape::new(2, 4), None, false));
+        // The builder's download connections reach a CDN's too.
+        assert_eq!(settings.cdn_shape(true), Shape::new(2, 4));
         assert_eq!(large(Direction::Upload, true, false), plan(Shape::new(8, 2), Some(1000), false));
         assert_eq!(large(Direction::Upload, false, false), plan(Shape::new(4, 2), Some(1000), false));
         // A small transfer isn't paced whatever the rate.

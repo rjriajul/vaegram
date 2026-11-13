@@ -16,7 +16,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::session::Session;
 use crate::session::cdn::Cdn;
-use crate::session::pacer::{Direction, MAX_CONNECTIONS, Pace, Pacer, Shape};
+use crate::session::pacer::{Direction, Pace, Pacer, Shape};
 use crate::session::transfer::{Progress, Report, part_timeout, take, try_join_all, workers};
 use crate::types::FileLocation;
 
@@ -178,14 +178,10 @@ impl<'a> DownloadMedia<'a> {
         let _slot = client.download_slot().await;
         let progress = Progress::new(self.progress, window.len());
         let premium = client.is_premium().await.unwrap_or(false);
-        // A bounded range of a big file is as small as the bytes it asks for; unbounded with no size, it counts as
-        // large.
-        let plan = client.transfer_plan(Direction::Download, premium, Some(window.len()).filter(|&len| len > 0));
-        // Without a size the end is only known from a short chunk, so chunks go one at a time.
-        let parts = window.bound.saturating_sub(window.first);
-        let workers_for =
-            |shape: Shape| chunk_count(size).map_or(1, |_| workers(parts, CHUNK as u64, shape.in_flight(CHUNK as u64)));
-        let workers = workers_for(plan.shape);
+        // A bounded range of a big file is as small as the bytes it asks for. Without a size, as for anything
+        // fetched by file_id, a download goes as before whatever the account, so it counts as small.
+        let plan = client.transfer_plan(Direction::Download, premium, size.map(|_| window.len()).filter(|&n| n > 0));
+        let workers = workers_in(plan.shape, &window, size);
         let mut request = functions::upload::GetFile {
             precise: false,
             // A CDN connection can't carry the takeout wrapper, and CDNs have no WebSocket endpoint.
@@ -238,8 +234,8 @@ impl<'a> DownloadMedia<'a> {
                 write_all(f.bytes, &window, size, workers, sink, &progress, part).await
             }
             base::upload::File::FileCdnRedirect(r) => {
-                let workers = workers_for(client.0.transfer_settings.cdn_shape(premium));
-                from_cdn(master, *r, &window, size, workers, sink, &progress).await
+                let shape = client.0.transfer_settings.cdn_shape(premium);
+                from_cdn(master, *r, &window, size, shape, sink, &progress).await
             }
         }
     }
@@ -326,17 +322,19 @@ async fn from_cdn(
     redirect: types::upload::FileCdnRedirect,
     window: &Window,
     size: Option<i64>,
-    workers: usize,
+    shape: Shape,
     sink: &Sink,
     progress: &Progress<'_>,
 ) -> Result<()> {
     let client = master.client;
+    let workers = workers_in(shape, window, size);
     let cdn = async {
         let cdn = Cdn::new(&master.sessions[0], redirect, (client.0.api_id, &client.0.options))?;
         let dc = client.dc(cdn.dc_id)?;
         // CDN chunks are neither paced nor gated, and get the connections they had before pacing whatever the
-        // account: nothing is measured on a CDN, and one that floods soon hands its chunks to the master DC.
-        let lease = client.cdn_sessions(dc, workers.min(MAX_CONNECTIONS)).await?;
+        // account, unless the builder set them: nothing is measured on a CDN, and one that floods soon hands its
+        // chunks to the master DC.
+        let lease = client.cdn_sessions(dc, workers.min(shape.connections)).await?;
         // A CDN part also waits on the master DC's connection for hashes, behind its chunks.
         let timeout = part_timeout(workers.div_ceil(lease.sessions.len()) as u64 * CHUNK as u64).max(master.timeout);
         Ok::<_, Error>((cdn, dc, lease, timeout))
@@ -416,6 +414,13 @@ async fn chunks<F: Future<Output = Result<Vec<u8>>>>(
 
 fn chunk_count(size: Option<i64>) -> Option<i32> {
     size.and_then(|s| u64::try_from(s).ok()).and_then(|s| i32::try_from(s.div_ceil(CHUNK as u64)).ok())
+}
+
+/// How many chunks of `window` a download in `shape` keeps in flight: one at a time without a size, since only a
+/// short chunk tells the end then.
+fn workers_in(shape: Shape, window: &Window, size: Option<i64>) -> usize {
+    let parts = window.bound.saturating_sub(window.first);
+    chunk_count(size).map_or(1, |_| workers(parts, CHUNK as u64, shape.in_flight(CHUNK as u64)))
 }
 
 /// The bytes a chunk at `offset` brings, which is what it waits on a pacer for: CHUNK, less for the file's last one.
@@ -1318,8 +1323,13 @@ mod tests {
 
     /// `n` connections to DC 2 in `client`'s pool, each answering with a full chunk a second after it's asked.
     fn slow_dc(client: &Client, n: usize) -> Vec<(Session, Log)> {
+        slow_dc_answering(client, n, || file(vec![1; CHUNK as usize]))
+    }
+
+    /// [`slow_dc`], answering with `reply()`.
+    fn slow_dc_answering(client: &Client, n: usize, reply: fn() -> Result<Vec<u8>>) -> Vec<(Session, Log)> {
         let slow = || {
-            let (session, log) = Session::slow(Duration::from_secs(1), || file(vec![1; CHUNK as usize]));
+            let (session, log) = Session::slow(Duration::from_secs(1), reply);
             client.0.transfers.insert(client.dc(2).unwrap(), &session);
             (session, log)
         };
@@ -1464,6 +1474,40 @@ mod tests {
         let requests = requests(&mut dc, start);
         assert_eq!(requests.iter().map(|r| r.0).collect::<HashSet<_>>().len(), 6);
         assert!(requests.iter().all(|r| r.2 == 1), "{requests:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bots_downloads_of_unknown_size_at_once_all_go_at_once() {
+        let client = Client::offline();
+        // A 30 KiB photo: one short chunk ends it.
+        let mut dc = slow_dc_answering(&client, 8, || file(vec![1; 30 << 10]));
+        let start = Instant::now();
+        // As by file_id: no size.
+        let by_file_id = || FileLocation { file_size: None, ..document(2, 0) };
+        let client = &client;
+        let download = |_| async move { client.download_media(by_file_id()).await };
+        let photos = try_join_all((0..20).map(download)).await.unwrap();
+        assert!(photos.iter().all(|p| p.len() == 30 << 10));
+        let requests = requests(&mut dc, start);
+        assert_eq!(requests.iter().map(|r| r.1).collect::<Vec<_>>(), [Duration::ZERO; 20]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bots_short_range_of_a_big_file_goes_as_a_users() {
+        let (client, c) = (Client::offline(), CHUNK as usize);
+        let mut dc = slow_dc(&client, 8);
+        let start = Instant::now();
+        let client = &client;
+        // 1 MiB of a 64 MiB file, four times at once: ungated, so each first chunk goes at once, and unpaced, so
+        // each second one goes the moment its first is in.
+        let download = |_| async move { client.download_media(document(2, 128 * c)).offset(0).limit(1 << 20).await };
+        let ranges = try_join_all((0..4).map(download)).await.unwrap();
+        assert!(ranges.iter().all(|r| r.len() == 2 * c));
+        let requests = requests(&mut dc, start);
+        let second = Duration::from_secs(1);
+        let at: Vec<_> = requests.iter().map(|r| r.1).collect();
+        let zero = Duration::ZERO;
+        assert_eq!(at, [zero, zero, zero, zero, second, second, second, second]);
     }
 
     #[tokio::test(start_paused = true)]

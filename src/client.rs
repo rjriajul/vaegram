@@ -282,34 +282,41 @@ impl ClientBuilder {
         self
     }
 
-    /// How many connections a download opens to the file's DC, 1 to 8. A bot's download of 8 MiB or more, or of
-    /// unknown size, opens 8 by default and keeps one `upload.getFile` in flight on each, across every download from
+    /// How many connections a download opens to the file's DC, and to its CDN, 1 to 8. A bot's download of 8 MiB
+    /// or more opens 8 by default and keeps one `upload.getFile` in flight on each, across the large downloads from
     /// that DC: measured from one bot, more than one per connection drew 27 to 78 getFile FLOOD_WAITs per 500 MiB at
-    /// any pace. A smaller one goes as a user account's: 4 connections with one chunk in flight on each, or 8 with 4
-    /// each with Premium; nothing is measured for those. Out of range fails [`start`](Self::start) and
-    /// [`connect`](Self::connect) with `Error::InvalidArgument`.
+    /// any pace. That holds 4 MiB in flight per download, against 2 MiB before. A smaller download, or one of
+    /// unknown size (anything fetched by file_id, a large file too), goes as a user account's, as before: 4
+    /// connections with one chunk in flight on each, or 8 with 4 each with Premium, and one of unknown size one
+    /// chunk at a time. Running beside large ones, it adds its own requests on up to 4 of those connections, as
+    /// before; nothing is measured for those. Without this option a CDN keeps the connections it had before: 4,
+    /// 8 with Premium. Out of range fails [`start`](Self::start) and [`connect`](Self::connect) with
+    /// `Error::InvalidArgument`.
     pub fn download_connections(mut self, n: usize) -> Self {
         self.transfer_settings.download.connections = Some(n);
         self
     }
 
     /// How many connections an upload opens, 1 to 8. A bot's upload of 8 MiB or more opens 8 by default with 2
-    /// parts in flight on each, so it holds 16 parts (8 MiB) in memory at a time. A smaller one goes as a user
-    /// account's: 4 with 2 each, or 8 with 1 each with Premium. Out of range fails [`start`](Self::start) and
-    /// [`connect`](Self::connect) with `Error::InvalidArgument`.
+    /// parts in flight on each, so it holds 16 parts (8 MiB) in memory per upload: ten at once hold 80 MiB. That
+    /// is 2 per connection for one upload, not across uploads: two large bot uploads at once put 4 parts on each
+    /// connection, which is not measured. A smaller one goes as a user account's: 4 with 2 each, or 8 with 1 each
+    /// with Premium. Out of range fails [`start`](Self::start) and [`connect`](Self::connect) with
+    /// `Error::InvalidArgument`.
     pub fn upload_connections(mut self, n: usize) -> Self {
         self.transfer_settings.upload.connections = Some(n);
         self
     }
 
-    /// The most bytes a second the downloads of 8 MiB or more, or of unknown size, from one DC ask for, all of them
-    /// together; `None` removes the cap. The pacer spaces out when their chunks are sent, with several still in
-    /// flight at once. Smaller downloads and a CDN's chunks aren't paced. By default 20 MiB/s for a bot, no cap for
-    /// a user account. Measured 2026-11-14 with one bot from one server 61 ms from DC5, 7 runs of 500 MiB and one
-    /// of 2,000 MiB: 20 MiB/s gave a median 19.88 MB/s with 0-3 FLOOD_WAITs a run, and 20.25 MB/s over 2,000 MiB;
-    /// 20.5 MiB/s drew 7 and 22 MiB/s 26 in one run each. wzgram paces every bot at 40 parts a second, the same
-    /// 20 MiB/s. Nothing is measured on other DCs, nor for several processes on one bot token: the cap is per client
-    /// and per DC. 0 fails [`start`](Self::start) and [`connect`](Self::connect) with `Error::InvalidArgument`.
+    /// The most bytes a second the downloads of 8 MiB or more from one DC ask for, all of them together; `None`
+    /// removes the cap. The pacer spaces out when their chunks are sent, with several still in flight at once.
+    /// Smaller downloads, those of unknown size (anything fetched by file_id, a large file too) and a CDN's chunks
+    /// aren't paced. By default 20 MiB/s for a bot, no cap for a user account. Measured 2026-11-14 with one bot
+    /// from one server 61 ms from DC5, 7 runs of 500 MiB and one of 2,000 MiB: 20 MiB/s gave a median 19.88 MB/s
+    /// with 0-3 FLOOD_WAITs a run, and 20.25 MB/s over 2,000 MiB; 20.5 MiB/s drew 7 and 22 MiB/s 26 in one run
+    /// each. wzgram paces every bot at 40 parts a second, the same 20 MiB/s. Nothing is measured on other DCs, nor
+    /// for several processes on one bot token: the cap is per client and per DC. 0 fails [`start`](Self::start)
+    /// and [`connect`](Self::connect) with `Error::InvalidArgument`.
     pub fn max_download_bytes_per_sec(mut self, rate: Option<u64>) -> Self {
         self.transfer_settings.download.max_bytes_per_sec = Some(rate);
         self
