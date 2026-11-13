@@ -110,6 +110,21 @@ impl TransferPool {
         options: &Options,
         events: &Arc<Events>,
     ) -> Result<Lease> {
+        self.lease_keyed_at(dc, dc, count, auth, options, events).await
+    }
+
+    /// [`lease`](Self::lease) of connections to `dc` that, when the DC has no key yet, makes the permanent key and
+    /// imports the authorization on `main`, the DC's main address, as tdlib and mtcute do: a media-only address only
+    /// serves file requests, and under PFS each of its connections makes and binds a temporary key of its own.
+    pub(crate) async fn lease_keyed_at(
+        &self,
+        main: Dc,
+        dc: Dc,
+        count: usize,
+        auth: Auth<'_>,
+        options: &Options,
+        events: &Arc<Events>,
+    ) -> Result<Lease> {
         // CDN DCs keep no permanent key to bind a temporary one to.
         let rebind = || match auth {
             Auth::Home(home, _) => home.pfs.clone(),
@@ -139,6 +154,8 @@ impl TransferPool {
             let salt = live.first().map_or(state.salt, Session::salt);
             (live, home.or(state.auth_key.map(|key| Known { key, salt, made: state.key_made })))
         };
+        // The connection the key was made on, when that was the main address rather than `dc`.
+        let mut keyed = None;
         let key = match key {
             Some(key) => key,
             None => {
@@ -147,7 +164,7 @@ impl TransferPool {
                     Auth::Home(..) => None,
                 };
                 let session =
-                    Session::connect_transfer(dc, None, cdn_key, options, events.clone(), rebind(), number()).await?;
+                    Session::connect_transfer(main, None, cdn_key, options, events.clone(), rebind(), number()).await?;
                 if let Auth::Home(home, api_id) = auth {
                     let export = functions::auth::ExportAuthorization { dc_id: dc.id };
                     // Same as everything else this client sends, when it wants no updates.
@@ -165,7 +182,10 @@ impl TransferPool {
                 let mut state = slot.state.lock().unwrap();
                 (state.auth_key, state.key_made) = (Some(key.key), key.made);
                 drop(state);
-                sessions.push(session);
+                match main == dc {
+                    true => sessions.push(session),
+                    false => keyed = Some(session),
+                }
                 key
             }
         };
@@ -177,12 +197,17 @@ impl TransferPool {
         // Checked under the lock close_all takes after its bump: either it sees these sessions, or this sees the bump.
         if self.shut.load(Ordering::Acquire) || self.epoch.load(Ordering::Acquire) != epoch {
             drop(state);
-            sessions.iter().for_each(Session::close);
+            sessions.iter().chain(&keyed).for_each(Session::close);
             return Err(Error::Disconnected);
         }
         state.salt = sessions.first().map_or(key.salt, Session::salt);
         state.sessions.insert(dc, sessions.iter().map(Session::downgrade).collect());
+        if let Some(keyed) = &keyed {
+            state.sessions.entry(main).or_default().push(keyed.downgrade());
+        }
         drop(state);
+        // Released like a lease: it idles on the main address a while, for a lease there to pick up.
+        drop(keyed.map(|session| Lease { sessions: vec![session] }));
         sessions.truncate(count);
         Ok(Lease { sessions })
     }
@@ -385,6 +410,42 @@ mod tests {
         let name = "upload.saveFilePart";
         let expected = [(name, 1, Some(Duration::from_secs(300))), (name, 1, Some(MAX_CDN_FLOOD_WAIT))];
         assert_eq!(*seen.lock().unwrap(), expected);
+    }
+
+    #[tokio::test]
+    async fn a_key_exchange_on_a_media_address_negates_the_dc() {
+        let dc = TestDc::start([5; 256], false).await;
+        let options = Options::new().transport(Transport::Intermediate);
+        for (n, media) in [(1, dc.dc(4).media(true)), (2, dc.dc(4).test(true).media(true))] {
+            Session::connect_transfer(media, None, None, &options, Arc::default(), None, n).await.unwrap();
+        }
+        assert_eq!(dc.handshakes(), [(1, -4, false), (2, -10004, false)]);
+    }
+
+    #[tokio::test]
+    async fn a_media_lease_makes_the_key_on_the_main_address_and_temporary_keys_on_its_own() {
+        use crate::session::test_dc::IMPORT_AUTHORIZATION;
+        let dc = TestDc::start([5; 256], false).await;
+        let export = types::auth::ExportedAuthorization { id: 1, bytes: vec![1] };
+        let export = base::auth::ExportedAuthorization::ExportedAuthorization(Box::new(export)).to_bytes();
+        let (home, _sent) = Session::scripted(vec![Ok(export)]);
+        let init = crate::session::init_connection(1, &Options::default(), functions::help::GetNearestDc {});
+        let home = Session { pfs: Some(Arc::from(init.to_bytes())), ..home };
+        let options = Options::new().transport(Transport::Intermediate);
+        let pool = TransferPool::default();
+        let (main, media) = (dc.dc(4), dc.dc(4).media(true));
+        let lease = pool.lease_keyed_at(main, media, 2, Auth::Home(&home, 1), &options, &Arc::default()).await.unwrap();
+        for session in &lease.sessions {
+            session.invoke(&functions::Ping { ping_id: 1 }).await.unwrap();
+        }
+        // Connection 1 is on the main address: the permanent key, the import and its own temporary key. The two
+        // media connections only make temporary keys, with the DC's id negated.
+        let mut handshakes = dc.handshakes();
+        handshakes.sort();
+        assert_eq!(handshakes, [(1, 4, false), (1, 4, true), (2, -4, true), (3, -4, true)]);
+        let imports = dc.seen().into_iter().filter(|s| s.ids.contains(&IMPORT_AUTHORIZATION)).map(|s| s.connection);
+        assert_eq!(imports.collect::<Vec<_>>(), [1]);
+        assert_eq!(lease.sessions.len(), 2);
     }
 
     #[tokio::test]

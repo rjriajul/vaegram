@@ -1,10 +1,11 @@
 // Run with `cargo test --test live_media_dc -- --ignored`; needs VAEGRAM_API_ID, VAEGRAM_API_HASH and
 // VAEGRAM_BOT_TOKEN, and skips itself without them.
 //
-// Downloads go to a data center's media-only address when help.getConfig lists one (a `media_only` option). There
-// Telegram wants the DC's id negated, in the auth-key handshake (`p_q_inner_data_dc`, and `p_q_inner_data_temp_dc`
-// for a PFS key) and in the obfuscation header; a positive id is closed with transport error -444. Each test below
-// carries the id one of these ways.
+// Downloads go to a data center's media-only address when help.getConfig lists one (a `media_only` option). The
+// DC's permanent key is made, and the authorization imported, on its main address; the media address only gets the
+// file requests. There Telegram wants the DC's id negated, in the obfuscation header and in the
+// `p_q_inner_data_temp_dc` of a PFS connection's temporary key; a positive id is closed with transport error -444.
+// Each test below takes one of these paths.
 
 #[allow(dead_code)] // this binary only logs the bot in
 mod support;
@@ -64,7 +65,7 @@ async fn chat_photo(client: &Client, wanted: impl Fn(i32) -> bool) -> Option<(St
 }
 
 /// Logs the bot in with `builder` and downloads a photo through a media-only address: on a DC other than the bot's
-/// own when `foreign`, so the download starts with a handshake there.
+/// own when `foreign`, so the download first makes a key there.
 async fn downloads_from_a_media_dc(builder: ClientBuilder, foreign: bool) {
     let Some(bot) = support::start_bot(builder).await else { return };
     let _disconnect = support::Disconnect(vec![bot.clone()]);
@@ -78,7 +79,7 @@ async fn downloads_from_a_media_dc(builder: ClientBuilder, foreign: bool) {
 
 #[tokio::test]
 #[ignore = "logs in as a bot and downloads from a media-only address"]
-async fn a_handshake_on_a_media_dc_sends_the_negative_id() {
+async fn a_foreign_media_dc_gets_its_key_on_the_main_address() {
     let Some(builder) = bot("target/vaegram-media-dc-bot") else { return };
     downloads_from_a_media_dc(builder, true).await;
 }

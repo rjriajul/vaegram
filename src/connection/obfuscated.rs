@@ -102,6 +102,23 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn a_connection_to_a_media_test_dc_sends_its_negative_wire_id() {
+        use tokio::io::AsyncReadExt;
+
+        use crate::connection::{Connection, Options};
+        use crate::session::Dc;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let dc = Dc::new(2, listener.local_addr().unwrap()).test(true).media(true);
+        let options = Options::new().obfuscated(true);
+        let (connection, accepted) = tokio::join!(Connection::connect(&dc, &options), listener.accept());
+        let _connection = connection.unwrap();
+        let mut header = [0u8; 64];
+        accepted.unwrap().0.read_exact(&mut header).await.unwrap();
+        let (plain, _, _) = server(&header, None);
+        assert_eq!(i16::from_le_bytes([plain[60], plain[61]]), -10002);
+    }
+
     #[test]
     fn secret_changes_keys() {
         let (header, mut encrypt, _) = init([0xee; 4], 2, Some(&[1; 16]));

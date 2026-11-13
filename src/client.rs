@@ -1019,7 +1019,10 @@ impl Client {
 
     pub(crate) async fn transfer_sessions(&self, dc: Dc, count: usize) -> Result<Lease> {
         let home = self.session();
-        self.0.transfers.lease(dc, count, Auth::Home(&home, self.0.api_id), &self.0.options, &self.0.events).await
+        // A missing key is made, and the authorization imported, on the DC's main address only.
+        let main = if dc.media { self.dc(dc.id)? } else { dc };
+        let (auth, options, events) = (Auth::Home(&home, self.0.api_id), &self.0.options, &self.0.events);
+        self.0.transfers.lease_keyed_at(main, dc, count, auth, options, events).await
     }
 
     pub(crate) async fn cdn_sessions(&self, dc: Dc, count: usize) -> Result<Lease> {
@@ -1495,5 +1498,30 @@ mod tests {
         let builder = Client::builder("revoked-import", 1, "hash").session_string(imported_string(&dc));
         let client = builder.connect().await.unwrap();
         assert_eq!((client.0.me.lock().unwrap().id, user_lookups(&dc)), (0, 1));
+    }
+
+    #[tokio::test]
+    async fn only_a_picked_media_address_makes_a_media_dc() {
+        let media: std::net::SocketAddr = "149.154.167.151:443".parse().unwrap();
+        let with_media = || {
+            let client = Client::offline();
+            *client.0.media_dcs.write().unwrap() = vec![(2, media)];
+            client
+        };
+        let mut client = with_media();
+        let picked = client.media_dc(2).unwrap();
+        assert_eq!((picked.addr, picked.media, picked.wire_id()), (media, true, -2));
+        assert!(!client.dc(2).unwrap().media, "the main address is never the media one");
+        assert!(!client.media_dc(4).unwrap().media, "DC 4 has no media address");
+
+        Arc::get_mut(&mut client.0).unwrap().pinned = Some("127.0.0.1:1".parse().unwrap());
+        assert!(!client.media_dc(2).unwrap().media && !client.dc(2).unwrap().media);
+
+        #[cfg(feature = "websocket")]
+        {
+            let mut client = with_media();
+            Arc::get_mut(&mut client.0).unwrap().options.websocket = true;
+            assert!(!client.media_dc(2).unwrap().media);
+        }
     }
 }

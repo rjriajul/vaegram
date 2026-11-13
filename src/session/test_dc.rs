@@ -91,6 +91,8 @@ struct Shared {
     refuse_first_bind: bool,
     // Who `users.getUsers` says the account is; none answers 401, as for a key that never signed in.
     user: Option<i64>,
+    // Each key exchange: the connection, the `dc` of its `p_q_inner_data`, and whether the key is a temporary one.
+    handshakes: Vec<(usize, i32, bool)>,
 }
 
 pub(crate) struct TestDc {
@@ -156,6 +158,12 @@ impl TestDc {
     pub(crate) fn seen(&self) -> Vec<Seen> {
         self.shared.lock().unwrap().seen.clone()
     }
+
+    /// Each key exchange so far: the connection (from 1), the `dc` its `p_q_inner_data` carried, and whether it made
+    /// a temporary key.
+    pub(crate) fn handshakes(&self) -> Vec<(usize, i32, bool)> {
+        self.shared.lock().unwrap().handshakes.clone()
+    }
 }
 
 impl Drop for TestDc {
@@ -201,7 +209,7 @@ async fn serve(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) -> Option<()> 
         let mut replies = Vec::new();
         if packet.get(..8)? == [0; 8] {
             let len = u32::from_le_bytes(packet.get(16..20)?.try_into().unwrap()) as usize;
-            let answer = exchange.step(packet.get(20..20 + len)?, &shared)?;
+            let answer = exchange.step(packet.get(20..20 + len)?, connection, &shared)?;
             let header = [[0; 8], msg_id().to_le_bytes()].concat();
             replies.push([&header[..], &(answer.len() as u32).to_le_bytes(), &answer].concat());
         } else {
@@ -311,7 +319,7 @@ fn rpc_result(req_msg_id: i64, result: &[u8]) -> Vec<u8> {
 }
 
 impl Exchange {
-    fn step(&mut self, body: &[u8], shared: &Mutex<Shared>) -> Option<Vec<u8>> {
+    fn step(&mut self, body: &[u8], connection: usize, shared: &Mutex<Shared>) -> Option<Vec<u8>> {
         let mut b = body.get(4..)?;
         match constructor_id(body)? {
             REQ_PQ_MULTI => {
@@ -329,11 +337,13 @@ impl Exchange {
                 Vec::<u8>::deserialize(&mut b).ok()?;
                 i64::deserialize(&mut b).ok()?;
                 let inner = decrypt_pad(&Vec::<u8>::deserialize(&mut b).ok()?)?;
-                (self.new_nonce, self.temp) = match base::PQInnerData::deserialize(&mut &inner[..]).ok()? {
-                    base::PQInnerData::PQInnerDataDc(d) => (d.new_nonce, false),
-                    base::PQInnerData::PQInnerDataTempDc(d) => (d.new_nonce, true),
+                let (new_nonce, temp, dc) = match base::PQInnerData::deserialize(&mut &inner[..]).ok()? {
+                    base::PQInnerData::PQInnerDataDc(d) => (d.new_nonce, false, d.dc),
+                    base::PQInnerData::PQInnerDataTempDc(d) => (d.new_nonce, true, d.dc),
                     _ => return None,
                 };
+                (self.new_nonce, self.temp) = (new_nonce, temp);
+                shared.lock().unwrap().handshakes.push((connection, dc, temp));
                 self.a = BigUint::from_bytes_be(&random::<256>());
                 let dh_prime = prime::dh_prime();
                 let g_a = BigUint::from(3u32).modpow(&self.a, &dh_prime);
