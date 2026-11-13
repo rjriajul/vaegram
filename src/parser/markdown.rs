@@ -26,8 +26,9 @@ pub(super) fn parse(src: &str, html: bool) -> Text {
     let mut out = Text::default();
     let mut stack = Stack::default();
     let mut link: Option<Link> = None;
-    // Start, end so far, and whether it's expandable.
-    let mut quote: Option<(i32, i32, bool)> = None;
+    // Start, and whether a `**>` opened it: only such a quote's own closing `||` makes it expandable. The end is
+    // worked out when it closes, so a line that ends in a code span or a fenced block counts like any other.
+    let mut quote: Option<(i32, bool)> = None;
     let mut i = 0;
     while i < src.len() {
         let rest = &src[i..];
@@ -42,20 +43,20 @@ pub(super) fn parse(src: &str, html: bool) -> Text {
         if !literal {
             if i == 0 || src.as_bytes()[i - 1] == b'\n' {
                 if let Some(after) = rest.strip_prefix("**>") {
-                    if let Some((start, end, expandable)) = quote.take() {
-                        out.spans.push(Span { kind: Kind::Blockquote(expandable), start, end });
+                    if let Some((start, _)) = quote.take() {
+                        out.spans.push(Span { kind: Kind::Blockquote(false), start, end: quote_end(&out) });
                     }
-                    quote = Some((out.len, out.len, true));
+                    quote = Some((out.len, true));
                     i += 3 + after.starts_with(' ') as usize;
                     continue;
                 }
                 if let Some(after) = rest.strip_prefix('>') {
-                    quote.get_or_insert((out.len, out.len, false));
+                    quote.get_or_insert((out.len, false));
                     i += 1 + after.starts_with(' ') as usize;
                     continue;
                 }
-                if let Some((start, end, expandable)) = quote.take() {
-                    out.spans.push(Span { kind: Kind::Blockquote(expandable), start, end });
+                if let Some((start, _)) = quote.take() {
+                    out.spans.push(Span { kind: Kind::Blockquote(false), start, end: quote_end(&out) });
                 }
             }
 
@@ -113,10 +114,12 @@ pub(super) fn parse(src: &str, html: bool) -> Text {
             }
         }
         if !literal {
-            // `||` ending a line ends an expandable quote, unless it closes a spoiler.
-            if let (Some((start, _, true)), Some(after)) = (quote, rest.strip_prefix("||")) {
-                if (after.is_empty() || after.starts_with('\n')) && !stack.has(&Name::Delimiter("||")) {
-                    out.spans.push(Span { kind: Kind::Blockquote(true), start, end: out.len });
+            // A `**>` quote's own closing `||` ends the line it is on: it closes the quote as expandable, and the
+            // spoiler that same `||` closes, if there is one. A `||` anywhere else in the quote opens a spoiler.
+            if let (Some((start, true)), Some(after)) = (quote, rest.strip_prefix("||")) {
+                if after.starts_with('\n') || (after.is_empty() && !stack.has(&Name::Delimiter("||"))) {
+                    stack.close(&Name::Delimiter("||"), &mut out);
+                    out.spans.push(Span { kind: Kind::Blockquote(true), start, end: quote_end(&out) });
                     quote = None;
                     i += 2;
                     continue;
@@ -137,17 +140,22 @@ pub(super) fn parse(src: &str, html: bool) -> Text {
         }
 
         let c = rest.chars().next().unwrap();
-        if let (Some((_, end, _)), '\n') = (&mut quote, c) {
-            *end = out.len;
-        }
         out.push(c);
         i += c.len_utf8();
     }
-    if let Some((start, end, expandable)) = quote {
-        let end = if out.text.ends_with('\n') { end } else { out.len };
-        out.spans.push(Span { kind: Kind::Blockquote(expandable), start, end });
+    if let Some((start, _)) = quote {
+        out.spans.push(Span { kind: Kind::Blockquote(false), start, end: quote_end(&out) });
     }
     out
+}
+
+/// Where a quote's last line ends: `out` holds its lines and their `\n`, so the span stops before the last one.
+fn quote_end(out: &Text) -> i32 {
+    if out.text.ends_with('\n') {
+        out.len - 1
+    } else {
+        out.len
+    }
 }
 
 /// The closing `]` and where parsing resumes, as byte indexes offset by `at`, and the URL.
@@ -368,5 +376,60 @@ fn delimiter(kind: &Kind) -> &'static str {
         Kind::Strike => "~~",
         Kind::Spoiler => "||",
         _ => "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse;
+    use crate::parser::Kind;
+
+    /// The text of a Markdown parse and its entities as `kind offset length`, sorted, like the tests in `mod.rs`.
+    fn run(src: &str) -> (String, Vec<String>) {
+        let text = parse(src, false);
+        let mut spans = Vec::new();
+        for span in &text.spans {
+            let length = span.end - span.start;
+            let kind = match &span.kind {
+                Kind::Blockquote(expandable) => format!("quote:{expandable}"),
+                Kind::Spoiler => "spoiler".to_owned(),
+                Kind::Code => "code".to_owned(),
+                Kind::Pre(language) => format!("pre:{language}"),
+                kind => format!("{kind:?}"),
+            };
+            spans.push(format!("{kind} {} {length}", span.start));
+        }
+        spans.sort();
+        (text.text, spans)
+    }
+
+    #[test]
+    fn a_quote_ending_in_a_code_span_keeps_its_last_line() {
+        // The code span swallows the line's `\n`, so the end can't come from the last newline the loop saw.
+        assert_eq!(run("> a `b\n`"), ("a b\n".into(), vec!["code 2 2".into(), "quote:false 0 3".into()]));
+    }
+
+    #[test]
+    fn a_quote_ending_in_a_fenced_block_keeps_its_last_line() {
+        assert_eq!(run("> ```\na\n\n```"), ("a\n".into(), vec!["pre: 0 2".into(), "quote:false 0 1".into()]));
+    }
+
+    #[test]
+    fn an_expandable_quote_needs_its_own_closing_pipes() {
+        assert_eq!(run("**> quoted\nafter"), ("quoted\nafter".into(), vec!["quote:false 0 6".into()]));
+        // The pipes here close a spoiler, so the quote never sees its own and stays plain.
+        assert_eq!(run("**> ||secret||"), ("secret".into(), vec!["quote:false 0 6".into(), "spoiler 0 6".into()]));
+        assert_eq!(
+            run("**> first\nplain\n**> second||"),
+            ("first\nplain\nsecond".into(), vec!["quote:false 0 5".into(), "quote:true 12 6".into()])
+        );
+    }
+
+    #[test]
+    fn an_expandable_quote_closes_at_its_closing_pipes() {
+        assert_eq!(run("**>a\n>b||\nc"), ("a\nb\nc".into(), vec!["quote:true 0 3".into()]));
+        assert_eq!(run("x\n**> y||"), ("x\ny".into(), vec!["quote:true 2 1".into()]));
+        // One `||` closes the spoiler and the quote both.
+        assert_eq!(run("**>||s||\nt"), ("s\nt".into(), vec!["quote:true 0 1".into(), "spoiler 0 1".into()]));
     }
 }

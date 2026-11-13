@@ -31,6 +31,7 @@ fn is_known(name: &str) -> bool {
 struct Tag {
     name: String,
     closing: bool,
+    self_closing: bool,
     attrs: Vec<(String, String)>,
 }
 
@@ -97,6 +98,11 @@ impl Stack {
     fn tag(&mut self, tag: Tag, out: &mut Text) {
         // Unknown tags format nothing; kept off the stack, unclosed ones can't use up MAX_NESTING.
         if !is_known(&tag.name) {
+            return;
+        }
+        // `<b/>` opens nothing: it is closed by its own `/`, so it must not leave a span open for the rest of the
+        // text nor close an earlier one.
+        if tag.self_closing {
             return;
         }
         if tag.closing {
@@ -190,9 +196,10 @@ fn read_tag(s: &str) -> Option<(Tag, usize)> {
         }
         None
     })?;
-    let inner = match s[1..end].strip_suffix('/') {
-        Some(i) if !i.contains(char::is_whitespace) || i.ends_with([' ', '"', '\'']) => i,
-        _ => &s[1..end],
+    let body = &s[1..end];
+    let (self_closing, inner) = match body.strip_suffix('/') {
+        Some(i) if !i.contains(char::is_whitespace) || i.ends_with([' ', '"', '\'']) => (true, i),
+        _ => (false, body),
     };
     let (closing, inner) = match inner.strip_prefix('/') {
         Some(i) => (true, i),
@@ -203,7 +210,7 @@ fn read_tag(s: &str) -> Option<(Tag, usize)> {
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return None;
     }
-    Some((Tag { name, closing, attrs: read_attrs(&inner[name_end..]) }, end + 1))
+    Some((Tag { name, closing, self_closing, attrs: read_attrs(&inner[name_end..]) }, end + 1))
 }
 
 fn read_attrs(mut s: &str) -> Vec<(String, String)> {
@@ -347,6 +354,20 @@ impl Markup for Html {
             '<' => self.0.push_str("&lt;"),
             '>' => self.0.push_str("&gt;"),
             c => self.0.push(c),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse;
+
+    #[test]
+    fn a_self_closing_tag_opens_no_span() {
+        // `/` closes the tag itself, so it must not leave a span open for the rest of the text.
+        for src in ["<b/>x", "<a href=\"https://t.me\"/>x", "<tg-spoiler/>x", "<br/>x"] {
+            let text = parse(src);
+            assert_eq!((text.text.as_str(), text.spans.len()), ("x", 0), "{src}");
         }
     }
 }
