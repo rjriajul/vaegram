@@ -1096,10 +1096,12 @@ impl Runner {
             return Ok(());
         };
         let body = &packet[at];
+        const REPLAYED: &str = "msg_id seen before, even or outside the time window";
         // Every msg_id the packet carries, its own and those of a container's messages, is checked against the ids
         // taken in before the packet, and all are recorded once it is handled: taking one in sooner could lift a full
-        // id set's floor over another and drop that one as a replay.
+        // id set's floor over another and drop that one as a replay. Each drop is reported, and still made.
         if !self.unseen(msg_id, body) {
+            self.events.emit(ClientEvent::PacketDropped { reason: REPLAYED });
             return Ok(());
         }
         let mut inner = Vec::new();
@@ -1117,6 +1119,8 @@ impl Runner {
                         if !inner.contains(&m.msg_id) && self.unseen(m.msg_id, m.body) {
                             inner.push(m.msg_id);
                             fresh.push(m);
+                        } else {
+                            self.events.emit(ClientEvent::PacketDropped { reason: REPLAYED });
                         }
                     }
                     for m in fresh {

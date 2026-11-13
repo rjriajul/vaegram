@@ -42,6 +42,17 @@ pub(super) fn channel_of(update: &base::Update) -> Option<i64> {
     }
 }
 
+/// The counter `update` moves, with its value before and after the update, or `None` when no counter numbers it;
+/// `channel` is [`channel_of`] the update, and whether it is numbered doesn't depend on it. A pts or qts of 0 numbers
+/// nothing: Telegram sends it on updates it doesn't order, which grammers (`NO_PTS`) and mtcute (`pts ? … : undefined`)
+/// apply in any order. Checked against a counter, it would always pass for one already seen.
+pub(super) fn counter_of(update: &base::Update, channel: Option<i64>) -> Option<(Key, i32, i32)> {
+    if let Some((pts, count)) = update.pts().filter(|&(pts, _)| pts != 0) {
+        return Some((channel.map_or(Key::Pts, Key::Channel), pts.wrapping_sub(count), pts));
+    }
+    update.qts().filter(|&qts| qts != 0).map(|qts| (Key::Qts, qts.wrapping_sub(1), qts))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Key {
     Pts,
@@ -134,6 +145,12 @@ impl Tracker {
 
     pub(super) fn update(&mut self, update: base::Update, entities: &Arc<Entities>, quiet: bool) {
         if let base::Update::UpdateChannelTooLong(u) = &update {
+            // https://core.telegram.org/constructor/updateChannelTooLong: a channel with no stored pts is fetched from
+            // the one given, as mtcute does. A stored one is kept, since fetching from it misses nothing; without
+            // either, `channel_difference` reports the channel's updates as skipped.
+            if let Some(pts) = u.pts.filter(|&pts| pts != 0) {
+                self.state.channels.entry(u.channel_id).or_insert(pts);
+            }
             return self.mark(Key::Channel(u.channel_id));
         }
         // https://core.telegram.org/constructor/updatePtsChanged: the pts were renumbered. Raw handlers still get it.
@@ -146,17 +163,11 @@ impl Tracker {
         if channel.is_none() && channel_message {
             return;
         }
-        let (key, before, after) = match (channel, update.pts(), update.qts()) {
-            (Some(id), Some((pts, count)), _) => (Key::Channel(id), pts.wrapping_sub(count), pts),
-            (Some(_), None, _) => return,
-            (None, Some((pts, count)), _) => (Key::Pts, pts.wrapping_sub(count), pts),
-            (None, None, Some(qts)) => (Key::Qts, qts.wrapping_sub(1), qts),
-            (None, None, None) => {
-                if !quiet {
-                    self.emit(update, entities);
-                }
-                return;
+        let Some((key, before, after)) = counter_of(&update, channel) else {
+            if !quiet {
+                self.emit(update, entities);
             }
+            return;
         };
         let item = if quiet { Item::Counter } else { Item::Update(update, entities.clone()) };
         self.offer(Pending { key, before, after, item });
@@ -195,7 +206,7 @@ impl Tracker {
             key => *self.counter(key),
         };
         match local.cmp(&p.before) {
-            Ordering::Greater => {}
+            Ordering::Greater => self.stale(p),
             Ordering::Equal => {
                 let key = p.key;
                 self.apply(p);
@@ -237,10 +248,31 @@ impl Tracker {
     pub(super) fn drain(&mut self, key: Key) {
         loop {
             let local = *self.counter(key);
-            self.pending.retain(|(_, p)| p.key != key || p.before >= local);
+            let passed = |p: &Pending| p.key == key && p.before < local;
+            if self.pending.iter().any(|(_, p)| passed(p)) {
+                let (mut stale, held): (Vec<_>, Vec<_>) =
+                    std::mem::take(&mut self.pending).into_iter().partition(|(_, p)| passed(p));
+                self.pending = held;
+                stale.sort_unstable_by_key(|(_, p)| p.before);
+                for (_, p) in stale {
+                    self.stale(p);
+                }
+            }
             let Some(i) = self.pending.iter().position(|(_, p)| p.key == key && p.before == local) else { return };
             let (_, p) = self.pending.swap_remove(i);
             self.apply(p);
+        }
+    }
+
+    /// An item its key says was applied already. Of a seq batch, only the updates that move no counter came with its
+    /// seq: the others are checked against their own counters, as the spec orders and tdlib does, since the seq can
+    /// move past a batch through a getDifference, which never returns channel updates. The rest is dropped.
+    fn stale(&mut self, p: Pending) {
+        let Item::Batch(updates, entities, _, quiet) = p.item else { return };
+        for update in updates {
+            if counter_of(&update, None).is_some() {
+                self.update(update, &entities, quiet);
+            }
         }
     }
 
@@ -358,6 +390,7 @@ impl Tracker {
         for (_, p) in settled {
             let local = *self.counter(p.key);
             if local >= p.after {
+                self.stale(p);
                 continue;
             }
             if let (Some(reason), Key::Pts | Key::Channel(_)) = (reason, p.key) {
@@ -557,8 +590,81 @@ mod tests {
         let s = &t.state;
         assert_eq!((s.seq, s.date, s.pts), (3, 5, 12));
         assert_eq!(delivered(&mut t), [11, 12]);
-        t.batch(vec![stopped(1)], e, (6, 3, 3), false);
+        // Seq 3 was applied: of the same batch again, the update its own counter has seen and the uncounted one go.
+        t.batch(vec![delete(12, 1), base::Update::UpdateConfig], e, (6, 3, 3), false);
         assert!(delivered(&mut t).is_empty());
+    }
+
+    #[test]
+    fn a_stale_seq_batch_still_applies_what_its_own_counters_have_not_seen() {
+        let (mut t, e) = (tracker(10, 0, 5), Arc::default());
+        t.state.channels.insert(5, 3);
+        t.state.channels.insert(6, 2);
+        // Seq 4 came through a getDifference, which never returns channel updates: channel 5's is new, channel 6's
+        // and the common box's were seen, and the uncounted one came with seq 4.
+        let updates = vec![channel(5, 4), channel(6, 2), delete(10, 1), base::Update::UpdateConfig];
+        t.batch(updates, e, (9, 4, 4), false);
+        let s = &t.state;
+        assert_eq!((s.seq, s.date, s.channels[&5], s.channels[&6], s.pts), (5, 0, 4, 2, 10));
+        assert_eq!((delivered(&mut t), t.pending.len()), (vec![4], 0));
+    }
+
+    #[test]
+    fn a_held_seq_batch_the_seq_passes_still_applies_its_counted_updates() {
+        // A later batch covers the held one's seq and carries its channel update too, which goes out once.
+        let (mut t, e) = (tracker(0, 0, 1), Arc::default());
+        t.batch(vec![channel(5, 1), base::Update::UpdateConfig], Arc::clone(&e), (1, 3, 3), false);
+        t.batch(vec![channel(5, 1), channel(5, 2), base::Update::UpdateConfig], Arc::clone(&e), (2, 2, 4), false);
+        assert_eq!((delivered(&mut t), t.state.seq, t.pending.len()), (vec![1, 2, 0], 4, 0));
+
+        // A getDifference moves seq past a held batch: its channel update is still new for the channel.
+        let (mut t, e) = (tracker(0, 0, 1), Arc::default());
+        t.batch(vec![channel(5, 1), base::Update::UpdateConfig], e, (1, 3, 3), false);
+        t.state.seq = 3;
+        t.settle(|key| !matches!(key, Key::Channel(_)), None);
+        assert_eq!((delivered(&mut t), t.state.channels[&5], t.pending.len()), (vec![1], 1, 0));
+    }
+
+    #[test]
+    fn updates_with_a_pts_or_qts_of_0_go_out_and_move_no_counter() {
+        let (mut t, e) = (tracker(10, 5, 0), Arc::default());
+        t.update(delete(0, 0), &e, false);
+        t.update(stopped(0), &e, false);
+        t.update(channel(5, 0), &e, false);
+        assert_eq!(delivered(&mut t), [0, 0, 0]);
+        let s = &t.state;
+        assert_eq!((s.pts, s.qts, s.channels.get(&5), t.pending.len()), (10, 5, None, 0));
+        // Quiet, one is neither delivered nor counted; the next numbered update follows on as before.
+        t.update(delete(0, 1), &e, true);
+        t.update(delete(11, 1), &e, false);
+        assert_eq!((delivered(&mut t), t.state.pts), (vec![11], 11));
+        t.update(stopped(6), &e, false);
+        assert_eq!((delivered(&mut t), t.state.qts), (vec![6], 6));
+
+        // A channel with a stored counter, the case the rule is for: against 20, pts 0 would pass for one seen.
+        t.state.channels.insert(5, 20);
+        t.update(channel(5, 0), &e, false);
+        assert_eq!((delivered(&mut t), t.state.channels[&5], t.pending.len()), (vec![0], 20, 0));
+        t.update(channel(5, 21), &e, false);
+        assert_eq!((delivered(&mut t), t.state.channels[&5]), (vec![21], 21));
+    }
+
+    #[test]
+    fn channel_too_long_starts_an_unknown_channel_at_the_pts_given() {
+        let (mut t, e) = (tracker(0, 0, 0), Arc::default());
+        let too_long = |channel_id, pts| {
+            base::Update::UpdateChannelTooLong(Box::new(types::UpdateChannelTooLong { channel_id, pts }))
+        };
+        t.state.channels.insert(6, 7);
+        t.update(too_long(5, Some(40)), &e, false);
+        t.update(too_long(6, Some(40)), &e, false);
+        t.update(too_long(8, None), &e, false);
+        t.update(too_long(9, Some(0)), &e, false);
+        // A stored pts is kept, since fetching from it misses nothing; with none at all there is nothing to store.
+        let stored: Vec<_> = [5_i64, 6, 8, 9].iter().map(|id| t.state.channels.get(id).copied()).collect();
+        assert_eq!(stored, [Some(40), Some(7), None, None]);
+        let due = [5, 6, 8, 9].map(Key::Channel).to_vec();
+        assert_eq!((t.due.clone(), delivered(&mut t)), (due, vec![]));
     }
 
     #[test]

@@ -20,11 +20,12 @@ pub enum ClientEvent {
         /// How many connection attempts it took, counting the one that worked; 1 means the first try.
         attempt: u32,
     },
-    /// A packet from Telegram was thrown away unread, and the connection carries on.
+    /// A packet from Telegram, or one message of a container, was thrown away unread, and the connection carries on.
     #[non_exhaustive]
     PacketDropped {
-        /// Why: `"failed decryption or the MTProto checks"`, `"bad msg_container"`,
-        /// `"msg_container holds a newer msg_id"` or `"bad gzip_packed"`.
+        /// Why: `"failed decryption or the MTProto checks"`, `"msg_id seen before, even or outside the time window"`
+        /// (the replay check; Telegram can also send a message again that was already taken in),
+        /// `"bad msg_container"`, `"msg_container holds a newer msg_id"` or `"bad gzip_packed"`.
         reason: &'static str,
     },
     /// An update Telegram pushed couldn't be deserialized and was skipped. An unknown constructor is reported as
@@ -105,7 +106,7 @@ pub enum ClientEvent {
         /// Bot-API style id of the channel (`-100…`), or `None` for the account's own message box (private chats
         /// and basic groups).
         chat_id: Option<i64>,
-        /// Start of the gap: the last pts the client had.
+        /// Start of the gap: the last pts the client had, or 0 when it had none ([`SkipReason::NoPts`]).
         from: i32,
         /// End of the gap: the pts the next delivered update builds on. Equal to `from` when it isn't known.
         to: i32,

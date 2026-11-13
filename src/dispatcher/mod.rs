@@ -803,6 +803,107 @@ mod tests {
         assert_eq!(format!("{:?}", got[1]), format!("{skipped:?}"));
     }
 
+    fn channel_too_long(pts: Option<i32>) -> base::Update {
+        base::Update::UpdateChannelTooLong(Box::new(types::UpdateChannelTooLong { channel_id: 9, pts }))
+    }
+
+    #[tokio::test]
+    async fn a_difference_at_startup_fetches_a_channel_it_names_from_the_pts_given() {
+        let difference = types::updates::Difference {
+            new_messages: Vec::new(),
+            new_encrypted_messages: Vec::new(),
+            other_updates: vec![channel_too_long(Some(5))],
+            chats: Vec::new(),
+            users: Vec::new(),
+            state: base::updates::State::State(Box::new(types::updates::State { pts: 2, ..state() })),
+        };
+        let difference = base::updates::Difference::Difference(Box::new(difference));
+        let page = types::updates::ChannelDifference {
+            r#final: true,
+            pts: 7,
+            timeout: None,
+            new_messages: vec![base::Message::Message(Box::new(Message::bare(42, get_peer(get_channel_id(9)), 0)))],
+            other_updates: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        let page = base::updates::ChannelDifference::ChannelDifference(Box::new(page));
+        let (client, mut sent) = Client::scripted(vec![Ok(difference.to_bytes()), Ok(page.to_bytes())]);
+        let channel = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(get_channel_id(9), base::InputPeer::InputPeerChannel(Box::new(channel)));
+        let seen = raw_updates(&client);
+        // The client has never stored a pts for channel 9.
+        let mut d = Dispatcher::new(client, &state());
+        deliver(&mut d, base::Updates::UpdatesTooLong).await;
+
+        assert!(sent.try_recv().is_ok(), "getDifference was not asked");
+        let channel = base::InputChannel::InputChannel(Box::new(types::InputChannel { channel_id: 9, access_hash: 1 }));
+        let filter = base::ChannelMessagesFilter::ChannelMessagesFilterEmpty;
+        use crate::raw::functions::updates::GetChannelDifference;
+        // The offline client is a bot, so it asks for the bot limit.
+        let from_5 = GetChannelDifference { force: false, channel, filter, pts: 5, limit: 100_000 };
+        assert_eq!(sent.try_recv().unwrap(), from_5.to_bytes());
+        assert_eq!((d.tracker.state.channels[&9], seen.lock().unwrap().len()), (7, 1));
+    }
+
+    #[tokio::test]
+    async fn a_channel_too_long_without_a_pts_for_an_unknown_channel_is_reported() {
+        let (client, mut sent) = Client::scripted(Vec::new());
+        let events = client.0.events.record();
+        let mut d = Dispatcher::new(client, &state());
+        let short = types::UpdateShort { update: channel_too_long(None), date: 0 };
+        deliver(&mut d, base::Updates::UpdateShort(Box::new(short))).await;
+
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        let chat_id = Some(get_channel_id(9));
+        let skipped = ClientEvent::UpdatesSkipped { chat_id, from: 0, to: 0, reason: SkipReason::NoPts };
+        assert_eq!(format!("{got:?}"), format!("{:?}", [skipped]));
+        assert!(sent.try_recv().is_err(), "a fetch with nowhere to start from was sent");
+        assert!(!d.tracker.state.channels.contains_key(&9));
+    }
+
+    #[tokio::test]
+    async fn the_from_now_window_lets_updates_without_a_pts_through() {
+        let client = Client::offline();
+        let seen = raw_updates(&client);
+        let mut d = Dispatcher::from_now(client, &state(), 10);
+        let delete = |pts| {
+            let update = types::UpdateDeleteMessages { messages: Vec::new(), pts, pts_count: 1 };
+            base::Update::UpdateDeleteMessages(Box::new(update))
+        };
+        // Neither is dated: one Telegram numbered may have been held from before the run, one it didn't can't be.
+        d.tracker.update(delete(2), &Arc::default(), false);
+        d.tracker.update(delete(0), &Arc::default(), false);
+        d.dispatch_ready();
+        settle().await;
+        let seen = seen.lock().unwrap();
+        let [update] = &seen[..] else { panic!("{seen:?}") };
+        assert!(matches!(&update.update, base::Update::UpdateDeleteMessages(u) if u.pts == 0), "{update:?}");
+        assert_eq!(d.tracker.state.pts, 2);
+    }
+
+    #[tokio::test]
+    async fn a_channel_difference_in_the_from_now_window_drops_messages_from_before_the_run() {
+        let message = |id, date| base::Message::Message(Box::new(Message::bare(id, get_peer(get_channel_id(9)), date)));
+        let page = types::updates::ChannelDifference {
+            r#final: true,
+            pts: 5,
+            timeout: None,
+            new_messages: vec![message(1, 5), message(2, 20)],
+            other_updates: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        let page = base::updates::ChannelDifference::ChannelDifference(Box::new(page));
+        let (mut d, _events) = in_channel(vec![Ok(page.to_bytes())], 1);
+        let seen = raw_updates(&d.client);
+        d.held_before = Some(10);
+        d.resolve().await;
+        d.dispatch_ready();
+        settle().await;
+        assert_eq!((d.recovered.0, seen.lock().unwrap().len(), d.tracker.state.channels[&9]), (1, 1, 5));
+    }
+
     #[tokio::test(start_paused = true)]
     async fn stop_ends_waiting_listeners_before_waiting_for_handlers() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];

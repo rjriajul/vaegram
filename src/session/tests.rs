@@ -544,6 +544,13 @@ fn container(ids: &[i64], body: &[u8]) -> Vec<u8> {
     buf
 }
 
+// Whether `got` is `n` drops by the replay check, and nothing else.
+fn replays(got: &[ClientEvent], n: usize) -> bool {
+    const REPLAYED: &str = "msg_id seen before, even or outside the time window";
+    let replay = |e: &ClientEvent| matches!(e, ClientEvent::PacketDropped { reason } if *reason == REPLAYED);
+    got.len() == n && got.iter().all(replay)
+}
+
 #[tokio::test]
 async fn a_container_with_an_inner_id_not_below_its_own_is_dropped() {
     let (mut r, _frames, _updates) = runner().await;
@@ -619,8 +626,31 @@ async fn a_container_with_an_even_or_stale_outer_id_delivers_nothing() {
         r.handle_packet(packet).await.unwrap();
     }
     assert!(r.acks.is_empty(), "a message under a bad container id was handled");
-    assert!(events.try_recv().is_err(), "a bad container id is dropped silently, as before");
+    let got: Vec<ClientEvent> = events.try_iter().collect();
+    assert!(replays(&got, 3), "each bad container id is reported: {got:?}");
     assert!(r.fresh(inner, &update), "a message under a bad container id was taken in");
+}
+
+#[tokio::test]
+async fn a_replayed_msg_id_is_reported_and_still_dropped() {
+    let (mut r, _frames, mut updates) = runner().await;
+    let events = r.events.record();
+    let now = internals::now();
+    let update = base::Updates::UpdatesTooLong.to_bytes();
+    let id = (now << 32) | 1;
+    for _ in 0..2 {
+        // Content-related (odd seq_no) like an update, so the first copy is owed an ack; `from_server` sends seq_no 0.
+        let packet = super::replay::seal(&r.auth_key, &r.auth_key_id, &r.session_id, id, 1, &update);
+        r.handle_packet(packet).await.unwrap();
+    }
+    // Inside a container too.
+    let packet = from_server(&r, (now << 32) | 9, &container(&[id], &update));
+    r.handle_packet(packet).await.unwrap();
+    assert!(matches!(updates.rx.try_recv(), Ok(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
+    assert!(updates.rx.try_recv().is_err(), "a replay was delivered");
+    assert_eq!(r.acks, vec![id], "the first copy is acknowledged once, a replay not again");
+    let got: Vec<ClientEvent> = events.try_iter().collect();
+    assert!(replays(&got, 2), "{got:?}");
 }
 
 #[tokio::test]

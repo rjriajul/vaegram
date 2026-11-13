@@ -9,4 +9,7 @@ pub enum SkipReason {
     Refused,
     /// Fetching them kept failing.
     GaveUp,
+    /// Telegram said a channel had updates (`updateChannelTooLong`) without saying where they start, and the client
+    /// keeps no pts for the channel, so there was nowhere to fetch them from. Reported with `from == to == 0`.
+    NoPts,
 }
