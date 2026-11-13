@@ -85,7 +85,7 @@ mod tests {
     use crate::dispatcher::Entities;
     use crate::raw::{Identifiable, base, types};
     use crate::types::messages_and_media::message::tests::service;
-    use crate::types::{InlineQueryResultArticle, Message};
+    use crate::types::{InlineQueryResultArticle, InputRichMessage, Message};
     use crate::utils::get_peer;
 
     /// `InputBotInlineResult`'s `title` flag.
@@ -112,15 +112,28 @@ mod tests {
         u32::from_le_bytes(result[4..8].try_into().unwrap())
     }
 
+    /// Where the result's `send_message` starts in a body whose result flags are all clear: after the flags, the
+    /// `id` string and the `type` string.
+    fn send_message_at(body: &[u8]) -> usize {
+        let mut at = 20;
+        for _ in 0..2 {
+            at += 1 + usize::from(body[at]);
+        }
+        at
+    }
+
     #[test]
     fn reference_messages_keep_only_normal_messages() {
         let client = Client::offline();
         let normal = base::Message::Message(Box::new(Message::bare(2, get_peer(7), 0)));
         let pinned = base::Message::MessageService(Box::new(service(base::MessageAction::MessageActionPinMessage)));
-        let raw = update(Some(vec![normal, pinned]));
+        let empty = base::Message::MessageEmpty(Box::new(types::MessageEmpty { id: 3, peer_id: None }));
+        let raw = update(Some(vec![normal, pinned, empty]));
         let guest = GuestMessage::parse(&client, raw, &Entities::default()).unwrap();
         assert_eq!(guest.reference_messages.len(), 1);
         assert_eq!(guest.reference_messages[0].id, 2);
+        let none = GuestMessage::parse(&client, update(None), &Entities::default()).unwrap();
+        assert!(none.reference_messages.is_empty(), "no reference messages is an empty vec");
     }
 
     #[tokio::test]
@@ -131,6 +144,20 @@ mod tests {
         let body = rx.try_recv().expect("no request sent");
         assert_eq!(flags(&body), 0, "nothing but the result's id and type is set");
         assert!(body.windows(7).any(|w| w == "article".as_bytes()), "the result isn't an article");
+    }
+
+    #[tokio::test]
+    async fn answer_rich_sends_a_rich_message_without_a_title() {
+        let (client, mut rx) = Client::recording();
+        let guest = parsed_guest(&client);
+        let _ = guest.answer_rich(InputRichMessage::html("<b>hi</b>")).await;
+        let body = rx.try_recv().expect("no request sent");
+        let result_flags = flags(&body);
+        assert_eq!(result_flags & TITLE, 0, "the article has no title");
+        assert_eq!(result_flags, 0, "nothing else is set, so the send message follows the type string");
+        let at = send_message_at(&body);
+        let send_message = u32::from_le_bytes(body[at..at + 4].try_into().unwrap());
+        assert_eq!(send_message, <types::InputBotInlineMessageRichMessage as Identifiable>::CONSTRUCTOR_ID);
     }
 
     #[tokio::test]
