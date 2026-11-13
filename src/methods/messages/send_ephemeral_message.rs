@@ -75,11 +75,16 @@ impl<'a> SendEphemeralMessage<'a> {
         self
     }
 
-    /// Shows the message in place of the message whose button was pressed, to the receiver only (Bot API
-    /// `EphemeralMessageParameters.replace_callback_query_message`). Sets the `anchor` flag of
-    /// `ephemeral.sendMessage`. The receiver's copy names the replaced message in
-    /// [`anchor_message_id`](EphemeralMessage::anchor_message_id); the copy this request returns to the sender has
-    /// `None` there.
+    /// Asks Telegram to show the message in place of the message whose button was pressed, to the receiver only (Bot
+    /// API `EphemeralMessageParameters.replace_callback_query_message`). Sets the `anchor` flag of
+    /// `ephemeral.sendMessage`. The receiver's copy names the pressed message in
+    /// [`anchor_message_id`](EphemeralMessage::anchor_message_id); the copy `ephemeral.sendMessage` returned to the
+    /// bot had `None` there when checked on 2026-11-13.
+    ///
+    /// Tried against Telegram on 2026-11-13 with plain text, a rich message and media (a document): each time the
+    /// receiver's copy named the pressed message. Together with a reply to another message Telegram refused it with
+    /// `REPLY_TO_INVALID`, though the same reply without this setter went through. Not tried: in a forum topic, on a
+    /// button of an ephemeral message, and with a receiver other than the user who pressed.
     ///
     /// The press is named by [`callback_query_id`](Self::callback_query_id), which
     /// [`CallbackQuery::answer_ephemeral`](crate::types::CallbackQuery::answer_ephemeral) sets. Without one, awaiting
@@ -320,7 +325,13 @@ mod tests {
     #[tokio::test]
     async fn replace_callback_query_message_needs_a_query() {
         let (client, mut sent) = Client::recording();
-        let refused = client.send_ephemeral_message("me", "me", "hi").replace_callback_query_message().await;
+        // Resolving a username takes a request, as the control shows, so a check that moved after the resolve would
+        // let one through.
+        let _ = client.send_ephemeral_message("@vaegram_nobody", "me", "hi").await;
+        assert!(sent.try_recv().is_ok(), "resolving the chat sends no request, so this test proves nothing");
+        while sent.try_recv().is_ok() {}
+        let send = client.send_ephemeral_message("@vaegram_nobody", "me", "hi");
+        let refused = send.replace_callback_query_message().await;
         assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
         assert!(sent.try_recv().is_err(), "a replace without a query must not send");
 

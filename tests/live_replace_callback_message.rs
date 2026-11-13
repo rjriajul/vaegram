@@ -1,16 +1,21 @@
 // Run with `cargo test --test live_replace_callback_message -- --ignored --test-threads=1 --nocapture`; see
-// tests/support/mod.rs for the env. These tests share session files, so run with `--test-threads=1`.
+// tests/support/mod.rs for the env. Like every live test, these use the kit's shared session files, so run them with
+// `--test-threads=1`.
 //
-// No human is needed: the kit's user presses the bot's button through the library.
+// No human is needed: the kit's user presses the bot's buttons through the library.
 
 #[allow(dead_code)]
 mod support;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc::{self, UnboundedReceiver};
-use vaegram::types::{EphemeralMessage, InlineKeyboardButton, InlineKeyboardMarkup, Message, Text};
+use vaegram::types::{
+    CallbackQuery, EphemeralMessage, InlineKeyboardButton, InlineKeyboardMarkup, InputMedia, InputRichMessage, Text,
+    Upload,
+};
 use vaegram::{Client, Error, filters};
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -34,6 +39,38 @@ async fn next<T>(rx: &mut UnboundedReceiver<T>, mut pick: impl FnMut(&T) -> bool
     found.await.ok()
 }
 
+/// Waits up to [`WAIT`] for the receiver's copy of the ephemeral message the bot's send returned as `id`: every live
+/// run so far gave both copies the same id. A copy that came before the send returned is still waiting in `seen`, so
+/// the order doesn't matter. `Err` holds what arrived instead.
+async fn receive(
+    seen: &mut UnboundedReceiver<EphemeralMessage>,
+    id: i32,
+) -> Result<EphemeralMessage, Vec<EphemeralMessage>> {
+    let mut others = Vec::new();
+    let found = tokio::time::timeout(WAIT, async {
+        loop {
+            match seen.recv().await {
+                Some(m) if m.id == id => return m,
+                Some(m) => others.push(m),
+                None => panic!("the handler feeding this channel is gone"),
+            }
+        }
+    })
+    .await;
+    found.map_err(|_| others)
+}
+
+/// Why the receiver's copy of `sent` wasn't found: a message with its `text` arrived under another id, or nothing
+/// of it arrived. `text` is `None` for a rich message, whose copy can only be found by id.
+fn missing(sent: &EphemeralMessage, text: Option<&str>, others: &[EphemeralMessage]) -> Outcome {
+    let arrived: Vec<String> = others.iter().map(fields).collect();
+    let details = format!("the bot's copy [{}]; arrived instead {arrived:?}", fields(sent));
+    match others.iter().find(|m| text.is_some_and(|text| m.text == text)) {
+        Some(m) => Outcome::IdsDiffer(format!("the user's copy has id {}, the bot's {}; {details}", m.id, sent.id)),
+        None => Outcome::Nothing(details),
+    }
+}
+
 /// The fields of an ephemeral message that say where it is shown.
 fn fields(m: &EphemeralMessage) -> String {
     format!(
@@ -42,66 +79,206 @@ fn fields(m: &EphemeralMessage) -> String {
     )
 }
 
-/// What the bot's callback handler did with one press: the button's data, the ephemeral answer it sent, and the
+/// What the bot sends in answer to a press. Every kind asks for the replace unless it says `replace: false`.
+#[derive(Clone)]
+enum How {
+    /// Plain text to the presser.
+    Plain { replace: bool },
+    /// Plain text to the presser, replying to the regular message `target`.
+    ReplyTo { target: i32, replace: bool },
+    /// A rich message to the presser.
+    Rich,
+    /// A document to the presser, with the answer's text as its caption.
+    Media,
+    /// Plain text to the presser, in this forum topic.
+    Thread(i32),
+    /// Plain text to this user, who didn't press.
+    To(i64),
+}
+
+/// Sends the ephemeral answer `how` asks for to `query`.
+async fn answer(query: &CallbackQuery, how: How) -> vaegram::Result<EphemeralMessage> {
+    let text = Text::new().plain(format!("ephemeral answer to {}", query.data).as_str());
+    let send = match how {
+        How::Plain { replace: false } => return query.answer_ephemeral(text)?.await,
+        How::Plain { replace: true } => query.answer_ephemeral(text)?,
+        How::ReplyTo { target, replace: false } => return query.answer_ephemeral(text)?.reply_to(target).await,
+        How::ReplyTo { target, replace: true } => query.answer_ephemeral(text)?.reply_to(target),
+        How::Rich => {
+            let rich = InputRichMessage::html(format!("<b>rich</b> ephemeral answer to {}", query.data));
+            query.answer_ephemeral(rich)?
+        }
+        How::Media => {
+            let file = InputMedia::document(Upload::bytes("vaegram.txt", b"vaegram live test")).caption(text);
+            query.answer_ephemeral("")?.media(file)
+        }
+        How::Thread(topic) => query.answer_ephemeral(text)?.message_thread_id(topic),
+        How::To(receiver) => {
+            let chat = query.chat().ok_or(Error::InvalidArgument("the press has no chat"))?.id;
+            query.client().send_ephemeral_message(chat, receiver, text).callback_query_id(query.id)
+        }
+    };
+    send.replace_callback_query_message().await
+}
+
+/// What the bot's handler did with one press: the button's data, the ephemeral answer it sent, and the
 /// `answer_callback_query` it made after that.
 type Answer = (String, vaegram::Result<EphemeralMessage>, vaegram::Result<()>);
 
-/// What the test leaves in the chat, so every path can remove it.
+/// What a test leaves behind: the bot's messages by chat, and its ephemeral answers by chat, receiver and id. The
+/// bot's handler records an answer as soon as its send returns, so one that comes after the test stopped waiting is
+/// removed too.
 #[derive(Default)]
 struct Made {
-    buttons: Vec<i32>,
-    ephemerals: Vec<i32>,
+    messages: Vec<(i64, i32)>,
+    ephemerals: Vec<(i64, i64, i32)>,
 }
 
-/// One press and its ephemeral answer: the pressed message's id, the bot's copy of the answer and the user's.
+/// Removes everything `made` holds and returns what couldn't be removed. A FLOOD_WAIT is only reported.
+async fn clean(made: &Mutex<Made>, bot: &Client) -> Vec<String> {
+    let made = std::mem::take(&mut *made.lock().unwrap());
+    let mut failed = Vec::new();
+    let mut note = |result: vaegram::Result<()>, what: String| match result {
+        Ok(()) => {}
+        Err(e) if e.flood_wait().is_some() => eprintln!("skipped the cleanup: {what} is flood-limited; do it by hand"),
+        Err(e) => failed.push(format!("{what}: {e:?}")),
+    };
+    for (chat_id, receiver, id) in made.ephemerals {
+        let what = format!("deleting ephemeral answer {id} in {chat_id}");
+        note(bot.delete_ephemeral_message(chat_id, receiver, id).await, what);
+    }
+    for (chat_id, id) in made.messages {
+        note(bot.delete_messages(chat_id, &[id]).await, format!("deleting message {id} in {chat_id}"));
+    }
+    failed
+}
+
+/// What every press needs: the two clients, what the bot sends for each button, what was made, and the bot's
+/// reports.
+struct Ctx {
+    user: Client,
+    bot: Client,
+    plan: Arc<Mutex<HashMap<String, How>>>,
+    made: Arc<Mutex<Made>>,
+    answers: UnboundedReceiver<Answer>,
+}
+
+/// How far a press got: the pressed message, the user's click, and what the bot's handler did.
+struct Pressed {
+    button: i32,
+    click: String,
+    sent: vaegram::Result<EphemeralMessage>,
+    answered: vaegram::Result<()>,
+}
+
+/// Why a press didn't get as far as the bot's answer.
+enum Stuck {
+    Telegram(&'static str, Error),
+    Missing(String),
+}
+
+impl Stuck {
+    fn describe(&self) -> String {
+        match self {
+            Stuck::Telegram(what, e) => format!("{what} failed: {e:?}"),
+            Stuck::Missing(what) => what.clone(),
+        }
+    }
+}
+
+impl Ctx {
+    /// Has the bot answer every press of a button whose data starts with `prefix` the way the plan says.
+    fn new(user: Client, bot: Client, prefix: &str) -> Ctx {
+        let plan: Arc<Mutex<HashMap<String, How>>> = Arc::default();
+        let made: Arc<Mutex<Made>> = Arc::default();
+        let (answer_tx, answers) = mpsc::unbounded_channel();
+        let (handler_plan, handler_made) = (plan.clone(), made.clone());
+        bot.on_callback_query(filters::data_prefix(prefix), move |query| {
+            let (answer_tx, plan, made) = (answer_tx.clone(), handler_plan.clone(), handler_made.clone());
+            async move {
+                let how = plan.lock().unwrap().get(&query.data).cloned();
+                let sent = match how {
+                    Some(how) => answer(&query, how).await,
+                    None => Err(Error::InvalidArgument("no answer is planned for this button")),
+                };
+                if let Ok(m) = &sent {
+                    made.lock().unwrap().ephemerals.push((m.chat.id, m.receiver_user.id, m.id));
+                }
+                let answered = query.answer().await;
+                let _ = answer_tx.send((query.data.clone(), sent, answered));
+                Ok(())
+            }
+        })
+        .group(1);
+        Ctx { user, bot, plan, made, answers }
+    }
+
+    /// Posts a button carrying `data` in `chat_id` (in `topic` when given), has the user press it, and waits for
+    /// what the bot's handler did, which `how` decides.
+    async fn press(&mut self, chat_id: i64, topic: Option<i32>, data: &str, how: How) -> Result<Pressed, Stuck> {
+        self.plan.lock().unwrap().insert(data.to_owned(), how);
+        let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Tap", data)]]);
+        let text = Text::new().plain(format!("vaegram live test: press {data}").as_str());
+        let send = self.bot.send_message(chat_id, text).reply_markup(keyboard);
+        let send = match topic {
+            Some(topic) => send.message_thread_id(topic),
+            None => send,
+        };
+        let button = send.await.map_err(|e| Stuck::Telegram("posting the button", e))?;
+        self.made.lock().unwrap().messages.push((chat_id, button.id));
+
+        // The user presses the button on its own copy of the message, the way a person's app does.
+        let found = self.user.get_messages(chat_id, &[button.id]).await;
+        let found = found.map_err(|e| Stuck::Telegram("the user reading the button's message", e))?;
+        let Some(pressed) = found.into_iter().next().flatten() else {
+            return Err(Stuck::Missing("the user can't read the button's message".into()));
+        };
+        let click = tokio::spawn(async move { tokio::time::timeout(WAIT, async { pressed.click("Tap").await }).await });
+
+        let answer = next(&mut self.answers, |(answered_data, _, _)| *answered_data == data).await;
+        let click = format!("{:?}", click.await);
+        let Some((_, sent, answered)) = answer else {
+            return Err(Stuck::Missing(format!("the bot got no press within {WAIT:?}; the user's click: {click}")));
+        };
+        Ok(Pressed { button: button.id, click, sent, answered })
+    }
+}
+
+/// One press and its plain ephemeral answer: the pressed message's id, the bot's copy of the answer and the user's.
 struct Tap {
     button: i32,
     sent: EphemeralMessage,
     seen: EphemeralMessage,
 }
 
-/// The two clients and the chat the test works in.
-struct Ends {
-    user: Client,
-    bot: Client,
-    chat_id: i64,
-}
-
-/// The bot posts a button carrying `data`, the user presses it, and the bot answers the press with an ephemeral
-/// message: with `replace_callback_query_message` when `data` ends in ":replace". `Err` is the bot's failed send.
+/// A press answered with plain text, with `replace_callback_query_message` when `data` ends in ":replace". `Err` is
+/// the bot's failed send, or a FLOOD_WAIT on posting the button.
 async fn tap(
-    ends: &Ends,
+    ctx: &mut Ctx,
+    chat_id: i64,
     data: String,
-    made: &Mutex<Made>,
-    answers: &mut UnboundedReceiver<Answer>,
     seen: &mut UnboundedReceiver<EphemeralMessage>,
 ) -> Result<Tap, Error> {
-    let Ends { user, bot, chat_id } = ends;
-    let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Tap", data.clone())]]);
-    let text = Text::new().plain(format!("vaegram live test: press {data}").as_str());
-    let button = bot.send_message(*chat_id, text).reply_markup(keyboard).await.unwrap();
-    made.lock().unwrap().buttons.push(button.id);
-
-    // The user presses the button on its own copy of the message, the way a person's app does.
-    let pressed = user.get_messages(*chat_id, &[button.id]).await.unwrap().into_iter().next().flatten();
-    let pressed: Message = pressed.expect("the user can't read the bot's message in VAEGRAM_CHAT_ID");
-    let click = tokio::spawn(async move { tokio::time::timeout(WAIT, async { pressed.click("Tap").await }).await });
-
-    let answer = next(answers, |(answered_data, _, _)| *answered_data == data).await;
-    let (_, sent, answered) = answer.unwrap_or_else(|| panic!("the bot got no press of {data} within {WAIT:?}"));
-    let click = click.await.unwrap();
-    eprintln!("{data}: the user's click returned {click:?}");
-    eprintln!("{data}: the bot's answer_callback_query after the ephemeral send returned {answered:?}");
-    let sent = sent?;
-    made.lock().unwrap().ephemerals.push(sent.id);
+    let how = How::Plain { replace: data.ends_with(":replace") };
+    let pressed = match ctx.press(chat_id, None, &data, how).await {
+        Ok(pressed) => pressed,
+        Err(Stuck::Telegram(_, e)) if e.flood_wait().is_some() => return Err(e),
+        Err(stuck) => panic!("{data}: {}", stuck.describe()),
+    };
+    eprintln!("{data}: the user's click returned {}", pressed.click);
+    eprintln!("{data}: the bot's answer_callback_query after the ephemeral send returned {:?}", pressed.answered);
+    let sent = pressed.sent?;
     eprintln!("{data}: the bot's copy of its ephemeral answer: {}", fields(&sent));
 
-    // Matched by text, which holds the press's nonce: whether both sides number an ephemeral message alike is not
-    // assumed.
-    let on_user = next(seen, |m| m.text == sent.text).await;
-    let on_user = on_user.unwrap_or_else(|| panic!("{data}: the user got no ephemeral answer within {WAIT:?}"));
+    // Found by the id the bot's send returned; the text, which holds the press's nonce, is checked on its own.
+    let text = format!("ephemeral answer to {data}");
+    let on_user = match receive(seen, sent.id).await {
+        Ok(on_user) => on_user,
+        Err(others) => panic!("{data}: {}", missing(&sent, Some(text.as_str()), &others).line()),
+    };
     eprintln!("{data}: the user's copy of the ephemeral answer: {}", fields(&on_user));
-    Ok(Tap { button: button.id, sent, seen: on_user })
+    assert_eq!(on_user.text, text, "{data}: the user's copy with the bot's id has other text");
+    Ok(Tap { button: pressed.button, sent, seen: on_user })
 }
 
 /// Says so and returns `true` when Telegram refused an ephemeral message for want of a right: 403, or a name that
@@ -116,23 +293,18 @@ fn refused_for_rights(error: &Error) -> bool {
     refused
 }
 
-async fn replace_steps(
-    ends: Ends,
-    prefix: String,
-    made: Arc<Mutex<Made>>,
-    mut answers: UnboundedReceiver<Answer>,
-    mut seen: UnboundedReceiver<EphemeralMessage>,
-) {
+async fn replace_steps(mut ctx: Ctx, chat_id: i64, prefix: String, mut seen: UnboundedReceiver<EphemeralMessage>) {
+    let flood = "posting the button or its ephemeral answer";
     // The control: the same press and answer without the setter. If Telegram refuses even this, the bot can't
     // answer presses with ephemeral messages in this chat and the replace can't be judged.
-    let control = match tap(&ends, format!("{prefix}:control"), &made, &mut answers, &mut seen).await {
+    let control = match tap(&mut ctx, chat_id, format!("{prefix}:control"), &mut seen).await {
         Ok(tap) => tap,
-        Err(e) if support::flood_limited(&e, "an ephemeral answer") || refused_for_rights(&e) => return,
+        Err(e) if support::flood_limited(&e, flood) || refused_for_rights(&e) => return,
         Err(e) => panic!("the ephemeral answer without replace_callback_query_message failed: {e:?}"),
     };
-    let replaced = match tap(&ends, format!("{prefix}:replace"), &made, &mut answers, &mut seen).await {
+    let replaced = match tap(&mut ctx, chat_id, format!("{prefix}:replace"), &mut seen).await {
         Ok(tap) => tap,
-        Err(e) if support::flood_limited(&e, "an ephemeral answer") => return,
+        Err(e) if support::flood_limited(&e, flood) => return,
         Err(e) => panic!("Telegram took the answer without replace_callback_query_message but refused it with: {e:?}"),
     };
 
@@ -149,6 +321,18 @@ async fn replace_steps(
     assert_eq!(replaced_seen, Some(replaced.button), "the answer sent with the anchor flag isn't on the pressed one");
 }
 
+/// The user's ephemeral messages, from a handler in group 1.
+fn ephemerals_of(client: &Client) -> UnboundedReceiver<EphemeralMessage> {
+    let (seen_tx, seen) = mpsc::unbounded_channel();
+    client
+        .on_ephemeral_message(filters::all(), move |m| {
+            let _ = seen_tx.send(m);
+            async { Ok(()) }
+        })
+        .group(1);
+    seen
+}
+
 #[tokio::test]
 #[ignore = "needs the kit bot and user in VAEGRAM_CHAT_ID, a supergroup"]
 async fn ephemeral_replaces_the_callback_message() {
@@ -158,45 +342,277 @@ async fn ephemeral_replaces_the_callback_message() {
     };
     let chat_id: i64 = chat_id.parse().unwrap();
     let Some(kit) = support::Kit::from_env().await else { return };
-    let (user, bot) = (kit.user.client.clone(), kit.bot.clone());
-    let user_id = user.get_me().await.unwrap().id;
     let prefix = format!("vaegram-replace-{}", nonce());
+    let ctx = Ctx::new(kit.user.client.clone(), kit.bot.clone(), &prefix);
+    let seen = ephemerals_of(&kit.user.client);
+    let (made, bot) = (ctx.made.clone(), ctx.bot.clone());
 
-    let (answer_tx, answers) = mpsc::unbounded_channel();
-    bot.on_callback_query(filters::data_prefix(&prefix), move |query| {
-        let answer_tx = answer_tx.clone();
-        async move {
-            let text = Text::new().plain(format!("ephemeral answer to {}", query.data).as_str());
-            let sent = match query.answer_ephemeral(text) {
-                Ok(send) if query.data.ends_with(":replace") => send.replace_callback_query_message().await,
-                Ok(send) => send.await,
-                Err(e) => Err(e),
-            };
-            let answered = query.answer().await;
-            let _ = answer_tx.send((query.data.clone(), sent, answered));
-            Ok(())
-        }
-    })
-    .group(1);
-    let (seen_tx, seen) = mpsc::unbounded_channel();
-    user.on_ephemeral_message(filters::all(), move |m| {
-        let _ = seen_tx.send(m);
-        async { Ok(()) }
-    })
-    .group(1);
+    let steps = tokio::spawn(replace_steps(ctx, chat_id, prefix, seen)).await;
 
-    let made = Arc::new(Mutex::new(Made::default()));
-    let ends = Ends { user: user.clone(), bot: bot.clone(), chat_id };
-    let steps = tokio::spawn(replace_steps(ends, prefix, made.clone(), answers, seen)).await;
-
-    let made = std::mem::take(&mut *made.lock().unwrap());
-    for id in made.ephemerals {
-        support::cleanup(bot.delete_ephemeral_message(chat_id, user_id, id).await, "deleting an ephemeral answer");
-    }
-    if !made.buttons.is_empty() {
-        support::cleanup(bot.delete_messages(chat_id, &made.buttons).await, "deleting the button messages");
-    }
+    let failed = clean(&made, &bot).await;
     if let Err(failed) = steps {
         std::panic::resume_unwind(failed.into_panic());
     }
+    assert!(failed.is_empty(), "the cleanup failed: {failed:?}");
+}
+
+/// What came of one press and its answer.
+enum Outcome {
+    /// An answer reached the receiver; `anchored` when its `anchor_message_id` is the pressed message.
+    Arrived { anchored: bool, details: String },
+    /// The bot's send failed with this error.
+    Refused(Error),
+    /// The send went through and nothing with its id, or its text, reached the receiver.
+    Nothing(String),
+    /// A message with the answer's text reached the receiver under another id than the bot's copy has.
+    IdsDiffer(String),
+    /// The receiver's copy with the bot's id has other text than the answer.
+    OtherText(String),
+    /// The press didn't get as far as the bot's answer.
+    Setup(Stuck),
+}
+
+impl Outcome {
+    /// The outcome in one line: `anchored`, `not anchored`, `refused: <error>`, `nothing arrived`, `ids differ`,
+    /// `other text` or `setup failed`.
+    fn line(&self) -> String {
+        match self {
+            Outcome::Arrived { anchored: true, details } => format!("anchored: {details}"),
+            Outcome::Arrived { anchored: false, details } => format!("not anchored: {details}"),
+            Outcome::Refused(e) => format!("refused: {e:?}"),
+            Outcome::Nothing(details) => format!("nothing arrived within {WAIT:?}: {details}"),
+            Outcome::IdsDiffer(details) => format!("ids differ: {details}"),
+            Outcome::OtherText(details) => format!("other text: {details}"),
+            Outcome::Setup(stuck) => format!("setup failed: {}", stuck.describe()),
+        }
+    }
+
+    fn flooded(&self) -> bool {
+        match self {
+            Outcome::Refused(e) | Outcome::Setup(Stuck::Telegram(_, e)) => e.flood_wait().is_some(),
+            _ => false,
+        }
+    }
+
+    fn anchored(&self) -> bool {
+        matches!(self, Outcome::Arrived { anchored: true, .. })
+    }
+
+    /// `true` when Telegram refused the send with an error of its own, whatever its name.
+    fn refused_by_telegram(&self) -> bool {
+        matches!(self, Outcome::Refused(e) if e.rpc().is_some())
+    }
+
+    fn refused_with(&self, name: &str) -> bool {
+        matches!(self, Outcome::Refused(e) if e.is(name))
+    }
+}
+
+/// Prints `outcome` under `name` and, unless Telegram flood-limited it, records it in `problems` when it isn't `ok`.
+/// A failed combination doesn't stop the others.
+fn judge(problems: &mut Vec<String>, name: &str, outcome: &Outcome, ok: bool) {
+    eprintln!("{name}: {}", outcome.line());
+    if outcome.flooded() {
+        eprintln!("{name}: not judged, flood-limited");
+    } else if !ok {
+        problems.push(format!("{name}: {}", outcome.line()));
+    }
+}
+
+/// Presses a button and answers it the way `how` says. `seen` brings the receiver's ephemeral messages.
+async fn outcome(
+    ctx: &mut Ctx,
+    chat_id: i64,
+    topic: Option<i32>,
+    data: &str,
+    how: How,
+    seen: &mut UnboundedReceiver<EphemeralMessage>,
+) -> Outcome {
+    while seen.try_recv().is_ok() {}
+    // A rich message's body isn't exposed by `EphemeralMessage` (it has no rich field, and `text` arrives empty), so
+    // a rich answer is found by id alone and its nonce can't be checked.
+    let text = match how {
+        How::Rich => None,
+        _ => Some(format!("ephemeral answer to {data}")),
+    };
+    let pressed = match ctx.press(chat_id, topic, data, how).await {
+        Ok(pressed) => pressed,
+        Err(stuck) => return Outcome::Setup(stuck),
+    };
+    let sent = match pressed.sent {
+        Ok(sent) => sent,
+        Err(e) => return Outcome::Refused(e),
+    };
+    let got = match receive(seen, sent.id).await {
+        Ok(got) => got,
+        Err(others) => return missing(&sent, text.as_deref(), &others),
+    };
+    if let Some(text) = text.filter(|text| got.text != *text) {
+        return Outcome::OtherText(format!("expected {text:?}; received [{}]", fields(&got)));
+    }
+    let details = format!(
+        "pressed {}; received [{}]; the bot's copy [{}]; click {}; answer_callback_query {:?}",
+        pressed.button,
+        fields(&got),
+        fields(&sent),
+        pressed.click,
+        pressed.answered
+    );
+    Outcome::Arrived { anchored: got.anchor_message_id == Some(pressed.button), details }
+}
+
+/// A second logged-in user, its id and its ephemeral messages. Its run stops when it drops.
+struct Second {
+    id: i64,
+    seen: UnboundedReceiver<EphemeralMessage>,
+    _disconnect: support::Disconnect,
+}
+
+/// Logs in `VAEGRAM_SECOND_USER_SESSION` and runs it. `Err` says why it can't be used.
+async fn second_user(session: String) -> Result<Second, String> {
+    let env = |k: &str| std::env::var(k).map_err(|_| format!("set {k}"));
+    let api_id: i32 = env("VAEGRAM_API_ID")?.parse().map_err(|e| format!("VAEGRAM_API_ID: {e}"))?;
+    let builder = Client::builder(session, api_id, env("VAEGRAM_API_HASH")?).catch_up(false);
+    let client = builder.connect().await.map_err(|e| format!("logging in the second user: {e:?}"))?;
+    let disconnect = support::Disconnect(vec![client.clone()]);
+    let seen = ephemerals_of(&client);
+    let (started_tx, mut started) = mpsc::unbounded_channel();
+    client.on_start(move |_| {
+        let _ = started_tx.send(());
+        async { Ok(()) }
+    });
+    let runner = client.clone();
+    tokio::spawn(async move { runner.run().await });
+    if tokio::time::timeout(WAIT, started.recv()).await.is_err() {
+        return Err("the second user's run didn't start".into());
+    }
+    let id = client.get_me().await.map_err(|e| format!("get_me for the second user: {e:?}"))?.id;
+    Ok(Second { id, seen, _disconnect: disconnect })
+}
+
+/// Runs every combination, prints one line for each, and returns what went wrong: a combination that didn't do what
+/// is known of it, or a cleanup that failed.
+async fn option_steps(
+    mut ctx: Ctx,
+    chat_id: i64,
+    prefix: String,
+    mut seen: UnboundedReceiver<EphemeralMessage>,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+
+    // (a) Telegram answered REPLY_TO_INVALID to reply_to with replace (2026-11-13). The control sends the same reply
+    // without replace, to tell whether the refusal is about the pair or about the reply.
+    let target = ctx.bot.send_message(chat_id, Text::new().plain("vaegram live test: the answer replies here")).await;
+    match target {
+        Ok(target) => {
+            ctx.made.lock().unwrap().messages.push((chat_id, target.id));
+            let (data, how) = (format!("{prefix}:reply"), How::ReplyTo { target: target.id, replace: false });
+            let control = outcome(&mut ctx, chat_id, None, &data, how, &mut seen).await;
+            eprintln!("(a) reply_to another regular message, without replace: {}", control.line());
+            let (data, how) = (format!("{prefix}:reply-replace"), How::ReplyTo { target: target.id, replace: true });
+            let replaced = outcome(&mut ctx, chat_id, None, &data, how, &mut seen).await;
+            let ok = replaced.refused_with("REPLY_TO_INVALID");
+            judge(&mut problems, "(a) replace + reply_to another regular message", &replaced, ok);
+            let reading = match &control {
+                Outcome::Refused(e) if e.is("REPLY_TO_INVALID") => "reply_to alone is refused the same way",
+                Outcome::Arrived { .. } => "reply_to alone works: Telegram refuses it only together with replace",
+                _ => "reply_to alone neither worked nor got REPLY_TO_INVALID",
+            };
+            eprintln!("(a) so: {reading}");
+        }
+        Err(e) => {
+            let posting = Outcome::Setup(Stuck::Telegram("posting the message to reply to", e));
+            judge(&mut problems, "(a) replace + reply_to another regular message", &posting, false);
+        }
+    }
+    problems.extend(clean(&ctx.made, &ctx.bot).await);
+
+    // Found by id alone: `EphemeralMessage` doesn't expose a rich body to check the nonce in (see `outcome`).
+    let rich = outcome(&mut ctx, chat_id, None, &format!("{prefix}:rich"), How::Rich, &mut seen).await;
+    judge(&mut problems, "(b) replace + a rich message", &rich, rich.anchored());
+    problems.extend(clean(&ctx.made, &ctx.bot).await);
+
+    // A photo needs real image bytes, which the tests don't carry; a document from memory takes the same media path.
+    let media = outcome(&mut ctx, chat_id, None, &format!("{prefix}:media"), How::Media, &mut seen).await;
+    judge(&mut problems, "(c) replace + media (a document from memory)", &media, media.anchored());
+    problems.extend(clean(&ctx.made, &ctx.bot).await);
+
+    // With the env set, (d) and (f) must come out anchored or refused by Telegram with a named error.
+    let thread = "(d) replace + message_thread_id";
+    match std::env::var("VAEGRAM_FORUM_CHAT_ID").map(|id| id.parse::<i64>()) {
+        Ok(Ok(forum)) => {
+            let result = match ctx.user.create_forum_topic(forum, "vaegram live test").await {
+                Ok(topic) => {
+                    let (data, how) = (format!("{prefix}:thread"), How::Thread(topic.id));
+                    let result = outcome(&mut ctx, forum, Some(topic.id), &data, how, &mut seen).await;
+                    problems.extend(clean(&ctx.made, &ctx.bot).await);
+                    if let Err(e) = ctx.user.delete_forum_topic(forum, topic.id).await {
+                        problems.push(format!("deleting topic {} in {forum}: {e:?}", topic.id));
+                    }
+                    result
+                }
+                Err(e) => Outcome::Setup(Stuck::Telegram("the user creating a topic in VAEGRAM_FORUM_CHAT_ID", e)),
+            };
+            let ok = result.anchored() || result.refused_by_telegram();
+            judge(&mut problems, thread, &result, ok);
+        }
+        Ok(Err(e)) => {
+            let result = Outcome::Setup(Stuck::Missing(format!("VAEGRAM_FORUM_CHAT_ID: {e}")));
+            judge(&mut problems, thread, &result, false);
+        }
+        Err(_) => eprintln!("{thread}: skipped: set VAEGRAM_FORUM_CHAT_ID (a forum supergroup)"),
+    }
+
+    eprintln!(
+        "(e) replace on a button of an ephemeral message: skipped: vaegram can't press one. Message::click takes a \
+         regular Message, and ephemeral.getCallbackAnswer has no method"
+    );
+
+    let other = "(f) replace + a receiver who didn't press";
+    match std::env::var("VAEGRAM_SECOND_USER_SESSION") {
+        Ok(session) => {
+            let result = match second_user(session).await {
+                Ok(mut second) => {
+                    // The bot learns the second user's access hash from the chat's member list.
+                    match ctx.bot.get_chat_member(chat_id, second.id).await {
+                        Ok(_) => {
+                            let data = format!("{prefix}:other");
+                            outcome(&mut ctx, chat_id, None, &data, How::To(second.id), &mut second.seen).await
+                        }
+                        Err(e) => Outcome::Setup(Stuck::Telegram("the bot looking up the second user in the chat", e)),
+                    }
+                }
+                Err(why) => Outcome::Setup(Stuck::Missing(why)),
+            };
+            let ok = result.anchored() || result.refused_by_telegram();
+            judge(&mut problems, other, &result, ok);
+            problems.extend(clean(&ctx.made, &ctx.bot).await);
+        }
+        Err(_) => eprintln!("{other}: skipped: set VAEGRAM_SECOND_USER_SESSION"),
+    }
+    problems
+}
+
+#[tokio::test]
+#[ignore = "needs the kit bot and user in VAEGRAM_CHAT_ID; checks what replace does next to other options"]
+async fn replace_with_other_options() {
+    let Ok(chat_id) = std::env::var("VAEGRAM_CHAT_ID") else {
+        eprintln!("skipped: set VAEGRAM_CHAT_ID (a supergroup with the kit bot and user)");
+        return;
+    };
+    let chat_id: i64 = chat_id.parse().unwrap();
+    let Some(kit) = support::Kit::from_env().await else { return };
+    let prefix = format!("vaegram-options-{}", nonce());
+    let ctx = Ctx::new(kit.user.client.clone(), kit.bot.clone(), &prefix);
+    let seen = ephemerals_of(&kit.user.client);
+    let (made, bot) = (ctx.made.clone(), ctx.bot.clone());
+
+    let steps = tokio::spawn(option_steps(ctx, chat_id, prefix, seen)).await;
+
+    let mut problems = clean(&made, &bot).await;
+    match steps {
+        Ok(found) => problems.extend(found),
+        Err(panicked) => std::panic::resume_unwind(panicked.into_panic()),
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
 }

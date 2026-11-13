@@ -27,11 +27,13 @@ pub struct EphemeralMessage {
     pub outgoing: bool,
     /// `true` if the message is the template a bot sends as the welcome message of its private chats.
     pub is_welcome_template: bool,
-    /// Id of the regular message this one is shown in place of, in the receiver's copy of a message sent with
-    /// [`replace_callback_query_message`](SendEphemeralMessage::replace_callback_query_message). The sender's copy
-    /// has `None`.
+    /// Telegram's `anchor_msg_id`. The receiver's copy of a message sent with
+    /// [`replace_callback_query_message`](SendEphemeralMessage::replace_callback_query_message) names the pressed
+    /// message here; the copy `ephemeral.sendMessage` returned to the bot had `None` when checked on 2026-11-13.
     pub anchor_message_id: Option<i32>,
-    /// Id of the thread or forum topic the message is in. `None` outside threads.
+    /// Telegram's `top_msg_id`: the thread or forum topic the message is in, `None` when Telegram names none. In an
+    /// answer to a button press it was the pressed message's id (checked on 2026-11-13, in a supergroup without
+    /// topics, with no reply asked for), so it is not safe to pass back as a topic.
     pub message_thread_id: Option<i32>,
     /// Formatting of the text. `None` if it has none.
     pub entities: Option<Vec<MessageEntity>>,
