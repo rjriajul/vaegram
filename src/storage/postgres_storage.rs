@@ -433,9 +433,19 @@ fn raced(e: &tokio_postgres::Error) -> bool {
     matches!(e.code(), Some(code) if *code == SqlState::UNIQUE_VIOLATION || *code == SqlState::DUPLICATE_TABLE)
 }
 
+/// The server's own message is added, since the driver's says only "db error". A statement the server stopped for
+/// its `statement_timeout` or `lock_timeout`, or for our cancel request, is a timeout like the client-side one.
 fn io_error(e: tokio_postgres::Error) -> io::Error {
-    let kind = if e.is_closed() { io::ErrorKind::ConnectionAborted } else { io::ErrorKind::Other };
-    io::Error::new(kind, format!("postgres: {e}"))
+    let timeouts = [SqlState::QUERY_CANCELED, SqlState::LOCK_NOT_AVAILABLE];
+    let kind = match e.code() {
+        Some(code) if timeouts.contains(code) => io::ErrorKind::TimedOut,
+        _ if e.is_closed() => io::ErrorKind::ConnectionAborted,
+        _ => io::ErrorKind::Other,
+    };
+    match e.as_db_error() {
+        Some(db) => io::Error::new(kind, format!("postgres: {}: {}", db.code().code(), db.message())),
+        None => io::Error::new(kind, format!("postgres: {e}")),
+    }
 }
 
 /// A column of `row`, with a type the table doesn't have reported instead of panicking.
@@ -994,10 +1004,7 @@ mod tests {
                 "attempt {attempt} took {:?}, not about the {limit:?} limit",
                 started.elapsed()
             );
-            assert!(
-                error.kind() == std::io::ErrorKind::TimedOut || error.to_string().contains("timeout"),
-                "attempt {attempt}: {error}"
-            );
+            assert_eq!(error.kind(), std::io::ErrorKind::TimedOut, "attempt {attempt}: {error}");
             // The connection that ran out of time is not parked on the server: the next save opens a new one, and
             // the old backend is gone (or going), not stuck until the statement it was running answers.
             let left: i64 = locker
