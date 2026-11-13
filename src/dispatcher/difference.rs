@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use super::Dispatcher;
 use super::entities::Entities;
-use super::tracker::{Key, channel_of};
+use super::tracker::{Key, channel_of, counter_of};
 use crate::enums::SkipReason;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
@@ -36,10 +36,16 @@ fn edit_date(message: &base::Message) -> Option<i32> {
 }
 
 /// Whether `update`, released before `run` has read what Telegram held, may be one of those: Telegram holds what
-/// moves a counter, and it isn't dated `since` or later. Others, such as callback queries, are never held.
+/// moves a counter, and it isn't dated `since` or later. Others, such as callback queries and updates with a pts or
+/// qts of 0, which [`counter_of`] takes for unnumbered, are never held. Messages a channel difference brings are
+/// numbered by it, not by their own pts, so `channel_difference` filters them itself.
 pub(super) fn held(update: &base::Update, since: i32) -> bool {
-    let counted = update.pts().is_some() || update.qts().is_some() || channel_of(update).is_some();
-    counted && !update_date(update).is_some_and(|date| date >= since)
+    counter_of(update, None).is_some() && !since_run(Some(since), update_date(update))
+}
+
+/// Whether what is dated `date` may reach the handlers while `run` drops what came before `held_before`.
+fn since_run(held_before: Option<i32>, date: Option<i32>) -> bool {
+    held_before.is_none_or(|since| date.is_some_and(|date| date >= since))
 }
 
 /// When Telegram got `update`, for the updates that say. A business connection and a boost give when they were
@@ -112,12 +118,11 @@ impl Dispatcher {
             };
             let entities = Arc::new(Entities::new(&self.client, users, chats));
             let held_before = self.held_before;
-            let since_run = |date: Option<i32>| held_before.is_none_or(|since| date.is_some_and(|date| date >= since));
-            for message in messages.into_iter().filter(|m| since_run(message_date(m))) {
+            for message in messages.into_iter().filter(|m| since_run(held_before, message_date(m))) {
                 t.emit(new_message(message), &entities);
                 self.recovered.0 += 1;
             }
-            for update in others.into_iter().filter(|u| since_run(update_date(u))) {
+            for update in others.into_iter().filter(|u| since_run(held_before, update_date(u))) {
                 self.recovered.1 += 1;
                 if matches!(update, base::Update::UpdateChannelTooLong(_)) || channel_of(&update).is_some() {
                     t.update(update, &entities, false);
@@ -142,11 +147,18 @@ impl Dispatcher {
     }
 
     pub(super) async fn channel_difference(&mut self, channel_id: i64) -> Result<()> {
-        let Some(&local) = self.tracker.state.channels.get(&channel_id) else { return Ok(()) };
+        let Some(&local) = self.tracker.state.channels.get(&channel_id) else {
+            // An updateChannelTooLong without a pts for a channel the client keeps none for: nowhere to start from.
+            self.skipped(Key::Channel(channel_id), 0, 0, SkipReason::NoPts);
+            return Ok(());
+        };
         let mut pts = local;
         let channel = self.client.resolve_channel(&get_channel_id(channel_id).into()).await?;
         let bot = self.client.0.me.lock().unwrap().is_bot;
         let limit = if bot { BOT_CHANNEL_DIFFERENCE_LIMIT } else { CHANNEL_DIFFERENCE_LIMIT };
+        // Until `run` has read what Telegram held, the messages from before it are dropped, as `difference` does.
+        let held_before = self.held_before;
+        let keep = move |m: &base::Message| since_run(held_before, message_date(m));
         loop {
             self.dispatch_ready();
             let request = functions::updates::GetChannelDifference {
@@ -164,7 +176,7 @@ impl Dispatcher {
                 base::updates::ChannelDifference::ChannelDifferenceTooLong(d) => {
                     let d = *d;
                     let entities = Arc::new(Entities::new(&self.client, d.users, d.chats));
-                    for message in d.messages {
+                    for message in d.messages.into_iter().filter(keep) {
                         self.tracker.emit(new_channel_message(message), &entities);
                         self.recovered.0 += 1;
                     }
@@ -180,7 +192,7 @@ impl Dispatcher {
                 base::updates::ChannelDifference::ChannelDifference(d) => {
                     let d = *d;
                     let entities = Arc::new(Entities::new(&self.client, d.users, d.chats));
-                    for message in d.new_messages {
+                    for message in d.new_messages.into_iter().filter(keep) {
                         self.tracker.emit(new_channel_message(message), &entities);
                         self.recovered.0 += 1;
                     }
