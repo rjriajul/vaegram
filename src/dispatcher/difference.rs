@@ -122,7 +122,12 @@ impl Dispatcher {
                 t.emit(new_message(message), &entities);
                 self.recovered.0 += 1;
             }
-            for update in others.into_iter().filter(|u| since_run(held_before, update_date(u))) {
+            // updateChannelTooLong carries no date, but it names a channel whose updates Telegram left out: it goes
+            // to the tracker, which fetches the channel, and that fetch drops what is dated before the run.
+            let keep = |u: &base::Update| {
+                matches!(u, base::Update::UpdateChannelTooLong(_)) || since_run(held_before, update_date(u))
+            };
+            for update in others.into_iter().filter(keep) {
                 self.recovered.1 += 1;
                 if matches!(update, base::Update::UpdateChannelTooLong(_)) || channel_of(&update).is_some() {
                     t.update(update, &entities, false);
@@ -156,9 +161,10 @@ impl Dispatcher {
         let channel = self.client.resolve_channel(&get_channel_id(channel_id).into()).await?;
         let bot = self.client.0.me.lock().unwrap().is_bot;
         let limit = if bot { BOT_CHANNEL_DIFFERENCE_LIMIT } else { CHANNEL_DIFFERENCE_LIMIT };
-        // Until `run` has read what Telegram held, the messages from before it are dropped, as `difference` does.
-        let held_before = self.held_before;
-        let keep = move |m: &base::Message| since_run(held_before, message_date(m));
+        // Without catch-up, the messages from before the run are dropped, as `difference` does. The channels its
+        // first difference names are fetched after that window closes, so this goes by when the run began.
+        let began = self.began;
+        let keep = move |m: &base::Message| since_run(began, message_date(m));
         loop {
             self.dispatch_ready();
             let request = functions::updates::GetChannelDifference {

@@ -184,9 +184,9 @@ fn describe(event: &ClientEvent) -> String {
     }
 }
 
-// getDifference replays only what moved pts or qts.
+// getDifference replays only what moved pts or qts; one numbered 0 moved neither (`dispatcher::tracker::counter_of`).
 fn unrecoverable(updates: &base::Updates) -> bool {
-    let lost = |u: &base::Update| u.pts().is_none() && u.qts().is_none();
+    let lost = |u: &base::Update| u.pts().is_none_or(|(pts, _)| pts == 0) && u.qts().is_none_or(|qts| qts == 0);
     match updates {
         base::Updates::UpdateShort(u) => lost(&u.update),
         base::Updates::Updates(u) => u.updates.iter().any(lost),

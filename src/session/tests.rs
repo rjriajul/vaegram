@@ -1403,8 +1403,8 @@ async fn leased_connections_start_with_the_salt_the_slot_learned() {
     assert_eq!(first_salt(&listener, live.auth_key()).await, 78);
 }
 
-#[tokio::test]
-async fn dropped_updates_without_pts_are_counted_as_lost() {
+/// The counts of the `UpdatesDropped` reported when `update` comes to a full queue.
+async fn dropped_with(update: base::Update) -> (u32, u32) {
     let (mut r, _frames, mut updates) = runner().await;
     let events = r.events.record();
     let empty = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 0, seq: 0 };
@@ -1412,6 +1412,17 @@ async fn dropped_updates_without_pts_are_counted_as_lost() {
     for id in 0..capacity {
         r.handle_message(id, 0, &base::Updates::Updates(Box::new(empty.clone())).to_bytes());
     }
+    let update = types::UpdateShort { update, date: 0 };
+    r.handle_message(capacity, 0, &base::Updates::UpdateShort(Box::new(update)).to_bytes());
+    assert!(matches!(updates.recv().await.unwrap().updates, base::Updates::UpdatesTooLong));
+    match events.try_recv() {
+        Ok(ClientEvent::UpdatesDropped { count, unrecoverable }) => (count, unrecoverable),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn dropped_updates_without_pts_are_counted_as_lost() {
     let query = types::UpdateBotCallbackQuery {
         query_id: 1,
         user_id: 7,
@@ -1421,10 +1432,19 @@ async fn dropped_updates_without_pts_are_counted_as_lost() {
         data: None,
         game_short_name: None,
     };
-    let update = types::UpdateShort { update: base::Update::UpdateBotCallbackQuery(Box::new(query)), date: 0 };
-    r.handle_message(capacity, 0, &base::Updates::UpdateShort(Box::new(update)).to_bytes());
-    assert!(matches!(updates.recv().await.unwrap().updates, base::Updates::UpdatesTooLong));
-    assert!(matches!(events.try_recv(), Ok(ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 })));
+    assert_eq!(dropped_with(base::Update::UpdateBotCallbackQuery(Box::new(query))).await, (1, 1));
+}
+
+// getDifference brings back what moved pts, so a dropped deletion numbered 5 is not lost; one numbered 0 moved
+// nothing and is.
+#[tokio::test]
+async fn dropped_updates_with_a_pts_of_0_are_counted_as_lost() {
+    let deleted = |pts| {
+        let update = types::UpdateDeleteMessages { messages: vec![1], pts, pts_count: 1 };
+        base::Update::UpdateDeleteMessages(Box::new(update))
+    };
+    assert_eq!(dropped_with(deleted(5)).await, (1, 0));
+    assert_eq!(dropped_with(deleted(0)).await, (1, 1));
 }
 
 type Contexts = Arc<Mutex<Vec<(i32, u32, u16, Option<u64>)>>>;
