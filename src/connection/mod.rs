@@ -43,6 +43,8 @@ use obfuscated::Ctr;
 use proxy::Target;
 
 const READ_CHUNK: usize = 64 << 10;
+// A write that moves no byte for this long goes to a peer that's gone, which TCP alone retries for many minutes.
+const WRITE_STALL: Duration = Duration::from_secs(20);
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 // A web proxy's setup is several HTTPS requests and a long poll for WELCOME, each with its own deadline; this only
@@ -416,8 +418,17 @@ impl Connection {
                 framing,
                 decrypt,
                 buf: RecvBuf::default(),
+                last_byte: tokio::time::Instant::now(),
             },
-            writer: Writer { room: write.room(), half: write, framing, encrypt, records, buf: Vec::new() },
+            writer: Writer {
+                room: write.room(),
+                half: write,
+                framing,
+                encrypt,
+                records,
+                buf: Vec::new(),
+                last_write: tokio::time::Instant::now(),
+            },
         })
     }
 
@@ -454,6 +465,7 @@ pub(crate) struct Reader {
     framing: Framing,
     decrypt: Option<Ctr>,
     buf: RecvBuf,
+    last_byte: tokio::time::Instant,
 }
 
 impl Reader {
@@ -469,10 +481,16 @@ impl Reader {
             if self.wire.read_buf(buf).await? == 0 {
                 return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
             }
+            self.last_byte = tokio::time::Instant::now();
             if let Some(decrypt) = &mut self.decrypt {
                 decrypt.apply(&mut buf[start..]);
             }
         }
+    }
+
+    /// When bytes last came in, whole packet or not: a big one takes a while on a slow link.
+    pub(crate) fn last_byte(&self) -> tokio::time::Instant {
+        self.last_byte
     }
 }
 
@@ -565,6 +583,7 @@ pub(crate) struct Writer {
     encrypt: Option<Ctr>,
     records: Option<RecordWriter>,
     pub(crate) buf: Vec<u8>,
+    last_write: tokio::time::Instant,
 }
 
 impl Writer {
@@ -581,16 +600,31 @@ impl Writer {
         #[cfg(feature = "websocket")]
         if let WriteHalf::WebSocket(half) = &mut self.half {
             half.send_in_place(&mut self.buf, start).await?;
+            self.last_write = tokio::time::Instant::now();
             return Ok(());
         }
-        let wire = match &mut self.records {
+        let mut wire = match &mut self.records {
             Some(records) => records.wrap(&self.buf[start..]),
             None => &self.buf[start..],
         };
-        self.half.write_all(wire).await?;
+        // A slow link still takes some bytes each round trip; one that takes none for WRITE_STALL is dead.
+        while !wire.is_empty() {
+            match tokio::time::timeout(WRITE_STALL, self.half.write(wire)).await {
+                Ok(Ok(0)) => return Err(io::Error::from(io::ErrorKind::WriteZero).into()),
+                Ok(Ok(n)) => wire = &wire[n..],
+                Ok(Err(e)) => return Err(e.into()),
+                Err(_) => return Err(io::Error::new(io::ErrorKind::TimedOut, "the peer stopped taking bytes").into()),
+            }
+        }
         // A boxed stream may buffer (TLS does); TCP's flush is a no-op.
         self.half.flush().await?;
+        self.last_write = tokio::time::Instant::now();
         Ok(())
+    }
+
+    /// When the last packet was handed to the network in full; the server can't answer one before that.
+    pub(crate) fn last_write(&self) -> tokio::time::Instant {
+        self.last_write
     }
 
     pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<()> {
@@ -668,6 +702,29 @@ mod tests {
             let refused = Connection::connect(&dc, &options).await;
             assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{options:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_write_the_peer_stops_taking_fails_after_the_stall() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let dc = Dc { id: 2, addr: listener.local_addr().unwrap(), test: false, media: false };
+        let options = Options::new().transport(Transport::Intermediate);
+        let mut connection = Connection::connect(&dc, &options).await.unwrap();
+        // Accepted and never read, like a peer that vanished: once the socket buffers fill, no byte moves.
+        let _server = listener.accept().await.unwrap();
+        // Paused only after connecting: a paused clock would jump past the connect timeout.
+        tokio::time::pause();
+        let (part, start) = (vec![0; 1 << 20], tokio::time::Instant::now());
+        let stalled = tokio::time::timeout(WRITE_STALL * 4, async {
+            loop {
+                if let Err(e) = connection.send(&part).await {
+                    return e;
+                }
+            }
+        });
+        let e = stalled.await.expect("a write hung past the stall bound");
+        assert!(matches!(&e, Error::Io(err) if err.kind() == io::ErrorKind::TimedOut), "{e}");
+        assert!(start.elapsed() >= WRITE_STALL);
     }
 
     #[tokio::test]

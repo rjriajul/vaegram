@@ -496,7 +496,8 @@ impl Session {
     }
 
     /// What the retry policy says about a failed request: `Continue(wait)` to sleep `wait` and send it again. A
-    /// FLOOD_WAIT reaches the policy shortened to `cap` and at least a second.
+    /// FLOOD_WAIT reaches the policy shortened to `cap` and at least a second; `file_part` says the request is a part
+    /// of an upload or download.
     pub(crate) fn should_retry(
         &self,
         request: &'static str,
@@ -504,10 +505,11 @@ impl Session {
         fail_count: u32,
         slept_so_far: Duration,
         cap: Option<Duration>,
+        file_part: bool,
     ) -> ControlFlow<(), Duration> {
         let flood_wait = error.flood_wait().map(|wait| wait.max(Duration::from_secs(1)));
         let flood_wait = flood_wait.map(|wait| cap.map_or(wait, |cap| wait.min(cap)));
-        let ctx = RetryContext { request, error, fail_count, slept_so_far, flood_wait };
+        let ctx = RetryContext { request, error, fail_count, slept_so_far, flood_wait, file_part };
         self.options.retry.0.should_retry(&ctx)
     }
 
@@ -906,18 +908,21 @@ impl Runner {
     }
 
     async fn tick(&mut self) -> Result<()> {
-        // Transfer connections rely on their per-part timeout: a slow part keeps the server silent.
-        if self.updates.is_some() {
-            // A bind holds back the API requests queued behind it, so they wait on the server as much as sent ones.
-            let waiting = !self.pending.is_empty() || (self.unbound() && !self.queue.is_empty());
-            let silent = self.last_read.elapsed();
-            if silent > DEAD_AFTER || (waiting && silent > PROBE_DEAD_AFTER) {
-                return Err(Error::Disconnected);
-            }
-            if waiting && silent > PROBE_AFTER && !self.probed {
-                self.probed = true;
-                self.queue_ping();
-            }
+        // A bind holds back the API requests queued behind it, so they wait on the server as much as sent ones.
+        let waiting = !self.pending.is_empty() || (self.unbound() && !self.queue.is_empty());
+        let silent = match self.updates {
+            Some(_) => self.last_read.elapsed(),
+            // A part takes a while to arrive on a slow link, or to go out, and the server answers a sent one only;
+            // so a transfer connection counts any byte read and the end of each write, and isn't watched idle.
+            None if waiting => self.last_read.max(self.reader.last_byte()).max(self.writer.last_write()).elapsed(),
+            None => Duration::ZERO,
+        };
+        if silent > DEAD_AFTER || (waiting && silent > PROBE_DEAD_AFTER) {
+            return Err(Error::Disconnected);
+        }
+        if waiting && silent > PROBE_AFTER && !self.probed {
+            self.probed = true;
+            self.queue_ping();
         }
         self.drop_abandoned();
         if self.service.is_empty() && !self.bind_due() { Ok(()) } else { self.flush().await }

@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use super::{
@@ -118,6 +118,32 @@ async fn splits_at_the_message_and_size_caps() {
     let (_, _, body) = recv(&mut frames, &r).await;
     assert_eq!(body, big);
     assert_eq!(r.pending.len(), MAX_CONTAINER_MSGS + 4);
+}
+
+#[tokio::test]
+async fn keeps_each_get_file_in_a_container_of_its_own() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let location =
+        types::InputDocumentFileLocation { id: 1, access_hash: 2, file_reference: vec![3], thumb_size: String::new() };
+    let location = base::InputFileLocation::InputDocumentFileLocation(Box::new(location));
+    let get_file = |offset| functions::upload::GetFile {
+        precise: false,
+        cdn_supported: false,
+        location: location.clone(),
+        offset,
+        limit: 512 << 10,
+    };
+    let in_takeout = functions::InvokeWithTakeout { takeout_id: 9, query: get_file(1 << 19) }.to_bytes();
+    let (first, last) = (get_file(0).to_bytes(), get_file(2 << 19).to_bytes());
+    let bodies = [first.clone(), in_takeout.clone(), ping(1), last.clone()];
+    let _rx: Vec<_> = bodies.into_iter().map(|body| request(&mut r, body)).collect();
+    r.flush().await.unwrap();
+
+    assert_eq!(recv(&mut frames, &r).await.2, first);
+    let (_, _, body) = recv(&mut frames, &r).await;
+    let packed: Vec<_> = msg_container::parse(&body).unwrap().into_iter().map(|m| m.body.to_vec()).collect();
+    assert_eq!(packed, [in_takeout, ping(1)], "another request may share a getFile's container");
+    assert_eq!(recv(&mut frames, &r).await.2, last);
 }
 
 #[tokio::test]
@@ -309,17 +335,68 @@ async fn idle_silence_is_not_probed() {
     assert_eq!(recv(&mut frames, &r).await.2, ping(1));
 }
 
+/// A transfer connection's runner, with the server's end of it to write to.
+async fn transfer_runner() -> (Runner, tokio::net::TcpStream) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let options = Options::new().transport(crate::connection::Transport::Intermediate);
+    let dc = Dc { id: 2, addr: listener.local_addr().unwrap(), test: false, media: false };
+    let conn = Connection::connect(&dc, &options).await.unwrap();
+    let (server, _) = listener.accept().await.unwrap();
+    let runner = Runner::new(dc, Arc::new(options), conn, ([7; 256], Salt::default(), true), Arc::default(), None);
+    (runner, server)
+}
+
 #[tokio::test]
-async fn transfer_connections_wait_out_slow_parts() {
-    let (mut r, mut frames, _updates) = runner().await;
-    r.updates = None;
+async fn a_silent_transfer_connection_with_a_part_waiting_is_declared_dead() {
+    let (mut r, _server) = transfer_runner().await;
     let _rx = request(&mut r, ping(1));
     r.flush().await.unwrap();
-    let _ = recv(&mut frames, &r).await;
+    tokio::time::pause();
+    tokio::time::advance(PROBE_AFTER + Duration::from_secs(1)).await;
+    r.tick().await.unwrap();
+    assert!(r.probed);
+    // The probe went out just now, and the server would have answered it by this.
+    tokio::time::advance(PROBE_DEAD_AFTER + Duration::from_secs(1)).await;
+    assert!(matches!(r.tick().await, Err(Error::Disconnected)));
+}
+
+#[tokio::test]
+async fn a_transfer_connection_still_reading_a_big_part_is_alive() {
+    let (mut r, mut server) = transfer_runner().await;
+    let _rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    tokio::time::pause();
+    tokio::time::advance(PROBE_DEAD_AFTER).await;
+    // The start of a 1 MiB packet, the rest still on its way.
+    server.write_all(&(1u32 << 20).to_le_bytes()).await.unwrap();
+    server.write_all(&[0; 1024]).await.unwrap();
+    assert!(tokio::time::timeout(Duration::from_millis(1), r.reader.recv()).await.is_err());
+    tokio::time::advance(PROBE_AFTER - Duration::from_secs(1)).await;
+    r.tick().await.unwrap();
+    assert!(!r.probed, "a connection still reading was probed");
+}
+
+#[tokio::test]
+async fn a_transfer_connection_just_done_writing_a_slow_part_is_alive() {
+    let (mut r, _server) = transfer_runner().await;
+    let _first = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    tokio::time::pause();
+    // As if the next part took this long to go out: the server can't have answered it yet.
+    tokio::time::advance(PROBE_DEAD_AFTER + Duration::from_secs(1)).await;
+    let _next = request(&mut r, ping(2));
+    r.flush().await.unwrap();
+    r.tick().await.unwrap();
+    assert!(!r.probed, "a connection that just wrote was probed");
+}
+
+#[tokio::test]
+async fn an_idle_transfer_connection_is_not_watched() {
+    let (mut r, _server) = transfer_runner().await;
     tokio::time::pause();
     tokio::time::advance(DEAD_AFTER + Duration::from_secs(30)).await;
-    assert!(r.tick().await.is_ok());
-    assert!(r.service.is_empty(), "a transfer connection was probed");
+    r.tick().await.unwrap();
+    assert!(!r.probed);
 }
 
 #[test]
