@@ -361,13 +361,25 @@ impl Markup for Html {
 #[cfg(test)]
 mod tests {
     use super::parse;
+    use crate::parser::Kind;
 
     #[test]
     fn a_self_closing_tag_opens_no_span() {
-        // `/` closes the tag itself, so it must not leave a span open for the rest of the text.
-        for src in ["<b/>x", "<a href=\"https://t.me\"/>x", "<tg-spoiler/>x", "<br/>x"] {
-            let text = parse(src);
-            assert_eq!((text.text.as_str(), text.spans.len()), ("x", 0), "{src}");
+        // `/` closes the tag itself, so it must not open a span that a later closing tag ends, nor be the one a
+        // closing tag ends instead of the open tag it belongs to.
+        let cases = [
+            ("<b/>x", "x", vec![]),
+            ("<a href=\"https://t.me\"/>x", "x", vec![]),
+            ("<tg-spoiler/>x", "x", vec![]),
+            ("<br/>x", "x", vec![]),
+            ("<b/>x</b>", "x", vec![]),
+            ("<i><b/>x</i>", "x", vec![(Kind::Italic, 0, 1)]),
+            ("<b>a<b/>c</b>", "ac", vec![(Kind::Bold, 0, 2)]),
+        ];
+        for (src, text, spans) in cases {
+            let parsed = parse(src);
+            let found: Vec<_> = parsed.spans.into_iter().map(|s| (s.kind, s.start, s.end)).collect();
+            assert_eq!((parsed.text.as_str(), found), (text, spans), "{src}");
         }
     }
 }

@@ -399,7 +399,8 @@ mod tests {
         assert_eq!(md("**>a\n>b||\nc"), ("a\nb\nc".into(), vec!["quote:true 0 3".into()]));
         assert_eq!(md("x\n**> y||"), ("x\ny".into(), vec!["quote:true 2 1".into()]));
         assert_eq!(md("**>||s||||"), ("s".into(), vec!["spoiler 0 1".into(), "quote:true 0 1".into()]));
-        assert_eq!(md("**>||s||\nt"), ("s\nt".into(), vec!["spoiler 0 1".into(), "quote:true 0 1".into()]));
+        // These pipes close the spoiler, so they don't mark the quote; `||||` would.
+        assert_eq!(md("**>||s||\nt"), ("s\nt".into(), vec!["spoiler 0 1".into(), "quote:false 0 1".into()]));
         let (text, entities) = md("> a\n**> b||\n> c");
         assert_eq!(text, "a\nb\nc");
         assert_eq!(entities, ["quote:false 0 1", "quote:true 2 1", "quote:false 4 1"]);
