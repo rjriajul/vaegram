@@ -1524,4 +1524,21 @@ mod tests {
             assert!(!client.media_dc(2).unwrap().media);
         }
     }
+
+    #[tokio::test]
+    async fn a_media_download_makes_its_key_on_the_main_address() {
+        use crate::raw::Serializable;
+        let dc = TestDc::start([5; 256], false).await;
+        let export = types::auth::ExportedAuthorization { id: 1, bytes: vec![1] };
+        let export = base::auth::ExportedAuthorization::ExportedAuthorization(Box::new(export)).to_bytes();
+        let (client, _sent) = Client::scripted(vec![Ok(export)]);
+        // Both of DC 4's addresses are the test DC's: only the id the client sends tells them apart.
+        *client.0.dcs.write().unwrap() = vec![(4, dc.dc(4).addr)];
+        *client.0.media_dcs.write().unwrap() = vec![(4, dc.dc(4).addr)];
+        let lease = client.transfer_sessions(client.media_dc(4).unwrap(), 2).await.unwrap();
+        for session in &lease.sessions {
+            session.invoke(&crate::raw::functions::Ping { ping_id: 1 }).await.unwrap();
+        }
+        assert_eq!(dc.handshakes(), [(1, 4, false)], "the permanent key is made on the main address only");
+    }
 }
