@@ -48,9 +48,11 @@ pub struct HandlerError {
     /// the message a pressed button or widget is on, the message a reaction changed on, or the message a guest
     /// query answered. `None` for raw handlers, the hooks and updates about no single message.
     pub message_id: Option<i32>,
-    /// Bot-API style id of the user the update is about: the sender of a message or story, the user who pressed
-    /// the button, sent the query or paid, or the user a membership, reaction or status change is about. `None`
-    /// for raw handlers, the hooks and updates that name no user.
+    /// Bot-API style id of the user who caused the update, the one `from_user` names: the sender of a message or
+    /// story, the user who pressed the button, sent the query or paid, or the one who changed a membership or
+    /// reacted. `None` for raw handlers, the hooks and updates with no user behind them. The one exception is
+    /// [`UserStatusUpdated`](crate::types::UserStatusUpdated), where Telegram reports on a user and nobody acted:
+    /// there it is that user.
     pub user_id: Option<i64>,
     /// Id of the query the update carries, the one its `answer` method takes: callback, widget, inline, shipping,
     /// pre-checkout, guest and join-request queries. `None` for raw handlers, the hooks and updates without one.
@@ -315,7 +317,8 @@ impl Routed for GuestMessage {
     }
 
     fn user_id(&self) -> Option<i64> {
-        self.caller_user.as_ref().or(self.message.from_user.as_deref()).map(|user| user.id)
+        // The sender of the message that invoked the bot, or who it came via when that message names no sender.
+        self.message.from_user.as_deref().or(self.caller_user.as_ref()).map(|user| user.id)
     }
 
     fn query_id(&self) -> Option<i64> {

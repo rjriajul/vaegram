@@ -22,7 +22,6 @@ pub struct SendEphemeralMessage<'a> {
     media: Option<InputMedia<'a>>,
     protect_content: bool,
     callback_query_id: Option<i64>,
-    replace: bool,
     reply_to: Option<ReplyTo>,
     message_thread_id: Option<i32>,
     reply_markup: Option<ReplyMarkup>,
@@ -62,7 +61,6 @@ impl<'a> SendEphemeralMessage<'a> {
             media: None,
             protect_content: false,
             callback_query_id: None,
-            replace: false,
             reply_to: None,
             message_thread_id: None,
             reply_markup: None,
@@ -72,14 +70,6 @@ impl<'a> SendEphemeralMessage<'a> {
     /// Answers the callback query with this id by sending the message.
     pub fn callback_query_id(mut self, query_id: i64) -> Self {
         self.callback_query_id = Some(query_id);
-        self
-    }
-
-    /// Replaces the message the callback query's button is on instead of sending a new one.
-    ///
-    /// Without [`callback_query_id`](Self::callback_query_id), awaiting fails with `Error::InvalidArgument`.
-    pub fn replace_callback_query_message(mut self) -> Self {
-        self.replace = true;
         self
     }
 
@@ -161,7 +151,7 @@ impl<'a> SendEphemeralMessage<'a> {
         Ok(functions::ephemeral::SendMessage {
             invert_media: self.media.as_ref().is_some_and(|m| m.show_caption_above_media),
             welcome: false,
-            anchor: self.replace,
+            anchor: false,
             noforwards: self.protect_content,
             peer: Some(peer),
             receiver_id,
@@ -180,10 +170,6 @@ impl<'a> SendEphemeralMessage<'a> {
         let client = self.client;
         // Only `Message::reply_ephemeral` builds a request without a receiver: its message had no sender user.
         let receiver = self.receiver_user_id.take().ok_or(Error::InvalidArgument("this message has no sender user"))?;
-        // `anchor` says "replace the pressed message", which needs the press it answers.
-        if self.replace && self.callback_query_id.is_none() {
-            return Err(Error::InvalidArgument("replace_callback_query_message needs a callback_query_id"));
-        }
         // A topic has no encoding next to a reply to an ephemeral message.
         if self.message_thread_id.filter(|&id| id != 1).is_some()
             && matches!(self.reply_to, Some(ReplyTo::Ephemeral(_)))
@@ -313,19 +299,6 @@ mod tests {
         let html = types::InputRichMessageHTML { rtl: false, noautolink: false, html: "<b>hi</b>".into(), files: None };
         let rich = base::InputRichMessage::InputRichMessageHTML(Box::new(html)).to_bytes();
         assert!(body.windows(rich.len()).any(|w| w == rich));
-    }
-
-    #[tokio::test]
-    async fn replace_callback_query_message_sets_anchor() {
-        let (client, mut sent) = Client::recording();
-        let refused = client.send_ephemeral_message("me", "me", "hi").replace_callback_query_message().await;
-        assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
-        assert!(sent.try_recv().is_err(), "a replace without a query must not send");
-
-        let send = client.send_ephemeral_message("me", "me", "hi").callback_query_id(55);
-        let _ = send.replace_callback_query_message().await;
-        let body = sent.try_recv().expect("no request sent");
-        assert_ne!(flags(&body) & 1 << 9, 0, "anchor is flags.9");
     }
 
     #[tokio::test]

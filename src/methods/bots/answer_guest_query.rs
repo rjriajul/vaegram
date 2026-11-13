@@ -28,7 +28,7 @@ impl AnswerGuestQuery<'_> {
     async fn send(self) -> Result<SentGuestMessage> {
         let result = self.result.write(self.client).await?;
         let request = functions::messages::SetBotGuestChatResult { query_id: self.guest_query_id, result };
-        Ok(SentGuestMessage::new(self.client.clone(), InlineMessageId(self.client.invoke(&request).await?)))
+        Ok(SentGuestMessage { inline_message_id: InlineMessageId(self.client.invoke(&request).await?) })
     }
 }
 

@@ -185,8 +185,9 @@ impl Error {
     /// so a handler can return it and [`on_error`](crate::Client::on_error) can tell what it was. A `String`, a
     /// `&str`, a `std::io::Error` and an `anyhow::Error` convert, as they do with `std::io::Error::other`.
     ///
-    /// [`downcast_ref`](Self::downcast_ref) gives back the type that was boxed. A `String` or `&str` is boxed as
-    /// std's own string error, which isn't public, so read those with `to_string` instead.
+    /// [`downcast_ref`](Self::downcast_ref) finds `T` only when the value passed here was itself a `T`: a `String`
+    /// or `&str` is boxed as std's own string error, so read those with `to_string`. An `anyhow::Error` is boxed as
+    /// anyhow's own wrapper, so keep the `anyhow::Error` and downcast on that, or pass the concrete error instead.
     pub fn other(e: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
         Error::Other(e.into())
     }

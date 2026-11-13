@@ -255,6 +255,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failing_membership_handler_reports_the_user_who_made_the_change() {
+        use crate::dispatcher::Entities;
+        use crate::errors::Error;
+        use crate::raw::{base, types};
+        use crate::types::ChatMemberUpdated;
+
+        let client = Client::offline();
+        // User 1 changed the membership of user 2, so the update's user is 1, not 2.
+        let creator = types::ChatParticipantCreator { user_id: 2, rank: None };
+        let raw = types::UpdateChatParticipant {
+            chat_id: 42,
+            date: 100,
+            actor_id: 1,
+            user_id: 2,
+            prev_participant: None,
+            new_participant: Some(base::ChatParticipant::ChatParticipantCreator(Box::new(creator))),
+            invite: None,
+            qts: 1,
+        };
+        let change = ChatMemberUpdated::parse_chat(&client, raw, &Entities::default());
+        assert_eq!(change.new_chat_member.as_ref().map(|member| member.user.id), Some(2));
+
+        let mut tasks = Tasks::default();
+        let (handled, mut taken) = tokio::sync::mpsc::unbounded_channel();
+        let on_error = move |e: HandlerError| -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> {
+            let _ = handled.send(e);
+            Box::pin(async {})
+        };
+        tasks.on_error = Some(Arc::new(on_error));
+        let failing: Callback<ChatMemberUpdated> = Arc::new(|_: ChatMemberUpdated| -> BoxFuture {
+            Box::pin(async { Err::<(), _>(Error::Unexpected("boom")) })
+        });
+        tasks.run(UpdateKind::ChatMemberUpdated, change, vec![failing]);
+
+        let error = taken.recv().await.expect("no error came");
+        assert_eq!((error.user_id, error.chat_id), (Some(1), Some(-42)));
+    }
+
+    #[tokio::test]
     async fn other_errors_reach_on_error_and_downcast() {
         use crate::errors::Error;
 
