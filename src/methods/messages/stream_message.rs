@@ -13,7 +13,7 @@ use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::observe::carry_tag;
 use crate::raw::base;
-use crate::types::{Message, PeerRef};
+use crate::types::{InputRichMessage, Message, MessageText, PeerRef};
 
 // Drafts disappear after 30 seconds, so a stalled stream re-sends its preview before that.
 const KEEPALIVE: Duration = Duration::from_secs(20);
@@ -41,6 +41,16 @@ pub(crate) struct StreamShared {
     stopped: AtomicBool,
 }
 
+/// What a stream sends when it finishes.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum Kind {
+    /// Messages of up to 4096 UTF-16 units each, read in the parse mode of the options.
+    #[default]
+    Text,
+    /// One rich message from Markdown source, or HTML source with `html`. It has no length limit of its own.
+    Rich { html: bool },
+}
+
 #[derive(Default)]
 struct State {
     done: Vec<String>,
@@ -50,6 +60,7 @@ struct State {
     dirty: bool,
     finishing: bool,
     plain: bool,
+    kind: Kind,
 }
 
 impl Client {
@@ -65,21 +76,24 @@ impl Client {
 impl StreamMessage<'_> {
     /// Starts the background task that sends drafts, and returns the stream to push text into.
     pub fn start(self) -> MessageStream {
-        let state = State {
-            draft_id: new_draft_id(),
-            plain: self.options.parse_mode.unwrap_or_else(|| self.client.parse_mode()) == ParseMode::Disabled,
-            ..State::default()
-        };
-        let shared = Arc::new(StreamShared { state: Mutex::new(state), ..StreamShared::default() });
-        // The drafts and messages are the caller's, so they carry its tag.
-        let task = tokio::spawn(carry_tag(run(self.client.clone(), self.chat_id, self.options, shared.clone())));
-        MessageStream { shared, task: Some(task) }
+        MessageStream::spawn(self.client, self.chat_id, self.options, Kind::Text)
     }
 }
 
 draft_setters!(StreamMessage);
 
 impl MessageStream {
+    /// Starts the task that paces the drafts of a `kind` stream.
+    pub(super) fn spawn(client: &Client, chat_id: PeerRef, options: DraftOptions, kind: Kind) -> MessageStream {
+        let plain =
+            kind == Kind::Text && options.parse_mode.unwrap_or_else(|| client.parse_mode()) == ParseMode::Disabled;
+        let state = State { draft_id: new_draft_id(), plain, kind, ..State::default() };
+        let shared = Arc::new(StreamShared { state: Mutex::new(state), ..StreamShared::default() });
+        // The drafts and messages are the caller's, so they carry its tag.
+        let task = tokio::spawn(carry_tag(run(client.clone(), chat_id, options, shared.clone())));
+        MessageStream { shared, task: Some(task) }
+    }
+
     /// Appends a chunk without waiting for the network.
     ///
     /// Returns `false` once the user pressed stop or a send failed. [`finish`](MessageStream::finish) then
@@ -144,9 +158,10 @@ impl Client {
 impl State {
     // Parts break between chunks so formatting stays intact. Only a plain chunk too long for a
     // message on its own is cut, between chars; with a parse mode it would fail at `finish`.
+    // A rich message is one document, so it never breaks.
     fn push(&mut self, chunk: &str) {
         let mut units = chunk.encode_utf16().count();
-        if self.units + units > MAX_UTF16 && !self.text.is_empty() {
+        if self.kind == Kind::Text && self.units + units > MAX_UTF16 && !self.text.is_empty() {
             self.next_part();
         }
         let mut chunk = chunk;
@@ -184,6 +199,7 @@ async fn run(
     shared: Arc<StreamShared>,
 ) -> Result<Vec<Message>> {
     let _registration = Registration(&client, &shared);
+    let kind = shared.state.lock().unwrap().kind;
     let mut sent = Vec::new();
     let mut resume = Instant::now();
     loop {
@@ -196,7 +212,7 @@ async fn run(
         };
         let finishing = tail.is_some();
         for text in done.into_iter().chain(tail).filter(|t| !t.is_empty()) {
-            sent.push(send(&client, &chat_id, options, text).await?);
+            sent.push(send(&client, &chat_id, options, kind, text).await?);
         }
         if finishing {
             return Ok(sent);
@@ -216,9 +232,10 @@ async fn run(
             if options.can_stop {
                 client.0.streams.lock().unwrap().insert(draft_id, shared.clone());
             }
-            // A lost preview is harmless; the final send reports real failures. invoke only sleeps
-            // through short flood waits, so longer ones hold drafts back instead of failing per chunk.
-            let text = text.into();
+            // A lost preview is harmless; the final send reports real failures, and a rich draft Telegram
+            // refuses half-written is retried whole with the next chunk. invoke only sleeps through short
+            // flood waits, so longer ones hold drafts back instead of failing per chunk.
+            let text = kind.text(text);
             let request = SendMessageDraft { client: &client, chat_id: chat_id.clone(), draft_id, text, options };
             if let Some(wait) = request.await.err().as_ref().and_then(Error::flood_wait) {
                 resume = Instant::now() + wait;
@@ -228,15 +245,35 @@ async fn run(
     }
 }
 
-async fn send(client: &Client, chat_id: &PeerRef, options: DraftOptions, text: String) -> Result<Message> {
-    let mut message = client.send_message(chat_id.clone(), text);
-    if let Some(mode) = options.parse_mode {
-        message = message.parse_mode(mode);
-    }
+async fn send(client: &Client, chat_id: &PeerRef, options: DraftOptions, kind: Kind, text: String) -> Result<Message> {
+    let Kind::Rich { html } = kind else {
+        let mut message = client.send_message(chat_id.clone(), text);
+        if let Some(mode) = options.parse_mode {
+            message = message.parse_mode(mode);
+        }
+        if let Some(thread) = options.message_thread_id {
+            message = message.message_thread_id(thread);
+        }
+        return message.await;
+    };
+    let mut message = client.send_rich_message(chat_id.clone(), rich(text, html));
     if let Some(thread) = options.message_thread_id {
         message = message.message_thread_id(thread);
     }
     message.await
+}
+
+impl Kind {
+    fn text(self, text: String) -> MessageText {
+        match self {
+            Kind::Text => text.into(),
+            Kind::Rich { html } => rich(text, html).into(),
+        }
+    }
+}
+
+fn rich(source: String, html: bool) -> InputRichMessage {
+    if html { InputRichMessage::html(source) } else { InputRichMessage::markdown(source) }
 }
 
 fn new_draft_id() -> i64 {
