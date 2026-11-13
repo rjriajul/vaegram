@@ -28,10 +28,7 @@ impl Client {
         }
         let users = self.invoke(&functions::users::GetUsers { id }).await?;
         let entities = Entities::new(self, users, Vec::new());
-        Ok(user_ids
-            .iter()
-            .map(|&id| entities.users.contains_key(&id).then(|| User::parse(id, &entities)))
-            .collect())
+        Ok(user_ids.iter().map(|&id| entities.users.contains_key(&id).then(|| User::parse(id, &entities))).collect())
     }
 }
 

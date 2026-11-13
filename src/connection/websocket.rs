@@ -467,8 +467,8 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::{
-        BINARY, CLOSE, CONTINUATION, Dc, Endpoint, MAX_PONGS, PING, PONG, ROOM, Reader, TEXT, Writer, accept_key,
-        dial, handshake, split,
+        BINARY, CLOSE, CONTINUATION, Dc, Endpoint, MAX_PONGS, PING, PONG, ROOM, Reader, TEXT, Writer, accept_key, dial,
+        handshake, split,
     };
     use crate::connection::{Connection, Options, Proxy};
     use crate::crypto::aes;
@@ -720,7 +720,7 @@ mod tests {
             // The stream is kept open, so the client's read doesn't end first.
             (pong.ok(), stream)
         });
-        let dc = Dc { id: 2, addr: at, test: false };
+        let dc = Dc { id: 2, addr: at, test: false, media: false };
         let connection = Connection::open_websocket(&dc, &Options::default(), &Endpoint::plain(at)).await.unwrap();
         let (mut reader, mut writer) = connection.into_split();
         // As `Runner::run` does: read, and send control frames whenever they're ready.

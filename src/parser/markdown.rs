@@ -151,11 +151,7 @@ pub(super) fn parse(src: &str, html: bool) -> Text {
 
 /// Where a quote's last line ends: `out` holds its lines and their `\n`, so the span stops before the last one.
 fn quote_end(out: &Text) -> i32 {
-    if out.text.ends_with('\n') {
-        out.len - 1
-    } else {
-        out.len
-    }
+    if out.text.ends_with('\n') { out.len - 1 } else { out.len }
 }
 
 /// The closing `]` and where parsing resumes, as byte indexes offset by `at`, and the URL.
