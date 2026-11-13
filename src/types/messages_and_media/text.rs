@@ -48,7 +48,8 @@ impl Text {
 
     /// Renders the text as Markdown.
     ///
-    /// Formatting Markdown can't express (quotes not covering whole lines, link text holding `]`) is left out.
+    /// Formatting Markdown can't express (quotes not covering whole lines, a quote inside another, spans crossing
+    /// code) is left out.
     pub fn to_markdown(&self) -> String {
         parser::unparse(self, ParseMode::Markdown)
     }

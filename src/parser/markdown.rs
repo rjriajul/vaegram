@@ -321,16 +321,18 @@ fn inline_kind(url: &str) -> Option<Kind> {
 }
 
 /// Writes `text` so `parse` reads it back, except where the dialect can't say it. These spans are dropped, their text
-/// kept: empty ones or ones past the text; quotes that don't cover whole lines (one ending in a line break doesn't), a
-/// quote inside or across another, and one touching a fenced block or a code span holding a line break; code holding
-/// a backtick and a fenced block holding three; a span inside or across code or a fenced block (one with just its
-/// range is written around it); and a span inside or across one of the same kind, mentions, emoji and dates counting
-/// as links. Spans that cross are written nested, so the one opened later comes back in two pieces, cut where the
-/// other ends. These change: a fenced block's language holding whitespace or three backticks is cleared; an
-/// expandable quote that ends inside a spoiler is written plain; a spoiler starting at a line break in a quote written
-/// with `**>` (an expandable one, or one right after another quote), or at the break right after that quote, starts
-/// after the break; and a link to `tg://user?id=…` comes back as a mention. `html` escapes what the mode that also
-/// reads HTML would take for a tag or an entity.
+/// kept: empty ones, ones starting before the text or ending past it; quotes that don't cover whole lines (one ending
+/// in a line break doesn't), a quote inside or across another, and one touching a fenced block or a code span holding
+/// a line break; code holding a backtick and a fenced block holding three; a span inside or across code or a fenced
+/// block (one with just its range is written around it, but of a code span and a fenced block with the same range
+/// only the first is kept); and a span inside or across one of the same kind, mentions, emoji and dates counting as
+/// links. Spans that cross are written nested, so the one opened later comes back in two pieces, cut where the other
+/// ends. When one of the two is a quote, the other is the one cut, at the quote's edge, and its pieces leave out the
+/// line break beside the quote. These change: a fenced block's language holding whitespace or three backticks is
+/// cleared; an expandable quote that ends inside a spoiler is written plain; a spoiler starting at a line break in a
+/// quote written with `**>` (an expandable one, or one right after another quote), or at the break right after that
+/// quote, starts after the break; and a link to `tg://user?id=…` comes back as a mention. `html` escapes what the
+/// mode that also reads HTML would take for a tag or an entity.
 pub(super) fn unparse(text: &Text, html: bool) -> String {
     // Each char's UTF-16 offset and byte index, with the end as the last entry.
     let mut units: Vec<(i32, usize)> = Vec::with_capacity(text.text.len() + 1);
