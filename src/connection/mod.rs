@@ -18,6 +18,8 @@ pub use dns_config::{AccessPointRule, DnsConfig, IpPort};
 pub use proxy::{Proxy, Secret};
 pub use transport::Transport;
 pub(crate) use transport::{Framing, MAX_PACKET, RecvBuf};
+#[cfg(all(test, feature = "websocket"))]
+pub(crate) use websocket::tests::{open_plain as open_plain_websocket, ping_when_idle};
 
 use std::io;
 use std::net::SocketAddr;
@@ -29,6 +31,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::sync::Notify;
 
 use crate::errors::{Error, Result};
 use crate::session::internals::data_center::Dc;
@@ -597,21 +600,32 @@ impl Writer {
     }
 
     /// Completes when the stream has control frames to send: a WebSocket's answers to pings. Never on other streams.
-    pub(crate) async fn control_ready(&self) {
-        match &self.half {
-            #[cfg(feature = "websocket")]
-            WriteHalf::WebSocket(half) => half.control_ready().await,
-            _ => std::future::pending().await,
+    /// The future holds the signal alone, not the writer, which isn't `Sync`, so the session task stays `Send`.
+    pub(crate) fn control_ready(&self) -> impl Future<Output = ()> {
+        let signal = self.control_signal();
+        async move {
+            match signal {
+                Some(signal) => signal.notified().await,
+                None => std::future::pending().await,
+            }
         }
+    }
+
+    fn control_signal(&self) -> Option<&Notify> {
+        #[cfg(feature = "websocket")]
+        if let WriteHalf::WebSocket(half) = &self.half {
+            return Some(half.control_signal());
+        }
+        None
     }
 
     /// Sends those control frames with no packet, so an idle connection still answers pings; a no-op off WebSocket.
     pub(crate) async fn flush_control(&mut self) -> Result<()> {
-        match &mut self.half {
-            #[cfg(feature = "websocket")]
-            WriteHalf::WebSocket(half) => Ok(half.flush_control().await?),
-            _ => Ok(()),
+        #[cfg(feature = "websocket")]
+        if let WriteHalf::WebSocket(half) = &mut self.half {
+            half.flush_control().await?;
         }
+        Ok(())
     }
 }
 

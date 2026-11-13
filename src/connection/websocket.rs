@@ -11,7 +11,6 @@ use std::task::{Context, Poll, ready};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
-use tokio::sync::futures::Notified;
 
 use super::proxy::Target;
 use super::{Options, Stream, dial_any, http1, tls};
@@ -416,10 +415,10 @@ impl<W: AsyncWrite + Unpin> Writer<W> {
         self.inner.flush().await
     }
 
-    /// Completes once the reader has seen a ping since the last wake. A wake whose pongs already went out with a
-    /// data frame is harmless: [`Writer::flush_control`] then has nothing to send.
-    pub(super) fn control_ready(&self) -> Notified<'_> {
-        self.pong.ready.notified()
+    /// Notified once the reader has seen a ping since the last wake. A wake whose pongs already went out with a data
+    /// frame is harmless: [`Writer::flush_control`] then has nothing to send.
+    pub(super) fn control_signal(&self) -> &Notify {
+        &self.pong.ready
     }
 
     /// Sends the pongs waiting, without a data frame, so a connection with nothing to send still answers pings.
@@ -462,9 +461,11 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Writer<W> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
+    use std::time::Duration;
+
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream};
-    use tokio::net::TcpListener;
+    use tokio::net::{TcpListener, TcpStream};
 
     use super::{
         BINARY, CLOSE, CONTINUATION, Dc, Endpoint, MAX_PONGS, PING, PONG, ROOM, Reader, TEXT, Writer, accept_key, dial,
@@ -696,7 +697,7 @@ mod tests {
         server.write_all(&[pings, server_frame(true, BINARY, b"x")].concat()).await.unwrap();
         reader.read_exact(&mut [0; 1]).await.unwrap();
         // Twenty pings, one wake, and only the last MAX_PONGS answers kept.
-        writer.control_ready().await;
+        writer.control_signal().notified().await;
         writer.flush_control().await.unwrap();
         for i in 20 - MAX_PONGS as u8..20 {
             assert_eq!(client_frame(&mut server).await, (PONG, vec![i]));
@@ -706,23 +707,35 @@ mod tests {
         assert_eq!(client_frame(&mut server).await, (BINARY, b"y".to_vec()));
     }
 
+    /// A connection over plain WebSocket (no TLS) to `dc.addr`.
+    pub(crate) async fn open_plain(dc: &Dc, options: &Options) -> Connection {
+        Connection::open_websocket(dc, options, &Endpoint::plain(dc.addr)).await.unwrap()
+    }
+
+    /// Stands in for a WebSocket front that pings an idle client: takes the upgrade and whatever the client sends
+    /// until it goes quiet (the obfuscation header, a session's first ping), sends PING `idle`, and gives the payload
+    /// of the PONG if it's the next frame within 1 s. The stream is kept open, so the client's read doesn't end first.
+    pub(crate) async fn ping_when_idle(listener: TcpListener) -> (Option<Vec<u8>>, TcpStream) {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        answer_upgrade(&mut stream, None, b"").await;
+        while let Ok((opcode, _)) = tokio::time::timeout(Duration::from_millis(300), client_frame(&mut stream)).await {
+            assert_eq!(opcode, BINARY);
+        }
+        stream.write_all(&server_frame(true, PING, b"idle")).await.unwrap();
+        let next = tokio::time::timeout(Duration::from_secs(1), client_frame(&mut stream)).await.ok();
+        let pong = next.map(|(opcode, payload)| {
+            assert_eq!(opcode, PONG, "the client sent something else before the pong");
+            payload
+        });
+        (pong, stream)
+    }
+
     #[tokio::test]
     async fn an_idle_connection_answers_a_ping_without_an_outgoing_message() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let at = listener.local_addr().unwrap();
-        let mut server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            answer_upgrade(&mut stream, None, b"").await;
-            // The obfuscation header, and after it nothing from the client but the pong.
-            assert_eq!(client_frame(&mut stream).await.0, BINARY);
-            stream.write_all(&server_frame(true, PING, b"idle")).await.unwrap();
-            let pong = tokio::time::timeout(std::time::Duration::from_secs(1), client_frame(&mut stream)).await;
-            // The stream is kept open, so the client's read doesn't end first.
-            (pong.ok(), stream)
-        });
-        let dc = Dc { id: 2, addr: at, test: false, media: false };
-        let connection = Connection::open_websocket(&dc, &Options::default(), &Endpoint::plain(at)).await.unwrap();
-        let (mut reader, mut writer) = connection.into_split();
+        let dc = Dc { id: 2, addr: listener.local_addr().unwrap(), test: false, media: false };
+        let mut server = tokio::spawn(ping_when_idle(listener));
+        let (mut reader, mut writer) = open_plain(&dc, &Options::default()).await.into_split();
         // As `Runner::run` does: read, and send control frames whenever they're ready.
         let (pong, _stream) = loop {
             tokio::select! {
@@ -731,7 +744,7 @@ mod tests {
                 () = writer.control_ready() => writer.flush_control().await.unwrap(),
             }
         };
-        assert_eq!(pong, Some((PONG, b"idle".to_vec())), "no pong within 1 s");
+        assert_eq!(pong.as_deref(), Some(&b"idle"[..]), "no pong within 1 s");
     }
 
     #[tokio::test]
