@@ -22,7 +22,7 @@ impl ServerMsgIds {
         now - MAX_AGE <= t && t <= now + MAX_AHEAD
     }
 
-    /// Whether [`accept`](Self::accept) would take `msg_id` now, without recording it.
+    /// Whether `msg_id` is new and in the time window now, without recording it; [`record`](Self::record) does that.
     pub(crate) fn would_accept(&self, msg_id: i64, now: Option<i64>) -> bool {
         if now.is_some_and(|now| !Self::in_window(msg_id, now)) {
             return false;

@@ -10,7 +10,9 @@ use crate::session::internals::data_center::Dc;
 async fn an_idle_session_answers_a_websocket_ping() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let dc = Dc { id: 2, addr: listener.local_addr().unwrap(), test: false, media: false };
-    let server = tokio::spawn(ping_when_idle(listener));
+    // Two frames before the session is idle: the obfuscation header, sent as its own frame when the connection
+    // opens, and the Runner's start-up ping (its ping interval fires at once; the next one is 60 s away).
+    let server = tokio::spawn(ping_when_idle(listener, 2));
     let options = Options::default();
     let conn = open_plain_websocket(&dc, &options).await;
     let (tx, _updates) = mpsc::channel(8);

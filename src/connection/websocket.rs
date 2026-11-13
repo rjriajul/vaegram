@@ -712,14 +712,15 @@ pub(super) mod tests {
         Connection::open_websocket(dc, options, &Endpoint::plain(dc.addr)).await.unwrap()
     }
 
-    /// Stands in for a WebSocket front that pings an idle client: takes the upgrade and whatever the client sends
-    /// until it goes quiet (the obfuscation header, a session's first ping), sends PING `idle`, and gives the payload
-    /// of the PONG if it's the next frame within 1 s. The stream is kept open, so the client's read doesn't end first.
-    pub(crate) async fn ping_when_idle(listener: TcpListener) -> (Option<Vec<u8>>, TcpStream) {
+    /// Stands in for a WebSocket front that pings an idle client: takes the upgrade and the `frames` BINARY frames
+    /// the client sends before it has nothing left to say, sends PING `idle`, and gives the payload of the PONG if
+    /// it's the next frame within 1 s. The stream is kept open, so the client's read doesn't end first.
+    pub(crate) async fn ping_when_idle(listener: TcpListener, frames: usize) -> (Option<Vec<u8>>, TcpStream) {
         let (mut stream, _) = listener.accept().await.unwrap();
         answer_upgrade(&mut stream, None, b"").await;
-        while let Ok((opcode, _)) = tokio::time::timeout(Duration::from_millis(300), client_frame(&mut stream)).await {
-            assert_eq!(opcode, BINARY);
+        for _ in 0..frames {
+            let frame = tokio::time::timeout(Duration::from_secs(10), client_frame(&mut stream)).await;
+            assert_eq!(frame.expect("the client sent fewer frames than expected").0, BINARY);
         }
         stream.write_all(&server_frame(true, PING, b"idle")).await.unwrap();
         let next = tokio::time::timeout(Duration::from_secs(1), client_frame(&mut stream)).await.ok();
@@ -734,7 +735,8 @@ pub(super) mod tests {
     async fn an_idle_connection_answers_a_ping_without_an_outgoing_message() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let dc = Dc { id: 2, addr: listener.local_addr().unwrap(), test: false, media: false };
-        let mut server = tokio::spawn(ping_when_idle(listener));
+        // The connection sends one frame, the obfuscation header, when it opens, and nothing after.
+        let mut server = tokio::spawn(ping_when_idle(listener, 1));
         let (mut reader, mut writer) = open_plain(&dc, &Options::default()).await.into_split();
         // As `Runner::run` does: read, and send control frames whenever they're ready.
         let (pong, _stream) = loop {
