@@ -113,6 +113,11 @@ mod tests {
         base::InputRichMessage::InputRichMessageMarkdown(Box::new(markdown)).to_bytes()
     }
 
+    fn html(source: &str) -> Vec<u8> {
+        let html = types::InputRichMessageHTML { rtl: false, noautolink: false, html: source.into(), files: None };
+        base::InputRichMessage::InputRichMessageHTML(Box::new(html)).to_bytes()
+    }
+
     fn is_draft_of(body: &[u8], source: &str) -> bool {
         body[..4] == functions::messages::SetTyping::CONSTRUCTOR_ID.to_le_bytes() && body.ends_with(&markdown(source))
     }
@@ -179,5 +184,56 @@ mod tests {
         drop(stream);
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn html_streams_send_html_drafts_and_message() {
+        let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes()), Ok(sent())]);
+        let stream = client.stream_rich_message("me").html().start();
+        assert!(stream.push("<b>hi</b>"));
+        let draft = next(&mut rx).await;
+        assert_eq!(draft[..4], functions::messages::SetTyping::CONSTRUCTOR_ID.to_le_bytes());
+        assert!(draft.ends_with(&html("<b>hi</b>")));
+        assert_eq!(stream.finish().await.unwrap().map(|m| m.id), Some(9));
+        let body = next(&mut rx).await;
+        assert_eq!(body[..4], functions::messages::SendMessage::CONSTRUCTOR_ID.to_le_bytes());
+        assert!(body.ends_with(&html("<b>hi</b>")));
+    }
+
+    #[tokio::test]
+    async fn a_long_source_is_sent_whole_as_one_message() {
+        let (first, second) = ("a".repeat(3000), "b".repeat(3000));
+        let whole = format!("{first}{second}");
+        let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes()), Ok(sent())]);
+        let stream = client.stream_rich_message("me").start();
+        assert!(stream.push(&first));
+        assert!(is_draft_of(&next(&mut rx).await, &first));
+        assert!(stream.push(&second));
+        assert!(is_draft_of(&next(&mut rx).await, &whole));
+        assert_eq!(stream.finish().await.unwrap().map(|m| m.id), Some(9));
+        let body = next(&mut rx).await;
+        assert_eq!(body[..4], functions::messages::SendMessage::CONSTRUCTOR_ID.to_le_bytes());
+        assert!(body.ends_with(&markdown(&whole)));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn finishing_an_empty_stream_sends_nothing() {
+        let (client, mut rx) = Client::recording();
+        let stream = client.stream_rich_message("me").start();
+        assert!(stream.finish().await.unwrap().is_none());
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn finish_returns_telegrams_error_for_the_message() {
+        let too_long = Err(Error::Rpc(RpcError::parse(400, "MESSAGE_TOO_LONG")));
+        let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes()), too_long]);
+        let stream = client.stream_rich_message("me").start();
+        assert!(stream.push("Some **bold** text"));
+        assert!(is_draft_of(&next(&mut rx).await, "Some **bold** text"));
+        let refused = stream.finish().await;
+        assert!(matches!(&refused, Err(Error::Rpc(e)) if e.name == "MESSAGE_TOO_LONG"), "{refused:?}");
+        assert!(next(&mut rx).await.ends_with(&markdown("Some **bold** text")));
     }
 }
