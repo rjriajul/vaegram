@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 use vaegram::filters;
-use vaegram::types::{InlineMessageContent, InlineQueryResult, InlineQueryResultArticle, WidgetPublicData};
+use vaegram::types::{InlineQueryResult, InlineQueryResultArticle, InputMessageContent, WidgetPublicData};
 
 const WAIT: Duration = Duration::from_secs(30);
 
@@ -146,10 +146,10 @@ async fn bot_answers_widget_query() {
         async move {
             assert!(widget_msg.widget().is_some());
 
-            let ans = user.request_widget_query_answer(bot_id, widget_msg.id, b"ping").await.unwrap();
+            let ans = user.request_widget_query_answer(bot_id, widget_msg.id, b"ping".to_vec()).await.unwrap();
             assert_eq!(ans.as_deref(), Some("{\"ok\":true}"));
 
-            let empty = user.request_widget_query_answer(bot_id, widget_msg.id, b"empty").await.unwrap();
+            let empty = user.request_widget_query_answer(bot_id, widget_msg.id, b"empty".to_vec()).await.unwrap();
             assert_eq!(empty, None);
         }
     })
@@ -225,7 +225,7 @@ async fn bot_sends_and_edits_shared_widget_and_copy_flow() {
                 Ok(forwarded) => {
                     let fwd = &forwarded[0];
                     saved_ids.lock().unwrap().push(fwd.id);
-                    let ans = user.request_widget_query_answer("me", fwd.id, b"copy_ping").await.unwrap();
+                    let ans = user.request_widget_query_answer("me", fwd.id, b"copy_ping".to_vec()).await.unwrap();
                     assert_eq!(ans.as_deref(), Some("{\"copy\":true}"));
                     let seen_id = tokio::time::timeout(WAIT, copy_q_rx.recv()).await.unwrap().unwrap();
                     assert_eq!(seen_id, widget_id);
@@ -292,7 +292,8 @@ async fn inline_widget_behavior_in_production() {
                 Ok(()) => {
                     eprintln!("note: Telegram accepted inline widget answer ({} results)", results.results.len());
                     if let Some(first) = results.results.first() {
-                        let sent = kit.user.client.send_inline_bot_result("me", results.query_id, &first.id).await;
+                        let sent =
+                            kit.user.client.send_inline_bot_result("me", results.query_id, first.id.as_str()).await;
                         eprintln!("note: send_inline_bot_result returned {sent:?}");
                         if let Ok(msg) = sent {
                             let _ = kit.user.client.delete_messages("me", &[msg.id]).await;

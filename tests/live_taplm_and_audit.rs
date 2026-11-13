@@ -59,23 +59,17 @@ async fn bot_custom_emoji_in_button_text() {
                 .style(ButtonStyle::Primary)
                 .icon_custom_emoji_id(emoji_id);
             let inline_markup = InlineKeyboardMarkup::new([vec![inline_btn]]);
-            bot.send_message(user_id, "button icon check")
-                .reply_markup(inline_markup)
-                .await
-                .unwrap_or_else(|e| {
-                    panic!("bot sending inline button with icon_custom_emoji_id({emoji_id}) failed: {e:?}")
-                });
+            bot.send_message(user_id, "button icon check").reply_markup(inline_markup).await.unwrap_or_else(|e| {
+                panic!("bot sending inline button with icon_custom_emoji_id({emoji_id}) failed: {e:?}")
+            });
             let user_inline = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
             ids.lock().unwrap().push(user_inline.id);
 
             let reply_btn = KeyboardButton::new("Reply").icon_custom_emoji_id(emoji_id);
             let reply_markup = ReplyKeyboardMarkup::new([vec![reply_btn]]).one_time(true);
-            bot.send_message(user_id, "reply icon check")
-                .reply_markup(reply_markup)
-                .await
-                .unwrap_or_else(|e| {
-                    panic!("bot sending reply button with icon_custom_emoji_id({emoji_id}) failed: {e:?}")
-                });
+            bot.send_message(user_id, "reply icon check").reply_markup(reply_markup).await.unwrap_or_else(|e| {
+                panic!("bot sending reply button with icon_custom_emoji_id({emoji_id}) failed: {e:?}")
+            });
             let user_reply = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
             ids.lock().unwrap().push(user_reply.id);
 
@@ -217,7 +211,8 @@ async fn copy_message_to_broadcast_channel_returns_message() {
     })
     .await;
 
-    if let Some(id) = *src_id.lock().unwrap() {
+    let source = *src_id.lock().unwrap();
+    if let Some(id) = source {
         support::cleanup(user.delete_messages("me", &[id]).await, "deleting copy source message");
     }
     support::cleanup(user.delete_channel(channel.id).await, "deleting temporary broadcast channel");

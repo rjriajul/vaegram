@@ -24,7 +24,7 @@ async fn second_user_client() -> Option<(Client, support::Disconnect)> {
     let Ok(session) = std::env::var("VAEGRAM_SECOND_USER_SESSION") else {
         return None;
     };
-    let Ok(api_id) = std::env::var("VAEGRAM_API_ID").ok().and_then(|v| v.parse().ok()) else {
+    let Some(api_id) = std::env::var("VAEGRAM_API_ID").ok().and_then(|v| v.parse().ok()) else {
         eprintln!("skipped: set VAEGRAM_API_ID and VAEGRAM_API_HASH for VAEGRAM_SECOND_USER_SESSION");
         return None;
     };
@@ -99,8 +99,7 @@ async fn on_pinned_messages_sees_pin_and_unpin() {
     let bot_can_pin = bot_member.status == ChatMemberStatus::Administrator
         && bot_member.privileges.is_some_and(|p| p.can_pin_messages);
 
-    let (actor, listener) =
-        if bot_can_pin { (&kit.bot, &kit.user.client) } else { (&kit.user.client, &kit.bot) };
+    let (actor, listener) = if bot_can_pin { (&kit.bot, &kit.user.client) } else { (&kit.user.client, &kit.bot) };
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     listener.on_pinned_messages(filters::chat(chat_id), move |event| {

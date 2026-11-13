@@ -38,9 +38,9 @@ async fn quick_replies_round_trip() {
     while existing.iter().any(|q| q.shortcut == name) {
         name.push('x');
     }
-    assert!(user.check_quick_reply_shortcut(&name).await.unwrap());
+    assert!(user.check_quick_reply_shortcut(name.as_str()).await.unwrap());
 
-    let added = match user.add_quick_reply_message(&name, "first").await {
+    let added = match user.add_quick_reply_message(name.as_str(), "first").await {
         Ok(msg) => msg,
         Err(e) if support::flood_limited(&e, "adding a quick reply") => return,
         Err(e) if e.is("QUICK_REPLIES_TOO_MUCH") => {
@@ -58,6 +58,7 @@ async fn quick_replies_round_trip() {
         let existing_ids: Vec<i32> = existing.iter().map(|q| q.shortcut_id).collect();
         let sent_to_bot = sent_to_bot.clone();
         async move {
+            let second = user.add_quick_reply_message(name.as_str(), "second").await.unwrap();
             let listed = user.get_quick_reply_messages(shortcut_id).await.unwrap();
             assert_eq!(listed.len(), 2);
 
@@ -69,7 +70,7 @@ async fn quick_replies_round_trip() {
             assert_eq!(edited.text(), "edited");
 
             let renamed = format!("{name}_r");
-            user.edit_quick_reply_shortcut(shortcut_id, &renamed).await.unwrap();
+            user.edit_quick_reply_shortcut(shortcut_id, renamed.as_str()).await.unwrap();
             let replies = user.get_quick_replies().await.unwrap();
             assert!(replies.iter().any(|q| q.shortcut_id == shortcut_id && q.shortcut == renamed));
 
@@ -86,6 +87,7 @@ async fn quick_replies_round_trip() {
             });
             sent_to_bot.store(true, Ordering::Relaxed);
             user.send_quick_reply_messages(bot_id, shortcut_id, &[added.id]).await.unwrap();
+            let delivered = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
             assert_eq!(delivered, "edited");
 
             user.delete_quick_reply_messages(shortcut_id, &[second.id]).await.unwrap();
@@ -188,7 +190,10 @@ async fn ban_chat_member_revoke_messages_in_basic_group() {
             // After revoking, the bot can no longer read the group's messages.
             let fetched = bot.get_messages(group_id, &[sent.id]).await;
             assert!(
-                matches!(&fetched, Err(_) | Ok(msgs) if msgs.first().is_none_or(Option::is_none)),
+                match &fetched {
+                    Err(_) => true,
+                    Ok(msgs) => msgs.first().is_none_or(Option::is_none),
+                },
                 "bot still saw revoked basic-group message: {fetched:?}"
             );
         }
