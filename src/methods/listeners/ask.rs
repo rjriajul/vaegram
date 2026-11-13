@@ -21,9 +21,10 @@ impl Client {
     /// Sends `text` to `chat_id`, then waits for the next message there, as `listen` does, and returns it.
     ///
     /// Only messages newer than the question count. Listening starts before the question goes out, so an answer
-    /// that comes before `send_message` returns still counts. To wait for a button press instead, send the keyboard
-    /// with `send_message` and await `wait_for_callback_query(chat_id).message_id(sent.id)`. A question sent through a
-    /// business connection gets no answer here: business messages never reach listeners.
+    /// that comes before `send_message` returns still counts. Other messages that match while the question is being
+    /// sent reach the handlers only once it is out, and may then come after newer ones. To wait for a button press
+    /// instead, send the keyboard with `send_message` and await `wait_for_callback_query(chat_id).message_id(sent.id)`.
+    /// A question sent through a business connection gets no answer here: business messages never reach listeners.
     pub fn ask(&self, chat_id: impl Into<PeerRef>, text: impl Into<Text>) -> Ask<'_> {
         Ask { prompt: self.send_message(chat_id, text), listen: self.listen() }
     }
@@ -93,10 +94,14 @@ into_future!(Ask, Message);
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Barrier};
+    use std::time::Duration;
+
     use crate::Client;
     use crate::dispatcher::listeners::Offer;
     use crate::dispatcher::listeners::tests::{message, until_released, until_waiting};
     use crate::errors::{Error, Result, RpcError};
+    use crate::filters;
     use crate::raw::{Serializable, base, types};
     use crate::types::{ForceReply, Message};
 
@@ -226,6 +231,43 @@ mod tests {
         assert!(waiter.await.unwrap_err().is_cancelled());
         assert!(!client.0.handlers.listeners.messages.waiting());
         assert_eq!(returned(&client), [10]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_message_whose_filter_ran_across_the_release_is_checked_again() {
+        let (entered, go) = (Arc::new(Barrier::new(2)), Arc::new(Barrier::new(2)));
+        let flood = Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_1")));
+        let (client, _sent) = Client::scripted(vec![flood, Ok(sent(9))]);
+        client.0.me.lock().unwrap().id = 5;
+        // Message 8 matches the hold, then its filter waits until the question is out and the hold released.
+        let filter = filters::create({
+            let (entered, go) = (entered.clone(), go.clone());
+            move |m: &Message| {
+                if m.id == 8 {
+                    entered.wait();
+                    go.wait();
+                }
+                true
+            }
+        });
+        let waiter = tokio::spawn({
+            let client = client.clone();
+            async move { client.ask("me", "Your name?").filter(filter).await }
+        });
+        let messages = &client.0.handlers.listeners.messages;
+        until_waiting(messages).await;
+        let late = std::thread::spawn({
+            let client = client.clone();
+            move || offer(&client, 8, 5, true)
+        });
+        entered.wait();
+        // Idle, the paused clock jumps past the flood wait: the question gets id 9 and the hold ends.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        until_released(messages).await;
+        go.wait();
+        assert!(!late.join().unwrap(), "message 8 is older than the question");
+        assert!(offer(&client, 10, 5, true));
+        assert_eq!(waiter.await.unwrap().unwrap().id, 10);
     }
 
     #[tokio::test]

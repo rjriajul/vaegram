@@ -236,9 +236,14 @@ struct Entry<T> {
 enum Sink<T> {
     Wait(oneshot::Sender<T>),
     Call(Callback<T>),
-    /// Keeps every update it matches until [`Book::release`]; the entry stays on the shelf meanwhile.
+    /// Keeps the updates it matches until [`Book::release`], oldest first and at most [`MAX_HELD`]; the entry stays
+    /// on the shelf meanwhile.
     Hold(Vec<T>),
 }
+
+/// The most updates one hold keeps; past it the oldest goes back to the dispatcher. A hold lasts one request, but
+/// that request can sleep off flood waits for minutes while a busy chat keeps talking.
+const MAX_HELD: usize = 64;
 
 struct Shelf<T> {
     entries: Vec<Entry<T>>,
@@ -386,10 +391,7 @@ impl<T> Book<T> {
 
     /// Starts a listener that keeps every update it matches instead of ending with the first, so none is missed
     /// while the caller does something else first; [`release`](Self::release) ends the hold. Dropping the guard
-    /// removes the listener and gives back what it held.
-    ///
-    /// Nothing caps what it keeps, as nothing caps `returned`: a hold lasts one request, and only updates its
-    /// criteria match are kept.
+    /// removes the listener and gives back what it held, in the order it arrived.
     pub(crate) fn hold(&self, id: u64, criteria: Criteria<T>) -> Result<Holding<'_, T>> {
         self.add(Entry { id, criteria, sink: Sink::Hold(Vec::new()) })?;
         Ok(Holding { book: self, id })
@@ -442,7 +444,7 @@ impl<T> Book<T> {
 impl<T: Listened> Book<T> {
     /// Ends the hold [`hold`](Self::hold) started on listener `id`: only updates newer than message `after.1` in
     /// chat `after.0` count now. Returns the first held update that still matches, else waits for one until
-    /// `deadline`, as `listen` does. Every other held update goes back to the dispatcher.
+    /// `deadline`, as `listen` does. Every other held update goes back to the dispatcher, in the order it arrived.
     pub(crate) async fn release(&self, id: u64, after: (i64, i32), deadline: Option<Instant>, me: &Me) -> Result<T> {
         let (tx, rx) = oneshot::channel();
         let (answer, rest) = {
@@ -504,8 +506,17 @@ impl<T: Listened> Book<T> {
             let entry = {
                 let mut shelf = self.shelf();
                 let Some(at) = shelf.entries.iter().position(|e| e.id == id) else { continue };
-                if let Sink::Hold(held) = &mut shelf.entries[at].sink {
+                let entry = &mut shelf.entries[at];
+                // The filters ran unlocked, and `release` may have changed the criteria meanwhile.
+                let current = entry.criteria.live(now) && item.identity(me).is_some_and(|i| entry.criteria.matches(&i));
+                if !current {
+                    continue;
+                }
+                if let Sink::Hold(held) = &mut entry.sink {
+                    let oldest = (held.len() >= MAX_HELD).then(|| held.remove(0));
                     held.push(item);
+                    drop(shelf);
+                    self.give_back(oldest);
                     return Offer::Claimed;
                 }
                 let entry = shelf.entries.remove(at);
@@ -674,6 +685,20 @@ pub(crate) mod tests {
 
     fn claimed<T>(offer: Offer<T>) -> bool {
         matches!(offer, Offer::Claimed)
+    }
+
+    #[test]
+    fn a_full_hold_gives_back_its_oldest() {
+        let (client, book) = (Client::offline(), Book::<Message>::default());
+        let _hold = book.hold(1, Criteria::default()).unwrap();
+        let last = i32::try_from(MAX_HELD).unwrap() + 2;
+        for id in 1..=last {
+            assert!(claimed(book.offer(message(&client, id, 7, None, false), &me())), "message {id}");
+        }
+        assert_eq!(ids(book.take_returned()), [1, 2]);
+        let shelf = book.shelf();
+        let Sink::Hold(held) = &shelf.entries[0].sink else { panic!("the hold ended") };
+        assert_eq!((held.len(), held[0].id, held[MAX_HELD - 1].id), (MAX_HELD, 3, last));
     }
 
     #[tokio::test]
