@@ -228,10 +228,8 @@ async fn save_session(client: &mut Client, s: &SessionData) -> io::Result<()> {
 }
 
 async fn load_state(client: &Client) -> io::Result<Option<StoredState>> {
-    let saved = client
-        .query_opt("SELECT owner, salt, time_offset FROM vaegram WHERE id = 0", &[])
-        .await
-        .map_err(io_error)?;
+    let saved =
+        client.query_opt("SELECT owner, salt, time_offset FROM vaegram WHERE id = 0", &[]).await.map_err(io_error)?;
     let saved = match saved {
         Some(row) => {
             let salt = Salt { value: column(&row, "salt")?, time_offset: column(&row, "time_offset")? };
@@ -305,7 +303,8 @@ async fn update_peers(client: &mut Client, peers: &[PeerRecord]) -> io::Result<(
     let tx = client.transaction().await.map_err(io_error)?;
     let upsert = tx.prepare(UPSERT_PEER).await.map_err(io_error)?;
     let forget = tx.prepare("DELETE FROM usernames WHERE id = $1").await.map_err(io_error)?;
-    let add = tx.prepare("INSERT INTO usernames (id, username, position) VALUES ($1, $2, $3)").await.map_err(io_error)?;
+    let add =
+        tx.prepare("INSERT INTO usernames (id, username, position) VALUES ($1, $2, $3)").await.map_err(io_error)?;
     for p in peers {
         let kind = peer_type(p.id);
         tx.execute(&upsert, &[&p.id, &p.access_hash, &kind, &p.phone_number, &p.updated]).await.map_err(io_error)?;
@@ -536,7 +535,7 @@ mod tests {
     fn url() -> Option<String> {
         match std::env::var("VAEGRAM_POSTGRES_URL") {
             Ok(url) => Some(url),
-            None => {
+            Err(_) => {
                 // The CI job that runs these has a server; without the variable they would pass having tested
                 // nothing.
                 assert!(std::env::var_os("CI").is_none(), "set VAEGRAM_POSTGRES_URL");

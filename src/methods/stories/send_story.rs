@@ -166,8 +166,8 @@ mod tests {
     use crate::errors::Error;
     use crate::file_id::FileId;
     use crate::raw::{base, types};
-    use crate::types::{InputStoryContent, Text};
     use crate::types::{AreaPosition, StoryArea, StoryAreaType};
+    use crate::types::{InputStoryContent, Text};
 
     #[tokio::test]
     async fn request_carries_caption_privacy_and_flags() {
