@@ -300,6 +300,8 @@ struct Control {
     connected: AtomicBool,
     // notify_one keeps a permit, so a runner busy elsewhere still sees the signal on its next wait.
     wake: Notify,
+    // Shared by every lease of this connection, so a large bot download keeps one getFile out on it in all.
+    gate: pacer::Gate,
 }
 
 impl Control {
@@ -429,6 +431,30 @@ impl Session {
         (Session::local(requests), sent)
     }
 
+    /// A session that answers each request with `reply()` `delay` after it came, and logs when each came and how
+    /// many it had unanswered then, that one included.
+    #[cfg(test)]
+    pub(crate) fn slow(
+        delay: Duration,
+        reply: fn() -> Result<Vec<u8>>,
+    ) -> (Session, mpsc::UnboundedReceiver<(tokio::time::Instant, usize)>) {
+        let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
+        let (log, came) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let out = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            while let Some(request) = rx.recv().await {
+                let _ = log.send((tokio::time::Instant::now(), out.fetch_add(1, Ordering::SeqCst) + 1));
+                let out = out.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    out.fetch_sub(1, Ordering::SeqCst);
+                    let _ = request.answer.send(reply());
+                });
+            }
+        });
+        (Session::local(requests), came)
+    }
+
     /// A connection for file parts only. The server keeps initConnection's client info with the auth key
     /// (https://core.telegram.org/api/invoking#saving-client-info), so an authorized key needs no second one,
     /// unless `pfs` puts it under a temporary key.
@@ -496,6 +522,11 @@ impl Session {
     /// How many times the connection was dropped to reconnect so far; for [`restart_since`](Self::restart_since).
     pub(crate) fn reconnects(&self) -> u64 {
         self.control.drops()
+    }
+
+    /// What lets a gated part out on this connection; see [`pacer::Pace`].
+    pub(crate) fn gate(&self) -> &pacer::Gate {
+        &self.control.gate
     }
 
     /// [`restart`](Self::restart), unless the connection was dropped since [`reconnects`](Self::reconnects) said

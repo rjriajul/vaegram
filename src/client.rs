@@ -20,7 +20,7 @@ use crate::handlers::UpdateKind;
 use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, Serializable, base, functions};
 use crate::session::internals::data_center::{self, Dc};
-use crate::session::pacer::{Direction, Pacer, Shape, TransferSettings};
+use crate::session::pacer::{Direction, Pacer, Plan, TransferSettings};
 use crate::session::transfer::{Auth, Lease, TransferPool};
 use crate::session::{
     AutoSleep, Call, Events, Observer, RateLimiter, RateLimits, Retry, RetryPolicy, Salt, Session, UpdatesRx,
@@ -282,41 +282,48 @@ impl ClientBuilder {
         self
     }
 
-    /// How many connections a download opens to the file's DC, 1 to 8. By default a bot opens 8 and keeps one
-    /// `upload.getFile` in flight on each: measured from a bot, more than one per connection drew 27 to 78 getFile
-    /// FLOOD_WAITs per 500 MiB at any pace. A user account opens 4, 8 with Premium, with as many chunks in flight
-    /// on each as before (1, 4 with Premium); nothing is measured for those. Out of range fails
-    /// [`start`](Self::start) and [`connect`](Self::connect) with `Error::InvalidArgument`.
+    /// How many connections a download opens to the file's DC, 1 to 8. A bot's download of 8 MiB or more, or of
+    /// unknown size, opens 8 by default and keeps one `upload.getFile` in flight on each, across every download from
+    /// that DC: measured from one bot, more than one per connection drew 27 to 78 getFile FLOOD_WAITs per 500 MiB at
+    /// any pace. A smaller one goes as a user account's: 4 connections with one chunk in flight on each, or 8 with 4
+    /// each with Premium; nothing is measured for those. Out of range fails [`start`](Self::start) and
+    /// [`connect`](Self::connect) with `Error::InvalidArgument`.
     pub fn download_connections(mut self, n: usize) -> Self {
         self.transfer_settings.download.connections = Some(n);
         self
     }
 
-    /// How many connections an upload opens, 1 to 8. By default a bot opens 8 with 2 parts in flight on each; a
-    /// user account 4 with 2 each, or 8 with 1 each with Premium. Out of range fails [`start`](Self::start) and
+    /// How many connections an upload opens, 1 to 8. A bot's upload of 8 MiB or more opens 8 by default with 2
+    /// parts in flight on each, so it holds 16 parts (8 MiB) in memory at a time. A smaller one goes as a user
+    /// account's: 4 with 2 each, or 8 with 1 each with Premium. Out of range fails [`start`](Self::start) and
     /// [`connect`](Self::connect) with `Error::InvalidArgument`.
     pub fn upload_connections(mut self, n: usize) -> Self {
         self.transfer_settings.upload.connections = Some(n);
         self
     }
 
-    /// The most bytes a second downloads from one DC ask for, all of them together; `None` doesn't pace them. Parts
-    /// go evenly, one at a time, and a CDN's aren't paced. By default 20 MiB/s for a bot, unpaced for a user
-    /// account. Measured 2026-11-14 from a bot 61 ms from its DC, 500 MiB a run: 20 MiB/s gave a median 19.88
-    /// MB/s with 0-3 FLOOD_WAITs a run; 20.5 MiB/s drew 7 and 22 MiB/s 26 in one run each, and were slower for it.
-    /// Higher rates draw FLOOD_WAITs. 0 fails [`start`](Self::start) and [`connect`](Self::connect) with
-    /// `Error::InvalidArgument`.
-    pub fn download_max_bytes_per_sec(mut self, rate: Option<u64>) -> Self {
+    /// The most bytes a second the downloads of 8 MiB or more, or of unknown size, from one DC ask for, all of them
+    /// together; `None` removes the cap. The pacer spaces out when their chunks are sent, with several still in
+    /// flight at once. Smaller downloads and a CDN's chunks aren't paced. By default 20 MiB/s for a bot, no cap for
+    /// a user account. Measured 2026-11-14 with one bot from one server 61 ms from DC5, 7 runs of 500 MiB and one
+    /// of 2,000 MiB: 20 MiB/s gave a median 19.88 MB/s with 0-3 FLOOD_WAITs a run, and 20.25 MB/s over 2,000 MiB;
+    /// 20.5 MiB/s drew 7 and 22 MiB/s 26 in one run each. wzgram paces every bot at 40 parts a second, the same
+    /// 20 MiB/s. Nothing is measured on other DCs, nor for several processes on one bot token: the cap is per client
+    /// and per DC. 0 fails [`start`](Self::start) and [`connect`](Self::connect) with `Error::InvalidArgument`.
+    pub fn max_download_bytes_per_sec(mut self, rate: Option<u64>) -> Self {
         self.transfer_settings.download.max_bytes_per_sec = Some(rate);
         self
     }
 
-    /// The most bytes a second uploads to one DC send, all of them together; `None` doesn't pace them. Parts go
-    /// evenly, one at a time. By default 19.5 MiB/s for a bot, unpaced for a user account. Measured 2026-11-14 from
-    /// a bot 61 ms from its DC, 500 MiB a run: 19.5 MiB/s gave a median 20.14 MB/s with 0-7 FLOOD_WAITs a run,
-    /// unpaced 17.79 MB/s with 28-45; 20 MiB/s drew 9 and 21 MiB/s 42 in one run each. Higher rates draw
-    /// FLOOD_WAITs. 0 fails [`start`](Self::start) and [`connect`](Self::connect) with `Error::InvalidArgument`.
-    pub fn upload_max_bytes_per_sec(mut self, rate: Option<u64>) -> Self {
+    /// The most bytes a second the uploads of 8 MiB or more to one DC send, all of them together; `None` removes
+    /// the cap. The pacer spaces out when their parts are sent, with several still in flight at once. Smaller
+    /// uploads aren't paced. By default 19.5 MiB/s for a bot, no cap for a user account. Measured 2026-11-14 with
+    /// one bot from one server 61 ms from DC5, 7 runs of 500 MiB and one of 2,000 MiB: 19.5 MiB/s gave a median
+    /// 20.14 MB/s with 0-7 FLOOD_WAITs a run, against 17.79 MB/s with 28-45 unpaced, and 20.37 MB/s over 2,000 MiB;
+    /// 20 MiB/s drew 9 and 21 MiB/s 42 in one run each. wzgram paces every bot at 40 parts a second, the same
+    /// 20 MiB/s. Nothing is measured on other DCs, nor for several processes on one bot token: the cap is per client
+    /// and per DC. 0 fails [`start`](Self::start) and [`connect`](Self::connect) with `Error::InvalidArgument`.
+    pub fn max_upload_bytes_per_sec(mut self, rate: Option<u64>) -> Self {
         self.transfer_settings.upload.max_bytes_per_sec = Some(rate);
         self
     }
@@ -1020,18 +1027,16 @@ impl Client {
         Ok(matches!(me, base::User::User(u) if u.premium))
     }
 
-    /// The shape of a transfer in `direction`, once `is_premium` has looked the account up, which tells a bot too;
-    /// when that lookup failed, an account not stored as a bot counts as a user.
-    pub(crate) fn transfer_shape(&self, direction: Direction, premium: bool) -> Shape {
+    /// How a transfer of `bytes` in `direction` goes, once `is_premium` has looked the account up, which tells a bot
+    /// too; when that lookup failed, an account not stored as a bot counts as a user.
+    pub(crate) fn transfer_plan(&self, direction: Direction, premium: bool, bytes: Option<u64>) -> Plan {
         let bot = self.0.me.lock().unwrap().is_bot;
-        self.0.transfer_settings.shape(direction, bot, premium)
+        self.0.transfer_settings.plan(direction, bot, premium, bytes)
     }
 
-    /// The pacer the parts to `dc_id` in `direction` share, `None` when they go unpaced; see `transfer_shape`.
-    pub(crate) fn pacer(&self, dc_id: i32, direction: Direction) -> Option<Arc<Pacer>> {
-        let bot = self.0.me.lock().unwrap().is_bot;
-        let rate = self.0.transfer_settings.rate(direction, bot)?;
-        Some(self.0.transfers.pacer(dc_id, direction, rate))
+    /// The pacer the parts of transfers to `dc_id` in `direction` that go as `plan` share, `None` when unpaced.
+    pub(crate) fn pacer(&self, dc_id: i32, direction: Direction, plan: Plan) -> Option<Arc<Pacer>> {
+        Some(self.0.transfers.pacer(dc_id, direction, plan.rate?))
     }
 
     pub(crate) fn dc(&self, dc_id: i32) -> Result<Dc> {
@@ -1218,7 +1223,7 @@ mod tests {
     use super::{Client, Me};
     use crate::errors::Error;
     use crate::raw::{base, types};
-    use crate::session::pacer::Direction;
+    use crate::session::pacer::{Direction, LARGE};
     use crate::session::test_dc::TestDc;
     use crate::session::{AutoSleep, RateCategory, RateLimits};
     use crate::storage::{FileStorage, MemoryStorage, PeerRecord, Recording, SessionData, Storage, UpdateState};
@@ -1270,8 +1275,8 @@ mod tests {
         let refused = [
             builder().download_connections(0),
             builder().upload_connections(9),
-            builder().download_max_bytes_per_sec(Some(0)),
-            builder().upload_max_bytes_per_sec(Some(0)),
+            builder().max_download_bytes_per_sec(Some(0)),
+            builder().max_upload_bytes_per_sec(Some(0)),
         ];
         for builder in refused {
             assert!(matches!(builder.connect().await, Err(Error::InvalidArgument(_))));
@@ -1280,13 +1285,14 @@ mod tests {
 
     #[test]
     fn transfer_options_reach_the_settings() {
-        let builder = Client::builder("set", 1, "hash").download_connections(3).upload_max_bytes_per_sec(None);
+        let builder = Client::builder("set", 1, "hash").download_connections(3).max_upload_bytes_per_sec(None);
         let settings = builder.transfer_settings;
-        assert_eq!(settings.shape(Direction::Download, true, false).connections, 3);
-        assert_eq!(settings.rate(Direction::Upload, true), None);
-        let set = Client::builder("set", 1, "hash").download_max_bytes_per_sec(Some(1 << 20)).transfer_settings;
-        let rates = (set.rate(Direction::Download, true), set.rate(Direction::Download, false));
-        assert_eq!(rates, (Some(1 << 20), Some(1 << 20)));
+        let large = Some(LARGE);
+        assert_eq!(settings.plan(Direction::Download, true, false, large).shape.connections, 3);
+        assert_eq!(settings.plan(Direction::Upload, true, false, large).rate, None);
+        let set = Client::builder("set", 1, "hash").max_download_bytes_per_sec(Some(1 << 20)).transfer_settings;
+        let rate = |bot| set.plan(Direction::Download, bot, false, large).rate;
+        assert_eq!((rate(true), rate(false)), (Some(1 << 20), Some(1 << 20)));
     }
 
     #[test]

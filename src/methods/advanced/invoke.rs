@@ -8,7 +8,7 @@ use crate::dispatcher::cache::BusinessHome;
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, base, functions};
 use crate::session::no_updates::needs_updates;
-use crate::session::pacer::Pacer;
+use crate::session::pacer::Pace;
 use crate::session::transfer::invoke_paced_part;
 use crate::session::{RateCategory, Session, Tally};
 
@@ -125,7 +125,7 @@ impl Client {
         session: &Session,
         request: &R,
         timeout: Duration,
-        pace: Option<(&Pacer, u64)>,
+        pace: Pace<'_>,
     ) -> Result<R::Return> {
         match self.1 {
             Some(takeout_id) => {
@@ -630,7 +630,7 @@ mod tests {
         let session = client.session();
         // File parts go to their connection, and the dispatcher's getDifference straight to the session.
         let timeout = crate::session::transfer::MIN_PART_TIMEOUT;
-        client.invoke_file_part(&session, &set_typing(), timeout, None).await.unwrap();
+        client.invoke_file_part(&session, &set_typing(), timeout, Pace::default()).await.unwrap();
         session.invoke(&set_typing()).await.unwrap();
         assert!(taken(&client).is_empty());
 

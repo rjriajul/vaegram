@@ -1,8 +1,10 @@
 //! How many connections a file transfer spreads its parts over, and how fast it may send them.
 
+use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use tokio::sync::{Semaphore, SemaphorePermit};
 use tokio::time::Instant;
 
 use crate::errors::{Error, Result};
@@ -10,9 +12,17 @@ use crate::errors::{Error, Result};
 /// The most connections one transfer opens: what Premium accounts already got, and the most measured.
 pub(crate) const MAX_CONNECTIONS: usize = 8;
 
-// Bots, measured 2026-11-14 from 61 ms to DC5, 500 MiB a run: 8 connections paced to 20 MiB/s down and 19.5 MiB/s up
-// gave a median 19.88 MB/s down and 20.14 up, with 0-3 and 0-7 FLOOD_WAITs a run, against 17.65 and 17.79 (28-45
-// upload FLOOD_WAITs) on 4 unpaced. Nothing is measured for user accounts, so they keep the shape they had, unpaced.
+/// A transfer of this many bytes or more by a bot gets the bot shape, the pace and one getFile per connection.
+pub(crate) const LARGE: u64 = 8 << 20;
+
+// Bots, measured 2026-11-14 with one bot from one server 61 ms from DC5, 7 runs of 500 MiB and one of 2,000 MiB:
+// 8 connections paced to 20 MiB/s down, one getFile out on each, and 19.5 MiB/s up, two parts out on each, gave a
+// median 19.88 MB/s down and 20.14 up with 0-3 and 0-7 FLOOD_WAITs a run, against 17.65 and 17.79 (28-45 upload
+// FLOOD_WAITs) on 4 unpaced; the 2,000 MiB run went at 20.25 and 20.37. wzgram paces every bot at 40 parts a second,
+// the same 20 MiB/s. Nothing is measured on other DCs, nor for several processes on one bot token: the pace is per
+// client and per DC. Those are sustained transfers, and nothing shows a short burst floods, so a bot's transfer
+// under LARGE goes as a user's, unpaced, and doesn't wait for 8 handshakes before its first byte. User accounts are
+// not measured at all, so they keep the shape they had, unpaced.
 const BOT: Shapes = Shapes { download: Shape::new(8, 1), upload: Shape::new(8, 2) };
 const BOT_DOWNLOAD_RATE: u64 = 20 << 20;
 const BOT_UPLOAD_RATE: u64 = 39 << 19;
@@ -51,6 +61,16 @@ struct Shapes {
     upload: Shape,
 }
 
+/// How one transfer goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Plan {
+    pub(crate) shape: Shape,
+    /// Bytes a second, shared with every transfer to the same DC in the same direction; `None` for unpaced.
+    pub(crate) rate: Option<u64>,
+    /// Whether each upload.getFile holds its connection's [`Gate`] while it's out.
+    pub(crate) gated: bool,
+}
+
 /// One direction's builder overrides; `None` keeps the account's default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Lane {
@@ -72,7 +92,7 @@ impl TransferSettings {
                 return Err(Error::InvalidArgument("transfer connections must be 1 to 8"));
             }
             if lane.max_bytes_per_sec == Some(Some(0)) {
-                return Err(Error::InvalidArgument("max_bytes_per_sec must be above 0"));
+                return Err(Error::InvalidArgument("max bytes per second must be above 0"));
             }
         }
         Ok(())
@@ -85,8 +105,21 @@ impl TransferSettings {
         }
     }
 
-    /// The shape of a transfer in `direction` by a bot or a user account with or without Premium.
-    pub(crate) fn shape(&self, direction: Direction, bot: bool, premium: bool) -> Shape {
+    /// How a transfer of `bytes` in `direction` goes for a bot or a user account with or without Premium; `None`
+    /// bytes, as for a download of unknown size, count as large. Only large transfers are paced.
+    pub(crate) fn plan(&self, direction: Direction, bot: bool, premium: bool, bytes: Option<u64>) -> Plan {
+        let large = bytes.is_none_or(|bytes| bytes >= LARGE);
+        let bot = bot && large;
+        let rate = if large { self.rate(direction, bot) } else { None };
+        Plan { shape: self.shape(direction, bot, premium), rate, gated: bot && direction == Direction::Download }
+    }
+
+    /// The shape a download from a CDN gets, whatever the account: nothing is measured there.
+    pub(crate) fn cdn_shape(&self, premium: bool) -> Shape {
+        self.shape(Direction::Download, false, premium)
+    }
+
+    fn shape(&self, direction: Direction, bot: bool, premium: bool) -> Shape {
         let shapes = match (bot, premium) {
             (true, _) => &BOT,
             (false, true) => &PREMIUM,
@@ -99,8 +132,7 @@ impl TransferSettings {
         Shape { connections: self.lane(direction).connections.unwrap_or(shape.connections), ..shape }
     }
 
-    /// The bytes a second parts in `direction` may go at, `None` for unpaced.
-    pub(crate) fn rate(&self, direction: Direction, bot: bool) -> Option<u64> {
+    fn rate(&self, direction: Direction, bot: bool) -> Option<u64> {
         let default = match (bot, direction) {
             (true, Direction::Download) => Some(BOT_DOWNLOAD_RATE),
             (true, Direction::Upload) => Some(BOT_UPLOAD_RATE),
@@ -110,43 +142,134 @@ impl TransferSettings {
     }
 }
 
+/// How one part waits its turn before each send: on `pacer` for its `bytes`, and on its connection's [`Gate`]
+/// when `gated`.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Pace<'a> {
+    pub(crate) pacer: Option<&'a Pacer>,
+    pub(crate) bytes: u64,
+    pub(crate) gated: bool,
+}
+
+/// Lets one gated upload.getFile out on a connection at a time, whichever download it's for: the bot shape has
+/// one in flight on each, and more drew 27-78 getFile FLOOD_WAITs per 500 MiB at any pace.
+pub(crate) struct Gate(Semaphore);
+
+impl Default for Gate {
+    fn default() -> Gate {
+        Gate(Semaphore::new(1))
+    }
+}
+
+impl Gate {
+    pub(crate) async fn enter(&self) -> Option<SemaphorePermit<'_>> {
+        self.0.acquire().await.ok()
+    }
+}
+
 /// What a pacer lets through at once: one 512 KiB part, the download chunk and the upload part both.
 const BURST: u64 = 512 << 10;
 
-/// Spaces out the parts one client sends in one direction to one DC, so they go at `rate` bytes a second: a token
-/// bucket that holds one part and starts full. An idle pacer lets a part through at once, and small files several,
-/// while parts that keep coming go evenly, one part's time apart, not in bursts. Every send takes its own bytes, a
-/// resend too.
+/// Spaces out the sends of the parts one client sends in one direction to one DC, so they go at `rate` bytes a
+/// second: a token bucket that holds one part and starts full. An idle pacer lets a part through at once, and
+/// small ones several, while parts that keep coming leave one part's time apart, not in bursts. Every send takes
+/// its own bytes, a resend too.
 pub(crate) struct Pacer {
     rate: u64,
-    // When the bucket is full again, given what was taken from it so far.
-    full: Mutex<Instant>,
+    bucket: Mutex<Bucket>,
+}
+
+struct Bucket {
+    // When the bucket is full again, given what the bookings so far took.
+    full: Instant,
+    // The bookings since the last one sent, oldest first, each with where it started taking.
+    booked: VecDeque<Booking>,
+    next_id: u64,
+}
+
+struct Booking {
+    id: u64,
+    from: Instant,
+    state: State,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum State {
+    Waiting,
+    Sent,
+    Dropped,
+}
+
+impl Bucket {
+    // Nothing up to a booking that went can be handed back any more.
+    fn prune(&mut self) {
+        if let Some(sent) = self.booked.iter().rposition(|b| b.state == State::Sent) {
+            self.booked.drain(..=sent);
+        }
+    }
+}
+
+/// A booking still waiting for its turn; dropped before it came, it hands its bytes back.
+struct Booked<'a> {
+    pacer: &'a Pacer,
+    id: u64,
+    sent: bool,
+}
+
+impl Drop for Booked<'_> {
+    fn drop(&mut self) {
+        self.pacer.settle(self.id, if self.sent { State::Sent } else { State::Dropped });
+    }
 }
 
 impl Pacer {
     pub(crate) fn new(rate: u64) -> Pacer {
-        Pacer { rate, full: Mutex::new(Instant::now()) }
-    }
-
-    pub(crate) fn rate(&self) -> u64 {
-        self.rate
+        let bucket = Bucket { full: Instant::now(), booked: VecDeque::new(), next_id: 0 };
+        Pacer { rate, bucket: Mutex::new(bucket) }
     }
 
     fn time(&self, bytes: u64) -> Duration {
         Duration::from_nanos(bytes.saturating_mul(1_000_000_000) / self.rate)
     }
 
-    /// Returns once a part of `bytes` may go. A part dropped while waiting has still taken its bytes.
+    /// Returns once a part of `bytes` may go.
+    ///
+    /// Dropped while it waits, it gives its bytes back once every booking made after it was dropped too: the next
+    /// booking then starts where the earliest of them did, which is never before the end of a booking still waiting
+    /// or already sent, so no part ever goes sooner than the pace lets it, and none already waiting goes later. A
+    /// dropped booking with a live one after it stays charged.
     pub(crate) async fn pace(&self, bytes: u64) {
         let now = Instant::now();
-        let wait = {
-            let mut full = self.full.lock().unwrap();
-            *full = (*full).max(now) + self.time(bytes);
-            full.saturating_duration_since(now).saturating_sub(self.time(BURST))
+        let (id, wait) = {
+            let mut bucket = self.bucket.lock().unwrap();
+            let from = bucket.full.max(now);
+            bucket.full = from + self.time(bytes);
+            let wait = bucket.full.saturating_duration_since(now).saturating_sub(self.time(BURST));
+            let id = bucket.next_id;
+            bucket.next_id += 1;
+            let state = if wait.is_zero() { State::Sent } else { State::Waiting };
+            bucket.booked.push_back(Booking { id, from, state });
+            bucket.prune();
+            (id, wait)
         };
-        if !wait.is_zero() {
-            tokio::time::sleep_until(now + wait).await;
+        if wait.is_zero() {
+            return;
         }
+        let mut booked = Booked { pacer: self, id, sent: false };
+        tokio::time::sleep_until(now + wait).await;
+        booked.sent = true;
+    }
+
+    fn settle(&self, id: u64, state: State) {
+        let mut bucket = self.bucket.lock().unwrap();
+        if let Some(booking) = bucket.booked.iter_mut().find(|b| b.id == id) {
+            booking.state = state;
+        }
+        while let Some(from) = bucket.booked.back().filter(|b| b.state == State::Dropped).map(|b| b.from) {
+            bucket.full = from;
+            bucket.booked.pop_back();
+        }
+        bucket.prune();
     }
 }
 
@@ -156,33 +279,46 @@ mod tests {
 
     use tokio::time::Instant;
 
-    use super::{Direction, Lane, MAX_CONNECTIONS, Pacer, Shape, TransferSettings};
+    use super::{Direction, LARGE, Lane, MAX_CONNECTIONS, Pacer, Plan, Shape, TransferSettings};
     use crate::errors::Error;
 
     const PART: u64 = 512 << 10;
 
-    #[test]
-    fn a_user_account_keeps_its_shape_unpaced() {
-        let settings = TransferSettings::default();
-        let user = |direction, premium| (settings.shape(direction, false, premium), settings.rate(direction, false));
-        assert_eq!(user(Direction::Download, false), (Shape::new(4, 1), None));
-        assert_eq!(user(Direction::Upload, false), (Shape::new(4, 2), None));
-        assert_eq!(user(Direction::Download, true), (Shape::new(8, 4), None));
-        assert_eq!(user(Direction::Upload, true), (Shape::new(8, 1), None));
-        // The bytes in flight before shapes: 2 MiB down, 16 MiB with Premium, 4 MiB up either way.
-        let in_flight = |direction, premium| settings.shape(direction, false, premium).in_flight(PART);
-        assert_eq!(in_flight(Direction::Download, false), 2 << 20);
-        assert_eq!(in_flight(Direction::Download, true), 16 << 20);
-        assert_eq!((in_flight(Direction::Upload, false), in_flight(Direction::Upload, true)), (4 << 20, 4 << 20));
+    fn plan(shape: Shape, rate: Option<u64>, gated: bool) -> Plan {
+        Plan { shape, rate, gated }
     }
 
     #[test]
-    fn a_bot_gets_8_connections_paced() {
+    fn a_user_account_keeps_its_shape_unpaced() {
         let settings = TransferSettings::default();
-        assert_eq!(settings.shape(Direction::Download, true, false), Shape::new(8, 1));
-        assert_eq!(settings.shape(Direction::Upload, true, false), Shape::new(8, 2));
-        assert_eq!(settings.rate(Direction::Download, true), Some(20 << 20));
-        assert_eq!(settings.rate(Direction::Upload, true), Some(19 * (1 << 20) + (1 << 19)));
+        let user = |direction, premium| settings.plan(direction, false, premium, Some(LARGE));
+        assert_eq!(user(Direction::Download, false), plan(Shape::new(4, 1), None, false));
+        assert_eq!(user(Direction::Upload, false), plan(Shape::new(4, 2), None, false));
+        assert_eq!(user(Direction::Download, true), plan(Shape::new(8, 4), None, false));
+        assert_eq!(user(Direction::Upload, true), plan(Shape::new(8, 1), None, false));
+        // The bytes in flight before shapes: 2 MiB down, 16 MiB with Premium, 4 MiB up either way.
+        let in_flight = |direction, premium| user(direction, premium).shape.in_flight(PART);
+        assert_eq!(in_flight(Direction::Download, false), 2 << 20);
+        assert_eq!(in_flight(Direction::Download, true), 16 << 20);
+        assert_eq!((in_flight(Direction::Upload, false), in_flight(Direction::Upload, true)), (4 << 20, 4 << 20));
+        assert_eq!(settings.cdn_shape(false), Shape::new(4, 1));
+        assert_eq!(settings.cdn_shape(true), Shape::new(8, 4));
+    }
+
+    #[test]
+    fn a_bot_gets_8_connections_paced_from_8_mib() {
+        let settings = TransferSettings::default();
+        let bot = |direction, bytes| settings.plan(direction, true, false, bytes);
+        let rate = 19 * (1 << 20) + (1 << 19);
+        for large in [Some(LARGE), None] {
+            assert_eq!(bot(Direction::Download, large), plan(Shape::new(8, 1), Some(20 << 20), true));
+            assert_eq!(bot(Direction::Upload, large), plan(Shape::new(8, 2), Some(rate), false));
+        }
+        // Under 8 MiB a bot's transfer goes as a user's.
+        for direction in [Direction::Download, Direction::Upload] {
+            assert_eq!(bot(direction, Some(LARGE - 1)), settings.plan(direction, false, false, Some(LARGE - 1)));
+        }
+        assert_eq!(settings.cdn_shape(false), Shape::new(4, 1));
     }
 
     #[test]
@@ -190,12 +326,13 @@ mod tests {
         let lane = |connections, rate| Lane { connections, max_bytes_per_sec: rate };
         let settings = TransferSettings { download: lane(Some(2), Some(None)), upload: lane(None, Some(Some(1000))) };
         assert!(settings.validate().is_ok());
-        assert_eq!(settings.shape(Direction::Download, true, false), Shape::new(2, 1));
-        assert_eq!(settings.shape(Direction::Download, false, true), Shape::new(2, 4));
-        assert_eq!(settings.rate(Direction::Download, true), None);
-        assert_eq!(settings.shape(Direction::Upload, true, false), Shape::new(8, 2));
-        let upload = (settings.rate(Direction::Upload, true), settings.rate(Direction::Upload, false));
-        assert_eq!(upload, (Some(1000), Some(1000)));
+        let large = |direction, bot, premium| settings.plan(direction, bot, premium, Some(LARGE));
+        assert_eq!(large(Direction::Download, true, false), plan(Shape::new(2, 1), None, true));
+        assert_eq!(large(Direction::Download, false, true), plan(Shape::new(2, 4), None, false));
+        assert_eq!(large(Direction::Upload, true, false), plan(Shape::new(8, 2), Some(1000), false));
+        assert_eq!(large(Direction::Upload, false, false), plan(Shape::new(4, 2), Some(1000), false));
+        // A small transfer isn't paced whatever the rate.
+        assert_eq!(settings.plan(Direction::Upload, true, false, Some(1)).rate, None);
 
         for bad in [lane(Some(0), None), lane(Some(MAX_CONNECTIONS + 1), None), lane(None, Some(Some(0)))] {
             let download = TransferSettings { download: bad, ..settings };
@@ -237,5 +374,36 @@ mod tests {
         assert_eq!(start.elapsed(), Duration::ZERO);
         pacer.pace(PART / 4).await;
         assert_eq!(start.elapsed(), Duration::from_millis(250));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn parts_dropped_while_waiting_give_their_time_back() {
+        let pacer = Pacer::new(PART);
+        let start = Instant::now();
+        // The first goes at once; the other three book 1, 2 and 3 s and are dropped, oldest first.
+        let mut started: Vec<_> = (0..4).map(|_| Box::pin(pacer.pace(PART))).collect();
+        for pace in &mut started {
+            let _ = tokio::time::timeout(Duration::ZERO, pace.as_mut()).await;
+        }
+        drop(started);
+        pacer.pace(PART).await;
+        assert_eq!(start.elapsed(), Duration::from_secs(1));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_part_dropped_before_a_waiting_one_stays_charged() {
+        let pacer = Pacer::new(PART);
+        let start = Instant::now();
+        pacer.pace(PART).await;
+        let mut dropped = Box::pin(pacer.pace(PART));
+        let _ = tokio::time::timeout(Duration::ZERO, dropped.as_mut()).await;
+        let mut waiting = Box::pin(pacer.pace(PART));
+        let _ = tokio::time::timeout(Duration::ZERO, waiting.as_mut()).await;
+        drop(dropped);
+        // The one booked after it keeps its turn at 2 s, and the next goes after that, not in the gap.
+        waiting.await;
+        assert_eq!(start.elapsed(), Duration::from_secs(2));
+        pacer.pace(PART).await;
+        assert_eq!(start.elapsed(), Duration::from_secs(3));
     }
 }
