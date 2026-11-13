@@ -199,7 +199,9 @@ impl CallbackQuery {
 
     /// Sends an ephemeral message to the user who pressed the button, answering this query.
     ///
-    /// The text is a [`MessageText`]: plain or formatted text, or a rich message. Fails with
+    /// The text is a [`MessageText`]: plain or formatted text, or a rich message. For a button on a regular message,
+    /// chain [`replace_callback_query_message`](SendEphemeralMessage::replace_callback_query_message) to show it in
+    /// place of the pressed message; that has not been tried on a button of an ephemeral message. Fails with
     /// [`Error::InvalidArgument`] if the button is on an inline message.
     pub fn answer_ephemeral(&self, text: impl Into<MessageText>) -> Result<SendEphemeralMessage<'_>> {
         let chat =
@@ -337,6 +339,42 @@ mod tests {
         expected.extend(9i64.to_bytes());
         expected.extend(String::from("reply").to_bytes());
         assert!(body.windows(expected.len()).any(|w| w == expected));
+    }
+
+    #[tokio::test]
+    async fn answer_ephemeral_can_replace_the_pressed_message() {
+        let (client, mut sent) = Client::recording();
+        let channel = types::InputPeerChannel { channel_id: 42, access_hash: 7 };
+        let channel = base::InputPeer::InputPeerChannel(Box::new(channel));
+        let user = types::InputPeerUser { user_id: 1000, access_hash: 9 };
+        {
+            let mut peers = client.0.peers.lock().unwrap();
+            peers.insert(get_channel_id(42), channel.clone());
+            peers.insert(1000, base::InputPeer::InputPeerUser(Box::new(user)));
+        }
+        let q = crate::dispatcher::listeners::tests::query(&client, 1000, get_channel_id(42), 5);
+        let _ = q.answer_ephemeral("hi").unwrap().replace_callback_query_message().await;
+        let body = sent.try_recv().expect("no request sent");
+        let expected = crate::raw::functions::ephemeral::SendMessage {
+            invert_media: false,
+            welcome: false,
+            anchor: true,
+            noforwards: false,
+            peer: Some(channel),
+            receiver_id: base::InputUser::InputUser(Box::new(types::InputUser { user_id: 1000, access_hash: 9 })),
+            query_id: Some(q.id),
+            message: "hi".into(),
+            entities: None,
+            media: None,
+            reply_markup: None,
+            rich_message: None,
+            random_id: 0,
+            reply_to: None,
+        }
+        .to_bytes();
+        // Only the random id, the last eight bytes when there is no reply, is left unchecked.
+        assert_eq!(body.len(), expected.len());
+        assert_eq!(body[..body.len() - 8], expected[..expected.len() - 8]);
     }
 
     #[tokio::test]
