@@ -4,7 +4,7 @@ use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
 use crate::types::messages_and_media::{input_document_of, input_photo_of};
-use crate::types::{Message, PeerRef, Text};
+use crate::types::{Message, PeerRef, Text, Widget};
 
 #[must_use = "a request does nothing until it is awaited"]
 /// Request built by [`Client::copy_message`]. Awaiting it returns the new [`Message`].
@@ -23,6 +23,8 @@ pub struct CopyMessage<'a> {
 
 impl Client {
     /// Copies a message to `chat_id` without a link to the original.
+    ///
+    /// Only bots can send widgets; Telegram decides whether a widget copy is allowed.
     ///
     /// Returns the copy as a [`Message`].
     pub fn copy_message(
@@ -113,6 +115,27 @@ pub(super) fn input_media(media: base::MessageMedia) -> Result<Option<base::Inpu
     let unsupported = Error::Unexpected("getMessages returned media that can't be copied");
     let media = match media {
         M::MessageMediaEmpty | M::MessageMediaWebPage(_) => return Ok(None),
+        M::MessageMediaWidget(m) => match m.widget_id {
+            // A shared widget stays the same object, so its shared data keeps following edits; Telegram refuses
+            // the id when the copying bot didn't create it.
+            Some(widget_id) => {
+                base::InputMedia::InputMediaWidgetId(Box::new(types::InputMediaWidgetId { widget_id, chat_data: None }))
+            }
+            None => {
+                let html = Widget::parse(&m)
+                    .ok_or(Error::InvalidArgument("widget payload could not be inflated as UTF-8 HTML"))?
+                    .html;
+                base::InputMedia::InputMediaWidget(Box::new(types::InputMediaWidget {
+                    allow_queries: m.can_query,
+                    shared_widget: false,
+                    width: m.width,
+                    height: m.height,
+                    html,
+                    public_data: m.public_data,
+                    chat_data: None,
+                }))
+            }
+        },
         M::MessageMediaPhoto(m) => {
             let id = m.photo.and_then(input_photo_of).ok_or(unsupported)?;
             let video = m.video.and_then(input_document_of);
@@ -261,5 +284,67 @@ mod tests {
     async fn the_video_start_timestamp_skips_other_documents() {
         let (body, expected) = (copied(false).await, input_document(None));
         assert!(body.windows(expected.len()).any(|w| w == expected), "a non-video got a start time");
+    }
+
+    #[test]
+    fn copies_a_shared_widget_by_its_id() {
+        let widget = types::MessageMediaWidget {
+            is_copy: false,
+            can_query: true,
+            background_query: false,
+            width: 0,
+            height: 0,
+            payload: Vec::new(),
+            public_data: Some("public".into()),
+            public_data_hash: Some(1),
+            chat_data: Some("private".into()),
+            widget_id: Some(77),
+        };
+        let media = super::input_media(base::MessageMedia::MessageMediaWidget(Box::new(widget))).unwrap();
+        let expected = types::InputMediaWidgetId { widget_id: 77, chat_data: None };
+        assert_eq!(media, Some(base::InputMedia::InputMediaWidgetId(Box::new(expected))));
+    }
+
+    #[tokio::test]
+    async fn copies_a_widget_as_input_media() {
+        use std::io::Write;
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(b"<b>hello</b>").unwrap();
+        let widget = types::MessageMediaWidget {
+            is_copy: false,
+            can_query: true,
+            background_query: false,
+            width: 123,
+            height: 45,
+            payload: encoder.finish().unwrap(),
+            public_data: Some("public".into()),
+            public_data_hash: Some(99),
+            chat_data: Some("private".into()),
+            widget_id: None,
+        };
+        let mut source = Message::bare(3, get_peer(-6), 0);
+        source.media = Some(base::MessageMedia::MessageMediaWidget(Box::new(widget)));
+        let found = types::messages::Messages {
+            messages: vec![base::Message::Message(Box::new(source))],
+            topics: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        let response = base::messages::Messages::Messages(Box::new(found)).to_bytes();
+        let (client, mut sent) = Client::scripted(vec![Ok(response)]);
+        let _ = client.copy_message(-5, -6, 3).await;
+        sent.try_recv().expect("no getMessages sent");
+        let body = sent.try_recv().expect("no sendMedia sent");
+        let expected = base::InputMedia::InputMediaWidget(Box::new(types::InputMediaWidget {
+            allow_queries: true,
+            shared_widget: false,
+            width: 123,
+            height: 45,
+            html: "<b>hello</b>".into(),
+            public_data: Some("public".into()),
+            chat_data: None,
+        }))
+        .to_bytes();
+        assert!(body.windows(expected.len()).any(|window| window == expected));
     }
 }

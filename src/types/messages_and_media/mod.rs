@@ -109,6 +109,10 @@ mod video_note;
 mod voice;
 mod web_app_data;
 pub(crate) mod web_page;
+mod widget;
+mod widget_data_updated;
+pub use widget::Widget;
+pub use widget_data_updated::WidgetDataUpdated;
 mod write_access_allowed;
 
 pub use animation::Animation;

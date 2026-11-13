@@ -2,7 +2,7 @@ use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
-use crate::types::{Message, PeerRef, Story, Text};
+use crate::types::{Message, PeerRef, RichText, Story, Text};
 
 /// What a new message replies to: a message or a story, with an optional quote.
 #[derive(Debug, Clone, PartialEq)]
@@ -14,6 +14,7 @@ pub struct ReplyParameters {
     quote_position: Option<i32>,
     checklist_task_id: Option<i32>,
     story_id: Option<i32>,
+    quote_rich_texts: Option<Vec<RichText>>,
 }
 
 impl ReplyParameters {
@@ -28,6 +29,7 @@ impl ReplyParameters {
             quote_position: None,
             checklist_task_id: None,
             story_id: None,
+            quote_rich_texts: None,
         }
     }
 
@@ -75,10 +77,20 @@ impl ReplyParameters {
         self.checklist_task_id = Some(task_id);
         self
     }
+    /// Quotes part of the replied message as rich texts.
+    #[must_use]
+    pub fn quote_rich_texts(mut self, texts: impl IntoIterator<Item = impl Into<RichText>>) -> Self {
+        self.quote_rich_texts = Some(texts.into_iter().map(Into::into).collect());
+        self
+    }
 
     pub(crate) async fn write(&self, client: &Client, chat_id: i64) -> Result<base::InputReplyTo> {
         if let Some(story_id) = self.story_id {
-            if self.quote.is_some() || self.quote_position.is_some() || self.checklist_task_id.is_some() {
+            if self.quote.is_some()
+                || self.quote_position.is_some()
+                || self.checklist_task_id.is_some()
+                || self.quote_rich_texts.is_some()
+            {
                 return Err(Error::InvalidArgument("a story reply takes no quote or checklist task"));
             }
             let chat = self.chat_id.as_ref().ok_or(Error::InvalidArgument("a story reply needs the story's chat"))?;
@@ -107,7 +119,7 @@ impl ReplyParameters {
             monoforum_peer_id: None,
             todo_item_id: self.checklist_task_id,
             poll_option: None,
-            quote_rich: None,
+            quote_rich: self.quote_rich_texts.as_ref().map(|texts| texts.iter().map(|t| t.0.clone()).collect()),
         };
         Ok(base::InputReplyTo::InputReplyToMessage(Box::new(reply)))
     }
@@ -160,6 +172,7 @@ mod tests {
             ReplyParameters::story(7, 8).quote("hi"),
             ReplyParameters::story(7, 8).quote_position(1),
             ReplyParameters::story(7, 8).checklist_task_id(2),
+            ReplyParameters::story(7, 8).quote_rich_texts([RichText::from("hi")]),
         ] {
             let err = reply.write(&client, -5).await.unwrap_err();
             assert!(matches!(err, Error::InvalidArgument("a story reply takes no quote or checklist task")), "{err:?}");
@@ -193,5 +206,26 @@ mod tests {
         let base::InputReplyTo::InputReplyToMessage(reply) = written else { panic!("not a message reply") };
         let bold = base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 });
         assert_eq!((reply.quote_text.as_deref(), reply.quote_entities), (Some("hi"), Some(vec![bold])));
+    }
+
+    #[tokio::test]
+    async fn a_rich_quote_writes_quote_rich() {
+        let (client, _rx, _) = seeded();
+        let rich = RichText::from("hello");
+        let written = ReplyParameters::new(4).quote_rich_texts([rich.clone()]).write(&client, -5).await.unwrap();
+        let expected = types::InputReplyToMessage {
+            reply_to_msg_id: 4,
+            top_msg_id: None,
+            reply_to_peer_id: None,
+            quote_text: None,
+            quote_entities: None,
+            quote_offset: None,
+            monoforum_peer_id: None,
+            todo_item_id: None,
+            poll_option: None,
+            quote_rich: Some(vec![rich.0]),
+        };
+        let expected = base::InputReplyTo::InputReplyToMessage(Box::new(expected));
+        assert_eq!(written.to_bytes(), expected.to_bytes());
     }
 }

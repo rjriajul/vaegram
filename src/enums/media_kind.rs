@@ -52,10 +52,12 @@ pub enum MediaKind {
     WebPage,
     /// Media of a kind this library doesn't know.
     Unknown,
+    /// An interactive widget.
+    Widget,
 }
 
 // A media filter keeps its kinds in a `u32` mask.
-const _: () = assert!((MediaKind::Unknown as u8) < 32);
+const _: () = assert!((MediaKind::Widget as u8) < 32);
 
 impl MediaKind {
     pub(crate) fn of(media: &base::MessageMedia) -> Option<MediaKind> {
@@ -82,6 +84,7 @@ impl MediaKind {
             M::MessageMediaGiveaway(_) => MediaKind::Giveaway,
             M::MessageMediaGiveawayResults(_) => MediaKind::GiveawayWinners,
             M::MessageMediaPaidMedia(_) => MediaKind::PaidMedia,
+            M::MessageMediaWidget(_) => MediaKind::Widget,
             M::MessageMediaWebPage(_) => MediaKind::WebPage,
             _ => MediaKind::Unknown,
         })

@@ -7,7 +7,8 @@ use crate::types::{
     DeletedEphemeralMessages, DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
     MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PendingJoinRequestsUpdated,
     PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, ReactionsUpdated,
-    ReadHistoryUpdated, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, User, UserStatusUpdated,
+    ReadHistoryUpdated, SharedWidgetQuery, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, User,
+    UserStatusUpdated, WidgetDataUpdated, WidgetQuery,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -86,6 +87,17 @@ subject!(CallbackQuery: HasChat, HasSender, HasData; |s, me| {
     Facts::query(chat_id, s.from_user.id, s.data.as_bytes(), kinds, me)
 });
 
+subject!(WidgetQuery: HasChat, HasSender, HasData; |s, me| {
+    let chat = s.chat();
+    let kinds = PeerKinds::of(chat, s.from_user.is_bot);
+    let chat_id = chat.map_or(0, |c| c.id);
+    Facts::query(chat_id, s.from_user.id, s.data.as_bytes(), kinds, me)
+});
+
+subject!(SharedWidgetQuery: HasSender, HasData; |s, me| {
+    Facts::query(0, s.from_user.id, s.data.as_bytes(), PeerKinds::of(None, s.from_user.is_bot), me)
+});
+
 subject!(InlineQuery: HasSender, HasText; |s, me| Facts::inline(s.from_user.id, &s.query, me));
 
 subject!(ChosenInlineResult: HasSender, HasText; |s, me| Facts::inline(s.from_user.id, &s.query, me));
@@ -124,6 +136,8 @@ subject!(MessageReactionUpdated: HasChat, HasSender; |s, me| {
 subject!(MessageReactionCountUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
 
 subject!(ReactionsUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
+
+subject!(WidgetDataUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
 
 subject!(BusinessConnection: HasSender; |s, me| user_query(&s.user, me));
 

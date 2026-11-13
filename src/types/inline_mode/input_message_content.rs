@@ -77,6 +77,42 @@ pub enum InputMessageContent {
     Invoice(Box<InputInvoice>),
     /// A rich message.
     Rich(InputRichMessage),
+    /// An interactive widget. Telegram currently rejects inline widget results in production.
+    Widget {
+        /// Widget HTML.
+        html: String,
+        /// Width, or `None` for automatic sizing.
+        width: Option<i32>,
+        /// Height, or `None` for automatic sizing.
+        height: Option<i32>,
+        /// Shared public data.
+        public_data: Option<String>,
+        /// Chat-specific data.
+        chat_data: Option<String>,
+        /// Whether the widget can send queries.
+        allow_queries: bool,
+        /// Whether the widget is shared.
+        is_shared: bool,
+        /// Caption text.
+        caption: Text,
+        /// Caption parse mode.
+        parse_mode: Option<ParseMode>,
+        /// Whether to show the caption above the widget.
+        show_caption_above_media: bool,
+    },
+    /// An existing shared widget. Telegram currently rejects inline widget results in production.
+    SharedWidget {
+        /// Identifier of the shared widget.
+        widget_id: i64,
+        /// Chat-specific data.
+        chat_data: Option<String>,
+        /// Caption text.
+        caption: Text,
+        /// Caption parse mode.
+        parse_mode: Option<ParseMode>,
+        /// Whether to show the caption above the widget.
+        show_caption_above_media: bool,
+    },
 }
 
 impl InputMessageContent {
@@ -145,6 +181,33 @@ impl InputMessageContent {
     /// Creates content that sends an invoice.
     pub fn invoice(invoice: InputInvoice) -> Self {
         InputMessageContent::Invoice(Box::new(invoice))
+    }
+
+    /// Creates inline widget content. Telegram currently rejects it in production.
+    pub fn widget(html: impl Into<String>) -> Self {
+        Self::Widget {
+            html: html.into(),
+            width: None,
+            height: None,
+            public_data: None,
+            chat_data: None,
+            allow_queries: false,
+            is_shared: false,
+            caption: Text::new(),
+            parse_mode: None,
+            show_caption_above_media: false,
+        }
+    }
+
+    /// Creates inline shared-widget content. Telegram currently rejects it in production.
+    pub fn shared_widget(widget_id: i64) -> Self {
+        Self::SharedWidget {
+            widget_id,
+            chat_data: None,
+            caption: Text::new(),
+            parse_mode: None,
+            show_caption_above_media: false,
+        }
     }
 
     pub(crate) async fn write(
@@ -223,6 +286,52 @@ impl InputMessageContent {
                     },
                 ))
             }
+            InputMessageContent::Widget {
+                html,
+                width,
+                height,
+                public_data,
+                chat_data,
+                allow_queries,
+                is_shared,
+                caption,
+                parse_mode,
+                show_caption_above_media,
+            } => {
+                let (message, entities) = client.write_text(caption, parse_mode).await?;
+                let widget = types::InputBotInlineMessageWidget {
+                    allow_queries,
+                    shared_widget: is_shared,
+                    invert_media: show_caption_above_media,
+                    width: width.unwrap_or(0),
+                    height: height.unwrap_or(0),
+                    html,
+                    public_data,
+                    chat_data,
+                    reply_markup,
+                    message,
+                    entities: (!entities.is_empty()).then_some(entities),
+                };
+                base::InputBotInlineMessage::InputBotInlineMessageWidget(Box::new(widget))
+            }
+            InputMessageContent::SharedWidget {
+                widget_id,
+                chat_data,
+                caption,
+                parse_mode,
+                show_caption_above_media,
+            } => {
+                let (message, entities) = client.write_text(caption, parse_mode).await?;
+                let widget = types::InputBotInlineMessageWidgetId {
+                    invert_media: show_caption_above_media,
+                    widget_id,
+                    chat_data,
+                    reply_markup,
+                    message,
+                    entities: (!entities.is_empty()).then_some(entities),
+                };
+                base::InputBotInlineMessage::InputBotInlineMessageWidgetId(Box::new(widget))
+            }
             InputMessageContent::Invoice(invoice) => invoice.write_inline(reply_markup),
             InputMessageContent::Rich(rich) => {
                 let rich_message = rich.write(client).await?;
@@ -256,4 +365,30 @@ pub(crate) fn web_document(
 
 pub(crate) fn web_photo(url: String) -> base::InputWebDocument {
     web_document(url, "image/jpeg".into(), Vec::new())
+}
+
+#[cfg(test)]
+mod widget_tests {
+    use super::InputMessageContent;
+    use crate::{Client, raw::base};
+
+    #[tokio::test]
+    async fn writes_inline_widgets() {
+        let client = Client::offline();
+        let mut content = InputMessageContent::widget("<p>x</p>");
+        if let InputMessageContent::Widget { width, allow_queries, is_shared, .. } = &mut content {
+            *width = Some(20);
+            *allow_queries = true;
+            *is_shared = true;
+        }
+        let raw = content.write(&client, None).await.unwrap();
+        let base::InputBotInlineMessage::InputBotInlineMessageWidget(raw) = raw else { panic!("wrong widget type") };
+        assert_eq!((raw.width, raw.height, raw.allow_queries, raw.shared_widget), (20, 0, true, true));
+        assert_eq!(raw.html, "<p>x</p>");
+        let raw = InputMessageContent::shared_widget(42).write(&client, None).await.unwrap();
+        let base::InputBotInlineMessage::InputBotInlineMessageWidgetId(raw) = raw else {
+            panic!("wrong shared widget type")
+        };
+        assert_eq!(raw.widget_id, 42);
+    }
 }

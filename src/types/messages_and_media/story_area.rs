@@ -167,7 +167,7 @@ impl StoryAreaPosition {
         }
     }
 
-    fn write(&self) -> base::MediaAreaCoordinates {
+    pub(crate) fn write(&self) -> base::MediaAreaCoordinates {
         base::MediaAreaCoordinates::MediaAreaCoordinates(Box::new(types::MediaAreaCoordinates {
             x: self.x_percentage,
             y: self.y_percentage,

@@ -278,6 +278,8 @@ media_filters! {
     giveaway_winners => GiveawayWinners,
     /// Media behind a Stars paywall.
     paid_media => PaidMedia,
+    /// An interactive widget.
+    widget => Widget,
     /// A link preview with no other media; [`media`] leaves these out.
     web_page => WebPage,
 }
@@ -521,6 +523,7 @@ mod tests {
             (giveaway(), holds(MediaKind::Giveaway), holds(MediaKind::GiveawayWinners)),
             (giveaway_winners(), holds(MediaKind::GiveawayWinners), holds(MediaKind::Giveaway)),
             (video_note(), holds(MediaKind::VideoNote), f),
+            (widget(), holds(MediaKind::Widget), holds(MediaKind::Photo)),
             (reply(), on(REPLY), f),
             (forwarded(), on(FORWARDED), f),
             (via_bot(), on(VIA_BOT), f),

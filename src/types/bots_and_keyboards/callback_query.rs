@@ -3,9 +3,9 @@ use std::fmt;
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
-use crate::methods::{AnswerCallbackQuery, EditCallbackMessageText};
+use crate::methods::{AnswerCallbackQuery, EditCallbackMessageText, SendEphemeralMessage};
 use crate::raw::{base, types};
-use crate::types::{Chat, EphemeralMessage, InlineKeyboardMarkup, InlineMessageId, Message, MessageText, User};
+use crate::types::{Chat, EphemeralMessage, InlineKeyboardMarkup, InlineMessageId, Message, MessageText, Text, User};
 use crate::utils::get_peer;
 
 /// A press of an inline keyboard button that carries callback data.
@@ -197,6 +197,15 @@ impl CallbackQuery {
         self.client.answer_callback_query(self.id)
     }
 
+    /// Sends an ephemeral message to the user who pressed the button, answering this query.
+    ///
+    /// Fails with [`Error::InvalidArgument`] if the button is on an inline message.
+    pub fn answer_ephemeral(&self, text: impl Into<Text>) -> Result<SendEphemeralMessage<'_>> {
+        let chat =
+            self.chat().ok_or(Error::InvalidArgument("inline callback queries can't receive ephemeral messages"))?;
+        Ok(self.client.send_ephemeral_message(chat.id, self.from_user.id, text).callback_query_id(self.id))
+    }
+
     /// Edits the text of the message the button is on.
     ///
     /// Works for regular, inline and ephemeral messages. A business account's message is edited through its
@@ -295,6 +304,40 @@ mod tests {
         assert!(matches!(q.edit_message_text("tapped"), EditCallbackMessageText::Ephemeral(_)));
     }
 
+    #[tokio::test]
+    async fn answer_ephemeral_sends_to_the_presser_with_the_query_id() {
+        let (client, mut sent) = Client::recording();
+        let input_channel = types::InputPeerChannel { channel_id: 42, access_hash: 7 };
+        let user = types::InputPeerUser { user_id: 1000, access_hash: 9 };
+        {
+            let mut peers = client.0.peers.lock().unwrap();
+            peers.insert(get_channel_id(42), base::InputPeer::InputPeerChannel(Box::new(input_channel)));
+            peers.insert(1000, base::InputPeer::InputPeerUser(Box::new(user)));
+        }
+        let update = types::UpdateEphemeralBotCallbackQuery {
+            query_id: 9,
+            user_id: 1000,
+            peer: None,
+            msg_id: 7,
+            data: b"tap".to_vec(),
+            chat_instance: None,
+            message: ephemeral(true, Some(channel())),
+        };
+        let q = CallbackQuery::parse_ephemeral(&client, update, &Entities::default());
+        let send = q.answer_ephemeral("reply").unwrap();
+        let _ = send.await;
+        let body = sent.try_recv().expect("no request sent");
+        // peer, receiver_id, query_id and message are adjacent in ephemeral.sendMessage.
+        let peer =
+            base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 42, access_hash: 7 }));
+        let receiver = base::InputUser::InputUser(Box::new(types::InputUser { user_id: 1000, access_hash: 9 }));
+        let mut expected = peer.to_bytes();
+        expected.extend(receiver.to_bytes());
+        expected.extend(9i64.to_bytes());
+        expected.extend(String::from("reply").to_bytes());
+        assert!(body.windows(expected.len()).any(|w| w == expected));
+    }
+
     #[test]
     fn inline_game_callbacks_edit_the_inline_message() {
         let id = types::InputBotInlineMessageID64 { dc_id: 2, owner_id: 5, id: 6, access_hash: 7 };
@@ -380,6 +423,7 @@ mod tests {
         };
         let q = CallbackQuery::parse_inline(&client, update, &Entities::default());
         assert!(matches!(q.delete_message().await, Err(Error::InvalidArgument(_))));
+        assert!(matches!(q.answer_ephemeral("hi"), Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
         let _ = q.edit_message_reply_markup(None).await;
         let sent = u32::from_le_bytes(rx.try_recv().expect("no request sent")[..4].try_into().unwrap());

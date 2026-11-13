@@ -4,7 +4,7 @@ use crate::enums::{FileType, MediaKind};
 use crate::raw::base;
 use crate::types::{
     Animation, Audio, Checklist, Contact, Dice, Document, FileLocation, Game, Giveaway, GiveawayWinners, Invoice,
-    LivePhoto, Location, Message, PaidMediaInfo, Photo, Poll, Sticker, Story, Venue, Video, VideoNote, Voice,
+    LivePhoto, Location, Message, PaidMediaInfo, Photo, Poll, Sticker, Story, Venue, Video, VideoNote, Voice, Widget,
 };
 
 /// The media a message carries, one variant per kind.
@@ -53,7 +53,9 @@ pub enum Media {
     Giveaway(Giveaway),
     /// The results of a finished giveaway. Boxed, since it holds a whole `Chat`.
     GiveawayWinners(Box<GiveawayWinners>),
-    /// Media of a kind this crate has no variant for, such as a live stream or a widget.
+    /// An interactive widget.
+    Widget(Widget),
+    /// Media of a kind this crate has no variant for, such as a live stream.
     #[non_exhaustive]
     Unknown {
         /// TL constructor id of the media, for logging.
@@ -90,6 +92,9 @@ impl Media {
             }
             M::MessageMediaGiveaway(m) => Media::Giveaway(Giveaway::parse(m, entities)),
             M::MessageMediaGiveawayResults(m) => Media::GiveawayWinners(Box::new(GiveawayWinners::parse(m, entities))),
+            M::MessageMediaWidget(m) => Widget::parse(m)
+                .map(Media::Widget)
+                .unwrap_or_else(|| Media::Unknown { constructor_id: media.constructor_id() }),
             // A link preview is `Message::web_page`, not media.
             M::MessageMediaWebPage(_) => return None,
             _ => Media::Unknown { constructor_id: media.constructor_id() },
@@ -157,6 +162,7 @@ impl Media {
             Media::Story(_) => MediaKind::Story,
             Media::Giveaway(_) => MediaKind::Giveaway,
             Media::GiveawayWinners(_) => MediaKind::GiveawayWinners,
+            Media::Widget(_) => MediaKind::Widget,
             Media::Unknown { .. } => MediaKind::Unknown,
         }
     }
@@ -184,6 +190,7 @@ impl Media {
             | Media::Story(_)
             | Media::Giveaway(_)
             | Media::GiveawayWinners(_)
+            | Media::Widget(_)
             | Media::Unknown { .. } => None,
         }
     }
@@ -293,6 +300,11 @@ impl Message {
     /// The paid media, if the message's media is one.
     pub fn paid_media(&self) -> Option<&PaidMediaInfo> {
         if let Some(Media::PaidMedia(m)) = &self.media { Some(m) } else { None }
+    }
+
+    /// The widget, if the message's media is one.
+    pub fn widget(&self) -> Option<&Widget> {
+        if let Some(Media::Widget(m)) = &self.media { Some(m) } else { None }
     }
 }
 

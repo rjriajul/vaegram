@@ -10,8 +10,9 @@ use crate::types::{
     ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
     DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
     MessageReactionCountUpdated, MessageReactionUpdated, PendingJoinRequestsUpdated, PinnedMessagesUpdated, PollAnswer,
-    PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ReactionsUpdated, ReadHistoryUpdated, ShippingQuery,
-    StarsBalanceUpdated, Story, TonWalletState, UserStatusUpdated,
+    PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ReactionsUpdated, ReadHistoryUpdated,
+    SharedWidgetQuery, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, UserStatusUpdated, WidgetDataUpdated,
+    WidgetQuery,
 };
 
 pub use crate::dispatcher::listeners::Listenable;
@@ -163,6 +164,26 @@ impl Routed for CallbackQuery {
     }
 }
 
+impl Routed for WidgetQuery {
+    fn chat_id(&self) -> Option<i64> {
+        self.chat().map(|c| c.id)
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.chat().map_or(self.from_user.id, |c| c.id))
+    }
+}
+
+impl Routed for SharedWidgetQuery {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+
+    fn order_key(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+}
+
 impl Routed for InlineQuery {
     fn chat_id(&self) -> Option<i64> {
         None
@@ -202,6 +223,12 @@ impl Routed for BotSubscriptionUpdated {
 }
 
 impl Routed for MessageGenerationStopped {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+}
+
+impl Routed for WidgetDataUpdated {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }

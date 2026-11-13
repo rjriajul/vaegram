@@ -4,7 +4,7 @@ use crate::raw::{base, types};
 use crate::types::{
     AcceptedGiftTypes, Birthday, BotVerification, BusinessAwayMessage, BusinessGreetingMessage, BusinessIntro,
     BusinessLocation, BusinessOpeningHours, Chat, ChatBackground, ChatLocation, ChatPhoto, ChatPrivileges,
-    ChatReactions, FormattedText, ShareTheme, UserRating,
+    ChatReactions, FormattedText, ShareTheme, TonWalletCard, UserRating,
 };
 use crate::utils::{get_channel_id, get_peer};
 
@@ -166,6 +166,8 @@ pub struct ChatFullInfo {
     pub accepted_gift_types: Option<AcceptedGiftTypes>,
     /// Your private note about this contact.
     pub note: Option<FormattedText>,
+    /// The TON wallet card shown on the user's profile.
+    pub ton_wallet_card: Option<TonWalletCard>,
     /// `true` if you can call the user.
     pub is_phone_calls_available: bool,
     /// `true` if the user's privacy settings keep you from calling them.
@@ -267,6 +269,7 @@ impl ChatFullInfo {
             pending_rating_date: None,
             accepted_gift_types: None,
             note: None,
+            ton_wallet_card: None,
             is_phone_calls_available: false,
             is_phone_calls_private: false,
             is_video_calls_available: false,
@@ -335,6 +338,7 @@ impl ChatFullInfo {
             pending_rating_date: u.stars_my_pending_rating_date,
             accepted_gift_types: u.disallowed_gifts.as_ref().map(AcceptedGiftTypes::parse),
             note: u.note.map(FormattedText::parse),
+            ton_wallet_card: u.wallet_card.as_ref().map(|card| TonWalletCard::parse(card, entities)),
             is_phone_calls_available: u.phone_calls_available,
             is_phone_calls_private: u.phone_calls_private,
             is_video_calls_available: u.video_calls_available,
@@ -531,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn user_full_reads_wallpaper_and_override() {
+    fn user_full_reads_wallpaper_override_and_wallet_card() {
         use crate::raw::Identifiable;
         let mut buf = Vec::new();
         for word in [0u32, 0] {
@@ -548,12 +552,15 @@ mod tests {
             wallpaper: Some(base::WallPaper::WallPaperNoFile(wallpaper.into())),
             wallpaper_overridden: true,
             share_theme: Some(backdrop_theme()),
+            wallet_card: Some(super::super::ton_wallet_card::tests::wallet_card()),
             ..types::UserFull::deserialize_bare(&mut &buf[..]).unwrap()
         };
         let info = ChatFullInfo::parse_user(full, &Entities::default());
         assert!(info.is_wallpaper_overridden);
         assert_eq!(info.share_theme.map(|t| t.backdrop_id), Some(Some(3)));
         assert_eq!(info.chat_background.map(|b| (b.id, b.is_dark)), Some((9, true)));
+        let card = info.ton_wallet_card.expect("the wallet card");
+        assert_eq!((card.address.as_str(), card.amount, card.stickers.len()), ("wallet", 1234, 1));
 
         let plain = types::UserFull::deserialize_bare(&mut &buf[..]).unwrap();
         let info = ChatFullInfo::parse_user(plain, &Entities::default());

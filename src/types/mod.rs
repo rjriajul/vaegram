@@ -7,7 +7,7 @@ pub(crate) mod messages_and_media;
 mod payments;
 mod raw_update;
 mod rich_messages;
-mod user_and_chats;
+pub(crate) mod user_and_chats;
 
 pub use authorization::*;
 pub use bots_and_keyboards::*;
