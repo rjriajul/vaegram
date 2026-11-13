@@ -3,7 +3,7 @@
 #[allow(dead_code)] // this binary drives only the user half of the kit
 mod support;
 
-use vaegram::types::{InputStoryContent, StoryArea, StoryAreaPosition, StoryAreaType};
+use vaegram::types::{AreaPosition, InputStoryContent, StoryArea, StoryAreaType};
 
 #[tokio::test]
 #[ignore = "posts a story to the account's own chat: needs VAEGRAM_POST_STORIES=1 and VAEGRAM_STORY_PHOTO"]
@@ -15,7 +15,7 @@ async fn edit_story_media_keeps_areas() {
         };
         let Some(kit) = support::Kit::from_env().await else { return };
         let user = kit.user.client;
-        let position = StoryAreaPosition::new(50.0, 50.0, 0.0, 0.0);
+        let position = AreaPosition::new(50.0, 50.0, 0.0, 0.0);
         let link = StoryArea::new(position, StoryAreaType::link("https://example.com"));
         let story = user.send_story("me", InputStoryContent::photo(photo.as_str())).media_areas([link]).await.unwrap();
         let edited = user.edit_story_media("me", story.id, InputStoryContent::photo(photo.as_str())).await.unwrap();

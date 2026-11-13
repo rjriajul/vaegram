@@ -38,8 +38,8 @@
 //!   (`connection::Connection`, `session::{Session, UpdatesRx, Incoming, Events}`). Experimental: may change or
 //!   go away in any release.
 //! - Storage engines: `sqlite` (`SqliteStorage`), `redb` (`RedbStorage`), `redis` (`RedisStorage`), `mongodb`
-//!   (`MongoStorage`), `s3` (`S3Storage`, an S3-compatible object store) and `vault` (`VaultStorage`, the login in
-//!   HashiCorp Vault).
+//!   (`MongoStorage`), `postgres` (`PostgresStorage`), `s3` (`S3Storage`, an S3-compatible object store) and
+//!   `vault` (`VaultStorage`, the login in HashiCorp Vault).
 //! - Observability: `metrics` and `opentelemetry`, request observers in the `observe` module.
 //! - `regex`: `filters::regex` and `filters::matches`.
 //! - Transports over TLS: `websocket` (`ClientBuilder::websocket`), `dns-config` (`ClientBuilder::dns_fallback`

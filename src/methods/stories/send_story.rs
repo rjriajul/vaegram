@@ -166,8 +166,8 @@ mod tests {
     use crate::errors::Error;
     use crate::file_id::FileId;
     use crate::raw::{base, types};
+    use crate::types::{AreaPosition, StoryArea, StoryAreaType};
     use crate::types::{InputStoryContent, Text};
-    use crate::types::{StoryArea, StoryAreaPosition, StoryAreaType};
 
     #[tokio::test]
     async fn request_carries_caption_privacy_and_flags() {
@@ -203,7 +203,7 @@ mod tests {
     #[tokio::test]
     async fn sends_media_areas() {
         let client = Client::offline();
-        let position = StoryAreaPosition::new(50.0, 50.0, 0.0, 0.0);
+        let position = AreaPosition::new(50.0, 50.0, 0.0, 0.0);
         let link = StoryArea::new(position, StoryAreaType::Link { url: "https://example.com".into() });
         let story = client.send_story("me", InputStoryContent::photo("story.jpg")).media_areas([link.clone()]);
         let request = story.request(base::InputMedia::InputMediaEmpty).await.unwrap();

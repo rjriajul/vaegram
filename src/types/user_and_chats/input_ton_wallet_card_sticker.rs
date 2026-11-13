@@ -1,19 +1,19 @@
 use crate::raw::{base, types};
-use crate::types::StoryAreaPosition;
+use crate::types::AreaPosition;
 
 /// An NFT sticker to place on a TON wallet card.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct InputTonWalletCardSticker {
     /// Where the sticker sits on the card.
-    pub position: StoryAreaPosition,
+    pub position: AreaPosition,
     /// Address of the NFT sticker.
     pub nft_address: String,
 }
 
 impl InputTonWalletCardSticker {
     /// Creates a new wallet card sticker placed at `position`.
-    pub fn new(position: StoryAreaPosition, nft_address: impl Into<String>) -> Self {
+    pub fn new(position: AreaPosition, nft_address: impl Into<String>) -> Self {
         InputTonWalletCardSticker { position, nft_address: nft_address.into() }
     }
 

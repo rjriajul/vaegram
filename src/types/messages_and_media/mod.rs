@@ -201,7 +201,8 @@ pub use sticker::Sticker;
 pub use sticker_set::StickerSet;
 pub use stories_stealth_mode::StoriesStealthMode;
 pub use story::{Story, StoryViewer};
-pub use story_area::{LocationAddress, StoryArea, StoryAreaPosition, StoryAreaType};
+#[allow(deprecated)]
+pub use story_area::{AreaPosition, LocationAddress, StoryArea, StoryAreaPosition, StoryAreaType};
 pub use successful_payment::SuccessfulPayment;
 pub use suggested_post::{
     SuggestedPostApprovalFailed, SuggestedPostApproved, SuggestedPostDeclined, SuggestedPostInfo, SuggestedPostPaid,

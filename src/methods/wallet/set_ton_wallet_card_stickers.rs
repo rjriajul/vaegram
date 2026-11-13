@@ -55,14 +55,13 @@ mod tests {
     use crate::Client;
     use crate::raw::functions::wallet::SetCardStickers;
     use crate::raw::{Serializable, base, types};
-    use crate::types::{InputTonWalletCardSticker, StoryAreaPosition};
+    use crate::types::{AreaPosition, InputTonWalletCardSticker};
 
     #[tokio::test]
     async fn set_ton_wallet_card_stickers_sends_request_bytes() {
         let reply = crate::types::user_and_chats::ton_wallet_card::tests::wallet_card().to_bytes();
         let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
-        let position =
-            StoryAreaPosition::new(10.0, 20.0, 30.0, 40.0).rotation_angle(45.0).corner_radius_percentage(5.0);
+        let position = AreaPosition::new(10.0, 20.0, 30.0, 40.0).rotation_angle(45.0).corner_radius_percentage(5.0);
         let sticker = InputTonWalletCardSticker::new(position, "EQDsticker_address");
         let card =
             client.set_ton_wallet_card_stickers([sticker]).background_nft_address("EQDbg_nft_address").await.unwrap();

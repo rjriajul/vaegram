@@ -9,6 +9,8 @@ mod memory_storage;
 #[cfg(feature = "mongodb")]
 mod mongo_storage;
 mod peer_cache;
+#[cfg(feature = "postgres")]
+mod postgres_storage;
 pub mod recording;
 #[cfg(feature = "redb")]
 mod redb_storage;
@@ -32,6 +34,8 @@ pub use memory_storage::MemoryStorage;
 #[cfg(feature = "mongodb")]
 pub use mongo_storage::MongoStorage;
 pub(crate) use peer_cache::{PeerCache, USERNAME_TTL, input_peer};
+#[cfg(feature = "postgres")]
+pub use postgres_storage::PostgresStorage;
 #[cfg(feature = "redb")]
 pub use redb_storage::RedbStorage;
 #[cfg(feature = "redis")]

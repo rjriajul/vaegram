@@ -70,9 +70,19 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 20
+      postgres:
+        image: postgres:16
+        ports: ["5432:5432"]
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vaegram_test
+        options: >-
+          --health-cmd "pg_isready -h localhost -U postgres -d vaegram_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       VAEGRAM_MONGO_URL: mongodb://localhost:27017
       VAEGRAM_REDIS_URL: redis://localhost:6379
+      VAEGRAM_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/vaegram_test
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,9 +94,14 @@ jobs:
         with:
           toolchain: stable
 
-      # Matches nothing until an engine with a live conformance test exists, which passes too.
+      # Each engine's conformance test, which is #[ignore]d everywhere else: each needs its server above.
       - name: Storage conformance on live servers
-        run: cargo test -p vaegram --features mongodb,redis --lib -- --ignored conformance_on_a_live_server
+        run: cargo test -p vaegram --features mongodb,redis,postgres --lib -- --ignored conformance_on_a_live_server
+
+      # The rest of the PostgreSQL engine's live tests: reconnecting, timeouts and one schema per session. Each uses
+      # its own schema, so they run together. Same features as the step above, so nothing is built twice.
+      - name: PostgreSQL storage on a live server
+        run: cargo test -p vaegram --features mongodb,redis,postgres --lib -- --ignored storage::postgres_storage
 
       - name: Disk space
         if: always()

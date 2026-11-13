@@ -127,7 +127,7 @@ mod tests {
     use crate::errors::Error;
     use crate::file_id::{FileId, ThumbnailSource};
     use crate::raw::{base, types};
-    use crate::types::{InputStoryContent, StoryArea, StoryAreaPosition, StoryAreaType, Text};
+    use crate::types::{AreaPosition, InputStoryContent, StoryArea, StoryAreaType, Text};
 
     fn photo_id() -> String {
         FileId::new(FileType::Photo, 2, 5, 6, &[1]).encode()
@@ -179,7 +179,7 @@ mod tests {
         let chat = crate::utils::get_channel_id(9);
         client.0.peers.lock().unwrap().insert(chat, base::InputPeer::InputPeerChannel(Box::new(peer)));
         let post = StoryArea::new(
-            StoryAreaPosition::default(),
+            AreaPosition::default(),
             StoryAreaType::ChannelPost {
                 chat: Box::new(crate::types::Chat::parse(
                     &crate::utils::get_peer(chat),
