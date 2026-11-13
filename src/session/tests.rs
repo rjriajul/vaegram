@@ -32,7 +32,7 @@ async fn listening(salt: Salt) -> (Runner, Frames, UpdatesRx, TcpListener) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let options = Options::new().transport(crate::connection::Transport::Intermediate);
-    let dc = Dc { id: 2, addr, test: false };
+    let dc = Dc { id: 2, addr, test: false, media: false };
     let conn = Connection::connect(&dc, &options).await.unwrap();
     let (mut server, _) = listener.accept().await.unwrap();
     server.read_exact(&mut [0; 4]).await.unwrap();
@@ -1313,7 +1313,7 @@ async fn first_salt(listener: &TcpListener, auth_key: &[u8; 256]) -> i64 {
 
 async fn transfer_dc() -> (TcpListener, Dc, Options) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let dc = Dc { id: 4, addr: listener.local_addr().unwrap(), test: false };
+    let dc = Dc { id: 4, addr: listener.local_addr().unwrap(), test: false, media: false };
     (listener, dc, Options::new().transport(crate::connection::Transport::Intermediate))
 }
 
@@ -1477,7 +1477,7 @@ async fn a_main_connection_nobody_takes_updates_from_still_reconnects() {
     };
     let options = Options::new().transport(crate::connection::Transport::Intermediate);
     let options = Options { connection_factory: Some(Arc::new(factory)), ..options };
-    let dc = Dc { id: 2, addr: "127.0.0.1:1".parse().unwrap(), test: false };
+    let dc = Dc { id: 2, addr: "127.0.0.1:1".parse().unwrap(), test: false, media: false };
     let conn = Connection::connect(&dc, &options).await.unwrap();
     let (tx, rx) = mpsc::channel(8);
     let r = Runner::new(dc, Arc::new(options), conn, ([7; 256], Salt::default(), true), Arc::default(), Some(tx));

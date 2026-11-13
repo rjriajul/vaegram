@@ -303,7 +303,7 @@ mod tests {
     async fn a_dcs_media_address_reuses_the_key_of_its_main_address() {
         let client = Client::offline();
         // Nothing listens on these ports, so a lease that tried to open a connection would fail.
-        let dc = |port| Dc { id: 4, addr: ([127, 0, 0, 1], port).into(), test: false };
+        let dc = |port| Dc { id: 4, addr: ([127, 0, 0, 1], port).into(), test: false, media: false };
         let (foreign, _sent) = Session::scripted(Vec::new());
         let pool = TransferPool::default();
         pool.insert(dc(1), &foreign);
@@ -408,7 +408,7 @@ mod tests {
     async fn a_lease_opening_during_close_all_is_closed_too() {
         let client = Client::offline();
         // Nothing listens here: the lease must get by on the session it already has.
-        let dc = Dc { id: 4, addr: ([127, 0, 0, 1], 1).into(), test: false };
+        let dc = Dc { id: 4, addr: ([127, 0, 0, 1], 1).into(), test: false, media: false };
         let (foreign, _sent) = Session::scripted(Vec::new());
         let pool = Arc::new(TransferPool::default());
         pool.insert(dc, &foreign);

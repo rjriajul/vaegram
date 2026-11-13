@@ -548,7 +548,7 @@ impl ClientBuilder {
         let pinned = addr.filter(|a| a.ip().is_loopback());
         let first = pinned.or_else(|| addr.filter(|a| a.is_ipv6() == self.ipv6)).or(built_in);
         let first = first.ok_or(Error::InvalidDc(dc_id))?;
-        let dc = |addr| Dc { id: dc_id, addr, test: test_mode };
+        let dc = |addr| Dc { id: dc_id, addr, test: test_mode, media: false };
         let (state, salt) = store.load_state(user_id).await?;
         let warm = store.warm().await?;
         let saved = auth_key.map(|key| (key, salt));
@@ -975,16 +975,18 @@ impl Client {
 
     pub(crate) fn dc(&self, dc_id: i32) -> Result<Dc> {
         if let Some(addr) = self.0.pinned {
-            return Ok(Dc { id: dc_id, addr, test: self.0.test_mode });
+            return Ok(Dc { id: dc_id, addr, test: self.0.test_mode, media: false });
         }
         data_center::find(&self.0.dcs.read().unwrap(), dc_id, self.0.test_mode, self.0.ipv6)
             .ok_or(Error::InvalidDc(dc_id))
     }
 
+    /// The data center `dc_id` at its media-only address when it has one, marked so its wire id is negative. A pinned
+    /// address and WebSocket's named endpoints never go to that address, so they keep the main one and its plain id.
     pub(crate) fn media_dc(&self, dc_id: i32) -> Result<Dc> {
         let media = self.0.media_dcs.read().unwrap().iter().find(|(id, _)| *id == dc_id).map(|&(_, addr)| addr);
-        match media.filter(|_| self.0.pinned.is_none()) {
-            Some(addr) => Ok(Dc { id: dc_id, addr, test: self.0.test_mode }),
+        match media.filter(|_| self.0.pinned.is_none() && !self.0.options.uses_websocket()) {
+            Some(addr) => Ok(Dc { id: dc_id, addr, test: self.0.test_mode, media: true }),
             None => self.dc(dc_id),
         }
     }

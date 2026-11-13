@@ -117,7 +117,7 @@ impl TestDc {
     }
 
     pub(crate) fn dc(&self, id: i32) -> Dc {
-        Dc { id, addr: self.addr, test: false }
+        Dc { id, addr: self.addr, test: false, media: false }
     }
 
     pub(crate) fn session_string(&self, auth_key: [u8; 256]) -> String {

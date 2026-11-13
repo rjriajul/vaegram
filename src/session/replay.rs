@@ -288,7 +288,7 @@ mod tests {
     #[tokio::test]
     async fn serves_connections_side_by_side() {
         let replay = Replay::start(&[]).await.unwrap();
-        let (dc, options) = (Dc { id: 2, addr: replay.addr, test: false }, Options::default());
+        let (dc, options) = (Dc { id: 2, addr: replay.addr, test: false, media: false }, Options::default());
         let key = Known { key: replay.auth_key, salt: Salt::default(), made: None };
         let open = |n| Session::connect_transfer(dc, Some(key), None, &options, Arc::default(), None, n);
         let (first, second) = (open(1).await.unwrap(), open(2).await.unwrap());
