@@ -16,8 +16,10 @@ const GAP_TIMEOUT: Duration = Duration::from_millis(500);
 // stopped pushing.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MAX_RETRIES: u32 = 5;
-// Past this many held updates for one key the client is too far behind to fill the hole from what it holds: the
-// key goes to getDifference, which refetches them. The cap keeps a key that never fills from growing without bound.
+// Past this many held updates for one key the client is too far behind to fill the hole from what it holds, and the
+// cap keeps a key that never fills from growing without bound. Held pts, qts and channel updates are dropped, since
+// getDifference refetches them; held seq batches are released instead, since they also carry channel updates and
+// updates that move no counter, which getDifference never returns.
 const MAX_PENDING: usize = 1024;
 
 pub(super) fn channel_of(update: &base::Update) -> Option<i64> {
@@ -74,6 +76,9 @@ pub(super) struct Tracker {
     pub(super) state: UpdateState,
     pub(super) pending: Vec<(Instant, Pending)>,
     pub(super) retries: Vec<(Instant, Key)>,
+    // Per key, the counter value the cap dropped held updates up to, kept until a fetch for the key settles: a fetch
+    // given up on reports that range as skipped.
+    pub(super) dropped: Vec<(Key, i32)>,
     pub(super) failures: Vec<(Key, u32)>,
     pub(super) idle: Option<Instant>,
     pub(super) due: Vec<Key>,
@@ -93,6 +98,7 @@ impl Tracker {
     pub(super) fn restate(&mut self, s: &types::updates::State) {
         self.set_state(s);
         self.pending.retain(|(_, p)| p.key != Key::Pts);
+        self.dropped.retain(|(k, _)| *k != Key::Pts);
         self.drain(Key::Qts);
         self.drain(Key::Seq);
     }
@@ -196,11 +202,31 @@ impl Tracker {
                 self.drain(key);
             }
             Ordering::Less => {
-                // The hole is too deep to fill from the held updates: give the key up to getDifference, which
-                // refetches them from the stored state. Nothing is reported skipped, since nothing is lost.
                 if self.pending.iter().filter(|(_, held)| held.key == p.key).count() >= MAX_PENDING {
-                    self.pending.retain(|(_, held)| held.key != p.key);
-                    self.mark(p.key);
+                    let key = p.key;
+                    if key == Key::Seq {
+                        // Give the seq hole up, but release every held batch in order through each update's own
+                        // key: the seq counter moves past the hole, so the next batches apply whatever the
+                        // difference leaves seq at, and getDifference refetches the pts and qts the hole held.
+                        self.pending.push((Instant::now(), p));
+                        self.settle(|k| k == Key::Seq, None);
+                    } else {
+                        // The hole is too deep to fill from the held updates: give the key up to getDifference,
+                        // which refetches them from the stored state. The range dropped is kept, so a fetch given
+                        // up on still reports it.
+                        let mut to = p.after;
+                        self.pending.retain(|(_, held)| {
+                            if held.key == key {
+                                to = to.max(held.after);
+                            }
+                            held.key != key
+                        });
+                        match self.dropped.iter_mut().find(|(k, _)| *k == key) {
+                            Some((_, lost)) => *lost = (*lost).max(to),
+                            None => self.dropped.push((key, to)),
+                        }
+                    }
+                    self.mark(key);
                     return;
                 }
                 self.pending.push((Instant::now() + GAP_TIMEOUT, p));
@@ -281,6 +307,16 @@ impl Tracker {
             Err(reason) => {
                 self.failures.retain(|(k, _)| *k != key);
                 let mut skipped = self.settle(due, reason);
+                // What the cap dropped past the last update delivered is lost too, unless the fetch read it.
+                let dropped = self.dropped.iter().find(|(k, _)| *k == key).map(|(_, to)| *to);
+                self.dropped.retain(|(k, _)| !due(*k));
+                if let (Some(reason), Some(to), Key::Pts | Key::Channel(_)) = (reason, dropped, key) {
+                    let at = self.counter(key);
+                    if *at < to {
+                        skipped.push(Skipped { key, from: *at, to, reason });
+                        *at = to;
+                    }
+                }
                 // A qts gap has no pts range to report.
                 if let (Some(reason), true, Key::Pts | Key::Channel(_)) = (reason, skipped.is_empty(), key) {
                     let at = *self.counter(key);
@@ -338,8 +374,8 @@ impl Tracker {
 #[cfg(test)]
 mod tests {
     use super::{
-        Arc, Duration, Error, GAP_TIMEOUT, IDLE_TIMEOUT, Instant, Key, MAX_PENDING, SkipReason, Skipped, Tracker,
-        UpdateState, base, types,
+        Arc, Duration, Entities, Error, GAP_TIMEOUT, IDLE_TIMEOUT, Instant, Key, MAX_PENDING, SkipReason, Skipped,
+        Tracker, UpdateState, base, types,
     };
     use crate::errors::RpcError;
 
@@ -414,6 +450,71 @@ mod tests {
         assert_eq!((t.pending.len(), t.due.clone()), (MAX_PENDING, vec![]));
         t.update(channel(5, MAX_PENDING as i32 + 6), &e, false);
         assert_eq!((t.pending.len(), t.due.clone()), (0, vec![Key::Channel(5)]));
+    }
+
+    // Seq 2 never comes; each batch after it carries the next update of channel 5 and one that moves no counter.
+    fn hold_seq_batches(t: &mut Tracker, e: &Arc<Entities>) -> i32 {
+        for n in 1..=MAX_PENDING as i32 {
+            t.batch(vec![channel(5, n), base::Update::UpdateConfig], Arc::clone(e), (n, n + 2, n + 2), false);
+        }
+        assert_eq!((t.ready.len(), t.pending.len(), t.due.clone()), (0, MAX_PENDING, vec![]));
+        let last = MAX_PENDING as i32 + 1;
+        t.batch(vec![channel(5, last)], Arc::clone(e), (last, last + 2, last + 2), false);
+        last
+    }
+
+    #[test]
+    fn seq_batches_over_the_cap_are_released_not_dropped() {
+        let (mut t, e) = (tracker(0, 0, 1), Arc::default());
+        let last = hold_seq_batches(&mut t, &e);
+        // getDifference never returns channel updates or ones that move no counter, so every held batch goes out
+        // in seq order through its updates' own keys before getDifference fetches what the hole held.
+        let mut expected: Vec<i32> = (1..last).flat_map(|n| [n, 0]).collect();
+        expected.push(last);
+        let s = &t.state;
+        assert_eq!((s.seq, s.date, s.channels[&5], s.pts), (last + 2, last, last, 0));
+        assert_eq!((delivered(&mut t), t.pending.len(), t.due.clone()), (expected, 0, vec![Key::Pts]));
+    }
+
+    #[test]
+    fn a_difference_that_leaves_seq_alone_does_not_refill_the_cap() {
+        let (mut t, e) = (tracker(0, 0, 1), Arc::default());
+        let last = hold_seq_batches(&mut t, &e);
+        t.ready.clear();
+        // updates.differenceTooLong with an unchanged pts sets no state, so seq stays where the release left it.
+        assert_eq!(t.due.pop(), Some(Key::Pts));
+        assert_eq!(t.recover(&Ok(()), Key::Pts), []);
+        // The next batch follows on and goes straight out: nothing builds up towards the cap again.
+        t.batch(vec![channel(5, last + 1)], e, (last + 1, last + 3, last + 3), false);
+        assert_eq!((delivered(&mut t), t.pending.len(), t.due.clone()), (vec![last + 1], 0, vec![]));
+        assert_eq!(t.state.seq, last + 3);
+    }
+
+    #[test]
+    fn giving_up_after_the_cap_reports_what_it_dropped() {
+        let (mut t, e) = (tracker(0, 0, 0), Arc::default());
+        // A retry is already scheduled when pts 1 goes missing and the cap is reached, so marking the key is a no-op.
+        t.recover(&Err(offline()), Key::Pts);
+        let last = MAX_PENDING as i32 + 2;
+        for pts in 2..=last {
+            t.update(delete(pts, 1), &e, false);
+        }
+        assert_eq!((t.pending.len(), t.due.clone()), (0, vec![]));
+        let skipped = t.recover(&Err(Error::Rpc(RpcError::parse(400, "CHANNEL_PRIVATE"))), Key::Pts);
+        assert_eq!(skipped, [Skipped { key: Key::Pts, from: 0, to: last, reason: SkipReason::Refused }]);
+        // The counter moves past what was given up on, so the next update goes straight out.
+        t.update(delete(last + 1, 1), &e, false);
+        assert_eq!((delivered(&mut t), t.state.pts), (vec![last + 1], last + 1));
+
+        // A fetch that reads the hole forgets the dropped range: nothing is reported when a later one gives up.
+        let (mut t, e) = (tracker(0, 0, 0), Arc::default());
+        for pts in 2..=last {
+            t.update(delete(pts, 1), &e, false);
+        }
+        t.state.pts = last;
+        assert_eq!(t.recover(&Ok(()), Key::Pts), []);
+        let refused = t.recover(&Err(Error::Rpc(RpcError::parse(400, "CHANNEL_PRIVATE"))), Key::Pts);
+        assert_eq!(refused, [Skipped { key: Key::Pts, from: last, to: last, reason: SkipReason::Refused }]);
     }
 
     #[test]
