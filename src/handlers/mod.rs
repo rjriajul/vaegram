@@ -48,7 +48,7 @@ pub struct HandlerError {
     /// the message a pressed button or widget is on, the message a reaction changed on, or the message a guest
     /// query answered. `None` for raw handlers, the hooks and updates about no single message.
     pub message_id: Option<i32>,
-    /// Bot-API style id of the user who caused the update, the one `from_user` names: the sender of a message or
+    /// Bot-API style id of the user who caused the update (its `from_user` or `user`): the sender of a message or
     /// story, the user who pressed the button, sent the query or paid, or the one who changed a membership or
     /// reacted. `None` for raw handlers, the hooks and updates with no user behind them. The one exception is
     /// [`UserStatusUpdated`](crate::types::UserStatusUpdated), where Telegram reports on a user and nobody acted:
