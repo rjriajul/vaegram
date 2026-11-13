@@ -77,8 +77,9 @@ impl<'a> SendEphemeralMessage<'a> {
 
     /// Shows the message in place of the message whose button was pressed, to the receiver only (Bot API
     /// `EphemeralMessageParameters.replace_callback_query_message`). Sets the `anchor` flag of
-    /// `ephemeral.sendMessage`; the sent [`EphemeralMessage`] names the replaced message in
-    /// [`anchor_message_id`](EphemeralMessage::anchor_message_id).
+    /// `ephemeral.sendMessage`. The receiver's copy names the replaced message in
+    /// [`anchor_message_id`](EphemeralMessage::anchor_message_id); the copy this request returns to the sender has
+    /// `None` there.
     ///
     /// The press is named by [`callback_query_id`](Self::callback_query_id), which
     /// [`CallbackQuery::answer_ephemeral`](crate::types::CallbackQuery::answer_ephemeral) sets. Without one, awaiting
