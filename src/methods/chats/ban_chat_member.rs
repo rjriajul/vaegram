@@ -41,6 +41,9 @@ impl BanChatMember<'_> {
     ///
     /// Only basic groups use it: supergroups and channels always do this, so there it changes nothing. To delete the
     /// messages the user sent, for everyone, use [`Client::delete_user_history`].
+    ///
+    /// Not verified against Telegram: in a live test, a bot removed from a basic group with this set could still
+    /// read the group's message by id afterwards.
     pub fn revoke_messages(mut self, revoke_messages: bool) -> Self {
         self.revoke_messages = revoke_messages;
         self

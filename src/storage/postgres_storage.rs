@@ -1005,8 +1005,10 @@ mod tests {
                 started.elapsed()
             );
             assert_eq!(error.kind(), std::io::ErrorKind::TimedOut, "attempt {attempt}: {error}");
-            // The connection that ran out of time is not parked on the server: the next save opens a new one, and
-            // the old backend is gone (or going), not stuck until the statement it was running answers.
+            // When the client-side limit fires first, the connection that ran out of time is dropped, not parked on
+            // the server: the next save opens a new one, and the old backend is gone (or going), not stuck until the
+            // statement it was running answers. When the server's `lock_timeout` fires first, the statement has
+            // already failed and the connection is kept. Either way at most one backend is left.
             let left: i64 = locker
                 .query_one(
                     "SELECT count(*) FROM pg_stat_activity \
@@ -1019,7 +1021,8 @@ mod tests {
             assert!(left <= 1, "attempt {attempt} left {left} backends");
         }
 
-        // With the table free again the next save goes through, on a new connection, without waiting.
+        // With the table free again the next save goes through without waiting, on a new connection if the client-side
+        // limit fired last time, else on the kept one.
         locker.batch_execute("ROLLBACK").await.unwrap();
         let started = Instant::now();
         storage.save_session(&SessionData::new(2, [1; 256])).await.unwrap();
