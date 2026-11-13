@@ -3,12 +3,16 @@
 #[allow(dead_code)]
 mod support;
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
-use vaegram::filters;
+use vaegram::raw::core::gzip_packed;
+use vaegram::raw::{Deserializable, Identifiable, Serializable, base, functions, types};
+use vaegram::storage::recording;
 use vaegram::types::{InlineQueryResult, InlineQueryResultArticle, InputMessageContent, WidgetPublicData};
+use vaegram::{Client, filters};
 
 const WAIT: Duration = Duration::from_secs(30);
 
@@ -35,7 +39,8 @@ async fn bot_sends_reads_and_updates_widget() {
             let _ = msg_tx.send(m);
         }
         async { Ok(()) }
-    });
+    })
+    .group(1);
     let (upd_tx, mut upd_rx) = mpsc::unbounded_channel();
     user.on_widget_data_updated(filters::chat(bot_id), move |event| {
         let _ = upd_tx.send(event);
@@ -76,15 +81,26 @@ async fn bot_sends_reads_and_updates_widget() {
             assert_eq!(user_widget.html, html);
             assert_eq!(user_widget.public_data.as_deref(), Some("pub0"));
 
+            // Static widgets are updated by push (`UpdateMessageWidgetData`, asserted below) and carry hash 0, so
+            // `get_widget_public_data` answers `NotModified` both before and after an edit. If Telegram ever answers
+            // `Modified`, its data must match the current public data.
             let polled = user.get_widget_public_data(bot_id, user_msg.id).await.unwrap();
-            let WidgetPublicData::Modified { hash, data, period, .. } = polled else {
-                panic!("expected Modified on initial hash=0 poll, got {polled:?}");
+            let poll_hash = match &polled {
+                WidgetPublicData::NotModified { period, .. } => {
+                    assert_eq!(bot_widget.public_data_hash.unwrap_or(0), 0);
+                    assert_eq!(user_widget.public_data_hash.unwrap_or(0), 0);
+                    assert!(*period > 0, "expected positive poll period, got {period}");
+                    0
+                }
+                WidgetPublicData::Modified { hash, data, period, .. } => {
+                    assert_eq!(data, "pub0");
+                    assert!(*period > 0, "expected positive poll period, got {period}");
+                    let unchanged = user.get_widget_public_data(bot_id, user_msg.id).hash(*hash).await.unwrap();
+                    assert!(matches!(unchanged, WidgetPublicData::NotModified { .. }), "{unchanged:?}");
+                    *hash
+                }
+                other => panic!("unexpected get_widget_public_data result: {other:?}"),
             };
-            assert_eq!(data, "pub0");
-            assert!(period >= 0);
-
-            let unchanged = user.get_widget_public_data(bot_id, user_msg.id).hash(hash).await.unwrap();
-            assert!(matches!(unchanged, WidgetPublicData::NotModified { .. }), "{unchanged:?}");
 
             bot.edit_message_widget_data(user_id, bot_sent.id).public_data("pub1").chat_data("chat1").await.unwrap();
             let updated = tokio::time::timeout(WAIT, upd_rx.recv())
@@ -95,11 +111,18 @@ async fn bot_sends_reads_and_updates_widget() {
             assert_eq!(updated.public_data.as_deref(), Some("pub1"));
             assert_eq!(updated.chat_data.as_deref(), Some("chat1"));
 
-            let repolled = user.get_widget_public_data(bot_id, user_msg.id).hash(hash).await.unwrap();
-            assert!(
-                matches!(&repolled, WidgetPublicData::Modified { data, .. } if data == "pub1"),
-                "expected updated public data, got {repolled:?}"
-            );
+            let repolled = user.get_widget_public_data(bot_id, user_msg.id).hash(poll_hash).await.unwrap();
+            match &repolled {
+                WidgetPublicData::NotModified { period, .. } => {
+                    assert_eq!(poll_hash, 0, "expected Modified(\"pub1\") when initial poll returned a hash");
+                    assert!(*period > 0, "expected positive poll period, got {period}");
+                }
+                WidgetPublicData::Modified { data, period, .. } => {
+                    assert_eq!(data, "pub1");
+                    assert!(*period > 0, "expected positive poll period, got {period}");
+                }
+                other => panic!("unexpected repoll result: {other:?}"),
+            }
         }
     })
     .await;
@@ -178,7 +201,8 @@ async fn bot_sends_and_edits_shared_widget_and_copy_flow() {
             let _ = msg_tx.send(m);
         }
         async { Ok(()) }
-    });
+    })
+    .group(1);
     let (copy_q_tx, mut copy_q_rx) = mpsc::unbounded_channel();
     kit.bot.on_shared_widget_query(filters::data("copy_ping"), move |q| {
         let tx = copy_q_tx.clone();
@@ -210,10 +234,13 @@ async fn bot_sends_and_edits_shared_widget_and_copy_flow() {
 
             bot.edit_shared_widget_data(widget_id, "s1").cache_time(5).await.unwrap();
             let polled = user.get_widget_public_data(bot_id, user_second.id).await.unwrap();
-            assert!(
-                matches!(&polled, WidgetPublicData::Modified { data, .. } if data == "s1"),
-                "expected shared public data s1, got {polled:?}"
-            );
+            let WidgetPublicData::Modified { hash, data, period, .. } = polled else {
+                panic!("expected shared widget Modified on hash=0 poll, got {polled:?}");
+            };
+            assert_eq!(data, "s1");
+            assert!(period >= 0);
+            let unchanged = user.get_widget_public_data(bot_id, user_second.id).hash(hash).await.unwrap();
+            assert!(matches!(unchanged, WidgetPublicData::NotModified { period, .. } if period >= 0), "{unchanged:?}");
 
             let copied = bot.copy_message(user_id, user_id, first.id).await.unwrap();
             let user_copied = tokio::time::timeout(WAIT, msg_rx.recv()).await.unwrap().unwrap();
@@ -308,5 +335,153 @@ async fn inline_widget_behavior_in_production() {
         Err(e) => {
             panic!("get_inline_bot_results failed unexpectedly: {e:?}");
         }
+    }
+}
+
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn unpack_if_gzip(body: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    if !body.starts_with(&gzip_packed::ID.to_le_bytes()) {
+        return std::borrow::Cow::Borrowed(body);
+    }
+    match gzip_packed::unpack(body) {
+        Ok(plain) => std::borrow::Cow::Owned(plain),
+        Err(_) => std::borrow::Cow::Borrowed(body),
+    }
+}
+
+/// The msg_id of the outgoing `messages.sendMedia` whose body holds exactly `media`, serialized. Requests have no
+/// reader, so the comparison is on bytes: any difference in the html, size, flags or data fails to match.
+fn find_send_media(records: &[recording::Record], media: &[u8]) -> Option<i64> {
+    let id_bytes = functions::messages::SendMedia::CONSTRUCTOR_ID.to_le_bytes();
+    records.iter().filter(|r| r.outgoing).find_map(|rec| {
+        let body = unpack_if_gzip(&rec.body);
+        let is_send = body.windows(4).any(|w| w == id_bytes);
+        (is_send && body.windows(media.len()).any(|w| w == media)).then_some(rec.msg_id)
+    })
+}
+
+fn find_widget_media_in_answer(records: &[recording::Record], req_msg_id: i64) -> Option<types::MessageMediaWidget> {
+    const RPC_RESULT: u32 = 0xf35c6d01;
+    for rec in records.iter().filter(|r| !r.outgoing) {
+        let body = unpack_if_gzip(&rec.body);
+        if !body.starts_with(&RPC_RESULT.to_le_bytes()) || body.len() < 12 {
+            continue;
+        }
+        if i64::from_le_bytes(body[4..12].try_into().unwrap()) != req_msg_id {
+            continue;
+        }
+        let inner = unpack_if_gzip(&body[12..]);
+        let Ok(updates) = base::Updates::from_bytes(&inner) else { continue };
+        let from_media = |media: Option<base::MessageMedia>| match media {
+            Some(base::MessageMedia::MessageMediaWidget(w)) => Some(*w),
+            _ => None,
+        };
+        let from_msg = |msg: base::Message| match msg {
+            base::Message::Message(m) => from_media(m.media),
+            _ => None,
+        };
+        let list = match updates {
+            base::Updates::UpdateShortSentMessage(u) => return from_media(u.media),
+            base::Updates::UpdateShort(u) => vec![u.update],
+            base::Updates::Updates(u) => u.updates,
+            base::Updates::UpdatesCombined(u) => u.updates,
+            _ => continue,
+        };
+        for u in list {
+            let found = match u {
+                base::Update::UpdateNewMessage(u) => from_msg(u.message),
+                base::Update::UpdateNewChannelMessage(u) => from_msg(u.message),
+                base::Update::UpdateEditMessage(u) => from_msg(u.message),
+                base::Update::UpdateEditChannelMessage(u) => from_msg(u.message),
+                _ => None,
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+    }
+    None
+}
+
+/// Records the wire request of one unique widget send and verifies `messages.sendMedia` carries the exact HTML and
+/// widget flags/dimensions, then prints Telegram's raw answer metadata for diagnosis.
+#[tokio::test]
+#[ignore = "uses a logged-in user session and a bot token"]
+async fn widget_request_carries_the_html_it_was_given() {
+    let (Ok(session), Ok(token)) = (std::env::var("VAEGRAM_USER_SESSION"), std::env::var("VAEGRAM_BOT_TOKEN")) else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name) and VAEGRAM_BOT_TOKEN");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let (api_id, api_hash): (i32, String) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
+
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
+    let rec_path = std::env::temp_dir().join(format!("vaegram-widget-probe-{}-{nonce}.rec", std::process::id()));
+    let _ = std::fs::remove_file(&rec_path);
+    let _rec_guard = RemoveOnDrop(rec_path.clone());
+
+    let user = Client::builder(session, api_id, api_hash.clone()).catch_up(false).connect().await.unwrap();
+    let bot_builder =
+        Client::builder("target/vaegram-kit-bot", api_id, api_hash).bot_token(token).catch_up(false).record(&rec_path);
+    let Some(bot) = support::start_bot(bot_builder).await else { return };
+    let _disconnect = support::Disconnect(vec![user.clone(), bot.clone()]);
+
+    let user_id = user.get_me().await.unwrap().id;
+    let html = format!("<!doctype html><html><body><p>probe-{nonce}</p></body></html>");
+    let send_res = bot
+        .send_widget(user_id, &html)
+        .width(240)
+        .height(120)
+        .allow_queries()
+        .is_shared()
+        .public_data("pub0")
+        .chat_data("chat0")
+        .await;
+
+    let records = recording::read(&rec_path).unwrap();
+    let expected = base::InputMedia::InputMediaWidget(Box::new(types::InputMediaWidget {
+        allow_queries: true,
+        shared_widget: true,
+        width: 240,
+        height: 120,
+        html: html.clone(),
+        public_data: Some("pub0".into()),
+        chat_data: Some("chat0".into()),
+    }))
+    .to_bytes();
+    let req_msg_id = find_send_media(&records, &expected)
+        .expect("no outgoing messages.sendMedia carries the widget exactly as it was given");
+
+    let raw_answer = find_widget_media_in_answer(&records, req_msg_id);
+    let decoded_widget = send_res.as_ref().ok().and_then(|m| m.widget());
+    let payload_state = match &decoded_widget {
+        Some(w) if w.html == html => "matches_sent_html",
+        Some(w) if w.html.contains("<body>Widget unavailable</body>") => "widget_unavailable",
+        Some(_) => "different_html",
+        None => "no_decoded_widget",
+    };
+    eprintln!(
+        "widget answer probe: send_ok={}, send_err={:?}, payload_len={:?}, decoded={payload_state}, \
+         decoded_len={:?}, widget_id={:?}, public_data_hash={:?}",
+        send_res.is_ok(),
+        send_res.as_ref().err(),
+        raw_answer.as_ref().map(|w| w.payload.len()),
+        decoded_widget.as_ref().map(|w| w.html.len()),
+        raw_answer.as_ref().and_then(|w| w.widget_id).or_else(|| decoded_widget.as_ref().and_then(|w| w.id)),
+        raw_answer
+            .as_ref()
+            .and_then(|w| w.public_data_hash)
+            .or_else(|| decoded_widget.as_ref().and_then(|w| w.public_data_hash)),
+    );
+
+    if let Ok(msg) = send_res {
+        support::cleanup(bot.delete_messages(user_id, &[msg.id]).await, "deleting probe widget message");
     }
 }

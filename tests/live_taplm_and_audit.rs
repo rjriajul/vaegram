@@ -48,7 +48,8 @@ async fn bot_custom_emoji_in_button_text() {
     user.on_message(filters::private() & filters::user(bot_id), move |m| {
         let _ = tx.send(m);
         async { Ok(()) }
-    });
+    })
+    .group(1);
 
     let ids = Arc::new(Mutex::new(Vec::new()));
     let steps = tokio::spawn({
@@ -59,29 +60,57 @@ async fn bot_custom_emoji_in_button_text() {
                 .style(ButtonStyle::Primary)
                 .icon_custom_emoji_id(emoji_id);
             let inline_markup = InlineKeyboardMarkup::new([vec![inline_btn]]);
-            bot.send_message(user_id, "button icon check").reply_markup(inline_markup).await.unwrap_or_else(|e| {
-                panic!("bot sending inline button with icon_custom_emoji_id({emoji_id}) failed: {e:?}")
-            });
+            let sent_inline =
+                bot.send_message(user_id, "button icon check").reply_markup(inline_markup).await.unwrap_or_else(|e| {
+                    panic!("bot sending inline button with icon_custom_emoji_id({emoji_id}) failed: {e:?}")
+                });
             let user_inline = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
             ids.lock().unwrap().push(user_inline.id);
 
             let reply_btn = KeyboardButton::new("Reply").icon_custom_emoji_id(emoji_id);
             let reply_markup = ReplyKeyboardMarkup::new([vec![reply_btn]]).one_time(true);
-            bot.send_message(user_id, "reply icon check").reply_markup(reply_markup).await.unwrap_or_else(|e| {
-                panic!("bot sending reply button with icon_custom_emoji_id({emoji_id}) failed: {e:?}")
-            });
+            let sent_reply =
+                bot.send_message(user_id, "reply icon check").reply_markup(reply_markup).await.unwrap_or_else(|e| {
+                    panic!("bot sending reply button with icon_custom_emoji_id({emoji_id}) failed: {e:?}")
+                });
             let user_reply = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
             ids.lock().unwrap().push(user_reply.id);
 
             let Some(ReplyMarkup::Inline(read_inline)) = user_inline.reply_markup() else {
                 panic!("expected inline reply markup on received message");
             };
-            assert_eq!(read_inline.rows[0][0].icon_custom_emoji_id, Some(emoji_id));
+            assert_eq!(read_inline.rows[0][0].text, "Tap");
+            assert_eq!(read_inline.rows[0][0].style, ButtonStyle::Primary);
 
             let Some(ReplyMarkup::Keyboard(read_reply)) = user_reply.reply_markup() else {
                 panic!("expected reply keyboard markup on received message");
             };
-            assert_eq!(read_reply.rows[0][0].icon_custom_emoji_id, Some(emoji_id));
+            assert_eq!(read_reply.rows[0][0].text, "Reply");
+
+            let sent_inline_icon = match sent_inline.reply_markup() {
+                Some(ReplyMarkup::Inline(m)) => m.rows[0][0].icon_custom_emoji_id,
+                _ => None,
+            };
+            let sent_reply_icon = match sent_reply.reply_markup() {
+                Some(ReplyMarkup::Keyboard(m)) => m.rows[0][0].icon_custom_emoji_id,
+                _ => None,
+            };
+            let user_inline_icon = read_inline.rows[0][0].icon_custom_emoji_id;
+            let user_reply_icon = read_reply.rows[0][0].icon_custom_emoji_id;
+            // What the bot sent must carry the id whatever Telegram then shows the user: Telegram echoes it in the
+            // bot's own copy, so a field vaegram dropped fails here instead of looking like Telegram's rule.
+            assert_eq!(sent_inline_icon, Some(emoji_id), "the bot's own inline button lost its icon");
+            assert_eq!(sent_reply_icon, Some(emoji_id), "the bot's own reply button lost its icon");
+            if user_inline_icon.is_none() || user_reply_icon.is_none() {
+                eprintln!(
+                    "skipped: Telegram stripped icon_custom_emoji_id on bot buttons (requires bot owner Telegram \
+                     Premium or a Fragment additional username); sent_inline={sent_inline_icon:?}, \
+                     user_inline={user_inline_icon:?}, sent_reply={sent_reply_icon:?}, user_reply={user_reply_icon:?}"
+                );
+                return;
+            }
+            assert_eq!(user_inline_icon, Some(emoji_id));
+            assert_eq!(user_reply_icon, Some(emoji_id));
         }
     })
     .await;
@@ -111,7 +140,8 @@ async fn bot_rich_messages_and_custom_emoji() {
     user.on_message(filters::private() & filters::user(bot_id), move |m| {
         let _ = tx.send(m);
         async { Ok(()) }
-    });
+    })
+    .group(1);
 
     let ids = Arc::new(Mutex::new(Vec::new()));
     let steps = tokio::spawn({
@@ -129,16 +159,42 @@ async fn bot_rich_messages_and_custom_emoji() {
             let user_blocks = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
             ids.lock().unwrap().push(user_blocks.id);
             assert!(sent_blocks.rich_message.is_some());
+            let bot_block0 = sent_blocks
+                .rich_message
+                .as_ref()
+                .and_then(|r| r.blocks().into_iter().next())
+                .map(|b| format!("{:?}", b.kind()));
 
             let fetched = user.get_rich_message(bot_id, user_blocks.id).await.unwrap().expect("rich message exists");
             let rich = fetched.rich_message.expect("rich_message parsed");
             assert!(!rich.is_partial);
             let read_blocks = rich.blocks();
-            assert!(
-                matches!(&read_blocks[0].kind(), RichBlockKind::Paragraph(t) if t.text().contains("👍")),
-                "unexpected paragraph block: {:?}",
-                read_blocks[0].kind()
-            );
+            match read_blocks[0].kind() {
+                RichBlockKind::Paragraph(t) => {
+                    let dbg = format!("{t:?}");
+                    if dbg.contains("TextCustomEmoji") {
+                        assert!(t.text().contains("👍"), "unexpected custom emoji paragraph: {dbg}");
+                    } else {
+                        assert!(
+                            t.text().starts_with("emoji: ") && t.text().len() > "emoji: ".len(),
+                            "expected Telegram alt fallback in paragraph, got {dbg}"
+                        );
+                        // The bot's own copy is downgraded too, so the proof that the id reached Telegram is the
+                        // glyph: it is the emoji document's own, which only its id could have told Telegram.
+                        assert!(
+                            !t.text().contains("👍"),
+                            "the placeholder came back unchanged, so nothing shows the emoji id was sent: {dbg}"
+                        );
+                        eprintln!(
+                            "skipped custom emoji assertion in rich message: Telegram downgraded TextCustomEmoji to \
+                             plain alt {:?} (requires bot owner Telegram Premium or a Fragment additional username); \
+                             bot_sent_block0={bot_block0:?}",
+                            t.text()
+                        );
+                    }
+                }
+                other => panic!("unexpected paragraph block: {other:?}"),
+            }
             assert!(
                 matches!(&read_blocks[1].kind(), RichBlockKind::Buttons { buttons, .. } if buttons.len() == 1),
                 "unexpected buttons block: {:?}",

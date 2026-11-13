@@ -3,6 +3,7 @@
 #[allow(dead_code)]
 mod support;
 
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -100,45 +101,80 @@ async fn on_pinned_messages_sees_pin_and_unpin() {
         && bot_member.privileges.is_some_and(|p| p.can_pin_messages);
 
     let (actor, listener) = if bot_can_pin { (&kit.bot, &kit.user.client) } else { (&kit.user.client, &kit.bot) };
+    let actor_label = if bot_can_pin { "bot" } else { "user" };
+    let listener_label = if bot_can_pin { "user" } else { "bot" };
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    listener.on_pinned_messages(filters::chat(chat_id), move |event| {
-        let _ = tx.send((event.is_pinned, event.message_ids));
-        async { Ok(()) }
+    let listener_events = Arc::new(Mutex::new(Vec::new()));
+    let listener_client_events = Arc::new(Mutex::new(Vec::new()));
+
+    listener.on_event({
+        let events = listener_client_events.clone();
+        move |e| events.lock().unwrap().push(format!("{e:?}"))
     });
+    listener.on_pinned_messages(filters::all(), {
+        let listener_events = listener_events.clone();
+        move |event| {
+            listener_events.lock().unwrap().push((event.chat.id, event.is_pinned, event.message_ids.clone()));
+            if event.chat.id == chat_id {
+                let _ = tx.send((event.is_pinned, event.message_ids));
+            }
+            async { Ok(()) }
+        }
+    });
+
+    async fn wait_pinned(
+        listener: &Client,
+        chat_id: i64,
+        rx: &mut mpsc::UnboundedReceiver<(bool, Vec<i32>)>,
+        want_pinned: bool,
+        sent_id: i32,
+    ) -> Result<(), &'static str> {
+        // Telegram may withhold message-less channel updates from push; delivery can come either by push or through
+        // periodic gap recovery (`getChannelDifference`), as a client with the chat open does.
+        let deadline = tokio::time::Instant::now() + WAIT;
+        let mut poll = tokio::time::interval(Duration::from_secs(2));
+        poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        poll.tick().await;
+        loop {
+            tokio::select! {
+                biased;
+                msg = rx.recv() => match msg {
+                    Some((is_pinned, ids)) if is_pinned == want_pinned && ids.contains(&sent_id) => return Ok(()),
+                    Some(_) => {}
+                    None => return Err("pinned channel closed"),
+                },
+                _ = poll.tick() => {
+                    let _ = listener.recover_gaps().chat_ids([chat_id]).await;
+                }
+                _ = tokio::time::sleep_until(deadline) => return Err("timed out"),
+            }
+        }
+    }
 
     let sent = actor.send_message(chat_id, "pin for on_pinned_messages").await.unwrap();
     let steps = tokio::spawn({
         let actor = actor.clone();
+        let listener = listener.clone();
         let sent_id = sent.id;
         async move {
             if let Err(e) = actor.pin_chat_message(chat_id, sent_id).disable_notification().await {
                 assert!(support::flood_limited(&e, "pinning a message"), "{e:?}");
                 return;
             }
-            let pinned = tokio::time::timeout(WAIT, async {
-                loop {
-                    match rx.recv().await {
-                        Some((is_pinned, ids)) if is_pinned && ids.contains(&sent_id) => return Some(()),
-                        Some(_) => {}
-                        None => return None,
-                    }
-                }
-            })
-            .await;
+            let pinned = wait_pinned(&listener, chat_id, &mut rx, true, sent_id).await;
             actor.unpin_chat_message(chat_id, sent_id).await.unwrap();
-            let unpinned = tokio::time::timeout(WAIT, async {
-                loop {
-                    match rx.recv().await {
-                        Some((is_pinned, ids)) if !is_pinned && ids.contains(&sent_id) => return Some(()),
-                        Some(_) => {}
-                        None => return None,
-                    }
-                }
-            })
-            .await;
-            assert!(matches!(pinned, Ok(Some(()))), "pin never reached on_pinned_messages: {pinned:?}");
-            assert!(matches!(unpinned, Ok(Some(()))), "unpin never reached on_pinned_messages: {unpinned:?}");
+            let unpinned = wait_pinned(&listener, chat_id, &mut rx, false, sent_id).await;
+            if pinned.is_err() || unpinned.is_err() {
+                let diag = format!(
+                    "bot_can_pin={bot_can_pin} (actor={actor_label}, listener={listener_label}, sent_id={sent_id}, \
+                     listener_events={:?}, listener_client_events={:?})",
+                    *listener_events.lock().unwrap(),
+                    *listener_client_events.lock().unwrap(),
+                );
+                assert!(pinned.is_ok(), "pin never reached on_pinned_messages: {pinned:?}; {diag}");
+                assert!(unpinned.is_ok(), "unpin never reached on_pinned_messages: {unpinned:?}; {diag}");
+            }
         }
     })
     .await;
@@ -150,8 +186,8 @@ async fn on_pinned_messages_sees_pin_and_unpin() {
 }
 
 /// Requires a second user account (`VAEGRAM_SECOND_USER_SESSION`) or human action (`VAEGRAM_HUMAN_READ=1`): bots do
-/// not send or receive read receipts, so another user session must read the message sent by `VAEGRAM_USER_SESSION` (or,
-/// with `VAEGRAM_HUMAN_READ=1`, a human must open Saved Messages / the bot chat on another device within 30 s).
+/// not send or receive read receipts, so another user session must read the message sent by `VAEGRAM_USER_SESSION`
+/// (or, with `VAEGRAM_HUMAN_READ=1`, a human must open Saved Messages / the bot chat on another device within 30 s).
 #[tokio::test]
 #[ignore = "needs VAEGRAM_SECOND_USER_SESSION (or VAEGRAM_HUMAN_READ=1 and another device reading a message)"]
 async fn on_read_history_sees_peer_read() {
