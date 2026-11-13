@@ -1,16 +1,16 @@
 use crate::Client;
 use crate::dispatcher::Entities;
-use crate::errors::{Error, Result};
+use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::{PeerRef, User};
 use crate::utils::input_user;
 
 impl Client {
-    /// Returns users by id, in the order given.
+    /// Returns users by id, one slot per id in the order given: ids Telegram has no user for are `None`.
     ///
-    /// Fails with `PeerNotFound` if Telegram returns no user for one of the ids. Users the client hasn't seen
-    /// are still requested, with an access hash of 0.
-    pub async fn get_users(&self, user_ids: impl IntoIterator<Item = impl Into<PeerRef>>) -> Result<Vec<User>> {
+    /// Users the client hasn't seen are still requested, with an access hash of 0. Compare
+    /// [`get_messages`](Client::get_messages), which has the same shape.
+    pub async fn get_users(&self, user_ids: impl IntoIterator<Item = impl Into<PeerRef>>) -> Result<Vec<Option<User>>> {
         let users: Vec<PeerRef> = user_ids.into_iter().map(Into::into).collect();
         let mut user_ids = Vec::with_capacity(users.len());
         for user in users {
@@ -28,16 +28,10 @@ impl Client {
         }
         let users = self.invoke(&functions::users::GetUsers { id }).await?;
         let entities = Entities::new(self, users, Vec::new());
-        user_ids
+        Ok(user_ids
             .iter()
-            .map(|&id| {
-                if entities.users.contains_key(&id) {
-                    Ok(User::parse(id, &entities))
-                } else {
-                    Err(Error::PeerNotFound(id))
-                }
-            })
-            .collect()
+            .map(|&id| entities.users.contains_key(&id).then(|| User::parse(id, &entities)))
+            .collect())
     }
 }
 
@@ -61,5 +55,25 @@ mod tests {
             |user_id, access_hash| base::InputUser::InputUser(Box::new(types::InputUser { user_id, access_hash }));
         let expected = functions::users::GetUsers { id: vec![user(777, 5), user(778, 0)] };
         assert_eq!(sent.try_recv().unwrap(), expected.to_bytes());
+    }
+
+    // Telegram answers with the users it has, so a requested id it doesn't know keeps its place as `None`: the
+    // result lines up with the ids given, as `get_messages` does with message ids.
+    #[tokio::test]
+    async fn an_unknown_id_is_none_in_its_slot() {
+        let found = vec![user(777)];
+        let (client, _sent) = Client::scripted(vec![Ok(found.to_bytes())]);
+        let users = client.get_users([777, 778]).await.unwrap();
+        let ids: Vec<Option<i64>> = users.iter().map(|user| user.as_ref().map(|user| user.id)).collect();
+        assert_eq!(ids, [Some(777), None]);
+    }
+
+    // A bare user with no flags set: only its id is on the wire.
+    fn user(id: i64) -> base::User {
+        let mut buf = Vec::new();
+        0u32.serialize(&mut buf);
+        0u32.serialize(&mut buf);
+        id.serialize(&mut buf);
+        base::User::User(Box::new(types::User::deserialize_bare(&mut &buf[..]).unwrap()))
     }
 }

@@ -126,7 +126,7 @@ async fn user_creates_a_managed_bot() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let manager = kit.bot.get_me().await.unwrap();
     let name = manager.username.expect("the kit's bot has no username");
-    let manager = kit.user.client.get_users([format!("@{name}")]).await.unwrap().remove(0);
+    let manager = kit.user.client.get_users([format!("@{name}")]).await.unwrap().remove(0).expect("the bot resolves");
     if !manager.can_manage_bots {
         eprintln!("skipped: the kit's bot can't manage bots");
         return;

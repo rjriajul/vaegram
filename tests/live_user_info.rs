@@ -13,7 +13,7 @@ async fn user_client() -> Option<Client> {
 #[ignore = "uses a logged-in user session"]
 async fn get_users_reads_me() {
     let Some(client) = user_client().await else { return };
-    let me = client.get_users(["me"]).await.unwrap().remove(0);
+    let me = client.get_users(["me"]).await.unwrap().remove(0).expect("Telegram knows me");
     assert!(me.is_self);
     assert!(me.phone_number.is_some());
     if !me.usernames.is_empty() {
