@@ -199,9 +199,10 @@ impl CallbackQuery {
 
     /// Sends an ephemeral message to the user who pressed the button, answering this query.
     ///
-    /// The text is a [`MessageText`]: plain or formatted text, or a rich message. Chain
-    /// [`replace_callback_query_message`](SendEphemeralMessage::replace_callback_query_message) to show it in place of
-    /// the pressed message. Fails with [`Error::InvalidArgument`] if the button is on an inline message.
+    /// The text is a [`MessageText`]: plain or formatted text, or a rich message. For a button on a regular message,
+    /// chain [`replace_callback_query_message`](SendEphemeralMessage::replace_callback_query_message) to show it in
+    /// place of the pressed message; that has not been tried on a button of an ephemeral message. Fails with
+    /// [`Error::InvalidArgument`] if the button is on an inline message.
     pub fn answer_ephemeral(&self, text: impl Into<MessageText>) -> Result<SendEphemeralMessage<'_>> {
         let chat =
             self.chat().ok_or(Error::InvalidArgument("inline callback queries can't receive ephemeral messages"))?;

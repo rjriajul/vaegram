@@ -29,17 +29,18 @@ pub struct EphemeralMessage {
     pub is_welcome_template: bool,
     /// Telegram's `anchor_msg_id`. The receiver's copy of a message sent with
     /// [`replace_callback_query_message`](SendEphemeralMessage::replace_callback_query_message) names the pressed
-    /// message here; the copy `ephemeral.sendMessage` returned to the bot had `None` when checked on 2026-11-13.
+    /// message here; the copy returned to the sender does not.
     pub anchor_message_id: Option<i32>,
     /// Telegram's `top_msg_id`: the thread or forum topic the message is in, `None` when Telegram names none. In an
-    /// answer to a button press it was the pressed message's id (checked on 2026-11-13, in a supergroup without
-    /// topics, with no reply asked for), so it is not safe to pass back as a topic.
+    /// answer to a button press it can be the pressed message's id even in a supergroup without topics, so it is not
+    /// safe to pass back as a topic.
     pub message_thread_id: Option<i32>,
     /// Formatting of the text. `None` if it has none.
     pub entities: Option<Vec<MessageEntity>>,
     /// Attached media. `None` if there is none.
     pub media: Option<Media>,
-    /// Id of the ephemeral message this one replies to. `None` if it isn't a reply.
+    /// Telegram's `reply_to_msg_id`: the id of the message this one replies to, a regular message's id or an ephemeral
+    /// message's depending on what was replied to (the two have separate sequences). `None` if it isn't a reply.
     pub reply_to_message_id: Option<i32>,
     /// `true` if forwarding and saving the message is restricted.
     pub has_protected_content: bool,

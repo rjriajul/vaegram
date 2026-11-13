@@ -78,13 +78,15 @@ impl<'a> SendEphemeralMessage<'a> {
     /// Asks Telegram to show the message in place of the message whose button was pressed, to the receiver only (Bot
     /// API `EphemeralMessageParameters.replace_callback_query_message`). Sets the `anchor` flag of
     /// `ephemeral.sendMessage`. The receiver's copy names the pressed message in
-    /// [`anchor_message_id`](EphemeralMessage::anchor_message_id); the copy `ephemeral.sendMessage` returned to the
-    /// bot had `None` there when checked on 2026-11-13.
+    /// [`anchor_message_id`](EphemeralMessage::anchor_message_id); the copy returned to the sender does not name it.
     ///
-    /// Tried against Telegram on 2026-11-13 with plain text, a rich message and media (a document): each time the
-    /// receiver's copy named the pressed message. Together with a reply to another message Telegram refused it with
-    /// `REPLY_TO_INVALID`, though the same reply without this setter went through. Not tried: in a forum topic, on a
-    /// button of an ephemeral message, and with a receiver other than the user who pressed.
+    /// Works with plain text, a rich message and media, answering a press on a regular message. With
+    /// [`reply_to`](Self::reply_to) (any regular message, the pressed one included) or
+    /// [`message_thread_id`](Self::message_thread_id), awaiting fails with `Error::InvalidArgument` before any request
+    /// is sent: Telegram refused this setter next to a reply to a regular message with `REPLY_TO_INVALID`, and a topic
+    /// travels as such a reply. The General topic (id 1) travels as none, so it is accepted. Not tried against
+    /// Telegram: a press in a forum topic, a button on an ephemeral message, a receiver other than the user who
+    /// pressed, and [`reply_to_ephemeral`](Self::reply_to_ephemeral), which travels as a reply of another kind.
     ///
     /// The press is named by [`callback_query_id`](Self::callback_query_id), which
     /// [`CallbackQuery::answer_ephemeral`](crate::types::CallbackQuery::answer_ephemeral) sets. Without one, awaiting
@@ -111,6 +113,9 @@ impl<'a> SendEphemeralMessage<'a> {
     }
 
     /// Replies to a regular message.
+    ///
+    /// Can't be combined with [`replace_callback_query_message`](Self::replace_callback_query_message): awaiting fails
+    /// with `Error::InvalidArgument`.
     pub fn reply_to(mut self, reply: impl Into<ReplyParameters>) -> Self {
         self.reply_to = Some(ReplyTo::Message(reply.into()));
         self
@@ -128,7 +133,9 @@ impl<'a> SendEphemeralMessage<'a> {
     /// Sends into this forum topic.
     ///
     /// `ephemeral.sendMessage` has no topic field, so without [`reply_to`](Self::reply_to) the message is sent as a
-    /// reply to the topic's root message, which is how a topic travels.
+    /// reply to the topic's root message, which is how a topic travels. For that reason it can't be combined with
+    /// [`replace_callback_query_message`](Self::replace_callback_query_message): awaiting fails with
+    /// `Error::InvalidArgument`, unless the topic is the General one (id 1).
     pub fn message_thread_id(mut self, thread_id: i32) -> Self {
         self.message_thread_id = Some(thread_id);
         self
@@ -195,6 +202,13 @@ impl<'a> SendEphemeralMessage<'a> {
         // `anchor` shows the message in place of the pressed one, so it needs the press it answers.
         if self.replace && self.callback_query_id.is_none() {
             return Err(Error::InvalidArgument("replace_callback_query_message needs a callback_query_id"));
+        }
+        // Telegram answered REPLY_TO_INVALID to `anchor` next to an inputReplyToMessage, and a topic is written as one.
+        if self.replace && matches!(self.reply_to, Some(ReplyTo::Message(_))) {
+            return Err(Error::InvalidArgument("replace_callback_query_message can't go with reply_to"));
+        }
+        if self.replace && self.message_thread_id.filter(|&id| id != 1).is_some() {
+            return Err(Error::InvalidArgument("replace_callback_query_message can't go with message_thread_id"));
         }
         // A topic has no encoding next to a reply to an ephemeral message.
         if self.message_thread_id.filter(|&id| id != 1).is_some()
@@ -336,6 +350,27 @@ mod tests {
         assert!(sent.try_recv().is_err(), "a replace without a query must not send");
 
         let send = client.send_ephemeral_message("me", "me", "hi").callback_query_id(55);
+        let _ = send.replace_callback_query_message().await;
+        let body = sent.try_recv().expect("no request sent");
+        assert_eq!(flags(&body) & (1 | (1 << 9)), 1 | (1 << 9), "query_id and anchor are set");
+    }
+
+    #[tokio::test]
+    async fn replace_callback_query_message_refuses_a_reply_and_a_thread() {
+        let (client, mut sent) = Client::recording();
+        // The chat takes a request to resolve (see replace_callback_query_message_needs_a_query), so a check that moved
+        // after the resolve would let one through.
+        let chat = "@vaegram_nobody";
+        let send = client.send_ephemeral_message(chat, "me", "hi").callback_query_id(55).reply_to(12);
+        let refused = send.replace_callback_query_message().await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(m)) if m.contains("reply_to")), "{refused:?}");
+        let send = client.send_ephemeral_message(chat, "me", "hi").callback_query_id(55).message_thread_id(3);
+        let refused = send.replace_callback_query_message().await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(m)) if m.contains("message_thread_id")), "{refused:?}");
+        assert!(sent.try_recv().is_err(), "a refused pair must not send");
+
+        // The General topic travels as no reply at all, so it goes out with the anchor.
+        let send = client.send_ephemeral_message("me", "me", "hi").callback_query_id(55).message_thread_id(1);
         let _ = send.replace_callback_query_message().await;
         let body = sent.try_recv().expect("no request sent");
         assert_eq!(flags(&body) & (1 | (1 << 9)), 1 | (1 << 9), "query_id and anchor are set");
