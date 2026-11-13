@@ -157,7 +157,7 @@ impl Handlers<Message> {
             message.set_business(client, connection_id, reply_to, entities);
         }
         if listening {
-            match listened(kind, tasks, client, &me, message) {
+            match listened(kind, tasks, client.0.handlers.listeners.messages.offer(message, &me)) {
                 Some(m) => message = m,
                 None => return,
             }
@@ -167,19 +167,22 @@ impl Handlers<Message> {
         }
     }
 
-    /// A new message a listener took but dropped unread: the other listeners, then the handlers, get it.
+    /// A new message a listener took but dropped unread, or held and gave back: the other listeners, then the
+    /// handlers, get it. Holds don't take it again.
     fn redeliver(&self, tasks: &mut Tasks, client: &Client, message: Message) {
         let me = client.0.me.lock().unwrap().clone();
-        let Some(message) = listened(UpdateKind::Message, tasks, client, &me, message) else { return };
+        let offer = client.0.handlers.listeners.messages.offer_returned(message, &me);
+        let Some(message) = listened(UpdateKind::Message, tasks, offer) else { return };
         if !self.0.is_empty() {
             self.finish(UpdateKind::Message, tasks, &me, PARSED, message);
         }
     }
 }
 
-/// Offers a new message to the listeners; `None` once one of them, or a next-step handler, took it.
-fn listened(kind: UpdateKind, tasks: &mut Tasks, client: &Client, me: &Me, message: Message) -> Option<Message> {
-    match client.0.handlers.listeners.messages.offer(message, me) {
+/// What a new message offered to the listeners leaves for the handlers; `None` once one of the listeners, or a
+/// next-step handler, took it.
+fn listened(kind: UpdateKind, tasks: &mut Tasks, offer: Offer<Message>) -> Option<Message> {
+    match offer {
         Offer::Claimed => None,
         Offer::Call(callback, m) => {
             tasks.run(kind, m, vec![callback]);

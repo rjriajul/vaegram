@@ -94,12 +94,14 @@ into_future!(Ask, Message);
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Barrier};
+    use std::sync::{Arc, Barrier, Mutex};
     use std::time::Duration;
 
     use crate::Client;
     use crate::dispatcher::listeners::Offer;
-    use crate::dispatcher::listeners::tests::{message, until_released, until_waiting};
+    use crate::dispatcher::listeners::tests::{
+        dispatch, holding, message, new_message, redeliver, until_released, until_waiting,
+    };
     use crate::errors::{Error, Result, RpcError};
     use crate::filters;
     use crate::raw::{Serializable, base, types};
@@ -267,6 +269,32 @@ mod tests {
         go.wait();
         assert!(!late.join().unwrap(), "message 8 is older than the question");
         assert!(offer(&client, 10, 5, true));
+        assert_eq!(waiter.await.unwrap().unwrap().id, 10);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_full_hold_gives_its_oldest_to_the_handlers_once() {
+        let (client, waiter) = asking_slowly(Ok(sent(9))).await;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        client.on_message(filters::all(), move |m: Message| {
+            log.lock().unwrap().push(m.id);
+            async { Ok(()) }
+        });
+        for id in 1..=65 {
+            dispatch(&client, new_message(id, 5));
+        }
+        let listeners = &client.0.handlers.listeners;
+        let notified = || tokio::time::timeout(Duration::ZERO, listeners.returned().notified());
+        assert!(notified().await.is_ok(), "the 65th message pushed the 1st out of the hold");
+        redeliver(&client);
+        assert!(listeners.messages.take_returned().is_empty(), "the hold took message 1 back");
+        assert!(notified().await.is_err(), "something went back again");
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(*seen.lock().unwrap(), [1]);
+        assert!(holding(&listeners.messages), "the question is still on its way");
         assert_eq!(waiter.await.unwrap().unwrap().id, 10);
     }
 

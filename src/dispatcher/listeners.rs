@@ -479,7 +479,17 @@ impl<T: Listened> Book<T> {
     }
 
     /// Hands `item` to the oldest listener that matches it. Filters run outside the lock.
-    pub(crate) fn offer(&self, mut item: T, me: &Me) -> Offer<T> {
+    pub(crate) fn offer(&self, item: T, me: &Me) -> Offer<T> {
+        self.offer_to(item, me, true)
+    }
+
+    /// [`offer`](Self::offer) for an update a listener gave back: holds don't take it again. A full hold would
+    /// take it back and give away the next one, around and around until it ends.
+    pub(crate) fn offer_returned(&self, item: T, me: &Me) -> Offer<T> {
+        self.offer_to(item, me, false)
+    }
+
+    fn offer_to(&self, mut item: T, me: &Me, holds: bool) -> Offer<T> {
         let now = Instant::now();
         let (mut candidates, stranger, expired, chat) = {
             let Some(identity) = item.identity(me) else { return Offer::Unclaimed(item) };
@@ -489,7 +499,7 @@ impl<T: Listened> Book<T> {
             let mut live = shelf.entries.iter().filter(|e| e.criteria.live(now));
             let candidates: Vec<(u64, Option<Arc<Filter<T>>>)> = live
                 .clone()
-                .filter(|e| e.criteria.matches(&identity))
+                .filter(|e| (holds || !matches!(e.sink, Sink::Hold(_))) && e.criteria.matches(&identity))
                 .map(|e| (e.id, e.criteria.filter.clone()))
                 .collect();
             let stranger = live.find_map(|e| e.criteria.stranger(&identity));
@@ -644,6 +654,19 @@ pub(crate) mod tests {
         let mut tasks = Tasks::new(false, None);
         (tasks.on_error, tasks.events) = (router.on_error.clone(), client.0.events.clone());
         router.dispatch(client, update, &Arc::default(), &mut tasks);
+    }
+
+    /// Routes again what listeners gave back, on `client`'s own router and registry.
+    pub(crate) fn redeliver(client: &Client) {
+        let router = client.0.handlers.current();
+        let mut tasks = Tasks::new(false, None);
+        (tasks.on_error, tasks.events) = (router.on_error.clone(), client.0.events.clone());
+        router.redeliver(client, &mut tasks);
+    }
+
+    /// Whether a listener in `book` still holds what it matches.
+    pub(crate) fn holding<T>(book: &Book<T>) -> bool {
+        book.shelf().entries.iter().any(|e| matches!(e.sink, Sink::Hold(_)))
     }
 
     pub(crate) fn entries<T>(book: &Book<T>) -> usize {
