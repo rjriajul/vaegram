@@ -169,8 +169,14 @@ impl Tracker {
 
     pub(super) fn deadline(&self) -> Option<Instant> {
         let refetch = self.refetch_after.filter(|_| self.refetch);
+        // While getState waits, no difference is asked for the common box, so what it holds waits for getState too;
+        // a deadline already past would wake the loop for nothing, again and again.
+        let pending = self.pending.iter().map(|(d, p)| match (refetch, p.key) {
+            (Some(after), Key::Pts | Key::Qts | Key::Seq) => (*d).max(after),
+            _ => *d,
+        });
         let retries = self.retries.iter().map(|(d, _)| *d).chain(refetch);
-        self.pending.iter().map(|(d, _)| *d).chain(retries).chain(self.idle).min()
+        pending.chain(retries).chain(self.idle).min()
     }
 
     pub(super) fn touch(&mut self, now: Instant) {

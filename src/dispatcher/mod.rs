@@ -50,9 +50,9 @@ pub(crate) struct Dispatcher {
     // Set by `from_now` until the first difference is read whole or given up on: what it brings, and what is pushed
     // meanwhile, dated before this, Telegram may have held from before the run, and it is dropped unseen.
     held_before: Option<i32>,
-    // Set by `from_now` for the whole run: a channel difference drops the messages dated before this, even after
-    // the window closes, since the channels the first difference names are fetched only after it.
-    began: Option<i32>,
+    // The channels that first difference named as too long, with `held_before` as it was: they are fetched after it
+    // closed, and until a channel's fetch is read whole or given up on it filters as the window did.
+    held_channels: Vec<(i64, i32)>,
 }
 
 impl Dispatcher {
@@ -73,12 +73,12 @@ impl Dispatcher {
     /// that first difference is read whole or given up on, pushed updates that move a counter are filtered the same
     /// way, since Telegram pushes what it held again; it holds nothing else, so ones that move none, such as callback
     /// queries and updates with a pts or qts of 0, pass. The channels that difference names as too long are fetched
-    /// after it, and their messages from before `since` are dropped too.
+    /// after it, filtered the same way, and what is skipped there isn't reported either.
     pub(crate) fn from_now(client: Client, state: &types::updates::State, since: i32) -> Self {
         let mut tracker = Tracker { due: vec![Key::Pts], ..Tracker::default() };
         tracker.set_state(state);
         let mut dispatcher = Dispatcher::with(client, tracker);
-        (dispatcher.held_before, dispatcher.began) = (Some(since), Some(since));
+        dispatcher.held_before = Some(since);
         dispatcher
     }
 
@@ -102,7 +102,7 @@ impl Dispatcher {
             tasks,
             recovered: (0, 0),
             held_before: None,
-            began: None,
+            held_channels: Vec::new(),
         }
     }
 
@@ -234,7 +234,12 @@ impl Dispatcher {
     async fn resolve(&mut self) {
         // Before any getDifference, which would otherwise start from the old numbering.
         self.refetch_if_asked().await;
-        while let Some(key) = self.tracker.due.pop() {
+        // While the state is to come again from getState, a difference from the pts held can only fail or read the
+        // old numbering: it stays due, and `Tracker::deadline` wakes the loop for getState's next try.
+        loop {
+            let refetch = self.tracker.refetch;
+            let Some(i) = self.tracker.due.iter().rposition(|&key| !(refetch && key == Key::Pts)) else { break };
+            let key = self.tracker.due.remove(i);
             // Nothing waits in `ready` across an await: a dropped `run` would hand back a state past updates no
             // handler saw.
             self.dispatch_ready();
@@ -244,12 +249,17 @@ impl Dispatcher {
             };
             let skipped = self.tracker.recover(&result, key);
             let invalid = result.as_ref().err().is_some_and(|e| e.is("PERSISTENT_TIMESTAMP_INVALID"));
-            // https://core.telegram.org/method/updates.getChannelDifference: PERSISTENT_TIMESTAMP_INVALID says the pts
-            // kept for the channel is wrong, so asking from it fails every time. Forgotten, as mtcute does, it is
-            // started again by the next update pushed for the channel; nothing is fetched, so nothing old comes back.
             if let Key::Channel(id) = key {
+                // https://core.telegram.org/method/updates.getChannelDifference: PERSISTENT_TIMESTAMP_INVALID says
+                // the pts kept for the channel is wrong, so asking from it fails every time. Forgotten, as mtcute
+                // does, it is started again by the next update pushed for the channel; nothing is fetched, so nothing
+                // old comes back as new. An old update Telegram sends again can then be delivered once more, and what
+                // came between the forgotten pts and the next push is never fetched.
                 if invalid {
                     self.tracker.state.channels.remove(&id);
+                }
+                if !self.tracker.retries.iter().any(|(_, k)| *k == key) {
+                    self.held_channels.retain(|&(held, _)| held != id);
                 }
             }
             // Read whole or given up on: either way what Telegram held is settled, so the window closes, after what
@@ -266,7 +276,8 @@ impl Dispatcher {
             // https://core.telegram.org/method/updates.getDifference: the same error for the account's own box. Its
             // state comes again from updates.getState, as mtcute does, now: what is pushed meanwhile would otherwise
             // be offered to the wrong pts. Giving up released what was held, so `restate` drops at most a pts update
-            // a released seq batch carried past a hole.
+            // a released seq batch carried past a hole. The loss stays reported once, as above, with no size: Telegram
+            // called the pts invalid, so the stretch from it to getState's pts needn't hold any update.
             if invalid && !matches!(key, Key::Channel(_)) {
                 self.tracker.refetch = true;
                 self.refetch_if_asked().await;
@@ -278,6 +289,8 @@ impl Dispatcher {
     /// Meanwhile updates keep flowing, judged against the pts the client has.
     async fn refetch_if_asked(&mut self) {
         if self.tracker.refetch_now(Instant::now()) {
+            // What giving up on a difference released goes out first: nothing waits in `ready` across an await.
+            self.dispatch_ready();
             let result = self.refetch_state().await;
             // A failure is reported like a failed difference and asked again once its wait ran out.
             self.tracker.refetched(&result, Instant::now());
@@ -769,6 +782,7 @@ mod tests {
         let fresh = types::updates::State { pts: 500, qts: 3, date: 9, seq: 4, unread_count: 0 };
         let fresh = base::updates::State::State(Box::new(fresh));
         let (client, mut sent) = Client::scripted(vec![Ok(fresh.to_bytes())]);
+        let seen = raw_updates(&client);
         let mut d = Dispatcher::new(client, &state());
         // Held for a gap under the old numbering.
         d.tracker.update(new_message(3), &Arc::default(), false);
@@ -780,8 +794,11 @@ mod tests {
         let s = &d.tracker.state;
         assert_eq!((s.pts, s.qts, s.date, s.seq), (500, 3, 9, 4));
         assert!(d.tracker.pending.is_empty() && !d.tracker.refetch);
-        // Raw handlers still see it.
-        assert!(matches!(d.tracker.ready[..], [(base::Update::UpdatePtsChanged, _)]));
+        // Raw handlers still see it, once: it goes out before getState is awaited.
+        settle().await;
+        assert!(d.tracker.ready.is_empty());
+        let seen = seen.lock().unwrap();
+        assert!(matches!(&seen[..], [raw] if matches!(raw.update, base::Update::UpdatePtsChanged)), "{seen:?}");
     }
 
     #[tokio::test]
@@ -926,8 +943,8 @@ mod tests {
         let page = base::updates::ChannelDifference::ChannelDifference(Box::new(page));
         let (mut d, _events) = in_channel(vec![Ok(page.to_bytes())], 1);
         let seen = raw_updates(&d.client);
-        // After the window closed: only when the run began counts.
-        d.began = Some(10);
+        // Named by the first difference of a run that began at 10, and fetched after that window closed.
+        d.held_channels.push((9, 10));
         d.resolve().await;
         d.dispatch_ready();
         settle().await;
@@ -946,12 +963,17 @@ mod tests {
         };
         let difference = base::updates::Difference::Difference(Box::new(difference));
         let message = |id, date| base::Message::Message(Box::new(Message::bare(id, get_peer(get_channel_id(9)), date)));
+        let edit = |id, date| {
+            let edited = types::UpdateEditChannelMessage { message: message(id, date), pts: 7, pts_count: 0 };
+            base::Update::UpdateEditChannelMessage(Box::new(edited))
+        };
+        let deleted = types::UpdateDeleteChannelMessages { channel_id: 9, messages: vec![1], pts: 7, pts_count: 1 };
         let page = types::updates::ChannelDifference {
             r#final: true,
             pts: 7,
             timeout: None,
             new_messages: vec![message(1, 5), message(2, 20)],
-            other_updates: Vec::new(),
+            other_updates: vec![edit(3, 5), base::Update::UpdateDeleteChannelMessages(Box::new(deleted)), edit(4, 20)],
             chats: Vec::new(),
             users: Vec::new(),
         };
@@ -967,17 +989,24 @@ mod tests {
 
         assert!(sent.try_recv().is_ok(), "getDifference was not asked");
         assert!(sent.try_recv().is_ok(), "the channel was not fetched");
-        let id = |raw: &RawUpdate| match &raw.update {
-            base::Update::UpdateNewChannelMessage(u) => match &u.message {
+        let id = |raw: &RawUpdate| {
+            let message = match &raw.update {
+                base::Update::UpdateNewChannelMessage(u) => &u.message,
+                base::Update::UpdateEditChannelMessage(u) => &u.message,
+                _ => return None,
+            };
+            match message {
                 base::Message::Message(m) => Some(m.id),
                 _ => None,
-            },
-            _ => None,
+            }
         };
-        let ids: Vec<i32> = seen.lock().unwrap().iter().filter_map(id).collect();
-        // The message from before the run stays dropped, and later pushes build on the pts the fetch ended at.
-        assert_eq!(ids, [2]);
+        let seen = seen.lock().unwrap();
+        let ids: Vec<i32> = seen.iter().filter_map(id).collect();
+        // The message and the edit from before the run stay dropped, and so does the deletion, which carries no
+        // date; later pushes build on the pts the fetch ended at.
+        assert_eq!((ids, seen.len()), (vec![2, 4], 2));
         assert_eq!((d.tracker.state.channels.get(&9), d.held_before), (Some(&7), None));
+        assert!(d.held_channels.is_empty());
     }
 
     #[tokio::test]
@@ -1096,6 +1125,82 @@ mod tests {
         deliver(&mut d, short(base::Update::UpdatePtsChanged)).await;
         assert_eq!(requests(&mut sent), 1);
         assert_eq!(d.tracker.deadline(), Some(tokio::time::Instant::now() + Duration::from_millis(500)));
+    }
+
+    fn deleted(pts: i32) -> base::Update {
+        let update = types::UpdateDeleteMessages { messages: vec![1], pts, pts_count: 1 };
+        base::Update::UpdateDeleteMessages(Box::new(update))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn what_a_refused_difference_released_reaches_the_handlers_before_getstate_is_awaited() {
+        let (session, _sent) = Session::answering(vec![refused_pts()]);
+        let client = Client::with_session(session);
+        let seen = raw_updates(&client);
+        let mut d = Dispatcher::new(client, &types::updates::State { pts: 10, ..state() });
+        // Held, since pts 11 never came; giving up on the difference releases it.
+        d.process(Incoming { updates: short(deleted(12)), from_request: false });
+        d.tracker.mark(Key::Pts);
+        // getState is never answered, and `run` is dropped while it waits.
+        let resolve = tokio::time::timeout(std::time::Duration::from_secs(1), d.resolve()).await;
+        assert!(resolve.is_err(), "getState was answered");
+        settle().await;
+        assert!(d.tracker.ready.is_empty());
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn no_difference_is_asked_while_getstate_waits_and_the_one_due_follows_the_state() {
+        use std::time::Duration;
+        let fresh = base::updates::State::State(Box::new(types::updates::State { pts: 40, ..state() }));
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 0, seq: 0 });
+        let replies = vec![refused_pts(), server_error(), server_error(), Ok(fresh.to_bytes()), Ok(empty.to_bytes())];
+        let (client, mut sent) = Client::scripted(replies);
+        let mut d = Dispatcher::new(client, &types::updates::State { pts: 10, ..state() });
+        deliver(&mut d, base::Updates::UpdatesTooLong).await;
+        tokio::time::advance(Duration::from_millis(500)).await;
+        deliver(&mut d, short(base::Update::UpdateConfig)).await;
+        assert_eq!(requests(&mut sent), 3, "getDifference, then getState twice");
+
+        // Held, since pts 11 never came: the gap expires at 1 s, before getState's next try at 1.5 s.
+        deliver(&mut d, short(deleted(12))).await;
+        tokio::time::advance(Duration::from_millis(500)).await;
+        d.tracker.expire(tokio::time::Instant::now());
+        d.resolve().await;
+        assert_eq!(requests(&mut sent), 0, "a difference was asked from the refused pts");
+        assert_eq!(d.tracker.due, [Key::Pts]);
+        // The loop isn't woken again for the gap, only for getState.
+        assert_eq!(d.tracker.deadline(), Some(tokio::time::Instant::now() + Duration::from_millis(500)));
+
+        tokio::time::advance(Duration::from_millis(500)).await;
+        d.tracker.expire(tokio::time::Instant::now());
+        d.resolve().await;
+        assert_eq!(requests(&mut sent), 2, "getState, then the difference that was due");
+        assert!(d.tracker.due.is_empty());
+        assert_eq!(d.tracker.state.pts, 40);
+    }
+
+    #[tokio::test]
+    async fn without_catch_up_a_channel_the_first_difference_names_without_a_pts_is_not_reported() {
+        let difference = types::updates::Difference {
+            new_messages: Vec::new(),
+            new_encrypted_messages: Vec::new(),
+            other_updates: vec![channel_too_long(None)],
+            chats: Vec::new(),
+            users: Vec::new(),
+            state: base::updates::State::State(Box::new(state())),
+        };
+        let difference = base::updates::Difference::Difference(Box::new(difference));
+        let (client, mut sent) = Client::scripted(vec![Ok(difference.to_bytes())]);
+        let events = client.0.events.record();
+        let mut d = Dispatcher::from_now(client, &state(), 10);
+        d.resolve().await;
+
+        // Skipping what came before the run is what was asked for, as for the common box.
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        assert!(got.is_empty(), "{got:?}");
+        assert_eq!(requests(&mut sent), 1, "only getDifference");
+        assert!(d.held_channels.is_empty() && !d.tracker.state.channels.contains_key(&9));
     }
 
     #[tokio::test]

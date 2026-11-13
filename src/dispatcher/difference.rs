@@ -129,6 +129,11 @@ impl Dispatcher {
             };
             for update in others.into_iter().filter(keep) {
                 self.recovered.1 += 1;
+                if let (base::Update::UpdateChannelTooLong(u), Some(since)) = (&update, held_before) {
+                    if !self.held_channels.iter().any(|&(id, _)| id == u.channel_id) {
+                        self.held_channels.push((u.channel_id, since));
+                    }
+                }
                 if matches!(update, base::Update::UpdateChannelTooLong(_)) || channel_of(&update).is_some() {
                     t.update(update, &entities, false);
                 } else {
@@ -152,19 +157,22 @@ impl Dispatcher {
     }
 
     pub(super) async fn channel_difference(&mut self, channel_id: i64) -> Result<()> {
+        // A channel the first difference of a run without catch-up named: what is dated before the run is dropped
+        // as the window did, undated updates too, and what is skipped isn't reported, as `difference` doesn't.
+        let since = self.held_channels.iter().find(|&&(id, _)| id == channel_id).map(|&(_, since)| since);
         let Some(&local) = self.tracker.state.channels.get(&channel_id) else {
             // An updateChannelTooLong without a pts for a channel the client keeps none for: nowhere to start from.
-            self.skipped(Key::Channel(channel_id), 0, 0, SkipReason::NoPts);
+            if since.is_none() {
+                self.skipped(Key::Channel(channel_id), 0, 0, SkipReason::NoPts);
+            }
             return Ok(());
         };
         let mut pts = local;
         let channel = self.client.resolve_channel(&get_channel_id(channel_id).into()).await?;
         let bot = self.client.0.me.lock().unwrap().is_bot;
         let limit = if bot { BOT_CHANNEL_DIFFERENCE_LIMIT } else { CHANNEL_DIFFERENCE_LIMIT };
-        // Without catch-up, the messages from before the run are dropped, as `difference` does. The channels its
-        // first difference names are fetched after that window closes, so this goes by when the run began.
-        let began = self.began;
-        let keep = move |m: &base::Message| since_run(began, message_date(m));
+        let keep = move |m: &base::Message| since_run(since, message_date(m));
+        let keep_update = move |u: &base::Update| since_run(since, update_date(u));
         loop {
             self.dispatch_ready();
             let request = functions::updates::GetChannelDifference {
@@ -188,7 +196,7 @@ impl Dispatcher {
                     }
                     if let base::Dialog::Dialog(dialog) = &d.dialog {
                         let to = dialog.pts.unwrap_or(pts);
-                        if to > pts {
+                        if to > pts && since.is_none() {
                             self.skipped(Key::Channel(channel_id), pts, to, SkipReason::TooLong);
                         }
                         pts = to;
@@ -202,7 +210,7 @@ impl Dispatcher {
                         self.tracker.emit(new_channel_message(message), &entities);
                         self.recovered.0 += 1;
                     }
-                    for update in d.other_updates {
+                    for update in d.other_updates.into_iter().filter(keep_update) {
                         self.tracker.emit(update, &entities);
                         self.recovered.1 += 1;
                     }
