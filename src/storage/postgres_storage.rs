@@ -545,8 +545,18 @@ mod tests {
         }
     }
 
-    fn storage(url: &str) -> PostgresStorage<NoTls> {
-        let config = Config::from_str(url).expect("VAEGRAM_POSTGRES_URL isn't a PostgreSQL URL");
+    /// `url` as a config, refused unless it names a database ending in `_test`: these tests wipe it, so a URL
+    /// pointing at a real database must fail before anything connects.
+    fn test_config(url: &str) -> Result<Config, String> {
+        let config = Config::from_str(url).map_err(|e| format!("VAEGRAM_POSTGRES_URL isn't a PostgreSQL URL: {e}"))?;
+        let named = config.get_dbname().is_some_and(|name| name.ends_with("_test"));
+        if !named {
+            return Err("VAEGRAM_POSTGRES_URL must name a database ending in _test: the test wipes it".into());
+        }
+        Ok(config)
+    }
+
+    fn storage(config: Config) -> PostgresStorage<NoTls> {
         PostgresStorage::new(config, NoTls)
     }
 
@@ -554,6 +564,14 @@ mod tests {
     fn a_plain_connector_is_a_storage() {
         fn assert_storage<T: Storage>(_: &T) {}
         assert_storage(&PostgresStorage::new(Config::new(), NoTls));
+    }
+
+    #[test]
+    fn a_url_that_names_a_real_database_is_refused() {
+        let error = test_config("postgresql://vaegram@localhost/vaegram").unwrap_err();
+        assert!(error.contains("_test"), "{error}");
+        assert!(test_config("postgresql://vaegram@localhost/vaegram_test").is_ok());
+        assert!(test_config("not a url").is_err());
     }
 
     #[tokio::test]
@@ -568,26 +586,26 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "needs VAEGRAM_POSTGRES_URL, a PostgreSQL server it may wipe"]
+    #[ignore = "needs VAEGRAM_POSTGRES_URL naming a database ending in _test, which it wipes"]
     async fn conformance_on_a_live_server() {
         let Some(url) = url() else { return };
-        let storage = storage(&url);
+        let storage = storage(test_config(&url).unwrap());
         // `check` starts on an engine that holds nothing: whatever a previous run left goes first.
         storage.delete().await.unwrap();
         conformance::check(&storage).await;
     }
 
     #[tokio::test]
-    #[ignore = "needs VAEGRAM_POSTGRES_URL, a PostgreSQL server it may wipe"]
+    #[ignore = "needs VAEGRAM_POSTGRES_URL naming a database ending in _test, which it wipes"]
     async fn reconnects_after_the_server_drops() {
         let Some(url) = url() else { return };
-        let mut config = Config::from_str(&url).unwrap();
+        let mut config = test_config(&url).unwrap();
         config.application_name("vaegram-reconnect-test");
         let storage = PostgresStorage::new(config, NoTls);
         storage.save_session(&SessionData::new(2, [1; 256])).await.unwrap();
 
         // A second connection ends the storage's backend, as a server restart would.
-        let (killer, connection) = Config::from_str(&url).unwrap().connect(NoTls).await.unwrap();
+        let (killer, connection) = test_config(&url).unwrap().connect(NoTls).await.unwrap();
         tokio::spawn(connection);
         killer
             .execute(

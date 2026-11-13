@@ -75,14 +75,14 @@ jobs:
         ports: ["5432:5432"]
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: vaegram
+          POSTGRES_DB: vaegram_test
         options: >-
-          --health-cmd "pg_isready -h localhost -U postgres -d vaegram"
+          --health-cmd "pg_isready -h localhost -U postgres -d vaegram_test"
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       VAEGRAM_MONGO_URL: mongodb://localhost:27017
       VAEGRAM_REDIS_URL: redis://localhost:6379
-      VAEGRAM_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/vaegram
+      VAEGRAM_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/vaegram_test
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
