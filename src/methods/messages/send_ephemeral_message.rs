@@ -205,7 +205,9 @@ impl<'a> SendEphemeralMessage<'a> {
         }
         // Telegram answered REPLY_TO_INVALID to `anchor` next to an inputReplyToMessage, and a topic is written as one.
         if self.replace && matches!(self.reply_to, Some(ReplyTo::Message(_))) {
-            return Err(Error::InvalidArgument("replace_callback_query_message can't go with reply_to"));
+            // `Message::reply_ephemeral` sets reply_to itself, so a caller who never called it can meet this.
+            let why = "replace_callback_query_message can't go with reply_to (Message::reply_ephemeral sets one too)";
+            return Err(Error::InvalidArgument(why));
         }
         if self.replace && self.message_thread_id.filter(|&id| id != 1).is_some() {
             return Err(Error::InvalidArgument("replace_callback_query_message can't go with message_thread_id"));
@@ -369,11 +371,25 @@ mod tests {
         assert!(matches!(refused, Err(Error::InvalidArgument(m)) if m.contains("message_thread_id")), "{refused:?}");
         assert!(sent.try_recv().is_err(), "a refused pair must not send");
 
-        // The General topic travels as no reply at all, so it goes out with the anchor.
+        // The General topic travels as no reply at all, so it goes out with the anchor and without flags.5, the reply
+        // header: query_id is flags.0, peer flags.8 and anchor flags.9, and nothing else is set.
         let send = client.send_ephemeral_message("me", "me", "hi").callback_query_id(55).message_thread_id(1);
         let _ = send.replace_callback_query_message().await;
         let body = sent.try_recv().expect("no request sent");
-        assert_eq!(flags(&body) & (1 | (1 << 9)), 1 | (1 << 9), "query_id and anchor are set");
+        assert_eq!(flags(&body), 1 | (1 << 8) | (1 << 9));
+    }
+
+    #[tokio::test]
+    async fn reply_ephemeral_refuses_replace() {
+        let (client, mut sent) = Client::recording();
+        // Seeded, the chat resolves without a request and the send would go out (see
+        // a_reply_to_a_topic_message_carries_the_topic), so only the check stops it.
+        seeded(&client);
+        let message = Message::parse(&client, Box::new(Message::bare(12, get_peer(7), 0)), &Entities::default());
+        let send = message.reply_ephemeral("hi").callback_query_id(55).replace_callback_query_message();
+        let refused = send.await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(m)) if m.contains("reply_ephemeral")), "{refused:?}");
+        assert!(sent.try_recv().is_err(), "a refused reply must not send");
     }
 
     #[tokio::test]

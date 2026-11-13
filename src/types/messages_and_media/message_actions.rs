@@ -107,7 +107,11 @@ impl Message {
     /// The reply goes into this message's forum topic: a message in a topic names it, and the topic's root message
     /// needs none. The text is a [`MessageText`]: plain or formatted text, or a rich message.
     ///
-    /// Awaiting fails with `Error::InvalidArgument`, sending nothing, if the message has no sender user.
+    /// Awaiting fails with `Error::InvalidArgument`, sending nothing, if the message has no sender user. The request
+    /// replies to this message, so it can't take
+    /// [`replace_callback_query_message`](SendEphemeralMessage::replace_callback_query_message); to answer a button
+    /// press in place of the pressed message, use
+    /// [`CallbackQuery::answer_ephemeral`](crate::types::CallbackQuery::answer_ephemeral).
     pub fn reply_ephemeral(&self, text: impl Into<MessageText>) -> SendEphemeralMessage<'_> {
         let receiver = self.from_user.as_ref().map(|u| PeerRef::from(u.id));
         let reply =

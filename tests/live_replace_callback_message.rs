@@ -124,25 +124,28 @@ type Answer = (String, vaegram::Result<EphemeralMessage>, vaegram::Result<()>);
 
 /// What a test leaves behind: the bot's messages by chat, and its ephemeral answers by chat, receiver and id. The
 /// bot's handler records an answer as soon as its send returns, so one that comes after the test stopped waiting is
-/// removed too; `in_flight` counts the handler's sends that haven't returned yet.
+/// removed too. `pending` counts the presses made whose answer the handler hasn't recorded yet: `press` raises it
+/// before the click, so a press that reaches the bot after `press` gave up is still waited for.
 #[derive(Default)]
 struct Made {
     messages: Vec<(i64, i32)>,
     ephemerals: Vec<(i64, i64, i32)>,
-    in_flight: usize,
+    pending: usize,
 }
 
-/// Waits up to [`WAIT`] for the bot's handler to finish the sends it started, so that `clean` sees what they made.
-/// `Some` says how many were still going.
+/// Waits up to [`WAIT`] for the bot's handler to record the answers to every press made, so that `clean` sees them.
+/// `Some` says how many were still missing; they are then forgotten, so one lost press is reported once.
 async fn settle(made: &Mutex<Made>) -> Option<String> {
     let deadline = tokio::time::Instant::now() + WAIT;
     loop {
-        let in_flight = made.lock().unwrap().in_flight;
-        if in_flight == 0 {
+        let pending = made.lock().unwrap().pending;
+        if pending == 0 {
             return None;
         }
         if tokio::time::Instant::now() >= deadline {
-            return Some(format!("{in_flight} ephemeral answers were still being sent after {WAIT:?}; check the chat"));
+            made.lock().unwrap().pending = 0;
+            let lost = "the press may not have reached the bot, or its answer may still arrive: check the chat";
+            return Some(format!("{pending} presses had no recorded answer after {WAIT:?}; {lost}"));
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
@@ -220,7 +223,7 @@ impl Ctx {
         bot.on_callback_query(filters::data_prefix(prefix), move |query| {
             let (answer_tx, plan, made) = (answer_tx.clone(), handler_plan.clone(), handler_made.clone());
             async move {
-                made.lock().unwrap().in_flight += 1;
+                // `press` counted this press before its click; it is done once its answer is recorded.
                 let how = plan.lock().unwrap().get(&query.data).cloned();
                 let sent = match how {
                     Some(how) => answer(&query, how).await,
@@ -231,7 +234,7 @@ impl Ctx {
                     if let Ok(m) = &sent {
                         made.ephemerals.push((m.chat.id, m.receiver_user.id, m.id));
                     }
-                    made.in_flight -= 1;
+                    made.pending = made.pending.saturating_sub(1);
                 }
                 let answered = query.answer().await;
                 let _ = answer_tx.send((query.data.clone(), sent, answered));
@@ -262,6 +265,7 @@ impl Ctx {
         let Some(pressed) = found.into_iter().next().flatten() else {
             return Err(Stuck::Missing("the user can't read the button's message".into()));
         };
+        self.made.lock().unwrap().pending += 1;
         let click = tokio::spawn(async move { tokio::time::timeout(WAIT, async { pressed.click("Tap").await }).await });
 
         let answer = next(&mut self.answers, |(answered_data, _, _)| *answered_data == data).await;
@@ -340,14 +344,13 @@ async fn replace_steps(mut ctx: Ctx, chat_id: i64, prefix: String, mut seen: Unb
     let (control_seen, replaced_seen) = (control.seen.anchor_message_id, replaced.seen.anchor_message_id);
     eprintln!("anchor_message_id the user saw: control {control_seen:?}, replace {replaced_seen:?}");
     eprintln!("the pressed message of the replace run: {}", replaced.button);
-    // Seen on 2026-11-13: the sender's copy has None here even after a replace. Printed, not asserted: the replace
-    // is judged by what the receiver sees.
-    eprintln!(
-        "anchor_message_id in the bot's copies: control {:?}, replace {:?}",
-        control.sent.anchor_message_id, replaced.sent.anchor_message_id
-    );
+    // The docs say the copy returned to the sender doesn't name the pressed message; it held in every live run since
+    // 2026-11-13, so it is asserted.
+    let (control_sent, replaced_sent) = (control.sent.anchor_message_id, replaced.sent.anchor_message_id);
+    eprintln!("anchor_message_id in the bot's copies: control {control_sent:?}, replace {replaced_sent:?}");
     assert_eq!(control_seen, None, "the answer sent without the anchor flag is anchored too");
     assert_eq!(replaced_seen, Some(replaced.button), "the answer sent with the anchor flag isn't on the pressed one");
+    assert_eq!((control_sent, replaced_sent), (None, None), "the copy returned to the bot names an anchor");
 }
 
 /// The user's ephemeral messages, from a handler in group 1.
@@ -388,7 +391,8 @@ async fn ephemeral_replaces_the_callback_message() {
 /// What came of one press and its answer.
 enum Outcome {
     /// An answer reached the receiver as `got`; `anchored` when its `anchor_message_id` is the pressed message.
-    Arrived { anchored: bool, got: Box<EphemeralMessage>, details: String },
+    /// `sent_anchor` is the `anchor_message_id` of the copy the bot's send returned.
+    Arrived { anchored: bool, got: Box<EphemeralMessage>, sent_anchor: Option<i32>, details: String },
     /// The bot's send failed with this error.
     Refused(Error),
     /// The send went through and nothing with its id, or its text, reached the receiver.
@@ -486,7 +490,8 @@ async fn outcome(
         pressed.click,
         pressed.answered
     );
-    Outcome::Arrived { anchored: got.anchor_message_id == Some(pressed.button), got: Box::new(got), details }
+    let anchored = got.anchor_message_id == Some(pressed.button);
+    Outcome::Arrived { anchored, got: Box::new(got), sent_anchor: sent.anchor_message_id, details }
 }
 
 /// A second logged-in user, its id and its ephemeral messages. Its run stops when it drops.
@@ -551,12 +556,14 @@ async fn option_steps(
 
     // Found by id alone: `EphemeralMessage` doesn't expose a rich body to check the nonce in (see `outcome`).
     let rich = outcome(&mut ctx, chat_id, None, &format!("{prefix}:rich"), How::Rich, &mut seen).await;
-    judge(&mut problems, "(b) replace + a rich message", &rich, rich.anchored());
+    // As for plain text, the copy returned to the bot must not name the pressed message.
+    let ok = matches!(&rich, Outcome::Arrived { anchored: true, sent_anchor: None, .. });
+    judge(&mut problems, "(b) replace + a rich message", &rich, ok);
     problems.extend(finish(&ctx.made, &ctx.bot).await);
 
     // A photo needs real image bytes, which the tests don't carry; a document from memory takes the same media path.
     let media = outcome(&mut ctx, chat_id, None, &format!("{prefix}:media"), How::Media, &mut seen).await;
-    let ok = matches!(&media, Outcome::Arrived { anchored: true, got, .. } if got.media.is_some());
+    let ok = matches!(&media, Outcome::Arrived { anchored: true, got, sent_anchor: None, .. } if got.media.is_some());
     judge(&mut problems, "(c) replace + media (a document from memory)", &media, ok);
     problems.extend(finish(&ctx.made, &ctx.bot).await);
 
@@ -577,7 +584,8 @@ async fn option_steps(
                 }
                 Err(e) => Outcome::Setup(Stuck::Telegram("the user creating a topic in VAEGRAM_FORUM_CHAT_ID", e)),
             };
-            judge(&mut problems, topic_press, &result, result.anchored());
+            let ok = matches!(&result, Outcome::Arrived { anchored: true, sent_anchor: None, .. });
+            judge(&mut problems, topic_press, &result, ok);
         }
         Ok(Err(e)) => {
             let result = Outcome::Setup(Stuck::Missing(format!("VAEGRAM_FORUM_CHAT_ID: {e}")));
