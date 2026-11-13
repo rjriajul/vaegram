@@ -1093,11 +1093,18 @@ impl Runner {
             return Ok(());
         };
         let body = &packet[at];
-        if !self.fresh(msg_id, body) {
+        // The packet's own msg_id is checked here but recorded only once its messages are handled: recorded first,
+        // it could lift a full id set's floor over the ids a container holds, and those would then be dropped.
+        if !self.unseen(msg_id, body) {
             return Ok(());
         }
         if constructor_id(body) == Some(msg_container::ID) {
             match msg_container::parse(body) {
+                // A container is made after the messages it carries, so each of them has a lower msg_id.
+                Ok(messages) if messages.iter().any(|m| m.msg_id >= msg_id) => {
+                    self.events.emit(ClientEvent::PacketDropped { reason: "msg_container holds a newer msg_id" });
+                    return Ok(());
+                }
                 Ok(messages) => {
                     for m in messages {
                         if self.fresh(m.msg_id, m.body) {
@@ -1110,6 +1117,7 @@ impl Runner {
         } else {
             self.handle_message(msg_id, seq_no, body);
         }
+        self.remember(msg_id);
         if let Some(e) = self.bind_failure() {
             return Err(e);
         }
@@ -1124,17 +1132,40 @@ impl Runner {
     // possible replay. The time window waits for a measured clock offset, and clock-sync
     // notifications skip it, since a wrong clock is exactly what they fix.
     fn fresh(&mut self, msg_id: i64, body: &[u8]) -> bool {
+        let now = self.window(msg_id, body);
+        let fresh = msg_id % 2 != 0 && self.server_msg_ids.accept(msg_id, now);
+        if fresh {
+            self.read_clock(msg_id);
+        }
+        fresh
+    }
+
+    // `fresh` without taking the msg_id in; `remember` does that once the packet is handled.
+    fn unseen(&mut self, msg_id: i64, body: &[u8]) -> bool {
+        let now = self.window(msg_id, body);
+        msg_id % 2 != 0 && self.server_msg_ids.would_accept(msg_id, now)
+    }
+
+    // Takes in a msg_id that passed `unseen`. The time window isn't checked again: a clock fix the packet carried
+    // may have moved it since.
+    fn remember(&mut self, msg_id: i64) {
+        if self.server_msg_ids.accept(msg_id, None) {
+            self.read_clock(msg_id);
+        }
+    }
+
+    // The time a msg_id is checked against, or None while the window is off for this message.
+    fn window(&mut self, msg_id: i64, body: &[u8]) -> Option<i64> {
         if !self.clock_synced && ServerMsgIds::in_window(msg_id, internals::now() + self.msg_ids.time_offset) {
             self.clock_synced = true;
         }
-        let now = (self.clock_synced && constructor_id(body) != Some(BAD_MSG_NOTIFICATION))
-            .then(|| internals::now() + self.msg_ids.time_offset);
-        let fresh = msg_id % 2 != 0 && self.server_msg_ids.accept(msg_id, now);
-        if fresh {
-            // Its upper half is when the server sent it, in Unix seconds.
-            self.learned.seen_offset.store((msg_id >> 32) - internals::now(), Ordering::Relaxed);
-        }
-        fresh
+        (self.clock_synced && constructor_id(body) != Some(BAD_MSG_NOTIFICATION))
+            .then(|| internals::now() + self.msg_ids.time_offset)
+    }
+
+    fn read_clock(&self, msg_id: i64) {
+        // Its upper half is when the server sent it, in Unix seconds.
+        self.learned.seen_offset.store((msg_id >> 32) - internals::now(), Ordering::Relaxed);
     }
 
     fn handle_message(&mut self, msg_id: i64, seq_no: i32, body: &[u8]) {
