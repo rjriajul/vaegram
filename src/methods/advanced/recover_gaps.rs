@@ -17,7 +17,9 @@ impl Client {
     /// Needs `run` to be taking updates, or fails with `Error::InvalidArgument`. Resolves to how many messages and then
     /// how many other updates came back, and they reach handlers as usual. The counts include whatever else was
     /// already due at that moment. A failed difference is reported as `ClientEvent::DifferenceFailed`, not here. The
-    /// dispatcher sends the requests, so they go out untagged even inside [`tagged`](crate::observe::tagged).
+    /// dispatcher sends the requests, so they go out untagged even inside [`tagged`](crate::observe::tagged). What
+    /// waits out a FLOOD_WAIT or a back-off isn't asked sooner, and neither is updates.getState after one failed:
+    /// asking early only fails again.
     pub fn recover_gaps(&self) -> RecoverGaps<'_> {
         RecoverGaps { client: self, chat_ids: None }
     }

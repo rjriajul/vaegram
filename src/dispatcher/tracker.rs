@@ -94,8 +94,12 @@ pub(super) struct Tracker {
     pub(super) idle: Option<Instant>,
     pub(super) due: Vec<Key>,
     pub(super) ready: Vec<(base::Update, Arc<Entities>)>,
-    // updatePtsChanged came: the common box has to be read again with updates.getState.
+    // updatePtsChanged came, or getDifference refused the stored pts: the common box has to be read again with
+    // updates.getState.
     pub(super) refetch: bool,
+    // After a failed getState, when it may be asked again, and how many failed in a row.
+    pub(super) refetch_after: Option<Instant>,
+    pub(super) refetch_failures: u32,
 }
 
 impl Tracker {
@@ -104,10 +108,11 @@ impl Tracker {
         (state.pts, state.qts, state.date, state.seq) = (s.pts, s.qts, s.date, s.seq);
     }
 
-    /// The state updates.getState gave after updatePtsChanged. Updates held for a pts gap were numbered the old
-    /// way, so they go, and so do the common box's updates in held seq batches, which would otherwise be offered to
-    /// the new pts. Only that box was renumbered (https://core.telegram.org/constructor/updatePtsChanged), so held
-    /// qts, channel and seq ones are checked against the fresh counters.
+    /// The state updates.getState gave after updatePtsChanged, or after getDifference refused the stored pts.
+    /// Updates held for a pts gap were numbered the old way, so they go, and so do the common box's updates in held
+    /// seq batches, which would otherwise be offered to the new pts. Only that box was renumbered
+    /// (https://core.telegram.org/constructor/updatePtsChanged), so held qts, channel and seq ones are checked against
+    /// the fresh counters.
     pub(super) fn restate(&mut self, s: &types::updates::State) {
         self.set_state(s);
         self.pending.retain(|(_, p)| p.key != Key::Pts);
@@ -119,6 +124,26 @@ impl Tracker {
         }
         self.drain(Key::Qts);
         self.drain(Key::Seq);
+    }
+
+    /// Whether updates.getState is to be asked now: it was asked for, and no wait after a failed one runs.
+    pub(super) fn refetch_now(&self, now: Instant) -> bool {
+        self.refetch && self.refetch_after.is_none_or(|after| after <= now)
+    }
+
+    /// After an updates.getState. A success clears the wait. A failure is asked again after a wait that doubles from
+    /// `GAP_TIMEOUT` up to the gap back-off's last (`backoff`), and lasts at least a FLOOD_WAIT's, as `recover` waits.
+    /// It never gives up: until the state comes, nothing else can be fetched from the right pts.
+    pub(super) fn refetched(&mut self, result: &Result<()>, now: Instant) {
+        let Err(error) = result else {
+            (self.refetch, self.refetch_after, self.refetch_failures) = (false, None, 0);
+            return;
+        };
+        self.refetch = true;
+        self.refetch_failures = self.refetch_failures.saturating_add(1);
+        let wait = GAP_TIMEOUT * 2u32.pow(self.refetch_failures.min(MAX_RETRIES) - 1);
+        let wait = error.flood_wait().map_or(wait, |flood| wait.max(flood));
+        self.refetch_after = Some(now + wait);
     }
 
     pub(super) fn counter(&mut self, key: Key) -> &mut i32 {
@@ -143,7 +168,15 @@ impl Tracker {
     }
 
     pub(super) fn deadline(&self) -> Option<Instant> {
-        self.pending.iter().map(|(d, _)| *d).chain(self.retries.iter().map(|(d, _)| *d)).chain(self.idle).min()
+        let refetch = self.refetch_after.filter(|_| self.refetch);
+        // While getState waits, no difference is asked for the common box, so what it holds waits for getState too;
+        // a deadline already past would wake the loop for nothing, again and again.
+        let pending = self.pending.iter().map(|(d, p)| match (refetch, p.key) {
+            (Some(after), Key::Pts | Key::Qts | Key::Seq) => (*d).max(after),
+            _ => *d,
+        });
+        let retries = self.retries.iter().map(|(d, _)| *d).chain(refetch);
+        pending.chain(retries).chain(self.idle).min()
     }
 
     pub(super) fn touch(&mut self, now: Instant) {
@@ -155,9 +188,8 @@ impl Tracker {
             // https://core.telegram.org/constructor/updateChannelTooLong: a channel with no stored pts is fetched from
             // the one given, as mtcute does (tdlib probes from pts 1 instead). A stored one is kept, since fetching
             // from it misses nothing; without either, `channel_difference` reports the channel's updates as skipped.
-            // The value is trusted: one above the channel's real pts makes its updates look seen, and only an answer
-            // to getChannelDifference that carries the channel's pts lowers it; an error such as
-            // PERSISTENT_TIMESTAMP_INVALID leaves it.
+            // The value is trusted: one above the channel's real pts makes its updates look seen until an answer to
+            // getChannelDifference carries the channel's pts, or PERSISTENT_TIMESTAMP_INVALID has it forgotten.
             if let Some(pts) = u.pts.filter(|&pts| pts != 0) {
                 self.state.channels.entry(u.channel_id).or_insert(pts);
             }
