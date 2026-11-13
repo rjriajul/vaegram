@@ -113,11 +113,11 @@ mod tests {
     }
 
     /// Where the result's `send_message` starts in a body whose result flags are all clear: after the flags, the
-    /// `id` string and the `type` string.
+    /// `id` string and the `type` string, each a length byte and its bytes padded to four.
     fn send_message_at(body: &[u8]) -> usize {
         let mut at = 20;
         for _ in 0..2 {
-            at += 1 + usize::from(body[at]);
+            at += (1 + usize::from(body[at])).next_multiple_of(4);
         }
         at
     }
