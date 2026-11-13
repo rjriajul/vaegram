@@ -3,7 +3,7 @@ use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::methods::geo_point;
 use crate::raw::{base, types};
-use crate::types::{InputInvoice, InputRichMessage, Text};
+use crate::types::{InputInvoice, InputRichMessage, LinkPreviewOptions, Text};
 
 /// Content of the message sent when the user picks an inline result.
 #[derive(Debug, Clone, PartialEq)]
@@ -140,6 +140,25 @@ impl InputMessageContent {
             preview_url: None,
             prefer_large_media: false,
             prefer_small_media: false,
+        }
+    }
+
+    /// Sets how the links in the text are previewed, the way [`Client::send_message`] does.
+    ///
+    /// Only [`Text`](InputMessageContent::Text) content changes; every other variant is returned as it is.
+    #[must_use]
+    pub fn link_preview_options(self, options: LinkPreviewOptions) -> Self {
+        match self {
+            InputMessageContent::Text { text, parse_mode, .. } => InputMessageContent::Text {
+                text,
+                parse_mode,
+                no_webpage: options.is_disabled,
+                invert_media: options.show_above_text,
+                preview_url: options.url,
+                prefer_large_media: options.prefer_large_media,
+                prefer_small_media: options.prefer_small_media,
+            },
+            other => other,
         }
     }
 
@@ -390,5 +409,26 @@ mod widget_tests {
             panic!("wrong shared widget type")
         };
         assert_eq!(raw.widget_id, 42);
+    }
+}
+
+#[cfg(test)]
+mod link_preview_tests {
+    use super::InputMessageContent;
+    use crate::Client;
+    use crate::raw::base;
+    use crate::types::LinkPreviewOptions;
+
+    #[tokio::test]
+    async fn link_preview_options_change_only_text() {
+        let client = Client::offline();
+        let off = LinkPreviewOptions::new().is_disabled(true);
+        let content = InputMessageContent::text("hi").link_preview_options(off.clone());
+        let raw = content.write(&client, None).await.unwrap();
+        let base::InputBotInlineMessage::InputBotInlineMessageText(raw) = raw else { panic!("wrong message type") };
+        assert!(raw.no_webpage);
+
+        let location = InputMessageContent::location(1.0, 2.0);
+        assert_eq!(location.clone().link_preview_options(off), location);
     }
 }
