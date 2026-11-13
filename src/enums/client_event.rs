@@ -99,8 +99,9 @@ pub enum ClientEvent {
         unrecoverable: u32,
     },
     /// The updates with pts `from..to` of a channel (`chat_id`) or of the account (`None`) will never be
-    /// delivered. `from == to` when the fetch stopped before Telegram said how many there were. Gaps in qts
-    /// (participant changes, join requests, a bot being stopped, ...) aren't reported.
+    /// delivered. `from == to` when the fetch stopped before Telegram said how many there were, or when there was
+    /// nothing to fetch from ([`SkipReason::NoPts`]: no fetch was made). Gaps in qts (participant changes, join
+    /// requests, a bot being stopped, ...) aren't reported.
     #[non_exhaustive]
     UpdatesSkipped {
         /// Bot-API style id of the channel (`-100…`), or `None` for the account's own message box (private chats

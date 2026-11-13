@@ -67,8 +67,9 @@ impl Dispatcher {
     /// the ones after it come again, even those an earlier run handled, so `run` reads them first: those dated
     /// before `since` are dropped, and those dated later, which came in since the run began, reach the handlers.
     /// Updates that carry no date, such as deletions and poll votes, can't be told apart and are dropped too. Until
-    /// that first difference is read whole or given up on, pushed updates are filtered the same way, since Telegram
-    /// pushes what it held again.
+    /// that first difference is read whole or given up on, pushed updates that move a counter are filtered the same
+    /// way, since Telegram pushes what it held again; it holds nothing else, so ones that move none, such as callback
+    /// queries and updates with a pts or qts of 0, pass.
     pub(crate) fn from_now(client: Client, state: &types::updates::State, since: i32) -> Self {
         let mut tracker = Tracker { due: vec![Key::Pts], ..Tracker::default() };
         tracker.set_state(state);
@@ -902,6 +903,33 @@ mod tests {
         d.dispatch_ready();
         settle().await;
         assert_eq!((d.recovered.0, seen.lock().unwrap().len(), d.tracker.state.channels[&9]), (1, 1, 5));
+    }
+
+    #[tokio::test]
+    async fn an_update_a_difference_returned_is_not_delivered_again_from_a_held_batch() {
+        // It moves pts by 0, so pts can't tell the two copies apart.
+        let deleted = || {
+            let update = types::UpdateDeleteMessages { messages: vec![1], pts: 1, pts_count: 0 };
+            base::Update::UpdateDeleteMessages(Box::new(update))
+        };
+        let difference = types::updates::Difference {
+            new_messages: Vec::new(),
+            new_encrypted_messages: Vec::new(),
+            other_updates: vec![deleted()],
+            chats: Vec::new(),
+            users: Vec::new(),
+            state: base::updates::State::State(Box::new(types::updates::State { seq: 3, ..state() })),
+        };
+        let difference = base::updates::Difference::Difference(Box::new(difference));
+        let (client, _sent) = Client::scripted(vec![Ok(difference.to_bytes())]);
+        let seen = raw_updates(&client);
+        let mut d = Dispatcher::new(client, &state());
+        // Held for a seq gap that never fills, carrying a copy of what the difference brings.
+        let batch = types::Updates { updates: vec![deleted()], users: Vec::new(), chats: Vec::new(), date: 0, seq: 3 };
+        d.process(Incoming { updates: base::Updates::Updates(Box::new(batch)), from_request: false });
+        deliver(&mut d, base::Updates::UpdatesTooLong).await;
+
+        assert_eq!((seen.lock().unwrap().len(), d.tracker.state.seq, d.tracker.pending.len()), (1, 3, 0));
     }
 
     #[tokio::test(start_paused = true)]
