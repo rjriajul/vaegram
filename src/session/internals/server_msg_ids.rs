@@ -30,15 +30,14 @@ impl ServerMsgIds {
         msg_id > self.floor && !self.seen.contains(&msg_id)
     }
 
-    pub(crate) fn accept(&mut self, msg_id: i64, now: Option<i64>) -> bool {
-        if !self.would_accept(msg_id, now) {
-            return false;
-        }
-        self.seen.insert(msg_id);
-        if self.seen.len() > Self::REMEMBERED {
+    /// Takes in ids that each passed [`would_accept`](Self::would_accept) against the state before any of them, then
+    /// forgets the oldest past [`REMEMBERED`](Self::REMEMBERED). Trimming only after the whole batch keeps a higher
+    /// id from lifting the floor over a lower one of the same packet.
+    pub(crate) fn record(&mut self, ids: impl IntoIterator<Item = i64>) {
+        self.seen.extend(ids);
+        while self.seen.len() > Self::REMEMBERED {
             self.floor = self.seen.pop_first().unwrap_or(self.floor);
         }
-        true
     }
 
     /// Whether `msg_id` was accepted and is still remembered.
@@ -52,6 +51,16 @@ mod tests {
     use super::*;
 
     const NOW: i64 = 1_800_000_000;
+
+    impl ServerMsgIds {
+        fn accept(&mut self, msg_id: i64, now: Option<i64>) -> bool {
+            let accepted = self.would_accept(msg_id, now);
+            if accepted {
+                self.record([msg_id]);
+            }
+            accepted
+        }
+    }
 
     #[test]
     fn rejects_duplicates_and_stale_ids() {
@@ -86,5 +95,18 @@ mod tests {
         assert!(!ids.would_accept(((NOW - 301) << 32) | 1, Some(NOW)));
         assert!(ids.accept(id, Some(NOW)));
         assert!(ids.contains(id) && !ids.would_accept(id, None));
+    }
+
+    #[test]
+    fn a_batch_is_trimmed_after_all_of_it_is_in() {
+        let mut ids = ServerMsgIds::default();
+        let base = NOW << 32;
+        ids.record((0..ServerMsgIds::REMEMBERED as i64).map(|i| base + 4 * i + 1));
+        let (low, high) = (base - 7, base - 3);
+        assert!(ids.would_accept(high, Some(NOW)) && ids.would_accept(low, Some(NOW)));
+        ids.record([high, low]);
+        assert_eq!(ids.seen.len(), ServerMsgIds::REMEMBERED);
+        assert_eq!(ids.floor, high);
+        assert!(!ids.would_accept(low, None) && !ids.would_accept(high, None));
     }
 }

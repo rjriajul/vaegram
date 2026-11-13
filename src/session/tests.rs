@@ -560,20 +560,49 @@ async fn a_container_with_an_inner_id_not_below_its_own_is_dropped() {
     assert!(r.fresh(outer, &update), "the dropped container's id was taken in");
 }
 
+// Fills the id set with ids newer than any a test container carries, so one more id forgets the oldest of them.
+fn fill_id_set(r: &mut Runner, now: i64) {
+    r.server_msg_ids.record((0..internals::ServerMsgIds::REMEMBERED as i64).map(|i| (now << 32) + 4 * i + 1));
+}
+
 #[tokio::test]
 async fn a_full_id_set_still_accepts_a_containers_messages() {
     let (mut r, _frames, _updates) = runner().await;
     let now = internals::now();
-    // Every id the set holds is newer than the container's messages, so one more id forgets the oldest of them.
-    for i in 0..internals::ServerMsgIds::REMEMBERED as i64 {
-        assert!(r.server_msg_ids.accept((now << 32) + 4 * i + 1, None));
-    }
+    fill_id_set(&mut r, now);
     let (first, second, outer) = (((now - 10) << 32) | 1, ((now - 10) << 32) | 5, ((now + 1) << 32) | 1);
     let body = container(&[first, second], &base::Updates::UpdatesTooLong.to_bytes());
     let packet = from_server(&r, outer, &body);
     r.handle_packet(packet).await.unwrap();
     assert_eq!(r.acks, vec![first, second]);
     assert!(!r.fresh(outer, &ping(1)), "the container's own id was not taken in");
+}
+
+#[tokio::test]
+async fn a_full_id_set_accepts_a_containers_messages_in_any_order() {
+    let (mut r, _frames, _updates) = runner().await;
+    let now = internals::now();
+    fill_id_set(&mut r, now);
+    let (first, second, outer) = (((now - 10) << 32) | 1, ((now - 10) << 32) | 5, ((now + 1) << 32) | 1);
+    let seen = (now << 32) | 1;
+    let body = container(&[second, seen, first], &base::Updates::UpdatesTooLong.to_bytes());
+    let packet = from_server(&r, outer, &body);
+    r.handle_packet(packet).await.unwrap();
+    assert_eq!(r.acks, vec![second, first], "handled in wire order, and an id seen before is still dropped");
+    assert!(!r.fresh(first, &ping(1)) && !r.fresh(second, &ping(1)) && !r.fresh(outer, &ping(1)));
+}
+
+#[tokio::test]
+async fn a_msg_id_twice_in_one_container_is_delivered_once() {
+    let (mut r, _frames, mut updates) = runner().await;
+    let now = internals::now();
+    let (inner, outer) = ((now << 32) | 1, (now << 32) | 9);
+    let body = container(&[inner, inner], &base::Updates::UpdatesTooLong.to_bytes());
+    let packet = from_server(&r, outer, &body);
+    r.handle_packet(packet).await.unwrap();
+    assert_eq!(r.acks, vec![inner]);
+    assert!(matches!(updates.rx.try_recv(), Ok(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
+    assert!(updates.rx.try_recv().is_err(), "the repeated message was delivered too");
 }
 
 #[tokio::test]
