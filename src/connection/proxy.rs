@@ -1,4 +1,4 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::{SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 use std::{fmt, io};
 
@@ -16,7 +16,8 @@ use crate::utils::{base64_decode, base64_encode};
 #[derive(Clone)]
 #[non_exhaustive]
 pub enum Proxy {
-    /// SOCKS5 (RFC 1928). The data center is asked for by IP address, so the proxy resolves no names.
+    /// SOCKS5 (RFC 1928). The data center is asked for by IP address, so the proxy resolves no names, except over
+    /// WebSocket: there it's asked for by host name, and the proxy looks that up.
     Socks5 {
         /// The proxy's host name or IP address; a name is resolved by the system when connecting.
         host: String,
@@ -25,7 +26,8 @@ pub enum Proxy {
         /// User name and password (RFC 1929), each at most 255 bytes; `None` connects without authentication.
         auth: Option<(String, String)>,
     },
-    /// IPv4 data centers only.
+    /// IPv4 data centers only. SOCKS4 can't take a host name, so over WebSocket the name is looked up on this side
+    /// and its first IPv4 address is used.
     Socks4 {
         /// The proxy's host name or IP address; a name is resolved by the system when connecting.
         host: String,
@@ -115,7 +117,7 @@ impl Proxy {
     pub(crate) async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         s: &mut S,
-        target: SocketAddr,
+        target: Target<'_>,
     ) -> Result<()> {
         match self {
             Proxy::Socks5 { auth, .. } => socks5(s, target, auth.as_ref()).await,
@@ -129,6 +131,36 @@ impl Proxy {
             Proxy::Web { .. } => Ok(()),
         }
     }
+}
+
+/// Where a proxy is asked to connect: an address, or a host name the proxy looks up itself.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Target<'a> {
+    Addr(SocketAddr),
+    // Only WebSocket names its endpoint by host.
+    #[cfg_attr(not(feature = "websocket"), allow(dead_code))]
+    Domain(&'a str, u16),
+}
+
+impl fmt::Display for Target<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Target::Addr(addr) => write!(f, "{addr}"),
+            Target::Domain(host, port) if host.contains(':') => write!(f, "[{host}]:{port}"),
+            Target::Domain(host, port) => write!(f, "{host}:{port}"),
+        }
+    }
+}
+
+/// The first IPv4 address of a host's addresses: SOCKS4 can reach no other kind.
+fn first_ipv4(addrs: impl IntoIterator<Item = SocketAddr>) -> Result<SocketAddrV4> {
+    addrs
+        .into_iter()
+        .find_map(|addr| match addr {
+            SocketAddr::V4(addr) => Some(addr),
+            SocketAddr::V6(_) => None,
+        })
+        .ok_or(Error::InvalidArgument("SOCKS4 cannot reach a host with no IPv4 address"))
 }
 
 // Credentials and secrets stay out of logs.
@@ -333,11 +365,14 @@ impl FromStr for Proxy {
 // https://www.rfc-editor.org/rfc/rfc1928 and rfc1929 for the username/password step.
 pub(crate) async fn socks5<S: AsyncRead + AsyncWrite + Unpin>(
     s: &mut S,
-    target: SocketAddr,
+    target: Target<'_>,
     auth: Option<&(String, String)>,
 ) -> Result<()> {
     if auth.is_some_and(|(user, pass)| user.len() > 255 || pass.len() > 255) {
         return Err(Error::InvalidArgument("SOCKS5 credentials are limited to 255 bytes"));
+    }
+    if matches!(target, Target::Domain(host, _) if host.len() > 255) {
+        return Err(Error::InvalidArgument("SOCKS5 host names are limited to 255 bytes"));
     }
     let methods: &[u8] = if auth.is_some() { &[5, 2, 0, 2] } else { &[5, 1, 0] };
     s.write_all(methods).await?;
@@ -360,19 +395,27 @@ pub(crate) async fn socks5<S: AsyncRead + AsyncWrite + Unpin>(
         _ => return Err(io::Error::other("SOCKS5 proxy accepted none of the offered auth methods").into()),
     }
 
-    let mut request = Vec::with_capacity(22);
+    // The longest request: header, address type, a 255-byte name with its length, port.
+    let mut request = Vec::with_capacity(4 + 1 + 255 + 2);
     request.extend_from_slice(&[5, 1, 0]);
-    match target.ip() {
-        IpAddr::V4(ip) => {
+    let port = match target {
+        Target::Addr(SocketAddr::V4(addr)) => {
             request.push(1);
-            request.extend_from_slice(&ip.octets());
+            request.extend_from_slice(&addr.ip().octets());
+            addr.port()
         }
-        IpAddr::V6(ip) => {
+        Target::Addr(SocketAddr::V6(addr)) => {
             request.push(4);
-            request.extend_from_slice(&ip.octets());
+            request.extend_from_slice(&addr.ip().octets());
+            addr.port()
         }
-    }
-    request.extend_from_slice(&target.port().to_be_bytes());
+        Target::Domain(host, port) => {
+            request.extend_from_slice(&[3, host.len() as u8]);
+            request.extend_from_slice(host.as_bytes());
+            port
+        }
+    };
+    request.extend_from_slice(&port.to_be_bytes());
     s.write_all(&request).await?;
 
     let mut head = [0u8; 4];
@@ -394,13 +437,16 @@ pub(crate) async fn socks5<S: AsyncRead + AsyncWrite + Unpin>(
 }
 
 // https://www.openssh.com/txt/socks4.protocol, with an empty user id.
-pub(crate) async fn socks4<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S, target: SocketAddr) -> Result<()> {
-    let IpAddr::V4(ip) = target.ip() else {
-        return Err(Error::InvalidArgument("SOCKS4 cannot reach IPv6 addresses"));
+pub(crate) async fn socks4<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S, target: Target<'_>) -> Result<()> {
+    let addr = match target {
+        Target::Addr(SocketAddr::V4(addr)) => addr,
+        Target::Addr(SocketAddr::V6(_)) => return Err(Error::InvalidArgument("SOCKS4 cannot reach IPv6 addresses")),
+        // SOCKS4 has no form for a host name, so it's looked up here.
+        Target::Domain(host, port) => first_ipv4(tokio::net::lookup_host((host, port)).await?)?,
     };
     let mut request = [4, 1, 0, 0, 0, 0, 0, 0, 0];
-    request[2..4].copy_from_slice(&target.port().to_be_bytes());
-    request[4..8].copy_from_slice(&ip.octets());
+    request[2..4].copy_from_slice(&addr.port().to_be_bytes());
+    request[4..8].copy_from_slice(&addr.ip().octets());
     s.write_all(&request).await?;
     let mut reply = [0u8; 8];
     s.read_exact(&mut reply).await?;
@@ -416,7 +462,7 @@ pub(crate) async fn socks4<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S, target:
 // https://www.rfc-editor.org/rfc/rfc9110#name-connect
 pub(crate) async fn http_connect<S: AsyncRead + AsyncWrite + Unpin>(
     s: &mut S,
-    target: SocketAddr,
+    target: Target<'_>,
     auth: Option<&(String, String)>,
 ) -> Result<()> {
     let mut request = format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n");
@@ -452,8 +498,12 @@ pub(crate) async fn http_connect<S: AsyncRead + AsyncWrite + Unpin>(
 
 #[cfg(test)]
 mod tests {
-    use super::{Error, Proxy, Secret, SocketAddr, http_connect, socks4, socks5};
+    use super::{Error, Proxy, Secret, SocketAddr, Target, first_ipv4, http_connect, socks4, socks5};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn addr(s: &str) -> Target<'static> {
+        Target::Addr(s.parse().unwrap())
+    }
 
     #[test]
     fn parses_secrets() {
@@ -476,7 +526,7 @@ mod tests {
     async fn http_connect_with_basic_auth() {
         let (mut client, mut server) = tokio::io::duplex(512);
         let auth = ("user".to_string(), "pw".to_string());
-        let target: SocketAddr = "149.154.167.51:443".parse().unwrap();
+        let target = addr("149.154.167.51:443");
         let proxy = async move {
             let expected = "CONNECT 149.154.167.51:443 HTTP/1.1\r\nHost: 149.154.167.51:443\r\n\
                             Proxy-Authorization: Basic dXNlcjpwdw==\r\n\r\n";
@@ -500,7 +550,7 @@ mod tests {
 
     #[tokio::test]
     async fn http_connect_reads_the_status_from_the_status_line_only() {
-        let target: SocketAddr = "149.154.167.51:443".parse().unwrap();
+        let target = addr("149.154.167.51:443");
         for reply in [&b"HTTP/1.1\r\nX: 200 y\r\n\r\n"[..], b"SSH-2.0 200 ok\r\n\r\n"] {
             let (mut client, mut server) = tokio::io::duplex(512);
             server.write_all(reply).await.unwrap();
@@ -514,9 +564,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn http_connect_names_the_host() {
+        let (mut client, mut server) = tokio::io::duplex(512);
+        let proxy = async move {
+            let expected = "CONNECT venus.web.telegram.org:443 HTTP/1.1\r\nHost: venus.web.telegram.org:443\r\n\r\n";
+            let mut buf = vec![0u8; expected.len()];
+            server.read_exact(&mut buf).await.unwrap();
+            assert_eq!(buf, expected.as_bytes());
+            server.write_all(b"HTTP/1.1 200 OK\r\n\r\n").await.unwrap();
+            server
+        };
+        let target = Target::Domain("venus.web.telegram.org", 443);
+        let (result, _server) = tokio::join!(http_connect(&mut client, target, None), proxy);
+        result.unwrap();
+        assert_eq!(Target::Domain("::1", 443).to_string(), "[::1]:443");
+    }
+
+    #[tokio::test]
     async fn socks4_request_and_reply() {
         let (mut client, mut server) = tokio::io::duplex(64);
-        let target: SocketAddr = "149.154.167.51:443".parse().unwrap();
+        let target = addr("149.154.167.51:443");
         let proxy = async move {
             let mut buf = [0u8; 9];
             server.read_exact(&mut buf).await.unwrap();
@@ -526,7 +593,7 @@ mod tests {
         };
         let (result, _server) = tokio::join!(socks4(&mut client, target), proxy);
         result.unwrap();
-        let ipv6 = socks4(&mut client, "[2001:db8::1]:443".parse().unwrap()).await;
+        let ipv6 = socks4(&mut client, addr("[2001:db8::1]:443")).await;
         assert!(matches!(ipv6, Err(Error::InvalidArgument(_))), "{ipv6:?}");
 
         let (mut client, mut server) = tokio::io::duplex(64);
@@ -535,8 +602,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn socks4_skips_ipv6_addresses() {
+        let v6: SocketAddr = "[2001:db8::1]:443".parse().unwrap();
+        let v4: SocketAddr = "149.154.167.51:443".parse().unwrap();
+        let later: SocketAddr = "1.2.3.4:443".parse().unwrap();
+        assert_eq!(first_ipv4([v6, v4, later]).map(SocketAddr::V4).ok(), Some(v4));
+        assert!(matches!(first_ipv4([v6]), Err(Error::InvalidArgument(_))));
+        // A host name is looked up on this side; an IP literal resolves to itself without DNS.
+        let (mut client, mut server) = tokio::io::duplex(64);
+        let proxy = async move {
+            let mut buf = [0u8; 9];
+            server.read_exact(&mut buf).await.unwrap();
+            assert_eq!(buf, [4, 1, 1, 187, 127, 0, 0, 1, 0]);
+            server.write_all(&[0, 0x5a, 0, 0, 0, 0, 0, 0]).await.unwrap();
+            server
+        };
+        let (result, _server) = tokio::join!(socks4(&mut client, Target::Domain("127.0.0.1", 443)), proxy);
+        result.unwrap();
+        let refused = socks4(&mut client, Target::Domain("::1", 443)).await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
+    }
+
+    #[tokio::test]
     async fn caller_mistakes_are_invalid_arguments() {
-        let target: SocketAddr = "149.154.167.51:443".parse().unwrap();
+        let target = addr("149.154.167.51:443");
         let (mut client, _server) = tokio::io::duplex(64);
         let colon = ("a:b".to_string(), "pw".to_string());
         let http = http_connect(&mut client, target, Some(&colon)).await;
@@ -544,6 +633,36 @@ mod tests {
         let long = ("u".repeat(256), "pw".to_string());
         let socks = socks5(&mut client, target, Some(&long)).await;
         assert!(matches!(socks, Err(Error::InvalidArgument(_))), "{socks:?}");
+    }
+
+    #[tokio::test]
+    async fn socks5_refuses_a_256_byte_host() {
+        let (mut client, mut server) = tokio::io::duplex(1024);
+        let long = "a".repeat(256);
+        let refused = socks5(&mut client, Target::Domain(&long, 443), None).await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
+        // Refused before a byte went out.
+        drop(client);
+        let mut sent = Vec::new();
+        server.read_to_end(&mut sent).await.unwrap();
+        assert!(sent.is_empty(), "{sent:?}");
+
+        // 255 bytes, the most the length byte holds, go out as ATYP 3.
+        let (mut client, mut server) = tokio::io::duplex(1024);
+        let host = &long[..255];
+        let proxy = async move {
+            let mut buf = [0u8; 3 + 5 + 255 + 2];
+            server.read_exact(&mut buf[..3]).await.unwrap();
+            server.write_all(&[5, 0]).await.unwrap();
+            server.read_exact(&mut buf[3..]).await.unwrap();
+            assert_eq!(buf[3..8], [5, 1, 0, 3, 255]);
+            assert_eq!(&buf[8..263], host.as_bytes());
+            assert_eq!(buf[263..], [1, 187]);
+            server.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await.unwrap();
+            server
+        };
+        let (result, _server) = tokio::join!(socks5(&mut client, Target::Domain(host, 443), None), proxy);
+        result.unwrap();
     }
 
     #[test]
@@ -560,7 +679,7 @@ mod tests {
     async fn socks5_with_password_and_domain_reply() {
         let (mut client, mut server) = tokio::io::duplex(256);
         let auth = ("user".into(), "pw".into());
-        let target: SocketAddr = "149.154.167.51:443".parse().unwrap();
+        let target = addr("149.154.167.51:443");
         let proxy = async move {
             let mut buf = [0u8; 64];
             server.read_exact(&mut buf[..4]).await.unwrap();
@@ -585,7 +704,7 @@ mod tests {
     #[tokio::test]
     async fn socks5_surfaces_connect_failure() {
         let (mut client, mut server) = tokio::io::duplex(256);
-        let target: SocketAddr = "[2001:db8::1]:443".parse().unwrap();
+        let target = addr("[2001:db8::1]:443");
         let proxy = async {
             let mut buf = [0u8; 22];
             server.read_exact(&mut buf[..3]).await.unwrap();

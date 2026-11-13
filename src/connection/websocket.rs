@@ -1,16 +1,19 @@
 //! MTProto over WebSocket (<https://core.telegram.org/mtproto/transports#websocket>): binary frames whose payloads
 //! form one byte stream, which the obfuscated transport then runs over.
 
+use std::collections::VecDeque;
 use std::future::poll_fn;
 use std::io;
-use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, ready};
 
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
+use tokio::sync::Notify;
+use tokio::sync::futures::Notified;
 
+use super::proxy::Target;
 use super::{Options, Stream, dial_any, http1, tls};
 use crate::crypto::{random, sha1};
 use crate::errors::{Error, Result};
@@ -28,14 +31,36 @@ const BINARY: u8 = 2;
 const CLOSE: u8 = 8;
 const PING: u8 = 9;
 const PONG: u8 = 10;
+// Pongs waiting for the writer. A server that pings faster than they go out loses the oldest, so memory stays bounded.
+const MAX_PONGS: usize = 8;
 
 /// The read half of a WebSocket over a dialed stream.
 pub(super) type Read = Reader<tokio::io::ReadHalf<Box<dyn Stream>>>;
 /// The write half of a WebSocket over a dialed stream.
 pub(super) type Write = Writer<tokio::io::WriteHalf<Box<dyn Stream>>>;
 
-// A ping's payload, waiting for the writer to send it back as a pong.
-type Pong = Arc<Mutex<Option<Vec<u8>>>>;
+/// Ping payloads the reader saw, oldest first, waiting for the writer to send them back as pongs; `ready` wakes the
+/// writer's owner, so an idle connection answers too.
+#[derive(Default)]
+struct Pongs {
+    queue: Mutex<VecDeque<Vec<u8>>>,
+    ready: Notify,
+}
+
+impl Pongs {
+    fn push(&self, payload: &[u8]) {
+        let mut queue = self.queue.lock().unwrap();
+        // The oldest answer makes room, and lends its buffer.
+        let mut pong = if queue.len() == MAX_PONGS { queue.pop_front().unwrap_or_default() } else { Vec::new() };
+        pong.clear();
+        pong.extend_from_slice(payload);
+        queue.push_back(pong);
+        drop(queue);
+        self.ready.notify_one();
+    }
+}
+
+type Pong = Arc<Pongs>;
 
 /// Where a data center's WebSocket listens.
 pub(super) struct Endpoint {
@@ -61,22 +86,22 @@ impl Endpoint {
     }
 
     #[cfg(test)]
-    pub(super) fn plain(addr: SocketAddr) -> Endpoint {
+    pub(super) fn plain(addr: std::net::SocketAddr) -> Endpoint {
         Endpoint { host: addr.ip().to_string(), port: addr.port(), path: "/apiws", tls: false }
     }
 }
 
 /// Dials the endpoint the way the options say (through the proxy, the connection factory or plain TCP), then does
-/// TLS and the WebSocket handshake. `ipv6` puts IPv6 addresses first when a proxy is told one.
-pub(super) async fn open(endpoint: &Endpoint, options: &Options, ipv6: bool) -> Result<(Read, Write)> {
-    let mut stream = dial(endpoint, options, ipv6).await?;
+/// TLS and the WebSocket handshake.
+pub(super) async fn open(endpoint: &Endpoint, options: &Options) -> Result<(Read, Write)> {
+    let mut stream = dial(endpoint, options).await?;
     if endpoint.tls {
         stream = Box::new(tls::connect(stream, &endpoint.host).await?);
     }
     Ok(handshake(stream, &endpoint.host, endpoint.path).await?)
 }
 
-async fn dial(endpoint: &Endpoint, options: &Options, ipv6: bool) -> Result<Box<dyn Stream>> {
+async fn dial(endpoint: &Endpoint, options: &Options) -> Result<Box<dyn Stream>> {
     let host = (endpoint.host.as_str(), endpoint.port);
     let factory = options.connection_factory.as_deref();
     let Some(proxy) = &options.proxy else {
@@ -85,22 +110,14 @@ async fn dial(endpoint: &Endpoint, options: &Options, ipv6: bool) -> Result<Box<
             None => tcp(host).await?,
         });
     };
-    // SOCKS and HTTP proxies here are told an address, so the host is looked up on this side and each address is
-    // tried in turn, the preferred family first.
-    let mut targets: Vec<SocketAddr> = tokio::net::lookup_host(host).await?.collect();
-    targets.sort_by_key(|t| t.is_ipv6() != ipv6);
-    let mut last = Error::Io(io::Error::other(format!("{} has no address", endpoint.host)));
-    for target in targets {
-        let mut stream = match factory {
-            Some(factory) => dial_any(factory, proxy.endpoint()).await?,
-            None => tcp(proxy.endpoint()).await?,
-        };
-        match proxy.handshake(&mut stream, target).await {
-            Ok(()) => return Ok(stream),
-            Err(e) => last = e,
-        }
-    }
-    Err(last)
+    let mut stream = match factory {
+        Some(factory) => dial_any(factory, proxy.endpoint()).await?,
+        None => tcp(proxy.endpoint()).await?,
+    };
+    // The proxy is given the host name and looks it up itself (SOCKS4, which can't, excepted), so this side does no
+    // DNS for it. A proxy that refuses the name fails the connect: it's never retried with a local lookup.
+    proxy.handshake(&mut stream, Target::Domain(&endpoint.host, endpoint.port)).await?;
+    Ok(stream)
 }
 
 async fn tcp(host: (&str, u16)) -> io::Result<Box<dyn Stream>> {
@@ -287,7 +304,7 @@ impl<R: AsyncRead + Unpin> Reader<R> {
             if got == len {
                 match self.control.take().map(|c| c.opcode) {
                     Some(CLOSE) => self.closed = true,
-                    Some(PING) => *self.pong.lock().unwrap() = Some(payload[..len].to_vec()),
+                    Some(PING) => self.pong.push(&payload[..len]),
                     _ => {}
                 }
                 break;
@@ -343,8 +360,9 @@ impl<R: AsyncRead + Unpin> AsyncRead for Reader<R> {
     }
 }
 
-/// Sends masked binary frames, answering a ping the reader saw before the next one. Packets go through
-/// [`Writer::send_in_place`] without a copy; plain writes (the obfuscation header) are copied into a frame.
+/// Sends masked binary frames, answering the pings the reader saw before the next one, or alone with
+/// [`Writer::flush_control`]. Packets go through [`Writer::send_in_place`] without a copy; plain writes (the
+/// obfuscation header) are copied into a frame.
 pub(super) struct Writer<W> {
     inner: W,
     out: Vec<u8>,
@@ -363,9 +381,10 @@ impl<W: AsyncWrite + Unpin> Writer<W> {
         apply_mask(&mut self.out[start..], mask);
     }
 
+    /// Queues a pong for every ping the reader saw since the last call.
     fn queue_pong(&mut self) {
-        let pong = self.pong.lock().unwrap().take();
-        if let Some(pong) = pong {
+        let pongs = std::mem::take(&mut *self.pong.queue.lock().unwrap());
+        for pong in pongs {
             self.queue(PONG, &pong);
         }
     }
@@ -394,6 +413,19 @@ impl<W: AsyncWrite + Unpin> Writer<W> {
         buf[from..start].copy_from_slice(&head[..len]);
         apply_mask(&mut buf[start..], mask);
         self.inner.write_all(&buf[from..]).await?;
+        self.inner.flush().await
+    }
+
+    /// Completes once the reader has seen a ping since the last wake. A wake whose pongs already went out with a
+    /// data frame is harmless: [`Writer::flush_control`] then has nothing to send.
+    pub(super) fn control_ready(&self) -> Notified<'_> {
+        self.pong.ready.notified()
+    }
+
+    /// Sends the pongs waiting, without a data frame, so a connection with nothing to send still answers pings.
+    pub(super) async fn flush_control(&mut self) -> io::Result<()> {
+        self.queue_pong();
+        poll_fn(|cx| self.poll_drain(cx)).await?;
         self.inner.flush().await
     }
 }
@@ -435,9 +467,10 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::{
-        BINARY, CLOSE, CONTINUATION, Endpoint, PING, PONG, ROOM, Reader, TEXT, Writer, accept_key, handshake, split,
+        BINARY, CLOSE, CONTINUATION, Dc, Endpoint, MAX_PONGS, PING, PONG, ROOM, Reader, TEXT, Writer, accept_key,
+        dial, handshake, split,
     };
-    use crate::connection::{Connection, Options};
+    use crate::connection::{Connection, Options, Proxy};
     use crate::crypto::aes;
     use crate::raw::{Identifiable, Serializable, functions, types};
     use crate::session::test_dc::TestDc;
@@ -640,6 +673,97 @@ mod tests {
         writer.flush().await.unwrap();
         assert_eq!(client_frame(&mut server).await, (PONG, b"hi".to_vec()));
         assert_eq!(client_frame(&mut server).await, (BINARY, b"x".to_vec()));
+    }
+
+    #[tokio::test]
+    async fn two_pings_before_a_write_get_two_pongs() {
+        let ((mut reader, mut writer), mut server) = pair();
+        let frames =
+            [server_frame(true, PING, b"one"), server_frame(true, PING, b"two"), server_frame(true, BINARY, b"x")];
+        server.write_all(&frames.concat()).await.unwrap();
+        reader.read_exact(&mut [0; 1]).await.unwrap();
+        writer.write_all(b"y").await.unwrap();
+        writer.flush().await.unwrap();
+        assert_eq!(client_frame(&mut server).await, (PONG, b"one".to_vec()));
+        assert_eq!(client_frame(&mut server).await, (PONG, b"two".to_vec()));
+        assert_eq!(client_frame(&mut server).await, (BINARY, b"y".to_vec()));
+    }
+
+    #[tokio::test]
+    async fn a_ping_flood_keeps_only_the_latest_pongs() {
+        let ((mut reader, mut writer), mut server) = pair();
+        let pings: Vec<u8> = (0..20u8).flat_map(|i| server_frame(true, PING, &[i])).collect();
+        server.write_all(&[pings, server_frame(true, BINARY, b"x")].concat()).await.unwrap();
+        reader.read_exact(&mut [0; 1]).await.unwrap();
+        // Twenty pings, one wake, and only the last MAX_PONGS answers kept.
+        writer.control_ready().await;
+        writer.flush_control().await.unwrap();
+        for i in 20 - MAX_PONGS as u8..20 {
+            assert_eq!(client_frame(&mut server).await, (PONG, vec![i]));
+        }
+        writer.write_all(b"y").await.unwrap();
+        writer.flush().await.unwrap();
+        assert_eq!(client_frame(&mut server).await, (BINARY, b"y".to_vec()));
+    }
+
+    #[tokio::test]
+    async fn an_idle_connection_answers_a_ping_without_an_outgoing_message() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let at = listener.local_addr().unwrap();
+        let mut server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            answer_upgrade(&mut stream, None, b"").await;
+            // The obfuscation header, and after it nothing from the client but the pong.
+            assert_eq!(client_frame(&mut stream).await.0, BINARY);
+            stream.write_all(&server_frame(true, PING, b"idle")).await.unwrap();
+            let pong = tokio::time::timeout(std::time::Duration::from_secs(1), client_frame(&mut stream)).await;
+            // The stream is kept open, so the client's read doesn't end first.
+            (pong.ok(), stream)
+        });
+        let dc = Dc { id: 2, addr: at, test: false };
+        let connection = Connection::open_websocket(&dc, &Options::default(), &Endpoint::plain(at)).await.unwrap();
+        let (mut reader, mut writer) = connection.into_split();
+        // As `Runner::run` does: read, and send control frames whenever they're ready.
+        let (pong, _stream) = loop {
+            tokio::select! {
+                answered = &mut server => break answered.unwrap(),
+                packet = reader.recv() => panic!("the server sent no packet: {packet:?}"),
+                () = writer.control_ready() => writer.flush_control().await.unwrap(),
+            }
+        };
+        assert_eq!(pong, Some((PONG, b"idle".to_vec())), "no pong within 1 s");
+    }
+
+    #[tokio::test]
+    async fn websocket_through_socks5_sends_the_hostname() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let at = listener.local_addr().unwrap();
+        let options = Options {
+            proxy: Some(Proxy::Socks5 { host: at.ip().to_string(), port: at.port(), auth: None }),
+            ..Options::default()
+        };
+        // `.invalid` never resolves (RFC 6761): only the proxy can take this name anywhere.
+        let endpoint = Endpoint { host: "venus.invalid".into(), port: 443, path: "/apiws", tls: false };
+        let request = [&[5, 1, 0, 3, 13][..], b"venus.invalid", &443u16.to_be_bytes()].concat();
+        // The proxy takes the first request and refuses the second with reply 4, host unreachable.
+        let proxy = tokio::spawn(async move {
+            for reply in [0, 4] {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut greeting = [0; 3];
+                stream.read_exact(&mut greeting).await.unwrap();
+                assert_eq!(greeting, [5, 1, 0]);
+                stream.write_all(&[5, 0]).await.unwrap();
+                let mut got = vec![0; request.len()];
+                stream.read_exact(&mut got).await.unwrap();
+                assert_eq!(got, request);
+                stream.write_all(&[5, reply, 0, 1, 0, 0, 0, 0, 0, 0]).await.unwrap();
+            }
+        });
+        dial(&endpoint, &options).await.unwrap();
+        // A refused name fails the connect; nothing falls back to a lookup on this side.
+        let refused = dial(&endpoint, &options).await.err().map(|e| e.to_string());
+        assert!(refused.as_deref().is_some_and(|e| e.contains("venus.invalid:443 (reply 4)")), "{refused:?}");
+        proxy.await.unwrap();
     }
 
     #[tokio::test]

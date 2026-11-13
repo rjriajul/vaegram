@@ -799,6 +799,7 @@ impl Runner {
                     }
                     Err(e) => Err(e),
                 },
+                () = self.writer.control_ready() => self.writer.flush_control().await,
                 _ = ping.tick() => self.ping().await,
                 _ = tick.tick() => {
                     renewing = self.temp_key_expiring();

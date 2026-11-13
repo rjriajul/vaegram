@@ -37,6 +37,7 @@ use crate::storage::recording::Recorder;
 use crate::types::Json;
 use fake_tls::{RecordReader, RecordWriter};
 use obfuscated::Ctr;
+use proxy::Target;
 
 const READ_CHUNK: usize = 64 << 10;
 
@@ -349,7 +350,7 @@ impl Connection {
                     None => TcpStream::connect(addr).await?,
                     Some(proxy) => {
                         let mut stream = TcpStream::connect(proxy.endpoint()).await?;
-                        proxy.handshake(&mut stream, addr).await?;
+                        proxy.handshake(&mut stream, Target::Addr(addr)).await?;
                         stream
                     }
                 };
@@ -362,7 +363,7 @@ impl Connection {
                     None => factory.connect(addr).await?,
                     Some(proxy) => {
                         let mut stream = dial_any(factory.as_ref(), proxy.endpoint()).await?;
-                        proxy.handshake(&mut stream, addr).await?;
+                        proxy.handshake(&mut stream, Target::Addr(addr)).await?;
                         stream
                     }
                 };
@@ -376,8 +377,7 @@ impl Connection {
 
     #[cfg(feature = "websocket")]
     async fn open_websocket(dc: &Dc, options: &Options, endpoint: &websocket::Endpoint) -> Result<Self> {
-        // The data center's address family is the one asked for, so a proxy is given that family first too.
-        let (read, write) = websocket::open(endpoint, options, dc.addr.is_ipv6()).await?;
+        let (read, write) = websocket::open(endpoint, options).await?;
         // Telegram's WebSocket endpoints only take obfuscated streams.
         let read = ReadHalf::WebSocket(Box::new(read));
         Self::start(dc, options, read, WriteHalf::WebSocket(write), true).await
@@ -594,6 +594,24 @@ impl Writer {
         self.begin();
         self.buf.extend_from_slice(payload);
         self.finish().await
+    }
+
+    /// Completes when the stream has control frames to send: a WebSocket's answers to pings. Never on other streams.
+    pub(crate) async fn control_ready(&self) {
+        match &self.half {
+            #[cfg(feature = "websocket")]
+            WriteHalf::WebSocket(half) => half.control_ready().await,
+            _ => std::future::pending().await,
+        }
+    }
+
+    /// Sends those control frames with no packet, so an idle connection still answers pings; a no-op off WebSocket.
+    pub(crate) async fn flush_control(&mut self) -> Result<()> {
+        match &mut self.half {
+            #[cfg(feature = "websocket")]
+            WriteHalf::WebSocket(half) => Ok(half.flush_control().await?),
+            _ => Ok(()),
+        }
     }
 }
 
