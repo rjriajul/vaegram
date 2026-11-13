@@ -3,6 +3,7 @@
 #[allow(dead_code)]
 mod support;
 
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -22,7 +23,7 @@ async fn custom_emoji_id(client: &Client) -> i64 {
     }
     let icons = client.get_forum_topic_icon_stickers().await.unwrap();
     let sticker = icons.first().expect("get_forum_topic_icon_stickers returned no stickers");
-    sticker.custom_emoji_id.unwrap_or(sticker.id)
+    sticker.id
 }
 
 async fn bot_id_for_user(kit: &support::Kit) -> i64 {
@@ -49,39 +50,55 @@ async fn bot_custom_emoji_in_button_text() {
         async { Ok(()) }
     });
 
-    let inline_markup = InlineKeyboardMarkup::new([vec![
-        InlineKeyboardButton::callback("Tap", "ce_btn").style(ButtonStyle::Primary).icon_custom_emoji_id(emoji_id),
-    ]]);
-    kit.bot
-        .send_message(user_id, "button icon check")
-        .reply_markup(inline_markup)
-        .await
-        .unwrap_or_else(|e| panic!("bot sending inline button with icon_custom_emoji_id({emoji_id}) failed: {e:?}"));
-    let user_inline = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
-    let Some(ReplyMarkup::Inline(read_inline)) = user_inline.reply_markup() else {
-        panic!("expected inline reply markup on received message");
-    };
-    assert_eq!(read_inline.rows[0][0].icon_custom_emoji_id, Some(emoji_id));
+    let ids = Arc::new(Mutex::new(Vec::new()));
+    let steps = tokio::spawn({
+        let bot = kit.bot.clone();
+        let ids = ids.clone();
+        async move {
+            let inline_btn = InlineKeyboardButton::callback("Tap", "ce_btn")
+                .style(ButtonStyle::Primary)
+                .icon_custom_emoji_id(emoji_id);
+            let inline_markup = InlineKeyboardMarkup::new([vec![inline_btn]]);
+            bot.send_message(user_id, "button icon check")
+                .reply_markup(inline_markup)
+                .await
+                .unwrap_or_else(|e| {
+                    panic!("bot sending inline button with icon_custom_emoji_id({emoji_id}) failed: {e:?}")
+                });
+            let user_inline = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
+            ids.lock().unwrap().push(user_inline.id);
 
-    let reply_markup = ReplyKeyboardMarkup::new([vec![
-        KeyboardButton::new("Reply").icon_custom_emoji_id(emoji_id),
-    ]])
-    .one_time(true);
-    kit.bot
-        .send_message(user_id, "reply icon check")
-        .reply_markup(reply_markup)
-        .await
-        .unwrap_or_else(|e| panic!("bot sending reply button with icon_custom_emoji_id({emoji_id}) failed: {e:?}"));
-    let user_reply = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
-    let Some(ReplyMarkup::Keyboard(read_reply)) = user_reply.reply_markup() else {
-        panic!("expected reply keyboard markup on received message");
-    };
-    assert_eq!(read_reply.rows[0][0].icon_custom_emoji_id, Some(emoji_id));
+            let reply_btn = KeyboardButton::new("Reply").icon_custom_emoji_id(emoji_id);
+            let reply_markup = ReplyKeyboardMarkup::new([vec![reply_btn]]).one_time(true);
+            bot.send_message(user_id, "reply icon check")
+                .reply_markup(reply_markup)
+                .await
+                .unwrap_or_else(|e| {
+                    panic!("bot sending reply button with icon_custom_emoji_id({emoji_id}) failed: {e:?}")
+                });
+            let user_reply = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
+            ids.lock().unwrap().push(user_reply.id);
 
-    support::cleanup(
-        user.delete_messages(bot_id, &[user_inline.id, user_reply.id]).await,
-        "deleting custom-emoji button messages",
-    );
+            let Some(ReplyMarkup::Inline(read_inline)) = user_inline.reply_markup() else {
+                panic!("expected inline reply markup on received message");
+            };
+            assert_eq!(read_inline.rows[0][0].icon_custom_emoji_id, Some(emoji_id));
+
+            let Some(ReplyMarkup::Keyboard(read_reply)) = user_reply.reply_markup() else {
+                panic!("expected reply keyboard markup on received message");
+            };
+            assert_eq!(read_reply.rows[0][0].icon_custom_emoji_id, Some(emoji_id));
+        }
+    })
+    .await;
+
+    let to_delete = ids.lock().unwrap().clone();
+    if !to_delete.is_empty() {
+        support::cleanup(user.delete_messages(bot_id, &to_delete).await, "deleting custom-emoji button messages");
+    }
+    if let Err(failed) = steps {
+        std::panic::resume_unwind(failed.into_panic());
+    }
 }
 
 /// TapLM open check 2: rich messages for a bot (blocks, HTML, Markdown, editing into rich text, rich buttons, and
@@ -102,52 +119,68 @@ async fn bot_rich_messages_and_custom_emoji() {
         async { Ok(()) }
     });
 
-    // 1. Blocks with custom emoji + RichBlock::buttons
-    let button = RichButton::new(&InlineKeyboardButton::callback("RichBtn", "rb")).unwrap();
-    let blocks = [
-        RichBlock::paragraph(Text::new().plain("emoji: ").custom_emoji("👍", emoji_id)),
-        RichBlock::buttons([button]),
-    ];
-    let sent_blocks = kit.bot.send_rich_message(user_id, InputRichMessage::blocks(blocks)).await.unwrap();
-    assert!(sent_blocks.rich_message.is_some());
-    let user_blocks = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
-    let fetched = user.get_rich_message(bot_id, user_blocks.id).await.unwrap().expect("rich message exists");
-    let rich = fetched.rich_message.expect("rich_message parsed");
-    assert!(!rich.is_partial);
-    let read_blocks = rich.blocks();
-    assert!(
-        matches!(&read_blocks[0].kind(), RichBlockKind::Paragraph(t) if t.text().contains("👍")),
-        "unexpected paragraph block: {:?}",
-        read_blocks[0].kind()
-    );
-    assert!(
-        matches!(&read_blocks[1].kind(), RichBlockKind::Buttons { buttons, .. } if buttons.len() == 1),
-        "unexpected buttons block: {:?}",
-        read_blocks[1].kind()
-    );
+    let ids = Arc::new(Mutex::new(Vec::new()));
+    let steps = tokio::spawn({
+        let bot = kit.bot.clone();
+        let user = user.clone();
+        let ids = ids.clone();
+        async move {
+            // 1. Blocks with custom emoji + RichBlock::buttons
+            let button = RichButton::new(&InlineKeyboardButton::callback("RichBtn", "rb")).unwrap();
+            let blocks = [
+                RichBlock::paragraph(Text::new().plain("emoji: ").custom_emoji("👍", emoji_id)),
+                RichBlock::buttons([button]),
+            ];
+            let sent_blocks = bot.send_rich_message(user_id, InputRichMessage::blocks(blocks)).await.unwrap();
+            let user_blocks = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
+            ids.lock().unwrap().push(user_blocks.id);
+            assert!(sent_blocks.rich_message.is_some());
 
-    // Bots cannot call messages.getRichMessage.
-    let bot_fetch_err = kit.bot.get_rich_message(user_id, sent_blocks.id).await.unwrap_err();
-    assert!(bot_fetch_err.is("BOT_METHOD_INVALID"), "expected BOT_METHOD_INVALID, got {bot_fetch_err:?}");
+            let fetched = user.get_rich_message(bot_id, user_blocks.id).await.unwrap().expect("rich message exists");
+            let rich = fetched.rich_message.expect("rich_message parsed");
+            assert!(!rich.is_partial);
+            let read_blocks = rich.blocks();
+            assert!(
+                matches!(&read_blocks[0].kind(), RichBlockKind::Paragraph(t) if t.text().contains("👍")),
+                "unexpected paragraph block: {:?}",
+                read_blocks[0].kind()
+            );
+            assert!(
+                matches!(&read_blocks[1].kind(), RichBlockKind::Buttons { buttons, .. } if buttons.len() == 1),
+                "unexpected buttons block: {:?}",
+                read_blocks[1].kind()
+            );
 
-    // 2. HTML with <tg-emoji> and Markdown, then edit into rich blocks.
-    let html_src = format!("<p>html <tg-emoji emoji-id=\"{emoji_id}\">👍</tg-emoji></p>");
-    let sent_html = kit.bot.send_rich_message(user_id, InputRichMessage::html(html_src)).await.unwrap();
-    assert!(sent_html.rich_message.is_some());
-    let user_html = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
-    let fetched_html = user.get_rich_message(bot_id, user_html.id).await.unwrap().unwrap();
-    assert!(fetched_html.rich_message.is_some());
+            // Bots cannot call messages.getRichMessage.
+            let bot_fetch_err = bot.get_rich_message(user_id, sent_blocks.id).await.unwrap_err();
+            assert!(bot_fetch_err.is("BOT_METHOD_INVALID"), "expected BOT_METHOD_INVALID, got {bot_fetch_err:?}");
 
-    let md_src = format!("**md** ![👍](tg://emoji?id={emoji_id})");
-    let sent_md = kit.bot.send_rich_message(user_id, InputRichMessage::markdown(md_src)).await.unwrap();
-    let user_md = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
-    let edited = sent_md.edit_text(InputRichMessage::blocks([RichBlock::paragraph("edited rich")])).await.unwrap();
-    assert!(edited.rich_message.is_some());
+            // 2. HTML with <tg-emoji> and Markdown, then edit into rich blocks.
+            let html_src = format!("<p>html <tg-emoji emoji-id=\"{emoji_id}\">👍</tg-emoji></p>");
+            let _sent_html = bot.send_rich_message(user_id, InputRichMessage::html(html_src)).await.unwrap();
+            let user_html = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
+            ids.lock().unwrap().push(user_html.id);
+            let fetched_html = user.get_rich_message(bot_id, user_html.id).await.unwrap().unwrap();
+            assert!(fetched_html.rich_message.is_some());
 
-    support::cleanup(
-        user.delete_messages(bot_id, &[user_blocks.id, user_html.id, user_md.id]).await,
-        "deleting rich message test messages",
-    );
+            let md_src = format!("**md** ![👍](tg://emoji?id={emoji_id})");
+            let sent_md = bot.send_rich_message(user_id, InputRichMessage::markdown(md_src)).await.unwrap();
+            let user_md = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
+            ids.lock().unwrap().push(user_md.id);
+            let edited =
+                sent_md.edit_text(InputRichMessage::blocks([RichBlock::paragraph("edited rich")])).await.unwrap();
+            assert!(edited.rich_message.is_some());
+        }
+    })
+    .await;
+
+    let to_delete = ids.lock().unwrap().clone();
+    if !to_delete.is_empty() {
+        support::cleanup(user.delete_messages(bot_id, &to_delete).await, "deleting rich message test messages");
+    }
+    if let Err(failed) = steps {
+        std::panic::resume_unwind(failed.into_panic());
+    }
 }
 
 /// Checks the `missing_features.md` §3.2 `copy_message` `NoMessage` claim against live Telegram: creates a temporary
@@ -164,11 +197,14 @@ async fn copy_message_to_broadcast_channel_returns_message() {
         Err(e) => panic!("create_channel failed: {e:?}"),
     };
 
+    let src_id = Arc::new(Mutex::new(None));
     let steps = tokio::spawn({
         let user = user.clone();
         let channel_id = channel.id;
+        let src_id = src_id.clone();
         async move {
             let src = user.send_message("me", "copy to broadcast").await.unwrap();
+            *src_id.lock().unwrap() = Some(src.id);
             let copied = user.copy_message(channel_id, "me", src.id).await.unwrap();
             assert_eq!(copied.chat.id, channel_id);
             assert_eq!(copied.text(), "copy to broadcast");
@@ -177,12 +213,13 @@ async fn copy_message_to_broadcast_channel_returns_message() {
             let batch = user.copy_messages(channel_id, "me", &[src.id]).await.unwrap();
             assert_eq!(batch.len(), 1);
             assert!(batch[0] > 0);
-
-            support::cleanup(user.delete_messages("me", &[src.id]).await, "deleting copy source message");
         }
     })
     .await;
 
+    if let Some(id) = *src_id.lock().unwrap() {
+        support::cleanup(user.delete_messages("me", &[id]).await, "deleting copy source message");
+    }
     support::cleanup(user.delete_channel(channel.id).await, "deleting temporary broadcast channel");
     if let Err(failed) = steps {
         std::panic::resume_unwind(failed.into_panic());

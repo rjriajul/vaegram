@@ -20,15 +20,18 @@ fn chat_id() -> Option<i64> {
     id
 }
 
-fn env(key: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| panic!("set {key}"))
-}
-
 async fn second_user_client() -> Option<(Client, support::Disconnect)> {
     let Ok(session) = std::env::var("VAEGRAM_SECOND_USER_SESSION") else {
         return None;
     };
-    let (api_id, api_hash) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
+    let Ok(api_id) = std::env::var("VAEGRAM_API_ID").ok().and_then(|v| v.parse().ok()) else {
+        eprintln!("skipped: set VAEGRAM_API_ID and VAEGRAM_API_HASH for VAEGRAM_SECOND_USER_SESSION");
+        return None;
+    };
+    let Ok(api_hash) = std::env::var("VAEGRAM_API_HASH") else {
+        eprintln!("skipped: set VAEGRAM_API_ID and VAEGRAM_API_HASH for VAEGRAM_SECOND_USER_SESSION");
+        return None;
+    };
     let client = Client::builder(session, api_id, api_hash).catch_up(false).connect().await.unwrap();
     let disconnect = support::Disconnect(vec![client.clone()]);
     Some((client, disconnect))
@@ -52,29 +55,37 @@ async fn on_reactions_receives_bot_reaction() {
     });
 
     let sent = kit.user.client.send_message(chat_id, "react for on_reactions").await.unwrap();
-    kit.bot.send_reaction(chat_id, sent.id).reaction("👍").await.unwrap();
-
-    let seen = tokio::time::timeout(WAIT, async {
-        loop {
-            match rx.recv().await {
-                Some(event) if event.message_id == sent.id => return Some(event),
-                Some(_) => {}
-                None => return None,
-            }
+    let steps = tokio::spawn({
+        let bot = kit.bot.clone();
+        let sent_id = sent.id;
+        async move {
+            bot.send_reaction(chat_id, sent_id).reaction("👍").await.unwrap();
+            let seen = tokio::time::timeout(WAIT, async {
+                loop {
+                    match rx.recv().await {
+                        Some(event) if event.message_id == sent_id => return Some(event),
+                        Some(_) => {}
+                        None => return None,
+                    }
+                }
+            })
+            .await;
+            let _ = bot.send_reaction(chat_id, sent_id).await;
+            let event = seen.expect("timed out waiting for on_reactions").expect("reactions channel closed");
+            assert_eq!(event.chat.id, chat_id);
+            assert!(
+                event.reactions.reactions.iter().any(|r| r.kind == ReactionType::Emoji("👍".into())),
+                "expected 👍 in {:?}",
+                event.reactions.reactions
+            );
         }
     })
     .await;
 
-    let _ = kit.bot.send_reaction(chat_id, sent.id).await;
     support::cleanup(kit.user.client.delete_messages(chat_id, &[sent.id]).await, "deleting reaction test message");
-
-    let event = seen.expect("timed out waiting for on_reactions").expect("reactions channel closed");
-    assert_eq!(event.chat.id, chat_id);
-    assert!(
-        event.reactions.reactions.iter().any(|r| r.kind == ReactionType::Emoji("👍".into())),
-        "expected 👍 in {:?}",
-        event.reactions.reactions
-    );
+    if let Err(failed) = steps {
+        std::panic::resume_unwind(failed.into_panic());
+    }
 }
 
 /// No human or second account needed: pins and unpins a message in `VAEGRAM_CHAT_ID`. When the bot can pin, the bot
@@ -98,38 +109,45 @@ async fn on_pinned_messages_sees_pin_and_unpin() {
     });
 
     let sent = actor.send_message(chat_id, "pin for on_pinned_messages").await.unwrap();
-    if let Err(e) = actor.pin_chat_message(chat_id, sent.id).disable_notification().await {
-        support::cleanup(actor.delete_messages(chat_id, &[sent.id]).await, "deleting pin test message");
-        assert!(support::flood_limited(&e, "pinning a message"), "{e:?}");
-        return;
-    }
-
-    let pinned = tokio::time::timeout(WAIT, async {
-        loop {
-            match rx.recv().await {
-                Some((is_pinned, ids)) if is_pinned && ids.contains(&sent.id) => return Some(()),
-                Some(_) => {}
-                None => return None,
+    let steps = tokio::spawn({
+        let actor = actor.clone();
+        let sent_id = sent.id;
+        async move {
+            if let Err(e) = actor.pin_chat_message(chat_id, sent_id).disable_notification().await {
+                assert!(support::flood_limited(&e, "pinning a message"), "{e:?}");
+                return;
             }
-        }
-    })
-    .await;
-
-    actor.unpin_chat_message(chat_id, sent.id).await.unwrap();
-    let unpinned = tokio::time::timeout(WAIT, async {
-        loop {
-            match rx.recv().await {
-                Some((is_pinned, ids)) if !is_pinned && ids.contains(&sent.id) => return Some(()),
-                Some(_) => {}
-                None => return None,
-            }
+            let pinned = tokio::time::timeout(WAIT, async {
+                loop {
+                    match rx.recv().await {
+                        Some((is_pinned, ids)) if is_pinned && ids.contains(&sent_id) => return Some(()),
+                        Some(_) => {}
+                        None => return None,
+                    }
+                }
+            })
+            .await;
+            actor.unpin_chat_message(chat_id, sent_id).await.unwrap();
+            let unpinned = tokio::time::timeout(WAIT, async {
+                loop {
+                    match rx.recv().await {
+                        Some((is_pinned, ids)) if !is_pinned && ids.contains(&sent_id) => return Some(()),
+                        Some(_) => {}
+                        None => return None,
+                    }
+                }
+            })
+            .await;
+            assert!(matches!(pinned, Ok(Some(()))), "pin never reached on_pinned_messages: {pinned:?}");
+            assert!(matches!(unpinned, Ok(Some(()))), "unpin never reached on_pinned_messages: {unpinned:?}");
         }
     })
     .await;
 
     support::cleanup(actor.delete_messages(chat_id, &[sent.id]).await, "deleting pin test message");
-    assert!(matches!(pinned, Ok(Some(()))), "pin never reached on_pinned_messages: {pinned:?}");
-    assert!(matches!(unpinned, Ok(Some(()))), "unpin never reached on_pinned_messages: {unpinned:?}");
+    if let Err(failed) = steps {
+        std::panic::resume_unwind(failed.into_panic());
+    }
 }
 
 /// Requires a second user account (`VAEGRAM_SECOND_USER_SESSION`) or human action (`VAEGRAM_HUMAN_READ=1`): bots do
@@ -138,6 +156,7 @@ async fn on_pinned_messages_sees_pin_and_unpin() {
 #[tokio::test]
 #[ignore = "needs VAEGRAM_SECOND_USER_SESSION (or VAEGRAM_HUMAN_READ=1 and another device reading a message)"]
 async fn on_read_history_sees_peer_read() {
+    let Some(kit) = support::Kit::from_env().await else { return };
     let second = second_user_client().await;
     let human = std::env::var("VAEGRAM_HUMAN_READ").is_ok_and(|v| v == "1");
     if second.is_none() && !human {
@@ -146,7 +165,6 @@ async fn on_read_history_sees_peer_read() {
         );
         return;
     }
-    let Some(kit) = support::Kit::from_env().await else { return };
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     kit.user.client.on_read_history(filters::all(), move |event| {
@@ -166,28 +184,42 @@ async fn on_read_history_sees_peer_read() {
             None => user_me.id,
         };
         let sent = kit.user.client.send_message(peer_on_user, "read receipt check").await.unwrap();
-        second.read_chat_history(peer_on_second, 0).await.unwrap();
-
-        let seen = tokio::time::timeout(WAIT, async {
-            loop {
-                match rx.recv().await {
-                    Some(event) if event.chat.id == peer_on_user && event.is_outgoing => return Some(event),
-                    Some(_) => {}
-                    None => return None,
+        let steps = tokio::spawn(async move {
+            second.read_chat_history(peer_on_second, 0).await.unwrap();
+            let seen = tokio::time::timeout(WAIT, async {
+                loop {
+                    match rx.recv().await {
+                        Some(event) if event.chat.id == peer_on_user && event.is_outgoing => return Some(event),
+                        Some(_) => {}
+                        None => return None,
+                    }
                 }
-            }
+            })
+            .await;
+            let event = seen.expect("timed out waiting for on_read_history").expect("read channel closed");
+            assert!(event.max_id >= sent.id, "expected max_id >= {}, got {}", sent.id, event.max_id);
+            drop(_disconnect);
         })
         .await;
         support::cleanup(kit.user.client.delete_messages(peer_on_user, &[sent.id]).await, "deleting read check msg");
-        let event = seen.expect("timed out waiting for on_read_history").expect("read channel closed");
-        assert!(event.max_id >= sent.id, "expected max_id >= {}, got {}", sent.id, event.max_id);
+        if let Err(failed) = steps {
+            std::panic::resume_unwind(failed.into_panic());
+        }
     } else {
         let sent = kit.user.client.send_message("me", "open/read another chat on a second device now").await.unwrap();
         eprintln!("action: open/read an unread incoming chat for this account on another device within {WAIT:?}");
-        let seen = tokio::time::timeout(WAIT, rx.recv()).await;
+        let steps = tokio::spawn(async move {
+            let event = tokio::time::timeout(WAIT, rx.recv())
+                .await
+                .expect("timed out waiting for human read receipt")
+                .expect("read channel closed");
+            assert!(event.max_id > 0);
+        })
+        .await;
         support::cleanup(kit.user.client.delete_messages("me", &[sent.id]).await, "deleting human prompt");
-        let event = seen.expect("timed out waiting for human read receipt").expect("read channel closed");
-        assert!(event.max_id > 0);
+        if let Err(failed) = steps {
+            std::panic::resume_unwind(failed.into_panic());
+        }
     }
 }
 
@@ -198,13 +230,13 @@ async fn on_read_history_sees_peer_read() {
 #[tokio::test]
 #[ignore = "needs VAEGRAM_SECOND_USER_SESSION (or VAEGRAM_HUMAN_JOIN_REQUEST=1); creates and deletes a supergroup"]
 async fn on_pending_join_requests_sees_request() {
+    let Some(kit) = support::Kit::from_env().await else { return };
     let second = second_user_client().await;
     let human = std::env::var("VAEGRAM_HUMAN_JOIN_REQUEST").is_ok_and(|v| v == "1");
     if second.is_none() && !human {
         eprintln!("skipped: set VAEGRAM_SECOND_USER_SESSION (or VAEGRAM_HUMAN_JOIN_REQUEST=1)");
         return;
     }
-    let Some(kit) = support::Kit::from_env().await else { return };
     let user = kit.user.client.clone();
     let Some(group) = support::test_supergroup(&user).await else { return };
 
@@ -301,6 +333,10 @@ async fn on_stars_balance_sees_spend() {
 
     let before = user.get_my_star_balance().await.unwrap();
     let form = user.get_payment_form(InvoiceRef::Link(link)).await.unwrap();
+    if form.currency != "XTR" {
+        eprintln!("skipped: VAEGRAM_STARS_INVOICE currency is {}, expected XTR", form.currency);
+        return;
+    }
     if before.amount < form.total_amount {
         eprintln!("skipped: balance ({}) is below invoice total ({})", before.amount, form.total_amount);
         return;

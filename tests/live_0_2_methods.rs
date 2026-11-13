@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 mod support;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -48,13 +50,14 @@ async fn quick_replies_round_trip() {
         Err(e) => panic!("add_quick_reply_message failed: {e:?}"),
     };
     let shortcut_id = added.quick_reply_shortcut_id().expect("quick_reply_shortcut_id");
+    let sent_to_bot = Arc::new(AtomicBool::new(false));
 
     let steps = tokio::spawn({
         let user = user.clone();
         let bot = kit.bot.clone();
         let existing_ids: Vec<i32> = existing.iter().map(|q| q.shortcut_id).collect();
+        let sent_to_bot = sent_to_bot.clone();
         async move {
-            let second = user.add_quick_reply_message(&name, "second").await.unwrap();
             let listed = user.get_quick_reply_messages(shortcut_id).await.unwrap();
             assert_eq!(listed.len(), 2);
 
@@ -81,8 +84,8 @@ async fn quick_replies_round_trip() {
                 let _ = tx.send(m.text().to_owned());
                 async { Ok(()) }
             });
+            sent_to_bot.store(true, Ordering::Relaxed);
             user.send_quick_reply_messages(bot_id, shortcut_id, &[added.id]).await.unwrap();
-            let delivered = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
             assert_eq!(delivered, "edited");
 
             user.delete_quick_reply_messages(shortcut_id, &[second.id]).await.unwrap();
@@ -93,6 +96,15 @@ async fn quick_replies_round_trip() {
     .await;
 
     support::cleanup(user.delete_quick_reply_shortcut(shortcut_id).await, "deleting quick reply shortcut");
+    if sent_to_bot.load(Ordering::Relaxed) {
+        if let Ok(history) = user.get_chat_history(bot_id).limit(5).await {
+            let sent_ids: Vec<i32> =
+                history.into_iter().filter(|m| m.outgoing && m.text() == "edited").map(|m| m.id).collect();
+            if !sent_ids.is_empty() {
+                support::cleanup(user.delete_messages(bot_id, &sent_ids).await, "deleting sent quick reply message");
+            }
+        }
+    }
     if let Err(failed) = steps {
         std::panic::resume_unwind(failed.into_panic());
     }
@@ -214,27 +226,45 @@ async fn send_bot_requested_peer_shares_user() {
     );
 
     let asked = kit.user.send_and_wait_reply(&kit.bot, "/reqpeer").await.unwrap();
-    let user = &kit.user.client;
-    let me = user.get_me().await.unwrap();
-    let shared_msg = user.send_bot_requested_peer(asked.chat.id, asked.id, 77, [me.id]).await.unwrap();
+    let bot_id = asked.chat.id;
+    let ids = Arc::new(Mutex::new(Vec::new()));
+    {
+        let mut guard = ids.lock().unwrap();
+        if let Some(prompt_id) = asked.reply_to_message_id {
+            guard.push(prompt_id);
+        }
+        guard.push(asked.id);
+    }
 
-    let Some(ServiceAction::UsersShared(user_copy)) = shared_msg.service.clone() else {
-        panic!("expected ServiceAction::UsersShared, got {:?}", shared_msg.service);
-    };
-    assert_eq!(user_copy.request_id, 77);
-    assert!(user_copy.users.iter().any(|u| u.user_id == me.id));
+    let steps = tokio::spawn({
+        let user = kit.user.client.clone();
+        let ids = ids.clone();
+        async move {
+            let me = user.get_me().await.unwrap();
+            let shared_msg = user.send_bot_requested_peer(bot_id, asked.id, 77, [me.id]).await.unwrap();
+            ids.lock().unwrap().push(shared_msg.id);
 
-    let bot_copy = tokio::time::timeout(WAIT, bot_seen.recv())
-        .await
-        .expect("timed out waiting for bot UsersShared service message")
-        .expect("shared channel closed");
-    assert_eq!(bot_copy.request_id, 77);
-    assert!(bot_copy.users.iter().any(|u| u.user_id == me.id));
+            let Some(ServiceAction::UsersShared(user_copy)) = shared_msg.service.clone() else {
+                panic!("expected ServiceAction::UsersShared, got {:?}", shared_msg.service);
+            };
+            assert_eq!(user_copy.request_id, 77);
+            assert!(user_copy.users.iter().any(|u| u.user_id == me.id));
 
-    support::cleanup(
-        user.delete_messages(asked.chat.id, &[asked.id, shared_msg.id]).await,
-        "deleting request-peer messages",
-    );
+            let bot_copy = tokio::time::timeout(WAIT, bot_seen.recv())
+                .await
+                .expect("timed out waiting for bot UsersShared service message")
+                .expect("shared channel closed");
+            assert_eq!(bot_copy.request_id, 77);
+            assert!(bot_copy.users.iter().any(|u| u.user_id == me.id));
+        }
+    })
+    .await;
+
+    let to_delete = ids.lock().unwrap().clone();
+    support::cleanup(kit.user.client.delete_messages(bot_id, &to_delete).await, "deleting request-peer messages");
+    if let Err(failed) = steps {
+        std::panic::resume_unwind(failed.into_panic());
+    }
 }
 
 /// No human or second account needed: creates a temporary supergroup, sends a regular poll with

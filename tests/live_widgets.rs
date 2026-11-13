@@ -3,6 +3,7 @@
 #[allow(dead_code)]
 mod support;
 
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -42,59 +43,74 @@ async fn bot_sends_reads_and_updates_widget() {
     });
 
     let html = "<!doctype html><html><body><b>widget</b></body></html>";
-    let bot_sent = kit
-        .bot
-        .send_widget(user_id, html)
-        .width(240)
-        .height(120)
-        .public_data("pub0")
-        .chat_data("chat0")
-        .allow_queries()
-        .caption("widget cap")
-        .await
-        .unwrap();
+    let ids = Arc::new(Mutex::new(Vec::new()));
+    let steps = tokio::spawn({
+        let bot = kit.bot.clone();
+        let user = user.clone();
+        let ids = ids.clone();
+        async move {
+            let bot_sent = bot
+                .send_widget(user_id, html)
+                .width(240)
+                .height(120)
+                .public_data("pub0")
+                .chat_data("chat0")
+                .allow_queries()
+                .caption("widget cap")
+                .await
+                .unwrap();
+            let user_msg = tokio::time::timeout(WAIT, msg_rx.recv())
+                .await
+                .expect("timed out waiting for widget message")
+                .expect("widget message channel closed");
+            ids.lock().unwrap().push(user_msg.id);
 
-    let bot_widget = bot_sent.widget().expect("bot sent message has widget");
-    assert_eq!(bot_widget.html, html);
-    assert_eq!((bot_widget.width, bot_widget.height), (Some(240), Some(120)));
-    assert_eq!(bot_widget.public_data.as_deref(), Some("pub0"));
-    assert_eq!(bot_widget.chat_data.as_deref(), Some("chat0"));
-    assert!(bot_widget.can_send_queries);
+            let bot_widget = bot_sent.widget().expect("bot sent message has widget");
+            assert_eq!(bot_widget.html, html);
+            assert_eq!((bot_widget.width, bot_widget.height), (Some(240), Some(120)));
+            assert_eq!(bot_widget.public_data.as_deref(), Some("pub0"));
+            assert_eq!(bot_widget.chat_data.as_deref(), Some("chat0"));
+            assert!(bot_widget.can_send_queries);
 
-    let user_msg = tokio::time::timeout(WAIT, msg_rx.recv())
-        .await
-        .expect("timed out waiting for widget message")
-        .expect("widget message channel closed");
-    let user_widget = user_msg.widget().expect("user message has widget");
-    assert_eq!(user_widget.html, html);
-    assert_eq!(user_widget.public_data.as_deref(), Some("pub0"));
+            let user_widget = user_msg.widget().expect("user message has widget");
+            assert_eq!(user_widget.html, html);
+            assert_eq!(user_widget.public_data.as_deref(), Some("pub0"));
 
-    let polled = user.get_widget_public_data(bot_id, user_msg.id).await.unwrap();
-    let WidgetPublicData::Modified { hash, data, period } = polled else {
-        panic!("expected Modified on initial hash=0 poll, got {polled:?}");
-    };
-    assert_eq!(data, "pub0");
-    assert!(period >= 0);
+            let polled = user.get_widget_public_data(bot_id, user_msg.id).await.unwrap();
+            let WidgetPublicData::Modified { hash, data, period, .. } = polled else {
+                panic!("expected Modified on initial hash=0 poll, got {polled:?}");
+            };
+            assert_eq!(data, "pub0");
+            assert!(period >= 0);
 
-    let unchanged = user.get_widget_public_data(bot_id, user_msg.id).hash(hash).await.unwrap();
-    assert!(matches!(unchanged, WidgetPublicData::NotModified { .. }), "{unchanged:?}");
+            let unchanged = user.get_widget_public_data(bot_id, user_msg.id).hash(hash).await.unwrap();
+            assert!(matches!(unchanged, WidgetPublicData::NotModified { .. }), "{unchanged:?}");
 
-    kit.bot.edit_message_widget_data(user_id, bot_sent.id).public_data("pub1").chat_data("chat1").await.unwrap();
-    let updated = tokio::time::timeout(WAIT, upd_rx.recv())
-        .await
-        .expect("timed out waiting for on_widget_data_updated")
-        .expect("widget data update channel closed");
-    assert_eq!(updated.message_id, user_msg.id);
-    assert_eq!(updated.public_data.as_deref(), Some("pub1"));
-    assert_eq!(updated.chat_data.as_deref(), Some("chat1"));
+            bot.edit_message_widget_data(user_id, bot_sent.id).public_data("pub1").chat_data("chat1").await.unwrap();
+            let updated = tokio::time::timeout(WAIT, upd_rx.recv())
+                .await
+                .expect("timed out waiting for on_widget_data_updated")
+                .expect("widget data update channel closed");
+            assert_eq!(updated.message_id, user_msg.id);
+            assert_eq!(updated.public_data.as_deref(), Some("pub1"));
+            assert_eq!(updated.chat_data.as_deref(), Some("chat1"));
 
-    let repolled = user.get_widget_public_data(bot_id, user_msg.id).hash(hash).await.unwrap();
-    assert!(
-        matches!(&repolled, WidgetPublicData::Modified { data, .. } if data == "pub1"),
-        "expected updated public data, got {repolled:?}"
-    );
+            let repolled = user.get_widget_public_data(bot_id, user_msg.id).hash(hash).await.unwrap();
+            assert!(
+                matches!(&repolled, WidgetPublicData::Modified { data, .. } if data == "pub1"),
+                "expected updated public data, got {repolled:?}"
+            );
+        }
+    })
+    .await;
 
-    support::cleanup(user.delete_messages(bot_id, &[user_msg.id]).await, "deleting widget message");
+    let to_delete = ids.lock().unwrap().clone();
+    if !to_delete.is_empty() {
+        support::cleanup(user.delete_messages(bot_id, &to_delete).await, "deleting widget message");
+    }
+    if let Err(failed) = steps {
+        std::panic::resume_unwind(failed.into_panic());
+    }
 }
 
 /// No human or second account needed: `kit.bot` replies to `/wquery` via `Message::reply_widget`, `kit.user` sends a
@@ -119,16 +135,30 @@ async fn bot_answers_widget_query() {
     });
 
     let widget_msg = kit.user.send_and_wait_reply(&kit.bot, "/wquery").await.unwrap();
-    assert!(widget_msg.widget().is_some());
+    let mut to_delete = Vec::new();
+    if let Some(prompt_id) = widget_msg.reply_to_message_id {
+        to_delete.push(prompt_id);
+    }
+    to_delete.push(widget_msg.id);
 
-    let user = &kit.user.client;
-    let ans = user.request_widget_query_answer(bot_id, widget_msg.id, b"ping").await.unwrap();
-    assert_eq!(ans.as_deref(), Some("{\"ok\":true}"));
+    let steps = tokio::spawn({
+        let user = kit.user.client.clone();
+        async move {
+            assert!(widget_msg.widget().is_some());
 
-    let empty = user.request_widget_query_answer(bot_id, widget_msg.id, b"empty").await.unwrap();
-    assert_eq!(empty, None);
+            let ans = user.request_widget_query_answer(bot_id, widget_msg.id, b"ping").await.unwrap();
+            assert_eq!(ans.as_deref(), Some("{\"ok\":true}"));
 
-    support::cleanup(user.delete_messages(bot_id, &[widget_msg.id]).await, "deleting widget query message");
+            let empty = user.request_widget_query_answer(bot_id, widget_msg.id, b"empty").await.unwrap();
+            assert_eq!(empty, None);
+        }
+    })
+    .await;
+
+    support::cleanup(kit.user.client.delete_messages(bot_id, &to_delete).await, "deleting widget query messages");
+    if let Err(failed) = steps {
+        std::panic::resume_unwind(failed.into_panic());
+    }
 }
 
 /// No human or second account needed: `kit.bot` sends a shared widget (`.is_shared()`), re-sends it with
@@ -159,43 +189,68 @@ async fn bot_sends_and_edits_shared_widget_and_copy_flow() {
         }
     });
 
-    let first =
-        kit.bot.send_widget(user_id, "<p>shared</p>").is_shared().allow_queries().public_data("s0").await.unwrap();
-    let widget_id = first.widget().and_then(|w| w.id).expect("shared widget must carry an id");
-    let user_first = tokio::time::timeout(WAIT, msg_rx.recv()).await.unwrap().unwrap();
+    let ids = Arc::new(Mutex::new(Vec::new()));
+    let saved_ids = Arc::new(Mutex::new(Vec::new()));
+    let steps = tokio::spawn({
+        let bot = kit.bot.clone();
+        let user = user.clone();
+        let ids = ids.clone();
+        let saved_ids = saved_ids.clone();
+        async move {
+            let first =
+                bot.send_widget(user_id, "<p>shared</p>").is_shared().allow_queries().public_data("s0").await.unwrap();
+            let user_first = tokio::time::timeout(WAIT, msg_rx.recv()).await.unwrap().unwrap();
+            ids.lock().unwrap().push(user_first.id);
+            let widget_id = first.widget().and_then(|w| w.id).expect("shared widget must carry an id");
 
-    let second = kit.bot.send_shared_widget(user_id, widget_id).chat_data("c2").await.unwrap();
-    assert_eq!(second.widget().and_then(|w| w.id), Some(widget_id));
-    let user_second = tokio::time::timeout(WAIT, msg_rx.recv()).await.unwrap().unwrap();
+            let second = bot.send_shared_widget(user_id, widget_id).chat_data("c2").await.unwrap();
+            let user_second = tokio::time::timeout(WAIT, msg_rx.recv()).await.unwrap().unwrap();
+            ids.lock().unwrap().push(user_second.id);
+            assert_eq!(second.widget().and_then(|w| w.id), Some(widget_id));
 
-    kit.bot.edit_shared_widget_data(widget_id, "s1").cache_time(5).await.unwrap();
-    let polled = user.get_widget_public_data(bot_id, user_second.id).await.unwrap();
-    assert!(
-        matches!(&polled, WidgetPublicData::Modified { data, .. } if data == "s1"),
-        "expected shared public data s1, got {polled:?}"
-    );
+            bot.edit_shared_widget_data(widget_id, "s1").cache_time(5).await.unwrap();
+            let polled = user.get_widget_public_data(bot_id, user_second.id).await.unwrap();
+            assert!(
+                matches!(&polled, WidgetPublicData::Modified { data, .. } if data == "s1"),
+                "expected shared public data s1, got {polled:?}"
+            );
 
-    let copied = kit.bot.copy_message(user_id, user_id, first.id).await.unwrap();
-    assert_eq!(copied.widget().and_then(|w| w.id), Some(widget_id));
-    let user_copied = tokio::time::timeout(WAIT, msg_rx.recv()).await.unwrap().unwrap();
+            let copied = bot.copy_message(user_id, user_id, first.id).await.unwrap();
+            let user_copied = tokio::time::timeout(WAIT, msg_rx.recv()).await.unwrap().unwrap();
+            ids.lock().unwrap().push(user_copied.id);
+            assert_eq!(copied.widget().and_then(|w| w.id), Some(widget_id));
 
-    let to_delete = [user_first.id, user_second.id, user_copied.id];
-    // Sent widgets are protected content in production, so forwarding to Saved Messages may be refused.
-    match user.forward_messages("me", bot_id, &[user_first.id]).await {
-        Ok(forwarded) => {
-            let fwd = &forwarded[0];
-            let ans = user.request_widget_query_answer("me", fwd.id, b"copy_ping").await.unwrap();
-            assert_eq!(ans.as_deref(), Some("{\"copy\":true}"));
-            let seen_id = tokio::time::timeout(WAIT, copy_q_rx.recv()).await.unwrap().unwrap();
-            assert_eq!(seen_id, widget_id);
-            let _ = user.delete_messages("me", &[fwd.id]).await;
+            // Sent widgets are protected content in production, so forwarding to Saved Messages may be refused.
+            match user.forward_messages("me", bot_id, &[user_first.id]).await {
+                Ok(forwarded) => {
+                    let fwd = &forwarded[0];
+                    saved_ids.lock().unwrap().push(fwd.id);
+                    let ans = user.request_widget_query_answer("me", fwd.id, b"copy_ping").await.unwrap();
+                    assert_eq!(ans.as_deref(), Some("{\"copy\":true}"));
+                    let seen_id = tokio::time::timeout(WAIT, copy_q_rx.recv()).await.unwrap().unwrap();
+                    assert_eq!(seen_id, widget_id);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "note: forwarding widget refused as protected content ({e}); on_shared_widget_query skipped"
+                    );
+                }
+            }
         }
-        Err(e) => {
-            eprintln!("note: forwarding widget refused as protected content ({e}); on_shared_widget_query skipped");
-        }
+    })
+    .await;
+
+    let to_delete = ids.lock().unwrap().clone();
+    if !to_delete.is_empty() {
+        support::cleanup(user.delete_messages(bot_id, &to_delete).await, "deleting shared widget messages");
     }
-
-    support::cleanup(user.delete_messages(bot_id, &to_delete).await, "deleting shared widget messages");
+    let saved = saved_ids.lock().unwrap().clone();
+    if !saved.is_empty() {
+        support::cleanup(user.delete_messages("me", &saved).await, "deleting forwarded widget message");
+    }
+    if let Err(failed) = steps {
+        std::panic::resume_unwind(failed.into_panic());
+    }
 }
 
 /// No human or second account needed: verifies Telegram rejects `send_widget` from a user account.
