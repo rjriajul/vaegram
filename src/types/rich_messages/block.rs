@@ -705,7 +705,7 @@ text_walk!(
     /// Calls `f` with every rich text of `block`, nested blocks included.
     for_each_text
 );
-// rustfmt 1.100 splits `for_each_text_mut, mut` over two lines and older releases join it again.
+// Rust 1.100's rustfmt splits `for_each_text_mut, mut` over two lines and older releases join it again.
 #[rustfmt::skip]
 text_walk!(
     /// [`for_each_text`], with each text open to change.
