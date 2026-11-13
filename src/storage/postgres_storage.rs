@@ -77,10 +77,10 @@ CREATE TABLE IF NOT EXISTS {schema}.vaegram
     time_offset BIGINT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS {schema}.idx_peers_phone_number ON {schema}.peers (phone_number);
-CREATE INDEX IF NOT EXISTS {schema}.idx_peers_last_update_on ON {schema}.peers (last_update_on DESC);
-CREATE INDEX IF NOT EXISTS {schema}.idx_usernames_id ON {schema}.usernames (id);
-CREATE INDEX IF NOT EXISTS {schema}.idx_usernames_username ON {schema}.usernames (username);
+CREATE INDEX IF NOT EXISTS idx_peers_phone_number ON {schema}.peers (phone_number);
+CREATE INDEX IF NOT EXISTS idx_peers_last_update_on ON {schema}.peers (last_update_on DESC);
+CREATE INDEX IF NOT EXISTS idx_usernames_id ON {schema}.usernames (id);
+CREATE INDEX IF NOT EXISTS idx_usernames_username ON {schema}.usernames (username);
 ";
 
 const NEWER: &str = "this PostgreSQL session needs a newer vaegram";
@@ -657,6 +657,8 @@ where
     fn close(&self) -> StorageFuture<'_, ()> {
         Box::pin(async move {
             self.conn.lock().unwrap_or_else(PoisonError::into_inner).take();
+            // The next open checks the schema again: it may have been dropped while the engine was closed.
+            self.prepared.store(false, Ordering::Release);
             Ok(())
         })
     }
