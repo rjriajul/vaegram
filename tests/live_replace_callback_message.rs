@@ -134,7 +134,7 @@ struct Made {
 }
 
 /// Waits up to [`WAIT`] for the bot's handler to record the answers to every press made, so that `clean` sees them.
-/// `Some` says how many were still missing.
+/// `Some` says how many were still missing; they are then forgotten, so one lost press is reported once.
 async fn settle(made: &Mutex<Made>) -> Option<String> {
     let deadline = tokio::time::Instant::now() + WAIT;
     loop {
@@ -143,7 +143,9 @@ async fn settle(made: &Mutex<Made>) -> Option<String> {
             return None;
         }
         if tokio::time::Instant::now() >= deadline {
-            return Some(format!("{pending} presses had no recorded answer after {WAIT:?}; check the chat for one"));
+            made.lock().unwrap().pending = 0;
+            let lost = "the press may not have reached the bot, or its answer may still arrive: check the chat";
+            return Some(format!("{pending} presses had no recorded answer after {WAIT:?}; {lost}"));
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
@@ -582,7 +584,8 @@ async fn option_steps(
                 }
                 Err(e) => Outcome::Setup(Stuck::Telegram("the user creating a topic in VAEGRAM_FORUM_CHAT_ID", e)),
             };
-            judge(&mut problems, topic_press, &result, result.anchored());
+            let ok = matches!(&result, Outcome::Arrived { anchored: true, sent_anchor: None, .. });
+            judge(&mut problems, topic_press, &result, ok);
         }
         Ok(Err(e)) => {
             let result = Outcome::Setup(Stuck::Missing(format!("VAEGRAM_FORUM_CHAT_ID: {e}")));

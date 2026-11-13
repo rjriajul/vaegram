@@ -206,7 +206,7 @@ impl<'a> SendEphemeralMessage<'a> {
         // Telegram answered REPLY_TO_INVALID to `anchor` next to an inputReplyToMessage, and a topic is written as one.
         if self.replace && matches!(self.reply_to, Some(ReplyTo::Message(_))) {
             // `Message::reply_ephemeral` sets reply_to itself, so a caller who never called it can meet this.
-            let why = "replace_callback_query_message can't go with reply_to, which Message::reply_ephemeral sets";
+            let why = "replace_callback_query_message can't go with reply_to (Message::reply_ephemeral sets one too)";
             return Err(Error::InvalidArgument(why));
         }
         if self.replace && self.message_thread_id.filter(|&id| id != 1).is_some() {
