@@ -11,15 +11,16 @@ use crate::utils::{get_channel_id, get_peer};
 #[non_exhaustive]
 pub struct StoryArea {
     /// Where the area sits on the media.
-    pub position: StoryAreaPosition,
+    pub position: AreaPosition,
     /// What the area shows or links to.
     pub kind: StoryAreaType,
 }
 
-/// Where an area sits on the story, in percent of the media size. `x` and `y` are the center.
+/// Where an area sits on a story's media or on a TON wallet card, in percent of the media size. `x` and `y` are the
+/// center.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 #[non_exhaustive]
-pub struct StoryAreaPosition {
+pub struct AreaPosition {
     /// Horizontal position of the center, in percent of the media width.
     pub x_percentage: f64,
     /// Vertical position of the center, in percent of the media height.
@@ -33,6 +34,10 @@ pub struct StoryAreaPosition {
     /// Corner radius, in percent of the smaller side of the area. 0 if Telegram sends none.
     pub corner_radius_percentage: f64,
 }
+
+/// The name of [`AreaPosition`] before Bot API 10.4.
+#[deprecated(note = "use AreaPosition")]
+pub type StoryAreaPosition = AreaPosition;
 
 /// What a [`StoryArea`] shows or links to.
 #[derive(Debug, Clone, PartialEq)]
@@ -134,11 +139,11 @@ impl LocationAddress {
     }
 }
 
-impl StoryAreaPosition {
+impl AreaPosition {
     /// Places an area of `width_percentage` by `height_percentage` with its center at (`x_percentage`,
     /// `y_percentage`), all in percent of the media's size, unrotated and with square corners.
     pub fn new(x_percentage: f64, y_percentage: f64, width_percentage: f64, height_percentage: f64) -> Self {
-        StoryAreaPosition { x_percentage, y_percentage, width_percentage, height_percentage, ..Default::default() }
+        AreaPosition { x_percentage, y_percentage, width_percentage, height_percentage, ..Default::default() }
     }
 
     /// Rotates the area by this many degrees.
@@ -155,9 +160,9 @@ impl StoryAreaPosition {
         self
     }
 
-    fn parse(coordinates: &base::MediaAreaCoordinates) -> StoryAreaPosition {
+    fn parse(coordinates: &base::MediaAreaCoordinates) -> AreaPosition {
         let base::MediaAreaCoordinates::MediaAreaCoordinates(c) = coordinates;
-        StoryAreaPosition {
+        AreaPosition {
             x_percentage: c.x,
             y_percentage: c.y,
             width_percentage: c.w,
@@ -215,7 +220,7 @@ impl StoryAreaType {
 
 impl StoryArea {
     /// Creates an area showing `kind` at `position`.
-    pub fn new(position: StoryAreaPosition, kind: StoryAreaType) -> Self {
+    pub fn new(position: AreaPosition, kind: StoryAreaType) -> Self {
         StoryArea { position, kind }
     }
 
@@ -264,7 +269,7 @@ impl StoryArea {
             A::MediaAreaStarGift(a) => (&a.coordinates, StoryAreaType::UniqueGift { name: a.slug.clone() }),
             A::InputMediaAreaVenue(_) | A::InputMediaAreaChannelPost(_) => return None,
         };
-        Some(StoryArea { position: StoryAreaPosition::parse(coordinates), kind })
+        Some(StoryArea { position: AreaPosition::parse(coordinates), kind })
     }
 
     pub(crate) fn parse_all(areas: &[base::MediaArea], entities: &Entities) -> Vec<StoryArea> {
@@ -352,7 +357,7 @@ impl StoryArea {
 
 #[cfg(test)]
 mod tests {
-    use super::{LocationAddress, StoryArea, StoryAreaPosition, StoryAreaType};
+    use super::{AreaPosition, LocationAddress, StoryArea, StoryAreaType};
     use crate::Client;
     use crate::dispatcher::Entities;
     use crate::raw::{base, types};
@@ -524,11 +529,11 @@ mod tests {
 
     #[tokio::test]
     async fn builds_from_new_and_setters() {
-        let position = StoryAreaPosition::new(10.0, 20.0, 30.0, 40.0).rotation_angle(5.0).corner_radius_percentage(2.5);
+        let position = AreaPosition::new(10.0, 20.0, 30.0, 40.0).rotation_angle(5.0).corner_radius_percentage(2.5);
         let area = StoryArea::new(position, StoryAreaType::link("https://a.b"));
         let url = types::MediaAreaUrl { coordinates: coords(), url: "https://a.b".into() };
         assert_eq!(area.write(&Client::offline()).await.unwrap(), base::MediaArea::MediaAreaUrl(Box::new(url)));
-        let square = StoryAreaPosition::new(1.0, 2.0, 3.0, 4.0);
+        let square = AreaPosition::new(1.0, 2.0, 3.0, 4.0);
         assert_eq!((square.rotation_angle, square.corner_radius_percentage), (0.0, 0.0));
     }
 }

@@ -25,6 +25,8 @@ sendVideo                          send_video
 sendAnimation                      send_animation
 sendVoice                          send_voice
 sendVideoNote                      send_video_note
+sendWidget                         send_widget
+sendSharedWidget                   send_shared_widget
 sendPaidMedia                      send_paid_media
 sendMediaGroup                     send_media_group
 sendLocation                       send_location
@@ -71,6 +73,7 @@ getChat                            get_chat
 getChatAdministrators              get_chat_administrators
 getChatMemberCount                 get_chat_members_count
 getChatMember                      get_chat_member
+getChatShareThemeBackdrops         get_share_theme_backdrops
 getUserPersonalChatMessages        get_user_personal_chat_messages
 setChatStickerSet                  set_chat_sticker_set
 deleteChatStickerSet               delete_chat_sticker_set
@@ -88,6 +91,7 @@ hideGeneralForumTopic              hide_general_forum_topic
 unhideGeneralForumTopic            unhide_general_forum_topic
 unpinAllGeneralForumTopicMessages  unpin_all_general_forum_topic_messages
 answerCallbackQuery                answer_callback_query
+answerWidgetQuery                  answer_widget_query
 answerGuestQuery                   answer_guest_query
 getUserChatBoosts                  get_user_chat_boosts
 getBusinessConnection              get_business_connection
@@ -130,9 +134,11 @@ transferBusinessAccountStars       transfer_business_account_stars
 getBusinessAccountGifts            get_business_account_gifts
 getUserGifts                       get_user_gifts
 getChatGifts                       get_chat_gifts
+getUniqueGift                      get_unique_gift
 convertGiftToStars                 convert_gift_to_stars
 upgradeGift                        upgrade_gift
 transferGift                       transfer_gift
+deleteBusinessAccountGift          delete_business_account_gift
 postStory                          post_business_story
 repostStory                        repost_business_story
 editStory                          edit_business_story
@@ -148,6 +154,8 @@ editMessageMedia                   edit_message_media
 editMessageLiveLocation            edit_message_live_location
 stopMessageLiveLocation            stop_message_live_location
 editMessageChecklist               edit_message_checklist
+editMessageWidgetData              edit_message_widget_data
+editSharedWidgetData               edit_shared_widget_data
 editMessageReplyMarkup             edit_message_reply_markup
 stopPoll                           stop_poll
 editEphemeralMessageText           edit_ephemeral_message_text

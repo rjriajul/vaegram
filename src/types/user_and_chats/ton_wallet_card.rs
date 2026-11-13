@@ -1,6 +1,6 @@
 use crate::dispatcher::Entities;
 use crate::raw::base;
-use crate::types::{StoryAreaPosition, UniqueGift};
+use crate::types::{AreaPosition, UniqueGift};
 
 /// A TON wallet card shown on a profile or shared with a widget.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,7 +21,7 @@ pub struct TonWalletCard {
 #[non_exhaustive]
 pub struct TonWalletCardSticker {
     /// Where the sticker sits on the card.
-    pub position: StoryAreaPosition,
+    pub position: AreaPosition,
     /// The NFT shown by the sticker.
     pub nft: TonNft,
 }
@@ -87,7 +87,7 @@ impl TonWalletCard {
                     let base::wallet::CardSticker::CardSticker(sticker) = raw;
                     let base::MediaAreaCoordinates::MediaAreaCoordinates(c) = &sticker.coordinates;
                     TonWalletCardSticker {
-                        position: StoryAreaPosition {
+                        position: AreaPosition {
                             x_percentage: c.x,
                             y_percentage: c.y,
                             width_percentage: c.w,
