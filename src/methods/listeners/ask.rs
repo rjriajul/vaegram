@@ -149,7 +149,7 @@ mod tests {
     }
 
     fn returned(client: &Client) -> Vec<i32> {
-        client.0.handlers.listeners.messages.take_returned().iter().map(|m| m.id).collect()
+        client.0.handlers.listeners.messages.take_returned().iter().map(|r| r.item.id).collect()
     }
 
     fn offer(client: &Client, id: i32, chat: i64, out: bool) -> bool {
@@ -296,6 +296,34 @@ mod tests {
         assert_eq!(*seen.lock().unwrap(), [1]);
         assert!(holding(&listeners.messages), "the question is still on its way");
         assert_eq!(waiter.await.unwrap().unwrap().id, 10);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_message_one_ask_gives_back_can_answer_another() {
+        let flood = |seconds: u32| Err(Error::Rpc(RpcError::parse(420, &format!("FLOOD_WAIT_{seconds}"))));
+        // The first question sleeps off one second and gets id 9, the second five seconds and gets id 11.
+        let (client, mut requests) = Client::scripted(vec![flood(1), flood(5), Ok(sent(9)), Ok(sent(11))]);
+        client.0.me.lock().unwrap().id = 5;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        client.on_message(filters::all(), move |m: Message| {
+            log.lock().unwrap().push(m.id);
+            async { Ok(()) }
+        });
+        let ask = || {
+            let client = client.clone();
+            tokio::spawn(async move { client.ask("me", "Your name?").await })
+        };
+        let first = ask();
+        assert!(requests.recv().await.is_some(), "the first question went out");
+        let second = ask();
+        assert!(requests.recv().await.is_some(), "the second question went out");
+        assert!(offer(&client, 10, 5, true));
+        assert!(offer(&client, 12, 5, true));
+        assert_eq!(first.await.unwrap().unwrap().id, 10);
+        redeliver(&client);
+        assert_eq!(second.await.unwrap().unwrap().id, 12);
+        assert!(seen.lock().unwrap().is_empty(), "a handler got an answer");
     }
 
     #[tokio::test]

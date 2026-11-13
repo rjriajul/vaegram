@@ -167,11 +167,12 @@ impl Handlers<Message> {
         }
     }
 
-    /// A new message a listener took but dropped unread, or held and gave back: the other listeners, then the
-    /// handlers, get it. Holds don't take it again.
-    fn redeliver(&self, tasks: &mut Tasks, client: &Client, message: Message) {
+    /// A new message a listener gave back: the other listeners, then the handlers, get it. One a full hold pushed
+    /// out (`evicted`) skips every hold.
+    fn redeliver(&self, tasks: &mut Tasks, client: &Client, message: Message, evicted: bool) {
         let me = client.0.me.lock().unwrap().clone();
-        let offer = client.0.handlers.listeners.messages.offer_returned(message, &me);
+        let messages = &client.0.handlers.listeners.messages;
+        let offer = if evicted { messages.offer_evicted(message, &me) } else { messages.offer(message, &me) };
         let Some(message) = listened(UpdateKind::Message, tasks, offer) else { return };
         if !self.0.is_empty() {
             self.finish(UpdateKind::Message, tasks, &me, PARSED, message);
@@ -650,14 +651,15 @@ impl Router {
         }
     }
 
-    /// Routes again what listeners dropped before reading gave back, as if it had just arrived.
+    /// Routes again what listeners gave back, in the order they gave it, as if it had just arrived.
     pub(crate) fn redeliver(&self, client: &Client, tasks: &mut Tasks) {
         let listeners = &client.0.handlers.listeners;
-        for message in listeners.messages.take_returned() {
-            self.message.redeliver(tasks, client, message);
+        for back in listeners.messages.take_returned() {
+            self.message.redeliver(tasks, client, back.item, back.evicted);
         }
-        for query in listeners.callbacks.take_returned() {
-            self.offer_callback(client, query, tasks);
+        // Callback queries are never held, so none was pushed out of a hold.
+        for back in listeners.callbacks.take_returned() {
+            self.offer_callback(client, back.item, tasks);
         }
     }
 
