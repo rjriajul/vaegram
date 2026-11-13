@@ -41,6 +41,9 @@ pub struct RetryContext<'a> {
     /// How many times the policy has been asked about this request, this time included: 1 after the first failure.
     /// A file part's own retries after timeouts and server errors count too.
     pub fail_count: u32,
+    /// How many of those failures were FLOOD_WAITs (those with a [`flood_wait`](Self::flood_wait)), this one
+    /// included if it is one.
+    pub flood_count: u32,
     /// How long the request has slept between its sends so far: the waits the policy asked for and, for a file
     /// part, the pauses after server errors.
     pub slept_so_far: Duration,
@@ -55,14 +58,15 @@ pub struct RetryContext<'a> {
 // AutoSleep sleeps off this many times its `tries` for one file part: gogram's 20 tries a part, with the default 5.
 const PART_TRIES_PER_TRY: usize = 4;
 
-/// Sleeps off FLOOD_WAITs of up to `threshold`, at most `tries` times per request (four times that for a file part,
-/// one of thousands in a transfer that fails with it), and hands everything else to the caller. This is what a
-/// client does unless it's given another policy.
+/// Sleeps off FLOOD_WAITs of up to `threshold`, at most `tries` of them per request (four times that for a file part,
+/// one of thousands in a transfer that fails with it), and hands everything else to the caller. Only FLOOD_WAITs use
+/// up the tries: a part's own retries after server errors and timeouts don't. This is what a client does unless it's
+/// given another policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AutoSleep {
     /// The longest wait slept off; longer ones go to the caller. `Duration::ZERO` hands every one over.
     pub threshold: Duration,
-    /// How many waits one request sleeps off, four times that for a file part; 0 hands every one over.
+    /// How many FLOOD_WAITs one request sleeps off, four times that for a file part; 0 hands every one over.
     pub tries: usize,
 }
 
@@ -85,7 +89,7 @@ impl AutoSleep {
         self
     }
 
-    /// Sets how many waits one request sleeps off, four times that for a file part; 0 hands every one over.
+    /// Sets how many FLOOD_WAITs one request sleeps off, four times that for a file part; 0 hands every one over.
     #[must_use]
     pub fn tries(mut self, tries: usize) -> Self {
         self.tries = tries;
@@ -97,8 +101,26 @@ impl RetryPolicy for AutoSleep {
     fn should_retry(&self, ctx: &RetryContext<'_>) -> ControlFlow<(), Duration> {
         let tries = if ctx.file_part { self.tries.saturating_mul(PART_TRIES_PER_TRY) } else { self.tries };
         match ctx.flood_wait {
-            Some(wait) if wait <= self.threshold && ctx.fail_count as usize <= tries => ControlFlow::Continue(wait),
+            Some(wait) if wait <= self.threshold && ctx.flood_count as usize <= tries => ControlFlow::Continue(wait),
             _ => ControlFlow::Break(()),
+        }
+    }
+}
+
+/// What a request went through before a policy is asked about its latest failure, as the code sending it counts.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Tally {
+    pub(crate) failures: u32,
+    pub(crate) floods: u32,
+    pub(crate) slept: Duration,
+}
+
+impl Tally {
+    /// Counts one more failure: `error`.
+    pub(crate) fn failed(&mut self, error: &Error) {
+        self.failures += 1;
+        if error.flood_wait().is_some() {
+            self.floods += 1;
         }
     }
 }
@@ -159,7 +181,15 @@ mod tests {
         let error = Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_1"));
         let flood_wait = flood_wait.map(Duration::from_secs);
         let slept_so_far = Duration::ZERO;
-        let ctx = RetryContext { request: "x.y", error: &error, fail_count, slept_so_far, flood_wait, file_part };
+        let ctx = RetryContext {
+            request: "x.y",
+            error: &error,
+            fail_count,
+            flood_count: fail_count,
+            slept_so_far,
+            flood_wait,
+            file_part,
+        };
         policy.should_retry(&ctx)
     }
 

@@ -433,6 +433,100 @@ async fn a_transfer_connection_is_probed_once_its_part_could_have_arrived() {
     assert!(r.probed);
 }
 
+#[tokio::test]
+async fn a_transfer_connection_after_many_answered_parts_is_watched_from_its_last_one() {
+    // 200 parts of 32 KiB, each answered: 800 s of bytes at MIN_RATE, all of them known to have arrived.
+    let (mut r, _frames, _updates) = runner().await;
+    r.updates = None;
+    for _ in 0..200 {
+        let _rx = request(&mut r, vec![0; 32 << 10]);
+        r.flush().await.unwrap();
+        let part = *r.pending.keys().max().unwrap();
+        r.handle_message(1, 0, &rpc_result(part, &[0; 4]));
+    }
+    tokio::time::pause();
+    let _last = request(&mut r, vec![0; 32 << 10]);
+    r.flush().await.unwrap();
+    // Only the last part counts: 4 s at MIN_RATE, then probed after PROBE_AFTER and dropped PROBE_DEAD_AFTER after
+    // the probe, 34 s after it went out.
+    tokio::time::advance(Duration::from_secs(4) + PROBE_AFTER + Duration::from_secs(1)).await;
+    r.tick().await.unwrap();
+    assert!(r.probed, "parts answered long ago held off the probe");
+    tokio::time::advance(PROBE_DEAD_AFTER + Duration::from_secs(1)).await;
+    assert!(matches!(r.tick().await, Err(Error::Disconnected)));
+}
+
+fn pong(msg_id: i64) -> Vec<u8> {
+    base::Pong::Pong(Box::new(types::Pong { msg_id, ping_id: 0 })).to_bytes()
+}
+
+#[tokio::test]
+async fn a_pong_proves_every_byte_before_its_ping_arrived() {
+    let (mut r, _frames, _updates) = runner().await;
+    r.updates = None;
+    let _part = request(&mut r, vec![0; 512 << 10]);
+    r.flush().await.unwrap();
+    tokio::time::pause();
+    r.ping().await.unwrap();
+    assert!(r.writer.backlog() > 512 << 10);
+    // The ping is the newest msg_id.
+    r.handle_message(1, 0, &pong(r.msg_ids.last()));
+    assert_eq!(r.writer.backlog(), 0);
+    // So silence counts from the pong, not from when 512 KiB could have arrived 64 s on.
+    tokio::time::advance(PROBE_AFTER + Duration::from_secs(1)).await;
+    r.tick().await.unwrap();
+    assert!(r.probed);
+}
+
+#[tokio::test]
+async fn a_download_whose_answer_starts_late_and_trickles_in_is_kept_while_pongs_come() {
+    let (mut r, mut server) = transfer_runner().await;
+    // A file chunk asked for: a few bytes up, a big answer down.
+    let _chunk = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    tokio::time::pause();
+    // Nothing of the answer for 25 s: each probe meanwhile gets its pong, which keeps the connection.
+    for _ in 0..2 {
+        tokio::time::advance(PROBE_AFTER + Duration::from_secs(1)).await;
+        r.tick().await.unwrap();
+        assert!(r.probed);
+        let probe = r.msg_ids.last();
+        r.heard();
+        r.handle_message(1, 0, &pong(probe));
+    }
+    tokio::time::advance(Duration::from_secs(3)).await;
+    // Then the head of a 1 MiB answer, and 1 KiB of it every 5 s, up to 65 s in.
+    server.write_all(&(1u32 << 20).to_le_bytes()).await.unwrap();
+    for _ in 0..8 {
+        server.write_all(&[0; 1024]).await.unwrap();
+        let before = r.reader.last_byte();
+        while r.reader.last_byte() == before {
+            let _ = tokio::time::timeout(Duration::from_millis(1), r.reader.recv()).await;
+        }
+        for _ in 0..5 {
+            tokio::time::advance(Duration::from_secs(1)).await;
+            r.tick().await.unwrap();
+            assert!(!r.probed, "a connection still reading its answer was probed");
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_download_whose_server_never_answers_the_probe_is_dropped() {
+    let (mut r, _server) = transfer_runner().await;
+    let _chunk = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    tokio::time::pause();
+    tokio::time::advance(PROBE_AFTER + Duration::from_secs(1)).await;
+    r.tick().await.unwrap();
+    assert!(r.probed);
+    // Kept for PROBE_DEAD_AFTER after the probe went out, and no longer.
+    tokio::time::advance(PROBE_DEAD_AFTER).await;
+    r.tick().await.unwrap();
+    tokio::time::advance(Duration::from_secs(1)).await;
+    assert!(matches!(r.tick().await, Err(Error::Disconnected)));
+}
+
 #[test]
 fn reconnect_delay_is_jittered_within_the_upper_half() {
     let delays: Vec<Duration> = (0..64).map(|_| jitter(Duration::from_secs(8))).collect();

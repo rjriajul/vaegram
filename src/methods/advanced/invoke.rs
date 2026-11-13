@@ -9,7 +9,7 @@ use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, base, functions};
 use crate::session::no_updates::needs_updates;
 use crate::session::transfer::invoke_part;
-use crate::session::{RateCategory, Session};
+use crate::session::{RateCategory, Session, Tally};
 
 const MAX_MIGRATIONS: usize = 3;
 
@@ -256,17 +256,17 @@ pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(
     request: &R,
     timeout: Duration,
 ) -> Result<R::Return> {
-    let (mut retries, mut slept) = (0u32, Duration::ZERO);
+    let mut tally = Tally::default();
     loop {
         let result = session.invoke_with_timeout(request, timeout).await;
         let Err(error) = &result else { return result };
         if NO_RETRIES.try_with(|_| ()).is_ok() {
             return result;
         }
-        match session.should_retry(name, error, retries + 1, slept, None, false) {
+        tally.failed(error);
+        match session.should_retry(name, error, tally, None, false) {
             ControlFlow::Continue(wait) => {
-                retries += 1;
-                slept += wait;
+                tally.slept += wait;
                 tokio::time::sleep(wait).await;
             }
             ControlFlow::Break(()) => return result,

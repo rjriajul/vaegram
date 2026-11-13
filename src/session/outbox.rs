@@ -36,11 +36,19 @@ fn put_header(buf: &mut Vec<u8>, msg_id: i64, seq_no: i32, len: usize) {
 impl Runner {
     pub(super) async fn flush(&mut self) -> Result<()> {
         if self.bind_packet() {
-            self.writer.finish().await?;
+            self.write_packet().await?;
         }
         while self.pack() {
-            self.writer.finish().await?;
+            self.write_packet().await?;
         }
+        Ok(())
+    }
+
+    /// Writes the packet just sealed, which carries msg_ids newer than any before it and none newer than the last
+    /// handed out, so a server message referring to one of them places it.
+    pub(super) async fn write_packet(&mut self) -> Result<()> {
+        self.writer.finish().await?;
+        self.writer.sent(self.msg_ids.last());
         Ok(())
     }
 

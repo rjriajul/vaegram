@@ -7,7 +7,7 @@ use std::task::Poll;
 use std::time::Duration;
 
 use super::internals::data_center::Dc;
-use super::{Events, Known, Salt, Session, WeakSession, init_connection};
+use super::{Events, Known, Salt, Session, Tally, WeakSession, init_connection};
 use crate::client::quiet;
 use crate::connection::{MIN_RATE, Options};
 use crate::crypto::rsa::PublicKey;
@@ -246,7 +246,8 @@ impl Drop for Lease {
 /// all of them at MIN_RATE, as this one may come last, and never under MIN_PART_TIMEOUT. Only this transfer's parts
 /// count: another transfer leasing the same pooled connection meanwhile adds its own, which this doesn't see, so on
 /// a link near MIN_RATE a part can time out early and go again on a fresh connection, up to MAX_TIMEOUTS times. A
-/// dead connection is found by the session's silence watch, which counts every byte written on it.
+/// dead connection is found by the session's silence watch, which counts every byte written on it that the server
+/// isn't known to have got.
 pub(crate) fn part_timeout(in_flight: u64) -> Duration {
     MIN_PART_TIMEOUT.max(Duration::from_secs(in_flight / MIN_RATE))
 }
@@ -276,19 +277,19 @@ async fn invoke_part_on<R: RemoteCall>(
     let timeout = timeout.max(session.options().request_timeout);
     let cap = cdn.then_some(MAX_CDN_FLOOD_WAIT);
     let own = session.retries_file_parts();
-    let (mut timeouts, mut server_errors, mut asked, mut slept) = (0, 0, 0u32, Duration::ZERO);
+    let (mut timeouts, mut server_errors, mut tally) = (0, 0, Tally::default());
     loop {
         let reconnects = session.reconnects();
         let result = session.invoke_with_timeout(request, timeout).await;
         let Err(e) = &result else { return result };
-        asked += 1;
-        let wait = match session.should_retry(R::NAME, e, asked, slept, cap, !cdn) {
+        tally.failed(e);
+        let wait = match session.should_retry(R::NAME, e, tally, cap, !cdn) {
             ControlFlow::Continue(wait) => wait,
             ControlFlow::Break(()) if own && matches!(e, Error::Timeout) && timeouts + 1 < MAX_TIMEOUTS => {
                 timeouts += 1;
                 // The part most likely went down with a connection the server stopped answering on: open a fresh
                 // one, which sends the other parts waiting on it again too, as TDLib and mtcute do. Not when another
-                // part's timeout already had it reopened since this one went out.
+                // part's timeout already had it dropped since this one went out, even if it isn't back yet.
                 session.restart_since(reconnects)?;
                 Duration::ZERO
             }
@@ -300,7 +301,7 @@ async fn invoke_part_on<R: RemoteCall>(
             }
             ControlFlow::Break(()) => return result,
         };
-        slept += wait;
+        tally.slept += wait;
         tokio::time::sleep(wait).await;
     }
 }
@@ -365,7 +366,7 @@ mod tests {
     use std::ops::ControlFlow;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
     use std::time::Duration;
 
     use super::{
@@ -512,7 +513,7 @@ mod tests {
         let start = tokio::time::Instant::now();
         assert!(invoke_part(&session, &part(), MIN_PART_TIMEOUT).await.unwrap());
         assert!((MIN_PART_TIMEOUT..MIN_PART_TIMEOUT + Duration::from_secs(1)).contains(&start.elapsed()));
-        assert!(session.control.restart.load(Ordering::Acquire), "the part went again on the same connection");
+        assert!(session.control.take_restart(), "the part went again on the same connection");
     }
 
     type Asked = (&'static str, u32, Option<Duration>, bool);
@@ -568,7 +569,7 @@ mod tests {
         let mut session = Session::local(requests);
         session.set_options(Options::new().retry(Retry::new(NoRetries)));
         assert!(matches!(invoke_part(&session, &part(), MIN_PART_TIMEOUT).await, Err(Error::Timeout)));
-        assert!(!session.control.restart.load(Ordering::Acquire));
+        assert!(!session.control.take_restart());
         drop(session);
         assert_eq!(held.await.unwrap(), 1);
     }
@@ -577,15 +578,23 @@ mod tests {
     async fn parts_that_timed_out_together_restart_their_connection_once() {
         let (requests, _rx) = tokio::sync::mpsc::unbounded_channel::<Request>();
         let session = Session::local(requests);
+        let control = &session.control;
         let sent_at = session.reconnects();
+        // Parts that went out on one connection time out one after another: the first asks for the restart, the
+        // next before the task has taken it up.
         session.restart_since(sent_at).unwrap();
-        assert!(session.control.restart.swap(false, Ordering::AcqRel));
-        // The connection came back: a part sent before that is on the new one already.
-        session.control.reconnects.fetch_add(1, Ordering::AcqRel);
         session.restart_since(sent_at).unwrap();
-        assert!(!session.control.restart.load(Ordering::Acquire), "a second reconnect for the same dead connection");
+        assert!(control.take_restart());
+        // One more between the task taking it and dropping the connection: the reconnect's first attempt takes it.
+        session.restart_since(sent_at).unwrap();
+        control.dropped();
+        control.take_restart();
+        // One while the reconnect is still connecting is refused, and so is one after it is back.
+        session.restart_since(sent_at).unwrap();
+        assert!(!control.take_restart(), "a second reconnect for the same dead connection");
+        // A part sent on the new connection still has it restarted.
         session.restart_since(session.reconnects()).unwrap();
-        assert!(session.control.restart.load(Ordering::Acquire));
+        assert!(control.take_restart());
     }
 
     #[tokio::test(start_paused = true)]
@@ -612,6 +621,92 @@ mod tests {
         // Sent once, on the first connection: never dropped as dead.
         let parts = dc.seen().into_iter().filter(|s| s.ids.contains(&SAVE_BIG_FILE_PART)).map(|s| s.connection);
         assert_eq!(parts.collect::<Vec<_>>(), [1]);
+    }
+
+    /// When each connection opened, and the handle to how fast its link drains.
+    type Opened = Arc<Mutex<Vec<(tokio::time::Instant, Arc<AtomicUsize>)>>>;
+
+    /// A transfer session on `dc` over in-memory links of `room` bytes that drain `rate` bytes a second.
+    async fn linked(dc: &TestDc, room: usize, rate: usize) -> (Session, Opened) {
+        let opened = Opened::default();
+        let (serve, log) = (dc.acceptor(), Arc::clone(&opened));
+        let factory = move |_: std::net::SocketAddr| {
+            let (link, far) = SlowLink::new(room, 1, rate);
+            log.lock().unwrap().push((tokio::time::Instant::now(), link.rate()));
+            serve(far);
+            async move { Ok::<_, std::io::Error>(link) }
+        };
+        let options = Options::new().transport(Transport::Intermediate).connection_factory(factory);
+        let key = Known { key: [5; 256], salt: Salt::default(), made: None };
+        let session =
+            Session::connect_transfer(dc.dc(2), Some(key), None, &options, Arc::default(), None, 1).await.unwrap();
+        (session, opened)
+    }
+
+    fn big_part(file_part: i32, len: usize) -> functions::upload::SaveBigFilePart {
+        functions::upload::SaveBigFilePart { file_id: 1, file_part, file_total_parts: 201, bytes: vec![0; len] }
+    }
+
+    /// 200 parts of 32 KiB, 20 at a time, each answered once it is in: 6.25 MiB, 800 s of history at MIN_RATE.
+    async fn answered_parts(session: &Session) {
+        for round in 0..10 {
+            let parts: Vec<_> = (0..20).map(|i| big_part(round * 20 + i, 32 << 10)).collect();
+            let done = try_join_all(parts.iter().map(|p| invoke_part(session, p, MIN_PART_TIMEOUT))).await.unwrap();
+            assert!(done.into_iter().all(|saved| saved));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_connection_gone_quiet_after_many_parts_is_dropped_within_its_last_parts_time() {
+        let dc = TestDc::start([5; 256], false).await;
+        let (session, opened) = linked(&dc, 1 << 20, 1 << 20).await;
+        let start = opened.lock().unwrap()[0].0;
+        answered_parts(&session).await;
+        // The acks for those answers go out within ACK_EVERY (15 s) and the next ping at PING_EVERY (60 s): the part
+        // goes after the one and its watch ends before the other, so no other write moves it.
+        assert!(start.elapsed() < Duration::from_secs(15), "{:?}", start.elapsed());
+        tokio::time::sleep_until(start + Duration::from_secs(16)).await;
+        dc.mute();
+        let sent = tokio::time::Instant::now();
+        let last = big_part(200, 32 << 10);
+        let _ = tokio::time::timeout(Duration::from_secs(60), invoke_part(&session, &last, MIN_PART_TIMEOUT)).await;
+        let opened: Vec<_> = opened.lock().unwrap().iter().map(|o| o.0).collect();
+        assert!(opened.len() > 1, "a connection that went quiet was never dropped");
+        // Only the last part isn't known to have arrived: 32 KiB, 4 s at MIN_RATE. Probed at the first tick (1 s)
+        // after 10 s more, dropped at the first tick after 20 s from the probe: 36 s, then up to 0.5 s of reconnect
+        // jitter. Not the 200 parts before it, which would put it 800 s out.
+        let dropped = opened[1] - sent;
+        assert!((Duration::from_secs(36)..Duration::from_secs(37)).contains(&dropped), "{dropped:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_peer_that_stops_taking_bytes_after_many_parts_fails_the_write_within_its_buffers_time() {
+        let dc = TestDc::start([5; 256], false).await;
+        let (session, opened) = linked(&dc, 256 << 10, 1 << 20).await;
+        answered_parts(&session).await;
+        // The link stops draining, as a peer that went away: what is in the buffer stays there.
+        opened.lock().unwrap()[0].1.store(0, Ordering::Relaxed);
+        let sent = tokio::time::Instant::now();
+        let last = big_part(200, 512 << 10);
+        let saving = invoke_part(&session, &last, part_timeout(512 << 10));
+        let _ = tokio::time::timeout(Duration::from_secs(70), saving).await;
+        let opened: Vec<_> = opened.lock().unwrap().iter().map(|o| o.0).collect();
+        assert!(opened.len() > 1, "a write the peer took nothing of never failed");
+        // The buffer took about 256 KiB of the part, 32 s at MIN_RATE, then nothing for WRITE_STALL (20 s): 52 s, and
+        // up to 0.5 s of reconnect jitter.
+        let failed = opened[1] - sent;
+        assert!((Duration::from_secs(51)..Duration::from_secs(54)).contains(&failed), "{failed:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_part_with_server_errors_behind_it_still_sleeps_off_every_flood_wait() {
+        let mut replies = vec![rpc_error(500, "INTERNAL"), rpc_error(500, "INTERNAL")];
+        replies.extend((0..20).map(|_| rpc_error(420, "FLOOD_WAIT_1")));
+        replies.push(Ok(true.to_bytes()));
+        let (session, mut sent) = Session::scripted(replies);
+        // AutoSleep gives a part 20 waits; the two server errors don't use any of them up.
+        assert!(invoke_part(&session, &part(), MIN_PART_TIMEOUT).await.unwrap());
+        assert_eq!(count(&mut sent), 23);
     }
 
     #[tokio::test]

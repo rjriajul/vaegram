@@ -94,6 +94,8 @@ struct Shared {
     user: Option<i64>,
     // Each key exchange: the connection, the `dc` of its `p_q_inner_data`, and whether the key is a temporary one.
     handshakes: Vec<(usize, i32, bool)>,
+    // Reads on but answers nothing encrypted, not even a ping: a server gone quiet behind a live socket.
+    mute: bool,
 }
 
 pub(crate) struct TestDc {
@@ -154,6 +156,11 @@ impl TestDc {
     /// Makes the account `user_id`, as if the key had signed in.
     pub(crate) fn sign_in(&self, user_id: i64) {
         self.shared.lock().unwrap().user = Some(user_id);
+    }
+
+    /// Answers nothing encrypted from now on, on any connection, while still reading all of it.
+    pub(crate) fn mute(&self) {
+        self.shared.lock().unwrap().mute = true;
     }
 
     /// Serves each stream it's given as one more connection, for a test that opens its own (an in-memory one, say).
@@ -223,6 +230,9 @@ async fn serve(mut stream: impl AsyncRead + AsyncWrite + Unpin, shared: Arc<Mute
             let id: [u8; 8] = packet[..8].try_into().unwrap();
             let (key, temp) = *shared.lock().unwrap().keys.get(&id)?;
             let (session_id, outer_id, body) = open(&key, &id, &mut packet)?;
+            if shared.lock().unwrap().mute {
+                continue;
+            }
             let messages = match constructor_id(body) {
                 Some(msg_container::ID) => {
                     msg_container::parse(body).ok()?.iter().map(|m| (m.msg_id, m.body.to_vec())).collect()

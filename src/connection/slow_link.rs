@@ -5,6 +5,7 @@
 use std::collections::VecDeque;
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
@@ -18,6 +19,7 @@ pub(crate) struct SlowLink {
     wake: usize,
     // Flushes that still complete; `None` for all of them.
     flushes: Option<usize>,
+    rate: Arc<AtomicUsize>,
 }
 
 #[derive(Default)]
@@ -37,14 +39,16 @@ impl SlowLink {
         let (near, far) = tokio::io::duplex(64 << 20);
         let (read, mut write) = tokio::io::split(near);
         let queue = Arc::new(Mutex::new(Queue::default()));
-        if rate > 0 {
-            let queue = Arc::clone(&queue);
+        let started = rate;
+        let rate = Arc::new(AtomicUsize::new(rate));
+        if started > 0 {
+            let (queue, rate) = (Arc::clone(&queue), Arc::clone(&rate));
             tokio::spawn(async move {
                 loop {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     let drained: Vec<u8> = {
                         let mut queue = queue.lock().unwrap();
-                        let n = queue.bytes.len().min(rate);
+                        let n = queue.bytes.len().min(rate.load(Ordering::Relaxed));
                         let drained = queue.bytes.drain(..n).collect();
                         if room - queue.bytes.len() >= wake {
                             queue.writer.take().into_iter().for_each(Waker::wake);
@@ -57,7 +61,13 @@ impl SlowLink {
                 }
             });
         }
-        (SlowLink { read, queue, room, wake, flushes: None }, far)
+        (SlowLink { read, queue, room, wake, flushes: None, rate }, far)
+    }
+
+    /// What the link drains a second, to change while it runs: 0 stops it, as a peer that stopped reading. A link
+    /// made at 0 never drains.
+    pub(crate) fn rate(&self) -> Arc<AtomicUsize> {
+        Arc::clone(&self.rate)
     }
 
     /// Lets only the next `n` flushes complete; later ones never do, as on a stream that can't get its buffer out.

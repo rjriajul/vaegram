@@ -4,12 +4,18 @@ use crate::raw::{Deserializable, Serializable, base, types};
 
 impl Runner {
     pub(super) fn handle_bad_msg(&mut self, server_msg_id: i64, body: &[u8]) {
-        match base::BadMsgNotification::from_bytes(body) {
-            Ok(base::BadMsgNotification::BadServerSalt(b)) => {
+        let Ok(notification) = base::BadMsgNotification::from_bytes(body) else { return };
+        // Refused, but got.
+        self.writer.arrived(match &notification {
+            base::BadMsgNotification::BadServerSalt(b) => b.bad_msg_id,
+            base::BadMsgNotification::BadMsgNotification(b) => b.bad_msg_id,
+        });
+        match notification {
+            base::BadMsgNotification::BadServerSalt(b) => {
                 self.set_salt(b.new_server_salt);
                 self.resend(b.bad_msg_id);
             }
-            Ok(base::BadMsgNotification::BadMsgNotification(b)) => match b.error_code {
+            base::BadMsgNotification::BadMsgNotification(b) => match b.error_code {
                 // Our msg_id is too low or too high: the local clock is off. The server's
                 // own msg_id carries its time, so take the offset from it and resend.
                 16 | 17 => {
@@ -31,12 +37,12 @@ impl Runner {
                     }
                 }
             },
-            Err(_) => {}
         }
     }
 
     pub(super) fn handle_new_session(&mut self, body: &[u8]) {
         if let Ok(base::NewSession::NewSessionCreated(s)) = base::NewSession::from_bytes(body) {
+            self.writer.arrived(s.first_msg_id);
             self.set_salt(s.server_salt);
             let lost: Vec<i64> = self.pending.keys().copied().filter(|&id| id < s.first_msg_id).collect();
             for id in lost {
@@ -48,6 +54,9 @@ impl Runner {
 
     pub(super) fn handle_msgs_ack(&mut self, body: &[u8]) {
         if let Ok(base::MsgsAck::MsgsAck(a)) = base::MsgsAck::from_bytes(body) {
+            if let Some(&newest) = a.msg_ids.iter().max() {
+                self.writer.arrived(newest);
+            }
             for id in a.msg_ids {
                 if let Some(p) = self.pending.get_mut(&id) {
                     p.acked = true;
@@ -64,6 +73,7 @@ impl Runner {
 
     pub(super) fn handle_state_info(&mut self, body: &[u8]) {
         let Ok(base::MsgsStateInfo::MsgsStateInfo(i)) = base::MsgsStateInfo::from_bytes(body) else { return };
+        self.writer.arrived(i.req_msg_id);
         let Some(ids) = self.checking.remove(&i.req_msg_id) else { return };
         for (k, id) in ids.into_iter().enumerate() {
             match i.info.get(k) {

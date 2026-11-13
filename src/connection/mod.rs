@@ -23,6 +23,7 @@ pub(crate) use transport::{Framing, MAX_PACKET, RecvBuf};
 #[cfg(all(test, feature = "websocket"))]
 pub(crate) use websocket::tests::{open_plain as open_plain_websocket, ping_when_idle};
 
+use std::collections::VecDeque;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -48,8 +49,9 @@ const READ_CHUNK: usize = 64 << 10;
 /// The slowest link a connection still serves, in bytes per second: no deadline cuts short what would be done at
 /// this rate.
 pub(crate) const MIN_RATE: u64 = 8 << 10;
-// What the stream took could still be on its way at MIN_RATE; a stream that then takes no byte (or doesn't finish a
-// flush) for this long more goes to a peer that's gone, which TCP alone retries for many minutes.
+// What the stream took and the server isn't known to have got could still be on its way at MIN_RATE; a stream that
+// then takes no byte (or doesn't finish a flush) for this long more goes to a peer that's gone, which TCP alone
+// retries for many minutes.
 const WRITE_STALL: Duration = Duration::from_secs(20);
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -434,6 +436,10 @@ impl Connection {
                 records,
                 buf: Vec::new(),
                 drained_by: tokio::time::Instant::now(),
+                written: 0,
+                arrived: 0,
+                unproven: VecDeque::new(),
+                arrived_id: i64::MIN,
             },
         })
     }
@@ -589,8 +595,16 @@ pub(crate) struct Writer {
     encrypt: Option<Ctr>,
     records: Option<RecordWriter>,
     pub(crate) buf: Vec<u8>,
-    // When what the stream took could all have left at MIN_RATE.
+    // When the bytes past `arrived` could all have left at MIN_RATE, counted from the last proof that bytes arrived.
     drained_by: tokio::time::Instant,
+    // Bytes the stream took, and how many of them the server is known to have got.
+    written: u64,
+    arrived: u64,
+    // The packets past `arrived`, oldest first: the newest msg_id each carried, and `written` at its end.
+    unproven: VecDeque<(i64, u64)>,
+    // The newest msg_id known to have arrived, or the last one sent before this connection: a proof about one up
+    // to it says nothing new.
+    arrived_id: i64,
 }
 
 impl Writer {
@@ -608,11 +622,12 @@ impl Writer {
         {
             // A WebSocket message goes out whole, so it gets the time for all of it.
             let len = self.buf.len() - start;
-            let deadline = stall_deadline(self.drained_by) + at_min_rate(len);
+            let deadline = stall_deadline(self.drained_by) + at_min_rate(len as u64);
             if let WriteHalf::WebSocket(half) = &mut self.half {
                 tokio::time::timeout_at(deadline, half.send_in_place(&mut self.buf, start))
                     .await
                     .map_err(stalled)??;
+                self.written += len as u64;
                 self.drained_by = taken(self.drained_by, len);
                 return Ok(());
             }
@@ -622,12 +637,13 @@ impl Writer {
             None => &self.buf[start..],
         };
         // A slow link frees room in the socket's buffers a little at a time, and Linux wakes a blocked writer only
-        // once about a third of its buffer is free: so each write gets until what the stream took before could have
-        // left at MIN_RATE, then WRITE_STALL more.
+        // once about a third of its buffer is free: so each write gets until the bytes not yet known to have arrived
+        // could have left at MIN_RATE, then WRITE_STALL more.
         while !wire.is_empty() {
             match tokio::time::timeout_at(stall_deadline(self.drained_by), self.half.write(wire)).await {
                 Ok(Ok(0)) => return Err(io::Error::from(io::ErrorKind::WriteZero).into()),
                 Ok(Ok(n)) => {
+                    self.written += n as u64;
                     self.drained_by = taken(self.drained_by, n);
                     wire = &wire[n..];
                 }
@@ -640,10 +656,45 @@ impl Writer {
         Ok(())
     }
 
-    /// When everything this writer handed the stream could have reached the server at MIN_RATE: the server can't
-    /// answer the last request before then.
+    /// When the bytes not yet known to have reached the server could all have got there at MIN_RATE, counted from
+    /// the last proof that bytes arrived: the server can't answer the last request before then.
     pub(crate) fn drained_by(&self) -> tokio::time::Instant {
         self.drained_by
+    }
+
+    /// Bytes the stream took that the server isn't known to have got.
+    pub(crate) fn backlog(&self) -> u64 {
+        self.written - self.arrived
+    }
+
+    /// Notes that the packet just finished carried msg_ids up to `last`, all newer than the packets before it had.
+    pub(crate) fn sent(&mut self, last: i64) {
+        self.unproven.push_back((last, self.written));
+    }
+
+    /// Msg_ids up to `last` went out on an earlier connection: the server referring to one proves nothing here.
+    pub(crate) fn sent_before(&mut self, last: i64) {
+        self.arrived_id = last;
+    }
+
+    /// The server referred to `msg_id`, so it got the packet that carried it, and every packet written before that
+    /// one on this stream. What is left of the backlog counts from now.
+    pub(crate) fn arrived(&mut self, msg_id: i64) {
+        if msg_id <= self.arrived_id {
+            return;
+        }
+        let mut end = None;
+        while let Some((last, at)) = self.unproven.pop_front() {
+            self.arrived_id = last;
+            end = Some(at);
+            if last >= msg_id {
+                break;
+            }
+        }
+        if let Some(end) = end {
+            self.arrived = end;
+            self.drained_by = tokio::time::Instant::now() + at_min_rate(self.backlog());
+        }
     }
 
     pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<()> {
@@ -683,16 +734,17 @@ impl Writer {
 }
 
 /// How long `n` bytes take at MIN_RATE.
-fn at_min_rate(n: usize) -> Duration {
-    Duration::from_nanos((n as u64).saturating_mul(1_000_000_000) / MIN_RATE)
+fn at_min_rate(n: u64) -> Duration {
+    Duration::from_nanos(n.saturating_mul(1_000_000_000) / MIN_RATE)
 }
 
 /// `drained_by` once the stream took `n` more bytes now.
 fn taken(drained_by: tokio::time::Instant, n: usize) -> tokio::time::Instant {
-    drained_by.max(tokio::time::Instant::now()) + at_min_rate(n)
+    drained_by.max(tokio::time::Instant::now()) + at_min_rate(n as u64)
 }
 
-/// The latest a write or flush may still move a byte: WRITE_STALL after what the stream took could have left.
+/// The latest a write or flush may still move a byte: WRITE_STALL after the bytes not yet known to have arrived
+/// could have left.
 fn stall_deadline(drained_by: tokio::time::Instant) -> tokio::time::Instant {
     drained_by.max(tokio::time::Instant::now()) + WRITE_STALL
 }
@@ -771,8 +823,10 @@ mod tests {
         // Room for the transport's tag and a few bytes more, and nothing ever drains, like a peer that vanished.
         let (link, _far) = slow_link::SlowLink::new(64, 1, 0);
         let mut connection = connected(link).await;
-        let start = tokio::time::Instant::now();
-        let e = connection.send(&vec![0; 1 << 20]).await.unwrap_err();
+        let (start, packet) = (tokio::time::Instant::now(), vec![0; 1 << 20]);
+        // Bounded from outside too, so a write left unbounded fails here instead of hanging the paused clock.
+        let sending = tokio::time::timeout(Duration::from_secs(600), connection.send(&packet));
+        let e = sending.await.expect("the write was never bounded").unwrap_err();
         assert!(matches!(&e, Error::Io(err) if err.kind() == io::ErrorKind::TimedOut), "{e}");
         // The 60 bytes it took could need 7 ms at MIN_RATE, then WRITE_STALL.
         let elapsed = start.elapsed();
@@ -785,12 +839,40 @@ mod tests {
         // one flush that completes is the connect's.
         let (link, _far) = slow_link::SlowLink::new(4 << 20, 1, 0);
         let mut connection = connected(link.flushes(1)).await;
-        let start = tokio::time::Instant::now();
-        let e = connection.send(&vec![0; 1 << 20]).await.unwrap_err();
+        let (start, packet) = (tokio::time::Instant::now(), vec![0; 1 << 20]);
+        let sending = tokio::time::timeout(Duration::from_secs(600), connection.send(&packet));
+        let e = sending.await.expect("the flush was never bounded").unwrap_err();
         assert!(matches!(&e, Error::Io(err) if err.kind() == io::ErrorKind::TimedOut), "{e}");
         // 1 MiB at MIN_RATE is 128 s, then WRITE_STALL.
         let least = Duration::from_secs(128) + WRITE_STALL;
         assert!((least..least + Duration::from_secs(1)).contains(&start.elapsed()), "{:?}", start.elapsed());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_server_referring_to_a_packet_proves_it_and_every_one_before_it_arrived() {
+        let (link, _far) = slow_link::SlowLink::new(4 << 20, 1, 0);
+        let mut connection = connected(link).await;
+        let w = &mut connection.writer;
+        w.sent_before(5);
+        // Three packets of the same size, carrying msg_ids up to 10, 20 and 30.
+        for last in [10, 20, 30] {
+            w.send(&[0; 1020]).await.unwrap();
+            w.sent(last);
+        }
+        let all = w.backlog();
+        // A msg_id from before this connection proves nothing about it.
+        w.arrived(3);
+        assert_eq!(w.backlog(), all);
+        // An answer to 13, one of the second packet's messages: it arrived, and the first, written before it.
+        w.arrived(13);
+        assert_eq!(w.backlog(), all / 3);
+        assert_eq!(w.drained_by(), tokio::time::Instant::now() + at_min_rate(all / 3));
+        // The first packet's answer coming later, out of order, adds nothing.
+        w.arrived(8);
+        assert_eq!(w.backlog(), all / 3);
+        w.arrived(30);
+        assert_eq!(w.backlog(), 0);
+        assert_eq!(w.drained_by(), tokio::time::Instant::now());
     }
 
     #[tokio::test]
