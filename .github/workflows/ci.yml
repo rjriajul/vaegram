@@ -70,9 +70,19 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 20
+      postgres:
+        image: postgres:16
+        ports: ["5432:5432"]
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vaegram
+        options: >-
+          --health-cmd "pg_isready -h localhost -U postgres -d vaegram"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       VAEGRAM_MONGO_URL: mongodb://localhost:27017
       VAEGRAM_REDIS_URL: redis://localhost:6379
+      VAEGRAM_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/vaegram
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -86,7 +96,11 @@ jobs:
 
       # Matches nothing until an engine with a live conformance test exists, which passes too.
       - name: Storage conformance on live servers
-        run: cargo test -p vaegram --features mongodb,redis --lib -- --ignored conformance_on_a_live_server
+        run: cargo test -p vaegram --features mongodb,redis,postgres --lib -- --ignored conformance_on_a_live_server
+
+      # The engine that dropped a connection opens another rather than failing every write after it.
+      - name: Storage reconnects on a live server
+        run: cargo test -p vaegram --features postgres --lib -- --ignored reconnects_after_the_server_drops
 
       - name: Disk space
         if: always()

@@ -37,6 +37,7 @@ reqwest = { version = "0.13", optional = true, default-features = false, feature
 rusqlite = { version = "0.40", optional = true, default-features = false, features = ["bundled"] }
 rustls = { version = "0.23.46", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
 serde_json = { version = "1", optional = true }
+tokio-postgres = { version = "0.7", optional = true }
 tokio-rustls = { version = "0.26.6", optional = true, default-features = false, features = ["ring", "tls12"] }
 webpki-roots = { version = "1", optional = true }
 
@@ -57,6 +58,7 @@ sqlite = ["dep:rusqlite"]
 redb = ["dep:redb"]
 redis = ["dep:redis"]
 mongodb = ["dep:mongodb"]
+postgres = ["dep:tokio-postgres"]
 s3 = ["dep:object_store"]
 vault = ["dep:reqwest", "dep:serde_json", "dep:rustls", "dep:webpki-roots"]
 # Observability.
