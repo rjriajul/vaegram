@@ -268,7 +268,9 @@ mod tests {
 
         tasks.raw(Box::pin(async { Err::<(), _>(Error::other("boom")) }));
         let error = taken.recv().await.expect("no error came");
-        assert_eq!(error.downcast_ref::<String>().map(String::as_str), Some("boom"));
+        // A string is boxed as std's own string error, so it reads back as text, not by downcast.
+        assert_eq!(error.to_string(), "boom");
+        assert!(error.downcast_ref::<std::io::Error>().is_none());
 
         let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
         tasks.raw(Box::pin(async move { Err::<(), _>(Error::other(denied)) }));

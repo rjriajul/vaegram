@@ -110,7 +110,8 @@ impl Client {
 
     /// Makes `run` stop taking updates, wait for the handlers already running, and return `Ok(())`.
     ///
-    /// For Ctrl-C, use [`run_until_ctrl_c`](Self::run_until_ctrl_c) in place of `run`.
+    /// For Ctrl-C, use [`run_until_ctrl_c`](Self::run_until_ctrl_c) in place of `run`; for Ctrl-C or SIGTERM, as a
+    /// service needs, [`run_until_signal`](Self::run_until_signal).
     pub fn stop(&self) {
         self.0.stop.send_replace(true);
     }

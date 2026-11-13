@@ -23,7 +23,7 @@ impl Client {
             {
                 match terminate.as_mut() {
                     Some(terminate) => tokio::select! {
-                        _ = tokio::signal::ctrl_c() => {}
+                        _ = ctrl_c() => {}
                         _ = terminate.recv() => {}
                     },
                     None => ctrl_c().await,
@@ -45,7 +45,7 @@ async fn ctrl_c() {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::time::Duration;
 

@@ -354,6 +354,10 @@ impl Routed for ManagedBotUpdated {
         None
     }
 
+    fn user_id(&self) -> Option<i64> {
+        Some(self.user.id)
+    }
+
     fn order_key(&self) -> Option<i64> {
         Some(self.bot.id)
     }
