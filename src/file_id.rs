@@ -301,14 +301,20 @@ fn unpack(s: &str) -> Result<Vec<u8>, &'static str> {
     let data = b64_decode(s).ok_or("file id has characters outside base64url")?;
     let (mut out, mut zero) = (Vec::new(), false);
     for b in data {
-        if b == 0 {
-            zero = true;
-        } else if zero {
+        if zero {
+            if b == 0 {
+                return Err("invalid zero run in file id");
+            }
             out.resize(out.len() + usize::from(b), 0);
             zero = false;
+        } else if b == 0 {
+            zero = true;
         } else {
             out.push(b);
         }
+    }
+    if zero {
+        return Err("truncated zero run in file id");
     }
     Ok(out)
 }
@@ -415,6 +421,19 @@ mod tests {
         );
         assert_eq!(old.thumbnail_source, Some(ThumbnailSource::Legacy { secret: 5 }));
         assert_eq!(old.encode(), "AgADAgADAQAHAgAHAwAHBQAHBAAEAg");
+    }
+
+    #[test]
+    fn rejects_a_zero_run_of_zero() {
+        // `[0, 0, 1]`: a zero run marker followed by another zero instead of its length.
+        assert_eq!(FileId::decode("AAAB"), Err("invalid zero run in file id"));
+        assert_eq!(FileId::decode("AAAFAQ"), Err("invalid zero run in file id"));
+    }
+
+    #[test]
+    fn rejects_a_zero_run_that_ends_the_id() {
+        // `[1, 0]`: a run marker with no length after it.
+        assert_eq!(FileId::decode("AQA"), Err("truncated zero run in file id"));
     }
 
     #[test]

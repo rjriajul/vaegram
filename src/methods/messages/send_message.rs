@@ -57,6 +57,11 @@ impl SendMessage<'_> {
         self
     }
 
+    /// The chat the message goes to.
+    pub(crate) fn chat_id(&self) -> &PeerRef {
+        &self.chat_id
+    }
+
     async fn send(mut self) -> Result<Message> {
         let preview = self.client.link_preview(self.link_preview_options.as_ref()).map(|o| o.resolve());
         let (message, entities) = self.client.write_text(self.text, self.parse_mode).await?;

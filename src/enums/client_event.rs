@@ -23,7 +23,8 @@ pub enum ClientEvent {
     /// A packet from Telegram was thrown away unread, and the connection carries on.
     #[non_exhaustive]
     PacketDropped {
-        /// Why: `"failed decryption or the MTProto checks"`, `"bad msg_container"` or `"bad gzip_packed"`.
+        /// Why: `"failed decryption or the MTProto checks"`, `"bad msg_container"`,
+        /// `"msg_container holds a newer msg_id"` or `"bad gzip_packed"`.
         reason: &'static str,
     },
     /// An update Telegram pushed couldn't be deserialized and was skipped. An unknown constructor is reported as

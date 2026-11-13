@@ -548,7 +548,7 @@ impl ClientBuilder {
         let pinned = addr.filter(|a| a.ip().is_loopback());
         let first = pinned.or_else(|| addr.filter(|a| a.is_ipv6() == self.ipv6)).or(built_in);
         let first = first.ok_or(Error::InvalidDc(dc_id))?;
-        let dc = |addr| Dc { id: dc_id, addr, test: test_mode };
+        let dc = |addr| Dc { id: dc_id, addr, test: test_mode, media: false };
         let (state, salt) = store.load_state(user_id).await?;
         let warm = store.warm().await?;
         let saved = auth_key.map(|key| (key, salt));
@@ -975,16 +975,18 @@ impl Client {
 
     pub(crate) fn dc(&self, dc_id: i32) -> Result<Dc> {
         if let Some(addr) = self.0.pinned {
-            return Ok(Dc { id: dc_id, addr, test: self.0.test_mode });
+            return Ok(Dc { id: dc_id, addr, test: self.0.test_mode, media: false });
         }
         data_center::find(&self.0.dcs.read().unwrap(), dc_id, self.0.test_mode, self.0.ipv6)
             .ok_or(Error::InvalidDc(dc_id))
     }
 
+    /// The data center `dc_id` at its media-only address when it has one, marked so its wire id is negative. A pinned
+    /// address and WebSocket's named endpoints never go to that address, so they keep the main one and its plain id.
     pub(crate) fn media_dc(&self, dc_id: i32) -> Result<Dc> {
         let media = self.0.media_dcs.read().unwrap().iter().find(|(id, _)| *id == dc_id).map(|&(_, addr)| addr);
-        match media.filter(|_| self.0.pinned.is_none()) {
-            Some(addr) => Ok(Dc { id: dc_id, addr, test: self.0.test_mode }),
+        match media.filter(|_| self.0.pinned.is_none() && !self.0.options.uses_websocket()) {
+            Some(addr) => Ok(Dc { id: dc_id, addr, test: self.0.test_mode, media: true }),
             None => self.dc(dc_id),
         }
     }
@@ -1017,7 +1019,10 @@ impl Client {
 
     pub(crate) async fn transfer_sessions(&self, dc: Dc, count: usize) -> Result<Lease> {
         let home = self.session();
-        self.0.transfers.lease(dc, count, Auth::Home(&home, self.0.api_id), &self.0.options, &self.0.events).await
+        // A missing key is made, and the authorization imported, on the DC's main address only.
+        let main = if dc.media { self.dc(dc.id)? } else { dc };
+        let (auth, options, events) = (Auth::Home(&home, self.0.api_id), &self.0.options, &self.0.events);
+        self.0.transfers.lease_keyed_at(main, dc, count, auth, options, events).await
     }
 
     pub(crate) async fn cdn_sessions(&self, dc: Dc, count: usize) -> Result<Lease> {
@@ -1493,5 +1498,47 @@ mod tests {
         let builder = Client::builder("revoked-import", 1, "hash").session_string(imported_string(&dc));
         let client = builder.connect().await.unwrap();
         assert_eq!((client.0.me.lock().unwrap().id, user_lookups(&dc)), (0, 1));
+    }
+
+    #[tokio::test]
+    async fn only_a_picked_media_address_makes_a_media_dc() {
+        let media: std::net::SocketAddr = "149.154.167.151:443".parse().unwrap();
+        let with_media = || {
+            let client = Client::offline();
+            *client.0.media_dcs.write().unwrap() = vec![(2, media)];
+            client
+        };
+        let mut client = with_media();
+        let picked = client.media_dc(2).unwrap();
+        assert_eq!((picked.addr, picked.media, picked.wire_id()), (media, true, -2));
+        assert!(!client.dc(2).unwrap().media, "the main address is never the media one");
+        assert!(!client.media_dc(4).unwrap().media, "DC 4 has no media address");
+
+        Arc::get_mut(&mut client.0).unwrap().pinned = Some("127.0.0.1:1".parse().unwrap());
+        assert!(!client.media_dc(2).unwrap().media && !client.dc(2).unwrap().media);
+
+        #[cfg(feature = "websocket")]
+        {
+            let mut client = with_media();
+            Arc::get_mut(&mut client.0).unwrap().options.websocket = true;
+            assert!(!client.media_dc(2).unwrap().media);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_media_download_makes_its_key_on_the_main_address() {
+        use crate::raw::Serializable;
+        let dc = TestDc::start([5; 256], false).await;
+        let export = types::auth::ExportedAuthorization { id: 1, bytes: vec![1] };
+        let export = base::auth::ExportedAuthorization::ExportedAuthorization(Box::new(export)).to_bytes();
+        let (client, _sent) = Client::scripted(vec![Ok(export)]);
+        // Both of DC 4's addresses are the test DC's: only the id the client sends tells them apart.
+        *client.0.dcs.write().unwrap() = vec![(4, dc.dc(4).addr)];
+        *client.0.media_dcs.write().unwrap() = vec![(4, dc.dc(4).addr)];
+        let lease = client.transfer_sessions(client.media_dc(4).unwrap(), 2).await.unwrap();
+        for session in &lease.sessions {
+            session.invoke(&crate::raw::functions::Ping { ping_id: 1 }).await.unwrap();
+        }
+        assert_eq!(dc.handshakes(), [(1, 4, false)], "the permanent key is made on the main address only");
     }
 }

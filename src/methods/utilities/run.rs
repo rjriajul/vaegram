@@ -12,6 +12,12 @@ use crate::session::internals::now;
 // late.
 const CLOCK_SLACK: i64 = 1;
 
+/// The run's start, in Telegram's time, as the dispatcher holds it: clamped, not wrapped, when the server's clock
+/// reads past what an `i32` holds.
+fn start_time(started: i64) -> i32 {
+    started.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
 impl Client {
     /// Takes updates and runs the handlers until `stop`, then returns `Ok(())`; it returns `Error::Disconnected`
     /// when the connection ends. Fails at once with `Error::InvalidArgument` while this client is already running,
@@ -78,7 +84,7 @@ impl Client {
                     // user's getState is current, so there is nothing from before to skip.
                     Dispatcher::new(self.clone(), &state)
                 } else {
-                    Dispatcher::from_now(self.clone(), &state, i32::try_from(started).unwrap_or(i32::MAX))
+                    Dispatcher::from_now(self.clone(), &state, start_time(started))
                 }
             }
         };
@@ -573,6 +579,18 @@ pub(super) mod tests {
     async fn without_catch_up_the_run_begins_by_the_server_clock() {
         let held = vec![new_message(1, now(), 51), new_message(2, now() + 3600, 52)];
         assert_eq!(delivered_from_now(held, 52, Vec::new(), 1, 3600).await, [2]);
+    }
+
+    // A server clock read before what an `i32` holds clamps, so the dispatcher never wraps the run's start.
+    #[test]
+    fn a_start_time_before_i32_min_clamps() {
+        assert_eq!(super::start_time(i64::from(i32::MIN) - 1), i32::MIN);
+    }
+
+    // A clock it reads past the end of an `i32` clamps too, rather than dropping every update as held.
+    #[test]
+    fn a_start_time_after_i32_max_clamps() {
+        assert_eq!(super::start_time(i64::from(i32::MAX) + 1), i32::MAX);
     }
 
     // Telegram pushes what it held again, and reading it fails at first: until a difference is read, only what

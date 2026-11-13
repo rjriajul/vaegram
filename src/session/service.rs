@@ -115,8 +115,14 @@ impl Runner {
                 }
             }
             Ok(base::MsgDetailedInfo::MsgNewDetailedInfo(i)) => {
-                if !self.acks.contains(&i.answer_msg_id) {
-                    self.request_resend(i.answer_msg_id);
+                let id = i.answer_msg_id;
+                if !self.acks.contains(&id) {
+                    // Ack an answer we took in (its first ack may have gone out already); ask again for one we didn't.
+                    if self.server_msg_ids.contains(id) {
+                        self.acks.push(id);
+                    } else {
+                        self.request_resend(id);
+                    }
                 }
             }
             Err(_) => {}
@@ -128,9 +134,10 @@ impl Runner {
     }
 
     // https://core.telegram.org/mtproto/service_messages_about_messages#request-for-message-status-information
-    // We don't keep a history of received msg_ids, so anything already acked reads as "unknown" (1).
+    // A msg_id we took (still remembered or waiting for its ack) reads as received (4), any other as unknown (1).
     fn state_info(&mut self, req_msg_id: i64, msg_ids: &[i64]) {
-        let info = msg_ids.iter().map(|id| if self.acks.contains(id) { 4 } else { 1 }).collect();
+        let got = |id: &i64| self.server_msg_ids.contains(*id) || self.acks.contains(id);
+        let info = msg_ids.iter().map(|id| if got(id) { 4 } else { 1 }).collect();
         self.service.push_back((types::MsgsStateInfo { req_msg_id, info }.to_bytes(), false));
     }
 }

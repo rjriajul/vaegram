@@ -157,7 +157,7 @@ impl Handlers<Message> {
             message.set_business(client, connection_id, reply_to, entities);
         }
         if listening {
-            match listened(kind, tasks, client, &me, message) {
+            match listened(kind, tasks, client.0.handlers.listeners.messages.offer(message, &me)) {
                 Some(m) => message = m,
                 None => return,
             }
@@ -167,19 +167,23 @@ impl Handlers<Message> {
         }
     }
 
-    /// A new message a listener took but dropped unread: the other listeners, then the handlers, get it.
-    fn redeliver(&self, tasks: &mut Tasks, client: &Client, message: Message) {
+    /// A new message a listener gave back: the other listeners, then the handlers, get it. One a full hold pushed
+    /// out (`evicted`) skips every hold.
+    fn redeliver(&self, tasks: &mut Tasks, client: &Client, message: Message, evicted: bool) {
         let me = client.0.me.lock().unwrap().clone();
-        let Some(message) = listened(UpdateKind::Message, tasks, client, &me, message) else { return };
+        let messages = &client.0.handlers.listeners.messages;
+        let offer = if evicted { messages.offer_evicted(message, &me) } else { messages.offer(message, &me) };
+        let Some(message) = listened(UpdateKind::Message, tasks, offer) else { return };
         if !self.0.is_empty() {
             self.finish(UpdateKind::Message, tasks, &me, PARSED, message);
         }
     }
 }
 
-/// Offers a new message to the listeners; `None` once one of them, or a next-step handler, took it.
-fn listened(kind: UpdateKind, tasks: &mut Tasks, client: &Client, me: &Me, message: Message) -> Option<Message> {
-    match client.0.handlers.listeners.messages.offer(message, me) {
+/// What a new message offered to the listeners leaves for the handlers; `None` once one of the listeners, or a
+/// next-step handler, took it.
+fn listened(kind: UpdateKind, tasks: &mut Tasks, offer: Offer<Message>) -> Option<Message> {
+    match offer {
         Offer::Claimed => None,
         Offer::Call(callback, m) => {
             tasks.run(kind, m, vec![callback]);
@@ -647,14 +651,15 @@ impl Router {
         }
     }
 
-    /// Routes again what listeners dropped before reading gave back, as if it had just arrived.
+    /// Routes again what listeners gave back, in the order they gave it, as if it had just arrived.
     pub(crate) fn redeliver(&self, client: &Client, tasks: &mut Tasks) {
         let listeners = &client.0.handlers.listeners;
-        for message in listeners.messages.take_returned() {
-            self.message.redeliver(tasks, client, message);
+        for back in listeners.messages.take_returned() {
+            self.message.redeliver(tasks, client, back.item, back.evicted);
         }
-        for query in listeners.callbacks.take_returned() {
-            self.offer_callback(client, query, tasks);
+        // Callback queries are never held, so none was pushed out of a hold.
+        for back in listeners.callbacks.take_returned() {
+            self.offer_callback(client, back.item, tasks);
         }
     }
 

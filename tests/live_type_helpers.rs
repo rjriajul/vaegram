@@ -13,7 +13,7 @@ async fn chat_get_member_reads_me() {
         return;
     };
     let user = kit.user.client;
-    let me = user.get_users(["me"]).await.unwrap().remove(0);
+    let me = user.get_users(["me"]).await.unwrap().remove(0).expect("Telegram knows me");
     let chat = user.get_chat(chat_id).await.unwrap();
     let member = chat.get_member(&user, me.id).await.unwrap();
     assert_eq!(member.user.id, me.id);
@@ -23,8 +23,8 @@ async fn chat_get_member_reads_me() {
 #[ignore]
 async fn user_common_chats() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    let bot = kit.bot.get_users(["me"]).await.unwrap().remove(0);
+    let bot = kit.bot.get_users(["me"]).await.unwrap().remove(0).expect("Telegram knows me");
     let user = kit.user.client;
-    let bot = user.get_users([bot.id]).await.unwrap().remove(0);
+    let bot = user.get_users([bot.id]).await.unwrap().remove(0).expect("the bot's own id");
     bot.get_common_chats(&user).await.unwrap();
 }

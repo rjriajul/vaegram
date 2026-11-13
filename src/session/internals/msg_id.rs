@@ -22,6 +22,7 @@ impl MsgId {
     }
 
     pub(crate) fn next_n(&mut self, n: usize) -> i64 {
+        debug_assert!(n > 0, "next_n needs at least one id");
         let first = self.next();
         self.last = first + 4 * (n as i64 - 1);
         first

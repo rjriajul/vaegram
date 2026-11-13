@@ -148,7 +148,7 @@ impl Listeners {
         self.messages.remove(id) || self.callbacks.remove(id)
     }
 
-    /// Fires when a listener dropped before it read its update gave the update back: see [`Book::take_returned`].
+    /// Fires when a listener gave updates back to route again: see [`Book::take_returned`].
     pub(crate) fn returned(&self) -> &Notify {
         &self.returned
     }
@@ -236,7 +236,14 @@ struct Entry<T> {
 enum Sink<T> {
     Wait(oneshot::Sender<T>),
     Call(Callback<T>),
+    /// Keeps the updates it matches until [`Book::release`], oldest first and at most [`MAX_HELD`]; the entry stays
+    /// on the shelf meanwhile.
+    Hold(Vec<T>),
 }
+
+/// The most updates one hold keeps; past it the oldest goes back to the dispatcher. A hold lasts one request, but
+/// that request can sleep off flood waits for minutes while a busy chat keeps talking.
+const MAX_HELD: usize = 64;
 
 struct Shelf<T> {
     entries: Vec<Entry<T>>,
@@ -248,10 +255,19 @@ pub struct Book<T> {
     shelf: Mutex<Shelf<T>>,
     // The entry count, so the router skips all listener work with one load when nobody listens.
     waiting: AtomicUsize,
-    // Updates a listener took but never read, because its future was dropped first; the dispatcher routes them
-    // again, so they still reach the other listeners and the handlers.
-    returned: Mutex<Vec<T>>,
+    // Updates a listener took but never read, because its future was dropped first, or held and then didn't want;
+    // the dispatcher routes them again, so they still reach the other listeners and the handlers.
+    returned: Mutex<Vec<Returned<T>>>,
     wake: Arc<Notify>,
+}
+
+/// An update a listener gave back, to route again.
+pub(crate) struct Returned<T> {
+    pub(crate) item: T,
+    /// Pushed out of a full hold: no hold may take it again, or a full one would take it back and push out the next,
+    /// around and around until the hold ends. Every other update goes back to every listener: its listener is gone
+    /// or waits only for newer ones.
+    pub(crate) evicted: bool,
 }
 
 impl<T> Default for Book<T> {
@@ -311,8 +327,17 @@ impl<T> Book<T> {
         Some(entry)
     }
 
+    /// Removes the listener; what it held goes back to the dispatcher.
     pub(crate) fn remove(&self, id: u64) -> bool {
-        self.take(id).is_some()
+        let Some(entry) = self.take(id) else { return false };
+        self.discard(entry);
+        true
+    }
+
+    fn discard(&self, entry: Entry<T>) {
+        if let Sink::Hold(held) = entry.sink {
+            self.give_back(held, false);
+        }
     }
 
     fn sweep(&self) {
@@ -341,19 +366,26 @@ impl<T> Book<T> {
         drop(self.take_returned());
     }
 
-    /// An update a listener took but never read: its future was dropped first. Handed to the dispatcher to route
-    /// again, unless the listeners are closed.
-    fn give_back(&self, item: T) {
+    /// Updates listeners took but never read: their futures were dropped first, or they held them and then didn't
+    /// want them (`evicted` when a full hold pushed them out). Handed to the dispatcher to route again, unless the
+    /// listeners are closed.
+    fn give_back(&self, items: impl IntoIterator<Item = T>, evicted: bool) {
         if self.shelf().closed {
             return;
         }
         // No user code runs under this lock either.
-        self.returned.lock().unwrap().push(item);
-        self.wake.notify_one();
+        let mut returned = self.returned.lock().unwrap();
+        let before = returned.len();
+        returned.extend(items.into_iter().map(|item| Returned { item, evicted }));
+        let added = returned.len() > before;
+        drop(returned);
+        if added {
+            self.wake.notify_one();
+        }
     }
 
-    /// What dropped listeners gave back, oldest first.
-    pub(crate) fn take_returned(&self) -> Vec<T> {
+    /// What listeners gave back, in the order they gave it.
+    pub(crate) fn take_returned(&self) -> Vec<Returned<T>> {
         mem::take(&mut *self.returned.lock().unwrap())
     }
 
@@ -367,6 +399,14 @@ impl<T> Book<T> {
         self.add(Entry { id, criteria, sink: Sink::Call(callback) })
     }
 
+    /// Starts a listener that keeps every update it matches instead of ending with the first, so none is missed
+    /// while the caller does something else first; [`release`](Self::release) ends the hold. Dropping the guard
+    /// removes the listener and gives back what it held, in the order it arrived.
+    pub(crate) fn hold(&self, id: u64, criteria: Criteria<T>) -> Result<Holding<'_, T>> {
+        self.add(Entry { id, criteria, sink: Sink::Hold(Vec::new()) })?;
+        Ok(Holding { book: self, id })
+    }
+
     /// Stops every listener `pattern` covers and returns how many; waiters fail with `Error::ListenerStopped`.
     pub(crate) fn stop(&self, pattern: &Criteria<T>) -> usize {
         let stopped: Vec<Entry<T>> = {
@@ -377,7 +417,11 @@ impl<T> Book<T> {
             self.count(&shelf);
             stopped
         };
-        stopped.len()
+        let count = stopped.len();
+        for entry in stopped {
+            self.discard(entry);
+        }
+        count
     }
 
     /// Waits for the update `criteria` describes. Dropping the future removes the listener, and gives back an
@@ -385,6 +429,11 @@ impl<T> Book<T> {
     pub(crate) async fn listen(&self, id: u64, criteria: Criteria<T>) -> Result<T> {
         let deadline = criteria.deadline;
         let rx = self.wait(id, criteria)?;
+        self.receive(id, rx, deadline).await
+    }
+
+    /// Waits until `deadline` for what listener `id` is handed through `rx`, as `listen` describes.
+    async fn receive(&self, id: u64, rx: oneshot::Receiver<T>, deadline: Option<Instant>) -> Result<T> {
         let mut guard = Guard { book: self, id, rx };
         let Some(deadline) = deadline else { return (&mut guard.rx).await.map_err(|_| Error::ListenerStopped) };
         match tokio::time::timeout_at(deadline, &mut guard.rx).await {
@@ -403,8 +452,54 @@ impl<T> Book<T> {
 }
 
 impl<T: Listened> Book<T> {
+    /// Ends the hold [`hold`](Self::hold) started on listener `id`: only updates newer than message `after.1` in
+    /// chat `after.0` count now. Returns the first held update that still matches, else waits for one until
+    /// `deadline`, as `listen` does. Every other held update goes back to the dispatcher, in the order it arrived.
+    pub(crate) async fn release(&self, id: u64, after: (i64, i32), deadline: Option<Instant>, me: &Me) -> Result<T> {
+        let (tx, rx) = oneshot::channel();
+        let (answer, rest) = {
+            let mut shelf = self.shelf();
+            // Gone when `stop` or `close` ended it first.
+            let at = shelf.entries.iter().position(|e| e.id == id).ok_or(Error::ListenerStopped)?;
+            let entry = &mut shelf.entries[at];
+            let Sink::Hold(held) = &mut entry.sink else { return Err(Error::ListenerStopped) };
+            let mut held = mem::take(held);
+            (entry.criteria.after, entry.criteria.deadline) = (Some(after), deadline);
+            // Filters ran when the updates were held; only `after` is new.
+            let first = held.iter().position(|item| item.identity(me).is_some_and(|i| entry.criteria.matches(&i)));
+            let answer = match first {
+                Some(first) => {
+                    let answer = held.remove(first);
+                    shelf.entries.remove(at);
+                    self.count(&shelf);
+                    Some(answer)
+                }
+                None => {
+                    entry.sink = Sink::Wait(tx);
+                    None
+                }
+            };
+            (answer, held)
+        };
+        self.give_back(rest, false);
+        match answer {
+            Some(answer) => Ok(answer),
+            None => self.receive(id, rx, deadline).await,
+        }
+    }
+
     /// Hands `item` to the oldest listener that matches it. Filters run outside the lock.
-    pub(crate) fn offer(&self, mut item: T, me: &Me) -> Offer<T> {
+    pub(crate) fn offer(&self, item: T, me: &Me) -> Offer<T> {
+        self.offer_to(item, me, true)
+    }
+
+    /// [`offer`](Self::offer) for an update a full hold pushed out: no hold takes it. The full one would take it
+    /// back and push out the next, around and around until it ends.
+    pub(crate) fn offer_evicted(&self, item: T, me: &Me) -> Offer<T> {
+        self.offer_to(item, me, false)
+    }
+
+    fn offer_to(&self, mut item: T, me: &Me, holds: bool) -> Offer<T> {
         let now = Instant::now();
         let (mut candidates, stranger, expired, chat) = {
             let Some(identity) = item.identity(me) else { return Offer::Unclaimed(item) };
@@ -414,7 +509,7 @@ impl<T: Listened> Book<T> {
             let mut live = shelf.entries.iter().filter(|e| e.criteria.live(now));
             let candidates: Vec<(u64, Option<Arc<Filter<T>>>)> = live
                 .clone()
-                .filter(|e| e.criteria.matches(&identity))
+                .filter(|e| (holds || !matches!(e.sink, Sink::Hold(_))) && e.criteria.matches(&identity))
                 .map(|e| (e.id, e.criteria.filter.clone()))
                 .collect();
             let stranger = live.find_map(|e| e.criteria.stranger(&identity));
@@ -428,13 +523,33 @@ impl<T: Listened> Book<T> {
             candidates.retain(|(_, filter)| filter.as_deref().is_none_or(test));
         }
         for (id, _) in candidates {
-            let Some(entry) = self.take(id) else { continue };
+            let entry = {
+                let mut shelf = self.shelf();
+                let Some(at) = shelf.entries.iter().position(|e| e.id == id) else { continue };
+                let entry = &mut shelf.entries[at];
+                // The filters ran unlocked, and `release` may have changed the criteria meanwhile.
+                let current = entry.criteria.live(now) && item.identity(me).is_some_and(|i| entry.criteria.matches(&i));
+                if !current {
+                    continue;
+                }
+                if let Sink::Hold(held) = &mut entry.sink {
+                    let oldest = (held.len() >= MAX_HELD).then(|| held.remove(0));
+                    held.push(item);
+                    drop(shelf);
+                    self.give_back(oldest, true);
+                    return Offer::Claimed;
+                }
+                let entry = shelf.entries.remove(at);
+                self.count(&shelf);
+                entry
+            };
             match entry.sink {
                 Sink::Wait(tx) => match tx.send(item) {
                     Ok(()) => return Offer::Claimed,
                     Err(back) => item = back,
                 },
                 Sink::Call(callback) => return Offer::Call(callback, item),
+                Sink::Hold(_) => unreachable!("a holding entry stays on the shelf"),
             }
         }
         match stranger {
@@ -444,10 +559,10 @@ impl<T: Listened> Book<T> {
     }
 }
 
-// Waiters remove themselves when their timer fires; expired next-step handlers have nobody to do that. They are
-// handed back, so the caller drops their callbacks after unlocking.
+// Waiters and holders remove themselves when their timer fires or their owner drops them; expired next-step handlers
+// have nobody to do that. They are handed back, so the caller drops their callbacks after unlocking.
 fn prune<T>(shelf: &mut Shelf<T>, now: Instant) -> Vec<Entry<T>> {
-    let keep = |e: &Entry<T>| matches!(e.sink, Sink::Wait(_)) || e.criteria.live(now);
+    let keep = |e: &Entry<T>| matches!(e.sink, Sink::Wait(_) | Sink::Hold(_)) || e.criteria.live(now);
     if shelf.entries.iter().all(keep) {
         return Vec::new();
     }
@@ -467,8 +582,20 @@ impl<T> Drop for Guard<'_, T> {
         self.book.remove(self.id);
         // Handed over after the last poll: the update is in `rx`, taken from every other listener and handler.
         if let Ok(item) = self.rx.try_recv() {
-            self.book.give_back(item);
+            self.book.give_back([item], false);
         }
+    }
+}
+
+/// A holding listener, removed when this drops unless [`Book::release`] ended the hold first.
+pub(crate) struct Holding<'a, T> {
+    book: &'a Book<T>,
+    id: u64,
+}
+
+impl<T> Drop for Holding<'_, T> {
+    fn drop(&mut self) {
+        self.book.remove(self.id);
     }
 }
 
@@ -539,6 +666,19 @@ pub(crate) mod tests {
         router.dispatch(client, update, &Arc::default(), &mut tasks);
     }
 
+    /// Routes again what listeners gave back, on `client`'s own router and registry.
+    pub(crate) fn redeliver(client: &Client) {
+        let router = client.0.handlers.current();
+        let mut tasks = Tasks::new(false, None);
+        (tasks.on_error, tasks.events) = (router.on_error.clone(), client.0.events.clone());
+        router.redeliver(client, &mut tasks);
+    }
+
+    /// Whether a listener in `book` still holds what it matches.
+    pub(crate) fn holding<T>(book: &Book<T>) -> bool {
+        book.shelf().entries.iter().any(|e| matches!(e.sink, Sink::Hold(_)))
+    }
+
     pub(crate) fn entries<T>(book: &Book<T>) -> usize {
         book.waiting.load(Ordering::Acquire)
     }
@@ -553,12 +693,107 @@ pub(crate) mod tests {
         panic!("the listener never registered");
     }
 
+    /// Waits until `book` has a listener and none of them still holds what it matches.
+    pub(crate) async fn until_released<T>(book: &Book<T>) {
+        for _ in 0..1000 {
+            let released = {
+                let shelf = book.shelf();
+                !shelf.entries.is_empty() && !shelf.entries.iter().any(|e| matches!(e.sink, Sink::Hold(_)))
+            };
+            if released {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("the listener was never released");
+    }
+
+    fn ids(returned: Vec<Returned<Message>>) -> Vec<i32> {
+        returned.iter().map(|r| r.item.id).collect()
+    }
+
     fn me() -> Me {
         Me { id: 5, ..Me::default() }
     }
 
     fn claimed<T>(offer: Offer<T>) -> bool {
         matches!(offer, Offer::Claimed)
+    }
+
+    #[test]
+    fn a_full_hold_gives_back_its_oldest() {
+        let (client, book) = (Client::offline(), Book::<Message>::default());
+        let _hold = book.hold(1, Criteria::default()).unwrap();
+        let last = i32::try_from(MAX_HELD).unwrap() + 2;
+        for id in 1..=last {
+            assert!(claimed(book.offer(message(&client, id, 7, None, false), &me())), "message {id}");
+        }
+        let back = book.take_returned();
+        assert!(back.iter().all(|r| r.evicted), "pushed out by the cap");
+        assert_eq!(ids(back), [1, 2]);
+        let shelf = book.shelf();
+        let Sink::Hold(held) = &shelf.entries[0].sink else { panic!("the hold ended") };
+        assert_eq!((held.len(), held[0].id, held[MAX_HELD - 1].id), (MAX_HELD, 3, last));
+    }
+
+    #[tokio::test]
+    async fn a_message_pushed_out_of_a_full_hold_skips_every_hold() {
+        let client = Client::offline();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        client.on_message(crate::filters::all(), move |m: Message| {
+            log.lock().unwrap().push(m.id);
+            async { Ok(()) }
+        });
+        let messages = &client.0.handlers.listeners.messages;
+        let chat = || Criteria { chats: vec![7], ..Criteria::default() };
+        let (_full, _other) = (messages.hold(1, chat()).unwrap(), messages.hold(2, chat()).unwrap());
+        for id in 1..=i32::try_from(MAX_HELD).unwrap() + 1 {
+            dispatch(&client, new_message(id, 7));
+        }
+        redeliver(&client);
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(*seen.lock().unwrap(), [1], "the handlers get it");
+        let shelf = messages.shelf();
+        let held: Vec<usize> =
+            shelf.entries.iter().map(|e| if let Sink::Hold(held) = &e.sink { held.len() } else { 0 }).collect();
+        assert_eq!(held, [MAX_HELD, 0], "the other hold doesn't take it");
+    }
+
+    #[tokio::test]
+    async fn a_hold_keeps_its_matches_until_released() {
+        let (client, book) = (Client::offline(), Book::<Message>::default());
+        let hold = book.hold(1, Criteria { chats: vec![7], ..Criteria::default() }).unwrap();
+        assert!(matches!(book.offer(message(&client, 2, 8, None, false), &me()), Offer::Unclaimed(_)));
+        for id in [3, 5] {
+            assert!(claimed(book.offer(message(&client, id, 7, None, false), &me())), "message {id}");
+        }
+        assert!(book.waiting(), "a match doesn't end a hold");
+        // Nothing held is newer than message 5: both go back, and the listener waits for the next one.
+        let offer = async {
+            until_released(&book).await;
+            assert!(claimed(book.offer(message(&client, 6, 7, None, false), &me())));
+        };
+        let account = me();
+        let (got, ()) = tokio::join!(book.release(1, (7, 5), None, &account), offer);
+        assert_eq!(got.unwrap().id, 6);
+        drop(hold);
+        assert_eq!(ids(book.take_returned()), [3, 5]);
+        assert!(!book.waiting());
+
+        // A dropped or stopped hold gives back what it kept.
+        let hold = book.hold(2, Criteria::default()).unwrap();
+        assert!(claimed(book.offer(message(&client, 7, 7, None, false), &me())));
+        drop(hold);
+        assert!(!book.waiting());
+        assert_eq!(ids(book.take_returned()), [7]);
+        let _hold = book.hold(3, Criteria::default()).unwrap();
+        assert!(claimed(book.offer(message(&client, 8, 7, None, false), &me())));
+        assert_eq!(book.stop(&Criteria::default()), 1);
+        assert!(matches!(book.release(3, (7, 1), None, &account).await, Err(Error::ListenerStopped)));
+        assert_eq!(ids(book.take_returned()), [8]);
     }
 
     #[test]
@@ -775,7 +1010,7 @@ pub(crate) mod tests {
         assert!(claimed(listeners.messages.offer(message(&client, 5, 7, Some(7), false), &me())));
         drop(listen);
         let woken = tokio::time::timeout(Duration::from_secs(5), listeners.returned().notified()).await;
-        let back: Vec<i32> = listeners.messages.take_returned().iter().map(|m| m.id).collect();
+        let back: Vec<i32> = listeners.messages.take_returned().iter().map(|r| r.item.id).collect();
         assert!(woken.is_ok(), "the dispatcher wasn't told");
         assert_eq!(back, [5]);
 

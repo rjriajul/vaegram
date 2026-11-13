@@ -13,12 +13,15 @@ pub struct Dc {
     pub addr: SocketAddr,
     /// A test server: its wire id is `id + 10000`, and it only knows test accounts.
     pub test: bool,
+    /// A media-only address of the data center, one of the `media_only` options of `help.getConfig`: its wire id is
+    /// negative. Only file downloads go there.
+    pub media: bool,
 }
 
 impl Dc {
     /// A production data center; [`test`](Self::test) makes it a test one.
     pub fn new(id: i32, addr: SocketAddr) -> Self {
-        Dc { id, addr, test: false }
+        Dc { id, addr, test: false, media: false }
     }
 
     /// Production data center `id` at its built-in IPv4 address. `None` for an id outside 1 to 5.
@@ -38,9 +41,17 @@ impl Dc {
         self
     }
 
-    /// The id handshakes and transport headers carry: test DCs add 10000.
+    /// Sets whether `addr` is a media-only address of the data center, whose wire id is negative.
+    #[must_use]
+    pub fn media(mut self, media: bool) -> Self {
+        self.media = media;
+        self
+    }
+
+    /// The id handshakes and transport headers carry: test DCs add 10000, and media-only addresses negate it.
     pub fn wire_id(&self) -> i32 {
-        if self.test { self.id + 10000 } else { self.id }
+        let id = if self.test { self.id + 10000 } else { self.id };
+        if self.media { -id } else { id }
     }
 }
 
@@ -86,7 +97,7 @@ pub(crate) fn find(table: &[(i32, SocketAddr)], dc_id: i32, test: bool, ipv6: bo
         Some(&(_, addr)) => addr,
         None => address(dc_id, test, ipv6)?,
     };
-    Some(Dc { id: dc_id, addr, test })
+    Some(Dc { id: dc_id, addr, test, media: false })
 }
 
 #[cfg(test)]
@@ -150,6 +161,15 @@ mod tests {
         let addr = "149.154.167.51:443".parse().unwrap();
         assert_eq!(Dc::new(2, addr).wire_id(), 2);
         assert_eq!(Dc::new(2, addr).test(true).wire_id(), 10002);
+    }
+
+    #[test]
+    fn a_media_only_address_negates_the_wire_id() {
+        let addr = "149.154.167.151:443".parse().unwrap();
+        assert_eq!(Dc::new(2, addr).media(true).wire_id(), -2);
+        assert_eq!(Dc::new(2, addr).media(true).test(true).wire_id(), -10002);
+        assert_eq!(Dc::new(2, addr).media(true).media(false).wire_id(), 2);
+        assert!(!Dc::new(2, addr).media);
     }
 
     #[test]

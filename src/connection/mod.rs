@@ -18,6 +18,8 @@ pub use dns_config::{AccessPointRule, DnsConfig, IpPort};
 pub use proxy::{Proxy, Secret};
 pub use transport::Transport;
 pub(crate) use transport::{Framing, MAX_PACKET, RecvBuf};
+#[cfg(all(test, feature = "websocket"))]
+pub(crate) use websocket::tests::{open_plain as open_plain_websocket, ping_when_idle};
 
 use std::io;
 use std::net::SocketAddr;
@@ -29,6 +31,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::sync::Notify;
 
 use crate::errors::{Error, Result};
 use crate::session::internals::data_center::Dc;
@@ -37,6 +40,7 @@ use crate::storage::recording::Recorder;
 use crate::types::Json;
 use fake_tls::{RecordReader, RecordWriter};
 use obfuscated::Ctr;
+use proxy::Target;
 
 const READ_CHUNK: usize = 64 << 10;
 
@@ -349,7 +353,7 @@ impl Connection {
                     None => TcpStream::connect(addr).await?,
                     Some(proxy) => {
                         let mut stream = TcpStream::connect(proxy.endpoint()).await?;
-                        proxy.handshake(&mut stream, addr).await?;
+                        proxy.handshake(&mut stream, Target::Addr(addr)).await?;
                         stream
                     }
                 };
@@ -362,7 +366,7 @@ impl Connection {
                     None => factory.connect(addr).await?,
                     Some(proxy) => {
                         let mut stream = dial_any(factory.as_ref(), proxy.endpoint()).await?;
-                        proxy.handshake(&mut stream, addr).await?;
+                        proxy.handshake(&mut stream, Target::Addr(addr)).await?;
                         stream
                     }
                 };
@@ -376,8 +380,7 @@ impl Connection {
 
     #[cfg(feature = "websocket")]
     async fn open_websocket(dc: &Dc, options: &Options, endpoint: &websocket::Endpoint) -> Result<Self> {
-        // The data center's address family is the one asked for, so a proxy is given that family first too.
-        let (read, write) = websocket::open(endpoint, options, dc.addr.is_ipv6()).await?;
+        let (read, write) = websocket::open(endpoint, options).await?;
         // Telegram's WebSocket endpoints only take obfuscated streams.
         let read = ReadHalf::WebSocket(Box::new(read));
         Self::start(dc, options, read, WriteHalf::WebSocket(write), true).await
@@ -595,6 +598,35 @@ impl Writer {
         self.buf.extend_from_slice(payload);
         self.finish().await
     }
+
+    /// Completes when the stream has control frames to send: a WebSocket's answers to pings. Never on other streams.
+    /// The future holds the signal alone, not the writer, which isn't `Sync`, so the session task stays `Send`.
+    pub(crate) fn control_ready(&self) -> impl Future<Output = ()> {
+        let signal = self.control_signal();
+        async move {
+            match signal {
+                Some(signal) => signal.notified().await,
+                None => std::future::pending().await,
+            }
+        }
+    }
+
+    fn control_signal(&self) -> Option<&Notify> {
+        #[cfg(feature = "websocket")]
+        if let WriteHalf::WebSocket(half) = &self.half {
+            return Some(half.control_signal());
+        }
+        None
+    }
+
+    /// Sends those control frames with no packet, so an idle connection still answers pings; a no-op off WebSocket.
+    pub(crate) async fn flush_control(&mut self) -> Result<()> {
+        #[cfg(feature = "websocket")]
+        if let WriteHalf::WebSocket(half) = &mut self.half {
+            half.flush_control().await?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -611,7 +643,7 @@ mod tests {
     #[tokio::test]
     async fn websocket_refuses_mtproxy_and_full() {
         // A data center with no WebSocket name: getting past the refusal would fail differently.
-        let dc = Dc { id: 9, addr: "127.0.0.1:9".parse().unwrap(), test: false };
+        let dc = Dc { id: 9, addr: "127.0.0.1:9".parse().unwrap(), test: false, media: false };
         let secret = "00".repeat(16).parse().unwrap();
         let mtproxy = Proxy::MtProxy { host: "127.0.0.1".into(), port: 9, secret };
         let websocket = Options { websocket: true, ..Options::default() };
@@ -629,7 +661,7 @@ mod tests {
     #[tokio::test]
     async fn full_with_obfuscation_is_refused() {
         // Nothing listens here: the refusal has to come before any connection is tried.
-        let dc = Dc { id: 2, addr: "127.0.0.1:9".parse().unwrap(), test: false };
+        let dc = Dc { id: 2, addr: "127.0.0.1:9".parse().unwrap(), test: false, media: false };
         let secret = "00".repeat(16).parse().unwrap();
         let mtproxy = Proxy::MtProxy { host: "127.0.0.1".into(), port: 9, secret };
         for options in [Options { obfuscated: true, ..full() }, Options { proxy: Some(mtproxy), ..full() }] {
@@ -641,7 +673,7 @@ mod tests {
     #[tokio::test]
     async fn full_sends_no_preamble_and_numbers_its_packets() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let dc = Dc { id: 2, addr: listener.local_addr().unwrap(), test: false };
+        let dc = Dc { id: 2, addr: listener.local_addr().unwrap(), test: false, media: false };
         // A server that reads whole full packets from the very first byte and sends each one back.
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
@@ -698,7 +730,7 @@ mod tests {
 
     #[tokio::test]
     async fn custom_connector_carries_the_handshake() {
-        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false };
+        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false, media: false };
         let (options, mut server, dialed) = piped();
         let server = tokio::spawn(async move { echo_one(&mut server).await });
         let mut connection = Connection::connect(&dc, &options).await.unwrap();
@@ -709,7 +741,7 @@ mod tests {
 
     #[tokio::test]
     async fn proxy_runs_over_connector() {
-        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false };
+        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false, media: false };
         let (options, mut server, dialed) = piped();
         let proxy = Proxy::Http { host: "127.0.0.1".into(), port: 8080, auth: None };
         let options = Options { proxy: Some(proxy), ..options };
@@ -732,7 +764,7 @@ mod tests {
 
     #[tokio::test]
     async fn every_proxy_address_is_tried() {
-        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false };
+        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false, media: false };
         let dialed = Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = dialed.clone();
         // "localhost" may give an IPv6 address first; only an IPv4 one opens, onto a pipe nobody reads.
@@ -754,7 +786,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_connector_error_fails_connect() {
-        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false };
+        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false, media: false };
         let refuse = |_: SocketAddr| async {
             Err::<tokio::io::DuplexStream, _>(io::Error::new(io::ErrorKind::ConnectionRefused, "no route"))
         };
@@ -777,7 +809,7 @@ mod tests {
         );
         assert_eq!(options.request_timeout, Duration::from_secs(30));
         assert!(options.proxy.is_none() && options.connection_factory.is_none() && !options.no_updates);
-        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false };
+        let dc = Dc { id: 2, addr: "149.154.167.51:443".parse().unwrap(), test: false, media: false };
         let refuse = |_: SocketAddr| async {
             Err::<tokio::io::DuplexStream, _>(io::Error::new(io::ErrorKind::ConnectionRefused, "no route"))
         };

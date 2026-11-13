@@ -32,7 +32,7 @@ async fn listening(salt: Salt) -> (Runner, Frames, UpdatesRx, TcpListener) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let options = Options::new().transport(crate::connection::Transport::Intermediate);
-    let dc = Dc { id: 2, addr, test: false };
+    let dc = Dc { id: 2, addr, test: false, media: false };
     let conn = Connection::connect(&dc, &options).await.unwrap();
     let (mut server, _) = listener.accept().await.unwrap();
     server.read_exact(&mut [0; 4]).await.unwrap();
@@ -399,6 +399,50 @@ async fn answers_msgs_state_req() {
     assert_eq!(msgs[1].seq_no % 2, 0);
 }
 
+// An answer we took in and whose ack has gone out, so `acks` no longer holds it.
+async fn received_and_acked(r: &mut Runner) -> i64 {
+    let msg_id = (internals::now() << 32) | 1;
+    assert!(r.fresh(msg_id, &ping(1)));
+    r.acks.push(msg_id);
+    r.flush().await.unwrap();
+    assert!(r.acks.is_empty());
+    msg_id
+}
+
+#[tokio::test]
+async fn new_detailed_info_for_a_flushed_answer_acks_instead_of_resending() {
+    let (mut r, _frames, _updates) = runner().await;
+    let answer = received_and_acked(&mut r).await;
+    let info = types::MsgNewDetailedInfo { answer_msg_id: answer, bytes: 8, status: 0 };
+    r.handle_message(answer + 4, 0, &info.to_bytes());
+    assert_eq!(r.acks, vec![answer]);
+    assert!(r.service.is_empty(), "an answer we have was asked for again");
+
+    let missing = types::MsgNewDetailedInfo { answer_msg_id: answer + 16, bytes: 8, status: 0 };
+    r.handle_message(answer + 12, 0, &missing.to_bytes());
+    assert_eq!(r.service.back().unwrap().0, types::MsgResendReq { msg_ids: vec![answer + 16] }.to_bytes());
+}
+
+#[tokio::test]
+async fn new_detailed_info_for_a_queued_ack_adds_no_duplicate() {
+    let (mut r, _frames, _updates) = runner().await;
+    let answer = received_and_acked(&mut r).await;
+    let info = types::MsgNewDetailedInfo { answer_msg_id: answer, bytes: 8, status: 0 }.to_bytes();
+    r.handle_message(answer + 4, 0, &info);
+    r.handle_message(answer + 8, 0, &info);
+    assert_eq!(r.acks, vec![answer]);
+    assert!(r.service.is_empty());
+}
+
+#[tokio::test]
+async fn state_req_reports_4_for_an_acked_message() {
+    let (mut r, _frames, _updates) = runner().await;
+    let got = received_and_acked(&mut r).await;
+    r.handle_message(got + 4, 0, &types::MsgsStateReq { msg_ids: vec![got, got + 8] }.to_bytes());
+    let info = types::MsgsStateInfo { req_msg_id: got + 4, info: vec![4, 1] }.to_bytes();
+    assert_eq!(r.service.back().unwrap().0, info);
+}
+
 #[tokio::test]
 async fn dropped_updates_ask_for_a_difference() {
     let (mut r, _frames, mut updates) = runner().await;
@@ -481,6 +525,102 @@ async fn stored_key_with_a_right_clock_turns_the_time_window_on() {
     assert!(r.fresh((now << 32) | 1, &ping(1)));
     assert!(r.clock_synced);
     assert!(!r.fresh(((now - 600) << 32) | 1, &ping(1)));
+}
+
+// A packet the server sends `r`.
+fn from_server(r: &Runner, msg_id: i64, body: &[u8]) -> Vec<u8> {
+    super::replay::seal(&r.auth_key, &r.auth_key_id, &r.session_id, msg_id, 0, body)
+}
+
+// A msg_container of content-related messages with these ids, each carrying `body`.
+fn container(ids: &[i64], body: &[u8]) -> Vec<u8> {
+    let mut buf = [msg_container::ID.to_le_bytes(), (ids.len() as u32).to_le_bytes()].concat();
+    for id in ids {
+        buf.extend_from_slice(&id.to_le_bytes());
+        buf.extend_from_slice(&1i32.to_le_bytes());
+        buf.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        buf.extend_from_slice(body);
+    }
+    buf
+}
+
+#[tokio::test]
+async fn a_container_with_an_inner_id_not_below_its_own_is_dropped() {
+    let (mut r, _frames, _updates) = runner().await;
+    let events = r.events.record();
+    let update = base::Updates::UpdatesTooLong.to_bytes();
+    let outer = (internals::now() << 32) | 9;
+    for newer in [outer, outer + 4] {
+        let packet = from_server(&r, outer, &container(&[outer - 8, newer], &update));
+        r.handle_packet(packet).await.unwrap();
+        assert!(r.acks.is_empty(), "a message of the container was handled");
+        let Ok(ClientEvent::PacketDropped { reason }) = events.try_recv() else { panic!("the drop wasn't reported") };
+        assert_eq!(reason, "msg_container holds a newer msg_id");
+    }
+    assert!(r.fresh(outer, &update), "the dropped container's id was taken in");
+}
+
+// Fills the id set with ids newer than any a test container carries, so one more id forgets the oldest of them.
+fn fill_id_set(r: &mut Runner, now: i64) {
+    r.server_msg_ids.record((0..internals::ServerMsgIds::REMEMBERED as i64).map(|i| (now << 32) + 4 * i + 1));
+}
+
+#[tokio::test]
+async fn a_full_id_set_still_accepts_a_containers_messages() {
+    let (mut r, _frames, _updates) = runner().await;
+    let now = internals::now();
+    fill_id_set(&mut r, now);
+    let (first, second, outer) = (((now - 10) << 32) | 1, ((now - 10) << 32) | 5, ((now + 1) << 32) | 1);
+    let body = container(&[first, second], &base::Updates::UpdatesTooLong.to_bytes());
+    let packet = from_server(&r, outer, &body);
+    r.handle_packet(packet).await.unwrap();
+    assert_eq!(r.acks, vec![first, second]);
+    assert!(!r.fresh(outer, &ping(1)), "the container's own id was not taken in");
+}
+
+#[tokio::test]
+async fn a_full_id_set_accepts_a_containers_messages_in_any_order() {
+    let (mut r, _frames, _updates) = runner().await;
+    let now = internals::now();
+    fill_id_set(&mut r, now);
+    let (first, second, outer) = (((now - 10) << 32) | 1, ((now - 10) << 32) | 5, ((now + 1) << 32) | 1);
+    let seen = (now << 32) | 1;
+    let body = container(&[second, seen, first], &base::Updates::UpdatesTooLong.to_bytes());
+    let packet = from_server(&r, outer, &body);
+    r.handle_packet(packet).await.unwrap();
+    assert_eq!(r.acks, vec![second, first], "handled in wire order, and an id seen before is still dropped");
+    assert!(!r.fresh(first, &ping(1)) && !r.fresh(second, &ping(1)) && !r.fresh(outer, &ping(1)));
+}
+
+#[tokio::test]
+async fn a_msg_id_twice_in_one_container_is_delivered_once() {
+    let (mut r, _frames, mut updates) = runner().await;
+    let now = internals::now();
+    let (inner, outer) = ((now << 32) | 1, (now << 32) | 9);
+    let body = container(&[inner, inner], &base::Updates::UpdatesTooLong.to_bytes());
+    let packet = from_server(&r, outer, &body);
+    r.handle_packet(packet).await.unwrap();
+    assert_eq!(r.acks, vec![inner]);
+    assert!(matches!(updates.rx.try_recv(), Ok(Incoming { updates: base::Updates::UpdatesTooLong, .. })));
+    assert!(updates.rx.try_recv().is_err(), "the repeated message was delivered too");
+}
+
+#[tokio::test]
+async fn a_container_with_an_even_or_stale_outer_id_delivers_nothing() {
+    let (mut r, _frames, _updates) = runner().await;
+    let events = r.events.record();
+    let now = internals::now();
+    let update = base::Updates::UpdatesTooLong.to_bytes();
+    let (inner, replayed) = ((now << 32) | 1, (now << 32) | 9);
+    assert!(r.fresh(replayed, &update));
+    // Even, already seen, and too old (the last is older than its message: the id check comes first).
+    for outer in [(now << 32) | 8, replayed, ((now - 600) << 32) | 1] {
+        let packet = from_server(&r, outer, &container(&[inner], &update));
+        r.handle_packet(packet).await.unwrap();
+    }
+    assert!(r.acks.is_empty(), "a message under a bad container id was handled");
+    assert!(events.try_recv().is_err(), "a bad container id is dropped silently, as before");
+    assert!(r.fresh(inner, &update), "a message under a bad container id was taken in");
 }
 
 #[tokio::test]
@@ -1202,7 +1342,7 @@ async fn first_salt(listener: &TcpListener, auth_key: &[u8; 256]) -> i64 {
 
 async fn transfer_dc() -> (TcpListener, Dc, Options) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let dc = Dc { id: 4, addr: listener.local_addr().unwrap(), test: false };
+    let dc = Dc { id: 4, addr: listener.local_addr().unwrap(), test: false, media: false };
     (listener, dc, Options::new().transport(crate::connection::Transport::Intermediate))
 }
 
@@ -1366,7 +1506,7 @@ async fn a_main_connection_nobody_takes_updates_from_still_reconnects() {
     };
     let options = Options::new().transport(crate::connection::Transport::Intermediate);
     let options = Options { connection_factory: Some(Arc::new(factory)), ..options };
-    let dc = Dc { id: 2, addr: "127.0.0.1:1".parse().unwrap(), test: false };
+    let dc = Dc { id: 2, addr: "127.0.0.1:1".parse().unwrap(), test: false, media: false };
     let conn = Connection::connect(&dc, &options).await.unwrap();
     let (tx, rx) = mpsc::channel(8);
     let r = Runner::new(dc, Arc::new(options), conn, ([7; 256], Salt::default(), true), Arc::default(), Some(tx));

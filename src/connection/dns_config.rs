@@ -118,6 +118,9 @@ impl DnsConfig {
 
     /// Fetches the config over DNS-over-HTTPS, from Google's resolver and then Cloudflare's; `test` asks for the
     /// test servers' config. The resolvers' certificates are checked, and so is the config's signature.
+    ///
+    /// The resolvers are dialed directly, ignoring any proxy or connection factory; `Client` never calls this when
+    /// one is set.
     pub async fn fetch(test: bool) -> Result<DnsConfig> {
         let name = if test { "tapv3.stel.com" } else { "apv3.stel.com" };
         let mut last = Error::Unexpected("no DNS resolver answered");
@@ -275,8 +278,14 @@ fn dechunk(mut data: &[u8]) -> io::Result<Vec<u8>> {
         if size == 0 {
             return Ok(out);
         }
+        if size > MAX_BODY - out.len() {
+            return Err(invalid("the DNS answer is too long"));
+        }
         out.extend_from_slice(data.get(..size).ok_or_else(|| invalid("a chunk is cut short"))?);
-        data = data.get(size + 2..).ok_or_else(|| invalid("a chunk is cut short"))?;
+        if data.get(size..size + 2) != Some(&b"\r\n"[..]) {
+            return Err(invalid("a chunk doesn't end in CRLF"));
+        }
+        data = &data[size + 2..];
     }
 }
 
@@ -318,8 +327,12 @@ fn json_string(s: &str) -> Option<(String, &str)> {
                     'b' => '\u{8}',
                     'f' => '\u{c}',
                     'u' => {
-                        let hex: String = (0..4).filter_map(|_| chars.next().map(|(_, c)| c)).collect();
-                        char::from_u32(u32::from_str_radix(&hex, 16).ok()?).unwrap_or(char::REPLACEMENT_CHARACTER)
+                        // Exactly four hex digits; `from_str_radix` would also take a sign.
+                        let mut code = 0;
+                        for _ in 0..4 {
+                            code = code * 16 + chars.next()?.1.to_digit(16)?;
+                        }
+                        char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER)
                     }
                     other => other,
                 };
@@ -335,7 +348,7 @@ fn json_string(s: &str) -> Option<(String, &str)> {
 mod tests {
     use std::net::{SocketAddr, SocketAddrV4};
 
-    use super::{AccessPointRule, DnsConfig, IpPort, cbc_decrypt, dechunk, txt_records};
+    use super::{AccessPointRule, DnsConfig, IpPort, MAX_BODY, cbc_decrypt, dechunk, json_string, txt_records};
     use crate::errors::Error;
 
     // A config Telegram published in 2019, as its two TXT records.
@@ -417,5 +430,31 @@ mod tests {
         assert_eq!(dechunk(b"4\r\nab\"c\r\n3;x=y\r\nd\\e\r\n0\r\n\r\n").unwrap(), b"ab\"cd\\e");
         assert!(dechunk(b"9\r\nshort\r\n").is_err());
         assert!(dechunk(b"zz\r\n").is_err());
+    }
+
+    #[test]
+    fn dechunk_refuses_a_chunk_without_crlf() {
+        // Two bytes of the next size line used to be skipped as if they were the CRLF.
+        assert!(dechunk(b"3\r\nabcX\r\n0\r\n\r\n").is_err());
+        assert!(dechunk(b"3\r\nabc").is_err());
+        assert_eq!(dechunk(b"3\r\nabc\r\n0\r\n\r\n").unwrap(), b"abc");
+    }
+
+    #[test]
+    fn dechunk_refuses_a_body_over_the_cap() {
+        let chunk = |len: usize| [format!("{len:x}\r\n").into_bytes(), vec![b'a'; len], b"\r\n".to_vec()].concat();
+        let at_cap = [chunk(MAX_BODY - 1), chunk(1), b"0\r\n\r\n".to_vec()].concat();
+        assert_eq!(dechunk(&at_cap).unwrap().len(), MAX_BODY);
+        let over = [chunk(MAX_BODY), chunk(1), b"0\r\n\r\n".to_vec()].concat();
+        assert!(dechunk(&over).is_err());
+    }
+
+    #[test]
+    fn a_short_unicode_escape_is_refused() {
+        assert_eq!(json_string(r#"\u0041" x"#), Some(("A".to_owned(), " x")));
+        // `+041` used to pass as hex.
+        for short in [r#"\u+041""#, r#"\u41""#, r#"\u041"#] {
+            assert_eq!(json_string(short), None, "{short}");
+        }
     }
 }
