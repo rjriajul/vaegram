@@ -7,12 +7,13 @@ use crate::errors::Error;
 /// Decides whether a request that failed is sent again, and after how long. It's asked after every failure of
 /// `Client::invoke` and of file parts; what it answers with `ControlFlow::Continue(wait)` is slept, and the request
 /// goes out again. Lost connections need no policy: they are reconnected and the waiting requests sent again on
-/// their own. When it hands an error over, a file part still goes again a few times on a timeout (on a fresh
-/// connection), and one not from a CDN on a server error (a 500 or a negative code, after a pause that doubles from
-/// a second), so one such error doesn't fail a whole transfer.
+/// their own. When it hands an error over, a file part still goes again on its own unless
+/// [`retries_file_parts`](Self::retries_file_parts) says no: twice more after a timeout, each time on a fresh
+/// connection, and, for a part not from a CDN, up to six times after a server error (a 500 or a negative code), after
+/// pauses of 1, 2, 4, 8, 16 and 32 s, so one such error doesn't fail a whole transfer.
 ///
-/// The policy alone bounds the retries it asks for: nothing else stops a request that keeps failing, so a policy
-/// that always answers `Continue` retries it for ever. A retried FLOOD_WAIT doesn't take new tokens from the
+/// Apart from those, the policy alone bounds the retries: nothing else stops a request that keeps failing, so a
+/// policy that always answers `Continue` retries it for ever. A retried FLOOD_WAIT doesn't take new tokens from the
 /// client's rate limiter, which counted the request once.
 ///
 /// `Error::Timeout` and `Error::Disconnected` don't say whether Telegram ran the request: it may have, and only
@@ -21,6 +22,12 @@ use crate::errors::Error;
 pub trait RetryPolicy: Send + Sync + 'static {
     /// `Continue(wait)` sleeps `wait` and sends the request again; `Break(())` hands the error to the caller.
     fn should_retry(&self, ctx: &RetryContext<'_>) -> ControlFlow<(), Duration>;
+
+    /// Whether a file part this policy hands a timeout or a server error over for still goes again on its own, as
+    /// the trait's docs say. `true` unless a policy says otherwise; [`NoRetries`] says `false`.
+    fn retries_file_parts(&self) -> bool {
+        true
+    }
 }
 
 /// What a [`RetryPolicy`] is told about a failure.
@@ -32,8 +39,10 @@ pub struct RetryContext<'a> {
     /// The error the request failed with.
     pub error: &'a Error,
     /// How many times the policy has been asked about this request, this time included: 1 after the first failure.
+    /// A file part's own retries after timeouts and server errors count too.
     pub fail_count: u32,
-    /// How long the request has been slept so far, over the retries the policy asked for.
+    /// How long the request has slept between its sends so far: the waits the policy asked for and, for a file
+    /// part, the pauses after server errors.
     pub slept_so_far: Duration,
     /// How long Telegram says to wait, if the error is a FLOOD_WAIT or something like it, at least a second. File
     /// parts from a CDN get at most a minute of it.
@@ -94,13 +103,18 @@ impl RetryPolicy for AutoSleep {
     }
 }
 
-/// Never retries: every failure, FLOOD_WAITs included, goes to the caller.
+/// Never retries: every failure, FLOOD_WAITs included, goes to the caller, and a file part that fails isn't sent
+/// again on its own either, so one timeout or server error fails its transfer.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoRetries;
 
 impl RetryPolicy for NoRetries {
     fn should_retry(&self, _: &RetryContext<'_>) -> ControlFlow<(), Duration> {
         ControlFlow::Break(())
+    }
+
+    fn retries_file_parts(&self) -> bool {
+        false
     }
 }
 

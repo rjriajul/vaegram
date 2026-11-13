@@ -9,19 +9,18 @@ use std::time::Duration;
 use super::internals::data_center::Dc;
 use super::{Events, Known, Salt, Session, WeakSession, init_connection};
 use crate::client::quiet;
-use crate::connection::Options;
+use crate::connection::{MIN_RATE, Options};
 use crate::crypto::rsa::PublicKey;
+use crate::enums::ClientEvent;
 use crate::errors::{Error, Result};
 use crate::raw::{RemoteCall, base, functions};
 
 const IDLE: Duration = Duration::from_secs(15);
-// The slowest link a transfer still survives, in bytes per second per connection.
-const MIN_RATE: u64 = 8 << 10;
 // The least a part gets: two 512 KiB parts at MIN_RATE, what an upload connection carries.
 pub(crate) const MIN_PART_TIMEOUT: Duration = Duration::from_secs(2 * (512 << 10) / MIN_RATE);
 const MAX_TIMEOUTS: usize = 3;
-// Server errors a part waits out, a second for the first and twice as long for each after it: a minute in all, about
-// the budget TDLib and teleproto give a file part.
+// Server errors a part waits out, a second for the first and twice as long for each after it: 63 s in all, about
+// the minute TDLib and teleproto give a file part.
 const MAX_SERVER_ERRORS: u32 = 6;
 const FIRST_SERVER_ERROR_WAIT: Duration = Duration::from_secs(1);
 // A CDN gets at most this per wait, so one that keeps flooding is soon given up on and the master DC serves the part.
@@ -195,16 +194,20 @@ impl TransferPool {
             let opening = Session::connect_transfer(dc, Some(key), None, options, events.clone(), rebind(), number());
             async move { Ok(opening.await) }
         };
-        let mut failed = None;
+        let mut failed = Vec::new();
         for opened in try_join_all((0..missing).map(connect)).await? {
             match opened {
                 Ok(session) => sessions.push(session),
-                Err(e) => failed = Some(e),
+                Err(e) => failed.push(e),
             }
         }
         // Fewer connections than asked for still carry every part: the caller spreads its workers over the ones there
-        // are. With none at all there is nothing to carry them.
-        if let Some(e) = failed.filter(|_| sessions.is_empty()) {
+        // are. With none at all there is nothing to carry them, and one of the errors is the lease's.
+        let last = if sessions.is_empty() { failed.pop() } else { None };
+        for error in failed {
+            events.emit(ClientEvent::ConnectFailed { dc: dc.id, error: Arc::new(error) });
+        }
+        if let Some(e) = last {
             return Err(e);
         }
         let mut state = slot.state.lock().unwrap();
@@ -239,8 +242,11 @@ impl Drop for Lease {
     }
 }
 
-/// How long a part may take on a connection that has `in_flight` bytes of parts asked for at once: all of them at
-/// MIN_RATE, as this one may come last, and never under MIN_PART_TIMEOUT.
+/// How long a part may take on a connection that has `in_flight` bytes of this transfer's parts asked for at once:
+/// all of them at MIN_RATE, as this one may come last, and never under MIN_PART_TIMEOUT. Only this transfer's parts
+/// count: another transfer leasing the same pooled connection meanwhile adds its own, which this doesn't see, so on
+/// a link near MIN_RATE a part can time out early and go again on a fresh connection, up to MAX_TIMEOUTS times. A
+/// dead connection is found by the session's silence watch, which counts every byte written on it.
 pub(crate) fn part_timeout(in_flight: u64) -> Duration {
     MIN_PART_TIMEOUT.max(Duration::from_secs(in_flight / MIN_RATE))
 }
@@ -258,9 +264,8 @@ pub(crate) async fn invoke_cdn_part<R: RemoteCall>(
 }
 
 // One part that gives up fails a transfer of thousands, so besides what the retry policy asks for, timeouts and
-// server errors get bounded retries of their own. A CDN part that gives up only hands its download to the master DC,
-// so it gets the policy's usual tries and no server error retries. A pause shared by a DC's parts would go before
-// each send here.
+// server errors get bounded retries of their own, unless the policy turns them off (`NoRetries` does). A CDN part
+// that gives up only hands its download to the master DC, so it gets no server error retries.
 async fn invoke_part_on<R: RemoteCall>(
     session: &Session,
     request: &R,
@@ -270,25 +275,26 @@ async fn invoke_part_on<R: RemoteCall>(
     // Parts go straight to their session, so the user's request_timeout still has to count.
     let timeout = timeout.max(session.options().request_timeout);
     let cap = cdn.then_some(MAX_CDN_FLOOD_WAIT);
-    let (mut timeouts, mut server_errors, mut retries, mut slept) = (0, 0, 0u32, Duration::ZERO);
+    let own = session.retries_file_parts();
+    let (mut timeouts, mut server_errors, mut asked, mut slept) = (0, 0, 0u32, Duration::ZERO);
     loop {
+        let reconnects = session.reconnects();
         let result = session.invoke_with_timeout(request, timeout).await;
         let Err(e) = &result else { return result };
-        let wait = match session.should_retry(R::NAME, e, retries + 1, slept, cap, !cdn) {
-            ControlFlow::Continue(wait) => {
-                retries += 1;
-                wait
-            }
-            ControlFlow::Break(()) if matches!(e, Error::Timeout) && timeouts + 1 < MAX_TIMEOUTS => {
+        asked += 1;
+        let wait = match session.should_retry(R::NAME, e, asked, slept, cap, !cdn) {
+            ControlFlow::Continue(wait) => wait,
+            ControlFlow::Break(()) if own && matches!(e, Error::Timeout) && timeouts + 1 < MAX_TIMEOUTS => {
                 timeouts += 1;
                 // The part most likely went down with a connection the server stopped answering on: open a fresh
-                // one, which sends the other parts waiting on it again too, as TDLib and mtcute do.
-                session.restart()?;
+                // one, which sends the other parts waiting on it again too, as TDLib and mtcute do. Not when another
+                // part's timeout already had it reopened since this one went out.
+                session.restart_since(reconnects)?;
                 Duration::ZERO
             }
             // As TDLib, mtcute, teleproto and gogram send a part again after a pause: Telegram's trouble, not the
             // request's.
-            ControlFlow::Break(()) if !cdn && is_server_error(e) && server_errors < MAX_SERVER_ERRORS => {
+            ControlFlow::Break(()) if own && !cdn && is_server_error(e) && server_errors < MAX_SERVER_ERRORS => {
                 server_errors += 1;
                 FIRST_SERVER_ERROR_WAIT * 2u32.pow(server_errors - 1)
             }
@@ -367,12 +373,14 @@ mod tests {
         part_timeout, take, try_join_all, workers,
     };
     use crate::Client;
-    use crate::connection::{Options, Transport};
+    use crate::connection::slow_link::SlowLink;
+    use crate::connection::{MIN_RATE, Options, Transport};
+    use crate::enums::ClientEvent;
     use crate::errors::{Error, Result, RpcError};
     use crate::raw::{Serializable, base, functions, types};
     use crate::session::internals::data_center::Dc;
-    use crate::session::test_dc::TestDc;
-    use crate::session::{AutoSleep, Request, Retry, RetryContext, RetryPolicy};
+    use crate::session::test_dc::{SAVE_BIG_FILE_PART, TestDc};
+    use crate::session::{AutoSleep, Known, NoRetries, Request, Retry, RetryContext, RetryPolicy, Salt};
 
     fn part() -> functions::upload::SaveFilePart {
         functions::upload::SaveFilePart { file_id: 1, file_part: 0, bytes: vec![0; 4] }
@@ -530,6 +538,82 @@ mod tests {
         assert_eq!(*seen.lock().unwrap(), expected);
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn the_policy_hears_of_every_failure_of_a_part() {
+        let seen = Arc::default();
+        let replies = vec![rpc_error(500, "INTERNAL"), rpc_error(500, "INTERNAL"), Ok(true.to_bytes())];
+        let (mut session, _sent) = Session::scripted(replies);
+        session.set_options(Options::new().retry(Retry::new(Record(Arc::clone(&seen)))));
+        assert!(invoke_part(&session, &part(), MIN_PART_TIMEOUT).await.unwrap());
+        let asked: Vec<u32> = seen.lock().unwrap().iter().map(|a| a.1).collect();
+        assert_eq!(asked, [1, 2]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn no_retries_sends_a_part_once_whatever_it_fails_with() {
+        let (mut session, mut sent) = Session::scripted(vec![rpc_error(500, "INTERNAL")]);
+        session.set_options(Options::new().retry(Retry::new(NoRetries)));
+        assert!(matches!(invoke_part(&session, &part(), MIN_PART_TIMEOUT).await, Err(Error::Rpc(_))));
+        assert_eq!(count(&mut sent), 1);
+
+        // Never answers, so the part times out: no fresh connection and no second send.
+        let (requests, mut rx) = tokio::sync::mpsc::unbounded_channel::<Request>();
+        let held = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Some(request) = rx.recv().await {
+                held.push(request);
+            }
+            held.len()
+        });
+        let mut session = Session::local(requests);
+        session.set_options(Options::new().retry(Retry::new(NoRetries)));
+        assert!(matches!(invoke_part(&session, &part(), MIN_PART_TIMEOUT).await, Err(Error::Timeout)));
+        assert!(!session.control.restart.load(Ordering::Acquire));
+        drop(session);
+        assert_eq!(held.await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn parts_that_timed_out_together_restart_their_connection_once() {
+        let (requests, _rx) = tokio::sync::mpsc::unbounded_channel::<Request>();
+        let session = Session::local(requests);
+        let sent_at = session.reconnects();
+        session.restart_since(sent_at).unwrap();
+        assert!(session.control.restart.swap(false, Ordering::AcqRel));
+        // The connection came back: a part sent before that is on the new one already.
+        session.control.reconnects.fetch_add(1, Ordering::AcqRel);
+        session.restart_since(sent_at).unwrap();
+        assert!(!session.control.restart.load(Ordering::Acquire), "a second reconnect for the same dead connection");
+        session.restart_since(session.reconnects()).unwrap();
+        assert!(session.control.restart.load(Ordering::Acquire));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_part_on_a_slow_uplink_waits_for_its_answer() {
+        // The socket takes up to 1 MiB at once and gets it to the server at MIN_RATE; the server answers a part only
+        // once all of it has arrived, about 64 s after it was written, and sends nothing before that.
+        let dc = TestDc::start([5; 256], false).await;
+        let serve = dc.acceptor();
+        let factory = move |_: std::net::SocketAddr| {
+            let (link, far) = SlowLink::new(1 << 20, 1, MIN_RATE as usize);
+            serve(far);
+            async move { Ok::<_, std::io::Error>(link) }
+        };
+        let options = Options::new().transport(Transport::Intermediate).connection_factory(factory);
+        let key = Known { key: [5; 256], salt: Salt::default(), made: None };
+        let session =
+            Session::connect_transfer(dc.dc(2), Some(key), None, &options, Arc::default(), None, 1).await.unwrap();
+        let bytes = vec![0; 512 << 10];
+        let part = functions::upload::SaveBigFilePart { file_id: 1, file_part: 0, file_total_parts: 1, bytes };
+        let start = tokio::time::Instant::now();
+        assert!(invoke_part(&session, &part, part_timeout(512 << 10)).await.unwrap());
+        let took = start.elapsed();
+        assert!((Duration::from_secs(64)..Duration::from_secs(70)).contains(&took), "{took:?}");
+        // Sent once, on the first connection: never dropped as dead.
+        let parts = dc.seen().into_iter().filter(|s| s.ids.contains(&SAVE_BIG_FILE_PART)).map(|s| s.connection);
+        assert_eq!(parts.collect::<Vec<_>>(), [1]);
+    }
+
     #[tokio::test]
     async fn a_lease_goes_on_with_the_connections_that_opened() {
         let client = Client::offline();
@@ -539,8 +623,12 @@ mod tests {
         let pool = TransferPool::default();
         pool.insert(dc, &open);
         let home = client.session();
+        let events = client.0.events.record();
         let lease = pool.lease(dc, 3, Auth::Home(&home, 1), &client.0.options, &client.0.events).await.unwrap();
         assert_eq!(lease.sessions.len(), 1);
+        // Each connection that failed to open is reported, though the lease went on without it.
+        let failed = events.try_iter().filter(|e| matches!(e, ClientEvent::ConnectFailed { dc: 4, .. })).count();
+        assert_eq!(failed, 2);
     }
 
     #[tokio::test]

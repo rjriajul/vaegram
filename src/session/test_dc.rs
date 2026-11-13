@@ -6,8 +6,8 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use num_bigint::BigUint;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::internals::data_center::Dc;
@@ -37,6 +37,7 @@ const REQ_PQ_MULTI: u32 = <functions::ReqPqMulti as Identifiable>::CONSTRUCTOR_I
 const REQ_DH_PARAMS: u32 = <functions::ReqDHParams as Identifiable>::CONSTRUCTOR_ID;
 const SET_CLIENT_DH_PARAMS: u32 = <functions::SetClientDHParams as Identifiable>::CONSTRUCTOR_ID;
 pub(crate) const GET_USERS: u32 = <functions::users::GetUsers as Identifiable>::CONSTRUCTOR_ID;
+pub(crate) const SAVE_BIG_FILE_PART: u32 = <functions::upload::SaveBigFilePart as Identifiable>::CONSTRUCTOR_ID;
 const RPC_RESULT: u32 = 0xf35c6d01;
 const BOOL_TRUE: u32 = 0x997275b5;
 const AUTHORIZATION_SIGN_UP_REQUIRED: u32 = 0x44747e9a;
@@ -155,6 +156,12 @@ impl TestDc {
         self.shared.lock().unwrap().user = Some(user_id);
     }
 
+    /// Serves each stream it's given as one more connection, for a test that opens its own (an in-memory one, say).
+    pub(crate) fn acceptor(&self) -> impl Fn(tokio::io::DuplexStream) + Send + Sync + 'static {
+        let shared = self.shared.clone();
+        move |stream| drop(tokio::spawn(serve(stream, shared.clone())))
+    }
+
     pub(crate) fn seen(&self) -> Vec<Seen> {
         self.shared.lock().unwrap().seen.clone()
     }
@@ -181,7 +188,7 @@ struct Exchange {
     temp: bool,
 }
 
-async fn serve(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) -> Option<()> {
+async fn serve(mut stream: impl AsyncRead + AsyncWrite + Unpin, shared: Arc<Mutex<Shared>>) -> Option<()> {
     let connection = {
         let mut s = shared.lock().unwrap();
         s.connections += 1;
@@ -290,6 +297,7 @@ fn call(
             Some(id) => vec![user(id)].to_bytes(),
             None => error(401, "AUTH_KEY_UNREGISTERED"),
         },
+        SAVE_BIG_FILE_PART => BOOL_TRUE.to_le_bytes().to_vec(),
         _ => error(400, "NOT_IN_THE_TEST_DC"),
     };
     Some(rpc_result(req_msg_id, &result))

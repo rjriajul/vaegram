@@ -30,7 +30,7 @@ pub use retry::{AutoSleep, NoRetries, Retry, RetryContext, RetryPolicy};
 use std::collections::{HashMap, VecDeque};
 use std::ops::ControlFlow;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{Notify, mpsc, oneshot};
@@ -66,7 +66,9 @@ const PING_EVERY: Duration = Duration::from_secs(60);
 // No reads at all, not even a pong, for this long: the link died without the OS noticing.
 const DEAD_AFTER: Duration = Duration::from_secs(75);
 // With requests waiting, silence gets a ping sooner and a shorter deadline, so a dead NAT mapping doesn't
-// stall them for DEAD_AFTER.
+// stall them for DEAD_AFTER. A main connection counts silence from the last packet read, so it's probed 10 s and
+// dropped 20 s after it. A transfer connection counts it from when its last request could have reached the server
+// at MIN_RATE; the probe is a write and starts the silence over, so it's probed 10 s and dropped about 30 s after that.
 const PROBE_AFTER: Duration = Duration::from_secs(10);
 const PROBE_DEAD_AFTER: Duration = Duration::from_secs(20);
 const ACKS_THRESHOLD: usize = 10;
@@ -291,6 +293,8 @@ struct Control {
     restart: AtomicBool,
     // Whether the task has a working connection: set as the link goes down and comes back, cleared when it ends.
     connected: AtomicBool,
+    // Reconnects that worked, so a restart asked for over a request sent before the latest one can be skipped.
+    reconnects: AtomicU64,
     // notify_one keeps a permit, so a runner busy elsewhere still sees the signal on its next wait.
     wake: Notify,
 }
@@ -458,6 +462,21 @@ impl Session {
         Ok(())
     }
 
+    /// How many times the connection came back so far; for [`restart_since`](Self::restart_since).
+    pub(crate) fn reconnects(&self) -> u64 {
+        self.control.reconnects.load(Ordering::Acquire)
+    }
+
+    /// [`restart`](Self::restart), unless the connection already came back since [`reconnects`](Self::reconnects)
+    /// said `seen`: then a request sent before that is on the new connection already, and parts that timed out
+    /// together on one dead connection cost one reconnect, not one each.
+    pub(crate) fn restart_since(&self, seen: u64) -> Result<()> {
+        if self.reconnects() != seen {
+            return Ok(());
+        }
+        self.restart()
+    }
+
     /// Whether the connection is up: `false` while it reconnects and once it is closed or ended.
     pub(crate) fn is_connected(&self) -> bool {
         !self.control.closed() && self.control.connected.load(Ordering::Acquire)
@@ -511,6 +530,11 @@ impl Session {
         let flood_wait = flood_wait.map(|wait| cap.map_or(wait, |cap| wait.min(cap)));
         let ctx = RetryContext { request, error, fail_count, slept_so_far, flood_wait, file_part };
         self.options.retry.0.should_retry(&ctx)
+    }
+
+    /// Whether the retry policy lets file parts retry timeouts and server errors on their own.
+    pub(crate) fn retries_file_parts(&self) -> bool {
+        self.options.retry.0.retries_file_parts()
     }
 
     /// The salt and clock offset the connection last learned, to save for the next start.
@@ -881,6 +905,7 @@ impl Runner {
             (self.reader, self.writer) = conn.into_split();
             self.heard();
             if self.resend_pending().await.is_ok() {
+                self.control.reconnects.fetch_add(1, Ordering::AcqRel);
                 if !(renewing && attempt == 1) {
                     self.events.reconnected();
                     self.events.emit(ClientEvent::Reconnected { dc: self.dc.id, attempt });
@@ -912,9 +937,13 @@ impl Runner {
         let waiting = !self.pending.is_empty() || (self.unbound() && !self.queue.is_empty());
         let silent = match self.updates {
             Some(_) => self.last_read.elapsed(),
-            // A part takes a while to arrive on a slow link, or to go out, and the server answers a sent one only;
-            // so a transfer connection counts any byte read and the end of each write, and isn't watched idle.
-            None if waiting => self.last_read.max(self.reader.last_byte()).max(self.writer.last_write()).elapsed(),
+            // The server answers a part only once the whole of it has arrived, which on a link at MIN_RATE is when
+            // what was written could have drained, and a big answer takes a while to come in; so a transfer
+            // connection counts silence from the latest of those and of any byte read. It isn't watched idle.
+            None if waiting => {
+                let heard = self.last_read.max(self.reader.last_byte()).max(self.writer.drained_by());
+                tokio::time::Instant::now().saturating_duration_since(heard)
+            }
             None => Duration::ZERO,
         };
         if silent > DEAD_AFTER || (waiting && silent > PROBE_DEAD_AFTER) {

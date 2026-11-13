@@ -5,6 +5,8 @@ mod fake_tls;
 mod http1;
 mod obfuscated;
 mod proxy;
+#[cfg(test)]
+pub(crate) mod slow_link;
 #[cfg(any(feature = "websocket", feature = "dns-config", feature = "web-proxy"))]
 mod tls;
 mod transport;
@@ -43,7 +45,11 @@ use obfuscated::Ctr;
 use proxy::Target;
 
 const READ_CHUNK: usize = 64 << 10;
-// A write that moves no byte for this long goes to a peer that's gone, which TCP alone retries for many minutes.
+/// The slowest link a connection still serves, in bytes per second: no deadline cuts short what would be done at
+/// this rate.
+pub(crate) const MIN_RATE: u64 = 8 << 10;
+// What the stream took could still be on its way at MIN_RATE; a stream that then takes no byte (or doesn't finish a
+// flush) for this long more goes to a peer that's gone, which TCP alone retries for many minutes.
 const WRITE_STALL: Duration = Duration::from_secs(20);
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -427,7 +433,7 @@ impl Connection {
                 encrypt,
                 records,
                 buf: Vec::new(),
-                last_write: tokio::time::Instant::now(),
+                drained_by: tokio::time::Instant::now(),
             },
         })
     }
@@ -583,7 +589,8 @@ pub(crate) struct Writer {
     encrypt: Option<Ctr>,
     records: Option<RecordWriter>,
     pub(crate) buf: Vec<u8>,
-    last_write: tokio::time::Instant,
+    // When what the stream took could all have left at MIN_RATE.
+    drained_by: tokio::time::Instant,
 }
 
 impl Writer {
@@ -598,33 +605,45 @@ impl Writer {
             encrypt.apply(&mut self.buf[start..]);
         }
         #[cfg(feature = "websocket")]
-        if let WriteHalf::WebSocket(half) = &mut self.half {
-            half.send_in_place(&mut self.buf, start).await?;
-            self.last_write = tokio::time::Instant::now();
-            return Ok(());
+        {
+            // A WebSocket message goes out whole, so it gets the time for all of it.
+            let len = self.buf.len() - start;
+            let deadline = stall_deadline(self.drained_by) + at_min_rate(len);
+            if let WriteHalf::WebSocket(half) = &mut self.half {
+                tokio::time::timeout_at(deadline, half.send_in_place(&mut self.buf, start))
+                    .await
+                    .map_err(stalled)??;
+                self.drained_by = taken(self.drained_by, len);
+                return Ok(());
+            }
         }
         let mut wire = match &mut self.records {
             Some(records) => records.wrap(&self.buf[start..]),
             None => &self.buf[start..],
         };
-        // A slow link still takes some bytes each round trip; one that takes none for WRITE_STALL is dead.
+        // A slow link frees room in the socket's buffers a little at a time, and Linux wakes a blocked writer only
+        // once about a third of its buffer is free: so each write gets until what the stream took before could have
+        // left at MIN_RATE, then WRITE_STALL more.
         while !wire.is_empty() {
-            match tokio::time::timeout(WRITE_STALL, self.half.write(wire)).await {
+            match tokio::time::timeout_at(stall_deadline(self.drained_by), self.half.write(wire)).await {
                 Ok(Ok(0)) => return Err(io::Error::from(io::ErrorKind::WriteZero).into()),
-                Ok(Ok(n)) => wire = &wire[n..],
+                Ok(Ok(n)) => {
+                    self.drained_by = taken(self.drained_by, n);
+                    wire = &wire[n..];
+                }
                 Ok(Err(e)) => return Err(e.into()),
-                Err(_) => return Err(io::Error::new(io::ErrorKind::TimedOut, "the peer stopped taking bytes").into()),
+                Err(elapsed) => return Err(stalled(elapsed)),
             }
         }
-        // A boxed stream may buffer (TLS does); TCP's flush is a no-op.
-        self.half.flush().await?;
-        self.last_write = tokio::time::Instant::now();
+        // A boxed stream may buffer (TLS does, and so may a ConnectionFactory's); TCP's flush is a no-op.
+        tokio::time::timeout_at(stall_deadline(self.drained_by), self.half.flush()).await.map_err(stalled)??;
         Ok(())
     }
 
-    /// When the last packet was handed to the network in full; the server can't answer one before that.
-    pub(crate) fn last_write(&self) -> tokio::time::Instant {
-        self.last_write
+    /// When everything this writer handed the stream could have reached the server at MIN_RATE: the server can't
+    /// answer the last request before then.
+    pub(crate) fn drained_by(&self) -> tokio::time::Instant {
+        self.drained_by
     }
 
     pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<()> {
@@ -661,6 +680,25 @@ impl Writer {
         }
         Ok(())
     }
+}
+
+/// How long `n` bytes take at MIN_RATE.
+fn at_min_rate(n: usize) -> Duration {
+    Duration::from_nanos((n as u64).saturating_mul(1_000_000_000) / MIN_RATE)
+}
+
+/// `drained_by` once the stream took `n` more bytes now.
+fn taken(drained_by: tokio::time::Instant, n: usize) -> tokio::time::Instant {
+    drained_by.max(tokio::time::Instant::now()) + at_min_rate(n)
+}
+
+/// The latest a write or flush may still move a byte: WRITE_STALL after what the stream took could have left.
+fn stall_deadline(drained_by: tokio::time::Instant) -> tokio::time::Instant {
+    drained_by.max(tokio::time::Instant::now()) + WRITE_STALL
+}
+
+fn stalled(_: tokio::time::error::Elapsed) -> Error {
+    io::Error::new(io::ErrorKind::TimedOut, "the peer stopped taking bytes").into()
 }
 
 #[cfg(test)]
@@ -704,27 +742,55 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn a_write_the_peer_stops_taking_fails_after_the_stall() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let dc = Dc { id: 2, addr: listener.local_addr().unwrap(), test: false, media: false };
-        let options = Options::new().transport(Transport::Intermediate);
-        let mut connection = Connection::connect(&dc, &options).await.unwrap();
-        // Accepted and never read, like a peer that vanished: once the socket buffers fill, no byte moves.
-        let _server = listener.accept().await.unwrap();
-        // Paused only after connecting: a paused clock would jump past the connect timeout.
-        tokio::time::pause();
-        let (part, start) = (vec![0; 1 << 20], tokio::time::Instant::now());
-        let stalled = tokio::time::timeout(WRITE_STALL * 4, async {
-            loop {
-                if let Err(e) = connection.send(&part).await {
-                    return e;
-                }
-            }
+    /// A connection over `link`, which has to be the only one the options open.
+    async fn connected(link: slow_link::SlowLink) -> Connection {
+        let link = std::sync::Mutex::new(Some(link));
+        let options = Options::new().transport(Transport::Intermediate).connection_factory(move |_: SocketAddr| {
+            let link = link.lock().unwrap().take();
+            async move { link.ok_or_else(|| io::Error::other("one connection only")) }
         });
-        let e = stalled.await.expect("a write hung past the stall bound");
+        let dc = Dc { id: 2, addr: "127.0.0.1:9".parse().unwrap(), test: false, media: false };
+        Connection::connect(&dc, &options).await.unwrap()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_link_that_wakes_its_writer_late_still_gets_every_packet_out() {
+        // 1 MiB of room that drains at MIN_RATE; a writer that found it full waits for a third of it, as on Linux.
+        let (link, _far) = slow_link::SlowLink::new(1 << 20, (1 << 20) / 3, MIN_RATE as usize);
+        let mut connection = connected(link).await;
+        let start = tokio::time::Instant::now();
+        for _ in 0..2 {
+            connection.send(&vec![0; 1 << 20]).await.unwrap();
+        }
+        // Each packet waited about 43 s for room, while bytes kept moving.
+        assert!(start.elapsed() > WRITE_STALL * 2, "{:?}", start.elapsed());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_write_the_peer_takes_nothing_of_fails_after_the_stall() {
+        // Room for the transport's tag and a few bytes more, and nothing ever drains, like a peer that vanished.
+        let (link, _far) = slow_link::SlowLink::new(64, 1, 0);
+        let mut connection = connected(link).await;
+        let start = tokio::time::Instant::now();
+        let e = connection.send(&vec![0; 1 << 20]).await.unwrap_err();
         assert!(matches!(&e, Error::Io(err) if err.kind() == io::ErrorKind::TimedOut), "{e}");
-        assert!(start.elapsed() >= WRITE_STALL);
+        // The 60 bytes it took could need 7 ms at MIN_RATE, then WRITE_STALL.
+        let elapsed = start.elapsed();
+        assert!((WRITE_STALL..WRITE_STALL + Duration::from_secs(1)).contains(&elapsed), "{elapsed:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_flush_that_never_ends_fails_once_the_bytes_could_have_left() {
+        // Takes everything at once and then never finishes a flush, as a stream that can't get its buffer out; the
+        // one flush that completes is the connect's.
+        let (link, _far) = slow_link::SlowLink::new(4 << 20, 1, 0);
+        let mut connection = connected(link.flushes(1)).await;
+        let start = tokio::time::Instant::now();
+        let e = connection.send(&vec![0; 1 << 20]).await.unwrap_err();
+        assert!(matches!(&e, Error::Io(err) if err.kind() == io::ErrorKind::TimedOut), "{e}");
+        // 1 MiB at MIN_RATE is 128 s, then WRITE_STALL.
+        let least = Duration::from_secs(128) + WRITE_STALL;
+        assert!((least..least + Duration::from_secs(1)).contains(&start.elapsed()), "{:?}", start.elapsed());
     }
 
     #[tokio::test]

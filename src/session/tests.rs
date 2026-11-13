@@ -370,7 +370,11 @@ async fn a_transfer_connection_still_reading_a_big_part_is_alive() {
     // The start of a 1 MiB packet, the rest still on its way.
     server.write_all(&(1u32 << 20).to_le_bytes()).await.unwrap();
     server.write_all(&[0; 1024]).await.unwrap();
-    assert!(tokio::time::timeout(Duration::from_millis(1), r.reader.recv()).await.is_err());
+    // Read until those bytes are in, however long the socket takes to show them; the packet stays unfinished.
+    let before = r.reader.last_byte();
+    while r.reader.last_byte() == before {
+        let _ = tokio::time::timeout(Duration::from_millis(1), r.reader.recv()).await;
+    }
     tokio::time::advance(PROBE_AFTER - Duration::from_secs(1)).await;
     r.tick().await.unwrap();
     assert!(!r.probed, "a connection still reading was probed");
@@ -397,6 +401,36 @@ async fn an_idle_transfer_connection_is_not_watched() {
     tokio::time::advance(DEAD_AFTER + Duration::from_secs(30)).await;
     r.tick().await.unwrap();
     assert!(!r.probed);
+}
+
+#[tokio::test]
+async fn transfer_connections_wait_out_slow_parts() {
+    // Two 512 KiB parts, as an upload connection carries: at MIN_RATE they reach the server 128 s after they're
+    // written, and it can't answer either before that.
+    let (mut r, _frames, _updates) = runner().await;
+    r.updates = None;
+    let _rx: Vec<_> = (0..2).map(|_| request(&mut r, vec![0; 512 << 10])).collect();
+    r.flush().await.unwrap();
+    tokio::time::pause();
+    tokio::time::advance(DEAD_AFTER + Duration::from_secs(30)).await;
+    assert!(r.tick().await.is_ok());
+    assert!(r.service.is_empty(), "a transfer connection was probed");
+}
+
+#[tokio::test]
+async fn a_transfer_connection_is_probed_once_its_part_could_have_arrived() {
+    let (mut r, _frames, _updates) = runner().await;
+    r.updates = None;
+    let _rx = request(&mut r, vec![0; 512 << 10]);
+    r.flush().await.unwrap();
+    tokio::time::pause();
+    // 512 KiB reach the server 64 s after they're written, at MIN_RATE.
+    tokio::time::advance(Duration::from_secs(64) + PROBE_AFTER - Duration::from_secs(1)).await;
+    r.tick().await.unwrap();
+    assert!(!r.probed, "probed before the part could have arrived");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    r.tick().await.unwrap();
+    assert!(r.probed);
 }
 
 #[test]
