@@ -16,6 +16,9 @@ const GAP_TIMEOUT: Duration = Duration::from_millis(500);
 // stopped pushing.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MAX_RETRIES: u32 = 5;
+// Past this many held updates for one key the client is too far behind to fill the hole from what it holds: the
+// key goes to getDifference, which refetches them. The cap keeps a key that never fills from growing without bound.
+const MAX_PENDING: usize = 1024;
 
 pub(super) fn channel_of(update: &base::Update) -> Option<i64> {
     let message = match update {
@@ -192,7 +195,16 @@ impl Tracker {
                 self.apply(p);
                 self.drain(key);
             }
-            Ordering::Less => self.pending.push((Instant::now() + GAP_TIMEOUT, p)),
+            Ordering::Less => {
+                // The hole is too deep to fill from the held updates: give the key up to getDifference, which
+                // refetches them from the stored state. Nothing is reported skipped, since nothing is lost.
+                if self.pending.iter().filter(|(_, held)| held.key == p.key).count() >= MAX_PENDING {
+                    self.pending.retain(|(_, held)| held.key != p.key);
+                    self.mark(p.key);
+                    return;
+                }
+                self.pending.push((Instant::now() + GAP_TIMEOUT, p));
+            }
         }
     }
 
@@ -212,7 +224,9 @@ impl Tracker {
         match p.item {
             Item::Update(update, entities) => self.ready.push((update, entities)),
             Item::Batch(updates, entities, date, quiet) => {
-                self.state.date = date;
+                // Batches can arrive out of date order; the state's date only moves forward, or getDifference
+                // would be asked from before updates already applied.
+                self.state.date = self.state.date.max(date);
                 for update in updates {
                     self.update(update, &entities, quiet);
                 }
@@ -324,8 +338,8 @@ impl Tracker {
 #[cfg(test)]
 mod tests {
     use super::{
-        Arc, Duration, Error, GAP_TIMEOUT, IDLE_TIMEOUT, Instant, Key, SkipReason, Skipped, Tracker, UpdateState, base,
-        types,
+        Arc, Duration, Error, GAP_TIMEOUT, IDLE_TIMEOUT, Instant, Key, MAX_PENDING, SkipReason, Skipped, Tracker,
+        UpdateState, base, types,
     };
     use crate::errors::RpcError;
 
@@ -377,6 +391,32 @@ mod tests {
     }
 
     #[test]
+    fn a_key_over_the_pending_cap_falls_back_to_get_difference() {
+        let (mut t, e) = (tracker(0, 0, 0), Arc::default());
+        t.update(channel(5, 4), &e, false);
+        t.update(channel(5, 6), &e, false);
+        assert_eq!(delivered(&mut t), [4]);
+        for pts in 2..=(MAX_PENDING as i32 + 1) {
+            t.update(delete(pts, 1), &e, false);
+        }
+        assert_eq!((t.pending.len(), t.due.clone()), (MAX_PENDING + 1, vec![]));
+        // The update past the cap hands the key to getDifference instead of growing the buffer; the other key keeps
+        // its held updates, and neither counter moves.
+        t.update(delete(MAX_PENDING as i32 + 2, 1), &e, false);
+        assert_eq!((t.pending.len(), t.due.clone(), t.state.pts), (1, vec![Key::Pts], 0));
+
+        // Per key: a channel over its own cap asks for that channel's difference, not the common box's.
+        let (mut t, e) = (tracker(0, 0, 0), Arc::default());
+        t.update(channel(5, 4), &e, false);
+        for pts in 6..=(MAX_PENDING as i32 + 5) {
+            t.update(channel(5, pts), &e, false);
+        }
+        assert_eq!((t.pending.len(), t.due.clone()), (MAX_PENDING, vec![]));
+        t.update(channel(5, MAX_PENDING as i32 + 6), &e, false);
+        assert_eq!((t.pending.len(), t.due.clone()), (0, vec![Key::Channel(5)]));
+    }
+
+    #[test]
     fn expired_gap_requests_difference() {
         let (mut t, e) = (tracker(10, 0, 0), Arc::default());
         t.update(delete(12, 1), &e, false);
@@ -418,6 +458,15 @@ mod tests {
         assert_eq!(delivered(&mut t), [11, 12]);
         t.batch(vec![stopped(1)], e, (6, 3, 3), false);
         assert!(delivered(&mut t).is_empty());
+    }
+
+    #[test]
+    fn an_older_batch_does_not_move_the_date_back() {
+        let (mut t, e) = (tracker(10, 0, 1), Arc::default());
+        t.batch(vec![delete(11, 1)], Arc::clone(&e), (5, 2, 2), false);
+        assert_eq!((t.state.seq, t.state.date), (2, 5));
+        t.batch(vec![delete(12, 1)], e, (4, 3, 3), false);
+        assert_eq!((delivered(&mut t), t.state.seq, t.state.date), (vec![11, 12], 3, 5));
     }
 
     #[test]
