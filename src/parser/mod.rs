@@ -636,7 +636,7 @@ mod tests {
             (Text::new().bold(Text::new().plain("a").bold("b")), "**ab**"),
             (Text::new().code(Text::new().plain("a").bold("x")), "`ax`"),
             (Text::new().pre("a\n", "").blockquote("q", false), "```\na\n\n```q"),
-            (Text::new().blockquote("a", false).plain("\n").blockquote("b", false), "> a\nb"),
+            (Text::new().blockquote(Text::new().plain("a\n").blockquote("b", true), false), "> a\n> b"),
         ];
         for (text, markdown) in cases {
             assert_eq!(text.to_markdown(), markdown, "{text:?}");
@@ -654,6 +654,10 @@ mod tests {
         assert_eq!(Text::new().plain("!").link("x", "tg://emoji?id=1").to_markdown(), "\\![x](tg://emoji?id=1)");
         let crossing = Text::new().blockquote(Text::new().spoiler("a"), true).spoiler("\nb");
         assert_eq!(Text::from_markdown(&crossing.to_markdown()).as_str(), "a\nb");
+        // `**>` starts a quote right after another, where a `>` line would merge into it.
+        let adjacent = Text::new().blockquote("a", false).plain("\n").blockquote("b", false);
+        assert_eq!(adjacent.to_markdown(), "> a\n**> b");
+        assert_eq!(Text::from_markdown(&adjacent.to_markdown()), adjacent);
     }
 
     #[test]
