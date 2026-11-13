@@ -27,7 +27,8 @@ pub struct EphemeralMessage {
     pub outgoing: bool,
     /// `true` if the message is the template a bot sends as the welcome message of its private chats.
     pub is_welcome_template: bool,
-    /// Id of the regular message this one is anchored to.
+    /// Id of the regular message this one is anchored to: the pressed message when it was sent with
+    /// [`replace_callback_query_message`](SendEphemeralMessage::replace_callback_query_message).
     pub anchor_message_id: Option<i32>,
     /// Id of the thread or forum topic the message is in. `None` outside threads.
     pub message_thread_id: Option<i32>,
