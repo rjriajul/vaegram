@@ -241,7 +241,14 @@ mod tests {
     #[test]
     fn unheard_warnings_are_described_in_one_line() {
         let failed = |chat_id| ClientEvent::HandlerFailed {
-            error: Arc::new(HandlerError { kind: UpdateKind::Message, chat_id, error: Error::Timeout }),
+            error: Arc::new(HandlerError {
+                kind: UpdateKind::Message,
+                chat_id,
+                message_id: None,
+                user_id: None,
+                query_id: None,
+                error: Error::Timeout,
+            }),
         };
         let timeout = Error::Timeout.to_string();
         assert_eq!(describe(&failed(Some(5))), format!("Message handler failed in chat 5: {timeout}"));

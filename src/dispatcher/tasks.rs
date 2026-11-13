@@ -72,6 +72,8 @@ impl Tasks {
         let turn = self.lanes.as_mut().zip(item.order_key()).map(|(lanes, key)| lanes.turn(key));
         let (permits, on_error, events) = (self.permits.clone(), self.on_error.clone(), self.events.clone());
         let chat_id = item.chat_id();
+        let (message_id, user_id, query_id) = (item.message_id(), item.user_id(), item.query_id());
+        let failed = move |error| HandlerError { kind, chat_id, message_id, user_id, query_id, error };
         self.spawn(kind, chat_id, async move {
             let _done = match turn {
                 Some((previous, done)) => {
@@ -87,11 +89,11 @@ impl Tasks {
             let item = item.prepare().await;
             for callback in rest {
                 if let Err(error) = callback(item.clone()).await {
-                    return report(on_error, events, HandlerError { kind, chat_id, error }).await;
+                    return report(on_error, events, failed(error)).await;
                 }
             }
             if let Err(error) = last(item).await {
-                report(on_error, events, HandlerError { kind, chat_id, error }).await;
+                report(on_error, events, failed(error)).await;
             }
         });
     }
@@ -101,7 +103,7 @@ impl Tasks {
         self.spawn(UpdateKind::Raw, None, async move {
             let _permit = permit(permits).await;
             if let Err(error) = future.await {
-                report(on_error, events, HandlerError { kind: UpdateKind::Raw, chat_id: None, error }).await;
+                report(on_error, events, HandlerError::bare(UpdateKind::Raw, error)).await;
             }
         });
     }
@@ -125,7 +127,7 @@ pub(crate) async fn run_hook(client: Client, kind: UpdateKind, hook: Callback<Cl
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
             let on_error = client.0.handlers.current().on_error.clone();
-            report(on_error, client.0.events.clone(), HandlerError { kind, chat_id: None, error }).await;
+            report(on_error, client.0.events.clone(), HandlerError::bare(kind, error)).await;
         }
         Err(payload) => client.0.events.emit(panicked(kind, None, payload)),
     }
@@ -213,7 +215,7 @@ mod tests {
                 Err(_) => tokio::task::yield_now().await,
             }
         };
-        let failed = HandlerError { kind: UpdateKind::Raw, chat_id: None, error: Error::Unexpected("boom") };
+        let failed = HandlerError::bare(UpdateKind::Raw, Error::Unexpected("boom"));
         assert_eq!(format!("{event:?}"), format!("{:?}", ClientEvent::HandlerFailed { error: Arc::new(failed) }));
 
         let (handled, mut taken) = tokio::sync::mpsc::unbounded_channel();
@@ -225,6 +227,54 @@ mod tests {
         tasks.raw(Box::pin(async { Err::<(), _>(Error::Unexpected("boom")) }));
         assert_eq!(taken.recv().await, Some(UpdateKind::Raw));
         assert!(events.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_failing_callback_handler_reports_its_query_and_user() {
+        use crate::dispatcher::listeners::tests::query;
+        use crate::errors::Error;
+        use crate::types::CallbackQuery;
+
+        let client = Client::offline();
+        // The press helper builds query 1, from user 7, on message 5 of chat 7.
+        let press = query(&client, 7, 7, 5);
+        let mut tasks = Tasks::default();
+        let (handled, mut taken) = tokio::sync::mpsc::unbounded_channel();
+        let on_error = move |e: HandlerError| -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> {
+            let _ = handled.send(e);
+            Box::pin(async {})
+        };
+        tasks.on_error = Some(Arc::new(on_error));
+        let failing: Callback<CallbackQuery> =
+            Arc::new(|_: CallbackQuery| -> BoxFuture { Box::pin(async { Err::<(), _>(Error::Unexpected("boom")) }) });
+        tasks.run(UpdateKind::CallbackQuery, press, vec![failing]);
+
+        let error = taken.recv().await.expect("no error came");
+        assert_eq!((error.query_id, error.user_id, error.message_id), (Some(1), Some(7), Some(5)));
+        assert_eq!(error.chat_id, Some(7));
+    }
+
+    #[tokio::test]
+    async fn other_errors_reach_on_error_and_downcast() {
+        use crate::errors::Error;
+
+        let mut tasks = Tasks::default();
+        let (handled, mut taken) = tokio::sync::mpsc::unbounded_channel();
+        let on_error = move |e: HandlerError| -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> {
+            let _ = handled.send(e.error);
+            Box::pin(async {})
+        };
+        tasks.on_error = Some(Arc::new(on_error));
+
+        tasks.raw(Box::pin(async { Err::<(), _>(Error::other("boom")) }));
+        let error = taken.recv().await.expect("no error came");
+        assert_eq!(error.downcast_ref::<String>().map(String::as_str), Some("boom"));
+
+        let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        tasks.raw(Box::pin(async move { Err::<(), _>(Error::other(denied)) }));
+        let error = taken.recv().await.expect("no error came");
+        let io = error.downcast_ref::<std::io::Error>().expect("not an io error");
+        assert_eq!(io.kind(), std::io::ErrorKind::PermissionDenied);
     }
 
     async fn next_event(events: &std::sync::mpsc::Receiver<ClientEvent>) -> ClientEvent {
