@@ -20,6 +20,7 @@ use crate::handlers::UpdateKind;
 use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, Serializable, base, functions};
 use crate::session::internals::data_center::{self, Dc};
+use crate::session::pacer::{Direction, Pacer, Shape, TransferSettings};
 use crate::session::transfer::{Auth, Lease, TransferPool};
 use crate::session::{
     AutoSleep, Call, Events, Observer, RateLimiter, RateLimits, Retry, RetryPolicy, Salt, Session, UpdatesRx,
@@ -65,6 +66,7 @@ pub struct ClientBuilder {
     unallowed_click_alert: Option<Arc<str>>,
     max_listeners: Option<usize>,
     max_concurrent_transmissions: Option<usize>,
+    transfer_settings: TransferSettings,
     max_message_cache_size: usize,
     max_topic_cache_size: usize,
     fetch: Fetch,
@@ -277,6 +279,45 @@ impl ClientBuilder {
     /// by default, so every transfer runs at once.
     pub fn max_concurrent_transmissions(mut self, n: usize) -> Self {
         self.max_concurrent_transmissions = Some(n.max(1));
+        self
+    }
+
+    /// How many connections a download opens to the file's DC, 1 to 8. By default a bot opens 8 and keeps one
+    /// `upload.getFile` in flight on each: measured from a bot, more than one per connection drew 27 to 78 getFile
+    /// FLOOD_WAITs per 500 MiB at any pace. A user account opens 4, 8 with Premium, with as many chunks in flight
+    /// on each as before (1, 4 with Premium); nothing is measured for those. Out of range fails
+    /// [`start`](Self::start) and [`connect`](Self::connect) with `Error::InvalidArgument`.
+    pub fn download_connections(mut self, n: usize) -> Self {
+        self.transfer_settings.download.connections = Some(n);
+        self
+    }
+
+    /// How many connections an upload opens, 1 to 8. By default a bot opens 8 with 2 parts in flight on each; a
+    /// user account 4 with 2 each, or 8 with 1 each with Premium. Out of range fails [`start`](Self::start) and
+    /// [`connect`](Self::connect) with `Error::InvalidArgument`.
+    pub fn upload_connections(mut self, n: usize) -> Self {
+        self.transfer_settings.upload.connections = Some(n);
+        self
+    }
+
+    /// The most bytes a second downloads from one DC ask for, all of them together; `None` doesn't pace them. Parts
+    /// go evenly, one at a time, and a CDN's aren't paced. By default 20 MiB/s for a bot, unpaced for a user
+    /// account. Measured 2026-11-14 from a bot 61 ms from its DC, 500 MiB a run: 20 MiB/s gave a median 19.88
+    /// MB/s with 0-3 FLOOD_WAITs a run; 20.5 MiB/s drew 7 and 22 MiB/s 26 in one run each, and were slower for it.
+    /// Higher rates draw FLOOD_WAITs. 0 fails [`start`](Self::start) and [`connect`](Self::connect) with
+    /// `Error::InvalidArgument`.
+    pub fn download_max_bytes_per_sec(mut self, rate: Option<u64>) -> Self {
+        self.transfer_settings.download.max_bytes_per_sec = Some(rate);
+        self
+    }
+
+    /// The most bytes a second uploads to one DC send, all of them together; `None` doesn't pace them. Parts go
+    /// evenly, one at a time. By default 19.5 MiB/s for a bot, unpaced for a user account. Measured 2026-11-14 from
+    /// a bot 61 ms from its DC, 500 MiB a run: 19.5 MiB/s gave a median 20.14 MB/s with 0-7 FLOOD_WAITs a run,
+    /// unpaced 17.79 MB/s with 28-45; 20 MiB/s drew 9 and 21 MiB/s 42 in one run each. Higher rates draw
+    /// FLOOD_WAITs. 0 fails [`start`](Self::start) and [`connect`](Self::connect) with `Error::InvalidArgument`.
+    pub fn upload_max_bytes_per_sec(mut self, rate: Option<u64>) -> Self {
+        self.transfer_settings.upload.max_bytes_per_sec = Some(rate);
         self
     }
 
@@ -522,6 +563,7 @@ impl ClientBuilder {
         if let Some(limits) = &self.rate_limits {
             limits.validate()?;
         }
+        self.transfer_settings.validate()?;
         self.options.retry = self.retry_policy.take().unwrap_or_else(|| Retry::new(self.auto_sleep));
         if let Some(path) = &self.record {
             self.options.record = Some(Recorder::create(path)?);
@@ -597,6 +639,7 @@ impl ClientBuilder {
             inner.handlers.listeners.limit(n);
         }
         inner.transmissions = self.max_concurrent_transmissions.map(Transmissions::new);
+        inner.transfer_settings = self.transfer_settings;
         let set_names = if self.fetch.stickers { self.max_sticker_set_name_cache_size } else { 0 };
         inner.caches = Caches::new(self.max_message_cache_size, self.max_topic_cache_size).with_set_names(set_names);
         inner.fetch = self.fetch;
@@ -681,6 +724,8 @@ pub(crate) struct Inner {
     pub(crate) unallowed_click_alert: Option<Arc<str>>,
     // Slots for `max_concurrent_transmissions`, if set.
     pub(crate) transmissions: Option<Transmissions>,
+    // The builder's transfer options.
+    pub(crate) transfer_settings: TransferSettings,
     pub(crate) limiter: Option<RateLimiter>,
     pub(crate) auto_no_updates: bool,
     pub(crate) events: Arc<Events>,
@@ -786,6 +831,7 @@ impl Inner {
             listener_timeout: Some(LISTENER_TIMEOUT),
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             transmissions: None,
+            transfer_settings: TransferSettings::default(),
             limiter: None,
             auto_no_updates: false,
             streams: Mutex::new(HashMap::new()),
@@ -877,6 +923,7 @@ impl Client {
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             max_listeners: None,
             max_concurrent_transmissions: None,
+            transfer_settings: TransferSettings::default(),
             max_message_cache_size: 0,
             max_topic_cache_size: 0,
             fetch: Fetch::default(),
@@ -971,6 +1018,20 @@ impl Client {
         let me = self.get_me_raw().await?;
         self.set_me(&me);
         Ok(matches!(me, base::User::User(u) if u.premium))
+    }
+
+    /// The shape of a transfer in `direction`, once `is_premium` has looked the account up, which tells a bot too;
+    /// when that lookup failed, an account not stored as a bot counts as a user.
+    pub(crate) fn transfer_shape(&self, direction: Direction, premium: bool) -> Shape {
+        let bot = self.0.me.lock().unwrap().is_bot;
+        self.0.transfer_settings.shape(direction, bot, premium)
+    }
+
+    /// The pacer the parts to `dc_id` in `direction` share, `None` when they go unpaced; see `transfer_shape`.
+    pub(crate) fn pacer(&self, dc_id: i32, direction: Direction) -> Option<Arc<Pacer>> {
+        let bot = self.0.me.lock().unwrap().is_bot;
+        let rate = self.0.transfer_settings.rate(direction, bot)?;
+        Some(self.0.transfers.pacer(dc_id, direction, rate))
     }
 
     pub(crate) fn dc(&self, dc_id: i32) -> Result<Dc> {
@@ -1157,6 +1218,7 @@ mod tests {
     use super::{Client, Me};
     use crate::errors::Error;
     use crate::raw::{base, types};
+    use crate::session::pacer::Direction;
     use crate::session::test_dc::TestDc;
     use crate::session::{AutoSleep, RateCategory, RateLimits};
     use crate::storage::{FileStorage, MemoryStorage, PeerRecord, Recording, SessionData, Storage, UpdateState};
@@ -1200,6 +1262,31 @@ mod tests {
         let array = Client::builder("refused", 1, "hash").in_memory().init_connection_params(Json::Array(Vec::new()));
         let array = array.tz_offset(1).connect().await;
         assert!(matches!(array, Err(Error::InvalidArgument(_))));
+    }
+
+    #[tokio::test]
+    async fn bad_transfer_options_are_refused() {
+        let builder = || Client::builder("refused", 1, "hash").in_memory();
+        let refused = [
+            builder().download_connections(0),
+            builder().upload_connections(9),
+            builder().download_max_bytes_per_sec(Some(0)),
+            builder().upload_max_bytes_per_sec(Some(0)),
+        ];
+        for builder in refused {
+            assert!(matches!(builder.connect().await, Err(Error::InvalidArgument(_))));
+        }
+    }
+
+    #[test]
+    fn transfer_options_reach_the_settings() {
+        let builder = Client::builder("set", 1, "hash").download_connections(3).upload_max_bytes_per_sec(None);
+        let settings = builder.transfer_settings;
+        assert_eq!(settings.shape(Direction::Download, true, false).connections, 3);
+        assert_eq!(settings.rate(Direction::Upload, true), None);
+        let set = Client::builder("set", 1, "hash").download_max_bytes_per_sec(Some(1 << 20)).transfer_settings;
+        let rates = (set.rate(Direction::Download, true), set.rate(Direction::Download, false));
+        assert_eq!(rates, (Some(1 << 20), Some(1 << 20)));
     }
 
     #[test]

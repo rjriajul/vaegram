@@ -8,7 +8,8 @@ use crate::dispatcher::cache::BusinessHome;
 use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, base, functions};
 use crate::session::no_updates::needs_updates;
-use crate::session::transfer::invoke_part;
+use crate::session::pacer::Pacer;
+use crate::session::transfer::invoke_paced_part;
 use crate::session::{RateCategory, Session, Tally};
 
 const MAX_MIGRATIONS: usize = 3;
@@ -118,19 +119,20 @@ impl Client {
     }
 
     /// A file part on a transfer connection, inside this client's takeout session if it has one; see
-    /// `part_timeout` for `timeout`.
+    /// `part_timeout` for `timeout`, and `invoke_paced_part` for `pace`.
     pub(crate) async fn invoke_file_part<R: RemoteCall>(
         &self,
         session: &Session,
         request: &R,
         timeout: Duration,
+        pace: Option<(&Pacer, u64)>,
     ) -> Result<R::Return> {
         match self.1 {
             Some(takeout_id) => {
                 let request = functions::InvokeWithTakeout { takeout_id, query: Borrowed(request) };
-                invoke_part(session, &request, timeout).await
+                invoke_paced_part(session, &request, timeout, pace).await
             }
-            None => invoke_part(session, request, timeout).await,
+            None => invoke_paced_part(session, request, timeout, pace).await,
         }
     }
 
@@ -627,7 +629,8 @@ mod tests {
         limited(&mut client);
         let session = client.session();
         // File parts go to their connection, and the dispatcher's getDifference straight to the session.
-        client.invoke_file_part(&session, &set_typing(), crate::session::transfer::MIN_PART_TIMEOUT).await.unwrap();
+        let timeout = crate::session::transfer::MIN_PART_TIMEOUT;
+        client.invoke_file_part(&session, &set_typing(), timeout, None).await.unwrap();
         session.invoke(&set_typing()).await.unwrap();
         assert!(taken(&client).is_empty());
 

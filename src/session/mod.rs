@@ -4,6 +4,7 @@ mod events;
 pub(crate) mod internals;
 pub(crate) mod no_updates;
 mod outbox;
+pub(crate) mod pacer;
 mod pfs;
 mod rate_limiter;
 mod replay;
@@ -979,7 +980,9 @@ impl Runner {
             // The server answers a part only once the whole of it has arrived, which on a link at MIN_RATE is when
             // the bytes it isn't known to have got could have drained, and a big answer takes a while to come in;
             // so a transfer connection counts silence from the latest of those and of any byte read. It isn't
-            // watched idle.
+            // watched idle. Any write moves `drained_by` on, a resent bind too: under PFS with a request_timeout
+            // under PROBE_DEAD_AFTER, an unanswered bind goes again before the silence gets there, so a dead
+            // transfer connection is only dropped when a part on it times out.
             None if waiting => {
                 let heard = self.last_read.max(self.reader.last_byte()).max(self.writer.drained_by());
                 tokio::time::Instant::now().saturating_duration_since(heard)

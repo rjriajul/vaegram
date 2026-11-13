@@ -7,6 +7,7 @@ use std::task::Poll;
 use std::time::Duration;
 
 use super::internals::data_center::Dc;
+use super::pacer::{Direction, Pacer};
 use super::{Events, Known, Salt, Session, Tally, WeakSession, init_connection};
 use crate::client::quiet;
 use crate::connection::{MIN_RATE, Options};
@@ -35,6 +36,8 @@ pub(crate) struct TransferPool {
     epoch: AtomicU64,
     // Set by `shut`: no lease opens anything any more.
     shut: AtomicBool,
+    // One per DC and direction, shared by every transfer there.
+    pacers: Mutex<HashMap<(i32, Direction), Arc<Pacer>>>,
 }
 
 #[derive(Default)]
@@ -92,6 +95,17 @@ impl TransferPool {
     pub(crate) fn shut(&self) {
         self.shut.store(true, Ordering::Release);
         self.close_all();
+    }
+
+    /// The pacer of this client's parts to DC `dc_id` in `direction` at `rate` bytes a second, which every transfer
+    /// there shares, so two at once get the rate between them; a new one once the rate changed.
+    pub(crate) fn pacer(&self, dc_id: i32, direction: Direction, rate: u64) -> Arc<Pacer> {
+        let mut pacers = self.pacers.lock().unwrap();
+        let pacer = pacers.entry((dc_id, direction)).or_insert_with(|| Arc::new(Pacer::new(rate)));
+        if pacer.rate() != rate {
+            *pacer = Arc::new(Pacer::new(rate));
+        }
+        pacer.clone()
     }
 
     #[cfg(test)]
@@ -253,7 +267,17 @@ pub(crate) fn part_timeout(in_flight: u64) -> Duration {
 }
 
 pub(crate) async fn invoke_part<R: RemoteCall>(session: &Session, request: &R, timeout: Duration) -> Result<R::Return> {
-    invoke_part_on(session, request, timeout, false).await
+    invoke_part_on(session, request, timeout, false, None).await
+}
+
+/// [`invoke_part`], each send of it, a resend too, waiting its turn on `pace`'s pacer for its bytes first.
+pub(crate) async fn invoke_paced_part<R: RemoteCall>(
+    session: &Session,
+    request: &R,
+    timeout: Duration,
+    pace: Option<(&Pacer, u64)>,
+) -> Result<R::Return> {
+    invoke_part_on(session, request, timeout, false, pace).await
 }
 
 pub(crate) async fn invoke_cdn_part<R: RemoteCall>(
@@ -261,7 +285,7 @@ pub(crate) async fn invoke_cdn_part<R: RemoteCall>(
     request: &R,
     timeout: Duration,
 ) -> Result<R::Return> {
-    invoke_part_on(session, request, timeout, true).await
+    invoke_part_on(session, request, timeout, true, None).await
 }
 
 // One part that gives up fails a transfer of thousands, so besides what the retry policy asks for, timeouts and
@@ -272,6 +296,7 @@ async fn invoke_part_on<R: RemoteCall>(
     request: &R,
     timeout: Duration,
     cdn: bool,
+    pace: Option<(&Pacer, u64)>,
 ) -> Result<R::Return> {
     // Parts go straight to their session, so the user's request_timeout still has to count.
     let timeout = timeout.max(session.options().request_timeout);
@@ -279,6 +304,12 @@ async fn invoke_part_on<R: RemoteCall>(
     let own = session.retries_file_parts();
     let (mut timeouts, mut server_errors, mut tally) = (0, 0, Tally::default());
     loop {
+        if let Some((pacer, bytes)) = pace {
+            pacer.pace(bytes).await;
+        }
+        // Read before the request is queued: if something else drops the connection after this and the part goes
+        // on the new one, its first timeout there takes that drop for its own and doesn't restart, so it takes a
+        // second timeout to.
         let reconnects = session.reconnects();
         let result = session.invoke_with_timeout(request, timeout).await;
         let Err(e) = &result else { return result };
@@ -370,8 +401,8 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        Auth, MAX_CDN_FLOOD_WAIT, MIN_PART_TIMEOUT, Progress, Session, TransferPool, invoke_cdn_part, invoke_part,
-        part_timeout, take, try_join_all, workers,
+        Auth, MAX_CDN_FLOOD_WAIT, MIN_PART_TIMEOUT, Progress, Session, TransferPool, invoke_cdn_part,
+        invoke_paced_part, invoke_part, part_timeout, take, try_join_all, workers,
     };
     use crate::Client;
     use crate::connection::slow_link::SlowLink;
@@ -380,6 +411,7 @@ mod tests {
     use crate::errors::{Error, Result, RpcError};
     use crate::raw::{Serializable, base, functions, types};
     use crate::session::internals::data_center::Dc;
+    use crate::session::pacer::{Direction, Pacer};
     use crate::session::test_dc::{SAVE_BIG_FILE_PART, TestDc};
     use crate::session::{AutoSleep, Known, NoRetries, Request, Retry, RetryContext, RetryPolicy, Salt};
 
@@ -480,6 +512,47 @@ mod tests {
         let start = tokio::time::Instant::now();
         assert!(invoke_part(&session, &part(), MIN_PART_TIMEOUT).await.unwrap());
         assert_eq!((start.elapsed(), count(&mut sent)), (Duration::from_secs(1 + 2 + 4), 4));
+    }
+
+    #[tokio::test]
+    async fn transfers_to_one_dc_share_a_pacer_and_other_dcs_get_their_own() {
+        let pool = TransferPool::default();
+        let first = pool.pacer(2, Direction::Download, 100);
+        assert!(Arc::ptr_eq(&first, &pool.pacer(2, Direction::Download, 100)));
+        assert!(!Arc::ptr_eq(&first, &pool.pacer(4, Direction::Download, 100)));
+        assert!(!Arc::ptr_eq(&first, &pool.pacer(2, Direction::Upload, 100)));
+        let faster = pool.pacer(2, Direction::Download, 200);
+        assert_eq!(faster.rate(), 200);
+        assert!(Arc::ptr_eq(&faster, &pool.pacer(2, Direction::Download, 200)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_flood_on_one_paced_part_holds_back_only_that_part() {
+        const PART: u64 = 512 << 10;
+        let ok = || Ok(true.to_bytes());
+        let (session, mut sent) = Session::scripted(vec![rpc_error(420, "FLOOD_WAIT_3"), ok(), ok(), ok(), ok()]);
+        // A part a second.
+        let pacer = Pacer::new(PART);
+        let start = tokio::time::Instant::now();
+        let send = |file_part| {
+            let (session, pacer) = (&session, &pacer);
+            async move {
+                let part = functions::upload::SaveFilePart { file_id: 1, file_part, bytes: vec![0; PART as usize] };
+                invoke_paced_part(session, &part, MIN_PART_TIMEOUT, Some((pacer, PART))).await
+            }
+        };
+        let sent_at = async {
+            let mut at = Vec::new();
+            while at.len() < 5 && sent.recv().await.is_some() {
+                at.push(start.elapsed().as_secs());
+            }
+            at
+        };
+        let (saved, sent_at) = tokio::join!(try_join_all((0..4).map(send)), sent_at);
+        assert_eq!(saved.unwrap(), [true; 4]);
+        // Part 0 is told to wait 3 s; parts 1 to 3 go in their turns meanwhile, and part 0 again after its wait, in
+        // the turn after part 3's: a resend takes its bytes again.
+        assert_eq!(sent_at, [0, 1, 2, 3, 4]);
     }
 
     #[tokio::test(start_paused = true)]
