@@ -9,7 +9,7 @@ use crate::errors::{Error, Result, RpcError};
 use crate::raw::{RemoteCall, base, functions};
 use crate::session::no_updates::needs_updates;
 use crate::session::transfer::invoke_part;
-use crate::session::{RateCategory, Session};
+use crate::session::{RateCategory, Session, Tally};
 
 const MAX_MIGRATIONS: usize = 3;
 
@@ -117,14 +117,20 @@ impl Client {
         }
     }
 
-    /// A file part on a transfer connection, inside this client's takeout session if it has one.
-    pub(crate) async fn invoke_file_part<R: RemoteCall>(&self, session: &Session, request: &R) -> Result<R::Return> {
+    /// A file part on a transfer connection, inside this client's takeout session if it has one; see
+    /// `part_timeout` for `timeout`.
+    pub(crate) async fn invoke_file_part<R: RemoteCall>(
+        &self,
+        session: &Session,
+        request: &R,
+        timeout: Duration,
+    ) -> Result<R::Return> {
         match self.1 {
             Some(takeout_id) => {
                 let request = functions::InvokeWithTakeout { takeout_id, query: Borrowed(request) };
-                invoke_part(session, &request).await
+                invoke_part(session, &request, timeout).await
             }
-            None => invoke_part(session, request).await,
+            None => invoke_part(session, request, timeout).await,
         }
     }
 
@@ -250,17 +256,17 @@ pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(
     request: &R,
     timeout: Duration,
 ) -> Result<R::Return> {
-    let (mut retries, mut slept) = (0u32, Duration::ZERO);
+    let mut tally = Tally::default();
     loop {
         let result = session.invoke_with_timeout(request, timeout).await;
         let Err(error) = &result else { return result };
         if NO_RETRIES.try_with(|_| ()).is_ok() {
             return result;
         }
-        match session.should_retry(name, error, retries + 1, slept, None) {
+        tally.failed(error);
+        match session.should_retry(name, error, tally, None, false) {
             ControlFlow::Continue(wait) => {
-                retries += 1;
-                slept += wait;
+                tally.slept += wait;
                 tokio::time::sleep(wait).await;
             }
             ControlFlow::Break(()) => return result,
@@ -621,7 +627,7 @@ mod tests {
         limited(&mut client);
         let session = client.session();
         // File parts go to their connection, and the dispatcher's getDifference straight to the session.
-        client.invoke_file_part(&session, &set_typing()).await.unwrap();
+        client.invoke_file_part(&session, &set_typing(), crate::session::transfer::MIN_PART_TIMEOUT).await.unwrap();
         session.invoke(&set_typing()).await.unwrap();
         assert!(taken(&client).is_empty());
 

@@ -5,6 +5,7 @@ use std::pin::Pin;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::task::Poll;
+use std::time::Duration;
 
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
@@ -15,7 +16,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::session::Session;
 use crate::session::cdn::Cdn;
-use crate::session::transfer::{Progress, Report, take, try_join_all, workers};
+use crate::session::transfer::{Progress, Report, part_timeout, take, try_join_all, workers};
 use crate::types::FileLocation;
 
 // https://core.telegram.org/api/files#downloading-files: a limit that divides 1 MB, at offsets that are
@@ -198,7 +199,8 @@ impl<'a> DownloadMedia<'a> {
         let (mut migrations, mut refreshed) = (0, false);
         let (lease, file) = loop {
             let lease = client.transfer_sessions(client.media_dc(dc_id)?, workers.min(MAX_CONNECTIONS)).await?;
-            match client.invoke_file_part(&lease.sessions[0], &request).await {
+            // The first chunk goes out alone.
+            match client.invoke_file_part(&lease.sessions[0], &request, part_timeout(CHUNK as u64)).await {
                 Ok(file) => break (lease, file),
                 Err(Error::Rpc(e)) if e.is("FILE_MIGRATE") && migrations < MAX_MIGRATIONS => {
                     dc_id = e.migrate_dc().ok_or(Error::Unexpected("FILE_MIGRATE without a DC number"))?;
@@ -214,6 +216,8 @@ impl<'a> DownloadMedia<'a> {
             }
         };
         let master = Master {
+            // A connection carries its share of the workers' chunks at once, more of them when it opened fewer.
+            timeout: part_timeout(workers.div_ceil(lease.sessions.len()) as u64 * CHUNK as u64),
             client,
             sessions: &lease.sessions,
             source: self.source,
@@ -240,6 +244,7 @@ struct Master<'a> {
     source: Option<DownloadSource>,
     location: Mutex<(base::InputFileLocation, usize)>,
     renewing: tokio::sync::Mutex<()>,
+    timeout: Duration,
 }
 
 impl Master<'_> {
@@ -250,7 +255,7 @@ impl Master<'_> {
             let (location, seen) = self.location.lock().unwrap().clone();
             let request =
                 functions::upload::GetFile { precise: false, cdn_supported: false, location, offset, limit: CHUNK };
-            match self.client.invoke_file_part(session, &request).await {
+            match self.client.invoke_file_part(session, &request, self.timeout).await {
                 Ok(base::upload::File::File(f)) => return Ok(f.bytes),
                 Ok(base::upload::File::FileCdnRedirect(_)) => {
                     return Err(Error::Unexpected("upload.getFile redirected to a CDN without cdn_supported"));
@@ -316,14 +321,16 @@ async fn from_cdn(
         let cdn = Cdn::new(&master.sessions[0], redirect, (client.0.api_id, &client.0.options))?;
         let dc = client.dc(cdn.dc_id)?;
         let lease = client.cdn_sessions(dc, workers.min(MAX_CONNECTIONS)).await?;
-        Ok::<_, Error>((cdn, dc, lease))
+        // A CDN part also waits on the master DC's connection for hashes, behind its chunks.
+        let timeout = part_timeout(workers.div_ceil(lease.sessions.len()) as u64 * CHUNK as u64).max(master.timeout);
+        Ok::<_, Error>((cdn, dc, lease, timeout))
     }
     .await
     .ok();
     let (cdn, failed) = (&cdn, &AtomicBool::new(cdn.is_none()));
     let part = move |i: usize, offset: i64| async move {
-        if let (Some((cdn, dc, lease)), false) = (cdn, failed.load(Ordering::Acquire)) {
-            match cdn.part(&lease.sessions[i % lease.sessions.len()], offset, CHUNK).await {
+        if let (Some((cdn, dc, lease, timeout)), false) = (cdn, failed.load(Ordering::Acquire)) {
+            match cdn.part(&lease.sessions[i % lease.sessions.len()], offset, CHUNK, *timeout).await {
                 Ok(bytes) if fits(offset, &bytes, size).is_ok() => return Ok(bytes),
                 Ok(_) => failed.store(true, Ordering::Release),
                 Err(e) => {
@@ -941,6 +948,7 @@ mod tests {
         let (client, mut rx) = Client::scripted(replies);
         let sessions = [client.session()];
         let master = Master {
+            timeout: crate::session::transfer::MIN_PART_TIMEOUT,
             client: &client,
             sessions: &sessions,
             source: Some(DownloadSource::Message(-5, 5)),

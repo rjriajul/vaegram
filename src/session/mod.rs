@@ -25,12 +25,13 @@ pub(crate) use events::Events;
 pub use internals::data_center::Dc;
 pub use rate_limiter::{RateCategory, RateLimiter, RateLimits};
 pub use replay::Replay;
+pub(crate) use retry::Tally;
 pub use retry::{AutoSleep, NoRetries, Retry, RetryContext, RetryPolicy};
 
 use std::collections::{HashMap, VecDeque};
 use std::ops::ControlFlow;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{Notify, mpsc, oneshot};
@@ -66,7 +67,10 @@ const PING_EVERY: Duration = Duration::from_secs(60);
 // No reads at all, not even a pong, for this long: the link died without the OS noticing.
 const DEAD_AFTER: Duration = Duration::from_secs(75);
 // With requests waiting, silence gets a ping sooner and a shorter deadline, so a dead NAT mapping doesn't
-// stall them for DEAD_AFTER.
+// stall them for DEAD_AFTER. A main connection counts silence from the last packet read, so it's probed 10 s and
+// dropped 20 s after it. A transfer connection counts it from when the bytes the server isn't known to have got could
+// have reached it at MIN_RATE, counted from the last proof that bytes arrived (an answer, ack or pong): the probe is
+// a write and starts the silence over, so it's probed 10 s and dropped about 30 s after that.
 const PROBE_AFTER: Duration = Duration::from_secs(10);
 const PROBE_DEAD_AFTER: Duration = Duration::from_secs(20);
 const ACKS_THRESHOLD: usize = 10;
@@ -288,7 +292,9 @@ struct Learned {
 #[derive(Default)]
 struct Control {
     closed: AtomicBool,
-    restart: AtomicBool,
+    // Bit 0: a restart was asked for. The rest: how many times the task dropped its connection to reconnect. One
+    // word, so a restart asked for over a connection already being replaced can't outlive the reconnect.
+    restart: AtomicU64,
     // Whether the task has a working connection: set as the link goes down and comes back, cleared when it ends.
     connected: AtomicBool,
     // notify_one keeps a permit, so a runner busy elsewhere still sees the signal on its next wait.
@@ -303,6 +309,35 @@ impl Control {
 
     fn closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
+    }
+
+    fn ask_restart(&self) {
+        self.restart.fetch_or(1, Ordering::AcqRel);
+        self.wake.notify_one();
+    }
+
+    /// Asks for a restart only while the task holds the connection it held when `drops` said `seen`.
+    fn ask_restart_of(&self, seen: u64) {
+        let (held, asked) = (seen << 1, (seen << 1) | 1);
+        if self.restart.compare_exchange(held, asked, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+            self.wake.notify_one();
+        }
+    }
+
+    /// Takes a restart asked for, if any.
+    fn take_restart(&self) -> bool {
+        self.restart.fetch_and(!1, Ordering::AcqRel) & 1 == 1
+    }
+
+    /// The task drops its connection to reconnect: from now on a restart asked for over it is refused, and one
+    /// asked for before is taken by the reconnect's first attempt.
+    fn dropped(&self) {
+        self.restart.fetch_add(2, Ordering::AcqRel);
+    }
+
+    /// How many times the task dropped its connection to reconnect.
+    fn drops(&self) -> u64 {
+        self.restart.load(Ordering::Acquire) >> 1
     }
 }
 
@@ -453,8 +488,23 @@ impl Session {
         if self.requests.is_closed() || self.control.closed() {
             return Err(Error::Disconnected);
         }
-        self.control.restart.store(true, Ordering::Release);
-        self.control.wake.notify_one();
+        self.control.ask_restart();
+        Ok(())
+    }
+
+    /// How many times the connection was dropped to reconnect so far; for [`restart_since`](Self::restart_since).
+    pub(crate) fn reconnects(&self) -> u64 {
+        self.control.drops()
+    }
+
+    /// [`restart`](Self::restart), unless the connection was dropped since [`reconnects`](Self::reconnects) said
+    /// `seen`, even if it hasn't come back yet: a request sent before that goes again on the new connection, and
+    /// parts that timed out together on one dead connection cost one reconnect, not one each.
+    pub(crate) fn restart_since(&self, seen: u64) -> Result<()> {
+        if self.requests.is_closed() || self.control.closed() {
+            return Err(Error::Disconnected);
+        }
+        self.control.ask_restart_of(seen);
         Ok(())
     }
 
@@ -495,20 +545,34 @@ impl Session {
         WeakSession { requests, dc_id, auth_key, key_made, options, pfs, learned, control }
     }
 
-    /// What the retry policy says about a failed request: `Continue(wait)` to sleep `wait` and send it again. A
-    /// FLOOD_WAIT reaches the policy shortened to `cap` and at least a second.
+    /// What the retry policy says about a failed request, `error`, whose failures and sleeps so far `tally` holds,
+    /// this one counted: `Continue(wait)` to sleep `wait` and send it again. A FLOOD_WAIT reaches the policy shortened
+    /// to `cap` and at least a second; `file_part` says the request is a part of an upload or download.
     pub(crate) fn should_retry(
         &self,
         request: &'static str,
         error: &Error,
-        fail_count: u32,
-        slept_so_far: Duration,
+        tally: Tally,
         cap: Option<Duration>,
+        file_part: bool,
     ) -> ControlFlow<(), Duration> {
         let flood_wait = error.flood_wait().map(|wait| wait.max(Duration::from_secs(1)));
         let flood_wait = flood_wait.map(|wait| cap.map_or(wait, |cap| wait.min(cap)));
-        let ctx = RetryContext { request, error, fail_count, slept_so_far, flood_wait };
+        let ctx = RetryContext {
+            request,
+            error,
+            fail_count: tally.failures,
+            flood_count: tally.floods,
+            slept_so_far: tally.slept,
+            flood_wait,
+            file_part,
+        };
         self.options.retry.0.should_retry(&ctx)
+    }
+
+    /// Whether the retry policy lets file parts retry timeouts and server errors on their own.
+    pub(crate) fn retries_file_parts(&self) -> bool {
+        self.options.retry.0.retries_file_parts()
     }
 
     /// The salt and clock offset the connection last learned, to save for the next start.
@@ -812,7 +876,7 @@ impl Runner {
                     if self.control.closed() {
                         break Error::Disconnected;
                     }
-                    restarting = self.control.restart.swap(false, Ordering::AcqRel);
+                    restarting = self.control.take_restart();
                     if restarting { Err(Error::Disconnected) } else { Ok(()) }
                 }
             };
@@ -848,6 +912,7 @@ impl Runner {
     async fn reconnect(&mut self, requests: &mpsc::UnboundedReceiver<Request>, renewing: bool, restarting: bool) {
         let mut delay = RECONNECT_DELAY;
         let mut attempt = 0;
+        self.control.dropped();
         // A session whose update receiver is gone (replaced by a DC switch, or dropped by a raw caller) still serves
         // its requests, so it reconnects like any other; only the dropped handles end it.
         while !requests.is_closed() && !self.control.closed() {
@@ -856,7 +921,7 @@ impl Runner {
                 self.link(false);
             }
             // A restart asked for during an outage is this attempt.
-            self.control.restart.store(false, Ordering::Release);
+            self.control.take_restart();
             if !skips_backoff(renewing, restarting, attempt) {
                 tokio::select! {
                     () = tokio::time::sleep(jitter(delay)) => {}
@@ -877,6 +942,7 @@ impl Runner {
                 self.use_temp_key(key);
             }
             (self.reader, self.writer) = conn.into_split();
+            self.writer.sent_before(self.msg_ids.last());
             self.heard();
             if self.resend_pending().await.is_ok() {
                 if !(renewing && attempt == 1) {
@@ -906,18 +972,26 @@ impl Runner {
     }
 
     async fn tick(&mut self) -> Result<()> {
-        // Transfer connections rely on their per-part timeout: a slow part keeps the server silent.
-        if self.updates.is_some() {
-            // A bind holds back the API requests queued behind it, so they wait on the server as much as sent ones.
-            let waiting = !self.pending.is_empty() || (self.unbound() && !self.queue.is_empty());
-            let silent = self.last_read.elapsed();
-            if silent > DEAD_AFTER || (waiting && silent > PROBE_DEAD_AFTER) {
-                return Err(Error::Disconnected);
+        // A bind holds back the API requests queued behind it, so they wait on the server as much as sent ones.
+        let waiting = !self.pending.is_empty() || (self.unbound() && !self.queue.is_empty());
+        let silent = match self.updates {
+            Some(_) => self.last_read.elapsed(),
+            // The server answers a part only once the whole of it has arrived, which on a link at MIN_RATE is when
+            // the bytes it isn't known to have got could have drained, and a big answer takes a while to come in;
+            // so a transfer connection counts silence from the latest of those and of any byte read. It isn't
+            // watched idle.
+            None if waiting => {
+                let heard = self.last_read.max(self.reader.last_byte()).max(self.writer.drained_by());
+                tokio::time::Instant::now().saturating_duration_since(heard)
             }
-            if waiting && silent > PROBE_AFTER && !self.probed {
-                self.probed = true;
-                self.queue_ping();
-            }
+            None => Duration::ZERO,
+        };
+        if silent > DEAD_AFTER || (waiting && silent > PROBE_DEAD_AFTER) {
+            return Err(Error::Disconnected);
+        }
+        if waiting && silent > PROBE_AFTER && !self.probed {
+            self.probed = true;
+            self.queue_ping();
         }
         self.drop_abandoned();
         if self.service.is_empty() && !self.bind_due() { Ok(()) } else { self.flush().await }
@@ -980,7 +1054,7 @@ impl Runner {
             let req = types::MsgsStateReq { msg_ids: ids };
             let (msg_id, seq_no) = (self.msg_ids.next(), self.seq.next(true));
             self.seal(msg_id, seq_no, &req.to_bytes());
-            self.writer.finish().await?;
+            self.write_packet().await?;
             self.checking.insert(msg_id, req.msg_ids);
         }
         Ok(())
@@ -1208,6 +1282,7 @@ impl Runner {
             Some(MSGS_ACK) => self.handle_msgs_ack(body),
             Some(PONG) => {
                 if let Ok(base::Pong::Pong(p)) = base::Pong::from_bytes(body) {
+                    self.writer.arrived(p.msg_id);
                     self.answer(p.msg_id, Ok(body.to_vec()));
                 }
             }
@@ -1224,6 +1299,8 @@ impl Runner {
         let Some(req_msg_id) = body.get(4..12).map(|b| i64::from_le_bytes(b.try_into().unwrap())) else {
             return;
         };
+        // Answered, so the server got the request: and, as this stream is in order, all written before it.
+        self.writer.arrived(req_msg_id);
         let mut result = body[12..].to_vec();
         if constructor_id(&result) == Some(gzip_packed::ID) {
             match gzip_packed::unpack(&result) {

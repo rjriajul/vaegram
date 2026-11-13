@@ -20,6 +20,15 @@ pub enum ClientEvent {
         /// How many connection attempts it took, counting the one that worked; 1 means the first try.
         attempt: u32,
     },
+    /// A file-transfer connection to `dc` couldn't be opened. The transfer goes on over the connections that did;
+    /// only when none did does it fail, with one of the errors.
+    #[non_exhaustive]
+    ConnectFailed {
+        /// Id of the data center the connection was for.
+        dc: i32,
+        /// Why it couldn't be opened.
+        error: Arc<Error>,
+    },
     /// A packet from Telegram, or one message of a container, was thrown away unread, and the connection carries on.
     #[non_exhaustive]
     PacketDropped {

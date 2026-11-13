@@ -27,6 +27,11 @@ impl MsgId {
         self.last = first + 4 * (n as i64 - 1);
         first
     }
+
+    /// The newest msg_id handed out, or 0 before the first.
+    pub(crate) fn last(&self) -> i64 {
+        self.last
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 use std::pin::Pin;
 use std::sync::atomic::AtomicI32;
+use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
 
@@ -8,7 +9,7 @@ use crate::crypto::random;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::session::Session;
-use crate::session::transfer::{Progress, Report, invoke_part, take, try_join_all, workers};
+use crate::session::transfer::{Progress, Report, invoke_part, part_timeout, take, try_join_all, workers};
 use crate::types::Upload;
 
 // https://core.telegram.org/api/files#uploading-files
@@ -75,9 +76,12 @@ impl<'a> SaveFile<'a> {
         let (parts, workers, connections) = self.client.upload_limits(size).await?;
         let home = self.client.dc(self.client.session().dc_id())?;
         let lease = self.client.transfer_sessions(home, connections).await?;
-        let upload = Parts { source, size, count: parts, big: size > BIG_FILE_SIZE, id: i64::from_le_bytes(random()) };
-        let (next, progress) = (AtomicI32::new(0), Progress::new(self.progress, size));
         let sessions = &lease.sessions;
+        // A connection carries its share of the workers' parts at once, more of them when it opened fewer.
+        let timeout = part_timeout(workers.div_ceil(sessions.len()) as u64 * PART_SIZE);
+        let (big, id) = (size > BIG_FILE_SIZE, i64::from_le_bytes(random()));
+        let upload = Parts { source, size, count: parts, big, id, timeout };
+        let (next, progress) = (AtomicI32::new(0), Progress::new(self.progress, size));
         try_join_all((0..workers).map(|i| upload.send(&sessions[i % sessions.len()], &next, &progress))).await?;
         Ok(upload.input_file(name))
     }
@@ -117,6 +121,7 @@ struct Parts<'a> {
     count: i32,
     big: bool,
     id: i64,
+    timeout: Duration,
 }
 
 impl Parts<'_> {
@@ -158,12 +163,12 @@ impl Parts<'_> {
             let saved = if self.big {
                 let total = self.count;
                 let request = functions::upload::SaveBigFilePart { file_id, file_part, file_total_parts: total, bytes };
-                let saved = invoke_part(session, &request).await;
+                let saved = invoke_part(session, &request, self.timeout).await;
                 bytes = request.bytes;
                 saved
             } else {
                 let request = functions::upload::SaveFilePart { file_id, file_part, bytes };
-                let saved = invoke_part(session, &request).await;
+                let saved = invoke_part(session, &request, self.timeout).await;
                 bytes = request.bytes;
                 saved
             };
@@ -196,6 +201,7 @@ mod tests {
     use crate::errors::{Error, RpcError};
     use crate::raw::functions::users::GetUsers;
     use crate::raw::{Identifiable, Serializable, base, types};
+    use crate::session::transfer::MIN_PART_TIMEOUT;
     use crate::types::Upload;
 
     fn premium_user() -> Vec<u8> {
@@ -255,7 +261,7 @@ mod tests {
     async fn split_from(source: Source<'_>, data: &[u8]) -> Vec<usize> {
         let count = part_count(data.len() as u64, false).unwrap();
         let big = data.len() as u64 > BIG_FILE_SIZE;
-        let parts = Parts { source, size: data.len() as u64, count, big, id: 7 };
+        let parts = Parts { source, size: data.len() as u64, count, big, id: 7, timeout: MIN_PART_TIMEOUT };
         let (next, mut sizes, mut joined, mut buf) = (AtomicI32::new(0), Vec::new(), Vec::new(), Vec::new());
         while let Some(n) = parts.read(&next, &mut buf).await.unwrap() {
             assert_eq!(n as usize, sizes.len());
@@ -287,7 +293,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_short_stream_fails_with_unexpected_eof() {
-        let parts = Parts { source: stream(b"hello"), size: 10, count: 1, big: false, id: 7 };
+        let source = stream(b"hello");
+        let parts = Parts { source, size: 10, count: 1, big: false, id: 7, timeout: MIN_PART_TIMEOUT };
         let e = parts.read(&AtomicI32::new(0), &mut Vec::new()).await.err();
         assert!(matches!(&e, Some(Error::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof), "{e:?}");
     }
@@ -338,7 +345,7 @@ mod tests {
         let file = |size: u64| {
             let big = size > BIG_FILE_SIZE;
             let count = part_count(size, false).unwrap();
-            Parts { source: Source::Bytes(&[]), size, count, big, id: 7 }.input_file("a.bin")
+            Parts { source: Source::Bytes(&[]), size, count, big, id: 7, timeout: MIN_PART_TIMEOUT }.input_file("a.bin")
         };
         let base::InputFile::InputFile(small) = file(BIG_FILE_SIZE) else { panic!("10 MB is still a small file") };
         assert_eq!((small.id, small.parts, small.name.as_str(), small.md5_checksum.as_str()), (7, 20, "a.bin", ""));

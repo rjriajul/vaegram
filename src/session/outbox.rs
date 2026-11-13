@@ -4,7 +4,7 @@ use super::{ClientEvent, Pending, Runner, constructor_id};
 use crate::crypto::mtproto;
 use crate::errors::Result;
 use crate::raw::core::msg_container;
-use crate::raw::{Serializable, types};
+use crate::raw::{Identifiable, Serializable, functions, types};
 
 // The spec allows 1024 messages per container; these limits stay below it. A body over the size cap
 // goes alone, so big uploads don't hold up small requests.
@@ -14,6 +14,18 @@ pub(super) const MAX_CONTAINER_BYTES: usize = 1 << 15;
 pub(super) const MAX_IDS: usize = 8192;
 // msg_id, seqno and length in front of each message in a container.
 const HEADER: usize = 16;
+const GET_FILE: u32 = <functions::upload::GetFile as Identifiable>::CONSTRUCTOR_ID;
+const TAKEOUT: u32 = <functions::InvokeWithTakeout<functions::Ping> as Identifiable>::CONSTRUCTOR_ID;
+
+// Two upload.getFile in one container draw FLOOD_WAITs, as mtcute found, so each goes in a container of its own.
+fn is_get_file(body: &[u8]) -> bool {
+    match constructor_id(body) {
+        Some(GET_FILE) => true,
+        // Inside a takeout session: the constructor and the takeout id come first.
+        Some(TAKEOUT) => constructor_id(body.get(12..).unwrap_or_default()) == Some(GET_FILE),
+        _ => false,
+    }
+}
 
 fn put_header(buf: &mut Vec<u8>, msg_id: i64, seq_no: i32, len: usize) {
     buf.extend_from_slice(&msg_id.to_le_bytes());
@@ -24,11 +36,19 @@ fn put_header(buf: &mut Vec<u8>, msg_id: i64, seq_no: i32, len: usize) {
 impl Runner {
     pub(super) async fn flush(&mut self) -> Result<()> {
         if self.bind_packet() {
-            self.writer.finish().await?;
+            self.write_packet().await?;
         }
         while self.pack() {
-            self.writer.finish().await?;
+            self.write_packet().await?;
         }
+        Ok(())
+    }
+
+    /// Writes the packet just sealed, which carries msg_ids newer than any before it and none newer than the last
+    /// handed out, so a server message referring to one of them places it.
+    pub(super) async fn write_packet(&mut self) -> Result<()> {
+        self.writer.finish().await?;
+        self.writer.sent(self.msg_ids.last());
         Ok(())
     }
 
@@ -75,17 +95,20 @@ impl Runner {
             size += HEADER + body.len();
             msgs.push((body, false, None));
         }
+        let mut get_file = false;
         loop {
-            let len = match (self.service.front(), self.queue.front()) {
-                (Some((body, _)), _) => body.len(),
+            let (len, asks_file) = match (self.service.front(), self.queue.front()) {
+                (Some((body, _)), _) => (body.len(), false),
                 // No API request goes out under a temp key that isn't bound yet or is being replaced: the bind goes
                 // alone, service messages (acks, pings, state requests) carry no API call.
-                (None, Some(p)) if !self.temp_key_stale() => p.body.len(),
+                (None, Some(p)) if !self.temp_key_stale() => (p.body.len(), is_get_file(&p.body)),
                 _ => break,
             };
-            if msgs.len() == MAX_CONTAINER_MSGS || (!msgs.is_empty() && size + HEADER + len > MAX_CONTAINER_BYTES) {
+            let full = msgs.len() == MAX_CONTAINER_MSGS || size + HEADER + len > MAX_CONTAINER_BYTES;
+            if (!msgs.is_empty() && full) || (get_file && asks_file) {
                 break;
             }
+            get_file |= asks_file;
             size += HEADER + len;
             msgs.push(match self.service.pop_front() {
                 Some((body, content_related)) => (body, content_related, None),

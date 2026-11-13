@@ -6,6 +6,9 @@ use crate::errors::{Error, Result};
 /// The largest packet a connection reads, and the largest request body a session sends.
 pub(crate) const MAX_PACKET: usize = 16 << 20;
 
+// What a buffer keeps once a packet bigger than any file part has been read out of it.
+const KEEP: usize = 4 << 20;
+
 /// Read bytes; taken packets leave the front only once they fill half the buffer, so each byte moves once.
 #[derive(Debug, Default)]
 pub struct RecvBuf {
@@ -37,6 +40,10 @@ impl RecvBuf {
             }
             self.data.drain(..self.start);
             self.start = 0;
+        }
+        // Only with little left unread: shrinking under a big packet still arriving would copy it on every read.
+        if self.data.capacity() > KEEP && self.data.len() <= KEEP / 2 {
+            self.data.shrink_to(KEEP);
         }
         &mut self.data
     }
@@ -402,5 +409,19 @@ mod tests {
         let frame = [4u32.to_le_bytes(), i32::MIN.to_le_bytes()].concat();
         let read = trickle(Transport::Intermediate, &frame);
         assert!(matches!(read, Err(Error::Transport(i32::MAX))), "{read:?}");
+    }
+
+    #[test]
+    fn gives_back_what_a_big_packet_took_once_it_is_read() {
+        let mut tx = Framing::new(Transport::Intermediate);
+        let (mut rx, mut buf) = (Framing::new(Transport::Intermediate), RecvBuf::default());
+        let big = framed_by(&mut tx, &vec![7; 12 << 20]);
+        let next = framed_by(&mut tx, &[8; 1000]);
+        buf.extend_from_slice(&big);
+        buf.extend_from_slice(&next[..10]);
+        assert_eq!(rx.decode(&mut buf).unwrap().map(|p| p.len()), Some(12 << 20));
+        buf.extend_from_slice(&next[10..]);
+        assert!(buf.data.capacity() <= KEEP, "{} bytes kept", buf.data.capacity());
+        assert_eq!(rx.decode(&mut buf).unwrap(), Some(vec![8; 1000]));
     }
 }
