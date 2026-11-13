@@ -273,8 +273,7 @@ mod tests {
     async fn maps_builder_to_request() {
         let client = Client::offline();
         let send = client.send_ephemeral_message(-1, 1000, "hi").callback_query_id(55).reply_to_ephemeral(3);
-        let request =
-            send.protect_content().request((-1, peer()), receiver(), "hi".into(), None, None).await.unwrap();
+        let request = send.protect_content().request((-1, peer()), receiver(), "hi".into(), None, None).await.unwrap();
         assert_eq!(
             (request.peer, request.receiver_id, request.query_id, request.message.as_str(), request.noforwards),
             (Some(peer()), receiver(), Some(55), "hi", true)

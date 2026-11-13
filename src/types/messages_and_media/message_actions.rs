@@ -5,8 +5,8 @@ use crate::methods::{
     SendEphemeralMessage, StopMessageLiveLocation, SummarizeMessage,
 };
 use crate::types::{
-    CallbackQuery, EphemeralMessage, InlineKeyboardMarkup, InputChecklist, InputMedia, InvoiceRef, Message, MessageText,
-    PeerRef, Text,
+    CallbackQuery, EphemeralMessage, InlineKeyboardMarkup, InputChecklist, InputMedia, InvoiceRef, Message,
+    MessageText, PeerRef, Text,
 };
 use crate::utils::channel_id_of;
 
