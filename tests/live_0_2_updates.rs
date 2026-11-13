@@ -1,4 +1,5 @@
-// Run with `cargo test --test live_0_2_updates -- --ignored`; see tests/support/mod.rs for the env.
+// Run with `cargo test --test live_0_2_updates -- --ignored --test-threads=1`; see tests/support/mod.rs for the env.
+// These tests share session files, so run with `--test-threads=1`.
 
 #[allow(dead_code)]
 mod support;
@@ -95,6 +96,10 @@ async fn on_reactions_receives_bot_reaction() {
 #[ignore = "uses a logged-in user session, a bot token and VAEGRAM_CHAT_ID with pin rights"]
 async fn on_pinned_messages_sees_pin_and_unpin() {
     let (Some(kit), Some(chat_id)) = (support::Kit::from_env().await, chat_id()) else { return };
+    if chat_id > -1_000_000_000_000 {
+        eprintln!("skipped: VAEGRAM_CHAT_ID must be a supergroup so both accounts share message ids and chat_ids");
+        return;
+    }
     let bot_me = kit.bot.get_me().await.unwrap();
     let bot_member = kit.user.client.get_chat_member(chat_id, bot_me.id).await.unwrap();
     let bot_can_pin = bot_member.status == ChatMemberStatus::Administrator
@@ -129,25 +134,53 @@ async fn on_pinned_messages_sees_pin_and_unpin() {
         rx: &mut mpsc::UnboundedReceiver<(bool, Vec<i32>)>,
         want_pinned: bool,
         sent_id: i32,
-    ) -> Result<(), &'static str> {
-        // Telegram may withhold message-less channel updates from push; delivery can come either by push or through
-        // periodic gap recovery (`getChannelDifference`), as a client with the chat open does.
-        let deadline = tokio::time::Instant::now() + WAIT;
+        allow_recovery: bool,
+    ) -> Result<&'static str, &'static str> {
+        // What this proves: `on_pinned_messages` delivers both pin and unpin for the supergroup. Because Telegram may
+        // withhold message-less channel updates from push, live push is only exercised when Telegram sends the update
+        // during the initial 6 s push-only window; a user listener polls `recover_gaps` (`getChannelDifference`) after
+        // that, whereas a bot listener must receive both updates by push alone.
+        let deadline = tokio::time::sleep(WAIT);
+        tokio::pin!(deadline);
+        let push_only = tokio::time::sleep(Duration::from_secs(6));
+        tokio::pin!(push_only);
         let mut poll = tokio::time::interval(Duration::from_secs(2));
         poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        poll.tick().await;
+        let mut recovered = false;
+
         loop {
-            tokio::select! {
-                biased;
-                msg = rx.recv() => match msg {
-                    Some((is_pinned, ids)) if is_pinned == want_pinned && ids.contains(&sent_id) => return Ok(()),
-                    Some(_) => {}
-                    None => return Err("pinned channel closed"),
-                },
-                _ = poll.tick() => {
-                    let _ = listener.recover_gaps().chat_ids([chat_id]).await;
+            if !allow_recovery || !recovered {
+                tokio::select! {
+                    biased;
+                    msg = rx.recv() => match msg {
+                        Some((is_pinned, ids)) if is_pinned == want_pinned && ids.contains(&sent_id) => {
+                            return Ok(if recovered { "recovery" } else { "push" });
+                        }
+                        Some(_) => {}
+                        None => return Err("pinned channel closed"),
+                    },
+                    _ = &mut push_only, if allow_recovery && !recovered => {
+                        recovered = true;
+                        let _ = listener.recover_gaps().chat_ids([chat_id]).await;
+                        poll.reset();
+                    }
+                    _ = &mut deadline => return Err("timed out"),
                 }
-                _ = tokio::time::sleep_until(deadline) => return Err("timed out"),
+            } else {
+                tokio::select! {
+                    biased;
+                    msg = rx.recv() => match msg {
+                        Some((is_pinned, ids)) if is_pinned == want_pinned && ids.contains(&sent_id) => {
+                            return Ok("recovery");
+                        }
+                        Some(_) => {}
+                        None => return Err("pinned channel closed"),
+                    },
+                    _ = poll.tick() => {
+                        let _ = listener.recover_gaps().chat_ids([chat_id]).await;
+                    }
+                    _ = &mut deadline => return Err("timed out"),
+                }
             }
         }
     }
@@ -158,23 +191,33 @@ async fn on_pinned_messages_sees_pin_and_unpin() {
         let listener = listener.clone();
         let sent_id = sent.id;
         async move {
-            if let Err(e) = actor.pin_chat_message(chat_id, sent_id).disable_notification().await {
-                assert!(support::flood_limited(&e, "pinning a message"), "{e:?}");
-                return;
-            }
-            let pinned = wait_pinned(&listener, chat_id, &mut rx, true, sent_id).await;
-            actor.unpin_chat_message(chat_id, sent_id).await.unwrap();
-            let unpinned = wait_pinned(&listener, chat_id, &mut rx, false, sent_id).await;
-            if pinned.is_err() || unpinned.is_err() {
-                let diag = format!(
+            let diag = || {
+                format!(
                     "bot_can_pin={bot_can_pin} (actor={actor_label}, listener={listener_label}, sent_id={sent_id}, \
                      listener_events={:?}, listener_client_events={:?})",
                     *listener_events.lock().unwrap(),
                     *listener_client_events.lock().unwrap(),
-                );
-                assert!(pinned.is_ok(), "pin never reached on_pinned_messages: {pinned:?}; {diag}");
-                assert!(unpinned.is_ok(), "unpin never reached on_pinned_messages: {unpinned:?}; {diag}");
+                )
+            };
+            if let Err(e) = actor.pin_chat_message(chat_id, sent_id).disable_notification().await {
+                assert!(support::flood_limited(&e, "pinning a message"), "{e:?}");
+                return;
             }
+            let pin_via = match wait_pinned(&listener, chat_id, &mut rx, true, sent_id, bot_can_pin).await {
+                Ok(via) => via,
+                Err(why) => panic!("pin never reached on_pinned_messages: {why}; {}", diag()),
+            };
+            if let Err(e) = actor.unpin_chat_message(chat_id, sent_id).await {
+                assert!(support::flood_limited(&e, "unpinning a message"), "{e:?}");
+                return;
+            }
+            let unpin_via = match wait_pinned(&listener, chat_id, &mut rx, false, sent_id, bot_can_pin).await {
+                Ok(via) => via,
+                Err(why) => {
+                    panic!("unpin never reached on_pinned_messages (pin via {pin_via}): {why}; {}", diag());
+                }
+            };
+            eprintln!("on_pinned_messages: pin via {pin_via}, unpin via {unpin_via}");
         }
     })
     .await;

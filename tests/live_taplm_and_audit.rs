@@ -1,29 +1,118 @@
-// Run with `cargo test --test live_taplm_and_audit -- --ignored`; see tests/support/mod.rs for the env.
+// Run with `cargo test --test live_taplm_and_audit -- --ignored --test-threads=1`; see tests/support/mod.rs.
+// These tests share session files, so run with `--test-threads=1`.
 
 #[allow(dead_code)]
 mod support;
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
 use vaegram::enums::FileType;
 use vaegram::filters;
+use vaegram::raw::core::gzip_packed;
+use vaegram::raw::{Identifiable, Serializable, base, functions, types};
+use vaegram::storage::recording;
 use vaegram::types::{
     ButtonStyle, FileSource, InlineKeyboardButton, InlineKeyboardMarkup, InputRichMessage, KeyboardButton,
-    ReplyKeyboardMarkup, ReplyMarkup, RichBlock, RichBlockKind, RichButton, Text,
+    ReplyKeyboardMarkup, ReplyMarkup, RichBlock, RichBlockKind, RichButton, RichText, RichTextKind, Text,
 };
 use vaegram::{Client, Error};
 
 const WAIT: Duration = Duration::from_secs(30);
 
-async fn custom_emoji_id(client: &Client) -> i64 {
-    if let Ok(id) = std::env::var("VAEGRAM_CUSTOM_EMOJI_ID") {
-        return id.parse().expect("VAEGRAM_CUSTOM_EMOJI_ID must be an integer document id");
+async fn custom_emoji_with_alt(client: &Client) -> (i64, String) {
+    let id = match std::env::var("VAEGRAM_CUSTOM_EMOJI_ID") {
+        Ok(id) => id.parse().expect("VAEGRAM_CUSTOM_EMOJI_ID must be an integer document id"),
+        Err(_) => {
+            let icons = client.get_forum_topic_icon_stickers().await.unwrap();
+            icons.first().expect("get_forum_topic_icon_stickers returned no stickers").id
+        }
+    };
+    let stickers = client.get_custom_emoji_stickers(&[id]).await.unwrap();
+    let alt = stickers.into_iter().next().and_then(|s| s.emoji).expect("custom emoji sticker has no alt emoji");
+    (id, alt)
+}
+
+fn find_custom_emoji(text: &RichText) -> Option<(i64, String)> {
+    match text.kind() {
+        RichTextKind::CustomEmoji { id, alt, .. } => Some((id, alt)),
+        RichTextKind::Concat(parts) => parts.iter().find_map(find_custom_emoji),
+        RichTextKind::Bold(t)
+        | RichTextKind::Italic(t)
+        | RichTextKind::Underline(t)
+        | RichTextKind::Strikethrough(t)
+        | RichTextKind::Spoiler(t)
+        | RichTextKind::Subscript(t)
+        | RichTextKind::Superscript(t)
+        | RichTextKind::Marked(t)
+        | RichTextKind::Code(t)
+        | RichTextKind::BankCard(t)
+        | RichTextKind::TonAddress(t)
+        | RichTextKind::Mention(t)
+        | RichTextKind::Hashtag(t)
+        | RichTextKind::Cashtag(t)
+        | RichTextKind::BotCommand(t)
+        | RichTextKind::Url { text: t, .. }
+        | RichTextKind::AnchorLink { text: t, .. }
+        | RichTextKind::Email { text: t, .. }
+        | RichTextKind::Phone { text: t, .. }
+        | RichTextKind::TextMention { text: t, .. }
+        | RichTextKind::Reference { text: t, .. }
+        | RichTextKind::DateTime { text: t, .. }
+        | RichTextKind::Diff { text: t, .. }
+        | RichTextKind::Button { text: t, .. } => find_custom_emoji(&t),
+        RichTextKind::Empty | RichTextKind::Plain(_) | RichTextKind::Anchor { .. } | RichTextKind::Math(_) => None,
+        _ => None,
     }
-    let icons = client.get_forum_topic_icon_stickers().await.unwrap();
-    let sticker = icons.first().expect("get_forum_topic_icon_stickers returned no stickers");
-    sticker.id
+}
+
+fn assert_rich_emoji_paragraph(block: &RichBlock, prefix: &str, emoji_id: i64, alt: &str, what: &str) {
+    let RichBlockKind::Paragraph(t) = block.kind() else {
+        panic!("{what}: expected paragraph block, got {:?}", block.kind());
+    };
+    if let Some((got_id, _got_alt)) = find_custom_emoji(&t) {
+        assert_eq!(got_id, emoji_id, "{what}: custom emoji document id mismatch");
+        assert!(t.text().starts_with(prefix), "{what}: expected prefix {prefix:?}, got {:?}", t.text());
+    } else {
+        assert_eq!(
+            t.text(),
+            format!("{prefix}{alt}"),
+            "{what}: downgraded custom emoji must carry the emoji document's alt {alt:?}, not placeholder"
+        );
+        eprintln!(
+            "note ({what}): Telegram downgraded CustomEmoji({emoji_id}) to plain alt {alt:?} \
+             (requires bot owner Telegram Premium or a Fragment additional username)"
+        );
+    }
+}
+
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn unpack_if_gzip(body: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    if !body.starts_with(&gzip_packed::ID.to_le_bytes()) {
+        return std::borrow::Cow::Borrowed(body);
+    }
+    match gzip_packed::unpack(body) {
+        Ok(plain) => std::borrow::Cow::Owned(plain),
+        Err(_) => std::borrow::Cow::Borrowed(body),
+    }
+}
+
+/// Checks whether the recording contains an outgoing `messages.sendMessage` whose body holds `button` bytes.
+fn has_send_message_with(records: &[recording::Record], button: &[u8]) -> bool {
+    let id_bytes = functions::messages::SendMessage::CONSTRUCTOR_ID.to_le_bytes();
+    records.iter().filter(|r| r.outgoing).any(|rec| {
+        let body = unpack_if_gzip(&rec.body);
+        body.windows(4).any(|w| w == id_bytes) && body.windows(button.len()).any(|w| w == button)
+    })
 }
 
 async fn bot_id_for_user(kit: &support::Kit) -> i64 {
@@ -38,11 +127,43 @@ async fn bot_id_for_user(kit: &support::Kit) -> i64 {
 #[tokio::test]
 #[ignore = "uses a logged-in user session and a bot token"]
 async fn bot_custom_emoji_in_button_text() {
-    let Some(kit) = support::Kit::from_env().await else { return };
-    let user = &kit.user.client;
+    let (Ok(session), Ok(token)) = (std::env::var("VAEGRAM_USER_SESSION"), std::env::var("VAEGRAM_BOT_TOKEN")) else {
+        eprintln!("skipped: set VAEGRAM_USER_SESSION (a logged-in session name) and VAEGRAM_BOT_TOKEN");
+        return;
+    };
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let (api_id, api_hash): (i32, String) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
+
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
+    let rec_path = std::env::temp_dir().join(format!("vaegram-btn-icon-{}-{nonce}.rec", std::process::id()));
+    let _ = std::fs::remove_file(&rec_path);
+    let _rec_guard = RemoveOnDrop(rec_path.clone());
+
+    let user = Client::builder(session, api_id, api_hash.clone()).catch_up(false).connect().await.unwrap();
+    let bot_builder =
+        Client::builder("target/vaegram-kit-bot", api_id, api_hash).bot_token(token).catch_up(false).record(&rec_path);
+    let Some(bot) = support::start_bot(bot_builder).await else { return };
+
+    let (started_tx, mut started) = mpsc::unbounded_channel();
+    for client in [&user, &bot] {
+        let started_tx = started_tx.clone();
+        client.on_start(move |_| {
+            let _ = started_tx.send(());
+            async { Ok(()) }
+        });
+        let client = client.clone();
+        tokio::spawn(async move { client.run().await });
+    }
+    for _ in 0..2 {
+        tokio::time::timeout(WAIT, started.recv()).await.expect("a client's run didn't start");
+    }
+    let _disconnect = support::Disconnect(vec![user.clone(), bot.clone()]);
+
     let user_id = user.get_me().await.unwrap().id;
-    let bot_id = bot_id_for_user(&kit).await;
-    let emoji_id = custom_emoji_id(&kit.bot).await;
+    let bot_me = bot.get_me().await.unwrap();
+    let bot_username = bot_me.username.as_deref().expect("the kit bot has no username");
+    let bot_id = user.resolve_username(bot_username).await.unwrap();
+    let (emoji_id, _alt) = custom_emoji_with_alt(&bot).await;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     user.on_message(filters::private() & filters::user(bot_id), move |m| {
@@ -53,8 +174,9 @@ async fn bot_custom_emoji_in_button_text() {
 
     let ids = Arc::new(Mutex::new(Vec::new()));
     let steps = tokio::spawn({
-        let bot = kit.bot.clone();
+        let bot = bot.clone();
         let ids = ids.clone();
+        let rec_path = rec_path.clone();
         async move {
             let inline_btn = InlineKeyboardButton::callback("Tap", "ce_btn")
                 .style(ButtonStyle::Primary)
@@ -76,6 +198,43 @@ async fn bot_custom_emoji_in_button_text() {
             let user_reply = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
             ids.lock().unwrap().push(user_reply.id);
 
+            // Prove the wire request carried each full button (style flags + icon id); `Message::from_updates` echoes
+            // local `reply_markup` on `UpdateShortSentMessage`, so only the recording proves what went on the wire.
+            let expected_inline =
+                base::KeyboardInlineButton::KeyboardInlineButton(Box::new(types::KeyboardInlineButton {
+                    style: Some(base::KeyboardButtonStyle::KeyboardButtonStyle(Box::new(types::KeyboardButtonStyle {
+                        bg_primary: true,
+                        bg_danger: false,
+                        bg_success: false,
+                        icon: Some(emoji_id),
+                    }))),
+                    text: "Tap".into(),
+                    r#type: base::InlineButtonType::InlineButtonTypeCallback(Box::new(
+                        types::InlineButtonTypeCallback { requires_password: false, data: b"ce_btn".to_vec() },
+                    )),
+                }))
+                .to_bytes();
+            let expected_reply = base::KeyboardButton::KeyboardButton(Box::new(types::KeyboardButton {
+                style: Some(base::KeyboardButtonStyle::KeyboardButtonStyle(Box::new(types::KeyboardButtonStyle {
+                    bg_primary: false,
+                    bg_danger: false,
+                    bg_success: false,
+                    icon: Some(emoji_id),
+                }))),
+                text: "Reply".into(),
+                r#type: base::ButtonType::ButtonTypeDefault,
+            }))
+            .to_bytes();
+            let records = recording::read(&rec_path).unwrap();
+            assert!(
+                has_send_message_with(&records, &expected_inline),
+                "outgoing messages.sendMessage did not carry serialized inline button with style and icon"
+            );
+            assert!(
+                has_send_message_with(&records, &expected_reply),
+                "outgoing messages.sendMessage did not carry serialized reply button with icon"
+            );
+
             let Some(ReplyMarkup::Inline(read_inline)) = user_inline.reply_markup() else {
                 panic!("expected inline reply markup on received message");
             };
@@ -87,30 +246,37 @@ async fn bot_custom_emoji_in_button_text() {
             };
             assert_eq!(read_reply.rows[0][0].text, "Reply");
 
-            let sent_inline_icon = match sent_inline.reply_markup() {
-                Some(ReplyMarkup::Inline(m)) => m.rows[0][0].icon_custom_emoji_id,
-                _ => None,
+            // Re-fetch the bot's own messages via `get_messages` to inspect Telegram's stored copy rather than the
+            // local echo.
+            let bot_fetched = bot.get_messages(user_id, &[sent_inline.id, sent_reply.id]).await.unwrap();
+            let bot_inline = bot_fetched[0].as_ref().expect("bot inline message missing from get_messages");
+            let bot_reply = bot_fetched[1].as_ref().expect("bot reply message missing from get_messages");
+            let Some(ReplyMarkup::Inline(stored_inline)) = bot_inline.reply_markup() else {
+                panic!("expected inline reply markup on bot's stored message");
             };
-            let sent_reply_icon = match sent_reply.reply_markup() {
-                Some(ReplyMarkup::Keyboard(m)) => m.rows[0][0].icon_custom_emoji_id,
-                _ => None,
+            assert_eq!(stored_inline.rows[0][0].text, "Tap");
+            assert_eq!(stored_inline.rows[0][0].style, ButtonStyle::Primary);
+
+            let Some(ReplyMarkup::Keyboard(stored_reply)) = bot_reply.reply_markup() else {
+                panic!("expected reply keyboard markup on bot's stored message");
             };
+            assert_eq!(stored_reply.rows[0][0].text, "Reply");
+
+            let bot_inline_icon = stored_inline.rows[0][0].icon_custom_emoji_id;
+            let bot_reply_icon = stored_reply.rows[0][0].icon_custom_emoji_id;
             let user_inline_icon = read_inline.rows[0][0].icon_custom_emoji_id;
             let user_reply_icon = read_reply.rows[0][0].icon_custom_emoji_id;
-            // What the bot sent must carry the id whatever Telegram then shows the user: Telegram echoes it in the
-            // bot's own copy, so a field vaegram dropped fails here instead of looking like Telegram's rule.
-            assert_eq!(sent_inline_icon, Some(emoji_id), "the bot's own inline button lost its icon");
-            assert_eq!(sent_reply_icon, Some(emoji_id), "the bot's own reply button lost its icon");
-            if user_inline_icon.is_none() || user_reply_icon.is_none() {
-                eprintln!(
-                    "skipped: Telegram stripped icon_custom_emoji_id on bot buttons (requires bot owner Telegram \
-                     Premium or a Fragment additional username); sent_inline={sent_inline_icon:?}, \
-                     user_inline={user_inline_icon:?}, sent_reply={sent_reply_icon:?}, user_reply={user_reply_icon:?}"
-                );
-                return;
+            for (who, kind, got_icon) in [
+                ("bot's stored copy", "inline", bot_inline_icon),
+                ("bot's stored copy", "reply", bot_reply_icon),
+                ("user's copy", "inline", user_inline_icon),
+                ("user's copy", "reply", user_reply_icon),
+            ] {
+                match got_icon {
+                    Some(id) => assert_eq!(id, emoji_id, "{who} {kind} button icon mismatch"),
+                    None => eprintln!("Telegram dropped the icon ({who} / {kind})"),
+                }
             }
-            assert_eq!(user_inline_icon, Some(emoji_id));
-            assert_eq!(user_reply_icon, Some(emoji_id));
         }
     })
     .await;
@@ -134,7 +300,8 @@ async fn bot_rich_messages_and_custom_emoji() {
     let user = &kit.user.client;
     let user_id = user.get_me().await.unwrap().id;
     let bot_id = bot_id_for_user(&kit).await;
-    let emoji_id = custom_emoji_id(&kit.bot).await;
+    let (emoji_id, alt) = custom_emoji_with_alt(&kit.bot).await;
+    let placeholder = if alt == "👍" { "⭐" } else { "👍" };
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     user.on_message(filters::private() & filters::user(bot_id), move |m| {
@@ -152,49 +319,19 @@ async fn bot_rich_messages_and_custom_emoji() {
             // 1. Blocks with custom emoji + RichBlock::buttons
             let button = RichButton::new(&InlineKeyboardButton::callback("RichBtn", "rb")).unwrap();
             let blocks = [
-                RichBlock::paragraph(Text::new().plain("emoji: ").custom_emoji("👍", emoji_id)),
+                RichBlock::paragraph(Text::new().plain("emoji: ").custom_emoji(placeholder, emoji_id)),
                 RichBlock::buttons([button]),
             ];
             let sent_blocks = bot.send_rich_message(user_id, InputRichMessage::blocks(blocks)).await.unwrap();
             let user_blocks = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
             ids.lock().unwrap().push(user_blocks.id);
             assert!(sent_blocks.rich_message.is_some());
-            let bot_block0 = sent_blocks
-                .rich_message
-                .as_ref()
-                .and_then(|r| r.blocks().into_iter().next())
-                .map(|b| format!("{:?}", b.kind()));
 
             let fetched = user.get_rich_message(bot_id, user_blocks.id).await.unwrap().expect("rich message exists");
             let rich = fetched.rich_message.expect("rich_message parsed");
             assert!(!rich.is_partial);
             let read_blocks = rich.blocks();
-            match read_blocks[0].kind() {
-                RichBlockKind::Paragraph(t) => {
-                    let dbg = format!("{t:?}");
-                    if dbg.contains("TextCustomEmoji") {
-                        assert!(t.text().contains("👍"), "unexpected custom emoji paragraph: {dbg}");
-                    } else {
-                        assert!(
-                            t.text().starts_with("emoji: ") && t.text().len() > "emoji: ".len(),
-                            "expected Telegram alt fallback in paragraph, got {dbg}"
-                        );
-                        // The bot's own copy is downgraded too, so the proof that the id reached Telegram is the
-                        // glyph: it is the emoji document's own, which only its id could have told Telegram.
-                        assert!(
-                            !t.text().contains("👍"),
-                            "the placeholder came back unchanged, so nothing shows the emoji id was sent: {dbg}"
-                        );
-                        eprintln!(
-                            "skipped custom emoji assertion in rich message: Telegram downgraded TextCustomEmoji to \
-                             plain alt {:?} (requires bot owner Telegram Premium or a Fragment additional username); \
-                             bot_sent_block0={bot_block0:?}",
-                            t.text()
-                        );
-                    }
-                }
-                other => panic!("unexpected paragraph block: {other:?}"),
-            }
+            assert_rich_emoji_paragraph(&read_blocks[0], "emoji: ", emoji_id, &alt, "blocks");
             assert!(
                 matches!(&read_blocks[1].kind(), RichBlockKind::Buttons { buttons, .. } if buttons.len() == 1),
                 "unexpected buttons block: {:?}",
@@ -206,20 +343,34 @@ async fn bot_rich_messages_and_custom_emoji() {
             assert!(bot_fetch_err.is("BOT_METHOD_INVALID"), "expected BOT_METHOD_INVALID, got {bot_fetch_err:?}");
 
             // 2. HTML with <tg-emoji> and Markdown, then edit into rich blocks.
-            let html_src = format!("<p>html <tg-emoji emoji-id=\"{emoji_id}\">👍</tg-emoji></p>");
+            let html_src = format!("<p>html <tg-emoji emoji-id=\"{emoji_id}\">{placeholder}</tg-emoji></p>");
             let _sent_html = bot.send_rich_message(user_id, InputRichMessage::html(html_src)).await.unwrap();
             let user_html = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
             ids.lock().unwrap().push(user_html.id);
             let fetched_html = user.get_rich_message(bot_id, user_html.id).await.unwrap().unwrap();
-            assert!(fetched_html.rich_message.is_some());
+            let html_blocks = fetched_html.rich_message.expect("html rich_message parsed").blocks();
+            assert_rich_emoji_paragraph(&html_blocks[0], "html ", emoji_id, &alt, "html");
 
-            let md_src = format!("**md** ![👍](tg://emoji?id={emoji_id})");
+            let md_src = format!("**md** ![{placeholder}](tg://emoji?id={emoji_id})");
             let sent_md = bot.send_rich_message(user_id, InputRichMessage::markdown(md_src)).await.unwrap();
             let user_md = tokio::time::timeout(WAIT, rx.recv()).await.unwrap().unwrap();
             ids.lock().unwrap().push(user_md.id);
+            let fetched_md = user.get_rich_message(bot_id, user_md.id).await.unwrap().unwrap();
+            let md_blocks = fetched_md.rich_message.expect("md rich_message parsed").blocks();
+            assert_rich_emoji_paragraph(&md_blocks[0], "md ", emoji_id, &alt, "markdown");
+
             let edited =
                 sent_md.edit_text(InputRichMessage::blocks([RichBlock::paragraph("edited rich")])).await.unwrap();
             assert!(edited.rich_message.is_some());
+            let fetched_edited =
+                user.get_rich_message(bot_id, user_md.id).await.unwrap().expect("edited rich message exists");
+            let edited_blocks = fetched_edited.rich_message.expect("edited rich_message parsed").blocks();
+            assert_eq!(edited_blocks.len(), 1);
+            assert!(
+                matches!(&edited_blocks[0].kind(), RichBlockKind::Paragraph(t) if t.text() == "edited rich"),
+                "unexpected edited rich blocks: {:?}",
+                edited_blocks[0].kind()
+            );
         }
     })
     .await;

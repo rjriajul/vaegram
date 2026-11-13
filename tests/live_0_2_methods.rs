@@ -1,4 +1,5 @@
-// Run with `cargo test --test live_0_2_methods -- --ignored`; see tests/support/mod.rs for the env.
+// Run with `cargo test --test live_0_2_methods -- --ignored --test-threads=1`; see tests/support/mod.rs for the env.
+// These tests share session files, so run with `--test-threads=1`.
 
 #[allow(dead_code)]
 mod support;
@@ -155,6 +156,10 @@ async fn remove_chat_member_lets_member_rejoin() {
 
 /// No human or second account needed: creates a temporary basic group with `kit.bot` (because only basic groups use
 /// `revoke_messages`), sends a message, bans `kit.bot` with `.revoke_messages(true)`, checks removal, and leaves.
+///
+/// KNOWN TO FAIL (2026-11-13): the removed bot still reads the message by id after the ban. Whether Telegram keeps a
+/// removed bot's history or `revoke_messages` does not do what its doc says is not known; a second user account as
+/// the removed member would settle it. The assertion stays so the question stays visible.
 #[tokio::test]
 #[ignore = "creates and leaves a basic group with a logged-in user session and a bot"]
 async fn ban_chat_member_revoke_messages_in_basic_group() {
@@ -182,19 +187,37 @@ async fn ban_chat_member_revoke_messages_in_basic_group() {
         let user = user.clone();
         let bot = kit.bot.clone();
         async move {
-            let sent = user.send_message(group_id, "history before revoke").await.unwrap();
+            let (tx, mut rx) = mpsc::unbounded_channel();
+            bot.on_message(filters::chat(group_id) & filters::text(), move |m| {
+                let _ = tx.send(m.id);
+                async { Ok(()) }
+            });
+            // Use a slash command so the bot receives it in the basic group even with privacy mode enabled.
+            user.send_message(group_id, "/revoke_check").await.unwrap();
+            let bot_msg_id = tokio::time::timeout(WAIT, rx.recv())
+                .await
+                .expect("timed out waiting for bot to see basic-group message")
+                .expect("bot message channel closed");
+            let before = bot.get_messages(group_id, &[bot_msg_id]).await.unwrap();
+            assert_eq!(
+                before.first().and_then(|m| m.as_ref()).map(|m| m.text()),
+                Some("/revoke_check"),
+                "bot could not read its basic-group message before ban"
+            );
+
             user.ban_chat_member(group_id, bot_id).revoke_messages(true).await.unwrap();
 
             let member = user.get_chat_member(group_id, bot_id).await.unwrap();
             assert!(!member.is_member);
-            // After revoking, the bot can no longer read the group's messages.
-            let fetched = bot.get_messages(group_id, &[sent.id]).await;
+            // After revoking, the removed member can no longer read the group's messages.
+            let fetched = bot.get_messages(group_id, &[bot_msg_id]).await;
             assert!(
                 match &fetched {
                     Err(_) => true,
                     Ok(msgs) => msgs.first().is_none_or(Option::is_none),
                 },
-                "bot still saw revoked basic-group message: {fetched:?}"
+                "the removed bot still reads the basic-group message after revoke_messages(true): {:?}",
+                fetched.as_ref().map(|m| m.iter().map(|m| m.as_ref().map(|m| m.id)).collect::<Vec<_>>())
             );
         }
     })
@@ -230,8 +253,20 @@ async fn send_bot_requested_peer_shares_user() {
         },
     );
 
-    let asked = kit.user.send_and_wait_reply(&kit.bot, "/reqpeer").await.unwrap();
-    let bot_id = asked.chat.id;
+    let bot_id = bot_id_for_user(&kit).await;
+    let asked = match kit.user.send_and_wait_reply(&kit.bot, "/reqpeer").await {
+        Ok(asked) => asked,
+        Err(e) => {
+            if let Ok(history) = kit.user.client.get_chat_history(bot_id).limit(5).await {
+                let stale: Vec<i32> =
+                    history.into_iter().filter(|m| m.outgoing && m.text() == "/reqpeer").map(|m| m.id).collect();
+                if !stale.is_empty() {
+                    support::cleanup(kit.user.client.delete_messages(bot_id, &stale).await, "deleting stale /reqpeer");
+                }
+            }
+            panic!("send_and_wait_reply for /reqpeer failed: {e:?}");
+        }
+    };
     let ids = Arc::new(Mutex::new(Vec::new()));
     {
         let mut guard = ids.lock().unwrap();
