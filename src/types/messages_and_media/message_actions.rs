@@ -5,8 +5,8 @@ use crate::methods::{
     SendEphemeralMessage, StopMessageLiveLocation, SummarizeMessage,
 };
 use crate::types::{
-    CallbackQuery, EphemeralMessage, InlineKeyboardMarkup, InputChecklist, InputMedia, InvoiceRef, Message, PeerRef,
-    Text,
+    CallbackQuery, EphemeralMessage, InlineKeyboardMarkup, InputChecklist, InputMedia, InvoiceRef, Message,
+    MessageText, PeerRef, Text,
 };
 use crate::utils::channel_id_of;
 
@@ -104,10 +104,18 @@ impl Message {
 
     /// Replies with an ephemeral message that only the sender of this message sees.
     ///
+    /// The reply goes into this message's forum topic: a message in a topic names it, and the topic's root message
+    /// needs none. The text is a [`MessageText`]: plain or formatted text, or a rich message.
+    ///
     /// Awaiting fails with `Error::InvalidArgument`, sending nothing, if the message has no sender user.
-    pub fn reply_ephemeral(&self, text: impl Into<Text>) -> SendEphemeralMessage<'_> {
+    pub fn reply_ephemeral(&self, text: impl Into<MessageText>) -> SendEphemeralMessage<'_> {
         let receiver = self.from_user.as_ref().map(|u| PeerRef::from(u.id));
-        SendEphemeralMessage::new(self.client(), self.chat.id.into(), receiver, text.into()).reply_to(self.id)
+        let reply =
+            SendEphemeralMessage::new(self.client(), self.chat.id.into(), receiver, text.into()).reply_to(self.id);
+        match self.message_thread_id {
+            Some(thread) if self.is_topic_message => reply.message_thread_id(thread),
+            _ => reply,
+        }
     }
 
     /// The `t.me` link to this message. Only supergroups and channels have message links.

@@ -163,6 +163,10 @@ pub enum Error {
     ListenerStopped,
     /// `max_listeners` listeners are already waiting, so this one wasn't started.
     ListenerLimitReached(usize),
+    /// An error that isn't Telegram's, such as the database or model call a handler makes failing, carried so a
+    /// handler can return it to [`on_error`](crate::Client::on_error). Build one with [`other`](Self::other) and
+    /// read a typed error back with [`downcast_ref`](Self::downcast_ref).
+    Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
 // `is_<name>` helpers on `Error`, each an exact [`Error::is`] check of one Telegram error name.
@@ -177,6 +181,26 @@ macro_rules! named_errors {
 }
 
 impl Error {
+    /// An [`Error::Other`] wrapping `e`: for a failure that isn't Telegram's, such as a database or model call's,
+    /// so a handler can return it and [`on_error`](crate::Client::on_error) can tell what it was. A `String`, a
+    /// `&str`, a `std::io::Error` and an `anyhow::Error` convert, as they do with `std::io::Error::other`.
+    ///
+    /// [`downcast_ref`](Self::downcast_ref) finds `T` only when the value passed here was itself a `T`: a `String`
+    /// or `&str` is boxed as std's own string error, so read those with `to_string`. An `anyhow::Error` is boxed as
+    /// anyhow's own wrapper, so keep the `anyhow::Error` and downcast on that, or pass the concrete error instead.
+    pub fn other(e: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Error::Other(e.into())
+    }
+
+    /// The error inside [`Error::Other`] as a `T`, or `None` when this is another error or wraps another type. It
+    /// looks only inside `Other`: an [`Error::Io`] doesn't give back its `std::io::Error` here.
+    pub fn downcast_ref<T: std::error::Error + 'static>(&self) -> Option<&T> {
+        match self {
+            Error::Other(e) => e.downcast_ref::<T>(),
+            _ => None,
+        }
+    }
+
     /// The Telegram error inside, or `None` for any other error.
     pub fn rpc(&self) -> Option<&RpcError> {
         if let Error::Rpc(e) = self { Some(e) } else { None }
@@ -277,6 +301,7 @@ impl fmt::Display for Error {
             Error::ListenerTimeout => f.write_str("no matching update arrived before the timeout"),
             Error::ListenerStopped => f.write_str("the listener was stopped"),
             Error::ListenerLimitReached(max) => write!(f, "{max} listeners are already waiting"),
+            Error::Other(e) => write!(f, "{e}"),
         }
     }
 }
@@ -287,6 +312,7 @@ impl std::error::Error for Error {
             Error::Rpc(e) => Some(e),
             Error::Io(e) => Some(e),
             Error::Deserialize(e) => Some(e),
+            Error::Other(e) => Some(&**e),
             _ => None,
         }
     }
@@ -315,6 +341,18 @@ mod tests {
     use std::time::Duration;
 
     use super::{Error, RpcError};
+
+    /// A failure from outside Telegram, as a handler's database call would give.
+    #[derive(Debug)]
+    struct DbError(&'static str);
+
+    impl std::fmt::Display for DbError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+
+    impl std::error::Error for DbError {}
 
     #[test]
     fn splits_the_number_off() {
@@ -428,5 +466,29 @@ mod tests {
     fn peer_not_found_says_how_to_meet_the_peer() {
         let text = Error::PeerNotFound(42).to_string();
         assert!(text.starts_with("chat 42 not found for this account") && text.contains("meet it first"), "{text}");
+    }
+
+    #[test]
+    fn other_errors_keep_their_type() {
+        use std::error::Error as _;
+
+        // A string is boxed as std's own string error, which is private, so it comes back from `to_string`.
+        let text = Error::other("boom");
+        assert_eq!(text.to_string(), "boom");
+        assert!(text.source().is_some() && text.downcast_ref::<std::io::Error>().is_none());
+
+        let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        let wrapped = Error::other(denied);
+        let io = wrapped.downcast_ref::<std::io::Error>().expect("not an io error");
+        assert_eq!(io.kind(), std::io::ErrorKind::PermissionDenied);
+
+        let db = Error::other(DbError("no such row"));
+        assert_eq!(db.downcast_ref::<DbError>().map(|e| e.0), Some("no such row"));
+        assert!(db.downcast_ref::<std::io::Error>().is_none());
+
+        // Only `Other` downcasts: the same error wrapped by another variant isn't found.
+        let io = Error::Io(std::io::Error::other("denied"));
+        assert!(io.downcast_ref::<std::io::Error>().is_none());
+        assert!(Error::Timeout.downcast_ref::<DbError>().is_none());
     }
 }

@@ -42,6 +42,12 @@ impl From<String> for MessageText {
     }
 }
 
+impl From<&String> for MessageText {
+    fn from(text: &String) -> Self {
+        MessageText::Text(text.into())
+    }
+}
+
 impl From<Text> for MessageText {
     fn from(text: Text) -> Self {
         MessageText::Text(text)
@@ -51,5 +57,17 @@ impl From<Text> for MessageText {
 impl From<InputRichMessage> for MessageText {
     fn from(rich: InputRichMessage) -> Self {
         MessageText::Rich(rich)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MessageText;
+    use crate::types::Text;
+
+    #[test]
+    fn a_borrowed_string_becomes_text() {
+        let text = String::from("hi");
+        assert_eq!(MessageText::from(&text), MessageText::Text(Text::from("hi")));
     }
 }

@@ -9,7 +9,7 @@ impl Client {
     /// connection ends first, like `run`.
     ///
     /// It watches Ctrl-C only (SIGINT on Unix), not SIGTERM, which containers and service managers send to stop a
-    /// process; for that, wait for the signal yourself and call `stop`.
+    /// process: for a service, await [`run_until_signal`](Self::run_until_signal), which watches both.
     ///
     /// Once Ctrl-C is watched, tokio keeps it from ending the process for as long as the process runs, so a
     /// second Ctrl-C while handlers finish does nothing. If Ctrl-C can't be watched, this is just `run`.

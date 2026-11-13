@@ -7,6 +7,7 @@ mod remove_handler;
 mod restart;
 mod run;
 mod run_until_ctrl_c;
+mod run_until_signal;
 mod set_link_preview_options;
 mod set_parse_mode;
 mod stop_transmission;

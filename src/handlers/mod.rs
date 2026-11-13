@@ -44,8 +44,28 @@ pub struct HandlerError {
     pub kind: UpdateKind,
     /// Bot-API style id of the update's chat. `None` for raw handlers, the hooks and updates without a chat.
     pub chat_id: Option<i64>,
+    /// Id of the message the update is about, within [`chat_id`](Self::chat_id): the message a handler failed on,
+    /// the message a pressed button or widget is on, the message a reaction changed on, or the message a guest
+    /// query answered. `None` for raw handlers, the hooks and updates about no single message.
+    pub message_id: Option<i32>,
+    /// Bot-API style id of the user who caused the update (its `from_user` or `user`): the sender of a message or
+    /// story, the user who pressed the button, sent the query or paid, or the one who changed a membership or
+    /// reacted. `None` for raw handlers, the hooks and updates with no user behind them. The one exception is
+    /// [`UserStatusUpdated`](crate::types::UserStatusUpdated), where Telegram reports on a user and nobody acted:
+    /// there it is that user.
+    pub user_id: Option<i64>,
+    /// Id of the query the update carries, the one its `answer` method takes: callback, widget, inline, shipping,
+    /// pre-checkout, guest and join-request queries. `None` for raw handlers, the hooks and updates without one.
+    pub query_id: Option<i64>,
     /// The error the handler returned.
     pub error: Error,
+}
+
+impl HandlerError {
+    /// A failure with no update behind it: a raw handler's or a lifecycle hook's.
+    pub(crate) fn bare(kind: UpdateKind, error: Error) -> Self {
+        HandlerError { kind, chat_id: None, message_id: None, user_id: None, query_id: None, error }
+    }
 }
 
 /// A handler just registered by a `Client::on_*` method: set its group, make it stop later groups, or take its
@@ -125,6 +145,21 @@ impl Client {
 pub(crate) trait Routed: Clone + Send + 'static {
     fn chat_id(&self) -> Option<i64>;
 
+    /// Id of the message the update is about, for [`HandlerError::message_id`].
+    fn message_id(&self) -> Option<i32> {
+        None
+    }
+
+    /// Id of the user the update is about, for [`HandlerError::user_id`].
+    fn user_id(&self) -> Option<i64> {
+        None
+    }
+
+    /// Id of the query the update carries, for [`HandlerError::query_id`].
+    fn query_id(&self) -> Option<i64> {
+        None
+    }
+
     fn order_key(&self) -> Option<i64> {
         self.chat_id()
     }
@@ -138,6 +173,14 @@ pub(crate) trait Routed: Clone + Send + 'static {
 impl Routed for Message {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
+    }
+
+    fn message_id(&self) -> Option<i32> {
+        Some(self.id)
+    }
+
+    fn user_id(&self) -> Option<i64> {
+        self.from_user.as_ref().map(|user| user.id)
     }
 
     fn prepare(self) -> impl Future<Output = Self> + Send {
@@ -159,6 +202,19 @@ impl Routed for CallbackQuery {
         self.chat().map(|c| c.id)
     }
 
+    // `CallbackQuery`'s own accessor, which wins over this method of the same name.
+    fn message_id(&self) -> Option<i32> {
+        CallbackQuery::message_id(self)
+    }
+
+    fn user_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+
+    fn query_id(&self) -> Option<i64> {
+        Some(self.id)
+    }
+
     fn order_key(&self) -> Option<i64> {
         Some(self.chat().map_or(self.from_user.id, |c| c.id))
     }
@@ -167,6 +223,19 @@ impl Routed for CallbackQuery {
 impl Routed for WidgetQuery {
     fn chat_id(&self) -> Option<i64> {
         self.chat().map(|c| c.id)
+    }
+
+    // `WidgetQuery`'s own accessor, which wins over this method of the same name.
+    fn message_id(&self) -> Option<i32> {
+        WidgetQuery::message_id(self)
+    }
+
+    fn user_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+
+    fn query_id(&self) -> Option<i64> {
+        Some(self.id)
     }
 
     fn order_key(&self) -> Option<i64> {
@@ -179,6 +248,14 @@ impl Routed for SharedWidgetQuery {
         None
     }
 
+    fn user_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+
+    fn query_id(&self) -> Option<i64> {
+        Some(self.id)
+    }
+
     fn order_key(&self) -> Option<i64> {
         Some(self.from_user.id)
     }
@@ -187,6 +264,14 @@ impl Routed for SharedWidgetQuery {
 impl Routed for InlineQuery {
     fn chat_id(&self) -> Option<i64> {
         None
+    }
+
+    fn user_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+
+    fn query_id(&self) -> Option<i64> {
+        Some(self.id)
     }
 
     fn order_key(&self) -> Option<i64> {
@@ -199,6 +284,10 @@ impl Routed for ChosenInlineResult {
         None
     }
 
+    fn user_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+
     fn order_key(&self) -> Option<i64> {
         Some(self.from_user.id)
     }
@@ -208,16 +297,41 @@ impl Routed for ChatJoinRequest {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }
+
+    fn user_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+
+    fn query_id(&self) -> Option<i64> {
+        self.query_id
+    }
 }
 
 impl Routed for GuestMessage {
     fn chat_id(&self) -> Option<i64> {
         Some(self.message.chat.id)
     }
+
+    fn message_id(&self) -> Option<i32> {
+        Some(self.message.id)
+    }
+
+    fn user_id(&self) -> Option<i64> {
+        // The sender of the message that invoked the bot, or who it came via when that message names no sender.
+        self.message.from_user.as_deref().or(self.caller_user.as_ref()).map(|user| user.id)
+    }
+
+    fn query_id(&self) -> Option<i64> {
+        Some(self.query_id)
+    }
 }
 
 impl Routed for BotSubscriptionUpdated {
     fn chat_id(&self) -> Option<i64> {
+        Some(self.user.id)
+    }
+
+    fn user_id(&self) -> Option<i64> {
         Some(self.user.id)
     }
 }
@@ -232,11 +346,19 @@ impl Routed for WidgetDataUpdated {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }
+
+    fn message_id(&self) -> Option<i32> {
+        Some(self.message_id)
+    }
 }
 
 impl Routed for ManagedBotUpdated {
     fn chat_id(&self) -> Option<i64> {
         None
+    }
+
+    fn user_id(&self) -> Option<i64> {
+        Some(self.user.id)
     }
 
     fn order_key(&self) -> Option<i64> {
@@ -248,11 +370,27 @@ impl Routed for EphemeralMessage {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }
+
+    fn message_id(&self) -> Option<i32> {
+        Some(self.id)
+    }
+
+    fn user_id(&self) -> Option<i64> {
+        self.from_user.as_ref().map(|user| user.id)
+    }
 }
 
 impl Routed for MessageReactionUpdated {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
+    }
+
+    fn message_id(&self) -> Option<i32> {
+        Some(self.message_id)
+    }
+
+    fn user_id(&self) -> Option<i64> {
+        self.user.as_ref().map(|user| user.id)
     }
 }
 
@@ -266,16 +404,28 @@ impl Routed for MessageReactionCountUpdated {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }
+
+    fn message_id(&self) -> Option<i32> {
+        Some(self.message_id)
+    }
 }
 
 impl Routed for ReactionsUpdated {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }
+
+    fn message_id(&self) -> Option<i32> {
+        Some(self.message_id)
+    }
 }
 
 impl Routed for BusinessConnection {
     fn chat_id(&self) -> Option<i64> {
+        Some(self.user.id)
+    }
+
+    fn user_id(&self) -> Option<i64> {
         Some(self.user.id)
     }
 }
@@ -290,16 +440,36 @@ impl Routed for ShippingQuery {
     fn chat_id(&self) -> Option<i64> {
         Some(self.from_user.id)
     }
+
+    fn user_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+
+    fn query_id(&self) -> Option<i64> {
+        Some(self.id)
+    }
 }
 
 impl Routed for PreCheckoutQuery {
     fn chat_id(&self) -> Option<i64> {
         Some(self.from_user.id)
     }
+
+    fn user_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+
+    fn query_id(&self) -> Option<i64> {
+        Some(self.id)
+    }
 }
 
 impl Routed for PurchasedPaidMedia {
     fn chat_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
+
+    fn user_id(&self) -> Option<i64> {
         Some(self.from_user.id)
     }
 }
@@ -320,6 +490,10 @@ impl Routed for ChatMemberUpdated {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
     }
+
+    fn user_id(&self) -> Option<i64> {
+        Some(self.from_user.id)
+    }
 }
 
 impl Routed for PollUpdated {
@@ -335,6 +509,10 @@ impl Routed for PollUpdated {
 impl Routed for PollAnswer {
     fn chat_id(&self) -> Option<i64> {
         None
+    }
+
+    fn user_id(&self) -> Option<i64> {
+        self.user.as_ref().map(|user| user.id)
     }
 
     fn order_key(&self) -> Option<i64> {
@@ -359,6 +537,10 @@ impl Routed for UserStatusUpdated {
         None
     }
 
+    fn user_id(&self) -> Option<i64> {
+        Some(self.user.id)
+    }
+
     fn order_key(&self) -> Option<i64> {
         Some(self.user.id)
     }
@@ -373,6 +555,10 @@ impl Routed for TonWalletState {
 impl Routed for ChatActionUpdated {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
+    }
+
+    fn user_id(&self) -> Option<i64> {
+        self.from_user.as_ref().map(|user| user.id)
     }
 }
 
@@ -397,5 +583,9 @@ impl Routed for StarsBalanceUpdated {
 impl Routed for Story {
     fn chat_id(&self) -> Option<i64> {
         Some(self.chat.id)
+    }
+
+    fn user_id(&self) -> Option<i64> {
+        self.from_user.as_ref().map(|user| user.id)
     }
 }

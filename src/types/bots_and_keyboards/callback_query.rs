@@ -5,7 +5,7 @@ use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::methods::{AnswerCallbackQuery, EditCallbackMessageText, SendEphemeralMessage};
 use crate::raw::{base, types};
-use crate::types::{Chat, EphemeralMessage, InlineKeyboardMarkup, InlineMessageId, Message, MessageText, Text, User};
+use crate::types::{Chat, EphemeralMessage, InlineKeyboardMarkup, InlineMessageId, Message, MessageText, User};
 use crate::utils::get_peer;
 
 /// A press of an inline keyboard button that carries callback data.
@@ -199,8 +199,9 @@ impl CallbackQuery {
 
     /// Sends an ephemeral message to the user who pressed the button, answering this query.
     ///
-    /// Fails with [`Error::InvalidArgument`] if the button is on an inline message.
-    pub fn answer_ephemeral(&self, text: impl Into<Text>) -> Result<SendEphemeralMessage<'_>> {
+    /// The text is a [`MessageText`]: plain or formatted text, or a rich message. Fails with
+    /// [`Error::InvalidArgument`] if the button is on an inline message.
+    pub fn answer_ephemeral(&self, text: impl Into<MessageText>) -> Result<SendEphemeralMessage<'_>> {
         let chat =
             self.chat().ok_or(Error::InvalidArgument("inline callback queries can't receive ephemeral messages"))?;
         Ok(self.client.send_ephemeral_message(chat.id, self.from_user.id, text).callback_query_id(self.id))
@@ -336,6 +337,23 @@ mod tests {
         expected.extend(9i64.to_bytes());
         expected.extend(String::from("reply").to_bytes());
         assert!(body.windows(expected.len()).any(|w| w == expected));
+    }
+
+    #[tokio::test]
+    async fn an_inline_callback_cannot_answer_ephemeral() {
+        let (client, mut sent) = Client::recording();
+        let id = types::InputBotInlineMessageID64 { dc_id: 2, owner_id: 5, id: 6, access_hash: 7 };
+        let update = types::UpdateInlineBotCallbackQuery {
+            query_id: 1,
+            user_id: 1000,
+            msg_id: base::InputBotInlineMessageID::InputBotInlineMessageID64(Box::new(id)),
+            chat_instance: 3,
+            data: None,
+            game_short_name: None,
+        };
+        let q = CallbackQuery::parse_inline(&client, update, &Entities::default());
+        assert!(matches!(q.answer_ephemeral("hi"), Err(Error::InvalidArgument(_))));
+        assert!(sent.try_recv().is_err(), "an inline press has no chat to send to");
     }
 
     #[test]

@@ -15,6 +15,11 @@ impl InlineQueryResultArticle {
         InlineQueryResultArticle { parts }
     }
 
+    /// An article whose wire `title` stays unset, so Telegram lists it by the message text.
+    pub(crate) fn untitled(content: impl Into<InputMessageContent>) -> Self {
+        InlineQueryResultArticle { parts: Parts { content: Some(content.into()), ..Parts::new() } }
+    }
+
     pub(super) fn parts(self) -> Parts {
         self.parts
     }

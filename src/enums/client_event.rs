@@ -46,7 +46,7 @@ pub enum ClientEvent {
     /// A handler or lifecycle hook returned `Err` and no [`on_error`](crate::Client::on_error) handler is set.
     #[non_exhaustive]
     HandlerFailed {
-        /// The error, with the route it came from and the chat of the update.
+        /// The error, with the route it came from and the chat, message, user and query of the update.
         error: Arc<HandlerError>,
     },
     /// A handler, its filter, a raw handler or a lifecycle hook panicked. The panic is caught where it happened, so
