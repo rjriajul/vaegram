@@ -94,13 +94,14 @@ jobs:
         with:
           toolchain: stable
 
-      # Matches nothing until an engine with a live conformance test exists, which passes too.
+      # Each engine's conformance test, which is #[ignore]d everywhere else: each needs its server above.
       - name: Storage conformance on live servers
         run: cargo test -p vaegram --features mongodb,redis,postgres --lib -- --ignored conformance_on_a_live_server
 
-      # The engine that dropped a connection opens another rather than failing every write after it.
-      - name: Storage reconnects on a live server
-        run: cargo test -p vaegram --features postgres --lib -- --ignored reconnects_after_the_server_drops
+      # The rest of the PostgreSQL engine's live tests: reconnecting, timeouts and one schema per session. Each uses
+      # its own schema, so they run together. Same features as the step above, so nothing is built twice.
+      - name: PostgreSQL storage on a live server
+        run: cargo test -p vaegram --features mongodb,redis,postgres --lib -- --ignored storage::postgres_storage
 
       - name: Disk space
         if: always()
