@@ -619,23 +619,21 @@ mod tests {
         let output = text.to_markdown();
         assert_eq!(output, "a\\*b\\_c\\-d \\[x\\] \\~\\|\\`\\\\\n\\> e");
         assert_eq!(Text::from_markdown(&output).as_str(), "a*b_c-d [x] ~|`\\\n> e");
-        assert_eq!(Text::new().link("l", "https://x.y/(a)").to_markdown(), "[l](https://x.y/(a%29)");
+        assert_eq!(Text::new().link("l", "https://x.y/(a)").to_markdown(), "[l](https://x.y/(a\\))");
     }
 
     #[test]
     fn markdown_drops_what_it_cannot_express() {
         let cases = [
-            (Text::new().custom_emoji("a]b", 5), "a\\]b"),
-            (Text::new().date_time("a]b", 1, "r"), "a\\]b"),
             (Text::new().code("a`b"), "a\\`b"),
             (Text::new().pre("a```b", ""), "a\\`\\`\\`b"),
-            (Text::new().link("a]b", "u"), "a\\]b"),
             (Text::new().plain("x ").blockquote("q", false), "x q"),
             (Text::new().blockquote("q\n", false), "q\n"),
             (Text::new().blockquote("q\n", true), "q\n"),
             (Text::new().bold(Text::new().plain("a").bold("b")), "**ab**"),
             (Text::new().code(Text::new().plain("a").bold("x")), "`ax`"),
             (Text::new().pre("a\n", "").blockquote("q", false), "```\na\n\n```q"),
+            (Text::new().pre("a", "x y"), "```\na\n```"),
             (Text::new().blockquote(Text::new().plain("a\n").blockquote("b", true), false), "> a\n> b"),
         ];
         for (text, markdown) in cases {
@@ -658,6 +656,26 @@ mod tests {
         let adjacent = Text::new().blockquote("a", false).plain("\n").blockquote("b", false);
         assert_eq!(adjacent.to_markdown(), "> a\n**> b");
         assert_eq!(Text::from_markdown(&adjacent.to_markdown()), adjacent);
+    }
+
+    #[test]
+    fn markdown_output_keeps_brackets_urls_and_spans_around_code() {
+        let cases = [
+            (Text::new().custom_emoji("a]b", 5), "![a\\]b](tg://emoji?id=5)"),
+            (Text::new().date_time("a]b", 1, "r"), "![a\\]b](tg://time?unix=1&format=r)"),
+            (Text::new().link("a]b", "u"), "[a\\]b](u)"),
+            (Text::new().link(Text::new().code("]"), "u"), "[`]`](u)"),
+            (Text::new().link("l", "https://x.y/(a)\\b"), "[l](https://x.y/(a\\)\\\\b)"),
+            (Text::new().bold(Text::new().code("abc")), "**`abc`**"),
+            (Text::new().link(Text::new().code("abc"), "u"), "[`abc`](u)"),
+            (Text::new().bold(Text::new().pre("a", "")), "**```\na\n```**"),
+            (Text::new().pre("x", "a`b"), "```a`b\nx\n```"),
+            (Text::new().custom_emoji("e", -5), "![e](tg://emoji?id=-5)"),
+        ];
+        for (text, markdown) in cases {
+            assert_eq!(text.to_markdown(), markdown, "{text:?}");
+            assert_eq!(Text::from_markdown(markdown), text, "{markdown:?}");
+        }
     }
 
     #[test]
