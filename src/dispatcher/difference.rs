@@ -194,13 +194,32 @@ impl Dispatcher {
                         self.tracker.emit(new_channel_message(message), &entities);
                         self.recovered.0 += 1;
                     }
-                    if let base::Dialog::Dialog(dialog) = &d.dialog {
-                        let to = dialog.pts.unwrap_or(pts);
-                        if to > pts && since.is_none() {
-                            self.skipped(Key::Channel(channel_id), pts, to, SkipReason::TooLong);
+                    let to = match &d.dialog {
+                        base::Dialog::Dialog(dialog) => dialog.pts,
+                        _ => None,
+                    };
+                    let Some(to) = to else {
+                        // No pts came with the messages, e.g. a dialogFolder where the channel's dialog was due.
+                        // Kept, the old pts would fetch these messages again at every gap; forgotten, as on
+                        // PERSISTENT_TIMESTAMP_INVALID, the channel is started again by the next update pushed for it.
+                        // The updates held for the channel go too: the answer's latest messages stand for them, and
+                        // settling them would put the channel back at the pts they reach. An update for it inside a
+                        // batch held for a seq gap is keyed by seq and stays.
+                        let was_held = self.tracker.pending.len();
+                        self.tracker.pending.retain(|(_, held)| held.key != Key::Channel(channel_id));
+                        // What is dropped came during the run, so it is reported even for a channel whose report about
+                        // what came before the run is suppressed. The range stays empty: the channel is forgotten, so
+                        // the next update delivered for it builds on whatever pts it brings, not on the highest held.
+                        if since.is_none() || self.tracker.pending.len() < was_held {
+                            self.skipped(Key::Channel(channel_id), pts, pts, SkipReason::TooLong);
                         }
-                        pts = to;
+                        self.tracker.state.channels.remove(&channel_id);
+                        return Ok(());
+                    };
+                    if to > pts && since.is_none() {
+                        self.skipped(Key::Channel(channel_id), pts, to, SkipReason::TooLong);
                     }
+                    pts = to;
                     break;
                 }
                 base::updates::ChannelDifference::ChannelDifference(d) => {

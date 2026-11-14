@@ -149,6 +149,10 @@ impl Dispatcher {
                     // Before waiting: a handler parked in `listen` would otherwise hold `stop` up to its timeout.
                     self.client.0.handlers.listeners.close();
                     self.tasks.finish().await;
+                    // A held seq batch has moved no counter, so the state saved is the one from before it: with
+                    // catch-up the next start's getDifference returns its account-level updates, while a channel
+                    // update in it comes back only through that channel's own difference, from a stored pts and a
+                    // later gap.
                     if self.same_account() {
                         self.client.0.save_state(&self.tracker.state).await;
                     }
@@ -1301,6 +1305,140 @@ mod tests {
         let stopped = run_until_disconnected(&client, true).await;
         assert!(!stopped);
         assert!(!engine.calls().contains(&"save_state"), "{:?}", engine.calls());
+    }
+
+    #[tokio::test]
+    async fn stop_saves_the_state_from_before_a_held_seq_batch() {
+        let (client, engine) = recording_client();
+        let before = types::updates::State { pts: 1, qts: 0, date: 5, seq: 1, unread_count: 0 };
+        let mut d = Dispatcher::new(client.clone(), &before);
+        let (updates, mut rx) = UpdatesRx::channel();
+        let in_channel = types::UpdateDeleteChannelMessages { channel_id: 9, messages: vec![1], pts: 4, pts_count: 1 };
+        let in_channel = base::Update::UpdateDeleteChannelMessages(Box::new(in_channel));
+        // Held for seq 2, which never comes, with a pts, a channel's pts and a date it would have moved.
+        let batch =
+            types::Updates { updates: vec![new_message(2), in_channel], users: vec![], chats: vec![], date: 9, seq: 3 };
+        updates.send(Incoming { updates: base::Updates::Updates(Box::new(batch)), from_request: false }).await.unwrap();
+        // Held in turn, behind the pts the batch holds.
+        updates.send(Incoming { updates: short(new_message(3)), from_request: false }).await.unwrap();
+        let (stopped, ()) = tokio::join!(d.run(&mut rx), async {
+            settle().await;
+            client.stop();
+        });
+
+        let saved = engine.load_state().await.unwrap().and_then(|s| s.update);
+        assert!(stopped);
+        assert_eq!(d.tracker.pending.len(), 2);
+        assert_eq!(saved, Some(UpdateState { pts: 1, date: 5, seq: 1, ..Default::default() }));
+    }
+
+    #[tokio::test]
+    async fn a_refused_difference_after_the_qts_cap_reports_once_and_leaves_qts_to_fetch() {
+        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "X")))]);
+        let events = client.0.events.record();
+        let mut d = Dispatcher::new(client, &types::updates::State { qts: 5, ..state() });
+        let stopped = |qts| {
+            let update = types::UpdateBotStopped { user_id: 1, date: 0, stopped: true, qts };
+            short(base::Update::UpdateBotStopped(Box::new(update)))
+        };
+        // qts 6 never comes: one past the cap, the held ones are dropped and the account's difference is asked for.
+        for qts in 7..=7 + super::tracker::MAX_PENDING as i32 {
+            d.process(Incoming { updates: stopped(qts), from_request: false });
+        }
+        assert_eq!((d.tracker.pending.len(), d.tracker.due.clone()), (0, vec![Key::Pts]));
+        d.resolve().await;
+
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        let skipped = ClientEvent::UpdatesSkipped { chat_id: None, from: 1, to: 1, reason: SkipReason::Refused };
+        assert!(matches!(got[..], [ClientEvent::DifferenceFailed { .. }, _]), "{got:?}");
+        assert_eq!(format!("{:?}", got[1]), format!("{skipped:?}"));
+        // Not moved past the dropped ones, so the next difference, in this run or the next, brings them.
+        assert_eq!(d.tracker.state.qts, 5);
+    }
+
+    /// A too-long answer for channel 9 that carries a dialogFolder, so no pts.
+    fn too_long_in_a_folder(messages: Vec<base::Message>) -> Vec<u8> {
+        let folder = types::DialogFolder {
+            pinned: false,
+            folder: base::Folder::Folder(Box::new(types::Folder {
+                autofill_new_broadcasts: false,
+                autofill_public_groups: false,
+                autofill_new_correspondents: false,
+                id: 1,
+                title: "Archive".into(),
+                photo: None,
+            })),
+            peer: get_peer(get_channel_id(9)),
+            top_message: 3,
+            unread_muted_peers_count: 0,
+            unread_unmuted_peers_count: 0,
+            unread_muted_messages_count: 0,
+            unread_unmuted_messages_count: 0,
+        };
+        let too_long = types::updates::ChannelDifferenceTooLong {
+            r#final: true,
+            timeout: None,
+            dialog: base::Dialog::DialogFolder(Box::new(folder)),
+            messages,
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        base::updates::ChannelDifference::ChannelDifferenceTooLong(Box::new(too_long)).to_bytes()
+    }
+
+    fn deleted_in_channel(pts: i32) -> base::Updates {
+        let update = types::UpdateDeleteChannelMessages { channel_id: 9, messages: vec![1], pts, pts_count: 1 };
+        short(base::Update::UpdateDeleteChannelMessages(Box::new(update)))
+    }
+
+    #[tokio::test]
+    async fn a_too_long_channel_difference_without_a_dialog_pts_forgets_the_channel() {
+        let message = base::Message::Message(Box::new(Message::bare(42, get_peer(get_channel_id(9)), 0)));
+        let (mut d, events) = in_channel(vec![Ok(too_long_in_a_folder(vec![message]))], 10);
+        let seen = raw_updates(&d.client);
+        // Held for the gap the fetch is for.
+        deliver(&mut d, deleted_in_channel(13)).await;
+
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        let chat_id = Some(get_channel_id(9));
+        let skipped = ClientEvent::UpdatesSkipped { chat_id, from: 10, to: 10, reason: SkipReason::TooLong };
+        assert_eq!(format!("{got:?}"), format!("{:?}", [skipped]));
+        let delivered: Vec<u32> = seen.lock().unwrap().iter().map(RawUpdate::constructor_id).collect();
+        assert_eq!(delivered, [types::UpdateNewChannelMessage::CONSTRUCTOR_ID]);
+        let s = &d.tracker;
+        assert_eq!((s.state.channels.get(&9), s.pending.len(), s.due.len()), (None, 0, 0));
+        // The next update pushed for it starts it again instead of waiting on the old pts.
+        deliver(&mut d, deleted_in_channel(15)).await;
+        assert_eq!((d.tracker.state.channels.get(&9), d.tracker.pending.len()), (Some(&15), 0));
+    }
+
+    #[tokio::test]
+    async fn a_channel_named_before_the_run_reports_the_held_updates_its_forgetting_drops() {
+        let (mut d, events) = in_channel(vec![Ok(too_long_in_a_folder(Vec::new()))], 10);
+        let seen = raw_updates(&d.client);
+        // Named by the first difference of a run without catch-up, so what came before the run isn't reported.
+        d.held_channels.push((9, 10));
+        // Pushed during the run and held for the gap the fetch is for.
+        deliver(&mut d, deleted_in_channel(13)).await;
+
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        let chat_id = Some(get_channel_id(9));
+        let skipped = ClientEvent::UpdatesSkipped { chat_id, from: 10, to: 10, reason: SkipReason::TooLong };
+        assert_eq!(format!("{got:?}"), format!("{:?}", [skipped]));
+        assert!(seen.lock().unwrap().is_empty());
+        let s = &d.tracker;
+        assert_eq!((s.state.channels.get(&9), s.pending.len(), s.due.len()), (None, 0, 0));
+    }
+
+    #[tokio::test]
+    async fn a_channel_named_before_the_run_is_forgotten_quietly_when_nothing_is_held() {
+        let (mut d, events) = in_channel(vec![Ok(too_long_in_a_folder(Vec::new()))], 10);
+        d.held_channels.push((9, 10));
+        d.resolve().await;
+
+        assert_eq!(events.try_iter().count(), 0);
+        let s = &d.tracker;
+        assert_eq!((s.state.channels.get(&9), s.pending.len(), s.due.len()), (None, 0, 0));
     }
 
     #[tokio::test]

@@ -165,8 +165,9 @@ impl Default for Gate {
 }
 
 impl Gate {
-    pub(crate) async fn enter(&self) -> Option<SemaphorePermit<'_>> {
-        self.0.acquire().await.ok()
+    pub(crate) async fn enter(&self) -> SemaphorePermit<'_> {
+        // Nothing closes the semaphore, so acquiring only ever waits.
+        self.0.acquire().await.expect("the gate is never closed")
     }
 }
 

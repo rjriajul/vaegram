@@ -20,7 +20,7 @@ const MAX_RETRIES: u32 = 5;
 // cap keeps a key that never fills from growing without bound. Held pts, qts and channel updates are dropped, since
 // getDifference refetches them; held seq batches are released instead, since they also carry updates getDifference
 // may not bring back: channel updates, which it returns only when it chooses to, and updates that move no counter.
-const MAX_PENDING: usize = 1024;
+pub(super) const MAX_PENDING: usize = 1024;
 
 pub(super) fn channel_of(update: &base::Update) -> Option<i64> {
     let message = match update {
@@ -398,7 +398,7 @@ impl Tracker {
                         *at = to;
                     }
                 }
-                // A qts gap has no pts range to report.
+                // A gap only in qts, held or dropped by the cap, has no pts range: it is reported where pts is.
                 if let (Some(reason), true, Key::Pts | Key::Channel(_)) = (reason, skipped.is_empty(), key) {
                     let at = *self.counter(key);
                     skipped.push(Skipped { key, from: at, to: at, reason });
