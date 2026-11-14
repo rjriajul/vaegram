@@ -1356,8 +1356,8 @@ mod tests {
         assert_eq!(d.tracker.state.qts, 5);
     }
 
-    #[tokio::test]
-    async fn a_too_long_channel_difference_without_a_dialog_pts_forgets_the_channel() {
+    /// A too-long answer for channel 9 that carries a dialogFolder, so no pts.
+    fn too_long_in_a_folder(messages: Vec<base::Message>) -> Vec<u8> {
         let folder = types::DialogFolder {
             pinned: false,
             folder: base::Folder::Folder(Box::new(types::Folder {
@@ -1375,22 +1375,27 @@ mod tests {
             unread_muted_messages_count: 0,
             unread_unmuted_messages_count: 0,
         };
-        let message = base::Message::Message(Box::new(Message::bare(42, get_peer(get_channel_id(9)), 0)));
         let too_long = types::updates::ChannelDifferenceTooLong {
             r#final: true,
             timeout: None,
             dialog: base::Dialog::DialogFolder(Box::new(folder)),
-            messages: vec![message],
+            messages,
             chats: Vec::new(),
             users: Vec::new(),
         };
-        let too_long = base::updates::ChannelDifference::ChannelDifferenceTooLong(Box::new(too_long));
-        let (mut d, events) = in_channel(vec![Ok(too_long.to_bytes())], 10);
+        base::updates::ChannelDifference::ChannelDifferenceTooLong(Box::new(too_long)).to_bytes()
+    }
+
+    fn deleted_in_channel(pts: i32) -> base::Updates {
+        let update = types::UpdateDeleteChannelMessages { channel_id: 9, messages: vec![1], pts, pts_count: 1 };
+        short(base::Update::UpdateDeleteChannelMessages(Box::new(update)))
+    }
+
+    #[tokio::test]
+    async fn a_too_long_channel_difference_without_a_dialog_pts_forgets_the_channel() {
+        let message = base::Message::Message(Box::new(Message::bare(42, get_peer(get_channel_id(9)), 0)));
+        let (mut d, events) = in_channel(vec![Ok(too_long_in_a_folder(vec![message]))], 10);
         let seen = raw_updates(&d.client);
-        let deleted_in_channel = |pts| {
-            let update = types::UpdateDeleteChannelMessages { channel_id: 9, messages: vec![1], pts, pts_count: 1 };
-            short(base::Update::UpdateDeleteChannelMessages(Box::new(update)))
-        };
         // Held for the gap the fetch is for.
         deliver(&mut d, deleted_in_channel(13)).await;
 
@@ -1405,6 +1410,35 @@ mod tests {
         // The next update pushed for it starts it again instead of waiting on the old pts.
         deliver(&mut d, deleted_in_channel(15)).await;
         assert_eq!((d.tracker.state.channels.get(&9), d.tracker.pending.len()), (Some(&15), 0));
+    }
+
+    #[tokio::test]
+    async fn a_channel_named_before_the_run_reports_the_held_updates_its_forgetting_drops() {
+        let (mut d, events) = in_channel(vec![Ok(too_long_in_a_folder(Vec::new()))], 10);
+        let seen = raw_updates(&d.client);
+        // Named by the first difference of a run without catch-up, so what came before the run isn't reported.
+        d.held_channels.push((9, 10));
+        // Pushed during the run and held for the gap the fetch is for.
+        deliver(&mut d, deleted_in_channel(13)).await;
+
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        let chat_id = Some(get_channel_id(9));
+        let skipped = ClientEvent::UpdatesSkipped { chat_id, from: 10, to: 10, reason: SkipReason::TooLong };
+        assert_eq!(format!("{got:?}"), format!("{:?}", [skipped]));
+        assert!(seen.lock().unwrap().is_empty());
+        let s = &d.tracker;
+        assert_eq!((s.state.channels.get(&9), s.pending.len(), s.due.len()), (None, 0, 0));
+    }
+
+    #[tokio::test]
+    async fn a_channel_named_before_the_run_is_forgotten_quietly_when_nothing_is_held() {
+        let (mut d, events) = in_channel(vec![Ok(too_long_in_a_folder(Vec::new()))], 10);
+        d.held_channels.push((9, 10));
+        d.resolve().await;
+
+        assert_eq!(events.try_iter().count(), 0);
+        let s = &d.tracker;
+        assert_eq!((s.state.channels.get(&9), s.pending.len(), s.due.len()), (None, 0, 0));
     }
 
     #[tokio::test]
