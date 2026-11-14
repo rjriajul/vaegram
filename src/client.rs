@@ -20,6 +20,7 @@ use crate::handlers::UpdateKind;
 use crate::methods::{StreamShared, invoke_sleeping_floods};
 use crate::raw::{RemoteCall, Serializable, base, functions};
 use crate::session::internals::data_center::{self, Dc};
+use crate::session::pacer::{Direction, Pacer, Plan, TransferSettings};
 use crate::session::transfer::{Auth, Lease, TransferPool};
 use crate::session::{
     AutoSleep, Call, Events, Observer, RateLimiter, RateLimits, Retry, RetryPolicy, Salt, Session, UpdatesRx,
@@ -65,6 +66,7 @@ pub struct ClientBuilder {
     unallowed_click_alert: Option<Arc<str>>,
     max_listeners: Option<usize>,
     max_concurrent_transmissions: Option<usize>,
+    transfer_settings: TransferSettings,
     max_message_cache_size: usize,
     max_topic_cache_size: usize,
     fetch: Fetch,
@@ -277,6 +279,59 @@ impl ClientBuilder {
     /// by default, so every transfer runs at once.
     pub fn max_concurrent_transmissions(mut self, n: usize) -> Self {
         self.max_concurrent_transmissions = Some(n.max(1));
+        self
+    }
+
+    /// How many connections a download opens to the file's DC, and to its CDN, 1 to 8. A bot's download of 8 MiB
+    /// or more opens 8 by default and keeps one `upload.getFile` in flight on each, across the large downloads from
+    /// that DC: measured from one bot, more than one per connection drew 27 to 78 getFile FLOOD_WAITs per 500 MiB at
+    /// any pace. That holds 4 MiB in flight per download, against 2 MiB before. A smaller download, or one of
+    /// unknown size (anything fetched by file_id, a large file too), goes as a user account's, as before: 4
+    /// connections with one chunk in flight on each, or 8 with 4 each with Premium, and one of unknown size one
+    /// chunk at a time. Running beside large ones, it adds its own requests on up to 4 of those connections, as
+    /// before; nothing is measured for those. Without this option a CDN keeps the connections it had before: 4,
+    /// 8 with Premium. Out of range fails [`start`](Self::start) and [`connect`](Self::connect) with
+    /// `Error::InvalidArgument`.
+    pub fn download_connections(mut self, n: usize) -> Self {
+        self.transfer_settings.download.connections = Some(n);
+        self
+    }
+
+    /// How many connections an upload opens, 1 to 8. A bot's upload of 8 MiB or more opens 8 by default with 2
+    /// parts in flight on each, so it holds 16 parts (8 MiB) in memory per upload: ten at once hold 80 MiB. That
+    /// is 2 per connection for one upload, not across uploads: two large bot uploads at once put 4 parts on each
+    /// connection, which is not measured. A smaller one goes as a user account's: 4 with 2 each, or 8 with 1 each
+    /// with Premium. Out of range fails [`start`](Self::start) and [`connect`](Self::connect) with
+    /// `Error::InvalidArgument`.
+    pub fn upload_connections(mut self, n: usize) -> Self {
+        self.transfer_settings.upload.connections = Some(n);
+        self
+    }
+
+    /// The most bytes a second the downloads of 8 MiB or more from one DC ask for, all of them together; `None`
+    /// removes the cap. The pacer spaces out when their chunks are sent, with several still in flight at once.
+    /// Smaller downloads, those of unknown size (anything fetched by file_id, a large file too) and a CDN's chunks
+    /// aren't paced. By default 20 MiB/s for a bot, no cap for a user account. Measured 2026-11-14 with one bot
+    /// from one server 61 ms from DC5, 7 runs of 500 MiB and one of 2,000 MiB: 20 MiB/s gave a median 19.88 MB/s
+    /// with 0-3 FLOOD_WAITs a run, and 20.25 MB/s over 2,000 MiB; 20.5 MiB/s drew 7 and 22 MiB/s 26 in one run
+    /// each. wzgram paces every bot at 40 parts a second, the same 20 MiB/s. Nothing is measured on other DCs, nor
+    /// for several processes on one bot token: the cap is per client and per DC. 0 fails [`start`](Self::start)
+    /// and [`connect`](Self::connect) with `Error::InvalidArgument`.
+    pub fn max_download_bytes_per_sec(mut self, rate: Option<u64>) -> Self {
+        self.transfer_settings.download.max_bytes_per_sec = Some(rate);
+        self
+    }
+
+    /// The most bytes a second the uploads of 8 MiB or more to one DC send, all of them together; `None` removes
+    /// the cap. The pacer spaces out when their parts are sent, with several still in flight at once. Smaller
+    /// uploads aren't paced. By default 19.5 MiB/s for a bot, no cap for a user account. Measured 2026-11-14 with
+    /// one bot from one server 61 ms from DC5, 7 runs of 500 MiB and one of 2,000 MiB: 19.5 MiB/s gave a median
+    /// 20.14 MB/s with 0-7 FLOOD_WAITs a run, against 17.79 MB/s with 28-45 unpaced, and 20.37 MB/s over 2,000 MiB;
+    /// 20 MiB/s drew 9 and 21 MiB/s 42 in one run each. wzgram paces every bot at 40 parts a second, the same
+    /// 20 MiB/s. Nothing is measured on other DCs, nor for several processes on one bot token: the cap is per client
+    /// and per DC. 0 fails [`start`](Self::start) and [`connect`](Self::connect) with `Error::InvalidArgument`.
+    pub fn max_upload_bytes_per_sec(mut self, rate: Option<u64>) -> Self {
+        self.transfer_settings.upload.max_bytes_per_sec = Some(rate);
         self
     }
 
@@ -522,6 +577,7 @@ impl ClientBuilder {
         if let Some(limits) = &self.rate_limits {
             limits.validate()?;
         }
+        self.transfer_settings.validate()?;
         self.options.retry = self.retry_policy.take().unwrap_or_else(|| Retry::new(self.auto_sleep));
         if let Some(path) = &self.record {
             self.options.record = Some(Recorder::create(path)?);
@@ -597,6 +653,7 @@ impl ClientBuilder {
             inner.handlers.listeners.limit(n);
         }
         inner.transmissions = self.max_concurrent_transmissions.map(Transmissions::new);
+        inner.transfer_settings = self.transfer_settings;
         let set_names = if self.fetch.stickers { self.max_sticker_set_name_cache_size } else { 0 };
         inner.caches = Caches::new(self.max_message_cache_size, self.max_topic_cache_size).with_set_names(set_names);
         inner.fetch = self.fetch;
@@ -681,6 +738,8 @@ pub(crate) struct Inner {
     pub(crate) unallowed_click_alert: Option<Arc<str>>,
     // Slots for `max_concurrent_transmissions`, if set.
     pub(crate) transmissions: Option<Transmissions>,
+    // The builder's transfer options.
+    pub(crate) transfer_settings: TransferSettings,
     pub(crate) limiter: Option<RateLimiter>,
     pub(crate) auto_no_updates: bool,
     pub(crate) events: Arc<Events>,
@@ -786,6 +845,7 @@ impl Inner {
             listener_timeout: Some(LISTENER_TIMEOUT),
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             transmissions: None,
+            transfer_settings: TransferSettings::default(),
             limiter: None,
             auto_no_updates: false,
             streams: Mutex::new(HashMap::new()),
@@ -877,6 +937,7 @@ impl Client {
             unallowed_click_alert: Some(UNEXPECTED_CLICK.clone()),
             max_listeners: None,
             max_concurrent_transmissions: None,
+            transfer_settings: TransferSettings::default(),
             max_message_cache_size: 0,
             max_topic_cache_size: 0,
             fetch: Fetch::default(),
@@ -971,6 +1032,18 @@ impl Client {
         let me = self.get_me_raw().await?;
         self.set_me(&me);
         Ok(matches!(me, base::User::User(u) if u.premium))
+    }
+
+    /// How a transfer of `bytes` in `direction` goes, once `is_premium` has looked the account up, which tells a bot
+    /// too; when that lookup failed, an account not stored as a bot counts as a user.
+    pub(crate) fn transfer_plan(&self, direction: Direction, premium: bool, bytes: Option<u64>) -> Plan {
+        let bot = self.0.me.lock().unwrap().is_bot;
+        self.0.transfer_settings.plan(direction, bot, premium, bytes)
+    }
+
+    /// The pacer the parts of transfers to `dc_id` in `direction` that go as `plan` share, `None` when unpaced.
+    pub(crate) fn pacer(&self, dc_id: i32, direction: Direction, plan: Plan) -> Option<Arc<Pacer>> {
+        Some(self.0.transfers.pacer(dc_id, direction, plan.rate?))
     }
 
     pub(crate) fn dc(&self, dc_id: i32) -> Result<Dc> {
@@ -1157,6 +1230,7 @@ mod tests {
     use super::{Client, Me};
     use crate::errors::Error;
     use crate::raw::{base, types};
+    use crate::session::pacer::{Direction, LARGE};
     use crate::session::test_dc::TestDc;
     use crate::session::{AutoSleep, RateCategory, RateLimits};
     use crate::storage::{FileStorage, MemoryStorage, PeerRecord, Recording, SessionData, Storage, UpdateState};
@@ -1200,6 +1274,32 @@ mod tests {
         let array = Client::builder("refused", 1, "hash").in_memory().init_connection_params(Json::Array(Vec::new()));
         let array = array.tz_offset(1).connect().await;
         assert!(matches!(array, Err(Error::InvalidArgument(_))));
+    }
+
+    #[tokio::test]
+    async fn bad_transfer_options_are_refused() {
+        let builder = || Client::builder("refused", 1, "hash").in_memory();
+        let refused = [
+            builder().download_connections(0),
+            builder().upload_connections(9),
+            builder().max_download_bytes_per_sec(Some(0)),
+            builder().max_upload_bytes_per_sec(Some(0)),
+        ];
+        for builder in refused {
+            assert!(matches!(builder.connect().await, Err(Error::InvalidArgument(_))));
+        }
+    }
+
+    #[test]
+    fn transfer_options_reach_the_settings() {
+        let builder = Client::builder("set", 1, "hash").download_connections(3).max_upload_bytes_per_sec(None);
+        let settings = builder.transfer_settings;
+        let large = Some(LARGE);
+        assert_eq!(settings.plan(Direction::Download, true, false, large).shape.connections, 3);
+        assert_eq!(settings.plan(Direction::Upload, true, false, large).rate, None);
+        let set = Client::builder("set", 1, "hash").max_download_bytes_per_sec(Some(1 << 20)).transfer_settings;
+        let rate = |bot| set.plan(Direction::Download, bot, false, large).rate;
+        assert_eq!((rate(true), rate(false)), (Some(1 << 20), Some(1 << 20)));
     }
 
     #[test]

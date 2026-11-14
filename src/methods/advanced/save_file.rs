@@ -9,7 +9,8 @@ use crate::crypto::random;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::session::Session;
-use crate::session::transfer::{Progress, Report, invoke_part, part_timeout, take, try_join_all, workers};
+use crate::session::pacer::{Direction, Pace, Pacer};
+use crate::session::transfer::{Progress, Report, invoke_paced_part, part_timeout, take, try_join_all, workers};
 use crate::types::Upload;
 
 // https://core.telegram.org/api/files#uploading-files
@@ -17,10 +18,6 @@ const PART_SIZE: u64 = 512 * 1024;
 const BIG_FILE_SIZE: u64 = 10 * 1024 * 1024;
 const MAX_PARTS: u64 = 4000;
 const MAX_PARTS_PREMIUM: u64 = 8000;
-const IN_FLIGHT: u64 = 4 << 20;
-const CONNECTIONS: usize = 4;
-// The server throttles Premium uploads less, so more connections stay busy.
-const CONNECTIONS_PREMIUM: usize = 8;
 
 #[must_use = "a request does nothing until it is awaited"]
 pub(crate) struct SaveFile<'a> {
@@ -82,7 +79,11 @@ impl<'a> SaveFile<'a> {
         let (big, id) = (size > BIG_FILE_SIZE, i64::from_le_bytes(random()));
         let upload = Parts { source, size, count: parts, big, id, timeout };
         let (next, progress) = (AtomicI32::new(0), Progress::new(self.progress, size));
-        try_join_all((0..workers).map(|i| upload.send(&sessions[i % sessions.len()], &next, &progress))).await?;
+        // Premium changes the shape only, which upload_limits already took.
+        let plan = self.client.transfer_plan(Direction::Upload, false, Some(size));
+        let pacer = self.client.pacer(home.id, Direction::Upload, plan);
+        let send = |i: usize| upload.send(&sessions[i % sessions.len()], &next, &progress, pacer.as_deref());
+        try_join_all((0..workers).map(send)).await?;
         Ok(upload.input_file(name))
     }
 }
@@ -96,8 +97,9 @@ impl Client {
             premium => premium.unwrap_or(false),
         };
         let parts = part_count(size, premium)?;
-        let workers = workers(parts, PART_SIZE, IN_FLIGHT);
-        Ok((parts, workers, workers.min(if premium { CONNECTIONS_PREMIUM } else { CONNECTIONS })))
+        let shape = self.transfer_plan(Direction::Upload, premium, Some(size)).shape;
+        let workers = workers(parts, PART_SIZE, shape.in_flight(PART_SIZE));
+        Ok((parts, workers, workers.min(shape.connections)))
     }
 }
 
@@ -157,18 +159,25 @@ impl Parts<'_> {
         Ok(Some(part))
     }
 
-    async fn send(&self, session: &Session, next: &AtomicI32, progress: &Progress<'_>) -> Result<()> {
+    async fn send(
+        &self,
+        session: &Session,
+        next: &AtomicI32,
+        progress: &Progress<'_>,
+        pacer: Option<&Pacer>,
+    ) -> Result<()> {
         let (file_id, mut bytes) = (self.id, Vec::with_capacity(PART_SIZE.min(self.size) as usize));
         while let Some(file_part) = self.read(next, &mut bytes).await? {
+            let pace = Pace { pacer, bytes: bytes.len() as u64, gated: false };
             let saved = if self.big {
                 let total = self.count;
                 let request = functions::upload::SaveBigFilePart { file_id, file_part, file_total_parts: total, bytes };
-                let saved = invoke_part(session, &request, self.timeout).await;
+                let saved = invoke_paced_part(session, &request, self.timeout, pace).await;
                 bytes = request.bytes;
                 saved
             } else {
                 let request = functions::upload::SaveFilePart { file_id, file_part, bytes };
-                let saved = invoke_part(session, &request, self.timeout).await;
+                let saved = invoke_paced_part(session, &request, self.timeout, pace).await;
                 bytes = request.bytes;
                 saved
             };
@@ -194,6 +203,7 @@ impl Parts<'_> {
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::AtomicI32;
+    use std::time::Duration;
 
     use super::{BIG_FILE_SIZE, MAX_PARTS, MAX_PARTS_PREMIUM, PART_SIZE, Parts, Source, part_count};
     use crate::Client;
@@ -201,7 +211,7 @@ mod tests {
     use crate::errors::{Error, RpcError};
     use crate::raw::functions::users::GetUsers;
     use crate::raw::{Identifiable, Serializable, base, types};
-    use crate::session::transfer::MIN_PART_TIMEOUT;
+    use crate::session::transfer::{MIN_PART_TIMEOUT, try_join_all};
     use crate::types::Upload;
 
     fn premium_user() -> Vec<u8> {
@@ -350,5 +360,74 @@ mod tests {
         let base::InputFile::InputFile(small) = file(BIG_FILE_SIZE) else { panic!("10 MB is still a small file") };
         assert_eq!((small.id, small.parts, small.name.as_str(), small.md5_checksum.as_str()), (7, 20, "a.bin", ""));
         assert!(matches!(file(BIG_FILE_SIZE + 1), base::InputFile::InputFileBig(f) if f.parts == 21));
+    }
+
+    /// Puts 8 connections to `client`'s home DC in its pool, all its session.
+    fn on_eight(client: &Client) {
+        let home = client.dc(client.session().dc_id()).unwrap();
+        for _ in 0..8 {
+            client.0.transfers.insert(home, &client.session());
+        }
+    }
+
+    /// When each of the first `n` requests reached the session behind `sent`, after `start`.
+    async fn sent_after(
+        sent: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+        start: tokio::time::Instant,
+        n: usize,
+    ) -> Vec<Duration> {
+        let mut at = Vec::new();
+        while at.len() < n && sent.recv().await.is_some() {
+            at.push(start.elapsed());
+        }
+        at
+    }
+
+    /// Uploads 16 parts, 8 MiB, from `client` on 8 connections, all its session, and returns when each part went.
+    async fn sixteen_parts(client: &Client, sent: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) -> Vec<Duration> {
+        on_eight(client);
+        let (start, data) = (tokio::time::Instant::now(), vec![1; 16 * PART_SIZE as usize]);
+        let upload = async { client.save_file(Upload::bytes("a.bin", &data)).await };
+        let (file, sent_at) = tokio::join!(upload, sent_after(sent, start, 16));
+        assert!(matches!(file, Ok(base::InputFile::InputFile(f)) if f.parts == 16));
+        sent_at
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bots_parts_go_two_to_a_connection_at_its_pace() {
+        let (client, mut sent) = Client::scripted((0..16).map(|_| Ok(true.to_bytes())).collect());
+        // 16 parts in flight on 8 connections.
+        assert_eq!(client.upload_limits(20 << 20).await.unwrap(), (40, 16, 8));
+        // A part's time at 19.5 MiB/s, about 25.6 ms.
+        let part_time = Duration::from_nanos(PART_SIZE * 1_000_000_000 / (39 << 19));
+        for (k, at) in sixteen_parts(&client, &mut sent).await.into_iter().enumerate() {
+            let turn = part_time * k as u32;
+            assert!(turn <= at && at <= turn + Duration::from_millis(1), "part {k} went at {at:?}, not {turn:?}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_user_accounts_upload_is_not_paced() {
+        let (client, mut sent) = Client::scripted((0..16).map(|_| Ok(true.to_bytes())).collect());
+        {
+            let mut me = client.0.me.lock().unwrap();
+            (me.is_bot, me.premium) = (false, Some(false));
+        }
+        assert_eq!(sixteen_parts(&client, &mut sent).await, [Duration::ZERO; 16]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bots_small_uploads_at_once_all_go_at_once() {
+        let (client, mut sent) = Client::scripted((0..20).map(|_| Ok(true.to_bytes())).collect());
+        on_eight(&client);
+        // Under 8 MiB a bot's upload goes as a user's: 2 parts each on 2 connections, unpaced.
+        assert_eq!(client.upload_limits(1 << 20).await.unwrap(), (2, 2, 2));
+        let (start, data) = (tokio::time::Instant::now(), vec![1u8; 1 << 20]);
+        let (client, data) = (&client, &data[..]);
+        let upload = |_| async move { client.save_file(Upload::bytes("a.jpg", data)).await };
+        let uploads = try_join_all((0..10).map(upload));
+        let (files, sent_at) = tokio::join!(uploads, sent_after(&mut sent, start, 20));
+        assert_eq!(files.unwrap().len(), 10);
+        assert_eq!(sent_at, [Duration::ZERO; 20]);
     }
 }

@@ -2,8 +2,8 @@ use std::future::poll_fn;
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
 
@@ -16,16 +16,13 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::session::Session;
 use crate::session::cdn::Cdn;
+use crate::session::pacer::{Direction, Pace, Pacer, Shape};
 use crate::session::transfer::{Progress, Report, part_timeout, take, try_join_all, workers};
 use crate::types::FileLocation;
 
 // https://core.telegram.org/api/files#downloading-files: a limit that divides 1 MB, at offsets that are
 // multiples of it, never crosses a 1 MB boundary.
 const CHUNK: i32 = 512 * 1024;
-const IN_FLIGHT: u64 = 2 << 20;
-// The server throttles Premium downloads less, so they get 8 times the budget.
-const IN_FLIGHT_PREMIUM: u64 = 16 << 20;
-const MAX_CONNECTIONS: usize = 8;
 const MAX_MIGRATIONS: usize = 3;
 // Telegram's largest file, 8000 parts of 512 KiB. Reserving the declared size up to this once avoids the copies and
 // the 2x capacity of growing by doubling; a size the server overstates costs at most this, and fails as an Err.
@@ -180,10 +177,11 @@ impl<'a> DownloadMedia<'a> {
         // Held until the download ends; a stream keeps it until it's dropped or finishes.
         let _slot = client.download_slot().await;
         let progress = Progress::new(self.progress, window.len());
-        let budget = if client.is_premium().await.unwrap_or(false) { IN_FLIGHT_PREMIUM } else { IN_FLIGHT };
-        // Without a size the end is only known from a short chunk, so chunks go one at a time.
-        let parts = window.bound.saturating_sub(window.first);
-        let workers = chunk_count(size).map_or(1, |_| workers(parts, CHUNK as u64, budget));
+        let premium = client.is_premium().await.unwrap_or(false);
+        // A bounded range of a big file is as small as the bytes it asks for. Without a size, as for anything
+        // fetched by file_id, a download goes as before whatever the account, so it counts as small.
+        let plan = client.transfer_plan(Direction::Download, premium, size.map(|_| window.len()).filter(|&n| n > 0));
+        let workers = workers_in(plan.shape, &window, size);
         let mut request = functions::upload::GetFile {
             precise: false,
             // A CDN connection can't carry the takeout wrapper, and CDNs have no WebSocket endpoint.
@@ -197,11 +195,13 @@ impl<'a> DownloadMedia<'a> {
         }
         let mut dc_id = location.dc_id.unwrap_or_else(|| client.session().dc_id());
         let (mut migrations, mut refreshed) = (0, false);
-        let (lease, file) = loop {
-            let lease = client.transfer_sessions(client.media_dc(dc_id)?, workers.min(MAX_CONNECTIONS)).await?;
+        let (lease, pacer, file) = loop {
+            let lease = client.transfer_sessions(client.media_dc(dc_id)?, workers.min(plan.shape.connections)).await?;
+            let pacer = client.pacer(dc_id, Direction::Download, plan);
+            let pace = Pace { pacer: pacer.as_deref(), bytes: chunk_cost(request.offset, size), gated: plan.gated };
             // The first chunk goes out alone.
-            match client.invoke_file_part(&lease.sessions[0], &request, part_timeout(CHUNK as u64)).await {
-                Ok(file) => break (lease, file),
+            match client.invoke_file_part(&lease.sessions[0], &request, part_timeout(CHUNK as u64), pace).await {
+                Ok(file) => break (lease, pacer, file),
                 Err(Error::Rpc(e)) if e.is("FILE_MIGRATE") && migrations < MAX_MIGRATIONS => {
                     dc_id = e.migrate_dc().ok_or(Error::Unexpected("FILE_MIGRATE without a DC number"))?;
                     migrations += 1;
@@ -223,6 +223,9 @@ impl<'a> DownloadMedia<'a> {
             source: self.source,
             location: Mutex::new((request.location, 0)),
             renewing: tokio::sync::Mutex::new(()),
+            pacer,
+            gated: plan.gated,
+            size,
         };
         let master = &master;
         match file {
@@ -231,7 +234,8 @@ impl<'a> DownloadMedia<'a> {
                 write_all(f.bytes, &window, size, workers, sink, &progress, part).await
             }
             base::upload::File::FileCdnRedirect(r) => {
-                from_cdn(master, *r, &window, size, workers, sink, &progress).await
+                let shape = client.0.transfer_settings.cdn_shape(premium);
+                from_cdn(master, *r, &window, size, shape, sink, &progress).await
             }
         }
     }
@@ -245,6 +249,11 @@ struct Master<'a> {
     location: Mutex<(base::InputFileLocation, usize)>,
     renewing: tokio::sync::Mutex<()>,
     timeout: Duration,
+    // Shared with every download from this DC; `size` tells it a short last chunk.
+    pacer: Option<Arc<Pacer>>,
+    // Whether each getFile holds its connection's gate; see `Pace`.
+    gated: bool,
+    size: Option<i64>,
 }
 
 impl Master<'_> {
@@ -255,7 +264,8 @@ impl Master<'_> {
             let (location, seen) = self.location.lock().unwrap().clone();
             let request =
                 functions::upload::GetFile { precise: false, cdn_supported: false, location, offset, limit: CHUNK };
-            match self.client.invoke_file_part(session, &request, self.timeout).await {
+            let pace = Pace { pacer: self.pacer.as_deref(), bytes: chunk_cost(offset, self.size), gated: self.gated };
+            match self.client.invoke_file_part(session, &request, self.timeout, pace).await {
                 Ok(base::upload::File::File(f)) => return Ok(f.bytes),
                 Ok(base::upload::File::FileCdnRedirect(_)) => {
                     return Err(Error::Unexpected("upload.getFile redirected to a CDN without cdn_supported"));
@@ -312,15 +322,19 @@ async fn from_cdn(
     redirect: types::upload::FileCdnRedirect,
     window: &Window,
     size: Option<i64>,
-    workers: usize,
+    shape: Shape,
     sink: &Sink,
     progress: &Progress<'_>,
 ) -> Result<()> {
     let client = master.client;
+    let workers = workers_in(shape, window, size);
     let cdn = async {
         let cdn = Cdn::new(&master.sessions[0], redirect, (client.0.api_id, &client.0.options))?;
         let dc = client.dc(cdn.dc_id)?;
-        let lease = client.cdn_sessions(dc, workers.min(MAX_CONNECTIONS)).await?;
+        // CDN chunks are neither paced nor gated, and get the connections they had before pacing whatever the
+        // account, unless the builder set them: nothing is measured on a CDN, and one that floods soon hands its
+        // chunks to the master DC.
+        let lease = client.cdn_sessions(dc, workers.min(shape.connections)).await?;
         // A CDN part also waits on the master DC's connection for hashes, behind its chunks.
         let timeout = part_timeout(workers.div_ceil(lease.sessions.len()) as u64 * CHUNK as u64).max(master.timeout);
         Ok::<_, Error>((cdn, dc, lease, timeout))
@@ -400,6 +414,19 @@ async fn chunks<F: Future<Output = Result<Vec<u8>>>>(
 
 fn chunk_count(size: Option<i64>) -> Option<i32> {
     size.and_then(|s| u64::try_from(s).ok()).and_then(|s| i32::try_from(s.div_ceil(CHUNK as u64)).ok())
+}
+
+/// How many chunks of `window` a download in `shape` keeps in flight: one at a time without a size, since only a
+/// short chunk tells the end then.
+fn workers_in(shape: Shape, window: &Window, size: Option<i64>) -> usize {
+    let parts = window.bound.saturating_sub(window.first);
+    chunk_count(size).map_or(1, |_| workers(parts, CHUNK as u64, shape.in_flight(CHUNK as u64)))
+}
+
+/// The bytes a chunk at `offset` brings, which is what it waits on a pacer for: CHUNK, less for the file's last one.
+fn chunk_cost(offset: i64, size: Option<i64>) -> u64 {
+    let left = size.map_or(i64::from(CHUNK), |size| size.saturating_sub(offset));
+    left.clamp(0, i64::from(CHUNK)) as u64
 }
 
 // Telegram serves aligned chunks only, so a byte range is fetched as the chunks covering it and cut when written.
@@ -569,10 +596,15 @@ impl Sink {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+    use std::io;
+    use std::net::SocketAddr;
     use std::sync::atomic::AtomicI32;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use tokio::sync::{mpsc, watch};
+    use tokio::time::Instant;
 
     use super::{CHUNK, DownloadMedia, DownloadSource, Master, MediaStream, Sink, Window, chunk, chunk_count, fits};
     use crate::Client;
@@ -582,6 +614,7 @@ mod tests {
     use crate::errors::{Error, Result, RpcError};
     use crate::raw::{Identifiable, Serializable, base, functions, types};
     use crate::session::Session;
+    use crate::session::pacer::Lane;
     use crate::session::transfer::{take, try_join_all};
     use crate::types::messages_and_media::media::tests::document_media;
     use crate::types::{FileLocation, Message, Story};
@@ -954,6 +987,9 @@ mod tests {
             source: Some(DownloadSource::Message(-5, 5)),
             location: Mutex::new((get_file(b"old", 0, false).location, 0)),
             renewing: tokio::sync::Mutex::new(()),
+            pacer: None,
+            gated: false,
+            size: None,
         };
         let parts = try_join_all([master.part(0, 0), master.part(1, i64::from(CHUNK))].into_iter()).await.unwrap();
         let get_messages = functions::messages::GetMessages::CONSTRUCTOR_ID.to_le_bytes();
@@ -1263,5 +1299,264 @@ mod tests {
         assert_eq!(slots.available_permits(), 0, "the stream isn't done, so it keeps its slot");
         drop(stream);
         assert_eq!(slots.available_permits(), 1);
+    }
+
+    /// A chunk's time at a bot's download pace of 20 MiB/s: 25 ms.
+    fn chunk_time() -> Duration {
+        Duration::from_nanos(CHUNK as u64 * 1_000_000_000 / (20 << 20))
+    }
+
+    /// Document 1, `size` bytes on DC `dc_id`.
+    fn document(dc_id: i32, size: usize) -> FileLocation {
+        FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(dc_id), file_size: Some(size as i64) }
+    }
+
+    /// [`document`], with 8 connections to DC `dc_id`: the client's session each time, so they share one gate.
+    fn on_eight(client: &Client, dc_id: i32, size: usize) -> FileLocation {
+        for _ in 0..8 {
+            client.0.transfers.insert(client.dc(dc_id).unwrap(), &client.session());
+        }
+        document(dc_id, size)
+    }
+
+    type Log = mpsc::UnboundedReceiver<(Instant, usize)>;
+
+    /// `n` connections to DC 2 in `client`'s pool, each answering with a full chunk a second after it's asked.
+    fn slow_dc(client: &Client, n: usize) -> Vec<(Session, Log)> {
+        slow_dc_answering(client, n, || file(vec![1; CHUNK as usize]))
+    }
+
+    /// [`slow_dc`], answering with `reply()`.
+    fn slow_dc_answering(client: &Client, n: usize, reply: fn() -> Result<Vec<u8>>) -> Vec<(Session, Log)> {
+        let slow = || {
+            let (session, log) = Session::slow(Duration::from_secs(1), reply);
+            client.0.transfers.insert(client.dc(2).unwrap(), &session);
+            (session, log)
+        };
+        (0..n).map(|_| slow()).collect()
+    }
+
+    /// Every request the connections took, by when it came: which connection, how long after `start`, and how many
+    /// that connection had unanswered then, that one included.
+    fn requests(dc: &mut [(Session, Log)], start: Instant) -> Vec<(usize, Duration, usize)> {
+        let mut requests = Vec::new();
+        for (i, (_, log)) in dc.iter_mut().enumerate() {
+            while let Ok((at, unanswered)) = log.try_recv() {
+                requests.push((i, at - start, unanswered));
+            }
+        }
+        requests.sort_by_key(|&(i, at, _)| (at, i));
+        requests
+    }
+
+    fn as_user(client: &Client) {
+        let mut me = client.0.me.lock().unwrap();
+        (me.is_bot, me.premium) = (false, Some(false));
+    }
+
+    /// How long after `start` each of the first `n` requests reached the session behind `rx`.
+    async fn sent_after(rx: &mut mpsc::UnboundedReceiver<Vec<u8>>, start: Instant, n: usize) -> Vec<Duration> {
+        let mut after = Vec::new();
+        while after.len() < n && rx.recv().await.is_some() {
+            after.push(start.elapsed());
+        }
+        after
+    }
+
+    /// Asserts the k-th request went in its turn, k chunks' time in, give or take the timer's millisecond.
+    fn in_turn(after: &[Duration]) {
+        for (k, at) in after.iter().enumerate() {
+            let turn = chunk_time() * k as u32;
+            assert!(turn <= *at && *at <= turn + Duration::from_millis(1), "request {k} went at {at:?}, not {turn:?}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bots_chunks_go_one_at_a_time_at_its_pace() {
+        let c = CHUNK as usize;
+        let (client, mut rx) = Client::scripted((0..16).map(|_| file(vec![1; c])).collect());
+        let (start, location) = (Instant::now(), on_eight(&client, 2, 16 * c));
+        let download = async { client.download_media(location).await };
+        let (bytes, after) = tokio::join!(download, sent_after(&mut rx, start, 16));
+        assert_eq!(bytes.unwrap().len(), 16 * c);
+        in_turn(&after);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bot_keeps_one_chunk_in_flight_on_each_of_8_connections_from_8_mib() {
+        let (client, c) = (Client::offline(), CHUNK as usize);
+        let mut dc = slow_dc(&client, 8);
+        let start = Instant::now();
+        assert_eq!(client.download_media(document(2, 16 * c)).await.unwrap().len(), 16 * c);
+        let requests = requests(&mut dc, start);
+        assert!(requests.iter().all(|r| r.2 == 1), "{requests:?}");
+        // The first chunk alone; once it's in, a second later, one on each connection in turn.
+        assert_eq!((requests.len(), requests[0].1), (16, Duration::ZERO));
+        for (k, &(_, at, _)) in requests[1..9].iter().enumerate() {
+            let turn = Duration::from_secs(1) + chunk_time() * k as u32;
+            assert!(turn <= at && at <= turn + Duration::from_millis(1), "request {k} went at {at:?}, not {turn:?}");
+        }
+        assert_eq!(requests[1..9].iter().map(|r| r.0).collect::<HashSet<_>>().len(), 8);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_user_account_keeps_4_chunks_in_flight_unpaced() {
+        let (client, c) = (Client::offline(), CHUNK as usize);
+        as_user(&client);
+        let mut dc = slow_dc(&client, 8);
+        let start = Instant::now();
+        assert_eq!(client.download_media(document(2, 16 * c)).await.unwrap().len(), 16 * c);
+        let requests = requests(&mut dc, start);
+        let second = Duration::from_secs(1);
+        let first: Vec<_> = requests[..5].iter().map(|r| r.1).collect();
+        assert_eq!(first, [Duration::ZERO, second, second, second, second]);
+        assert_eq!(requests.iter().map(|r| r.0).collect::<HashSet<_>>().len(), 4);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bots_download_under_8_mib_goes_as_a_users() {
+        let c = CHUNK as usize;
+        for bot in [true, false] {
+            let client = Client::offline();
+            if !bot {
+                as_user(&client);
+            }
+            let mut dc = slow_dc(&client, 8);
+            let start = Instant::now();
+            assert_eq!(client.download_media(document(2, 6 * c)).await.unwrap().len(), 6 * c);
+            let requests = requests(&mut dc, start);
+            // The first chunk alone, 4 at once on 4 connections when it's in, and the last when one of those is.
+            let second = Duration::from_secs(1);
+            let at: Vec<_> = requests.iter().map(|r| r.1).collect();
+            assert_eq!(at, [Duration::ZERO, second, second, second, second, 2 * second], "bot: {bot}");
+            assert_eq!(requests.iter().map(|r| r.0).collect::<HashSet<_>>().len(), 4, "bot: {bot}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn many_small_downloads_by_a_bot_at_once_all_go_at_once() {
+        let small = 200 << 10;
+        let (client, mut rx) = Client::scripted((0..50).map(|_| file(vec![1; small])).collect());
+        on_eight(&client, 2, small);
+        let start = Instant::now();
+        let client = &client;
+        let download = |_| async move { client.download_media(document(2, small)).await };
+        let (bytes, after) = tokio::join!(try_join_all((0..50).map(download)), sent_after(&mut rx, start, 50));
+        assert!(bytes.unwrap().iter().all(|b| b.len() == small));
+        assert_eq!(after, [Duration::ZERO; 50]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn two_bot_downloads_from_one_dc_keep_one_getfile_on_each_connection() {
+        let (client, c) = (Client::offline(), CHUNK as usize);
+        let mut dc = slow_dc(&client, 8);
+        let start = Instant::now();
+        let (one, two) = (document(2, 20 * c), document(2, 20 * c));
+        let (one, two) = (async { client.download_media(one).await }, async { client.download_media(two).await });
+        let (one, two) = tokio::join!(one, two);
+        assert_eq!((one.unwrap().len(), two.unwrap().len()), (20 * c, 20 * c));
+        let requests = requests(&mut dc, start);
+        assert_eq!(requests.len(), 40);
+        assert!(requests.iter().all(|r| r.2 == 1), "{requests:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_lease_short_of_connections_keeps_one_getfile_on_each() {
+        let (mut client, c) = (Client::offline(), CHUNK as usize);
+        // Every connection the lease would add fails to open, so it goes on with the 6 in the pool.
+        let refuse = |_: SocketAddr| async {
+            Err::<tokio::io::DuplexStream, _>(io::Error::new(io::ErrorKind::ConnectionRefused, "no route"))
+        };
+        Arc::get_mut(&mut client.0).unwrap().options.connection_factory = Some(Arc::new(refuse));
+        let mut dc = slow_dc(&client, 6);
+        let start = Instant::now();
+        assert_eq!(client.download_media(document(2, 20 * c)).await.unwrap().len(), 20 * c);
+        let requests = requests(&mut dc, start);
+        assert_eq!(requests.iter().map(|r| r.0).collect::<HashSet<_>>().len(), 6);
+        assert!(requests.iter().all(|r| r.2 == 1), "{requests:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bots_downloads_of_unknown_size_at_once_all_go_at_once() {
+        let client = Client::offline();
+        // A 30 KiB photo: one short chunk ends it.
+        let mut dc = slow_dc_answering(&client, 8, || file(vec![1; 30 << 10]));
+        let start = Instant::now();
+        // As by file_id: no size.
+        let by_file_id = || FileLocation { file_size: None, ..document(2, 0) };
+        let client = &client;
+        let download = |_| async move { client.download_media(by_file_id()).await };
+        let photos = try_join_all((0..20).map(download)).await.unwrap();
+        assert!(photos.iter().all(|p| p.len() == 30 << 10));
+        let requests = requests(&mut dc, start);
+        assert_eq!(requests.iter().map(|r| r.1).collect::<Vec<_>>(), [Duration::ZERO; 20]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bots_short_range_of_a_big_file_goes_as_a_users() {
+        let (client, c) = (Client::offline(), CHUNK as usize);
+        let mut dc = slow_dc(&client, 8);
+        let start = Instant::now();
+        let client = &client;
+        // 1 MiB of a 64 MiB file, four times at once: ungated, so each first chunk goes at once, and unpaced, so
+        // each second one goes the moment its first is in.
+        let download = |_| async move { client.download_media(document(2, 128 * c)).offset(0).limit(1 << 20).await };
+        let ranges = try_join_all((0..4).map(download)).await.unwrap();
+        assert!(ranges.iter().all(|r| r.len() == 2 * c));
+        let requests = requests(&mut dc, start);
+        let second = Duration::from_secs(1);
+        let at: Vec<_> = requests.iter().map(|r| r.1).collect();
+        let zero = Duration::ZERO;
+        assert_eq!(at, [zero, zero, zero, zero, second, second, second, second]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn downloads_from_one_dc_share_its_pace() {
+        let c = CHUNK as usize;
+        let (client, mut rx) = Client::scripted((0..32).map(|_| file(vec![1; c])).collect());
+        let (start, one, two) = (Instant::now(), on_eight(&client, 2, 16 * c), on_eight(&client, 2, 16 * c));
+        let (one, two) = (async { client.download_media(one).await }, async { client.download_media(two).await });
+        let (one, two, after) = tokio::join!(one, two, sent_after(&mut rx, start, 32));
+        assert_eq!((one.unwrap().len(), two.unwrap().len()), (16 * c, 16 * c));
+        in_turn(&after);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn downloads_from_two_dcs_are_paced_apart() {
+        let c = CHUNK as usize;
+        let (client, mut rx) = Client::scripted((0..32).map(|_| file(vec![1; c])).collect());
+        let (start, two, four) = (Instant::now(), on_eight(&client, 2, 16 * c), on_eight(&client, 4, 16 * c));
+        let (two, four) = (async { client.download_media(two).await }, async { client.download_media(four).await });
+        let (two, four, after) = tokio::join!(two, four, sent_after(&mut rx, start, 2));
+        assert!(two.is_ok() && four.is_ok());
+        // Each DC's first chunk goes at once.
+        assert_eq!(after, [Duration::ZERO; 2]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn small_files_are_not_held_back() {
+        let small = 100 << 10;
+        let (client, mut rx) = Client::scripted((0..3).map(|_| file(vec![1; small])).collect());
+        let start = Instant::now();
+        for _ in 0..3 {
+            assert_eq!(client.download_media(on_eight(&client, 2, small)).await.unwrap().len(), small);
+        }
+        assert_eq!((start.elapsed(), drain(&mut rx).len()), (Duration::ZERO, 3));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bots_download_follows_the_rate_set_on_the_builder() {
+        let c = CHUNK as usize;
+        // Unpaced, and a chunk a second.
+        for (rate, turn) in [(None, Duration::ZERO), (Some(CHUNK as u64), Duration::from_secs(1))] {
+            let (mut client, mut rx) = Client::scripted((0..16).map(|_| file(vec![1; c])).collect());
+            let lane = Lane { connections: None, max_bytes_per_sec: Some(rate) };
+            Arc::get_mut(&mut client.0).unwrap().transfer_settings.download = lane;
+            let (start, location) = (Instant::now(), on_eight(&client, 2, 16 * c));
+            let download = async { client.download_media(location).await };
+            let (bytes, after) = tokio::join!(download, sent_after(&mut rx, start, 16));
+            assert_eq!(bytes.unwrap().len(), 16 * c);
+            assert_eq!(after, (0..16).map(|k| turn * k).collect::<Vec<_>>());
+        }
     }
 }
