@@ -149,9 +149,10 @@ impl Dispatcher {
                     // Before waiting: a handler parked in `listen` would otherwise hold `stop` up to its timeout.
                     self.client.0.handlers.listeners.close();
                     self.tasks.finish().await;
-                    // Held updates, seq batches included, have moved no counter, so what is saved is from before
-                    // them and the next start's getDifference fetches what they counted; what in a held batch moves
-                    // no counter is lost.
+                    // A held seq batch has moved no counter, so the state saved is the one from before it: with
+                    // catch-up the next start's getDifference returns its account-level updates, while a channel
+                    // update in it comes back only through that channel's own difference, from a stored pts and a
+                    // later gap.
                     if self.same_account() {
                         self.client.0.save_state(&self.tracker.state).await;
                     }
@@ -1374,27 +1375,36 @@ mod tests {
             unread_muted_messages_count: 0,
             unread_unmuted_messages_count: 0,
         };
+        let message = base::Message::Message(Box::new(Message::bare(42, get_peer(get_channel_id(9)), 0)));
         let too_long = types::updates::ChannelDifferenceTooLong {
             r#final: true,
             timeout: None,
             dialog: base::Dialog::DialogFolder(Box::new(folder)),
-            messages: Vec::new(),
+            messages: vec![message],
             chats: Vec::new(),
             users: Vec::new(),
         };
         let too_long = base::updates::ChannelDifference::ChannelDifferenceTooLong(Box::new(too_long));
         let (mut d, events) = in_channel(vec![Ok(too_long.to_bytes())], 10);
-        d.resolve().await;
+        let seen = raw_updates(&d.client);
+        let deleted_in_channel = |pts| {
+            let update = types::UpdateDeleteChannelMessages { channel_id: 9, messages: vec![1], pts, pts_count: 1 };
+            short(base::Update::UpdateDeleteChannelMessages(Box::new(update)))
+        };
+        // Held for the gap the fetch is for.
+        deliver(&mut d, deleted_in_channel(13)).await;
 
         let got: Vec<ClientEvent> = events.try_iter().collect();
         let chat_id = Some(get_channel_id(9));
         let skipped = ClientEvent::UpdatesSkipped { chat_id, from: 10, to: 10, reason: SkipReason::TooLong };
         assert_eq!(format!("{got:?}"), format!("{:?}", [skipped]));
-        assert_eq!((d.tracker.state.channels.get(&9), d.tracker.due.len()), (None, 0));
+        let delivered: Vec<u32> = seen.lock().unwrap().iter().map(RawUpdate::constructor_id).collect();
+        assert_eq!(delivered, [types::UpdateNewChannelMessage::CONSTRUCTOR_ID]);
+        let s = &d.tracker;
+        assert_eq!((s.state.channels.get(&9), s.pending.len(), s.due.len()), (None, 0, 0));
         // The next update pushed for it starts it again instead of waiting on the old pts.
-        let next = types::UpdateDeleteChannelMessages { channel_id: 9, messages: vec![1], pts: 12, pts_count: 1 };
-        deliver(&mut d, short(base::Update::UpdateDeleteChannelMessages(Box::new(next)))).await;
-        assert_eq!((d.tracker.state.channels.get(&9), d.tracker.pending.len()), (Some(&12), 0));
+        deliver(&mut d, deleted_in_channel(15)).await;
+        assert_eq!((d.tracker.state.channels.get(&9), d.tracker.pending.len()), (Some(&15), 0));
     }
 
     #[tokio::test]

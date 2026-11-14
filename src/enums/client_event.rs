@@ -111,8 +111,10 @@ pub enum ClientEvent {
     /// delivered. `from == to` when the fetch stopped before Telegram said how many there were, or when there was
     /// nothing to fetch from ([`SkipReason::NoPts`]: no fetch was made). A report for the account also stands for
     /// its qts updates (participant changes, join requests, a bot being stopped, ...), whose own numbers it doesn't
-    /// give: `from..to` are pts. Of those, the ones held behind a missing one went out past it, and the ones dropped
-    /// because too many were held are still ahead of the client's qts, so a later fetch of the account brings them.
+    /// give: `from..to` are pts. Of those, the ones held behind a missing one went out past it. The ones dropped
+    /// because too many were held stay ahead of the stored qts and come with the account's next fetch: a later gap,
+    /// the idle fetch, a reconnect, [`recover_gaps`](crate::Client::recover_gaps), or the next start with
+    /// [`catch_up`](crate::ClientBuilder::catch_up). Nothing schedules one for them.
     #[non_exhaustive]
     UpdatesSkipped {
         /// Bot-API style id of the channel (`-100…`), or `None` for the account's own message box (private chats

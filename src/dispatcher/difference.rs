@@ -202,9 +202,12 @@ impl Dispatcher {
                         // No pts came with the messages, e.g. a dialogFolder where the channel's dialog was due.
                         // Kept, the old pts would fetch these messages again at every gap; forgotten, as on
                         // PERSISTENT_TIMESTAMP_INVALID, the channel is started again by the next update pushed for it.
+                        // What is held for it goes too, within the TooLong report: the answer's latest messages stand
+                        // for it, and settling it would put the channel back at the pts it reaches.
                         if since.is_none() {
                             self.skipped(Key::Channel(channel_id), pts, pts, SkipReason::TooLong);
                         }
+                        self.tracker.pending.retain(|(_, held)| held.key != Key::Channel(channel_id));
                         self.tracker.state.channels.remove(&channel_id);
                         return Ok(());
                     };
