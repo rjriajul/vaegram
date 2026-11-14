@@ -49,8 +49,9 @@ generated from Telegram's schema.
   poll shared data. Shared-widget copies retain their id. Rendering HTML requires a host application.
 - A session file that keeps the login, the chats the client has seen and the update state, so a restart picks up
   the updates it missed. SQLite, redb, PostgreSQL, Redis, MongoDB, S3 and Vault storage come behind cargo features.
-- Uploads and downloads over several connections that survive a dead connection, a server error or a FLOOD_WAIT.
-  A bot's large transfers are paced at what Telegram allows a bot (about 20 MB/s each way, measured with one bot).
+- Transfers that survive a dead connection, a server error or a FLOOD_WAIT. Uploads, and downloads of a file whose
+  size is known, go over several connections; a bot's transfers of 8 MiB or more are paced at what Telegram allows
+  a bot (about 20 MB/s each way, measured with one bot).
 - Rate limiting, FLOOD_WAIT retries, and reconnects that fill update gaps.
 - An observer for every request, events for failures, and recorded traffic you can replay in tests.
 - Crypto from [WarpCrypto](https://github.com/rjriajul/WarpCrypto).
