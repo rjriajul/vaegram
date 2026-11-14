@@ -48,7 +48,9 @@ generated from Telegram's schema.
 - HTML widgets over MTProto: bots send widgets and answer queries; user accounts read widgets, send queries and
   poll shared data. Shared-widget copies retain their id. Rendering HTML requires a host application.
 - A session file that keeps the login, the chats the client has seen and the update state, so a restart picks up
-  the updates it missed. SQLite, redb, Redis, MongoDB, S3 and Vault storage come behind cargo features.
+  the updates it missed. SQLite, redb, PostgreSQL, Redis, MongoDB, S3 and Vault storage come behind cargo features.
+- Uploads and downloads over several connections that survive a dead connection, a server error or a FLOOD_WAIT.
+  A bot's large transfers are paced at what Telegram allows a bot (about 20 MB/s each way, measured with one bot).
 - Rate limiting, FLOOD_WAIT retries, and reconnects that fill update gaps.
 - An observer for every request, events for failures, and recorded traffic you can replay in tests.
 - Crypto from [WarpCrypto](https://github.com/rjriajul/WarpCrypto).
@@ -57,11 +59,11 @@ generated from Telegram's schema.
 
 ```toml
 [dependencies]
-vaegram = "0.2"
+vaegram = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-vaegram needs Rust 1.85 or newer. The `vae` crate is the same library under a shorter name: `vae = "0.2"`, then
+vaegram needs Rust 1.85 or newer. The `vae` crate is the same library under a shorter name: `vae = "0.3"`, then
 `use vae::Client;`.
 
 Get an `api_id` and `api_hash` from [my.telegram.org](https://my.telegram.org). A bot also needs a token from
