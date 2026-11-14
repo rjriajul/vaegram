@@ -194,13 +194,24 @@ impl Dispatcher {
                         self.tracker.emit(new_channel_message(message), &entities);
                         self.recovered.0 += 1;
                     }
-                    if let base::Dialog::Dialog(dialog) = &d.dialog {
-                        let to = dialog.pts.unwrap_or(pts);
-                        if to > pts && since.is_none() {
-                            self.skipped(Key::Channel(channel_id), pts, to, SkipReason::TooLong);
+                    let to = match &d.dialog {
+                        base::Dialog::Dialog(dialog) => dialog.pts,
+                        _ => None,
+                    };
+                    let Some(to) = to else {
+                        // No pts came with the messages, e.g. a dialogFolder where the channel's dialog was due.
+                        // Kept, the old pts would fetch these messages again at every gap; forgotten, as on
+                        // PERSISTENT_TIMESTAMP_INVALID, the channel is started again by the next update pushed for it.
+                        if since.is_none() {
+                            self.skipped(Key::Channel(channel_id), pts, pts, SkipReason::TooLong);
                         }
-                        pts = to;
+                        self.tracker.state.channels.remove(&channel_id);
+                        return Ok(());
+                    };
+                    if to > pts && since.is_none() {
+                        self.skipped(Key::Channel(channel_id), pts, to, SkipReason::TooLong);
                     }
+                    pts = to;
                     break;
                 }
                 base::updates::ChannelDifference::ChannelDifference(d) => {

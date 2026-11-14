@@ -302,7 +302,7 @@ async fn invoke_part_on<R: RemoteCall>(
     let (mut timeouts, mut server_errors, mut tally) = (0, 0, Tally::default());
     loop {
         // Taken before the pacer, so a part waits its turn with its connection already its own.
-        let gate = if pace.gated { session.gate().enter().await } else { None };
+        let gate = if pace.gated { Some(session.gate().enter().await) } else { None };
         if let Some(pacer) = pace.pacer {
             pacer.pace(pace.bytes).await;
         }
