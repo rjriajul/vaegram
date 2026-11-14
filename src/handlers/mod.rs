@@ -51,7 +51,7 @@ pub struct HandlerError {
     /// Bot-API style id of the user who caused the update (its `from_user` or `user`): the sender of a message or
     /// story, the user who pressed the button, sent the query or paid, or the one who changed a membership or
     /// reacted. `None` for raw handlers, the hooks and updates with no user behind them. The one exception is
-    /// [`UserStatusUpdated`](crate::types::UserStatusUpdated), where Telegram reports on a user and nobody acted:
+    /// [`UserStatusUpdated`], where Telegram reports on a user and nobody acted:
     /// there it is that user.
     pub user_id: Option<i64>,
     /// Id of the query the update carries, the one its `answer` method takes: callback, widget, inline, shipping,
