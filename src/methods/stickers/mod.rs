@@ -2,6 +2,7 @@ mod add_favorite_sticker;
 mod add_recent_sticker;
 mod add_sticker_to_set;
 mod archive_sticker_set;
+mod check_sticker_set_name;
 mod clear_recent_stickers;
 mod create_new_sticker_set;
 mod delete_sticker_from_set;
