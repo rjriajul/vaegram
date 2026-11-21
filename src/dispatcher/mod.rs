@@ -62,8 +62,14 @@ impl Dispatcher {
         Dispatcher::with(client, tracker)
     }
 
+    /// Resumes from `state`, loaded from storage or handed back by an earlier run, which saved or queued it as it
+    /// ended; it isn't written again until it moves. A dispatcher from getState starts with nothing saved, so its
+    /// starting state is written at the first save.
     pub(crate) fn resume(client: Client, state: UpdateState) -> Self {
-        Dispatcher::with(client, Tracker { state, due: vec![Key::Pts], ..Tracker::default() })
+        let saved = state.clone();
+        let mut dispatcher = Dispatcher::with(client, Tracker { state, due: vec![Key::Pts], ..Tracker::default() });
+        dispatcher.saved = saved;
+        dispatcher
     }
 
     /// Starts at `state` without catch-up. A bot's updates.getState names the last update Telegram knows it got, and
@@ -120,7 +126,9 @@ impl Dispatcher {
         self.resolve().await;
         loop {
             self.dispatch_ready();
-            // Saved every SAVE_EVERY when it moved, and on drop, so a crash replays at most that much. Peers are
+            // Saved at most SAVE_EVERY after it moved, the loop waking for it when no update does, even with the
+            // handlers' waiting room full, and on drop: a crash replays what the handlers were handed in the last
+            // SAVE_EVERY and the store's flush interval, not a burst handled long before a quiet spell. Peers are
             // written by the store on its own timer.
             if self.saved_at.elapsed() >= SAVE_EVERY {
                 self.saved_at = Instant::now();
@@ -129,6 +137,14 @@ impl Dispatcher {
                     self.saved = self.tracker.state.clone();
                 }
             }
+            let unsaved = self.tracker.state != self.saved && self.same_account();
+            let save_at = unsaved.then_some(self.saved_at + SAVE_EVERY);
+            let save = async {
+                match save_at {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            };
             let deadline = self.tracker.deadline();
             let next = async {
                 match deadline {
@@ -156,11 +172,14 @@ impl Dispatcher {
                     // later gap.
                     if self.same_account() {
                         self.client.0.save_state(&self.tracker.state).await;
+                        self.saved = self.tracker.state.clone();
                     }
                     return true;
                 }
                 next = next, if !full => next,
                 () = self.tasks.one_done(), if full => continue,
+                // The save itself is at the top of the loop.
+                () = save => continue,
                 // After the updates, and one request a turn, so a tight `recover_gaps` loop can't starve them.
                 Some(request) = recoveries.recv() => {
                     self.recover(request).await;
@@ -177,6 +196,7 @@ impl Dispatcher {
                     // The connection is gone for good: save here, since the next save is on drop, which a crash skips.
                     if self.same_account() {
                         self.client.0.save_state(&self.tracker.state).await;
+                        self.saved = self.tracker.state.clone();
                     }
                     return false;
                 }
@@ -385,6 +405,11 @@ impl Drop for Dispatcher {
     fn drop(&mut self) {
         self.client.0.handlers.listeners.close();
         *self.client.0.recover.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        if self.same_account() && self.tracker.state != self.saved {
+            // A run dropped, not stopped, before it saved: queued for the store's next flush, so the next `resume`,
+            // which takes the state handed back for one the store has, doesn't leave it unwritten until close.
+            self.client.0.save_state_in_background(&self.tracker.state);
+        }
         let Ok(mut state) = self.client.0.state.lock() else { return };
         if self.same_account() {
             *state = Some(std::mem::take(&mut self.tracker.state));
@@ -1328,10 +1353,28 @@ mod tests {
     }
 
     fn recording_client() -> (Client, Arc<Recording>) {
+        recording_client_with(Vec::new())
+    }
+
+    fn recording_client_with(replies: Vec<crate::errors::Result<Vec<u8>>>) -> (Client, Arc<Recording>) {
         let engine = Arc::new(Recording::default());
-        let (mut client, _sent) = Client::scripted(Vec::new());
+        let (mut client, _sent) = Client::scripted(replies);
         Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
         (client, engine)
+    }
+
+    /// Runs `d` until the paused clock reaches `at`, then drops the run, so nothing it would do later, such as the
+    /// idle getDifference, races what the test checks next.
+    async fn run_until(d: &mut Dispatcher, rx: &mut UpdatesRx, at: tokio::time::Instant) {
+        tokio::select! {
+            _ = d.run(rx) => panic!("the dispatcher stopped"),
+            () = tokio::time::sleep_until(at) => {}
+        }
+    }
+
+    async fn saved_pts(client: &Client, engine: &Recording) -> Option<i32> {
+        client.0.store.flush().await;
+        engine.load_state().await.unwrap().and_then(|s| s.update).map(|s| s.pts)
     }
 
     /// Runs a dispatcher over one update that moves pts to 2, then closes the update channel.
@@ -1356,6 +1399,87 @@ mod tests {
         let saved = engine.load_state().await.unwrap().and_then(|s| s.update);
         assert!(!stopped);
         assert_eq!(saved.map(|s| s.pts), Some(2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_moved_state_is_saved_when_no_update_follows() {
+        let (client, engine) = recording_client();
+        let mut d = Dispatcher::new(client.clone(), &state());
+        let (updates, mut rx) = UpdatesRx::channel();
+        updates.send(Incoming { updates: short(new_message(2)), from_request: false }).await.unwrap();
+        // Nothing comes after it, so only the save's own deadline wakes the loop before the idle one, 15 minutes on:
+        // a kill before then would replay the update however long ago it was handled.
+        let start = tokio::time::Instant::now();
+        run_until(&mut d, &mut rx, start + super::SAVE_EVERY + std::time::Duration::from_secs(1)).await;
+        assert_eq!(saved_pts(&client, &engine).await, Some(2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_burst_after_a_save_is_saved_by_the_next_one_without_more_updates() {
+        let (client, engine) = recording_client();
+        let mut d = Dispatcher::new(client.clone(), &state());
+        let (updates, mut rx) = UpdatesRx::channel();
+        let every = super::SAVE_EVERY;
+        let half = std::time::Duration::from_millis(500);
+        let start = tokio::time::Instant::now();
+        updates.send(Incoming { updates: short(new_message(2)), from_request: false }).await.unwrap();
+        run_until(&mut d, &mut rx, start + every + half * 4).await;
+        assert_eq!(d.saved.pts, 2, "the first save, at SAVE_EVERY");
+        // A burst two seconds after that save, then nothing.
+        for pts in 3..=5 {
+            updates.send(Incoming { updates: short(new_message(pts)), from_request: false }).await.unwrap();
+        }
+        run_until(&mut d, &mut rx, start + every * 2 - half).await;
+        assert_eq!((d.tracker.state.pts, d.saved.pts), (5, 2), "saved before SAVE_EVERY passed");
+        run_until(&mut d, &mut rx, start + every * 2 + half).await;
+        assert_eq!((d.saved.pts, saved_pts(&client, &engine).await), (5, Some(5)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_resumed_state_that_never_moves_is_not_written_again() {
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 1, seq: 0 });
+        let (client, engine) = recording_client_with(vec![Ok(empty.to_bytes())]);
+        let mut d = Dispatcher::resume(client.clone(), UpdateState { pts: 1, date: 1, ..Default::default() });
+        let (_updates, mut rx) = UpdatesRx::channel();
+        run_until(&mut d, &mut rx, tokio::time::Instant::now() + super::SAVE_EVERY * 2).await;
+        assert_eq!(saved_pts(&client, &engine).await, None);
+        assert!(!engine.calls().contains(&"save_state"), "{:?}", engine.calls());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_state_a_dropped_run_handed_back_unsaved_is_written() {
+        let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 0, seq: 0 });
+        let (client, engine) = recording_client_with(vec![Ok(empty.to_bytes())]);
+        let mut d = Dispatcher::new(client.clone(), &state());
+        let (updates, mut rx) = UpdatesRx::channel();
+        updates.send(Incoming { updates: short(new_message(2)), from_request: false }).await.unwrap();
+        let start = tokio::time::Instant::now();
+        // Dropped, as a cancelled `run` drops it, before its first save.
+        run_until(&mut d, &mut rx, start + std::time::Duration::from_secs(1)).await;
+        drop(d);
+        let handed_back = client.0.state.lock().unwrap().take().unwrap();
+        assert_eq!(handed_back.pts, 2);
+        // The next run resumes from it and nothing moves it again.
+        let mut d = Dispatcher::resume(client.clone(), handed_back);
+        run_until(&mut d, &mut rx, start + super::SAVE_EVERY * 2).await;
+        assert_eq!(saved_pts(&client, &engine).await, Some(2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_full_waiting_room_does_not_hold_the_save_up() {
+        let (client, engine) = recording_client();
+        let mut d = Dispatcher::new(client.clone(), &state());
+        // A handler cap with no free slot: every handler waits, and the waiting room fills.
+        d.tasks = super::tasks::Tasks::new(false, Some(Arc::new(tokio::sync::Semaphore::new(0))));
+        for _ in 0..super::tasks::MAX_WAITING_HANDLERS {
+            d.tasks.raw(Box::pin(async { Ok::<(), Error>(()) }));
+        }
+        assert!(d.tasks.full());
+        d.tracker.state.pts = 2;
+        let (_updates, mut rx) = UpdatesRx::channel();
+        let start = tokio::time::Instant::now();
+        run_until(&mut d, &mut rx, start + super::SAVE_EVERY + std::time::Duration::from_secs(1)).await;
+        assert_eq!(saved_pts(&client, &engine).await, Some(2));
     }
 
     #[tokio::test]
