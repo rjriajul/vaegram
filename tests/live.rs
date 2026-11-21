@@ -1100,7 +1100,7 @@ async fn user_manages_business_links_and_quick_replies() {
 async fn user_reads_app_config_and_languages() {
     let Some(user) = user_client().await else { return };
     assert!((1..=5).contains(&user.get_nearest_dc().await.unwrap().this_dc));
-    assert!(matches!(user.get_app_config().await.unwrap(), Json::Object(_)));
+    assert!(matches!(user.get_app_config().await.unwrap().json(), Json::Object(_)));
     assert!(user.get_countries_list("en").await.unwrap().iter().any(|c| c.iso2 == "US"));
     assert!(!user.get_timezones_list().await.unwrap().is_empty());
     user.get_terms_of_service_update().await.unwrap();

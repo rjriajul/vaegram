@@ -30,7 +30,7 @@ use crate::storage::recording::Recorder;
 use crate::storage::{
     FileStorage, MemoryStorage, PeerCache, SessionData, Storage, Store, StoredState, UpdateState, session_string,
 };
-use crate::types::{Json, LinkPreviewOptions};
+use crate::types::{AppConfig, Json, LinkPreviewOptions};
 
 const DEFAULT_DC: i32 = 2;
 const LISTENER_TIMEOUT: Duration = Duration::from_secs(300);
@@ -778,6 +778,8 @@ pub(crate) struct Inner {
     pub(crate) recover: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Recover>>>,
     pub(crate) caches: Caches,
     pub(crate) fetch: Fetch,
+    // The last app config `get_app_config` got; its hash lets Telegram answer "not modified".
+    pub(crate) app_config: Mutex<Option<AppConfig>>,
 }
 
 /// What a client fetches for a new message before its handlers run.
@@ -881,6 +883,7 @@ impl Inner {
             recover: Mutex::new(None),
             caches: Caches::default(),
             fetch: Fetch::default(),
+            app_config: Mutex::new(None),
         }
     }
 
