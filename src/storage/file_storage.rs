@@ -224,13 +224,14 @@ impl Storage for FileStorage {
     fn delete(&self) -> StorageFuture<'_, ()> {
         Box::pin(async move {
             let mut open = self.lock();
-            let lock = match open.lock.take() {
-                Some(lock) => lock,
-                None => lock_file(&self.path).map_err(|e| self.named(e))?,
-            };
+            if open.lock.is_none() {
+                open.lock = Some(lock_file(&self.path).map_err(|e| self.named(e))?);
+            }
             open.handle = None;
+            // A failed unlink leaves the lock in place: the file is still there, and still ours.
             super::delete(&self.path).map_err(|e| self.named(e))?;
-            *open = Open { opened: true, lock: Some(lock), compact_at: open.compact_at, ..Open::default() };
+            let lock = open.lock.take();
+            *open = Open { opened: true, lock, compact_at: open.compact_at, ..Open::default() };
             Ok(())
         })
     }
@@ -591,5 +592,24 @@ mod tests {
         assert!(refused_write, "a refused storage still wrote");
         assert!(after_close.is_ok(), "{after_close:?}");
         assert_eq!(peers.len(), 3, "the first client's records were overwritten");
+    }
+
+    // A directory where the file was makes the unlink fail; unix only, as the open handle keeps Windows from moving
+    // the file out of the way.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_failed_delete_keeps_the_file_locked() {
+        let dir = temp_dir("failed-delete");
+        let first = FileStorage::new(dir.join("bot"));
+        first.save_session(&session()).await.unwrap();
+        std::fs::remove_file(first.path()).unwrap();
+        std::fs::create_dir(first.path()).unwrap();
+        let deleted = first.delete().await;
+        let second = FileStorage::new(dir.join("bot"));
+        let refused = second.open().await.err().map(|e| e.kind());
+        drop((first, second));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(deleted.is_err(), "the directory was unlinked");
+        assert_eq!(refused, Some(std::io::ErrorKind::ResourceBusy), "the failed delete let the lock go");
     }
 }
