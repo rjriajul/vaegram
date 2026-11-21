@@ -10,7 +10,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::session::Session;
 use crate::session::pacer::{Direction, Pace, Pacer};
-use crate::session::transfer::{Progress, Report, invoke_paced_part, part_timeout, take, try_join_all, workers};
+use crate::session::transfer::{Progress, Report, invoke_saved_part, part_timeout, take, try_join_all, workers};
 use crate::types::Upload;
 
 // https://core.telegram.org/api/files#uploading-files
@@ -172,18 +172,16 @@ impl Parts<'_> {
             let saved = if self.big {
                 let total = self.count;
                 let request = functions::upload::SaveBigFilePart { file_id, file_part, file_total_parts: total, bytes };
-                let saved = invoke_paced_part(session, &request, self.timeout, pace).await;
+                let saved = invoke_saved_part(session, &request, self.timeout, pace, file_part).await;
                 bytes = request.bytes;
                 saved
             } else {
                 let request = functions::upload::SaveFilePart { file_id, file_part, bytes };
-                let saved = invoke_paced_part(session, &request, self.timeout, pace).await;
+                let saved = invoke_saved_part(session, &request, self.timeout, pace, file_part).await;
                 bytes = request.bytes;
                 saved
             };
-            if !saved? {
-                return Err(Error::Unexpected("upload.saveFilePart returned false"));
-            }
+            saved?;
             progress.add(bytes.len());
         }
         Ok(())
@@ -429,5 +427,31 @@ mod tests {
         let (files, sent_at) = tokio::join!(uploads, sent_after(&mut sent, start, 20));
         assert_eq!(files.unwrap().len(), 10);
         assert_eq!(sent_at, [Duration::ZERO; 20]);
+    }
+
+    fn user_client(replies: Vec<crate::Result<Vec<u8>>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (client, sent) = Client::scripted(replies);
+        {
+            let mut me = client.0.me.lock().unwrap();
+            (me.is_bot, me.premium) = (false, Some(false));
+        }
+        (client, sent)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_part_answered_false_is_sent_again() {
+        let (client, mut sent) = user_client(vec![Ok(false.to_bytes()), Ok(true.to_bytes())]);
+        let file = client.save_file(Upload::bytes("a.txt", b"x")).await;
+        assert!(matches!(&file, Ok(base::InputFile::InputFile(f)) if f.parts == 1), "{file:?}");
+        assert_eq!(std::iter::from_fn(|| sent.try_recv().ok()).count(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_part_always_answered_false_fails_after_the_bound_naming_the_part() {
+        let (client, mut sent) = user_client((0..10).map(|_| Ok(false.to_bytes())).collect());
+        let e = client.save_file(Upload::bytes("a.txt", b"x")).await.unwrap_err();
+        assert!(matches!(e, Error::Other(_)) && e.to_string().contains("part 0"), "{e:?}");
+        // The first send and six resends.
+        assert_eq!(std::iter::from_fn(|| sent.try_recv().ok()).count(), 7);
     }
 }
