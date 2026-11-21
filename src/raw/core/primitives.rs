@@ -161,4 +161,14 @@ mod tests {
         assert!(capacity::<Vec<u8>>(u32::MAX, input) * size_of::<Vec<u8>>() <= input);
         assert_eq!((capacity::<i32>(u32::MAX, input), capacity::<i32>(3, input)), (1024, 3));
     }
+
+    #[test]
+    fn try_to_bytes_refuses_a_16_mib_field_without_panicking() {
+        use crate::errors::Error;
+        use crate::raw::Serializable;
+        let big = vec![0u8; super::MAX_BYTES];
+        assert!(matches!(big.try_to_bytes(), Err(Error::InvalidArgument(_))));
+        assert!(matches!(vec![big].try_to_bytes(), Err(Error::InvalidArgument(_))));
+        assert_eq!(vec![1u8, 2, 3].try_to_bytes().unwrap(), vec![3, 1, 2, 3]);
+    }
 }

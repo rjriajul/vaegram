@@ -104,10 +104,21 @@ pub trait Serializable {
     fn serialize(&self, buf: &mut Vec<u8>);
 
     /// The value's TL bytes in a new buffer.
+    ///
+    /// # Panics
+    ///
+    /// If a string or bytes field is 16 MiB or longer, as [`serialize`](Serializable::serialize) does. Use
+    /// [`try_to_bytes`](Serializable::try_to_bytes) for a value built from a caller's data.
     fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(128);
         self.serialize(&mut buf);
         buf
+    }
+
+    /// Like [`to_bytes`](Serializable::to_bytes), but a string or bytes field of 16 MiB or more is an
+    /// `Error::InvalidArgument` instead of a panic.
+    fn try_to_bytes(&self) -> crate::errors::Result<Vec<u8>> {
+        checked_bytes(self).ok_or(crate::errors::Error::InvalidArgument("a string or bytes field is 16 MiB or longer"))
     }
 }
 
