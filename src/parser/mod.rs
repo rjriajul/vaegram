@@ -39,6 +39,9 @@ trait Markup {
 
 fn walk(text: &str, mut spans: Vec<Span>, out: &mut impl Markup) {
     spans.retain(|s| s.start >= 0 && s.end > s.start);
+    // Spans of one range are listed innermost first, as the parsers read them (an inner span closes first), so the
+    // one listed last is the outer tag. The stable sort keeps that order on the reversed list.
+    spans.reverse();
     spans.sort_by_key(|s| (s.start, -s.end));
     let mut next = spans.iter().peekable();
     let mut open: Vec<&Span> = Vec::new();
@@ -728,6 +731,33 @@ mod tests {
             E::MessageEntityTextUrl(e) => (e.offset, e.length),
             E::MessageEntityBlockquote(e) => (e.offset, e.length),
             other => panic!("unexpected entity {other:?}"),
+        }
+    }
+
+    #[test]
+    fn equal_range_spans_round_trip_in_both_modes() {
+        let link = || Kind::Link("u".into());
+        let cases = [
+            (vec![Kind::Code, link()], true, true),
+            (vec![Kind::Bold, Kind::Underline], true, true),
+            (vec![Kind::Bold, Kind::Underline, Kind::Italic], true, false),
+            (vec![Kind::Code, Kind::Bold, Kind::Strike], true, true),
+            (vec![Kind::Bold, Kind::Strike], true, true),
+            (vec![Kind::Bold, Kind::Strike, Kind::Spoiler], true, true),
+        ];
+        for (kinds, in_html, in_markdown) in cases {
+            let mut text = Text::default();
+            text.push_str("xy");
+            for kind in &kinds {
+                text.span(kind.clone(), 0);
+            }
+            let modes = [(in_html, ParseMode::Html), (in_markdown, ParseMode::Markdown)];
+            for (_, mode) in modes.into_iter().filter(|(on, _)| *on) {
+                let written = unparse(&text, mode);
+                let back = parse(&written, mode);
+                let spans = |t: &Text| t.spans.iter().map(|s| (s.kind.clone(), s.start, s.end)).collect::<Vec<_>>();
+                assert_eq!(spans(&back), spans(&text), "{kinds:?} became {written:?}");
+            }
         }
     }
 }

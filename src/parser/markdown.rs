@@ -426,6 +426,8 @@ pub(super) fn unparse(text: &Text, html: bool) -> String {
         raw: 0,
         html,
     };
+    // `walk` writes the span listed last of a range outermost; code and fenced blocks must be the innermost.
+    kept.sort_by_key(|s| (s.start, -s.end, !raw(&s.kind)));
     super::walk(&text.text, kept, &mut out);
     // The quotes are in order and apart, so the last one ends last.
     if out.quotes.last().is_some_and(|q| q.expandable && q.end == text.len) {
