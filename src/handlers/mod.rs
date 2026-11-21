@@ -183,8 +183,12 @@ impl Routed for Message {
         self.from_user.as_ref().map(|user| user.id)
     }
 
+    // Boxed on purpose: with the `async` future itself as the hidden type, the compiler's `Send` proof for it runs
+    // through `prefetch` -> `fill` -> the fetch helpers and back to this method's opaque type, past the recursion
+    // limit (a nightly warning that will become an error). A boxed `dyn Future + Send` ends that cycle.
     fn prepare(self) -> impl Future<Output = Self> + Send {
-        prefetched(self)
+        let boxed: Pin<Box<dyn Future<Output = Self> + Send>> = Box::pin(prefetched(self));
+        boxed
     }
 }
 
