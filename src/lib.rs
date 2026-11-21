@@ -137,3 +137,4 @@ pub mod utils;
 
 pub use client::{Client, ClientBuilder};
 pub use errors::{Error, Result, RpcError};
+pub use parser::{escape_html, escape_markdown};
