@@ -249,7 +249,7 @@ impl Tracker {
             key => *self.counter(key),
         };
         match local.cmp(&p.before) {
-            Ordering::Greater => self.stale(p),
+            Ordering::Greater => self.stale(p, false),
             Ordering::Equal => {
                 let key = p.key;
                 self.apply(p);
@@ -300,7 +300,7 @@ impl Tracker {
                 };
                 while let Some(i) = oldest(&self.pending[..]) {
                     let (_, p) = self.pending.remove(i);
-                    self.stale(p);
+                    self.stale(p, true);
                 }
             } else {
                 // What `stale` does with an update or a counter: nothing.
@@ -317,10 +317,16 @@ impl Tracker {
     /// and tdlib does, an update a pts or qts numbers is checked against its own counter, which delivers it when it is
     /// new and drops it when it is not. One that moves its counter by 0 (`pts_count` 0) can't be told from a copy
     /// already applied by that counter, the batch's seq being its only check, so it goes with the rest.
-    fn stale(&mut self, p: Pending) {
+    /// updateChannelTooLong numbers nothing but is the only word that the channel has to be fetched, so it goes
+    /// through again from a batch that was `held` and so never applied; one pushed again goes with the rest, since
+    /// its copy was applied and asking again would only fetch the channel once more, or start one forgotten since.
+    /// Two copies of one batch held for the same gap are both `held`, so the second's marker can ask for the channel
+    /// once more, from the pts the first stored: one fetch at most, which misses nothing.
+    fn stale(&mut self, p: Pending, held: bool) {
         let Item::Batch(updates, entities, _, quiet) = p.item else { return };
         for update in updates {
-            if counter_of(&update, None).is_some_and(|(_, before, after)| before != after) {
+            let too_long = held && matches!(update, base::Update::UpdateChannelTooLong(_));
+            if too_long || counter_of(&update, None).is_some_and(|(_, before, after)| before != after) {
                 self.update(update, &entities, quiet);
             }
         }
@@ -438,27 +444,42 @@ impl Tracker {
         (n <= MAX_RETRIES).then(|| GAP_TIMEOUT * 2u32.pow(n - 1)).ok_or(Some(SkipReason::GaveUp))
     }
 
-    /// Delivers what is held for the `due` keys; with a `reason`, the pts holes left before them are reported.
+    /// Delivers what is held for the `due` keys; with a `reason`, the pts holes left before them are reported. With a
+    /// `reason` the gap is given up on for what settling releases too: an update a held seq batch carried past a hole
+    /// in a due key goes out, its hole reported, right after the batch and before the next one, instead of being held
+    /// again for the fetch just given up on.
     pub(super) fn settle(&mut self, due: impl Fn(Key) -> bool, reason: Option<SkipReason>) -> Vec<Skipped> {
-        let (mut settled, rest): (Vec<_>, Vec<_>) =
-            std::mem::take(&mut self.pending).into_iter().partition(|(_, p)| due(p.key));
-        self.pending = rest;
-        settled.sort_unstable_by_key(|(_, p)| (p.key, p.before));
+        let mut settled = self.take_due(&due);
         let mut skipped = Vec::new();
-        for (_, p) in settled {
+        while let Some(p) = settled.pop() {
+            let batch = matches!(p.item, Item::Batch(..));
             let local = *self.counter(p.key);
             if local >= p.after {
-                self.stale(p);
-                continue;
-            }
-            if let (Some(reason), Key::Pts | Key::Channel(_)) = (reason, p.key) {
-                if local < p.before {
-                    skipped.push(Skipped { key: p.key, from: local, to: p.before, reason });
+                self.stale(p, true);
+            } else {
+                if let (Some(reason), Key::Pts | Key::Channel(_)) = (reason, p.key) {
+                    if local < p.before {
+                        skipped.push(Skipped { key: p.key, from: local, to: p.before, reason });
+                    }
                 }
+                self.apply(p);
             }
-            self.apply(p);
+            // Only batches release held updates, and what they release holds no batch.
+            if batch && reason.is_some() {
+                settled.extend(self.take_due(&due));
+            }
         }
         skipped
+    }
+
+    /// Takes what is held for the `due` keys out, last first, so `pop` gives them in order.
+    fn take_due(&mut self, due: &impl Fn(Key) -> bool) -> Vec<Pending> {
+        let (settled, rest): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut self.pending).into_iter().partition(|(_, p)| due(p.key));
+        self.pending = rest;
+        let mut settled: Vec<Pending> = settled.into_iter().map(|(_, p)| p).collect();
+        settled.sort_unstable_by_key(|p| std::cmp::Reverse((p.key, p.before)));
+        settled
     }
 
     /// Drops the updates of channel `id` held for its own gap and inside batches held for a seq gap, and says whether
@@ -471,12 +492,32 @@ impl Tracker {
         for (_, p) in &mut self.pending {
             if let Item::Batch(updates, ..) = &mut p.item {
                 let held = updates.len();
-                updates.retain(|u| !matches!(counter_of(u, channel_of(u)), Some((k, ..)) if k == key));
+                updates.retain(|u| {
+                    !too_long_for(u, id) && !matches!(counter_of(u, channel_of(u)), Some((k, ..)) if k == key)
+                });
                 dropped |= updates.len() < held;
             }
         }
         dropped
     }
+
+    /// Forgets the pts stored for channel `id`, which Telegram called invalid, so the next update pushed for it starts
+    /// it again. Its updateChannelTooLong held in batches for a seq gap goes, so it doesn't start the channel again at
+    /// the pts it names; the channel's held updates that a pts numbers stay, and settled, start it at theirs, as a
+    /// push would.
+    pub(super) fn forget(&mut self, id: i64) {
+        self.state.channels.remove(&id);
+        for (_, p) in &mut self.pending {
+            if let Item::Batch(updates, ..) = &mut p.item {
+                updates.retain(|u| !too_long_for(u, id));
+            }
+        }
+    }
+}
+
+/// Whether `update` is the updateChannelTooLong of channel `id`.
+fn too_long_for(update: &base::Update, id: i64) -> bool {
+    matches!(update, base::Update::UpdateChannelTooLong(u) if u.channel_id == id)
 }
 
 #[cfg(test)]
@@ -734,6 +775,51 @@ mod tests {
     }
 
     #[test]
+    fn a_stale_seq_batch_still_asks_for_the_channel_its_too_long_names() {
+        // Seq 2 comes after seq 3, which holds the only word that channel 5 has to be fetched.
+        let (mut t, e) = (tracker(10, 0, 1), Arc::default());
+        let too_long = types::UpdateChannelTooLong { channel_id: 5, pts: Some(5) };
+        t.batch(vec![base::Update::UpdateChannelTooLong(Box::new(too_long))], Arc::clone(&e), (0, 3, 3), false);
+        assert!(t.due.is_empty());
+        t.batch(vec![base::Update::UpdateConfig], e, (0, 2, 3), false);
+        let s = &t.state;
+        assert_eq!((s.seq, s.channels.get(&5), t.pending.len()), (3, Some(&5), 0));
+        assert_eq!((t.due.clone(), delivered(&mut t)), (vec![Key::Channel(5)], vec![0]));
+    }
+
+    #[test]
+    fn a_too_long_in_a_batch_pushed_again_neither_starts_nor_asks_for_its_channel() {
+        // Seq 2 was applied: a copy of its batch doesn't start channel 5, never known or forgotten since, or fetch it.
+        let (mut t, e) = (tracker(10, 0, 3), Arc::default());
+        let too_long = types::UpdateChannelTooLong { channel_id: 5, pts: Some(5) };
+        t.batch(vec![base::Update::UpdateChannelTooLong(Box::new(too_long))], e, (0, 2, 2), false);
+        assert_eq!((t.state.channels.get(&5), t.due.clone(), t.pending.len()), (None, vec![], 0));
+        assert!(delivered(&mut t).is_empty());
+    }
+
+    #[test]
+    fn a_forgotten_channel_is_not_started_again_by_a_too_long_held_from_before() {
+        let too_long = || {
+            base::Update::UpdateChannelTooLong(Box::new(types::UpdateChannelTooLong { channel_id: 5, pts: Some(5) }))
+        };
+        // PERSISTENT_TIMESTAMP_INVALID forgets channel 5 while seq 3 holds its marker; then seq 2 comes.
+        let (mut t, e) = (tracker(10, 0, 1), Arc::default());
+        t.state.channels.insert(5, 3);
+        t.batch(vec![too_long()], Arc::clone(&e), (0, 3, 3), false);
+        t.forget(5);
+        t.batch(vec![base::Update::UpdateConfig], Arc::clone(&e), (0, 2, 3), false);
+        assert_eq!((t.state.channels.get(&5).copied(), t.due.clone(), delivered(&mut t)), (None, vec![], vec![0]));
+
+        // A channel difference too long to carry a pts drops it too, before a getDifference moves seq past it.
+        let mut t = tracker(10, 0, 1);
+        t.batch(vec![too_long()], e, (0, 3, 3), false);
+        assert!(t.drop_held(5));
+        t.state.seq = 3;
+        t.settle(|key| !matches!(key, Key::Channel(_)), None);
+        assert_eq!((t.state.channels.get(&5), t.due.clone()), (None, vec![]));
+    }
+
+    #[test]
     fn a_stale_seq_batch_never_delivers_an_update_that_moves_no_counter_again() {
         // Seq 2 again: delete(10, 0) moves pts by 0, so only the batch's seq tells the copy from the original.
         let (mut t, e) = (tracker(10, 0, 1), Arc::default());
@@ -845,6 +931,34 @@ mod tests {
         t.update(delete(14, 1), &e, false);
         t.recover(&Err(Error::Unexpected("bad difference")), Key::Pts);
         assert_eq!((delivered(&mut t), t.pending.len(), t.deadline()), (vec![14], 0, None));
+    }
+
+    #[test]
+    fn a_refused_difference_delivers_what_a_released_seq_batch_held_past_the_gap() {
+        // Held for seq 2, carrying pts 12 past the hole at 11 that the refused difference gave up on.
+        let (mut t, e) = (tracker(10, 0, 1), Arc::default());
+        t.batch(vec![delete(12, 1)], e, (0, 3, 3), false);
+        let skipped = t.recover(&Err(Error::Rpc(RpcError::parse(400, "CHAT_INVALID"))), Key::Pts);
+        assert_eq!(skipped, [Skipped { key: Key::Pts, from: 10, to: 11, reason: SkipReason::Refused }]);
+        let s = &t.state;
+        assert_eq!((s.pts, s.seq, t.pending.len(), t.deadline()), (12, 3, 0, None));
+        assert_eq!(delivered(&mut t), [12]);
+        // Nothing is held for the gap again, so the same difference isn't asked once more.
+        t.expire(Instant::now() + GAP_TIMEOUT);
+        assert!(t.due.is_empty());
+    }
+
+    #[test]
+    fn a_refused_difference_keeps_seq_order_across_the_batches_it_releases() {
+        // Seq 1 never comes: seq 2 carries pts 12 past the hole at 11, and seq 3 an update that moves no counter.
+        let (mut t, e) = (tracker(10, 0, 0), Arc::default());
+        t.batch(vec![delete(12, 1)], Arc::clone(&e), (0, 2, 2), false);
+        t.batch(vec![base::Update::UpdateConfig], e, (0, 3, 3), false);
+        let skipped = t.recover(&Err(Error::Rpc(RpcError::parse(400, "CHAT_INVALID"))), Key::Pts);
+        assert_eq!(skipped, [Skipped { key: Key::Pts, from: 10, to: 11, reason: SkipReason::Refused }]);
+        let s = &t.state;
+        assert_eq!((s.pts, s.seq, t.pending.len()), (12, 3, 0));
+        assert_eq!(delivered(&mut t), [12, 0]);
     }
 
     #[test]

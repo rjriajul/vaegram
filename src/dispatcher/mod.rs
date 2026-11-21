@@ -257,11 +257,12 @@ impl Dispatcher {
     }
 
     async fn resolve(&mut self) {
-        // Before any getDifference, which would otherwise start from the old numbering.
-        self.refetch_if_asked().await;
         // While the state is to come again from getState, a difference from the pts held can only fail or read the
         // old numbering: it stays due, and `Tracker::deadline` wakes the loop for getState's next try.
         loop {
+            // Before any getDifference, which would otherwise start from the old numbering; also after one whose
+            // settling applied a held batch carrying updatePtsChanged: nothing else would wake the loop for it.
+            self.refetch_if_asked().await;
             let refetch = self.tracker.refetch;
             let Some(i) = self.tracker.due.iter().rposition(|&key| !(refetch && key == Key::Pts)) else { break };
             let key = self.tracker.due.remove(i);
@@ -281,7 +282,7 @@ impl Dispatcher {
                 // old comes back as new. An old update Telegram sends again can then be delivered once more, and what
                 // came between the forgotten pts and the next push is never fetched.
                 if invalid {
-                    self.tracker.state.channels.remove(&id);
+                    self.tracker.forget(id);
                 }
                 if !self.tracker.retries.iter().any(|(_, k)| *k == key) {
                     self.held_channels.retain(|&(held, _)| held != id);
@@ -299,13 +300,12 @@ impl Dispatcher {
                 self.skipped(s.key, s.from, s.to, s.reason);
             }
             // https://core.telegram.org/method/updates.getDifference: the same error for the account's own box. Its
-            // state comes again from updates.getState, as mtcute does, now: what is pushed meanwhile would otherwise
-            // be offered to the wrong pts. Giving up released what was held, so `restate` drops at most a pts update
-            // a released seq batch carried past a hole. The loss stays reported once, as above, with no size: Telegram
-            // called the pts invalid, so the stretch from it to getState's pts needn't hold any update.
+            // state comes again from updates.getState, as mtcute does, on the next turn: what is pushed meanwhile
+            // would otherwise be offered to the wrong pts. Giving up released what was held, so `restate` has none of
+            // it to drop. The loss stays reported once, as above, with no size beyond what was held: Telegram called
+            // the pts invalid, so the stretch from it to getState's pts needn't hold any update.
             if invalid && !matches!(key, Key::Channel(_)) {
                 self.tracker.refetch = true;
-                self.refetch_if_asked().await;
             }
         }
     }
@@ -824,6 +824,44 @@ mod tests {
         assert!(d.tracker.ready.is_empty());
         let seen = seen.lock().unwrap();
         assert!(matches!(&seen[..], [raw] if matches!(raw.update, base::Update::UpdatePtsChanged)), "{seen:?}");
+    }
+
+    #[tokio::test]
+    async fn pts_changed_in_a_batch_a_difference_settles_refetches_the_state_at_once() {
+        use crate::raw::functions::updates::{GetDifference, GetState};
+        // The difference moves seq to 2, so the batch held for seq 3 goes out as it settles.
+        let moved = types::updates::State { pts: 11, qts: 0, date: 0, seq: 2, unread_count: 0 };
+        let difference = types::updates::Difference {
+            new_messages: Vec::new(),
+            new_encrypted_messages: Vec::new(),
+            other_updates: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+            state: base::updates::State::State(Box::new(moved)),
+        };
+        let difference = base::updates::Difference::Difference(Box::new(difference));
+        let fresh = types::updates::State { pts: 500, qts: 0, date: 0, seq: 5, unread_count: 0 };
+        let fresh = base::updates::State::State(Box::new(fresh));
+        let (client, mut sent) = Client::scripted(vec![Ok(difference.to_bytes()), Ok(fresh.to_bytes())]);
+        let mut d = Dispatcher::new(client, &types::updates::State { pts: 10, seq: 1, ..state() });
+        let batch = types::Updates {
+            updates: vec![base::Update::UpdatePtsChanged],
+            users: Vec::new(),
+            chats: Vec::new(),
+            date: 0,
+            seq: 3,
+        };
+        d.process(Incoming { updates: base::Updates::Updates(Box::new(batch)), from_request: false });
+        deliver(&mut d, base::Updates::UpdatesTooLong).await;
+
+        // getState goes out in the same pass, not on the next update or the idle timeout.
+        let difference =
+            GetDifference { pts: 10, pts_limit: None, pts_total_limit: None, date: 0, qts: 0, qts_limit: None };
+        assert_eq!(sent.try_recv().unwrap(), difference.to_bytes());
+        assert_eq!(sent.try_recv().unwrap(), GetState {}.to_bytes());
+        assert!(sent.try_recv().is_err(), "more than getDifference and getState was asked");
+        let s = &d.tracker.state;
+        assert_eq!((s.pts, s.seq, d.tracker.refetch), (500, 5, false));
     }
 
     #[tokio::test]
