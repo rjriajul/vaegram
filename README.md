@@ -70,6 +70,9 @@ vaegram needs Rust 1.85 or newer. The `vae` crate is the same library under a sh
 Get an `api_id` and `api_hash` from [my.telegram.org](https://my.telegram.org). A bot also needs a token from
 [@BotFather](https://t.me/BotFather).
 
+> A bot that ran on the cloud Bot API (`api.telegram.org`) first must call `logOut` there once. Until then Telegram
+> keeps sending its updates to the Bot API and an MTProto login receives none.
+
 ## Logging in as a user
 
 Leave out `.bot_token(..)` and `start()` asks for the phone number, the login code and the 2FA password:
