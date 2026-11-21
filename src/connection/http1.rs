@@ -69,12 +69,17 @@ pub(crate) async fn read_response<S: AsyncRead + Unpin>(
             let size = usize::from_str_radix(size, 16).map_err(|_| invalid("a chunk size isn't hex"))?;
             pending.drain(..end + 2);
             if size == 0 {
-                // Trailer fields, if any, then the blank line that ends the body.
+                // Trailer fields, if any, then the blank line that ends the body; together they get the head's cap.
+                let mut trailers = 0usize;
                 loop {
                     let end = fill_until(stream, pending, MAX_HEAD, b"\r\n").await?;
                     pending.drain(..end + 2);
                     if end == 0 {
                         return Ok((head, body));
+                    }
+                    trailers = trailers.saturating_add(end + 2);
+                    if trailers > MAX_HEAD {
+                        return Err(invalid("the HTTP response trailers are too long"));
                     }
                 }
             }
@@ -228,5 +233,22 @@ mod tests {
             let kind = read_response(&mut client, &mut Vec::new(), 64).await.err().map(|e| e.kind());
             assert_eq!(kind, Some(std::io::ErrorKind::InvalidData), "{answer:?}");
         }
+    }
+
+    #[cfg(feature = "web-proxy")]
+    #[tokio::test]
+    async fn refuses_endless_chunked_trailers() {
+        use super::read_response;
+        let (mut client, mut server) = tokio::io::duplex(4096);
+        tokio::spawn(async move {
+            let _ = server.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n").await;
+            for _ in 0..100_000 {
+                if server.write_all(b"X-Trailer: aaaaaaaaaaaaaaaaaaaaaaaa\r\n").await.is_err() {
+                    break;
+                }
+            }
+        });
+        let kind = read_response(&mut client, &mut Vec::new(), 64).await.err().map(|e| e.kind());
+        assert_eq!(kind, Some(std::io::ErrorKind::InvalidData));
     }
 }
