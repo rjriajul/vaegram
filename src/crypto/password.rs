@@ -76,6 +76,9 @@ fn group(g: i32, p: &[u8]) -> Result<(BigUint, BigUint), &'static str> {
     if !(2..=7).contains(&g) {
         return Err("password g is out of range");
     }
+    if !prime::generates_subgroup(g, &p) {
+        return Err("password g doesn't generate the prime-order subgroup");
+    }
     Ok((BigUint::from(g as u32), p))
 }
 
@@ -178,6 +181,7 @@ mod tests {
         assert_eq!(BigUint::from_bytes_be(&v), BigUint::from(3u8).modpow(&x, &prime::dh_prime()));
 
         assert!(verifier(b"hunter2", salt1, salt2, 8, &p).is_err());
+        assert!(verifier(b"hunter2", salt1, salt2, 2, &p).is_err());
         let mut other = p;
         other[255] ^= 2;
         assert!(verifier(b"hunter2", salt1, salt2, 3, &other).is_err());
@@ -210,9 +214,12 @@ mod tests {
         let tiny = to_be_padded::<256>(&BigUint::from(2u8));
         let mut big = p;
         big[255] -= 1;
-        let cases: [(i32, &[u8], &[u8], &str); 6] = [
+        let cases: [(i32, &[u8], &[u8], &str); 9] = [
             (1, &p, &g_b, "g = 1"),
             (8, &p, &g_b, "g = 8"),
+            (2, &p, &g_b, "g = 2, a non-residue mod Telegram's prime"),
+            (5, &p, &g_b, "g = 5, a non-residue mod Telegram's prime"),
+            (6, &p, &g_b, "g = 6, a non-residue mod Telegram's prime"),
             (3, &other, &g_b, "unknown prime"),
             (3, &p, &tiny, "tiny g_b"),
             (3, &p, &big, "g_b = p - 1"),

@@ -110,6 +110,7 @@ pub(crate) async fn create(conn: &mut Connection, dc: Dc, key: &PublicKey, expir
     let dh_prime = BigUint::from_bytes_be(&dh.dh_prime);
     check(dh_prime == prime::dh_prime(), "server sent an unknown dh_prime")?;
     check((2..=7).contains(&dh.g), "g is out of range")?;
+    check(prime::generates_subgroup(dh.g, &dh_prime), "g doesn't generate the prime-order subgroup")?;
     let g = BigUint::from(dh.g as u32);
     let g_a = BigUint::from_bytes_be(&dh.g_a);
     check_dh_value(&g_a, &dh_prime, "g_a is out of the safe range")?;

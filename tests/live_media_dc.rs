@@ -1,5 +1,5 @@
 // Run with `cargo test --test live_media_dc -- --ignored`; needs VAEGRAM_API_ID, VAEGRAM_API_HASH and
-// VAEGRAM_BOT_TOKEN, and skips itself without them.
+// VAEGRAM_BOT_TOKEN, and skips itself without them. The MTProxy tests also need VAEGRAM_MTPROXY, a `tg://proxy` link.
 //
 // Downloads go to a data center's media-only address when help.getConfig lists one (a `media_only` option). The
 // DC's permanent key is made, and the authorization imported, on its main address; the media address only gets the
@@ -98,19 +98,34 @@ async fn the_obfuscation_header_to_a_media_dc_sends_the_negative_id() {
     downloads_from_a_media_dc(builder.obfuscated(), false).await;
 }
 
+/// The MTProxy `VAEGRAM_MTPROXY` names as a `tg://proxy` or `t.me/proxy` link, or `None` (after saying so).
+fn mtproxy() -> Option<Proxy> {
+    let Ok(link) = std::env::var("VAEGRAM_MTPROXY") else {
+        eprintln!("skipped: set VAEGRAM_MTPROXY to an MTProxy link (tg://proxy?server=..&port=..&secret=..)");
+        return None;
+    };
+    let proxy: Proxy = link.parse().expect("VAEGRAM_MTPROXY isn't a proxy link");
+    if !matches!(proxy, Proxy::MtProxy { .. }) {
+        eprintln!("skipped: VAEGRAM_MTPROXY isn't an MTProxy");
+        return None;
+    }
+    Some(proxy)
+}
+
 /// An MTProxy picks the data center from the header alone, so this checks the proxy takes the negative id.
 #[tokio::test]
 #[ignore = "uses an MTProxy, logs in as a bot and downloads from a media-only address"]
 async fn an_mtproxy_takes_the_negative_id() {
-    let Ok(url) = std::env::var("VAEGRAM_PROXY_URL") else {
-        eprintln!("skipped: set VAEGRAM_PROXY_URL to an MTProxy");
-        return;
-    };
-    let proxy: Proxy = url.parse().expect("VAEGRAM_PROXY_URL isn't a proxy address");
-    if !matches!(proxy, Proxy::MtProxy { .. }) {
-        eprintln!("skipped: VAEGRAM_PROXY_URL isn't an MTProxy");
-        return;
-    }
+    let Some(proxy) = mtproxy() else { return };
     let Some(builder) = bot("target/vaegram-media-dc-mtproxy-bot") else { return };
     downloads_from_a_media_dc(builder.proxy(proxy), false).await;
+}
+
+/// The same on a data center other than the bot's own, whose key is made on its main address through the proxy.
+#[tokio::test]
+#[ignore = "uses an MTProxy, logs in as a bot and downloads from another DC's media-only address"]
+async fn an_mtproxy_reaches_a_foreign_media_dc() {
+    let Some(proxy) = mtproxy() else { return };
+    let Some(builder) = bot("target/vaegram-media-dc-mtproxy-foreign-bot") else { return };
+    downloads_from_a_media_dc(builder.proxy(proxy), true).await;
 }

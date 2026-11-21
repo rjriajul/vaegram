@@ -322,8 +322,9 @@ fn inline_kind(url: &str) -> Option<Kind> {
 
 /// Writes `text` so `parse` reads it back, except where the dialect can't say it. These spans are dropped, their text
 /// kept: empty ones, ones starting before the text or ending past it; quotes that don't cover whole lines (one ending
-/// in a line break doesn't), a quote inside or across another, and one touching a fenced block or a code span holding
-/// a line break; code holding a backtick and a fenced block holding three; a span inside or across code or a fenced
+/// in a line break is written with a last empty `>` line), a quote inside or across another, and one touching a fenced
+/// block or a code span holding a line break; code holding a backtick and a fenced block holding three; a span inside
+/// or across code or a fenced
 /// block (one with just its range is written around it, but of a code span and a fenced block with the same range
 /// only the first is kept); and a span inside or across one of the same kind, mentions, emoji and dates counting as
 /// links. Spans that cross are written nested, so the one opened later comes back in two pieces, cut where the other
@@ -388,9 +389,9 @@ pub(super) fn unparse(text: &Text, html: bool) -> String {
 
     let mut lines: Vec<Quote> = Vec::new();
     for q in quotes {
-        let whole_lines = (q.start == 0 || char_at(q.start - 1) == Some('\n'))
-            && (q.end == text.len || char_at(q.end) == Some('\n'))
-            && char_at(q.end - 1) != Some('\n');
+        let whole_lines =
+            (q.start == 0 || char_at(q.start - 1) == Some('\n')) && (q.end == text.len || char_at(q.end) == Some('\n'));
+        let trailing = char_at(q.end - 1) == Some('\n');
         let breaks_code = kept.iter().any(|k| {
             k.start < q.end
                 && q.start <= k.end
@@ -402,11 +403,11 @@ pub(super) fn unparse(text: &Text, html: bool) -> String {
             && !kept.iter().any(|k| k.kind == Kind::Spoiler && k.start < q.end && q.end < k.end);
         let last = lines.last();
         // Quotes don't nest. The lines are in order and apart, so the last one reaches furthest.
-        let nested = last.is_some_and(|l| q.start < l.end);
+        let nested = last.is_some_and(|l| q.start < l.end || (l.trailing && q.start == l.end));
         // A `>` line right after a quote its mark doesn't end would merge into it; `**>` starts a new one.
         let starred = expandable || last.is_some_and(|l| !l.expandable && q.start <= l.end + 1);
         if whole_lines && !breaks_code && !nested {
-            lines.push(Quote { start: q.start, end: q.end, starred, expandable });
+            lines.push(Quote { start: q.start, end: q.end, starred, expandable, trailing });
         }
     }
     // A spoiler's `||` just before a line break in a quote started by `**>`, or the one after it, would read as the
@@ -430,18 +431,26 @@ pub(super) fn unparse(text: &Text, html: bool) -> String {
     kept.sort_by_key(|s| (s.start, -s.end, !raw(&s.kind)));
     super::walk(&text.text, kept, &mut out);
     // The quotes are in order and apart, so the last one ends last.
-    if out.quotes.last().is_some_and(|q| q.expandable && q.end == text.len) {
-        out.out.push_str("||");
+    let last = out.quotes.last().filter(|q| q.end == text.len).map(|q| (q.trailing, q.expandable));
+    if let Some((trailing, expandable)) = last {
+        if trailing {
+            out.out.insert(out.line, '>');
+        }
+        if expandable {
+            out.out.push_str("||");
+        }
     }
     out.out
 }
 
-/// A quote as written: whether its first line starts with `**>` and whether `||` marks its last one.
+/// A quote as written: whether its first line starts with `**>`, whether `||` marks its last one, and whether its
+/// text ends in a line break, so that it ends in an empty `>` line.
 struct Quote {
     start: i32,
     end: i32,
     starred: bool,
     expandable: bool,
+    trailing: bool,
 }
 
 struct Markdown {
@@ -536,6 +545,10 @@ impl Markup for Markdown {
             if let Some(q) = quote.filter(|q| q.start <= at && at < q.end) {
                 self.out.insert_str(self.line, if q.starred && q.start == at { "**> " } else { "> " });
             }
+            // A quote ending in a line break ends in an empty `>` line, before whatever follows its last break.
+            if quote.is_some_and(|q| q.trailing && q.end == at) {
+                self.out.insert(self.line, '>');
+            }
         }
         if c == '\n' && quote.is_some_and(|q| q.expandable && q.end == at) {
             self.out.push_str("||");
@@ -604,6 +617,16 @@ mod tests {
         check("> a `b\n`\nc", "a b\n\nc", &["code 2 2", "quote:false 0 4"]);
         check("> ```\na\n\n```", "a\n", &["pre: 0 2", "quote:false 0 2"]);
         check("**> `a\n`||", "a\n", &["code 0 2", "quote:true 0 2"]);
+    }
+
+    #[test]
+    fn a_quote_ending_in_a_line_break_is_written_with_an_empty_last_line() {
+        check("> a\n>", "a\n", &["quote:false 0 2"]);
+        check("> a\n> b\n>", "a\nb\n", &["quote:false 0 4"]);
+        check("> a\n>\nb", "a\n\nb", &["quote:false 0 2"]);
+        for src in ["> a\n>", "> a\n> b\n>", "> a\n>\nb"] {
+            assert_eq!(unparse(&parse(src, false), false), src);
+        }
     }
 
     #[test]

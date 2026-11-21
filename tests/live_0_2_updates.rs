@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 use vaegram::enums::{ChatAction, ChatMemberStatus};
-use vaegram::types::{InvoiceRef, ReactionType};
+use vaegram::types::{InputInvoice, InvoiceRef, LabeledPrice, Message, ReactionType, ServiceAction};
 use vaegram::{Client, filters};
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -228,21 +228,16 @@ async fn on_pinned_messages_sees_pin_and_unpin() {
     }
 }
 
-/// Requires a second user account (`VAEGRAM_SECOND_USER_SESSION`) or human action (`VAEGRAM_HUMAN_READ=1`): bots do
-/// not send or receive read receipts, so another user session must read the message sent by `VAEGRAM_USER_SESSION`
-/// (or, with `VAEGRAM_HUMAN_READ=1`, a human must open Saved Messages / the bot chat on another device within 30 s).
+/// With `VAEGRAM_SECOND_USER_SESSION`, that account reads a message `VAEGRAM_USER_SESSION` sends it; with
+/// `VAEGRAM_HUMAN_READ=1`, a human opens Saved Messages / the bot chat on another device within 30 s. With
+/// neither, the user sends the kit bot a message: Telegram marks a message to a bot read once the bot has it, so
+/// the user gets the read of its outgoing message.
 #[tokio::test]
-#[ignore = "needs VAEGRAM_SECOND_USER_SESSION (or VAEGRAM_HUMAN_READ=1 and another device reading a message)"]
+#[ignore = "uses a logged-in user session and a bot token (or VAEGRAM_SECOND_USER_SESSION, or VAEGRAM_HUMAN_READ=1)"]
 async fn on_read_history_sees_peer_read() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let second = second_user_client().await;
     let human = std::env::var("VAEGRAM_HUMAN_READ").is_ok_and(|v| v == "1");
-    if second.is_none() && !human {
-        eprintln!(
-            "skipped: set VAEGRAM_SECOND_USER_SESSION (or VAEGRAM_HUMAN_READ=1 and read a message on another device)"
-        );
-        return;
-    }
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     kit.user.client.on_read_history(filters::all(), move |event| {
@@ -283,7 +278,7 @@ async fn on_read_history_sees_peer_read() {
         if let Err(failed) = steps {
             std::panic::resume_unwind(failed.into_panic());
         }
-    } else {
+    } else if human {
         let sent = kit.user.client.send_message("me", "open/read another chat on a second device now").await.unwrap();
         eprintln!("action: open/read an unread incoming chat for this account on another device within {WAIT:?}");
         let steps = tokio::spawn(async move {
@@ -295,6 +290,30 @@ async fn on_read_history_sees_peer_read() {
         })
         .await;
         support::cleanup(kit.user.client.delete_messages("me", &[sent.id]).await, "deleting human prompt");
+        if let Err(failed) = steps {
+            std::panic::resume_unwind(failed.into_panic());
+        }
+    } else {
+        let username = kit.bot.get_me().await.unwrap().username.expect("the kit bot has no username");
+        let bot_id = kit.user.client.resolve_username(&username).await.unwrap();
+        let sent_id = kit.user.client.send_message(bot_id, "read receipt check").await.unwrap().id;
+        let steps = tokio::spawn(async move {
+            let seen = tokio::time::timeout(WAIT, async {
+                loop {
+                    match rx.recv().await {
+                        Some(event) if event.chat.id == bot_id && event.is_outgoing && event.max_id >= sent_id => {
+                            return Some(event);
+                        }
+                        Some(_) => {}
+                        None => return None,
+                    }
+                }
+            })
+            .await;
+            seen.expect("timed out waiting for on_read_history of the bot's read").expect("read channel closed");
+        })
+        .await;
+        support::cleanup(kit.user.client.delete_messages(bot_id, &[sent_id]).await, "deleting read check msg");
         if let Err(failed) = steps {
             std::panic::resume_unwind(failed.into_panic());
         }
@@ -393,21 +412,39 @@ async fn on_chat_action_sees_bot_typing() {
     assert_eq!(event.from_user.as_ref().map(|u| u.id), Some(bot_id));
 }
 
-/// Requires real Telegram Stars on `VAEGRAM_USER_SESSION` (`VAEGRAM_SPEND_STARS=1` and `VAEGRAM_STARS_INVOICE`),
-/// because `UpdateStarsBalance` fires only when the account's Stars balance actually changes.
+/// Requires real Telegram Stars on `VAEGRAM_USER_SESSION` and `VAEGRAM_SPEND_STARS=1`, because `UpdateStarsBalance`
+/// fires only when the account's Stars balance actually changes. Pays `VAEGRAM_STARS_INVOICE` when set; otherwise a
+/// 1-Star invoice of the kit bot, which the bot refunds after.
 #[tokio::test]
-#[ignore = "spends real Stars: needs VAEGRAM_SPEND_STARS=1 and VAEGRAM_STARS_INVOICE"]
+#[ignore = "spends real Stars: needs VAEGRAM_SPEND_STARS=1 (and 1 Star, refunded, without VAEGRAM_STARS_INVOICE)"]
 async fn on_stars_balance_sees_spend() {
     if std::env::var("VAEGRAM_SPEND_STARS").as_deref() != Ok("1") {
         eprintln!("skipped: set VAEGRAM_SPEND_STARS=1 to let this test spend real Stars");
         return;
     }
-    let Ok(link) = std::env::var("VAEGRAM_STARS_INVOICE") else {
-        eprintln!("skipped: set VAEGRAM_STARS_INVOICE (a Stars invoice link)");
-        return;
-    };
     let Some(kit) = support::Kit::from_env().await else { return };
     let user = &kit.user.client;
+
+    let (charge_tx, mut charges) = mpsc::unbounded_channel();
+    let own_invoice = std::env::var("VAEGRAM_STARS_INVOICE").is_err();
+    let link = match std::env::var("VAEGRAM_STARS_INVOICE") {
+        Ok(link) => link,
+        Err(_) => {
+            kit.bot.on_pre_checkout_query(filters::all(), |q| async move {
+                q.client().answer_pre_checkout_query(q.id).await
+            });
+            let paid = filters::create(|m: &Message| matches!(m.service, Some(ServiceAction::SuccessfulPayment(_))));
+            kit.bot.on_message(paid, move |m| {
+                if let Some(ServiceAction::SuccessfulPayment(payment)) = &m.service {
+                    let _ = charge_tx.send((m.chat.id, payment.telegram_payment_charge_id.clone()));
+                }
+                async { Ok(()) }
+            });
+            let price = [LabeledPrice::new("live test", 1)];
+            let invoice = InputInvoice::new("vaegram live test", "Refunded right away", "vaegram-stars", "XTR", price);
+            kit.bot.create_invoice_link(invoice).await.unwrap()
+        }
+    };
 
     let before = user.get_my_star_balance().await.unwrap();
     let form = user.get_payment_form(InvoiceRef::Link(link)).await.unwrap();
@@ -427,9 +464,15 @@ async fn on_stars_balance_sees_spend() {
     });
 
     user.send_payment_form(form).await.unwrap();
-    let event = tokio::time::timeout(WAIT, rx.recv())
-        .await
-        .expect("timed out waiting for on_stars_balance")
-        .expect("stars balance channel closed");
+    let event = tokio::time::timeout(WAIT, rx.recv()).await;
+    if own_invoice {
+        match tokio::time::timeout(WAIT, charges.recv()).await {
+            Ok(Some((payer, charge))) => {
+                support::cleanup(kit.bot.refund_star_payment(payer, &charge).await, "refunding the 1-Star payment");
+            }
+            _ => eprintln!("the kit bot saw no successful payment: refund the 1-Star payment by hand"),
+        }
+    }
+    let event = event.expect("timed out waiting for on_stars_balance").expect("stars balance channel closed");
     assert!(event.balance.amount < before.amount, "expected balance < {}, got {}", before.amount, event.balance.amount);
 }
