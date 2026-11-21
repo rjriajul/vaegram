@@ -163,6 +163,7 @@ pub use copy_message::CopyMessage;
 pub use copy_messages::CopyMessages;
 pub use decline_suggested_post::DeclineSuggestedPost;
 pub use delete_direct_messages_chat_topic_history::DeleteDirectMessagesChatTopicHistory;
+pub use delete_messages::DeleteMessages;
 pub(crate) use download_media::DownloadSource;
 pub use download_media::{DownloadMedia, MediaStream};
 pub use edit_ephemeral_message_text::EditEphemeralMessage;
