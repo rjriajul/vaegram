@@ -1,7 +1,7 @@
 use crate::enums::StickerType;
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
-use crate::types::{FileLocation, Sticker};
+use crate::types::{FileLocation, Sticker, StickerSetRef};
 
 /// A sticker set, mask set or custom emoji set.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,16 +19,46 @@ pub struct StickerSet {
     pub stickers: Vec<Sticker>,
     /// The set's own thumbnail. `None` if the set has none, and apps then show the first sticker.
     pub thumbnail: Option<FileLocation>,
+    pub(crate) access_hash: i64,
+    // Telegram's hash of the set's contents, which a later `messages.getStickerSet` sends to skip an unchanged set.
+    pub(crate) hash: i32,
 }
 
 impl StickerSet {
     pub(crate) fn parse(set: base::messages::StickerSet) -> Result<StickerSet> {
-        // Only a request with a non-zero hash can come back unmodified, and none of ours send one.
-        let base::messages::StickerSet::StickerSet(set) = set else {
-            return Err(Error::Unexpected("Telegram returned stickerSetNotModified"));
-        };
-        let types::messages::StickerSet { set, documents, .. } = *set;
-        Ok(StickerSet::from_raw(&set, &documents))
+        // Only a request with a non-zero hash can come back unmodified, and the callers of this send none.
+        StickerSet::parse_modified(set).ok_or(Error::Unexpected("Telegram returned stickerSetNotModified"))
+    }
+
+    /// `None` when Telegram answers that the set still has the hash the request sent.
+    pub(crate) fn parse_modified(set: base::messages::StickerSet) -> Option<StickerSet> {
+        let base::messages::StickerSet::StickerSet(set) = set else { return None };
+        let types::messages::StickerSet { set, packs, documents, .. } = *set;
+        let mut parsed = StickerSet::from_raw(&set, &documents);
+        // Each pack is an emoji with the stickers it tags; a sticker's own alt is only the first of them.
+        for sticker in &mut parsed.stickers {
+            let emojis: Vec<String> = packs
+                .iter()
+                .filter(|base::StickerPack::StickerPack(pack)| pack.documents.contains(&sticker.id))
+                .map(|base::StickerPack::StickerPack(pack)| pack.emoticon.clone())
+                .collect();
+            if !emojis.is_empty() {
+                sticker.emojis = emojis;
+            }
+        }
+        Some(parsed)
+    }
+
+    /// The stickers the set tags with `emoji`, in the set's order. An emoji's variation selector (U+FE0F) is
+    /// ignored, so `"❤"` and `"❤️"` find the same stickers.
+    pub fn stickers_for<'s>(&'s self, emoji: &'s str) -> impl Iterator<Item = &'s Sticker> + 's {
+        self.stickers.iter().filter(move |sticker| sticker.emojis.iter().any(|e| same_emoji(e, emoji)))
+    }
+
+    /// A reference to this set, for [`get_sticker_set`](crate::Client::get_sticker_set) or
+    /// [`StickerSource::from_set`](crate::types::StickerSource::from_set).
+    pub fn set_ref(&self) -> StickerSetRef {
+        StickerSetRef::from_id(self.id, self.access_hash)
     }
 
     /// Set lists carry a few cover stickers at most, or none for installed sets.
@@ -59,8 +89,14 @@ impl StickerSet {
             sticker_type,
             stickers,
             thumbnail: thumbnail(set),
+            access_hash: set.access_hash,
+            hash: set.hash,
         }
     }
+}
+
+fn same_emoji(a: &str, b: &str) -> bool {
+    a.chars().filter(|&c| c != '\u{fe0f}').eq(b.chars().filter(|&c| c != '\u{fe0f}'))
 }
 
 fn thumbnail(set: &types::StickerSet) -> Option<FileLocation> {
@@ -86,13 +122,15 @@ fn thumbnail(set: &types::StickerSet) -> Option<FileLocation> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::StickerSet;
     use crate::enums::StickerType;
     use crate::raw::{base, types};
+    use crate::types::StickerSetRef;
     use crate::types::messages_and_media::sticker::tests::{document, sticker_attribute};
 
-    fn set(masks: bool, emojis: bool, thumb_version: Option<i32>) -> base::messages::StickerSet {
+    /// Set 10 (access hash 11, hash 77), "cats_by_bot", with stickers 1 and 3 and a non-sticker document 2.
+    pub(crate) fn set(masks: bool, emojis: bool, thumb_version: Option<i32>) -> base::messages::StickerSet {
         let thumb = types::PhotoSize { r#type: "s".into(), w: 100, h: 100, size: 900 };
         let set = types::StickerSet {
             archived: false,
@@ -112,7 +150,7 @@ mod tests {
             thumb_version,
             thumb_document_id: None,
             count: 2,
-            hash: 0,
+            hash: 77,
         };
         let documents = vec![
             document(1, "image/webp", vec![sticker_attribute("😺", None)]),
@@ -158,5 +196,25 @@ mod tests {
         assert_eq!((covered.sticker_type, covered.stickers.len()), (StickerType::CustomEmoji, 1));
         let bare = base::StickerSetCovered::StickerSetNoCovered(Box::new(types::StickerSetNoCovered { set }));
         assert!(StickerSet::parse_covered(&bare).stickers.is_empty());
+    }
+
+    #[test]
+    fn keeps_every_emoji_a_pack_tags_a_sticker_with() {
+        let base::messages::StickerSet::StickerSet(mut full) = set(false, false, None) else { panic!("no set") };
+        let pack = |emoticon: &str, documents: Vec<i64>| {
+            base::StickerPack::StickerPack(Box::new(types::StickerPack { emoticon: emoticon.into(), documents }))
+        };
+        full.packs = vec![pack("😺", vec![1]), pack("❤", vec![1, 3]), pack("😸", vec![3])];
+        let cats = StickerSet::parse(base::messages::StickerSet::StickerSet(full)).unwrap();
+        assert_eq!(cats.stickers[0].emojis, ["😺", "❤"]);
+        assert_eq!(cats.stickers[1].emojis, ["❤", "😸"]);
+        let ids = |emoji: &str| cats.stickers_for(emoji).map(|s| s.id).collect::<Vec<_>>();
+        assert_eq!((ids("❤️"), ids("😸"), ids("🐶")), (vec![1, 3], vec![3], vec![]));
+        assert_eq!((cats.set_ref(), cats.hash), (StickerSetRef::from_id(10, 11), 77));
+
+        // Without packs, a sticker keeps the one emoji of its own alt.
+        let plain = StickerSet::parse(set(false, false, None)).unwrap();
+        assert_eq!(plain.stickers[1].emojis, ["😸"]);
+        assert_eq!(plain.stickers_for("😸").count(), 1);
     }
 }

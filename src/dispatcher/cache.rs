@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use super::Entities;
 use crate::raw::base;
-use crate::types::ForumTopic;
+use crate::types::{ForumTopic, StickerSet, StickerSetRef};
 use crate::utils::{CHANNEL_OFFSET, channel_id_of};
 
 /// At most `capacity` entries; inserting past it drops the one used longest ago, and `get` counts as a use.
@@ -93,14 +93,18 @@ pub(crate) struct BusinessHome {
 /// How many business connections are remembered. A miss costs one `account.getBotBusinessConnection`.
 const BUSINESS_CONNECTIONS: usize = 1024;
 
+/// How many sticker sets sends by set and sticker id keep. A miss costs one `messages.getStickerSet`.
+const STICKER_SETS: usize = 64;
+
 /// The message, poll, forum topic and sticker set name caches, each off (`None`) unless its size is set, and the
-/// business connections, which are always kept. Polls share the message cache's size.
+/// business connections and the sticker sets sent from, which are always kept. Polls share the message cache's size.
 pub(crate) struct Caches {
     messages: Option<Mutex<Lru<MessageKey, Cached>>>,
     polls: Option<Mutex<Lru<i64, CachedPoll>>>,
     topics: Option<Mutex<Lru<(i64, i32), ForumTopic>>>,
     set_names: Option<Mutex<Lru<i64, String>>>,
     business: Mutex<Lru<String, BusinessHome>>,
+    sticker_sets: Mutex<Lru<StickerSetRef, Arc<StickerSet>>>,
 }
 
 impl Default for Caches {
@@ -117,6 +121,7 @@ impl Caches {
             topics: (topics > 0).then(|| Mutex::new(Lru::new(topics))),
             set_names: None,
             business: Mutex::new(Lru::new(BUSINESS_CONNECTIONS)),
+            sticker_sets: Mutex::new(Lru::new(STICKER_SETS)),
         }
     }
 
@@ -134,6 +139,15 @@ impl Caches {
         if let Some(names) = &self.set_names {
             names.lock().unwrap().insert(set_id, name.to_owned());
         }
+    }
+
+    /// The sticker set last loaded for `set` by a send from it.
+    pub(crate) fn sticker_set(&self, set: &StickerSetRef) -> Option<Arc<StickerSet>> {
+        self.sticker_sets.lock().unwrap().get(set).cloned()
+    }
+
+    pub(crate) fn store_sticker_set(&self, set: StickerSetRef, loaded: Arc<StickerSet>) {
+        self.sticker_sets.lock().unwrap().insert(set, loaded);
     }
 
     /// Where the business connection `id` lives, if it was seen in an update or fetched.
