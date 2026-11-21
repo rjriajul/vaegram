@@ -31,17 +31,26 @@ pub struct Widget {
 
 impl Widget {
     pub(crate) fn parse(raw: &types::MessageMediaWidget) -> Option<Self> {
+        Widget::try_parse(raw).ok()
+    }
+
+    /// `parse` with the reason it failed, as
+    /// [`ClientEvent::MediaParseFailed`](crate::enums::ClientEvent::MediaParseFailed) gives it.
+    pub(crate) fn try_parse(raw: &types::MessageMediaWidget) -> Result<Self, &'static str> {
         const LIMIT: u64 = 1024 * 1024;
         let mut bytes = Vec::new();
-        flate2::read::ZlibDecoder::new(raw.payload.as_slice()).take(LIMIT + 1).read_to_end(&mut bytes).ok()?;
+        flate2::read::ZlibDecoder::new(raw.payload.as_slice())
+            .take(LIMIT + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "widget payload isn't valid zlib data")?;
         if bytes.len() > LIMIT as usize {
-            return None;
+            return Err("widget HTML is over 1 MiB");
         }
-        Some(Self {
+        Ok(Self {
             id: raw.widget_id,
             width: (raw.width != 0).then_some(raw.width),
             height: (raw.height != 0).then_some(raw.height),
-            html: String::from_utf8(bytes).ok()?,
+            html: String::from_utf8(bytes).map_err(|_| "widget HTML isn't UTF-8")?,
             public_data: raw.public_data.clone(),
             public_data_hash: raw.public_data_hash,
             chat_data: raw.chat_data.clone(),
@@ -58,6 +67,7 @@ mod tests {
     use crate::{
         Client,
         dispatcher::Entities,
+        enums::ClientEvent,
         raw::{base, types},
         types::Media,
     };
@@ -94,16 +104,36 @@ mod tests {
 
     #[test]
     fn broken_payload_is_unknown_media() {
+        let client = Client::offline();
+        let events = client.0.events.record();
         let media = base::MessageMedia::MessageMediaWidget(Box::new(raw(vec![1, 2, 3])));
-        assert!(matches!(Media::parse(&Client::offline(), &media, &Entities::default()), Some(Media::Unknown { .. })));
+        assert!(matches!(Media::parse(&client, &media, &Entities::default()), Some(Media::Unknown { .. })));
+        let ClientEvent::MediaParseFailed { reason, .. } = events.try_recv().unwrap() else { panic!() };
+        assert_eq!(reason, "widget payload isn't valid zlib data");
     }
 
     #[test]
     fn rejects_oversized_or_non_utf8_html() {
-        for input in [vec![b'a'; 1024 * 1024 + 1], vec![0xff]] {
+        let cases =
+            [(vec![b'a'; 1024 * 1024 + 1], "widget HTML is over 1 MiB"), (vec![0xff], "widget HTML isn't UTF-8")];
+        for (input, reason) in cases {
             let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
             encoder.write_all(&input).unwrap();
-            assert!(Widget::parse(&raw(encoder.finish().unwrap())).is_none());
+            assert_eq!(Widget::try_parse(&raw(encoder.finish().unwrap())).err(), Some(reason));
         }
+    }
+
+    #[test]
+    fn a_rejected_widget_is_reported_as_an_event() {
+        let client = Client::offline();
+        let events = client.0.events.record();
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&[0xff]).unwrap();
+        let media = base::MessageMedia::MessageMediaWidget(Box::new(raw(encoder.finish().unwrap())));
+        assert!(matches!(Media::parse(&client, &media, &Entities::default()), Some(Media::Unknown { .. })));
+        assert!(matches!(
+            events.try_recv(),
+            Ok(ClientEvent::MediaParseFailed { reason: "widget HTML isn't UTF-8", .. })
+        ));
     }
 }
