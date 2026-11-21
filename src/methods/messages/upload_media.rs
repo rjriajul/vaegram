@@ -271,7 +271,7 @@ fn uploaded_document(
                 duration,
                 title: media.title.clone(),
                 performer: media.performer.clone(),
-                waveform: None,
+                waveform: media.waveform.clone().filter(|_| kind == MediaKind::Voice),
             }))]
         }
         MediaKind::Sticker => {
@@ -534,6 +534,20 @@ mod tests {
 
         let voice = document(InputMedia::voice(Upload::bytes("voice", b"x")).duration(42));
         assert_eq!((voice.mime_type.as_str(), voice.attributes), ("audio/ogg", vec![audio(true, None, None)]));
+
+        let waved = document(InputMedia::voice(Upload::bytes("voice", b"x")).duration(42).waveform(vec![1, 2, 3]));
+        let attribute = types::DocumentAttributeAudio {
+            voice: true,
+            duration: 42,
+            title: None,
+            performer: None,
+            waveform: Some(vec![1, 2, 3]),
+        };
+        assert_eq!(waved.attributes, [base::DocumentAttribute::DocumentAttributeAudio(Box::new(attribute))]);
+        // Only a voice note shows a waveform.
+        let song = document(InputMedia::audio("song.mp3").waveform(vec![9]));
+        let base::DocumentAttribute::DocumentAttributeAudio(audio) = &song.attributes[0] else { panic!("no audio") };
+        assert!(audio.waveform.is_none());
     }
 
     #[test]
