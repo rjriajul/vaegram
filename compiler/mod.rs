@@ -196,13 +196,20 @@ fn gen_struct(out: &mut String, d: &Def) {
     let (g, g_ser) = if d.generic { ("<X>", "<X: crate::raw::Serializable>") } else { ("", "") };
     let id = d.id;
 
-    writeln!(out, "#[derive(Debug, Clone, PartialEq)]\npub struct {name}{g} {{").unwrap();
+    // `new` takes the fields every value has and leaves the flag-optional ones unset; a struct with only those
+    // also gets `Default`.
+    let required: Vec<&Field> = d.fields.iter().filter(|f| f.ty != "#" && f.flag.is_none()).collect();
+    let default = if required.is_empty() { ", Default" } else { "" };
+    writeln!(out, "#[derive(Debug, Clone, PartialEq{default})]\npub struct {name}{g} {{").unwrap();
     for f in d.fields.iter().filter(|f| f.ty != "#") {
         writeln!(out, "    pub {}: {},", ident(&f.name), field_ty(f, d.generic)).unwrap();
     }
     writeln!(out, "}}").unwrap();
     writeln!(out, "impl{g} crate::raw::Identifiable for {name}{g} {{ const CONSTRUCTOR_ID: u32 = {id:#010x}; }}")
         .unwrap();
+    if d.fields.iter().any(|f| f.flag.is_some()) {
+        gen_new(out, d, &name, g, &required);
+    }
 
     writeln!(out, "impl{g_ser} crate::raw::Serializable for {name}{g} {{").unwrap();
     writeln!(out, "    fn serialize(&self, buf: &mut ::std::vec::Vec<u8>) {{").unwrap();
@@ -231,6 +238,29 @@ fn gen_struct(out: &mut String, d: &Def) {
         }
     }
     writeln!(out, "    }}\n}}").unwrap();
+}
+
+/// `new` with the fields in `required` as arguments, in schema order; every flag-optional field is `None`, or
+/// `false` for a `true` flag.
+fn gen_new(out: &mut String, d: &Def, name: &str, g: &str, required: &[&Field]) {
+    let params: Vec<String> =
+        required.iter().map(|f| format!("{}: {}", ident(&f.name), field_ty(f, d.generic))).collect();
+    let fields: Vec<String> = d
+        .fields
+        .iter()
+        .filter(|f| f.ty != "#")
+        .map(|f| match &f.flag {
+            None => ident(&f.name),
+            Some(_) if f.ty == "true" => format!("{}: false", ident(&f.name)),
+            Some(_) => format!("{}: None", ident(&f.name)),
+        })
+        .collect();
+    writeln!(out, "impl{g} {name}{g} {{").unwrap();
+    writeln!(out, "    /// Every flag-optional field unset: `None`, or `false` for a flag.").unwrap();
+    if params.len() > 7 {
+        writeln!(out, "    #[allow(clippy::too_many_arguments)]").unwrap();
+    }
+    writeln!(out, "    pub fn new({}) -> Self {{ Self {{ {} }} }}\n}}", params.join(", "), fields.join(", ")).unwrap();
 }
 
 fn gen_struct_json(out: &mut String, d: &Def) {
