@@ -37,10 +37,11 @@
 //!   and [`enums::ClientEvent`], so they can be logged or stored as JSON. There is no `Deserialize`. Fields that
 //!   hold the [`Client`] or TL objects are left out, and the rich message block tree and the types you build
 //!   to send (`InputMedia`, `InlineQueryResult*`, ...) are not serializable.
-//! - `unstable-raw`: the TL objects behind raw updates (`RawUpdate::raw()`, `raw_users()`, `raw_chats()`),
-//!   `Incoming::into_updates()` and `UploadedFile::into_raw()`, and the session plumbing below `Client`
-//!   (`connection::Connection`, `session::{Session, UpdatesRx, Incoming, Events}`). Experimental: may change or
-//!   go away in any release.
+//! - `unstable-raw`: the TL objects behind raw updates (`RawUpdate::raw()`, `raw_users()`, `raw_chats()`, the raw
+//!   update of an `OtherUpdate`), `Incoming::into_updates()`, `UploadedFile::into_raw()`, `Message::from_updates`,
+//!   `utils::input_user`, `Client::business`, `RichMessage::from_raw` and `Sticker::parse`, and the session plumbing
+//!   below `Client` (`connection::Connection`, `session::{Session, UpdatesRx, Incoming, Events}`). Experimental: may
+//!   change or go away in any release.
 //! - Storage engines: `sqlite` (`SqliteStorage`), `redb` (`RedbStorage`), `redis` (`RedisStorage`), `mongodb`
 //!   (`MongoStorage`), `postgres` (`PostgresStorage`), `s3` (`S3Storage`, an S3-compatible object store) and
 //!   `vault` (`VaultStorage`, the login in HashiCorp Vault).
