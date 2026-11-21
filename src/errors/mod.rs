@@ -293,6 +293,22 @@ impl Error {
         /// Whether this is `SESSION_PASSWORD_NEEDED`: the account has two-step verification, so finish the login
         /// with its password.
         is_session_password_needed => "SESSION_PASSWORD_NEEDED",
+        /// Whether this is `PEER_FLOOD`: this account sent too many messages to people who don't know it, and
+        /// Telegram limits it until it is lifted (check with `@SpamBot`).
+        is_peer_flood => "PEER_FLOOD",
+        /// Whether this is `AUTH_KEY_DUPLICATED`: the same login is in use from two places at once, so Telegram
+        /// revoked it and this session must log in again.
+        is_auth_key_duplicated => "AUTH_KEY_DUPLICATED",
+        /// Whether this is `FROZEN_METHOD_INVALID`: the account is frozen, so Telegram refuses this call.
+        is_frozen_method_invalid => "FROZEN_METHOD_INVALID",
+        /// Whether this is `PRIVACY_PREMIUM_REQUIRED`: the user takes this only from Premium accounts.
+        is_privacy_premium_required => "PRIVACY_PREMIUM_REQUIRED",
+        /// Whether this is `QUOTE_TEXT_INVALID`: the quoted text isn't in the message replied to, or doesn't fit.
+        is_quote_text_invalid => "QUOTE_TEXT_INVALID",
+        /// Whether this is `EFFECT_ID_INVALID`: the message effect doesn't exist.
+        is_effect_id_invalid => "EFFECT_ID_INVALID",
+        /// Whether this is `EFFECT_CHAT_INVALID`: the message effect can't be used in this chat.
+        is_effect_chat_invalid => "EFFECT_CHAT_INVALID",
     }
 }
 
@@ -431,7 +447,7 @@ mod tests {
     fn named_helpers_match_their_errors_only() {
         type Case = (fn(&Error) -> bool, i32, &'static str);
         let rpc = |code: i32, msg: &str| Error::Rpc(RpcError::parse(code, msg));
-        let helpers: [Case; 11] = [
+        let helpers: [Case; 18] = [
             (Error::is_message_not_modified, 400, "MESSAGE_NOT_MODIFIED"),
             (Error::is_message_id_invalid, 400, "MESSAGE_ID_INVALID"),
             (Error::is_peer_id_invalid, 400, "PEER_ID_INVALID"),
@@ -443,6 +459,13 @@ mod tests {
             (Error::is_query_id_invalid, 400, "QUERY_ID_INVALID"),
             (Error::is_auth_key_unregistered, 401, "AUTH_KEY_UNREGISTERED"),
             (Error::is_session_password_needed, 401, "SESSION_PASSWORD_NEEDED"),
+            (Error::is_peer_flood, 400, "PEER_FLOOD"),
+            (Error::is_auth_key_duplicated, 406, "AUTH_KEY_DUPLICATED"),
+            (Error::is_frozen_method_invalid, 420, "FROZEN_METHOD_INVALID"),
+            (Error::is_privacy_premium_required, 403, "PRIVACY_PREMIUM_REQUIRED"),
+            (Error::is_quote_text_invalid, 400, "QUOTE_TEXT_INVALID"),
+            (Error::is_effect_id_invalid, 400, "EFFECT_ID_INVALID"),
+            (Error::is_effect_chat_invalid, 400, "EFFECT_CHAT_INVALID"),
         ];
         for (i, (helper, code, name)) in helpers.iter().enumerate() {
             assert!(helper(&rpc(*code, name)), "{name}");
