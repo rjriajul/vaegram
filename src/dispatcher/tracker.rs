@@ -44,8 +44,8 @@ pub(super) fn channel_of(update: &base::Update) -> Option<i64> {
 
 /// The counter `update` moves, with its value before and after the update, or `None` when no counter numbers it;
 /// `channel` is [`channel_of`] the update, and whether it is numbered doesn't depend on it. A pts or qts of 0 numbers
-/// nothing: Telegram sends it on updates it doesn't order, which grammers (`NO_PTS`) and mtcute (`pts ? … : undefined`)
-/// apply in any order. Checked against a counter, it would always pass for one already seen.
+/// nothing: Telegram sends it on updates it doesn't order, which clients apply in any order. Checked against a
+/// counter, it would always pass for one already seen.
 pub(super) fn counter_of(update: &base::Update, channel: Option<i64>) -> Option<(Key, i32, i32)> {
     if let Some((pts, count)) = update.pts().filter(|&(pts, _)| pts != 0) {
         return Some((channel.map_or(Key::Pts, Key::Channel), pts.wrapping_sub(count), pts));
@@ -187,7 +187,7 @@ impl Tracker {
     pub(super) fn update(&mut self, update: base::Update, entities: &Arc<Entities>, quiet: bool) {
         if let base::Update::UpdateChannelTooLong(u) = &update {
             // https://core.telegram.org/constructor/updateChannelTooLong: a channel with no stored pts is fetched from
-            // the one given, as mtcute does (tdlib probes from pts 1 instead). A stored one is kept, since fetching
+            // the one given (probing from pts 1 is the alternative). A stored one is kept, since fetching
             // from it misses nothing; without either, `channel_difference` reports the channel's updates as skipped.
             // The value is trusted: one above the channel's real pts makes its updates look seen until an answer to
             // getChannelDifference carries the channel's pts, or PERSISTENT_TIMESTAMP_INVALID has it forgotten.
@@ -313,8 +313,8 @@ impl Tracker {
     }
 
     /// An item its key says was applied already. The seq can move past a batch without its updates having been
-    /// applied, through a getDifference, which brings channel updates only when it chooses to; so, as the spec orders
-    /// and tdlib does, an update a pts or qts numbers is checked against its own counter, which delivers it when it is
+    /// applied, through a getDifference, which brings channel updates only when it chooses to; so, as the spec orders,
+    /// an update a pts or qts numbers is checked against its own counter, which delivers it when it is
     /// new and drops it when it is not. One that moves its counter by 0 (`pts_count` 0) can't be told from a copy
     /// already applied by that counter, the batch's seq being its only check, so it goes with the rest.
     /// updateChannelTooLong numbers nothing but is the only word that the channel has to be fetched, so it goes

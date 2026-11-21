@@ -321,7 +321,7 @@ impl ClientBuilder {
     /// aren't paced. By default 20 MiB/s for a bot, no cap for a user account. Measured 2026-11-14 with one bot
     /// from one server 61 ms from DC5, 7 runs of 500 MiB and one of 2,000 MiB: 20 MiB/s gave a median 19.88 MB/s
     /// with 0-3 FLOOD_WAITs a run, and 20.25 MB/s over 2,000 MiB; 20.5 MiB/s drew 7 and 22 MiB/s 26 in one run
-    /// each. wzgram paces every bot at 40 parts a second, the same 20 MiB/s. Nothing is measured on other DCs, nor
+    /// each. Pacing at 40 parts a second gives the same 20 MiB/s. Nothing is measured on other DCs, nor
     /// for several processes on one bot token: the cap is per client and per DC. 0 fails [`start`](Self::start)
     /// and [`connect`](Self::connect) with `Error::InvalidArgument`.
     pub fn max_download_bytes_per_sec(mut self, rate: Option<u64>) -> Self {
@@ -334,7 +334,7 @@ impl ClientBuilder {
     /// uploads aren't paced. By default 19.5 MiB/s for a bot, no cap for a user account. Measured 2026-11-14 with
     /// one bot from one server 61 ms from DC5, 7 runs of 500 MiB and one of 2,000 MiB: 19.5 MiB/s gave a median
     /// 20.14 MB/s with 0-7 FLOOD_WAITs a run, against 17.79 MB/s with 28-45 unpaced, and 20.37 MB/s over 2,000 MiB;
-    /// 20 MiB/s drew 9 and 21 MiB/s 42 in one run each. wzgram paces every bot at 40 parts a second, the same
+    /// 20 MiB/s drew 9 and 21 MiB/s 42 in one run each. Pacing at 40 parts a second gives the same
     /// 20 MiB/s. Nothing is measured on other DCs, nor for several processes on one bot token: the cap is per client
     /// and per DC. 0 fails [`start`](Self::start) and [`connect`](Self::connect) with `Error::InvalidArgument`.
     pub fn max_upload_bytes_per_sec(mut self, rate: Option<u64>) -> Self {

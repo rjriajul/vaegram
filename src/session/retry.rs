@@ -55,7 +55,7 @@ pub struct RetryContext<'a> {
     pub file_part: bool,
 }
 
-// AutoSleep sleeps off this many times its `tries` for one file part: gogram's 20 tries a part, with the default 5.
+// AutoSleep sleeps off this many times its `tries` for one file part: 20 tries a part with the default 5.
 const PART_TRIES_PER_TRY: usize = 4;
 
 /// Sleeps off FLOOD_WAITs of up to `threshold`, at most `tries` of them per request (four times that for a file part,

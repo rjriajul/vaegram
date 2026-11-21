@@ -21,7 +21,7 @@ const IDLE: Duration = Duration::from_secs(15);
 pub(crate) const MIN_PART_TIMEOUT: Duration = Duration::from_secs(2 * (512 << 10) / MIN_RATE);
 const MAX_TIMEOUTS: usize = 3;
 // Server errors a part waits out, a second for the first and twice as long for each after it: 63 s in all, about
-// the minute TDLib and teleproto give a file part.
+// the minute other clients give a file part.
 const MAX_SERVER_ERRORS: u32 = 6;
 const FIRST_SERVER_ERROR_WAIT: Duration = Duration::from_secs(1);
 // A CDN gets at most this per wait, so one that keeps flooding is soon given up on and the master DC serves the part.
@@ -125,7 +125,7 @@ impl TransferPool {
     }
 
     /// [`lease`](Self::lease) of connections to `dc` that, when the DC has no key yet, makes the permanent key and
-    /// imports the authorization on `main`, the DC's main address, as tdlib and mtcute do: a media-only address only
+    /// imports the authorization on `main`, the DC's main address: a media-only address only
     /// serves file requests, and under PFS each of its connections makes and binds a temporary key of its own.
     pub(crate) async fn lease_keyed_at(
         &self,
@@ -392,13 +392,13 @@ async fn invoke_part_on<R: RemoteCall>(
                         _ => session.restart_since(now_on)?,
                     },
                     // The part most likely went down with a connection the server stopped answering on: open a fresh
-                    // one, which sends the other parts waiting on it again too, as TDLib and mtcute do. Not when
-                    // another part's timeout already had it dropped since this one went out and it isn't back yet.
+                    // one, which sends the other parts waiting on it again too. Not when another part's timeout
+                    // already had it dropped since this one went out and it isn't back yet.
                     _ => session.restart_since(reconnects)?,
                 }
                 Duration::ZERO
             }
-            // As TDLib, mtcute, teleproto and gogram send a part again after a pause: Telegram's trouble, not the
+            // Clients commonly send a part again after a pause: Telegram's trouble, not the
             // request's.
             ControlFlow::Break(()) if own && !cdn && is_server_error(e) && server_errors < MAX_SERVER_ERRORS => {
                 server_errors += 1;

@@ -297,8 +297,8 @@ impl Dispatcher {
             let invalid = result.as_ref().err().is_some_and(|e| e.is("PERSISTENT_TIMESTAMP_INVALID"));
             if let Key::Channel(id) = key {
                 // https://core.telegram.org/method/updates.getChannelDifference: PERSISTENT_TIMESTAMP_INVALID says
-                // the pts kept for the channel is wrong, so asking from it fails every time. Forgotten, as mtcute
-                // does, it is started again by the next update pushed for the channel; nothing is fetched, so nothing
+                // the pts kept for the channel is wrong, so asking from it fails every time. Forgotten, it is
+                // started again by the next update pushed for the channel; nothing is fetched, so nothing
                 // old comes back as new. An old update Telegram sends again can then be delivered once more, and what
                 // came between the forgotten pts and the next push is never fetched.
                 if invalid {
@@ -320,7 +320,7 @@ impl Dispatcher {
                 self.skipped(s.key, s.from, s.to, s.reason);
             }
             // https://core.telegram.org/method/updates.getDifference: the same error for the account's own box. Its
-            // state comes again from updates.getState, as mtcute does, on the next turn: what is pushed meanwhile
+            // state comes again from updates.getState on the next turn: what is pushed meanwhile
             // would otherwise be offered to the wrong pts. Giving up released what was held, so `restate` has none of
             // it to drop. The loss stays reported once, as above, with no size beyond what was held: Telegram called
             // the pts invalid, so the stretch from it to getState's pts needn't hold any update.
