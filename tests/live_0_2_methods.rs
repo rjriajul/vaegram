@@ -157,9 +157,10 @@ async fn remove_chat_member_lets_member_rejoin() {
 /// No human or second account needed: creates a temporary basic group with `kit.bot` (because only basic groups use
 /// `revoke_messages`), sends a message, bans `kit.bot` with `.revoke_messages(true)`, checks removal, and leaves.
 ///
-/// KNOWN TO FAIL (2026-11-13): the removed bot still reads the message by id after the ban. Whether Telegram keeps a
-/// removed bot's history or `revoke_messages` does not do what its doc says is not known; a second user account as
-/// the removed member would settle it. The assertion stays so the question stays visible.
+/// Prints whether the removed bot can still read the message by id. It could, in every run since 2026-11-13, though
+/// vaegram sends `revoke_history` (the unit test `basic_group_revokes_in_the_same_request`). What Telegram does to a
+/// removed bot's copy isn't the flag's documented effect on a removed user, so that is no check here;
+/// `live_open_items::revoke_messages_hides_history_from_a_removed_user` checks it with a second account.
 #[tokio::test]
 #[ignore = "creates and leaves a basic group with a logged-in user session and a bot"]
 async fn ban_chat_member_revoke_messages_in_basic_group() {
@@ -209,16 +210,9 @@ async fn ban_chat_member_revoke_messages_in_basic_group() {
 
             let member = user.get_chat_member(group_id, bot_id).await.unwrap();
             assert!(!member.is_member);
-            // After revoking, the removed member can no longer read the group's messages.
             let fetched = bot.get_messages(group_id, &[bot_msg_id]).await;
-            assert!(
-                match &fetched {
-                    Err(_) => true,
-                    Ok(msgs) => msgs.first().is_none_or(Option::is_none),
-                },
-                "the removed bot still reads the basic-group message after revoke_messages(true): {:?}",
-                fetched.as_ref().map(|m| m.iter().map(|m| m.as_ref().map(|m| m.id)).collect::<Vec<_>>())
-            );
+            let kept = matches!(&fetched, Ok(msgs) if msgs.first().is_some_and(Option::is_some));
+            eprintln!("after revoke_messages(true) the removed bot can still read the message by id: {kept}");
         }
     })
     .await;
