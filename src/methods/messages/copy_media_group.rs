@@ -64,6 +64,9 @@ impl CopyMediaGroup<'_> {
         if self.options.suggested_post_parameters.is_some() {
             return Err(Error::InvalidArgument("an album can't be a suggested post"));
         }
+        if self.options.schedule_repeat_period.is_some() {
+            return Err(Error::InvalidArgument("an album can't repeat: sendMultiMedia has no repeat period"));
+        }
         let (group, _) = client.media_group(self.from_chat_id, self.message_id).await?;
         if self.captions.last_key_value().is_some_and(|(&position, _)| position >= group.len()) {
             return Err(Error::InvalidArgument("the album has no item at this caption position"));

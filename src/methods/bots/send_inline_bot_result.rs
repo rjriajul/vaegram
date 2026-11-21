@@ -67,9 +67,10 @@ impl SendInlineBotResult<'_> {
             || options.allow_paid_broadcast
             || options.message_effect_id.is_some()
             || options.suggested_post_parameters.is_some()
+            || options.schedule_repeat_period.is_some()
         {
             return Err(Error::InvalidArgument(
-                "an inline bot result can't be protected, paid-broadcast, given an effect or suggested as a post",
+                "an inline bot result can't be protected, paid-broadcast, effected, repeated or a suggested post",
             ));
         }
         let client = self.client;
@@ -135,6 +136,7 @@ mod tests {
             client.send_inline_bot_result(7, 1, "r").allow_paid_broadcast().await,
             client.send_inline_bot_result(7, 1, "r").message_effect_id(1).await,
             client.send_inline_bot_result(7, 1, "r").suggested_post_parameters(SuggestedPostParameters::new()).await,
+            client.send_inline_bot_result(7, 1, "r").schedule_date(99).schedule_repeat_period(86_400).await,
         ];
         for (i, result) in refused.into_iter().enumerate() {
             assert!(matches!(result, Err(Error::InvalidArgument(_))), "{i}");
