@@ -1,3 +1,4 @@
+mod close;
 mod compose;
 mod disconnect;
 mod export_session_string;

@@ -141,6 +141,7 @@ async fn bot_skips_missed_updates_without_catch_up() {
     first.stop();
     first.run().await.unwrap();
     let me = first.get_me().await.unwrap();
+    first.close().await;
     drop(first);
     let bot_id = user.resolve_username(&me.username.expect("the bot has no username")).await.unwrap();
     let missed = user.send_message(bot_id, "/missed").await.unwrap();

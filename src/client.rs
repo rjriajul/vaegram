@@ -698,6 +698,12 @@ impl ClientBuilder {
 
 /// A connection to Telegram as one account. Clones are cheap and share the connection, handlers and storage, so
 /// hand one to each task. Make one with [`Client::builder`].
+///
+/// Dropping the last clone saves the update state and closes the storage. On a runtime's thread that finishes in
+/// the background, so the drop never holds the runtime up: the session may still be saving after the drop returns,
+/// and code that opens the same session again right away awaits [`close`](Self::close) first. The runtime waits for
+/// that save as it shuts down, so returning from `main`, `#[tokio::main]` included, loses nothing;
+/// `std::process::exit` and `Runtime::shutdown_background` don't wait, so await `close` before either.
 #[derive(Clone)]
 pub struct Client(pub(crate) Arc<Inner>, pub(crate) Option<i64>);
 
@@ -888,26 +894,37 @@ impl Inner {
         self.peers.get_mut().unwrap().set_store(self.store.clone());
     }
 
-    /// Saves the update state and the salt, then closes the storage for good, waiting for it at most `DROP_WAIT`.
-    /// Once is enough: later calls, the one on drop included, do nothing.
+    /// Saves the update state and the salt, then closes the storage for good, blocking this thread on it for at most
+    /// `DROP_WAIT`. Once is enough: later calls, [`close_store`](Self::close_store) and the one on drop included, do
+    /// nothing.
     pub(crate) fn finish_store(&self) {
+        self.store.finish(self.last_state());
+    }
+
+    /// [`finish_store`](Self::finish_store), awaited instead of blocking the thread.
+    pub(crate) async fn close_store(&self) {
+        self.store.close(self.last_state()).await;
+    }
+
+    /// The update state for the store's last save; `None` when there is none yet, with the salt queued alone.
+    fn last_state(&self) -> Option<StoredState> {
         let update = self.state.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let state = self.stored(update);
         if state.update.is_some() {
-            self.store.finish(Some(state));
-        } else {
-            // No update state yet, but a logged-in session keeps its salt; the saved update stays as it is.
-            if state.owner != 0 {
-                self.store.queue_salt(state.owner, state.salt);
-            }
-            self.store.finish(None);
+            return Some(state);
         }
+        // No update state yet, but a logged-in session keeps its salt; the saved update stays as it is.
+        if state.owner != 0 {
+            self.store.queue_salt(state.owner, state.salt);
+        }
+        None
     }
 }
 
 impl Drop for Inner {
+    // Often on a runtime's thread, the last clone dropped by a task: the wait for the engine goes elsewhere.
     fn drop(&mut self) {
-        self.finish_store();
+        self.store.finish_in_background(self.last_state());
     }
 }
 
@@ -1239,7 +1256,7 @@ mod tests {
     use crate::session::pacer::{Direction, LARGE};
     use crate::session::test_dc::TestDc;
     use crate::session::{AutoSleep, RateCategory, RateLimits};
-    use crate::storage::{FileStorage, MemoryStorage, PeerRecord, Recording, SessionData, Storage, UpdateState};
+    use crate::storage::{FileStorage, Gated, MemoryStorage, PeerRecord, Recording, SessionData, Storage, UpdateState};
     use crate::types::{Json, PeerRef};
 
     fn temp_dir(name: &str) -> PathBuf {
@@ -1430,6 +1447,7 @@ mod tests {
         let update_state = UpdateState { pts: 50, date: 1, ..Default::default() };
         client.save().await.unwrap();
         client.0.save_state(&update_state).await;
+        client.close().await;
         drop(client);
 
         let file = FileStorage::new(dir.join("bot"));
@@ -1465,7 +1483,9 @@ mod tests {
         let engine = Arc::new(Recording::default());
         engine.save_session(&login).await.unwrap();
         let client = Client::builder("custom-store", 1, "hash").storage_engine(engine.clone()).connect().await;
-        drop(client.unwrap());
+        let client = client.unwrap();
+        client.close().await;
+        drop(client);
         let calls = engine.calls();
         assert_eq!(calls[..6], ["save_session", "open", "load_session", "load_state", "export_peers", "save_session"]);
         assert_eq!(calls.last(), Some(&"close"));
@@ -1513,6 +1533,7 @@ mod tests {
         *client.0.me.lock().unwrap() = Me { id: 1001, is_bot: true, ..Me::default() };
         client.save().await.unwrap();
         client.0.peers.lock().unwrap().remember(777, 5, &["Alice"], None);
+        client.close().await;
         drop(client);
 
         let (mut client, mut sent) = Client::scripted(Vec::new());
@@ -1646,5 +1667,92 @@ mod tests {
             session.invoke(&crate::raw::functions::Ping { ping_id: 1 }).await.unwrap();
         }
         assert_eq!(dc.handshakes(), [(1, 4, false)], "the permanent key is made on the main address only");
+    }
+
+    // The last clone often goes on a runtime's thread; on a `current_thread` runtime, waiting there for the engine
+    // would stall every task.
+    #[tokio::test]
+    async fn dropping_the_client_leaves_the_runtime_running_and_still_saves() {
+        let (mut client, _sent) = Client::scripted(Vec::new());
+        let engine = Arc::new(Gated::default());
+        Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
+        client.0.me.lock().unwrap().id = 1001;
+        *client.0.state.lock().unwrap() = Some(UpdateState { pts: 50, date: 1, ..Default::default() });
+        let started = std::time::Instant::now();
+        drop(client);
+        let waited = started.elapsed();
+        engine.let_through();
+        let mut saved = None;
+        for _ in 0..500 {
+            saved = engine.load_state().await.unwrap().and_then(|s| s.update).map(|u| u.pts);
+            if saved.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(waited < Duration::from_secs(5), "the drop waited {waited:?}");
+        assert_eq!(saved, Some(50));
+    }
+
+    // What returning from `#[tokio::main]` does: the last clone goes on the runtime's thread, then the runtime is
+    // dropped, which waits for the save the drop handed off.
+    #[test]
+    fn a_client_dropped_as_main_returns_is_saved_on_disk() {
+        let dir = temp_dir("main-returns");
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let (mut client, _sent) = Client::scripted(Vec::new());
+            Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
+            *client.0.me.lock().unwrap() = Me { id: 1001, ..Me::default() };
+            client.save().await.unwrap();
+            client.0.peers.lock().unwrap().remember(777, 5, &["Alice"], None);
+            *client.0.state.lock().unwrap() = Some(UpdateState { pts: 50, date: 1, ..Default::default() });
+            drop(client);
+        });
+        drop(runtime);
+
+        let after = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let file = FileStorage::new(dir.join("bot"));
+        let state = after.block_on(file.load_state());
+        let peer = after.block_on(file.get_peer_by_id(777));
+        drop(file);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(state.unwrap().and_then(|s| s.update).map(|u| u.pts), Some(50));
+        assert_eq!(peer.unwrap().map(|p| p.access_hash), Some(5));
+    }
+
+    // A builder on the test DC's key, logged in as `user_id`.
+    fn logged_in(dc: &TestDc, user_id: i64, is_bot: bool) -> super::ClientBuilder {
+        let addr = Some(dc.dc(2).addr);
+        let saved = SessionData { dc_id: 2, test_mode: false, addr, api_id: 1, auth_key: [5; 256], user_id, is_bot };
+        Client::builder("limits", 1, "hash").session_string(crate::storage::session_string::export(&saved))
+    }
+
+    /// How many messages the client's limiter lets go at once, up to 100.
+    fn message_burst(client: &Client) -> Option<usize> {
+        let limiter = client.rate_limiter()?;
+        Some((0..100).take_while(|_| limiter.try_acquire(RateCategory::Message)).count())
+    }
+
+    #[tokio::test]
+    async fn a_user_account_is_rate_limited_by_default_and_a_bot_is_not() {
+        let dc = TestDc::start([5; 256], false).await;
+        let user = logged_in(&dc, 7, false).connect().await.unwrap();
+        assert_eq!(message_burst(&user), Some(5), "a user sends at a person's pace");
+        let bot = logged_in(&dc, 8, true).connect().await.unwrap();
+        assert!(bot.rate_limiter().is_none(), "a bot is held back");
+        let set = logged_in(&dc, 8, true).rate_limits(RateLimits::default()).connect().await.unwrap();
+        assert_eq!(message_burst(&set), Some(30), "limits set hold a bot back too");
+        let signed_out = dc.client([5; 256]).await;
+        assert_eq!(message_burst(&signed_out), Some(100), "a session not logged in is held back");
+    }
+
+    #[tokio::test]
+    async fn the_default_limits_come_on_once_a_user_is_known() {
+        let dc = TestDc::start([5; 256], false).await;
+        dc.sign_in(4242);
+        let builder = Client::builder("limits-login", 1, "hash").session_string(imported_string(&dc));
+        let client = builder.connect().await.unwrap();
+        assert_eq!(message_burst(&client), Some(5));
     }
 }

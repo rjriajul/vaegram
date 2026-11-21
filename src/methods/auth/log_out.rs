@@ -124,6 +124,7 @@ mod tests {
         client.log_out().await.unwrap();
         client.save().await.unwrap();
         client.0.save_state_in_background(&UpdateState { pts: 60, date: 2, ..Default::default() });
+        client.close().await;
         drop(client);
 
         assert_eq!(saved, (true, true));

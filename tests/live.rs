@@ -586,12 +586,14 @@ async fn user_keeps_peers_across_restarts() {
     let user = Client::builder(name, api_id, api_hash.clone()).connect().await.unwrap();
     let id = user.resolve_username("BotFather").await.unwrap();
     let resolved = user.resolve_peer(id).await.unwrap();
+    user.close().await;
     drop(user);
 
-    let stored = FileStorage::new(name).get_peer_by_id(id).await.unwrap().expect("BotFather was saved on drop");
+    let stored = FileStorage::new(name).get_peer_by_id(id).await.unwrap().expect("BotFather was saved on close");
     let user = Client::builder(name, api_id, api_hash).connect().await.unwrap();
     assert_eq!(user.resolve_peer(id).await.unwrap(), resolved);
     assert_eq!(stored.id, id);
+    user.close().await;
     drop(user);
     std::fs::remove_file(format!("{name}.session")).unwrap();
 }

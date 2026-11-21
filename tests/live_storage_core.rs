@@ -25,6 +25,7 @@ async fn a_restarted_client_reaches_known_chats_without_lookups() {
     let user = Client::builder(name, api_id, api_hash.clone()).connect().await.unwrap();
     let id = user.resolve_username("BotFather").await.unwrap();
     let first = user.resolve_peer(id).await.unwrap();
+    user.close().await;
     drop(user);
 
     let lookups = Arc::new(AtomicUsize::new(0));
@@ -43,6 +44,7 @@ async fn a_restarted_client_reaches_known_chats_without_lookups() {
         .await
         .unwrap();
     let again = user.resolve_peer(id).await.unwrap();
+    user.close().await;
     drop(user);
     std::fs::remove_file(format!("{name}.session")).unwrap();
     assert_eq!(again, first);
