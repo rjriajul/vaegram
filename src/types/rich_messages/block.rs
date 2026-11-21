@@ -562,7 +562,7 @@ pub(crate) fn caption() -> base::PageCaption {
 }
 
 impl RichButtonStyle {
-    fn write(self) -> Option<base::RichButtonStyle> {
+    pub(super) fn write(self) -> Option<base::RichButtonStyle> {
         let (bg_primary, bg_danger, bg_success, link) = match self {
             RichButtonStyle::Default => return None,
             RichButtonStyle::Primary => (true, false, false, false),
