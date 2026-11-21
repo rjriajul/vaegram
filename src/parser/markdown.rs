@@ -249,10 +249,10 @@ fn uncross(spans: &mut Vec<Span>, text: &str) {
             moves.dedup();
         }
         for &at in after.iter().filter(|&&at| is_break(at)) {
-            spans.iter_mut().filter(|s| s.start == at).for_each(|s| s.start += 1);
+            spans.iter_mut().filter(|s| s.start == at && !s.kind.is_atomic()).for_each(|s| s.start += 1);
         }
         for &at in before.iter().filter(|&&at| is_break(at - 1)) {
-            spans.iter_mut().filter(|s| s.end == at).for_each(|s| s.end -= 1);
+            spans.iter_mut().filter(|s| s.end == at && !s.kind.is_atomic()).for_each(|s| s.end -= 1);
         }
     }
     spans.retain(|s| s.start < s.end);
@@ -650,6 +650,17 @@ mod tests {
         // The bold is cut at the quote's end and resumes after the line break, so the italic opened at that
         // break starts after it too, inside the bold's rest.
         check("> x **a__\nb__ c**", "x a\nb c", &["Bold 2 1", "Bold 4 3", "Italic 4 1", "quote:false 0 3"]);
+    }
+
+    #[test]
+    fn an_emoji_starting_at_a_cut_line_break_stays_where_it_is() {
+        // The bold is cut at the quote's end and resumes after the line break, but the emoji can't move: it keeps
+        // the break it starts with, inside the bold's rest.
+        check(
+            "> x **a![\nb](tg://emoji?id=1) c**",
+            "x a\nb c",
+            &["Bold 2 1", "Bold 4 3", "CustomEmoji(1) 3 2", "quote:false 0 3"],
+        );
     }
 
     #[test]
