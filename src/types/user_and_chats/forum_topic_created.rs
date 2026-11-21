@@ -1,6 +1,7 @@
 /// Service message data for a new forum topic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ForumTopicCreated {
     /// The topic title.
     pub title: String,

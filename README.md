@@ -54,6 +54,8 @@ generated from Telegram's schema.
   Telegram allows a bot (about 20 MB/s each way, measured with one bot; chunks served by a CDN are not paced).
 - Rate limiting, FLOOD_WAIT retries, and reconnects that fill update gaps.
 - An observer for every request, events for failures, and recorded traffic you can replay in tests.
+- The `serde` cargo feature makes the types you receive (`Message`, `User`, `Chat`, events, ...) `Serialize`, so you can
+  log or store them as JSON.
 - Crypto from [WarpCrypto](https://github.com/rjriajul/WarpCrypto).
 
 ## Installing

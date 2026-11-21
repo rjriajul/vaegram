@@ -17,7 +17,7 @@ const HEADER: usize = 16;
 const GET_FILE: u32 = <functions::upload::GetFile as Identifiable>::CONSTRUCTOR_ID;
 const TAKEOUT: u32 = <functions::InvokeWithTakeout<functions::Ping> as Identifiable>::CONSTRUCTOR_ID;
 
-// Two upload.getFile in one container draw FLOOD_WAITs, as mtcute found, so each goes in a container of its own.
+// Two upload.getFile in one container draw FLOOD_WAITs, so each goes in a container of its own.
 fn is_get_file(body: &[u8]) -> bool {
     match constructor_id(body) {
         Some(GET_FILE) => true,

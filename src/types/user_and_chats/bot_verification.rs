@@ -5,6 +5,7 @@ use crate::types::{FormattedText, User};
 /// A verification mark given by a bot that verifies users and chats.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BotVerification {
     /// The bot that gave the verification.
     pub bot: User,

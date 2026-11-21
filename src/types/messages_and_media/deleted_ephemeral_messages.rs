@@ -5,11 +5,13 @@ use crate::types::Chat;
 
 /// Ephemeral messages that were deleted from a chat.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct DeletedEphemeralMessages {
     /// The chat the messages were deleted from.
     pub chat: Chat,
     /// Ids of the deleted messages.
     pub ids: Vec<i32>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

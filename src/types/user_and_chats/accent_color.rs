@@ -5,6 +5,7 @@ use crate::raw::base;
 /// Each color list is empty when Telegram sent no palette for that theme.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AccentColor {
     /// Telegram's id for the color.
     pub id: i32,
@@ -25,6 +26,7 @@ pub struct AccentColor {
 /// Each color list is empty when Telegram sent no palette for that theme.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ProfileAccentColor {
     /// Telegram's id for the color.
     pub id: i32,

@@ -7,6 +7,7 @@ const MAX_NAME: usize = 32;
 ///
 /// `/ban@MyBot 42 spam` has the name `ban`, the bot `MyBot` and the arguments `42 spam`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Command<'a> {
     /// Command name without the prefix and without the `@bot` suffix, in the case it was typed in. The command
     /// filters match it without case (`command_case_sensitive` aside), so compare it without case too when it

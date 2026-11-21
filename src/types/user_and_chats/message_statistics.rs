@@ -4,6 +4,7 @@ use crate::types::StatisticalGraph;
 /// Statistics for one channel message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MessageStatistics {
     /// Views of the message over time.
     pub views_graph: StatisticalGraph,

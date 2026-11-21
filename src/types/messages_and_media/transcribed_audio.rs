@@ -3,6 +3,7 @@ use crate::raw::base;
 /// A speech-to-text transcription of a voice or video note.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TranscribedAudio {
     /// Id of the transcription.
     pub transcription_id: i64,

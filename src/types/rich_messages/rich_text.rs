@@ -52,6 +52,14 @@ impl RichText {
     }
 }
 
+/// Serializes as the text without formatting, as [`text`](RichText::text) returns it.
+#[cfg(feature = "serde")]
+impl serde::Serialize for RichText {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.text())
+    }
+}
+
 /// An empty string becomes empty text.
 impl From<String> for RichText {
     fn from(text: String) -> Self {

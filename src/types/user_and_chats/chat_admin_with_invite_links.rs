@@ -5,6 +5,7 @@ use crate::types::User;
 /// An administrator and how many invite links they created in a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatAdminWithInviteLinks {
     /// The administrator who created the links.
     pub admin: User,

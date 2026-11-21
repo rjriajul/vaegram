@@ -3,6 +3,7 @@ use crate::raw::types;
 /// Toncoin gifted by the message's sender.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GiftedGrams {
     /// Amount of Toncoin, in nanotons.
     pub ton_amount: i64,

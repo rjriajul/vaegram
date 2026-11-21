@@ -5,6 +5,7 @@ use crate::types::MessageEntity;
 /// Text together with its formatting entities.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FormattedText {
     /// The plain text.
     pub text: String,

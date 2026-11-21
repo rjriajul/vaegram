@@ -1,6 +1,7 @@
 /// What a [`PaymentForm`](crate::types::PaymentForm) pays for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PaymentFormType {
     /// A bot's invoice paid by card.
     Regular,

@@ -2,6 +2,7 @@ use crate::raw::{base, types};
 
 /// A chat wallpaper: a picture, a pattern over colors, or a plain color fill.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatBackground {
     /// Telegram's id of the wallpaper.
     pub id: i64,

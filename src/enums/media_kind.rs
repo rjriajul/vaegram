@@ -5,6 +5,7 @@ use crate::types::{LivePhoto, Photo};
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum MediaKind {
     /// A photo.
     Photo = 1,

@@ -7,6 +7,7 @@ pub(crate) const THEME_FORMAT: &str = "android";
 
 /// A cloud theme.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Theme {
     /// Telegram's id of the theme.
     pub id: i64,
@@ -32,6 +33,7 @@ pub struct Theme {
 /// Colors and wallpaper of a theme on top of a base theme.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ThemeSettings {
     /// The built-in theme these settings modify.
     pub base_theme: BaseTheme,

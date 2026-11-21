@@ -15,6 +15,7 @@ use crate::utils::checked_channel_id;
 /// account differ, and usernames compare case-sensitively.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PeerRef {
     /// A numeric id. Users are positive, basic groups negative, channels `-100` followed by the channel id.
     Id(i64),

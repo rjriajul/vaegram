@@ -261,12 +261,44 @@ impl Store {
         self.call(|e| async move { e.delete().await }).await
     }
 
-    /// Queues `state`, writes what is queued and closes the engine, waiting at most `DROP_WAIT`. Called when the
-    /// client is disconnected or dropped, from whatever thread does it. Only the first call does anything: the store
-    /// thread ends with it, so later calls to the engine fail and later writes are dropped.
+    /// Queues `state`, writes what is queued and closes the engine, blocking this thread on it for at most
+    /// `DROP_WAIT`. Called by `disconnect`, and as `run` returns after it, from whatever thread does it.
     pub(crate) fn finish(&self, state: Option<StoredState>) {
+        if let Some(done) = self.send_finish(state) {
+            wait(&self.events, &done);
+        }
+    }
+
+    /// [`finish`](Self::finish) for a dropped client. On a runtime's thread the wait goes to that runtime's blocking
+    /// pool, so no thread that runs tasks is held up, a `current_thread` runtime's only one included; the runtime
+    /// still waits for it when it shuts down, so returning from `main` doesn't cut the last save short. Off a
+    /// runtime, it waits here.
+    pub(crate) fn finish_in_background(&self, state: Option<StoredState>) {
+        let Some(done) = self.send_finish(state) else { return };
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => {
+                let events = self.events.clone();
+                drop(runtime.spawn_blocking(move || wait(&events, &done)));
+            }
+            Err(_) => wait(&self.events, &done),
+        }
+    }
+
+    /// [`finish`](Self::finish), awaited: the task waits, for at most `DROP_WAIT`, and its thread goes on running
+    /// others.
+    pub(crate) async fn close(&self, state: Option<StoredState>) {
+        let Some(done) = self.send_finish(state) else { return };
+        let events = self.events.clone();
+        let _ = tokio::task::spawn_blocking(move || wait(&events, &done)).await;
+    }
+
+    /// Queues `state` and has the store thread write what is queued and close the engine; what it hands back hears
+    /// when that's done. Only the first call of `finish`, `finish_in_background` or `close` does anything: the store
+    /// thread ends with it, so later calls to the engine fail and later writes are dropped. `None` when there is
+    /// nothing to wait for.
+    fn send_finish(&self, state: Option<StoredState>) -> Option<std_mpsc::Receiver<()>> {
         if self.finished.swap(true, Ordering::AcqRel) {
-            return;
+            return None;
         }
         let worker = match state {
             Some(state) => {
@@ -276,22 +308,28 @@ impl Store {
                     Ok(worker) => worker,
                     Err(e) => {
                         self.events.storage_failed(e.kind(), format_args!("{e}; the last update state isn't saved"));
-                        return;
+                        return None;
                     }
                 }
             }
             None => match self.worker.get() {
                 Some(Ok(worker)) => worker,
-                _ => return,
+                _ => return None,
             },
         };
         let (tx, rx) = std_mpsc::channel();
-        if worker.send(Message::Finish(tx)).is_ok() && rx.recv_timeout(DROP_WAIT).is_err() {
-            self.events.storage_failed(
-                io::ErrorKind::TimedOut,
-                format_args!("the storage engine didn't finish saving within {DROP_WAIT:?}; giving up on it"),
-            );
-        }
+        worker.send(Message::Finish(tx)).ok()?;
+        Some(rx)
+    }
+}
+
+/// Blocks this thread until the store thread has finished, for at most `DROP_WAIT`.
+fn wait(events: &Events, done: &std_mpsc::Receiver<()>) {
+    if done.recv_timeout(DROP_WAIT).is_err() {
+        events.storage_failed(
+            io::ErrorKind::TimedOut,
+            format_args!("the storage engine didn't finish saving within {DROP_WAIT:?}; giving up on it"),
+        );
     }
 }
 
@@ -513,13 +551,72 @@ impl Storage for Recording {
     }
 }
 
+/// An engine over memory whose state saves wait for [`let_through`](Gated::let_through), as a slow remote engine's
+/// would.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct Gated {
+    inner: super::MemoryStorage,
+    gate: Notify,
+}
+
+#[cfg(test)]
+impl Gated {
+    /// Lets one state save through, the one waiting or the next to come.
+    pub(crate) fn let_through(&self) {
+        self.gate.notify_one();
+    }
+}
+
+#[cfg(test)]
+impl Storage for Gated {
+    fn delete(&self) -> super::StorageFuture<'_, ()> {
+        self.inner.delete()
+    }
+
+    fn load_session(&self) -> super::StorageFuture<'_, Option<SessionData>> {
+        self.inner.load_session()
+    }
+
+    fn save_session<'a>(&'a self, session: &'a SessionData) -> super::StorageFuture<'a, ()> {
+        self.inner.save_session(session)
+    }
+
+    fn load_state(&self) -> super::StorageFuture<'_, Option<StoredState>> {
+        self.inner.load_state()
+    }
+
+    fn save_state<'a>(&'a self, state: &'a StoredState) -> super::StorageFuture<'a, ()> {
+        Box::pin(async move {
+            self.gate.notified().await;
+            self.inner.save_state(state).await
+        })
+    }
+
+    fn update_peers<'a>(&'a self, peers: &'a [PeerRecord]) -> super::StorageFuture<'a, ()> {
+        self.inner.update_peers(peers)
+    }
+
+    fn get_peer_by_id(&self, id: i64) -> super::StorageFuture<'_, Option<PeerRecord>> {
+        self.inner.get_peer_by_id(id)
+    }
+
+    fn export_peers(&self, limit: Option<usize>) -> super::StorageFuture<'_, Vec<PeerRecord>> {
+        self.inner.export_peers(limit)
+    }
+
+    fn clear_peers(&self) -> super::StorageFuture<'_, ()> {
+        self.inner.clear_peers()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
-    use super::{Recording, Store};
+    use super::{Gated, Recording, Store};
     use crate::enums::ClientEvent;
     use crate::session::{Events, Salt};
     use crate::storage::{MemoryStorage, PeerRecord, Storage, StorageFuture, StoredState, UpdateState};
@@ -664,6 +761,60 @@ mod tests {
         tokio::task::spawn_blocking(move || store.finish(Some(state(1)))).await.unwrap();
         let waited = started.elapsed();
         assert!(waited >= super::DROP_WAIT && waited < super::DROP_WAIT + Duration::from_secs(5), "{waited:?}");
+    }
+
+    // A client dropped on a `current_thread` runtime: blocking its one thread would stall every task.
+    #[tokio::test]
+    async fn a_drop_on_a_runtime_thread_hands_the_wait_off() {
+        let engine = Arc::new(Gated::default());
+        let store = Store::new(engine.clone(), Arc::default());
+        let started = std::time::Instant::now();
+        store.finish_in_background(Some(state(9)));
+        let waited = started.elapsed();
+        assert!(waited < Duration::from_secs(5), "the dropping thread waited {waited:?}");
+        engine.let_through();
+        let mut saved = None;
+        for _ in 0..500 {
+            saved = engine.load_state().await.unwrap();
+            if saved.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(saved, Some(state(9)));
+    }
+
+    // Returning from `main` drops the runtime, which waits for the handed-off wait: the last save isn't cut short.
+    #[test]
+    fn a_runtime_shutting_down_waits_for_the_last_save() {
+        let engine = Arc::new(Gated::default());
+        let store = Store::new(engine.clone(), Arc::default());
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async { store.finish_in_background(Some(state(9))) });
+        let gate = engine.clone();
+        let late = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            gate.let_through();
+        });
+        drop(runtime);
+        late.join().unwrap();
+        let after = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        assert_eq!(after.block_on(engine.load_state()).unwrap(), Some(state(9)));
+    }
+
+    // On this `current_thread` runtime the task that lets the save through runs only if `close` yields.
+    #[tokio::test]
+    async fn close_awaits_the_last_save_without_blocking_the_thread() {
+        let engine = Arc::new(Gated::default());
+        let store = Store::new(engine.clone(), Arc::default());
+        store.queue_peers([PeerRecord::new(1, 1)]);
+        let gate = engine.clone();
+        let opened = tokio::spawn(async move { gate.let_through() });
+        store.close(Some(state(9))).await;
+        opened.await.unwrap();
+        assert_eq!(engine.load_state().await.unwrap(), Some(state(9)), "close returned before the save");
+        assert_eq!(engine.export_peers(None).await.unwrap().len(), 1);
+        assert!(store.get_peer(2).await.is_err(), "the store still runs after close");
     }
 
     #[tokio::test]

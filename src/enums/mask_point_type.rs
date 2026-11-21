@@ -1,6 +1,7 @@
 /// The part of a face a mask sticker is placed on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum MaskPointType {
     /// The forehead.
     Forehead = 0,

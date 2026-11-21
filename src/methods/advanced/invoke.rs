@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::ops::ControlFlow;
+use std::pin::Pin;
 use std::time::Duration;
 
 use crate::Client;
@@ -76,10 +77,13 @@ impl Client {
     }
 
     /// Waits for the rate limiter's go-ahead, if there is one. It comes before the request's own timeout starts.
-    async fn limit(&self, name: &str) {
-        if let Some(limiter) = &self.0.limiter {
-            limiter.acquire(RateCategory::of(name)).await;
-        }
+    // Boxed: callers' `Send` proofs stop here, not in the limiter (nightly `recursion_depth_exceeding_limit`).
+    fn limit(&self, name: &'static str) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move {
+            if let Some(limiter) = &self.0.limiter {
+                limiter.acquire(RateCategory::of(name)).await;
+            }
+        })
     }
 
     /// Sends `request` to data center `dc_id` under this login, which is exported there the first time. The home
@@ -134,6 +138,15 @@ impl Client {
             }
             None => invoke_paced_part(session, request, timeout, pace).await,
         }
+    }
+
+    /// Raw requests sent through the business connection `connection_id`, as the account behind it:
+    /// `client.business(id).invoke(&request)`. See [`BusinessInvoker::invoke`].
+    ///
+    /// Experimental (`unstable-raw`): may change or go away in any release.
+    #[cfg(feature = "unstable-raw")]
+    pub fn business(&self, connection_id: impl Into<String>) -> BusinessInvoker<'_> {
+        BusinessInvoker { client: self, connection_id: connection_id.into() }
     }
 
     /// Sends `request` through the business connection `connection_id`, or plainly without one, and hands the
@@ -193,14 +206,20 @@ impl Client {
     }
 
     /// The account and data center of the business connection `connection_id`, fetched once if not seen yet.
-    pub(crate) async fn business_home(&self, connection_id: &str) -> Result<BusinessHome> {
-        match self.0.caches.business_home(connection_id) {
-            Some(home) => Ok(home),
-            None => {
-                let connection = self.get_business_connection(connection_id).await?;
-                Ok(BusinessHome { user_id: connection.user.id, dc_id: connection.dc_id })
+    // Boxed: callers' `Send` proofs stop here, not in the fetch (nightly `recursion_depth_exceeding_limit`).
+    pub(crate) fn business_home<'a>(
+        &'a self,
+        connection_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<BusinessHome>> + Send + 'a>> {
+        Box::pin(async move {
+            match self.0.caches.business_home(connection_id) {
+                Some(home) => Ok(home),
+                None => {
+                    let connection = self.get_business_connection(connection_id).await?;
+                    Ok(BusinessHome { user_id: connection.user.id, dc_id: connection.dc_id })
+                }
             }
-        }
+        })
     }
 
     pub(crate) async fn invoke_migrating<R: RemoteCall>(&self, request: &R) -> Result<R::Return> {
@@ -215,6 +234,33 @@ impl Client {
                 _ => return result,
             }
         }
+    }
+}
+
+/// Sends raw requests through one business connection; made by [`Client::business`].
+///
+/// Experimental (`unstable-raw`): may change or go away in any release.
+#[cfg(feature = "unstable-raw")]
+#[derive(Debug, Clone)]
+pub struct BusinessInvoker<'a> {
+    client: &'a Client,
+    connection_id: String,
+}
+
+#[cfg(feature = "unstable-raw")]
+impl BusinessInvoker<'_> {
+    /// Sends `request` inside `invokeWithBusinessConnection` and returns its decoded answer.
+    ///
+    /// It goes to the data center Telegram serves the connection on, which needn't be this client's: that DC is
+    /// remembered from `updateBotBusinessConnect` and fetched once when unknown, and a `*_MIGRATE_<dc>` answer moves
+    /// the connection, not the client. The rate limiter counts the request as itself, not as the wrapper. Messages
+    /// parsed from the answer carry the connection id.
+    pub async fn invoke<R: RemoteCall>(&self, request: &R) -> Result<R::Return>
+    where
+        R::Return: 'static,
+    {
+        let (answer, _) = self.client.invoke_business(Some(self.connection_id.as_str()), Borrowed(request)).await?;
+        Ok(answer)
     }
 }
 
@@ -620,6 +666,33 @@ mod tests {
         client.invoke_business(Some("c"), set_typing()).await.unwrap();
         // `messages.setTyping` is an admin call; the wrapper's own name would have counted as a query.
         assert_eq!(taken(&client), [Admin, Global]);
+    }
+
+    #[cfg(feature = "unstable-raw")]
+    #[tokio::test]
+    async fn business_wrapper_sends_through_the_connection() {
+        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        client.0.caches.know_business("c", 7, 2);
+        assert!(client.business("c").invoke(&set_typing()).await.unwrap());
+        assert_eq!(sent.try_recv().unwrap(), business_typing().to_bytes());
+    }
+
+    #[test]
+    fn generated_structs_with_flags_have_new_and_optional_only_ones_default() {
+        use crate::raw::Identifiable;
+
+        let send = functions::messages::SendMessage::new(base::InputPeer::InputPeerSelf, "hi".into(), 7);
+        assert!(!send.silent && send.reply_to.is_none() && send.entities.is_none() && send.rich_message.is_none());
+        let mut expected = functions::messages::SendMessage::CONSTRUCTOR_ID.to_bytes();
+        0u32.serialize(&mut expected);
+        base::InputPeer::InputPeerSelf.serialize(&mut expected);
+        String::from("hi").serialize(&mut expected);
+        7i64.serialize(&mut expected);
+        assert_eq!(send.to_bytes(), expected);
+
+        let header = types::MessageReplyHeader::new();
+        assert_eq!(header, types::MessageReplyHeader::default());
+        assert!(!header.forum_topic && header.reply_to_msg_id.is_none());
     }
 
     #[tokio::test]

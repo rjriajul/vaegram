@@ -3,6 +3,7 @@ use crate::types::ShippingOption;
 /// The provider's answer to an order's contact and shipping details.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ValidatedOrderInfo {
     /// Pass it to [`SendPaymentForm::order_info_id`](crate::methods::SendPaymentForm::order_info_id).
     pub id: Option<String>,

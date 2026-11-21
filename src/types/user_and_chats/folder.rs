@@ -9,6 +9,7 @@ use crate::utils::input_peer_id;
 /// A chat folder.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Folder {
     /// Id of the folder, as the `Client` folder methods take it.
     pub id: i32,

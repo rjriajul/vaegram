@@ -4,6 +4,7 @@ use crate::types::LabeledPrice;
 /// One way to ship an order, with its price lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ShippingOption {
     /// Identifier the bot picks. Comes back as [`crate::types::PreCheckoutQuery::shipping_option_id`].
     pub id: String,

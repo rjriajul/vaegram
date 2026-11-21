@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 /// A link that logs the user in on the bot's website with their Telegram account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct LoginUrl {
     /// The URL opened once the user authorizes the login.
     pub url: String,

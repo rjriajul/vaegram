@@ -5,6 +5,7 @@ use crate::raw::{base, types};
 /// The emoji interaction actions carry text, so the enum is `Clone` but not `Copy`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ChatAction {
     /// Typing a text message.
     Typing,

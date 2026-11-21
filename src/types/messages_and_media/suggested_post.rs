@@ -4,6 +4,7 @@ use crate::raw::{base, types};
 /// Price offered for a suggested post.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SuggestedPostPrice {
     /// An amount of Telegram Stars.
     Stars(i64),
@@ -32,6 +33,7 @@ impl SuggestedPostPrice {
 /// Terms attached when suggesting a post to a channel.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SuggestedPostParameters {
     /// Price offered for publishing. `None` for a free suggestion.
     pub price: Option<SuggestedPostPrice>,
@@ -72,6 +74,7 @@ impl SuggestedPostParameters {
 /// Terms and status of a suggested post.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SuggestedPostInfo {
     /// Whether the suggestion is still pending, approved or declined.
     pub state: SuggestedPostState,
@@ -98,6 +101,7 @@ impl SuggestedPostInfo {
 /// A suggested post was approved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SuggestedPostApproved {
     /// Price paid. `None` for a free suggestion.
     pub price: Option<SuggestedPostPrice>,
@@ -108,6 +112,7 @@ pub struct SuggestedPostApproved {
 /// Approving a suggested post failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SuggestedPostApprovalFailed {
     /// Price of the suggestion. `None` for a free one.
     pub price: Option<SuggestedPostPrice>,
@@ -116,6 +121,7 @@ pub struct SuggestedPostApprovalFailed {
 /// A suggested post was declined.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SuggestedPostDeclined {
     /// Reason the admin gave. `None` if the admin gave none.
     pub comment: Option<String>,
@@ -124,6 +130,7 @@ pub struct SuggestedPostDeclined {
 /// Payment for a suggested post was made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SuggestedPostPaid {
     /// The amount paid.
     pub price: SuggestedPostPrice,
@@ -132,6 +139,7 @@ pub struct SuggestedPostPaid {
 /// Payment for a suggested post was refunded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SuggestedPostRefunded {
     /// Why the payment was refunded.
     pub reason: SuggestedPostRefundReason,

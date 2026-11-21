@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 /// The kinds of gifts an account accepts. A field is `true` when that kind is accepted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AcceptedGiftTypes {
     /// Gifts with unlimited supply.
     pub unlimited_gifts: bool,

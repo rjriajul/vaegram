@@ -8,6 +8,7 @@ use crate::types::{User, WidgetQueryType};
 
 /// A query sent by a forwarded copy of a shared widget.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SharedWidgetQuery {
     /// The query id, used to answer it.
     pub id: i64,
@@ -19,6 +20,7 @@ pub struct SharedWidgetQuery {
     pub data: String,
     /// Id of the shared widget.
     pub widget_id: i64,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

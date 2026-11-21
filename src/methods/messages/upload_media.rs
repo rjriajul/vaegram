@@ -26,8 +26,9 @@ impl Client {
             Source::Url(_) if !matches!(media.kind, MediaKind::Photo | MediaKind::Document) => {
                 return Err(Error::InvalidArgument("only photos and documents can be sent by URL; upload the file"));
             }
-            Source::Url(_) if media.thumb.is_some() || media.force_file => {
-                return Err(Error::InvalidArgument("a document sent by URL takes no thumbnail or force_file"));
+            // A file name is an attribute too, so it can't go with a URL either.
+            Source::Url(_) if media.thumb.is_some() || media.force_file || media.file_name.is_some() => {
+                return Err(Error::InvalidArgument("a file sent by URL takes no thumbnail, file name or force_file"));
             }
             _ => {}
         }
@@ -345,7 +346,7 @@ mod tests {
     use crate::raw::{Serializable, base, types};
     use crate::types::messages_and_media::Source;
     use crate::types::messages_and_media::media::tests::document_media;
-    use crate::types::{InputMedia, MaskPosition, Upload, UploadedFile};
+    use crate::types::{FileSource, InputMedia, MaskPosition, Upload, UploadedFile};
 
     #[tokio::test]
     async fn a_live_photo_uploads_its_photo_and_video_side_by_side() {
@@ -355,6 +356,18 @@ mod tests {
         // The recording session never answers, so only parts that went out before the first failure are seen.
         assert!(client.input_media(&base::InputPeer::InputPeerEmpty, &media, None, None).await.is_err());
         assert_eq!(std::iter::from_fn(|| sent.try_recv().ok()).count(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_url_refuses_a_file_name_without_a_request() {
+        let (client, mut sent) = Client::recording();
+        let peer = base::InputPeer::InputPeerEmpty;
+        let url = || FileSource::url("https://example.com/a.pdf").unwrap();
+        for media in [InputMedia::document(url()).file_name("b.pdf"), InputMedia::photo(url()).file_name("b.jpg")] {
+            let e = client.input_media(&peer, &media, None, None).await.err();
+            assert!(matches!(e, Some(Error::InvalidArgument(_))), "{e:?}");
+        }
+        assert!(sent.try_recv().is_err());
     }
 
     #[tokio::test]

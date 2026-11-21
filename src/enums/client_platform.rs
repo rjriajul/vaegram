@@ -1,6 +1,7 @@
 /// The platform web apps are told the client runs on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ClientPlatform {
     /// Reported as `android`.
     Android,

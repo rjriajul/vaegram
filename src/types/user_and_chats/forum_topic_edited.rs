@@ -1,6 +1,7 @@
 /// Service message data for an edited forum topic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ForumTopicEdited {
     /// The new title. `None` if it didn't change.
     pub title: Option<String>,

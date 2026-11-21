@@ -4,6 +4,7 @@ use crate::types::Photo;
 /// [`KeyboardButtonRequestUsers`](crate::types::KeyboardButtonRequestUsers) button.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UsersShared {
     /// The `request_id` set on the button.
     pub request_id: i32,
@@ -15,6 +16,7 @@ pub struct UsersShared {
 /// requesting user's copy has only `user_id`.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SharedUser {
     /// Id of the picked user.
     pub user_id: i64,

@@ -44,9 +44,9 @@ pub use redis_storage::RedisStorage;
 pub use s3_storage::S3Storage;
 #[cfg(feature = "sqlite")]
 pub use sqlite_storage::SqliteStorage;
-#[cfg(test)]
-pub(crate) use store::Recording;
 pub(crate) use store::Store;
+#[cfg(test)]
+pub(crate) use store::{Gated, Recording};
 #[cfg(feature = "vault")]
 pub use vault_storage::VaultStorage;
 

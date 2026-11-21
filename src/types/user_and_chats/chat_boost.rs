@@ -6,6 +6,7 @@ use crate::types::{Chat, User};
 /// A boost applied to a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatBoost {
     /// Telegram's id for the boost.
     pub boost_id: String,
@@ -20,6 +21,7 @@ pub struct ChatBoost {
 /// Where a [`ChatBoost`] came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ChatBoostSource {
     /// A boost from a user with Telegram Premium.
     #[non_exhaustive]
@@ -49,16 +51,19 @@ pub enum ChatBoostSource {
 
 /// A boost of a chat was added or changed.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatBoostUpdated {
     /// The boosted chat.
     pub chat: Chat,
     /// The boost as it is now.
     pub boost: ChatBoost,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 
 /// A boost of a chat was removed.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatBoostRemoved {
     /// The chat that lost the boost.
     pub chat: Chat,
@@ -68,6 +73,7 @@ pub struct ChatBoostRemoved {
     pub remove_date: i32,
     /// Where the removed boost came from.
     pub source: ChatBoostSource,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 
@@ -117,6 +123,7 @@ impl ChatBoostRemoved {
 }
 
 /// A changed boost or a removed one: Telegram sends both as `updateBotChatBoost`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub(crate) enum BoostUpdate {
     Updated(ChatBoostUpdated),
     Removed(ChatBoostRemoved),

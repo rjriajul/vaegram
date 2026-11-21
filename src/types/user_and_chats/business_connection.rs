@@ -5,6 +5,7 @@ use crate::types::{BusinessBotRights, User};
 
 /// A bot's connection to a business account.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BusinessConnection {
     /// Id of the connection, as business updates and requests carry it.
     pub id: String,
@@ -18,6 +19,7 @@ pub struct BusinessConnection {
     pub is_enabled: bool,
     /// The data center that serves requests through this connection. The client sends them there by itself.
     pub dc_id: i32,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

@@ -3,6 +3,7 @@ use crate::raw::base;
 /// A Telegram Stars pack the account can buy, priced in `currency`'s smallest units.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StarPaymentOption {
     /// Stars in the pack.
     pub star_count: i64,

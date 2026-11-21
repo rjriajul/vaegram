@@ -5,6 +5,7 @@ use crate::types::{Chat, User};
 /// What Telegram reports about a Premium gift code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CheckedGiftCode {
     /// When the code was created, as a Unix timestamp.
     pub date: i32,

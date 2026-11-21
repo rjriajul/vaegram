@@ -4,6 +4,7 @@ use crate::types::{Media, Photo};
 /// A link preview shown under a text message.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct WebPage {
     /// Telegram's id for the page.
     pub id: i64,

@@ -5,6 +5,7 @@ use crate::types::Chat;
 
 /// Notice that a bot stopped streaming a message draft, sent as a stop-draft typing action in a private chat.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MessageGenerationStopped {
     /// The private chat the draft was in.
     pub chat: Chat,
@@ -12,6 +13,7 @@ pub struct MessageGenerationStopped {
     pub message_thread_id: Option<i32>,
     /// Id of the stopped draft.
     pub draft_id: i64,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

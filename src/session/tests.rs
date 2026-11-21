@@ -206,6 +206,25 @@ async fn reconnect_resends_only_what_the_server_never_got() {
 }
 
 #[tokio::test]
+async fn reconnect_resends_in_the_order_first_sent() {
+    let (mut r, mut frames, _updates) = runner().await;
+    let _rx: Vec<_> = (0..12).map(|i| request(&mut r, ping(i))).collect();
+    r.flush().await.unwrap();
+    let (_, _, body) = recv(&mut frames, &r).await;
+    let sent: Vec<i64> = msg_container::parse(&body).unwrap().iter().map(|m| m.msg_id).collect();
+
+    r.resend_pending().await.unwrap();
+    let (check, _, body) = recv(&mut frames, &r).await;
+    assert_eq!(body, types::MsgsStateReq { msg_ids: sent.clone() }.to_bytes());
+    let _ = recv(&mut frames, &r).await;
+    r.handle_message(3, 0, &types::MsgsStateInfo { req_msg_id: check, info: vec![2; sent.len()] }.to_bytes());
+    r.flush().await.unwrap();
+    let (_, _, body) = recv(&mut frames, &r).await;
+    let resent: Vec<Vec<u8>> = msg_container::parse(&body).unwrap().iter().map(|m| m.body.to_vec()).collect();
+    assert_eq!(resent, (0..12).map(ping).collect::<Vec<_>>());
+}
+
+#[tokio::test]
 async fn reconnect_keeps_waiting_for_what_the_server_got() {
     let (mut r, mut frames, _updates) = runner().await;
     let (unacked, check, _rx) = reconnect_with_one_unacked(&mut r, &mut frames).await;
@@ -2058,4 +2077,13 @@ async fn a_close_waits_for_a_stuck_report_only_so_long() {
     let took = took.try_recv().expect("never reported").expect("the close waited for the listener waiting for it");
     assert!(took >= super::REPORT_WAIT && took < super::REPORT_WAIT + Duration::from_secs(2), "{took:?}");
     assert!(r.control.closed());
+}
+
+#[test]
+fn the_updates_queue_takes_any_capacity_without_panicking() {
+    let (tx, _rx) = UpdatesRx::queue(usize::MAX);
+    assert!(tx.try_send(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false }).is_ok());
+    let (tx, _rx) = UpdatesRx::queue(0);
+    assert!(tx.try_send(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false }).is_ok());
+    assert!(tx.try_send(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false }).is_err());
 }

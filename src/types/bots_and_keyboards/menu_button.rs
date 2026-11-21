@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 /// The button next to the input field in a chat with the bot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum MenuButton {
     /// Falls back to the button set for all users. Has no effect when setting that one.
     Default,

@@ -3,6 +3,7 @@ use crate::raw::base;
 /// Why a chat, user or message is hidden on some platforms.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct RestrictionReason {
     /// The platforms it applies to, such as `ios` or `all`.
     pub platform: String,

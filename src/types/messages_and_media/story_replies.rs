@@ -2,7 +2,7 @@ use crate::methods::{
     SendAnimation, SendAudio, SendCachedMedia, SendMediaGroup, SendMessage, SendPhoto, SendSticker, SendVideo,
     SendVideoNote, SendVoice,
 };
-use crate::types::{FileSource, InputMedia, Story, Text};
+use crate::types::{FileSource, InputMedia, StickerSource, Story, Text};
 
 impl Story {
     /// Sends `text` to this story's chat as a reply to the story.
@@ -36,7 +36,7 @@ impl Story {
     }
 
     /// Sends a sticker to this story's chat as a reply to the story.
-    pub fn reply_sticker<'a>(&'a self, sticker: impl Into<FileSource<'a>>) -> SendSticker<'a> {
+    pub fn reply_sticker<'a>(&'a self, sticker: impl Into<StickerSource<'a>>) -> SendSticker<'a> {
         self.client().send_sticker(self.chat.id, sticker).reply_to(self)
     }
 

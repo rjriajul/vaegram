@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 /// A payment that was refunded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct RefundedPayment {
     /// Three-letter currency code, or `XTR` for Telegram Stars.
     pub currency: String,

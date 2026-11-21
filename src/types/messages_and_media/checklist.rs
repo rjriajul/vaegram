@@ -5,6 +5,7 @@ use crate::types::{Chat, MessageEntity, User};
 
 /// A checklist attached to a message.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Checklist {
     /// Title text, without formatting.
     pub title: String,
@@ -17,12 +18,14 @@ pub struct Checklist {
     /// `true` if users other than the author can mark tasks as done.
     pub others_can_mark_tasks_as_done: bool,
     // Kept so an edit can send the existing texts back with their formatting untouched.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) todo: base::TodoList,
 }
 
 /// One task of a [`Checklist`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChecklistTask {
     /// Id of the task, unique within its checklist.
     pub id: i32,

@@ -1,6 +1,7 @@
 /// What paying a form came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PaymentResult {
     /// The payment went through.
     Paid,

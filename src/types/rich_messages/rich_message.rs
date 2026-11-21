@@ -9,7 +9,9 @@ use crate::types::{Document, Photo};
 
 /// The rich content of a message: a list of blocks plus the photos and documents they use.
 ///
-/// Read the content with [`blocks`](RichMessage::blocks) or flatten it with [`text`](RichMessage::text).
+/// Read the content with [`blocks`](RichMessage::blocks) or flatten it with [`text`](RichMessage::text). A received
+/// message carries it in [`Message::rich_message`](crate::types::Message::rich_message); [`builder`](Self::builder)
+/// makes one in code.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RichMessage {
     /// Whether the message is laid out right to left.
@@ -21,6 +23,12 @@ pub struct RichMessage {
 }
 
 impl RichMessage {
+    /// Begins building a message as Telegram delivers one, so code that reads received rich messages can be tested
+    /// without a connection. To send rich content, use [`InputRichMessage`](crate::types::InputRichMessage).
+    pub fn builder() -> RichMessageBuilder {
+        RichMessageBuilder::default()
+    }
+
     pub(crate) fn parse(raw: base::RichMessage) -> RichMessage {
         let base::RichMessage::RichMessage(raw) = raw;
         RichMessage { is_rtl: raw.rtl, is_partial: raw.part, raw }
@@ -93,12 +101,113 @@ impl RichMessage {
     }
 }
 
+/// Serializes `is_rtl`, `is_partial` and the plain [`text`](RichMessage::text); the blocks themselves are not
+/// serializable.
+#[cfg(feature = "serde")]
+impl serde::Serialize for RichMessage {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct as _;
+
+        let mut state = serializer.serialize_struct("RichMessage", 3)?;
+        state.serialize_field("is_rtl", &self.is_rtl)?;
+        state.serialize_field("is_partial", &self.is_partial)?;
+        state.serialize_field("text", &self.text())?;
+        state.end()
+    }
+}
+
+/// Settings for a [`RichMessage`], from [`RichMessage::builder`]; [`build`](Self::build) makes the message.
+///
+/// The message carries no photos or documents, so its media blocks read with no file.
+#[derive(Debug, Clone, Default)]
+#[must_use = "call .build() to get the message"]
+pub struct RichMessageBuilder {
+    blocks: Vec<RichBlock>,
+    is_rtl: bool,
+    is_partial: bool,
+}
+
+impl RichMessageBuilder {
+    /// Adds a block after the ones added before.
+    pub fn block(mut self, block: RichBlock) -> Self {
+        self.blocks.push(block);
+        self
+    }
+
+    /// Adds blocks after the ones added before.
+    pub fn blocks(mut self, blocks: impl IntoIterator<Item = RichBlock>) -> Self {
+        self.blocks.extend(blocks);
+        self
+    }
+
+    /// Sets whether the message is laid out right to left; `true` lays it out right to left.
+    pub fn is_rtl(mut self, is_rtl: bool) -> Self {
+        self.is_rtl = is_rtl;
+        self
+    }
+
+    /// Sets whether the message is only part of the whole, as Telegram marks a long one; `true` marks it partial.
+    pub fn is_partial(mut self, is_partial: bool) -> Self {
+        self.is_partial = is_partial;
+        self
+    }
+
+    /// Makes the message.
+    pub fn build(self) -> RichMessage {
+        let blocks = self.blocks.into_iter().map(|b| b.block).collect();
+        let raw =
+            types::RichMessage { rtl: self.is_rtl, part: self.is_partial, blocks, photos: vec![], documents: vec![] };
+        RichMessage::parse(base::RichMessage::RichMessage(Box::new(raw)))
+    }
+}
+
+/// Experimental: these may change or go away in any release.
+#[cfg(feature = "unstable-raw")]
+impl RichMessage {
+    /// Reads a rich message from the TL object Telegram sent, such as one saved from a raw update.
+    pub fn from_raw(raw: base::RichMessage) -> RichMessage {
+        RichMessage::parse(raw)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::RichMessage;
     use crate::Client;
     use crate::raw::{base, types};
-    use crate::types::{InputRichMessage, RichBlock, RichBlockKind, RichListItem, Text};
+    use crate::types::{
+        InlineAction, InlineKeyboardButton, InputRichMessage, RichBlock, RichBlockKind, RichListItem, RichText,
+        RichTextKind, Text, TextButton,
+    };
+
+    #[test]
+    fn a_built_message_reads_like_a_received_one() {
+        let cell = TextButton::new("e4").action(InlineAction::Callback("move e4".into())).unwrap();
+        let built = RichMessage::builder()
+            .block(RichBlock::heading(1, "Board"))
+            .blocks([RichBlock::paragraph(vec![RichText::from("Play: "), cell.into()])])
+            .is_rtl(true)
+            .is_partial(true)
+            .build();
+        assert!(built.is_rtl && built.is_partial);
+        assert_eq!(built.text(), "Board\nPlay: e4");
+        let blocks = built.blocks();
+        let RichBlockKind::Paragraph(text) = blocks[1].kind() else { panic!("not a paragraph") };
+        let RichTextKind::Concat(parts) = text.kind() else { panic!("not a concat") };
+        let RichTextKind::Button { action, .. } = parts[1].kind() else { panic!("not a button") };
+        assert_eq!(action, Some(InlineKeyboardButton::callback("e4", "move e4")));
+        assert_eq!(RichMessage::builder().build().text(), "");
+    }
+
+    #[cfg(feature = "unstable-raw")]
+    #[test]
+    fn from_raw_reads_a_tl_rich_message() {
+        let blocks = vec![base::PageBlock::PageBlockDivider];
+        let raw = types::RichMessage { rtl: true, part: false, blocks, photos: vec![], documents: vec![] };
+        let rich = RichMessage::from_raw(base::RichMessage::RichMessage(Box::new(raw)));
+        assert!(rich.is_rtl && !rich.is_partial);
+        assert!(matches!(rich.blocks()[0].kind(), RichBlockKind::Divider));
+    }
 
     #[tokio::test]
     async fn sent_blocks_read_back_equal() {

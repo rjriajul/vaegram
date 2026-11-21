@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 /// What an administrator may do. `Default` grants nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatPrivileges {
     /// Whether the admin's messages show the chat as sender instead of their name.
     pub is_anonymous: bool,

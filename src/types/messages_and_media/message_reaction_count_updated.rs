@@ -7,6 +7,7 @@ use crate::types::{Chat, ReactionCount};
 
 /// An update to the reaction counts of a message.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MessageReactionCountUpdated {
     /// The chat the message is in.
     pub chat: Chat,
@@ -16,6 +17,7 @@ pub struct MessageReactionCountUpdated {
     pub date: i32,
     /// The reactions the message has now, with their counts.
     pub reactions: Vec<ReactionCount>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

@@ -7,6 +7,7 @@ use crate::types::{Chat, ChatInviteLink, ChatMember, User};
 
 /// A change to a member's status in a chat.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatMemberUpdated {
     /// The chat the change happened in.
     pub chat: Chat,
@@ -24,6 +25,7 @@ pub struct ChatMemberUpdated {
     pub via_join_request: bool,
     /// `true` if the user joined through a chat folder invite link.
     pub via_chat_folder_invite_link: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

@@ -262,7 +262,8 @@ macro_rules! media_setters {
     (@file_name $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
             /// Names an uploaded file, instead of the path's or bytes' own name. The name also picks the MIME
-            /// type. Ignored for a file id or a URL.
+            /// type. Ignored for a file id; a file sent by URL fails with
+            /// [`Error::InvalidArgument`](crate::Error::InvalidArgument), as it can't carry a name.
             pub fn file_name(mut self, name: impl Into<String>) -> Self {
                 self$(.$m)?.file_name = Some(name.into());
                 self

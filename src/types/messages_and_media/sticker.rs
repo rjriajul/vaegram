@@ -1,11 +1,13 @@
 use crate::enums::{FileType, StickerFormat, StickerType};
 use crate::raw::{base, types};
-use crate::types::{Document, FileLocation, MaskPosition, Thumbnail};
+use crate::types::{Document, FileLocation, MaskPosition, StickerSetRef, Thumbnail};
 
 use super::input_document;
 
 /// A sticker, mask or custom emoji.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Sticker {
     /// Identifier for downloading or reusing the file.
     pub file_id: String,
@@ -31,6 +33,10 @@ pub struct Sticker {
     pub is_video: bool,
     /// Emoji the sticker is associated with. `None` if the sticker has no emoji.
     pub emoji: Option<String>,
+    /// Every emoji the sticker stands for. A sticker from its set's own listing
+    /// ([`get_sticker_set`](crate::Client::get_sticker_set)) has all those its set tags it with; any other has
+    /// just `emoji`, or none.
+    pub emojis: Vec<String>,
     /// Where a mask sits on a face. `None` unless the sticker is a mask.
     pub mask_position: Option<MaskPosition>,
     /// Id to use in a custom emoji entity. `None` unless the sticker is a custom emoji.
@@ -50,9 +56,28 @@ pub struct Sticker {
 }
 
 impl Sticker {
+    /// Reads a sticker, mask or custom emoji from a raw document. `None` for any other file.
+    ///
+    /// Experimental (`unstable-raw`): may change or go away in any release.
+    #[cfg(feature = "unstable-raw")]
+    pub fn parse(document: &base::Document) -> Option<Sticker> {
+        Sticker::parse_document(document)
+    }
+
+    #[cfg(not(feature = "unstable-raw"))]
     pub(crate) fn parse(document: &base::Document) -> Option<Sticker> {
+        Sticker::parse_document(document)
+    }
+
+    fn parse_document(document: &base::Document) -> Option<Sticker> {
         let base::Document::Document(raw) = document else { return None };
         Sticker::from_document(Document::parse_as(document, FileType::Sticker)?, raw)
+    }
+
+    /// The set the sticker is from, to pass to [`get_sticker_set`](crate::Client::get_sticker_set) or
+    /// [`StickerSource::from_set`](crate::types::StickerSource::from_set). `None` for a sticker in no set.
+    pub fn set_ref(&self) -> Option<StickerSetRef> {
+        self.set.map(|(id, access_hash)| StickerSetRef::from_id(id, access_hash))
     }
 
     /// Returns the file format, derived from `is_animated` and `is_video`.
@@ -108,6 +133,7 @@ impl Sticker {
             width,
             height,
             emoji: (!emoji.is_empty()).then(|| emoji.clone()),
+            emojis: if emoji.is_empty() { Vec::new() } else { vec![emoji.clone()] },
             mask_position,
             custom_emoji_id: (kind == StickerType::CustomEmoji).then_some(id),
             needs_repainting,
@@ -247,5 +273,20 @@ pub(crate) mod tests {
 
         assert!(Sticker::parse(&document(4, "application/pdf", vec![size(1, 1)])).is_none());
         assert!(Sticker::parse(&base::Document::DocumentEmpty(types::DocumentEmpty { id: 4 })).is_none());
+    }
+
+    #[test]
+    fn carries_its_set_and_emoji() {
+        let set = types::InputStickerSetID { id: 10, access_hash: 11 };
+        let stickerset = base::InputStickerSet::InputStickerSetID(Box::new(set));
+        let attribute =
+            types::DocumentAttributeSticker { mask: false, alt: "😺".into(), stickerset, mask_coords: None };
+        let attribute = base::DocumentAttribute::DocumentAttributeSticker(Box::new(attribute));
+        let sticker = Sticker::parse(&document(1, "image/webp", vec![attribute])).unwrap();
+        assert_eq!(sticker.set_ref(), Some(crate::types::StickerSetRef::from_id(10, 11)));
+        assert_eq!(sticker.emojis, ["😺"]);
+
+        let bare = Sticker::parse(&document(2, "image/webp", vec![sticker_attribute("", None)])).unwrap();
+        assert_eq!((bare.set_ref(), bare.emojis.len()), (None, 0));
     }
 }

@@ -4,6 +4,7 @@ use crate::raw::base;
 /// `get_peer_profile_colors`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatColor {
     /// Id of the color in the list from `get_peer_colors` or `get_peer_profile_colors`.
     pub color: Option<i32>,

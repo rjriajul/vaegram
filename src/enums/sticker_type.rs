@@ -1,6 +1,7 @@
 /// The kind of a sticker, or of the stickers in a set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum StickerType {
     /// An ordinary sticker.
     Regular,

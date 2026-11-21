@@ -3,6 +3,7 @@ use crate::raw::base;
 /// The result of polling a widget's public data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum WidgetPublicData {
     /// The public data has changed.
     #[non_exhaustive]

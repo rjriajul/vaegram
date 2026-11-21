@@ -3,6 +3,7 @@ use crate::raw::base;
 /// How rare a unique gift's model, symbol or backdrop is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum UpgradedGiftAttributeRarity {
     /// The attribute shows up in this many of every thousand gifts.
     PerMille(i32),

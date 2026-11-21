@@ -3,6 +3,7 @@ use crate::raw::base;
 /// A language Telegram offers a language pack for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Language {
     /// Name in English.
     pub name: String,

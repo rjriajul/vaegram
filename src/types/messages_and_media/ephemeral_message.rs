@@ -8,6 +8,7 @@ use crate::utils::get_peer;
 
 /// A message in a chat that only one user, the receiver, sees.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct EphemeralMessage {
     /// Id of the message. Ephemeral ids have their own sequence, separate from regular message ids.
     pub id: i32,
@@ -46,7 +47,9 @@ pub struct EphemeralMessage {
     pub has_protected_content: bool,
     /// `true` if the caption is shown above the media.
     pub show_caption_above_media: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) raw: Box<types::EphemeralMessage>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

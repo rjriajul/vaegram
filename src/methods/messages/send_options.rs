@@ -5,7 +5,7 @@ use crate::errors::Result;
 use crate::raw::{base, functions, types};
 use crate::types::{Message, PeerRef, ReplyMarkup, ReplyParameters, RichMessage, SuggestedPostParameters, Text};
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct SendOptions {
     pub(crate) reply_to: Option<ReplyParameters>,
     pub(crate) message_thread_id: Option<i32>,

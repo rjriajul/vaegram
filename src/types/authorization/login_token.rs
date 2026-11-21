@@ -3,6 +3,7 @@ use crate::types::User;
 /// Result of a QR code login attempt.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum LoginToken {
     /// Login isn't finished yet.
     #[non_exhaustive]

@@ -8,6 +8,7 @@ use crate::utils::get_peer;
 /// What an invite link shows about a chat before it is joined.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatPreview {
     /// The chat title.
     pub title: String,

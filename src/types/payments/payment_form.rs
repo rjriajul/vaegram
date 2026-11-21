@@ -21,6 +21,7 @@ use crate::types::{LabeledPrice, OrderInfo, PaymentOption, SavedCredentials, Use
 /// };
 /// ```
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PaymentForm {
     /// Form id. [`Client::send_payment_form`] sends it back to pay this form.
     pub id: i64,
@@ -87,6 +88,7 @@ pub struct PaymentForm {
     pub suggested_tip_amounts: Vec<i64>,
     /// URL of the terms of service the payer agrees to. `None` if there are none.
     pub terms_url: Option<String>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) invoice: base::InputInvoice,
 }
 

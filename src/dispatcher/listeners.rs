@@ -109,6 +109,7 @@ impl Listeners {
     }
 
     pub(crate) fn limit(&self, max: usize) {
+        let max = max.min(Semaphore::MAX_PERMITS);
         let _ = self.budget.set((max, Arc::new(Semaphore::new(max))));
     }
 
@@ -996,6 +997,15 @@ pub(crate) mod tests {
         listeners.close();
         assert_eq!(listeners.free_slots(), Some(2));
         drop(waiting);
+    }
+
+    #[test]
+    fn a_limit_past_what_tokio_takes_is_clamped() {
+        let listeners = Listeners::default();
+        listeners.limit(usize::MAX);
+        let permit = listeners.permit().unwrap();
+        assert!(permit.is_some());
+        assert_eq!(listeners.free_slots(), Some(Semaphore::MAX_PERMITS - 1));
     }
 
     #[tokio::test]

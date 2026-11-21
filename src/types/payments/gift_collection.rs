@@ -5,6 +5,7 @@ use crate::types::Sticker;
 /// A named collection of gifts on a profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GiftCollection {
     /// Id of the collection.
     pub id: i32,

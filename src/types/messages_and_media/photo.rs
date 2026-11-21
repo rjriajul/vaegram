@@ -7,6 +7,7 @@ use super::thumbnail::full_size;
 
 /// A photo, represented by its largest size.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Photo {
     /// File id to download or resend the photo with.
     pub file_id: String,

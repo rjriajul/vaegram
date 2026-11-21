@@ -6,6 +6,7 @@ use crate::utils::{get_channel_id, get_peer};
 /// A giveaway announced in a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Giveaway {
     /// The channels a user must join to take part.
     pub chats: Vec<Chat>,

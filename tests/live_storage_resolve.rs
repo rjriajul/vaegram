@@ -37,6 +37,7 @@ async fn a_cached_username_is_resolved_once() {
     let id = user.resolve_username("BotFather").await.unwrap();
     let first = user.resolve_peer("@BotFather").await.unwrap();
     let again = user.resolve_peer("@botfather").await.unwrap();
+    user.close().await;
     drop(user);
     std::fs::remove_file(format!("{name}.session")).unwrap();
     assert_eq!(first, again);

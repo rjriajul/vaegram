@@ -6,6 +6,7 @@ use crate::types::{Chat, MessageEntity};
 /// A Telegram Premium gift code, given directly or won in a giveaway.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PremiumGiftCode {
     /// The chat that created the code, if any.
     pub creator: Option<Chat>,

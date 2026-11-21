@@ -18,8 +18,8 @@ pub(crate) const LARGE: u64 = 8 << 20;
 // Bots, measured 2026-11-14 with one bot from one server 61 ms from DC5, 7 runs of 500 MiB and one of 2,000 MiB:
 // 8 connections paced to 20 MiB/s down, one getFile out on each, and 19.5 MiB/s up, two parts out on each, gave a
 // median 19.88 MB/s down and 20.14 up with 0-3 and 0-7 FLOOD_WAITs a run, against 17.65 and 17.79 (28-45 upload
-// FLOOD_WAITs) on 4 unpaced; the 2,000 MiB run went at 20.25 and 20.37. wzgram paces every bot at 40 parts a second,
-// the same 20 MiB/s. Nothing is measured on other DCs, nor for several processes on one bot token: the pace is per
+// FLOOD_WAITs) on 4 unpaced; the 2,000 MiB run went at 20.25 and 20.37. Pacing at 40 parts a second gives the same
+// 20 MiB/s. Nothing is measured on other DCs, nor for several processes on one bot token: the pace is per
 // client and per DC. Those are sustained transfers, and nothing shows a short burst floods, so a bot's transfer
 // under LARGE goes as a user's, unpaced, and doesn't wait for 8 handshakes before its first byte. So does a download
 // of unknown size, which is anything fetched by file_id, a large file too, and chat photos: as before, its chunks

@@ -1,6 +1,7 @@
 /// How a unique gift reached its current owner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum UniqueGiftOrigin {
     /// The owner upgraded a regular gift.
     Upgrade,

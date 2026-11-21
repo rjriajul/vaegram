@@ -9,6 +9,7 @@ use crate::types::{Animation, Audio, Document, InlineKeyboardButton, Photo, Rich
 /// Horizontal alignment of a button row or a table cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Align {
     /// Aligns to the left edge.
     Left,
@@ -21,6 +22,7 @@ pub enum Align {
 /// Vertical alignment of a table cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum VAlign {
     /// Aligns to the top of the cell.
     Top,
@@ -33,6 +35,7 @@ pub enum VAlign {
 /// Color style of a [`RichButton`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum RichButtonStyle {
     /// No style is sent, so Telegram uses its regular button look.
     #[default]
@@ -562,7 +565,7 @@ pub(crate) fn caption() -> base::PageCaption {
 }
 
 impl RichButtonStyle {
-    fn write(self) -> Option<base::RichButtonStyle> {
+    pub(super) fn write(self) -> Option<base::RichButtonStyle> {
         let (bg_primary, bg_danger, bg_success, link) = match self {
             RichButtonStyle::Default => return None,
             RichButtonStyle::Primary => (true, false, false, false),

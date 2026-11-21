@@ -1,3 +1,4 @@
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -10,13 +11,15 @@ use crate::client::Me;
 use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
 use crate::handlers::{Callback, ErrorCallback, HandlerId, HandlerInfo, RawCallback, Registered, Routed, callback};
 use crate::raw::base;
+use crate::types::messages_and_media::transcription::Transcriptions;
 use crate::types::{
     BoostUpdate, BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatActionUpdated, ChatBoostRemoved,
     ChatBoostUpdated, ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages,
-    DeletedEphemeralMessages, DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
-    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PendingJoinRequestsUpdated,
-    PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ReactionsUpdated,
-    ReadHistoryUpdated, SharedWidgetQuery, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState,
+    DeletedEphemeralMessages, DeletedMessages, DraftUpdated, EphemeralMessage, GuestMessage, InlineQuery,
+    ManagedBotUpdated, Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated,
+    NewLogin, OtherUpdate, PendingJoinRequestsUpdated, PinnedMessagesUpdated, PollAnswer, PollUpdated,
+    PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ReactionsUpdated, ReadHistoryUpdated, ServiceNotification,
+    SharedWidgetQuery, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, TranscriptionUpdated,
     UserStatusUpdated, WidgetDataUpdated, WidgetQuery,
 };
 
@@ -110,24 +113,35 @@ impl<T: Routed + Subject + Inspect> Handlers<T> {
         (!matched.is_empty() || resume.is_some()).then_some((matched, resume))
     }
 
-    fn finish(&self, kind: UpdateKind, tasks: &mut Tasks, me: &Me, (mut matched, resume): Scan, item: T) {
+    /// `true` if a handler's filter matched, so a handler runs.
+    fn finish(&self, kind: UpdateKind, tasks: &mut Tasks, me: &Me, (mut matched, resume): Scan, item: T) -> bool {
         if let Some(start) = resume {
             let facts = item.facts(me);
             let events = &tasks.events;
             let test = |f: &Filter<T>| guard(events, kind, item.chat_id(), || f.eval(&facts, &item)).unwrap_or(false);
             self.walk(start, &mut matched, |f| Some(test(f)));
         }
-        if !matched.is_empty() {
-            tasks.run(kind, item, matched.iter().map(|&i| self.0[i].callback.clone()).collect());
+        if matched.is_empty() {
+            return false;
         }
+        tasks.run(kind, item, matched.iter().map(|&i| self.0[i].callback.clone()).collect());
+        true
     }
 }
 
 impl Handlers<Message> {
-    fn run(&self, kind: UpdateKind, tasks: &mut Tasks, client: &Client, raw: base::Message, entities: &Entities) {
-        self.run_business(kind, tasks, client, raw, entities, None);
+    fn run(
+        &self,
+        kind: UpdateKind,
+        tasks: &mut Tasks,
+        client: &Client,
+        raw: base::Message,
+        entities: &Entities,
+    ) -> bool {
+        self.run_business(kind, tasks, client, raw, entities, None)
     }
 
+    /// `true` if a listener or a handler took the message.
     fn run_business(
         &self,
         kind: UpdateKind,
@@ -136,12 +150,12 @@ impl Handlers<Message> {
         mut raw: base::Message,
         entities: &Entities,
         business: Option<(String, Option<base::Message>)>,
-    ) {
+    ) -> bool {
         // Only new messages reach listeners: never edits, and never business messages.
         let listening =
             kind == UpdateKind::Message && business.is_none() && client.0.handlers.listeners.messages.waiting();
         if self.0.is_empty() && !listening {
-            return;
+            return false;
         }
         let me = client.0.me.lock().unwrap().clone();
         if let base::Message::Message(m) = &mut raw {
@@ -150,21 +164,19 @@ impl Handlers<Message> {
         let facts = Facts::message(&raw, PeerKinds::message(&raw, entities), &me).via_business(business.is_some());
         let scan = self.scan(&facts);
         if scan.is_none() && !listening {
-            return;
+            return false;
         }
-        let Some(mut message) = Message::from_raw(client, raw, entities) else { return };
+        let Some(mut message) = Message::from_raw(client, raw, entities) else { return false };
         if let Some((connection_id, reply_to)) = business {
             message.set_business(client, connection_id, reply_to, entities);
         }
         if listening {
             match listened(kind, tasks, client.0.handlers.listeners.messages.offer(message, &me)) {
                 Some(m) => message = m,
-                None => return,
+                None => return true,
             }
         }
-        if let Some(scan) = scan {
-            self.finish(kind, tasks, &me, scan, message);
-        }
+        scan.is_some_and(|scan| self.finish(kind, tasks, &me, scan, message))
     }
 
     /// A new message a listener gave back: the other listeners, then the handlers, get it. One a full hold pushed
@@ -249,9 +261,10 @@ impl Hooks {
     }
 }
 
-/// Each kind line gives its `UpdateKind`, `Router` list and `configure` arm; its routes get the standard arm.
+/// Each kind line gives its `UpdateKind`, `Router` list, `configure` arm and `Update` variant; its routes get the
+/// standard arm.
 /// A parse may return `T` or `Option<T>` (`.into()` turns both into `Option<T>`); `None` skips the update.
-/// Kinds without routes are dispatched by hand in `dispatch`.
+/// Kinds without routes are dispatched by hand in `dispatch`, and parsed by hand in `Update::by_hand`.
 macro_rules! update_kinds {
     (
         |$client:ident, $entities:ident, $me:ident|
@@ -263,10 +276,13 @@ macro_rules! update_kinds {
         /// [`HandlerError::kind`]: crate::handlers::HandlerError::kind
         #[non_exhaustive]
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize))]
         pub enum UpdateKind {
             $($(#[$doc])* $kind,)*
             /// Every update unparsed, before filtering: [`on_raw_update`](crate::Client::on_raw_update).
             Raw,
+            /// Updates no other handler took: [`on_unhandled_update`](crate::Client::on_unhandled_update).
+            Unhandled,
             /// The hook `run` awaits before the first update: [`on_start`](crate::Client::on_start).
             Start,
             /// The hook that runs as `run` returns: [`on_stop`](crate::Client::on_stop).
@@ -277,9 +293,103 @@ macro_rules! update_kinds {
             Disconnect,
         }
 
+        /// An update no other handler took, as [`on_unhandled_update`](crate::Client::on_unhandled_update) gets it:
+        /// one variant per typed event, named after its [`UpdateKind`], and [`Other`](Update::Other) for the updates
+        /// vaegram has no typed event for yet.
+        ///
+        /// As typed events are added, the updates they cover leave `Other` for a new variant, in any release. Match
+        /// the variants you need and keep a `_` arm; don't rely on an update staying in `Other`.
+        #[non_exhaustive]
+        #[derive(Clone, Debug)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize))]
+        pub enum Update {
+            $($(#[$doc])* $kind(Box<$ty>),)*
+            /// An update with no typed event yet.
+            Other(OtherUpdate),
+        }
+
+        impl Update {
+            /// The [`Client`] that received this update.
+            pub fn client(&self) -> &Client {
+                match self {
+                    $(Update::$kind(item) => Inspect::client(&**item),)*
+                    Update::Other(other) => other.client(),
+                }
+            }
+
+            /// The route the update's typed event has. `None` for [`Other`](Update::Other).
+            pub fn kind(&self) -> Option<UpdateKind> {
+                match self {
+                    $(Update::$kind(_) => Some(UpdateKind::$kind),)*
+                    Update::Other(_) => None,
+                }
+            }
+
+            /// What filters see: the typed event's facts, and no chat or sender for `Other`.
+            pub(crate) fn subject_facts<'a>(&'a self, me: &'a Me) -> Facts<'a> {
+                match self {
+                    $(Update::$kind(item) => Inspect::facts(&**item, me),)*
+                    Update::Other(_) => Facts::query(0, 0, &[], PeerKinds::of(None, false), me),
+                }
+            }
+
+            /// The update as its typed event, or as `Other` when it has none or doesn't parse.
+            fn parse($client: &Client, update: base::Update, shared: &Arc<Entities>) -> Update {
+                let $entities: &Entities = shared;
+                let typed: Option<Update> = match update.clone() {
+                    $($(base::Update::$variant($u) => {
+                        let item: Option<$ty> = $parse.into();
+                        item.map(|item| Update::$kind(Box::new(item)))
+                    })*)*
+                    update => Update::by_hand($client, update, $entities),
+                };
+                typed.unwrap_or_else(|| {
+                    Update::Other(OtherUpdate::new($client, RawUpdate { update, entities: shared.clone() }))
+                })
+            }
+        }
+
+        impl Routed for Update {
+            fn chat_id(&self) -> Option<i64> {
+                match self {
+                    $(Update::$kind(item) => Routed::chat_id(&**item),)*
+                    Update::Other(_) => None,
+                }
+            }
+
+            fn message_id(&self) -> Option<i32> {
+                match self {
+                    $(Update::$kind(item) => Routed::message_id(&**item),)*
+                    Update::Other(_) => None,
+                }
+            }
+
+            fn user_id(&self) -> Option<i64> {
+                match self {
+                    $(Update::$kind(item) => Routed::user_id(&**item),)*
+                    Update::Other(_) => None,
+                }
+            }
+
+            fn query_id(&self) -> Option<i64> {
+                match self {
+                    $(Update::$kind(item) => Routed::query_id(&**item),)*
+                    Update::Other(_) => None,
+                }
+            }
+
+            fn order_key(&self) -> Option<i64> {
+                match self {
+                    $(Update::$kind(item) => Routed::order_key(&**item),)*
+                    Update::Other(_) => None,
+                }
+            }
+        }
+
         #[derive(Default, Clone)]
         pub(crate) struct Router {
             $(pub(crate) $field: Handlers<$ty>,)*
+            pub(crate) unhandled: Handlers<Update>,
             pub(crate) raw: Vec<(u32, RawCallback)>,
             pub(crate) on_error: Option<ErrorCallback>,
             pub(crate) hooks: Hooks,
@@ -290,6 +400,7 @@ macro_rules! update_kinds {
             pub(crate) fn configure(&mut self, kind: UpdateKind, id: u32, group: Option<i32>, stop: bool) {
                 match kind {
                     $(UpdateKind::$kind => self.$field.configure(id, group, stop),)*
+                    UpdateKind::Unhandled => self.unhandled.configure(id, group, stop),
                     UpdateKind::Raw
                     | UpdateKind::Start
                     | UpdateKind::Stop
@@ -301,6 +412,7 @@ macro_rules! update_kinds {
             pub(crate) fn remove(&mut self, kind: UpdateKind, id: u32) -> bool {
                 match kind {
                     $(UpdateKind::$kind => self.$field.remove(id),)*
+                    UpdateKind::Unhandled => self.unhandled.remove(id),
                     UpdateKind::Raw => {
                         let before = self.raw.len();
                         self.raw.retain(|(i, _)| *i != id);
@@ -312,33 +424,36 @@ macro_rules! update_kinds {
                 }
             }
 
-            /// Every route by kind, each in the order it runs; then the raw handlers and the hooks.
+            /// Every route by kind, each in the order it runs; then the unhandled-update handlers, the raw handlers
+            /// and the hooks.
             pub(crate) fn list(&self) -> Vec<HandlerInfo> {
                 let mut list = Vec::new();
                 $(self.$field.describe(UpdateKind::$kind, &mut list);)*
+                self.unhandled.describe(UpdateKind::Unhandled, &mut list);
                 list.extend(self.raw.iter().map(|(id, _)| HandlerInfo::new(UpdateKind::Raw, *id, None, false)));
                 self.hooks.describe(&mut list);
                 list
             }
 
+            /// `Break` with whether a handler took the update, once one of these routes had handlers for it.
             fn route(
                 &self,
                 $client: &Client,
                 update: base::Update,
                 $entities: &Entities,
                 tasks: &mut Tasks,
-            ) -> Option<base::Update> {
+            ) -> ControlFlow<bool, base::Update> {
                 let $me = || $client.0.me.lock().unwrap().clone();
                 match update {
                     $($(base::Update::$variant($u) if !self.$field.0.is_empty() => {
                         let item: Option<$ty> = $parse.into();
-                        if let Some(item) = item {
-                            self.$field.finish(UpdateKind::$kind, tasks, &$me(), PARSED, item);
-                        }
+                        ControlFlow::Break(match item {
+                            Some(item) => self.$field.finish(UpdateKind::$kind, tasks, &$me(), PARSED, item),
+                            None => false,
+                        })
                     })*)*
-                    update => return Some(update),
+                    update => ControlFlow::Continue(update),
                 }
-                None
             }
         }
     };
@@ -518,6 +633,80 @@ update_kinds! {
             Story::parse(client, &u.peer, u.story, entities)
         }
     }
+    /// Speech-to-text results for voice and video notes, step by step:
+    /// [`on_transcription`](crate::Client::on_transcription).
+    transcription: Transcription => TranscriptionUpdated {
+        UpdateTranscribedAudio(u) => TranscriptionUpdated::parse(client, &u, entities),
+    }
+    /// Logins to this account from a new device, and their confirmations:
+    /// [`on_new_login`](crate::Client::on_new_login).
+    new_login: NewLogin => NewLogin {
+        UpdateNewAuthorization(u) => NewLogin::parse(client, &u),
+    }
+    /// Notices from Telegram itself: [`on_service_notification`](crate::Client::on_service_notification).
+    service_notification: ServiceNotification => ServiceNotification {
+        UpdateServiceNotification(u) => ServiceNotification::parse(client, &u, entities),
+    }
+    /// Drafts saved or cleared on any of the account's devices: [`on_draft`](crate::Client::on_draft).
+    draft: Draft => DraftUpdated {
+        UpdateDraftMessage(u) => DraftUpdated::parse(client, &u, entities),
+    }
+}
+
+impl Update {
+    /// The typed events `dispatch` routes by hand. `None` for the other updates, and for those that don't parse.
+    fn by_hand(client: &Client, update: base::Update, entities: &Entities) -> Option<Update> {
+        use base::Update as U;
+        let message = |mut raw: base::Message| {
+            if let base::Message::Message(m) = &mut raw {
+                Message::fill_rich_text(m);
+            }
+            Message::from_raw(client, raw, entities)
+        };
+        let business = |raw: base::Message, connection_id: String, reply_to: Option<base::Message>| {
+            let mut message = message(raw)?;
+            message.set_business(client, connection_id, reply_to, entities);
+            Some(Box::new(message))
+        };
+        let member = |user_id: i64, item: ChatMemberUpdated| {
+            if user_id == client.0.me.lock().unwrap().id {
+                Update::MyChatMember(Box::new(item))
+            } else {
+                Update::ChatMemberUpdated(Box::new(item))
+            }
+        };
+        Some(match update {
+            U::UpdateNewMessage(u) => Update::Message(Box::new(message(u.message)?)),
+            U::UpdateNewChannelMessage(u) => Update::Message(Box::new(message(u.message)?)),
+            U::UpdateEditMessage(u) => Update::EditedMessage(Box::new(message(u.message)?)),
+            U::UpdateEditChannelMessage(u) => Update::EditedMessage(Box::new(message(u.message)?)),
+            U::UpdateBotCallbackQuery(u) => Update::CallbackQuery(Box::new(CallbackQuery::parse(client, &u, entities))),
+            U::UpdateBotNewBusinessMessage(u) => {
+                let u = *u;
+                Update::BusinessMessage(business(u.message, u.connection_id, u.reply_to_message)?)
+            }
+            U::UpdateBotEditBusinessMessage(u) => {
+                let u = *u;
+                Update::EditedBusinessMessage(business(u.message, u.connection_id, u.reply_to_message)?)
+            }
+            U::UpdateBotChatBoost(u) => match BoostUpdate::parse(client, *u, entities)? {
+                BoostUpdate::Updated(item) => Update::ChatBoost(Box::new(item)),
+                BoostUpdate::Removed(item) => Update::RemovedChatBoost(Box::new(item)),
+            },
+            U::UpdateChannelParticipant(u) => member(u.user_id, ChatMemberUpdated::parse_channel(client, *u, entities)),
+            U::UpdateChatParticipant(u) => member(u.user_id, ChatMemberUpdated::parse_chat(client, *u, entities)),
+            U::UpdateBotStopped(u) => {
+                let me = client.0.me.lock().unwrap().clone();
+                Update::MyChatMember(Box::new(ChatMemberUpdated::parse_bot_stopped(client, &me, &u, entities)))
+            }
+            // A stopped draft is the rarer reading of a typing update, so it wins when both parse.
+            U::UpdateUserTyping(u) => match MessageGenerationStopped::parse(client, &u, entities) {
+                Some(item) => Update::MessageGenerationStopped(Box::new(item)),
+                None => Update::ChatAction(Box::new(ChatActionUpdated::parse_user(client, &u, entities)?)),
+            },
+            _ => return None,
+        })
+    }
 }
 
 impl Router {
@@ -527,8 +716,8 @@ impl Router {
     }
 
     pub(crate) fn dispatch(&self, client: &Client, update: base::Update, entities: &Arc<Entities>, tasks: &mut Tasks) {
-        use base::Update as U;
         client.0.caches.observe(&update, entities);
+        client.0.handlers.transcriptions.feed(&update);
         // Called here, in arrival order, before each future is spawned: `on_raw_update` promises it.
         for (_, callback) in &self.raw {
             let raw = RawUpdate { update: update.clone(), entities: entities.clone() };
@@ -536,13 +725,30 @@ impl Router {
                 tasks.raw(future);
             }
         }
+        // Kept only while an `on_unhandled_update` handler is registered.
+        let unhandled = (!self.unhandled.0.is_empty()).then(|| update.clone());
+        let handled = self.deliver(client, update, entities, tasks);
+        let Some(update) = unhandled.filter(|_| !handled) else { return };
+        let me = client.0.me.lock().unwrap().clone();
+        let item = Update::parse(client, update, entities);
+        self.unhandled.finish(UpdateKind::Unhandled, tasks, &me, PARSED, item);
+    }
+
+    /// Hands an update to the listeners and the typed handlers; `true` if one of them took it.
+    fn deliver(&self, client: &Client, update: base::Update, entities: &Entities, tasks: &mut Tasks) -> bool {
+        use base::Update as U;
         let update = if client.0.handlers.listeners.callbacks.waiting() {
-            let Some(update) = self.listen_callback(client, update, entities, tasks) else { return };
-            update
+            match self.listen_callback(client, update, entities, tasks) {
+                ControlFlow::Break(handled) => return handled,
+                ControlFlow::Continue(update) => update,
+            }
         } else {
             update
         };
-        let Some(update) = self.route(client, update, entities, tasks) else { return };
+        let update = match self.route(client, update, entities, tasks) {
+            ControlFlow::Break(handled) => return handled,
+            ControlFlow::Continue(update) => update,
+        };
         let me = || client.0.me.lock().unwrap().clone();
         match update {
             U::UpdateNewMessage(u) => self.message.run(UpdateKind::Message, tasks, client, u.message, entities),
@@ -555,20 +761,19 @@ impl Router {
             }
             U::UpdateBotCallbackQuery(u) if !self.callback_query.0.is_empty() => {
                 let (me, kinds) = (me(), PeerKinds::callback(&u, entities));
-                if let Some(scan) = self.callback_query.scan(&Facts::callback(&u, kinds, &me)) {
-                    let query = CallbackQuery::parse(client, &u, entities);
-                    self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me, scan, query);
-                }
+                let Some(scan) = self.callback_query.scan(&Facts::callback(&u, kinds, &me)) else { return false };
+                let query = CallbackQuery::parse(client, &u, entities);
+                self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me, scan, query)
             }
             U::UpdateBotNewBusinessMessage(u) => {
                 let (kind, u) = (UpdateKind::BusinessMessage, *u);
                 let business = Some((u.connection_id, u.reply_to_message));
-                self.business_message.run_business(kind, tasks, client, u.message, entities, business);
+                self.business_message.run_business(kind, tasks, client, u.message, entities, business)
             }
             U::UpdateBotEditBusinessMessage(u) => {
                 let (kind, u) = (UpdateKind::EditedBusinessMessage, *u);
                 let business = Some((u.connection_id, u.reply_to_message));
-                self.edited_business_message.run_business(kind, tasks, client, u.message, entities, business);
+                self.edited_business_message.run_business(kind, tasks, client, u.message, entities, business)
             }
             U::UpdateBotChatBoost(u) if !self.chat_boost.0.is_empty() || !self.removed_chat_boost.0.is_empty() => {
                 match BoostUpdate::parse(client, *u, entities) {
@@ -578,7 +783,7 @@ impl Router {
                     Some(BoostUpdate::Removed(item)) => {
                         self.removed_chat_boost.finish(UpdateKind::RemovedChatBoost, tasks, &me(), PARSED, item)
                     }
-                    None => {}
+                    None => false,
                 }
             }
             U::UpdateChannelParticipant(u) => {
@@ -594,59 +799,65 @@ impl Router {
                 })
             }
             U::UpdateUserTyping(u) => {
+                let mut handled = false;
                 if !self.message_generation_stopped.0.is_empty() {
                     if let Some(item) = MessageGenerationStopped::parse(client, &u, entities) {
                         let kind = UpdateKind::MessageGenerationStopped;
-                        self.message_generation_stopped.finish(kind, tasks, &me(), PARSED, item);
+                        handled |= self.message_generation_stopped.finish(kind, tasks, &me(), PARSED, item);
                     }
                 }
                 if !self.chat_action.0.is_empty() {
                     if let Some(item) = ChatActionUpdated::parse_user(client, &u, entities) {
-                        self.chat_action.finish(UpdateKind::ChatAction, tasks, &me(), PARSED, item);
+                        handled |= self.chat_action.finish(UpdateKind::ChatAction, tasks, &me(), PARSED, item);
                     }
                 }
+                handled
             }
-            _ => {}
+            _ => false,
         }
     }
 
-    /// Offers any callback query to the listeners; `None` once it was handled here.
+    /// Offers any callback query to the listeners, then the handlers: `Break` with whether one took it, or
+    /// `Continue` with any other update.
     fn listen_callback(
         &self,
         client: &Client,
         update: base::Update,
         entities: &Entities,
         tasks: &mut Tasks,
-    ) -> Option<base::Update> {
+    ) -> ControlFlow<bool, base::Update> {
         use base::Update as U;
         let query = match update {
             U::UpdateBotCallbackQuery(u) => CallbackQuery::parse(client, &u, entities),
             U::UpdateInlineBotCallbackQuery(u) => CallbackQuery::parse_inline(client, *u, entities),
             U::UpdateBusinessBotCallbackQuery(u) => CallbackQuery::parse_business(client, *u, entities),
             U::UpdateEphemeralBotCallbackQuery(u) => CallbackQuery::parse_ephemeral(client, *u, entities),
-            update => return Some(update),
+            update => return ControlFlow::Continue(update),
         };
-        self.offer_callback(client, query, tasks);
-        None
+        ControlFlow::Break(self.offer_callback(client, query, tasks))
     }
 
-    /// The listeners, then the handlers, get a callback query.
-    fn offer_callback(&self, client: &Client, query: CallbackQuery, tasks: &mut Tasks) {
+    /// The listeners, then the handlers, get a callback query; `true` if one of them took it.
+    fn offer_callback(&self, client: &Client, query: CallbackQuery, tasks: &mut Tasks) -> bool {
         let me = client.0.me.lock().unwrap().clone();
         let kind = UpdateKind::CallbackQuery;
         match client.0.handlers.listeners.callbacks.offer(query, &me) {
-            Offer::Claimed => {}
-            Offer::Call(callback, query) => tasks.run(kind, query, vec![callback]),
+            Offer::Claimed => true,
+            Offer::Call(callback, query) => {
+                tasks.run(kind, query, vec![callback]);
+                true
+            }
             Offer::Unclaimed(query) if !self.callback_query.0.is_empty() => {
                 self.callback_query.finish(kind, tasks, &me, PARSED, query)
             }
-            Offer::Unclaimed(_) => {}
+            Offer::Unclaimed(_) => false,
             Offer::Stranger(query, alert) => {
                 let answer = callback(move |query: CallbackQuery| {
                     let alert = alert.clone();
                     async move { query.answer().text(&*alert).alert().await }
                 });
                 tasks.run(kind, query, vec![answer]);
+                true
             }
         }
     }
@@ -663,15 +874,20 @@ impl Router {
         }
     }
 
-    fn member_update(&self, tasks: &mut Tasks, me: &Me, user_id: i64, parse: impl FnOnce() -> ChatMemberUpdated) {
+    /// `true` if a handler took the member update.
+    fn member_update(
+        &self,
+        tasks: &mut Tasks,
+        me: &Me,
+        user_id: i64,
+        parse: impl FnOnce() -> ChatMemberUpdated,
+    ) -> bool {
         let (handlers, kind) = if user_id == me.id {
             (&self.my_chat_member, UpdateKind::MyChatMember)
         } else {
             (&self.chat_member_updated, UpdateKind::ChatMemberUpdated)
         };
-        if !handlers.0.is_empty() {
-            handlers.finish(kind, tasks, me, PARSED, parse());
-        }
+        !handlers.0.is_empty() && handlers.finish(kind, tasks, me, PARSED, parse())
     }
 }
 
@@ -680,6 +896,8 @@ pub(crate) struct Routes {
     router: RwLock<Arc<Router>>,
     generation: AtomicU64,
     pub(crate) listeners: Listeners,
+    /// The pending `transcribe_audio` calls, which `dispatch` hands transcription updates to.
+    pub(crate) transcriptions: Transcriptions,
 }
 
 impl Routes {
@@ -1780,5 +1998,123 @@ mod tests {
         dispatch(&router_of(&client), update);
         settle().await;
         assert_eq!(*seen.lock().unwrap(), [crate::types::StarAmount::new(5)]);
+    }
+
+    #[tokio::test]
+    async fn transcription_login_notice_and_draft_updates_reach_their_handlers() {
+        let (client, log) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
+        let (transcriptions, logins, notices, drafts) = (log.clone(), log.clone(), log.clone(), log.clone());
+        client.on_transcription(filters::chat(7), move |t| {
+            let line = format!("transcription {} {} {} {}", t.message_id, t.transcription_id, t.text, t.is_pending);
+            transcriptions.lock().unwrap().push(line);
+            async { Ok(()) }
+        });
+        client.on_new_login(filters::all(), move |l| {
+            logins.lock().unwrap().push(format!("login {} {:?} {}", l.session_id, l.device, l.is_unconfirmed));
+            async { Ok(()) }
+        });
+        client.on_service_notification(filters::all(), move |n| {
+            notices.lock().unwrap().push(format!("notice {} {} {}", n.kind, n.text, n.is_popup));
+            async { Ok(()) }
+        });
+        client.on_draft(filters::chat(7), move |d| {
+            drafts.lock().unwrap().push(format!("draft {} {}", d.chat.id, d.draft.is_none()));
+            async { Ok(()) }
+        });
+        let router = router_of(&client);
+        for peer in [8, 7] {
+            let update = types::UpdateTranscribedAudio {
+                pending: false,
+                peer: get_peer(peer),
+                msg_id: 3,
+                transcription_id: 77,
+                text: "hello".into(),
+            };
+            dispatch(&router, base::Update::UpdateTranscribedAudio(Box::new(update)));
+            let draft = base::DraftMessage::DraftMessageEmpty(types::DraftMessageEmpty { date: Some(5) });
+            let update =
+                types::UpdateDraftMessage { peer: get_peer(peer), top_msg_id: None, saved_peer_id: None, draft };
+            dispatch(&router, base::Update::UpdateDraftMessage(Box::new(update)));
+        }
+        let login = types::UpdateNewAuthorization {
+            unconfirmed: true,
+            hash: 9,
+            date: Some(1),
+            device: Some("phone".into()),
+            location: Some("Amsterdam, Netherlands".into()),
+        };
+        dispatch(&router, base::Update::UpdateNewAuthorization(Box::new(login)));
+        let notice = types::UpdateServiceNotification {
+            popup: true,
+            invert_media: false,
+            inbox_date: None,
+            r#type: "AUTH_KEY_DROP".into(),
+            message: "hi".into(),
+            media: base::MessageMedia::MessageMediaEmpty,
+            entities: Vec::new(),
+        };
+        dispatch(&router, base::Update::UpdateServiceNotification(Box::new(notice)));
+        settle().await;
+        let mut seen = log.lock().unwrap().clone();
+        seen.sort_unstable();
+        let login = "login 9 Some(\"phone\") true";
+        assert_eq!(seen, ["draft 7 true", login, "notice AUTH_KEY_DROP hi true", "transcription 3 77 hello false"]);
+    }
+
+    #[tokio::test]
+    async fn unhandled_updates_are_the_ones_no_handler_took() {
+        let (log, seen) = (Log::default(), Arc::new(Mutex::new(Vec::new())));
+        let mut router = Router::default();
+        router.message.push(1, filters::command("start") & filters::outgoing(), record(&log, "outgoing /start"));
+        router.inline_query.push(2, filters::user(9), record(&log, "inline"));
+        router.raw.push((3, record_raw(&log)));
+        let sink = seen.clone();
+        let unhandled = callback(move |update: Update| {
+            let other = match &update {
+                Update::Other(other) => Some(other.update().constructor_id()),
+                _ => None,
+            };
+            sink.lock().unwrap().push((update.kind(), other));
+            async { Ok(()) }
+        });
+        router.unhandled.push(4, filters::all(), unhandled);
+        // Taken by a handler, then three that no handler's filter matched or no handler exists for.
+        dispatch(&router, new_message(1, true));
+        dispatch(&router, new_message(2, false));
+        dispatch(&router, inline_query());
+        dispatch(&router, base::Update::UpdateConfig);
+        settle().await;
+        let mut log = log.lock().unwrap().clone();
+        log.sort_unstable();
+        assert_eq!(log, ["outgoing /start", "raw", "raw", "raw", "raw"]);
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 3, "{seen:?}");
+        assert!(seen.contains(&(Some(UpdateKind::Message), None)), "{seen:?}");
+        assert!(seen.contains(&(Some(UpdateKind::InlineQuery), None)), "{seen:?}");
+        assert!(seen.contains(&(None, Some(0xa229_dd06))), "{seen:?}");
+    }
+
+    #[tokio::test]
+    async fn dispatch_hands_transcriptions_to_waiting_calls() {
+        use crate::types::messages_and_media::transcription::Waiter;
+        let client = Client::offline();
+        let audio = crate::types::TranscribedAudio {
+            transcription_id: 77,
+            text: String::new(),
+            is_pending: true,
+            trial_remains_num: None,
+            trial_remains_until_date: None,
+        };
+        let mut transcription = crate::types::Transcription::new(audio, Waiter::new(&client, 9));
+        let update = types::UpdateTranscribedAudio {
+            pending: false,
+            peer: get_peer(7),
+            msg_id: 9,
+            transcription_id: 77,
+            text: "done".into(),
+        };
+        let update = base::Update::UpdateTranscribedAudio(Box::new(update));
+        router_of(&client).dispatch(&client, update, &Arc::default(), &mut Tasks::default());
+        assert_eq!(transcription.wait(std::time::Duration::from_secs(5)).await.unwrap(), "done");
     }
 }

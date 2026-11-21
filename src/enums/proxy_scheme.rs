@@ -1,6 +1,7 @@
 /// The kind of a `Proxy`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ProxyScheme {
     /// A SOCKS4 proxy (`socks4://`, `socks4a://`): no credentials, IPv4 data centers only.
     Socks4,

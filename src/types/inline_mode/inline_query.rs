@@ -9,6 +9,7 @@ use crate::types::{InlineQueryResult, Location, User};
 
 /// An inline query a user typed after the bot's username.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct InlineQuery {
     /// Id to pass to [`Client::answer_inline_query`] when answering.
     pub id: i64,
@@ -22,6 +23,7 @@ pub struct InlineQuery {
     pub chat_type: Option<ChatType>,
     /// Location of the user. `None` if Telegram doesn't send one.
     pub location: Option<Location>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

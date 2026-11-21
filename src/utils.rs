@@ -85,7 +85,27 @@ pub(crate) fn input_sticker_set(name: &str) -> base::InputStickerSet {
     base::InputStickerSet::InputStickerSetShortName(Box::new(name))
 }
 
+/// The TL input user that user requests take, from the input peer of a user that
+/// [`Client::resolve_peer`](crate::Client::resolve_peer) gave; `None` for a chat or channel.
+///
+/// ```no_run
+/// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
+/// let user = vaegram::utils::input_user(client.resolve_peer("durov").await?);
+/// # Ok(()) }
+/// ```
+///
+/// Experimental (`unstable-raw`): may change or go away in any release.
+#[cfg(feature = "unstable-raw")]
+pub fn input_user(peer: base::InputPeer) -> Option<base::InputUser> {
+    input_user_of(peer)
+}
+
+#[cfg(not(feature = "unstable-raw"))]
 pub(crate) fn input_user(peer: base::InputPeer) -> Option<base::InputUser> {
+    input_user_of(peer)
+}
+
+fn input_user_of(peer: base::InputPeer) -> Option<base::InputUser> {
     match peer {
         base::InputPeer::InputPeerUser(p) => {
             let user = types::InputUser { user_id: p.user_id, access_hash: p.access_hash };
@@ -377,6 +397,17 @@ mod tests {
         assert_eq!(checked_channel_id(0), None);
         assert_eq!(checked_channel_id(-5), None);
         assert_eq!(checked_channel_id(i64::MAX), None);
+    }
+
+    #[cfg(feature = "unstable-raw")]
+    #[test]
+    fn input_user_takes_user_peers_only() {
+        let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
+        let expected = base::InputUser::InputUser(Box::new(types::InputUser { user_id: 7, access_hash: 1 }));
+        assert_eq!(super::input_user(user), Some(expected));
+        assert_eq!(super::input_user(base::InputPeer::InputPeerSelf), Some(base::InputUser::InputUserSelf));
+        let chat = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
+        assert_eq!(super::input_user(chat), None);
     }
 
     const BOT_TOKEN: &str = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11";

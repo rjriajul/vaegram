@@ -5,6 +5,7 @@ use crate::types::Chat;
 /// One of the account's boost slots and the chat it currently boosts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MyBoost {
     /// Number of the boost slot.
     pub slot: i32,

@@ -3,6 +3,7 @@ use crate::raw::base;
 /// What the account can do as an administrator of a community.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CommunityAdministratorRights {
     /// Whether the admin can use the community's management tools.
     pub can_manage_community: bool,

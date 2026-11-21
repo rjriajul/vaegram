@@ -46,7 +46,7 @@ impl SendReaction<'_> {
         self
     }
 
-    /// Whether Telegram adds the reaction to the account's recently used ones. The default is `true`, as in Pyrogram.
+    /// Whether Telegram adds the reaction to the account's recently used ones. The default is `true`.
     pub fn add_to_recent(mut self, add_to_recent: bool) -> Self {
         self.add_to_recent = add_to_recent;
         self

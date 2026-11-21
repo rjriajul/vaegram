@@ -3,6 +3,7 @@ use crate::raw::base;
 /// A chart from the statistics pages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum StatisticalGraph {
     /// The chart is ready.
     #[non_exhaustive]
@@ -31,6 +32,7 @@ pub enum StatisticalGraph {
 /// A statistic with its value in the previous period.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StatisticalValue {
     /// The value in the current period.
     pub value: f64,

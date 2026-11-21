@@ -6,11 +6,13 @@ use crate::types::User;
 
 /// Update about a bot that this bot manages.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ManagedBotUpdated {
     /// The user who created the managed bot.
     pub user: User,
     /// The managed bot.
     pub bot: User,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

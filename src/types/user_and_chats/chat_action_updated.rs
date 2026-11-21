@@ -7,6 +7,7 @@ use crate::types::{Chat, User};
 /// Someone in a chat shows an activity, such as typing or recording a voice message, or stopped showing one.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatActionUpdated {
     /// The chat the activity is shown in.
     pub chat: Chat,
@@ -20,6 +21,7 @@ pub struct ChatActionUpdated {
     pub progress: Option<i32>,
     /// Id of the forum topic or thread the activity is in. `None` outside of one.
     pub message_thread_id: Option<i32>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

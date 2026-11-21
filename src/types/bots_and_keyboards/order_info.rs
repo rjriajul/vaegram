@@ -4,6 +4,7 @@ use crate::types::ShippingAddress;
 /// Contact and delivery details the buyer filled in during checkout.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct OrderInfo {
     /// The buyer's name. `None` if not provided.
     pub name: Option<String>,

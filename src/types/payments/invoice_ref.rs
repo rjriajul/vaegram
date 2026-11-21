@@ -6,6 +6,7 @@ use crate::types::PeerRef;
 /// An invoice sent in a message, or one behind a slug, a `t.me/$<slug>` or a `t.me/invoice/<slug>` link.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum InvoiceRef {
     /// An invoice in a message.
     Message {

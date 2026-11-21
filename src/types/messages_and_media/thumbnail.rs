@@ -6,6 +6,7 @@ use crate::utils::expand_inline_bytes;
 /// A smaller copy of a photo or of a file's preview. Download it by passing its `file_id` to `download_media`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Thumbnail {
     /// Identifier to pass to `download_media`.
     pub file_id: String,
@@ -22,6 +23,7 @@ pub struct Thumbnail {
 /// A few hundred bytes of JPEG data without its header, sent along with media that isn't downloaded yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StrippedThumbnail {
     /// The stripped JPEG bytes. Use [`StrippedThumbnail::to_jpeg`] for a viewable image.
     pub data: Vec<u8>,

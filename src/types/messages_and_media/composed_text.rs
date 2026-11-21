@@ -4,6 +4,7 @@ use crate::types::FormattedText;
 /// Text produced by Telegram's AI compose feature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ComposedText {
     /// The text Telegram composed.
     pub text: FormattedText,

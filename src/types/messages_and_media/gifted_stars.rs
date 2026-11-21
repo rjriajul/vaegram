@@ -3,6 +3,7 @@ use crate::raw::types;
 /// Telegram Stars gifted by the message's sender.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GiftedStars {
     /// Currency the gift was paid in.
     pub currency: String,

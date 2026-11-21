@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 /// A reaction that can be put on a message.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ReactionType {
     /// A standard emoji.
     Emoji(String),

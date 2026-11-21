@@ -6,6 +6,7 @@ use crate::raw::base;
 /// Telegram sends an empty state while it's still creating the wallet or when there is none. In an empty
 /// state the address, key and balance are `None` and every flag except `is_being_created` is `false`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TonWalletState {
     /// The wallet address. `None` in an empty state.
     pub wallet_address: Option<String>,
@@ -21,6 +22,7 @@ pub struct TonWalletState {
     pub can_enable_backup: bool,
     /// The wallet's recovery phrase can be exported.
     pub can_export_phrase: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

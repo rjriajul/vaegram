@@ -5,6 +5,7 @@ use crate::types::Chat;
 
 /// Messages deleted in a chat handled through a business connection.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct DeletedBusinessMessages {
     /// Id of the business connection the messages belong to.
     pub business_connection_id: String,
@@ -12,6 +13,7 @@ pub struct DeletedBusinessMessages {
     pub chat: Chat,
     /// Ids of the deleted messages.
     pub message_ids: Vec<i32>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

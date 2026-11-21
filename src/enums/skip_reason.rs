@@ -1,6 +1,7 @@
 /// Why [`ClientEvent::UpdatesSkipped`](super::ClientEvent::UpdatesSkipped) happened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SkipReason {
     /// Too many to fetch: Telegram jumped to its current state, for a channel along with its latest messages.
     TooLong,

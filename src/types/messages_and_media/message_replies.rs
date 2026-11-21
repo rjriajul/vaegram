@@ -6,7 +6,8 @@ use crate::methods::{
     SendVoice, SendWidget,
 };
 use crate::types::{
-    FileSource, InputChecklist, InputInvoice, InputMedia, InputPollOption, InputRichMessage, Message, Text,
+    FileSource, InputChecklist, InputInvoice, InputMedia, InputPollOption, InputRichMessage, Message, StickerSource,
+    Text,
 };
 
 impl Message {
@@ -201,12 +202,12 @@ impl Message {
     }
 
     /// Sends a sticker as a reply to this message.
-    pub fn reply_sticker<'a>(&'a self, sticker: impl Into<FileSource<'a>>) -> SendSticker<'a> {
+    pub fn reply_sticker<'a>(&'a self, sticker: impl Into<StickerSource<'a>>) -> SendSticker<'a> {
         self.answer_sticker(sticker).reply_to(self.id)
     }
 
     /// Sends a sticker to this chat, in the same topic and through the same business connection.
-    pub fn answer_sticker<'a>(&'a self, sticker: impl Into<FileSource<'a>>) -> SendSticker<'a> {
+    pub fn answer_sticker<'a>(&'a self, sticker: impl Into<StickerSource<'a>>) -> SendSticker<'a> {
         self.route(self.client().send_sticker(self.chat.id, sticker))
     }
 

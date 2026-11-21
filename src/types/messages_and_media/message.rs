@@ -26,6 +26,7 @@ use crate::utils::{get_peer, get_peer_id, input_peer_id};
 /// [`reply`](Message::reply) and [`edit_text`](Message::edit_text), act on this message in its own chat.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Message {
     /// Id of the message, unique within `chat`.
     pub id: i32,
@@ -145,14 +146,20 @@ pub struct Message {
     pub fact_check: Option<FactCheck>,
     /// The raw message, minus `rich_message`, which moves to [`Message::rich_message`] and leaves its text in
     /// `message`.
+    // Serialized as `text`: the text of a text message, or the caption of a media message, as Telegram's `message`
+    // field carries it. The rest of the raw message stays out.
+    #[cfg_attr(feature = "serde", serde(rename = "text", serialize_with = "serialize_text"))]
     pub(crate) raw: Box<types::Message>,
     // `raw.entities` parsed once, since a text mention needs the user the update carried. They format
     // `raw.message`, which is the text or the caption depending on the media.
+    #[cfg_attr(feature = "serde", serde(rename = "entities"))]
     parsed_entities: Option<Vec<MessageEntity>>,
     // The replied message a business update carries, since the bot can't read the account's history.
     replied: Option<Box<Message>>,
     // What the client's fetch options looked up before handlers saw the message.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) prefetched: Option<Box<Prefetched>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 
@@ -162,6 +169,11 @@ pub struct Message {
 // that lays the type out differently can't break a user's build.
 #[cfg(all(test, target_pointer_width = "64"))]
 const _: () = assert!(std::mem::size_of::<Message>() <= 1672);
+
+#[cfg(feature = "serde")]
+fn serialize_text<S: serde::Serializer>(raw: &types::Message, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+    serializer.serialize_str(&raw.message)
+}
 
 /// Each slot is `None` when nothing was fetched (the option is off, or the fetch failed), and `Some(None)` when
 /// Telegram answered that there's nothing there.
@@ -411,9 +423,41 @@ impl Message {
         types::Message { message, entities, ..Message::bare(0, get_peer(chat_id), 0) }
     }
 
+    /// Turns the `Updates` a raw send or edit was answered with into the friendly [`Message`] it sent: the first new,
+    /// edited or scheduled message they carry. Like a friendly send, it feeds the message cache.
+    ///
+    /// `sent` is the message as the request described it. Telegram answers some sends with a short "sent" update
+    /// that carries only the id, date, media and entities; the chat, text, keyboard, reply header and flags then
+    /// come from `sent`. Build it with `raw::types::Message::new(0, peer, 0, text)` and set the fields the request
+    /// had. Fails with `Error::Unexpected` when the updates hold no message.
+    ///
+    /// ```no_run
+    /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
+    /// use vaegram::raw::{functions, types};
+    /// use vaegram::types::Message;
+    /// use vaegram::utils::get_peer;
+    ///
+    /// let request = functions::messages::SendMessage::new(client.resolve_peer(7).await?, "hi".into(), 42);
+    /// let updates = client.invoke(&request).await?;
+    /// let sent = types::Message::new(0, get_peer(7), 0, "hi".into());
+    /// let message = Message::from_updates(client, updates, sent)?;
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// Experimental (`unstable-raw`): may change or go away in any release.
+    #[cfg(feature = "unstable-raw")]
+    pub fn from_updates(client: &Client, updates: base::Updates, sent: types::Message) -> Result<Message> {
+        Message::from_sent(client, updates, sent)
+    }
+
+    #[cfg(not(feature = "unstable-raw"))]
+    pub(crate) fn from_updates(client: &Client, updates: base::Updates, sent: types::Message) -> Result<Message> {
+        Message::from_sent(client, updates, sent)
+    }
+
     /// `sent` is the message as the request described it ([`Message::request`]). A short "sent" reply carries only
     /// the id, date, media and entities, so the keyboard, reply header and flags come from `sent`.
-    pub(crate) fn from_updates(client: &Client, updates: base::Updates, sent: types::Message) -> Result<Message> {
+    fn from_sent(client: &Client, updates: base::Updates, sent: types::Message) -> Result<Message> {
         if let base::Updates::UpdateShortSentMessage(u) = updates {
             let me = client.0.me.lock().unwrap().clone();
             let raw = types::Message {
@@ -1876,5 +1920,41 @@ pub(crate) mod tests {
         Message::unpack(&client, base::messages::Messages::Messages(Box::new(page)));
         let seen = types::InputPeerUserFromMessage { peer: group, msg_id: 42, user_id: 7 };
         assert_eq!(client.resolve_peer(7).await.unwrap(), base::InputPeer::InputPeerUserFromMessage(Box::new(seen)));
+    }
+
+    #[cfg(feature = "unstable-raw")]
+    #[tokio::test]
+    async fn from_updates_turns_a_raw_send_into_a_message() {
+        let (client, _rx) = Client::recording();
+        let short = types::UpdateShortSentMessage {
+            out: true,
+            id: 5,
+            pts: 1,
+            pts_count: 1,
+            date: 2,
+            media: None,
+            entities: None,
+            ttl_period: None,
+        };
+        let short = base::Updates::UpdateShortSentMessage(Box::new(short));
+        let message = Message::from_updates(&client, short, types::Message::new(0, get_peer(7), 0, "hi".into()));
+        assert_eq!(message.map(|m| (m.id, m.chat.id, m.text().to_owned())).unwrap(), (5, 7, "hi".to_owned()));
+        let empty = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
+        let empty = base::Updates::Updates(Box::new(empty));
+        let result = Message::from_updates(&client, empty, Message::bare(0, get_peer(7), 0));
+        assert!(matches!(result, Err(Error::Unexpected(_))), "{result:?}");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serializes_to_json_without_the_client_or_the_raw_message() {
+        let mut raw = Message::bare(42, get_peer(-5), 1_700_000_000);
+        raw.message = "hello".into();
+        let json = serde_json::to_value(parse(&raw)).unwrap();
+        assert_eq!(json["id"], 42);
+        assert_eq!(json["chat"]["id"], -5);
+        assert_eq!(json["text"], "hello");
+        assert_eq!(json["date"], 1_700_000_000);
+        assert!(json.get("client").is_none() && json.get("raw").is_none() && json.get("prefetched").is_none());
     }
 }

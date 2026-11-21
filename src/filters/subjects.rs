@@ -4,11 +4,12 @@ use crate::client::Me;
 use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatActionUpdated, ChatBoostRemoved,
     ChatBoostSource, ChatBoostUpdated, ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages,
-    DeletedEphemeralMessages, DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
-    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, PendingJoinRequestsUpdated,
-    PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, ReactionsUpdated,
-    ReadHistoryUpdated, SharedWidgetQuery, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, User,
-    UserStatusUpdated, WidgetDataUpdated, WidgetQuery,
+    DeletedEphemeralMessages, DeletedMessages, DraftUpdated, EphemeralMessage, GuestMessage, InlineQuery,
+    ManagedBotUpdated, Message, MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated,
+    NewLogin, PendingJoinRequestsUpdated, PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery,
+    PurchasedPaidMedia, ReactionsUpdated, ReadHistoryUpdated, ServiceNotification, SharedWidgetQuery, ShippingQuery,
+    StarsBalanceUpdated, Story, TonWalletState, TranscriptionUpdated, Update, User, UserStatusUpdated,
+    WidgetDataUpdated, WidgetQuery,
 };
 
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
@@ -197,3 +198,14 @@ subject!(TonWalletState: ; |_s, me| Facts::query(0, 0, &[], PeerKinds::of(None, 
 subject!(StarsBalanceUpdated: ; |_s, me| Facts::query(0, 0, &[], PeerKinds::of(None, false), me));
 
 subject!(Story: HasChat; |s, me| chat_query(Some(&s.chat), me));
+
+subject!(TranscriptionUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
+
+subject!(NewLogin: ; |_s, me| Facts::query(0, 0, &[], PeerKinds::of(None, false), me));
+
+subject!(ServiceNotification: ; |_s, me| Facts::query(0, 0, &[], PeerKinds::of(None, false), me));
+
+subject!(DraftUpdated: HasChat; |s, me| chat_query(Some(&s.chat), me));
+
+// The typed event's own facts, so filters see it as its own `on_*` would.
+subject!(Update: ; |s, me| s.subject_facts(me));

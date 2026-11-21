@@ -1,3 +1,4 @@
+use std::pin::Pin;
 use std::sync::PoisonError;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -32,12 +33,28 @@ impl Client {
     /// a handler that replies then replies once per client. With [`catch_up`](crate::ClientBuilder::catch_up) on,
     /// the default, `run` first replays what came since the saved update state, so a client started from an old
     /// session, or from a copy of another client's, handles those updates again too.
+    ///
+    /// The update state, how far the handlers got, is saved when `run` returns or its future is dropped and, while it
+    /// runs, at most 10 seconds after it moved; the storage then writes it at its next flush, within 5 seconds.
+    /// None of this happens once the client logged out or into another account. With catch-up on, a process killed
+    /// before `run` returns (a crash, `kill -9`, a power cut) starts the next `run` from the last state written, so
+    /// the updates handed to the handlers in about the last 15 seconds before the kill come again: a handler that
+    /// must not act twice should check. A run killed before its first write comes back from the state saved before
+    /// it, so a process that keeps dying that soon gets the same updates every time; with nothing saved before, the
+    /// next `run` starts from Telegram's current state instead, and what the killed run was handed, or had still to
+    /// get, may not come again. The other way, a state written while a handler was still running, or waiting for a
+    /// free slot, already counts its update, so a kill before that handler finishes loses it, as does a handler that
+    /// [`stop_with_timeout`](Self::stop_with_timeout) cancels.
     pub async fn run(&self) -> Result<()> {
-        let running = self.claim_run()?;
-        match self.prepare().await? {
-            Some(dispatcher) => self.drive(running, dispatcher).await,
-            None => Ok(()),
-        }
+        // Boxed: callers' `Send` proofs stop here, not deep in `drive` (nightly `recursion_depth_exceeding_limit`).
+        let run: Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> = Box::pin(async move {
+            let running = self.claim_run()?;
+            match self.prepare().await? {
+                Some(dispatcher) => self.drive(running, dispatcher).await,
+                None => Ok(()),
+            }
+        });
+        run.await
     }
 
     /// The client's updates for one `run`, until the returned guard is dropped.
@@ -114,8 +131,10 @@ impl Client {
         if stopped { Ok(()) } else { Err(Error::Disconnected) }
     }
 
-    /// Makes `run` stop taking updates, wait for the handlers already running, and return `Ok(())`. To bound that
-    /// wait, use [`stop_with_timeout`](Self::stop_with_timeout).
+    /// Makes `run` stop taking updates, wait for the handlers already running, save the update state and return
+    /// `Ok(())`. With catch-up on, the next `run` then starts right after the last update handed to the handlers,
+    /// unless the client logged out or into another account meanwhile, which leaves the state unsaved. To bound
+    /// that wait, use [`stop_with_timeout`](Self::stop_with_timeout).
     ///
     /// For Ctrl-C, use [`run_until_ctrl_c`](Self::run_until_ctrl_c) in place of `run`; for Ctrl-C or SIGTERM, as a
     /// service needs, [`run_until_signal`](Self::run_until_signal).
@@ -129,7 +148,8 @@ impl Client {
     /// and `run` returns `Ok(())`. `on_error` gets 5 seconds for those reports in all; the ones it hasn't finished by
     /// then go out as `HandlerFailed` instead. A handler whose own error `on_error` is still reporting when the time
     /// runs out is cancelled too, and that error goes out as `HandlerFailed`, not as a timeout. Called after `stop`,
-    /// it bounds the wait already begun; called again, the earliest deadline counts.
+    /// it bounds the wait already begun; called again, the earliest deadline counts. The updates of the handlers it
+    /// cancels already count in the update state `run` saves, so they don't come again.
     pub fn stop_with_timeout(&self, timeout: Duration) {
         // A timeout too long to fall on a deadline bounds nothing.
         if let Some(deadline) = Instant::now().checked_add(timeout) {

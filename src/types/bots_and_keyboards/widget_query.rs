@@ -8,6 +8,7 @@ use crate::types::{Chat, InlineMessageId, TonWalletCard, User};
 
 /// A query sent by a widget in a chat or an inline message.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct WidgetQuery {
     /// The query id, used to answer it.
     pub id: i64,
@@ -25,12 +26,14 @@ pub struct WidgetQuery {
     pub data: String,
     /// Id of the shared widget, if any.
     pub widget_id: Option<i64>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 
 /// Where a widget query originated.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum WidgetQueryOrigin {
     /// A regular message in a chat.
     #[non_exhaustive]
@@ -47,6 +50,7 @@ pub enum WidgetQueryOrigin {
 /// The action requested by a widget query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum WidgetQueryType {
     /// An ordinary data query.
     #[non_exhaustive]
@@ -75,6 +79,7 @@ pub enum WidgetQueryType {
 /// A TON wallet shared with a widget query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct WidgetQueryWallet {
     /// The wallet address.
     pub address: String,

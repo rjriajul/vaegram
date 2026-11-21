@@ -586,12 +586,14 @@ async fn user_keeps_peers_across_restarts() {
     let user = Client::builder(name, api_id, api_hash.clone()).connect().await.unwrap();
     let id = user.resolve_username("BotFather").await.unwrap();
     let resolved = user.resolve_peer(id).await.unwrap();
+    user.close().await;
     drop(user);
 
-    let stored = FileStorage::new(name).get_peer_by_id(id).await.unwrap().expect("BotFather was saved on drop");
+    let stored = FileStorage::new(name).get_peer_by_id(id).await.unwrap().expect("BotFather was saved on close");
     let user = Client::builder(name, api_id, api_hash).connect().await.unwrap();
     assert_eq!(user.resolve_peer(id).await.unwrap(), resolved);
     assert_eq!(stored.id, id);
+    user.close().await;
     drop(user);
     std::fs::remove_file(format!("{name}.session")).unwrap();
 }
@@ -868,6 +870,11 @@ async fn user_posts_and_edits_a_story() {
     let story = match sent {
         // The account is at its `story_expiring_limit_*` of active stories (a few without Premium).
         Err(e) if support::story_limit_reached(&e) => return,
+        // Telegram lets only Premium accounts post stories at times; the test account has none.
+        Err(e) if e.rpc().is_some_and(|e| e.is("PREMIUM_ACCOUNT_REQUIRED")) => {
+            eprintln!("skipped: Telegram wants Premium on the VAEGRAM_USER_SESSION account to post a story");
+            return;
+        }
         sent => sent.unwrap(),
     };
     assert_eq!((story.chat.id, story.caption.as_deref(), story.is_close_friends), (me.id, Some("vaegram"), true));
@@ -1098,7 +1105,7 @@ async fn user_manages_business_links_and_quick_replies() {
 async fn user_reads_app_config_and_languages() {
     let Some(user) = user_client().await else { return };
     assert!((1..=5).contains(&user.get_nearest_dc().await.unwrap().this_dc));
-    assert!(matches!(user.get_app_config().await.unwrap(), Json::Object(_)));
+    assert!(matches!(user.get_app_config().await.unwrap().json(), Json::Object(_)));
     assert!(user.get_countries_list("en").await.unwrap().iter().any(|c| c.iso2 == "US"));
     assert!(!user.get_timezones_list().await.unwrap().is_empty());
     user.get_terms_of_service_update().await.unwrap();

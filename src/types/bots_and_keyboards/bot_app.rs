@@ -4,6 +4,7 @@ use crate::raw::{base, types};
 /// A bot's mini app, as returned by [`Client::get_bot_app`](crate::Client::get_bot_app).
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BotApp {
     /// Telegram's id for the app.
     pub id: i64,

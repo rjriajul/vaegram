@@ -7,11 +7,13 @@ use crate::types::User;
 
 /// A user bought paid media the bot sent.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PurchasedPaidMedia {
     /// The buyer.
     pub from_user: User,
     /// The payload the bot set on the paid media.
     pub payload: String,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use tokio::time::Instant;
@@ -36,7 +37,9 @@ impl Client {
             return;
         }
         let deadline = Instant::now().checked_add(self.0.options.request_timeout);
-        without_retries(self.fill(messages, deadline)).await;
+        // Boxed: callers' `Send` proofs stop here, not deep in `fill` (nightly `recursion_depth_exceeding_limit`).
+        let fill: Pin<Box<dyn Future<Output = ()> + Send + '_>> = Box::pin(self.fill(messages, deadline));
+        without_retries(fill).await;
     }
 
     /// `prefetch` for a read whose answer has holes where messages are missing.

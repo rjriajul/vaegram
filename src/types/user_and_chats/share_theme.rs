@@ -6,6 +6,7 @@ use crate::types::{ReactionType, UniqueGift};
 /// Only [`Client::get_chat`](crate::Client::get_chat) fills it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ShareTheme {
     /// Id of a [`ShareThemeBackdrop`](crate::types::ShareThemeBackdrop). `None` for a theme made from a gift
     /// or an emoji theme without a backdrop.

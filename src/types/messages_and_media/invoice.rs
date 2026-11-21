@@ -3,6 +3,7 @@ use crate::raw::types;
 /// An invoice sent in a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Invoice {
     /// Name of the product.
     pub title: String,

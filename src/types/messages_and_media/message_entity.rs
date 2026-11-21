@@ -8,6 +8,7 @@ use crate::types::User;
 /// Offsets and lengths are in UTF-16 code units.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MessageEntity {
     /// What the entity is, such as bold text or a link.
     pub kind: MessageEntityType,

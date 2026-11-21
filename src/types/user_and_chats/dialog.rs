@@ -7,6 +7,7 @@ use crate::utils::get_peer_id;
 /// A chat in the account's chat list, with its last message and unread counters.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Dialog {
     /// The chat the entry stands for.
     pub chat: Chat,

@@ -4,6 +4,7 @@ use crate::raw::{base, types};
 /// [`TonWalletOwnershipProofChallenge`](super::TonWalletOwnershipProofChallenge).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TonWalletOwnershipProof {
     /// Public key of the wallet that made the signature.
     pub public_key: Vec<u8>,

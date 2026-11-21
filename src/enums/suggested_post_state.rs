@@ -1,6 +1,7 @@
 /// Review state of a post suggested to a channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SuggestedPostState {
     /// Not approved or declined yet.
     Pending,

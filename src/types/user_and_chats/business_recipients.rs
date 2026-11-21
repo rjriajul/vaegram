@@ -5,6 +5,7 @@ use crate::raw::{base, types};
 /// Which chats a business feature applies to.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BusinessRecipients {
     /// Includes chats that already exist.
     pub existing_chats: bool,

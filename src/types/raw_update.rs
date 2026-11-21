@@ -1,10 +1,13 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::Client;
 use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::types::{Chat, User};
 use crate::utils::get_peer;
+
+pub use crate::dispatcher::router::Update;
 
 /// An update as Telegram sent it, together with the users and chats that came in the same batch. Updates that
 /// arrive alone (`updateShort`) carry none.
@@ -95,6 +98,21 @@ impl RawUpdate {
     }
 }
 
+/// Serializes the constructor id and the ids of the users and chats that came with the update, as the `Debug` output
+/// shows them; the TL objects themselves are not serializable.
+#[cfg(feature = "serde")]
+impl serde::Serialize for RawUpdate {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct as _;
+
+        let mut state = serializer.serialize_struct("RawUpdate", 3)?;
+        state.serialize_field("constructor_id", &self.constructor_id())?;
+        state.serialize_field("user_ids", &self.user_ids().collect::<Vec<_>>())?;
+        state.serialize_field("chat_ids", &self.chat_ids().collect::<Vec<_>>())?;
+        state.end()
+    }
+}
+
 /// Experimental: these may change or go away in any release.
 #[cfg(feature = "unstable-raw")]
 impl RawUpdate {
@@ -121,6 +139,33 @@ impl fmt::Debug for RawUpdate {
             .field("user_ids", &self.user_ids().collect::<Vec<_>>())
             .field("chat_ids", &self.chat_ids().collect::<Vec<_>>())
             .finish()
+    }
+}
+
+/// An update vaegram has no typed event for yet, as [`Update::Other`] holds it. Read it through
+/// [`update`](Self::update); the TL object itself needs the `unstable-raw` feature.
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct OtherUpdate {
+    update: RawUpdate,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
+}
+
+impl OtherUpdate {
+    pub(crate) fn new(client: &Client, update: RawUpdate) -> OtherUpdate {
+        OtherUpdate { update, client: client.clone() }
+    }
+
+    /// Returns the update, with the users and chats that came with it.
+    pub fn update(&self) -> &RawUpdate {
+        &self.update
+    }
+
+    /// The [`Client`] that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }
 

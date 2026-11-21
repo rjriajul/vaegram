@@ -10,6 +10,7 @@ use crate::types::MessageEntity;
 ///
 /// A parse mode only applies to a `Text` made straight from a string. A built or parsed one is sent as is.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Text {
     pub(crate) text: String,
     pub(crate) len: i32,
@@ -193,7 +194,10 @@ impl Text {
             parts.push(self.cut(from, to));
             from = to;
         }
-        parts.push(self.cut(from, (self.text.len(), self.len)));
+        // A cut can't split a surrogate pair, so a `max` below one code point can end exactly at the end.
+        if from.1 < self.len || parts.is_empty() {
+            parts.push(self.cut(from, (self.text.len(), self.len)));
+        }
         parts
     }
 
@@ -489,6 +493,8 @@ mod tests {
         assert_eq!(texts(&Text::from("a\nbbbbbbbbbbbb").split(8)), ["a\nbbbbbb", "bbbbbb"]);
         assert_eq!(texts(&Text::from("😀😀😀").split(3)), ["😀", "😀", "😀"]);
         assert_eq!(texts(&Text::from("😀x").split(0)), ["😀", "x"]);
+        assert_eq!(texts(&Text::from("😀").split(1)), ["😀"]);
+        assert_eq!(texts(&Text::from("x😀").split(1)), ["x", "😀"]);
         assert_eq!(texts(&Text::new().split(4096)), [""]);
         let long = Text::from("word ".repeat(2000)).split(4096);
         assert_eq!(long.iter().map(Text::len).collect::<Vec<_>>(), [4095, 4095, 1810]);

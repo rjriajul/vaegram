@@ -5,6 +5,7 @@ use crate::types::MessageEntity;
 /// Telegram's terms of service.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TermsOfService {
     /// Id to pass to [`Client::accept_terms_of_service`](crate::Client::accept_terms_of_service).
     pub id: String,
