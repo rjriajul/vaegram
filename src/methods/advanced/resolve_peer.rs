@@ -7,7 +7,7 @@ use crate::errors::{Error, Result};
 use crate::raw::{base, functions, types};
 use crate::storage::{USERNAME_TTL, input_peer};
 use crate::types::PeerRef;
-use crate::utils::{CHANNEL_OFFSET, chats_of, input_user};
+use crate::utils::{CHANNEL_OFFSET, channel_id_of, chats_of, input_user};
 
 pub(crate) enum ChatPeer {
     Group(i64),
@@ -69,6 +69,13 @@ impl Client {
     }
 
     async fn resolve_id(&self, chat_id: i64) -> Result<base::InputPeer> {
+        // Bot API ids have at most 52 significant bits; -1000000000000 is channel 0; 0 names nobody except the
+        // account itself before login, when its own id is still 0. Checked before the known peers, so a cached
+        // entry under such an id can't be handed out.
+        let me = self.0.me.lock().unwrap().id;
+        if chat_id.unsigned_abs() >= 1 << 52 || chat_id == -CHANNEL_OFFSET || (chat_id == 0 && me != 0) {
+            return Err(Error::InvalidArgument("chat_id isn't a valid id"));
+        }
         if let Some(peer) = self.known_peer(chat_id).await {
             return Ok(peer);
         }
@@ -87,7 +94,7 @@ impl Client {
                 .ok_or(Error::PeerNotFound(chat_id))?;
             base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: chat_id, access_hash }))
         } else if chat_id <= -CHANNEL_OFFSET {
-            let channel_id = -chat_id - CHANNEL_OFFSET;
+            let channel_id = channel_id_of(chat_id);
             let input = types::InputChannel { channel_id, access_hash: 0 };
             let chats = self
                 .invoke(&functions::channels::GetChannels {
@@ -106,7 +113,7 @@ impl Client {
                 .ok_or(Error::PeerNotFound(chat_id))?;
             base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id, access_hash }))
         } else {
-            base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: -chat_id })
+            base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: chat_id.wrapping_neg() })
         };
 
         self.0.peers.lock().unwrap().insert(chat_id, peer.clone());
@@ -277,6 +284,27 @@ mod tests {
     use crate::raw::{Identifiable, Serializable, base, types};
     use crate::types::PeerRef;
     use crate::utils::get_channel_id;
+
+    #[tokio::test]
+    async fn ids_that_name_no_peer_are_refused() {
+        let (client, _rx) = Client::recording();
+        // A logged-in account; before login the own id is 0, which resolves to the account itself.
+        client.0.me.lock().unwrap().id = 1;
+        for id in [0, -super::CHANNEL_OFFSET, i64::MIN, i64::MAX, 1 << 52, -(1 << 52)] {
+            let result = client.resolve_peer(id).await;
+            assert!(matches!(result, Err(Error::InvalidArgument(_))), "{id}: {result:?}");
+        }
+        // A cached entry under an impossible id isn't handed out.
+        let channel_zero =
+            base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 0, access_hash: 1 }));
+        client.0.peers.lock().unwrap().insert(-super::CHANNEL_OFFSET, channel_zero);
+        assert!(matches!(client.resolve_peer(-super::CHANNEL_OFFSET).await, Err(Error::InvalidArgument(_))));
+        // A link with an id that doesn't fit is refused the same way.
+        for link in ["t.me/c/-5/1", "t.me/c/0/1", "t.me/c/9223372036854775807/1"] {
+            let result = client.resolve_peer(link).await;
+            assert!(matches!(result, Err(Error::InvalidArgument(_))), "{link}: {result:?}");
+        }
+    }
 
     #[tokio::test]
     async fn resolves_every_kind_of_name() {

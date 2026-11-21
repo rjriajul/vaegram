@@ -203,6 +203,17 @@ mod link_tests {
     }
 
     #[tokio::test]
+    async fn one_admin_link_is_a_link_not_the_public_join_requests_entry() {
+        let chat = get_channel_id(CHANNEL_ID);
+        let public = || base::ExportedChatInvite::ChatInvitePublicJoinRequests;
+        let (client, mut rx) = setup(vec![links(2, vec![public()]), links(2, vec![public(), invite("l1", 30)])]);
+        let found = client.get_chat_admin_invite_links(chat, "me").limit(1).await.unwrap();
+        assert_eq!(found.iter().map(|l| l.invite_link.as_str()).collect::<Vec<_>>(), ["l1"]);
+        assert_eq!(rx.try_recv().unwrap(), admin_links(None, 1).to_bytes());
+        assert_eq!(rx.try_recv().unwrap(), admin_links(None, 2).to_bytes());
+    }
+
+    #[tokio::test]
     async fn lists_admins_with_their_link_counts() {
         let admin = |admin_id, invites_count, revoked_invites_count| {
             let admin = types::ChatAdminWithInvites { admin_id, invites_count, revoked_invites_count };

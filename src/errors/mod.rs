@@ -119,7 +119,8 @@ pub enum Error {
     /// because its session ended or every handle to it was dropped, or `run` stopped while a `recover_gaps` waited.
     Disconnected,
     /// The request got no answer within its timeout and was abandoned. `DnsConfig::fetch` (`dns-config` feature)
-    /// also returns it when a DNS resolver doesn't answer in time.
+    /// also returns it when a DNS resolver doesn't answer in time. A handler still running at the deadline
+    /// [`stop_with_timeout`](crate::Client::stop_with_timeout) set is cancelled and reported with it.
     Timeout,
     /// No address is known for this data center id.
     InvalidDc(i32),
@@ -198,6 +199,36 @@ impl Error {
         match self {
             Error::Other(e) => e.downcast_ref::<T>(),
             _ => None,
+        }
+    }
+
+    /// A copy, for reporting a failure again where its first report may be lost. Exact for every error but `Io` and
+    /// `Other`, which can't be copied: an `Io` one keeps its kind and text, an `Other` one its text.
+    pub(crate) fn duplicate(&self) -> Error {
+        match self {
+            Error::Rpc(e) => Error::Rpc(e.clone()),
+            Error::Io(e) => Error::Io(std::io::Error::new(e.kind(), e.to_string())),
+            Error::Transport(code) => Error::Transport(*code),
+            Error::Deserialize(e) => Error::Deserialize(*e),
+            &Error::Security(what) => Error::Security(what),
+            Error::BadMessage(code) => Error::BadMessage(*code),
+            Error::Disconnected => Error::Disconnected,
+            Error::Timeout => Error::Timeout,
+            Error::InvalidDc(dc) => Error::InvalidDc(*dc),
+            Error::PeerNotFound(id) => Error::PeerNotFound(*id),
+            Error::ChatNotJoined => Error::ChatNotJoined,
+            Error::GuardBotApprovalRequired { bot, query_id } => {
+                Error::GuardBotApprovalRequired { bot: bot.clone(), query_id: *query_id }
+            }
+            &Error::Unexpected(what) => Error::Unexpected(what),
+            &Error::InvalidArgument(what) => Error::InvalidArgument(what),
+            &Error::InvalidSession(why) => Error::InvalidSession(why),
+            Error::SignUpRequired => Error::SignUpRequired,
+            Error::FileSize { size, limit } => Error::FileSize { size: *size, limit: *limit },
+            Error::ListenerTimeout => Error::ListenerTimeout,
+            Error::ListenerStopped => Error::ListenerStopped,
+            Error::ListenerLimitReached(max) => Error::ListenerLimitReached(*max),
+            Error::Other(e) => Error::other(e.to_string()),
         }
     }
 
@@ -353,6 +384,17 @@ mod tests {
     }
 
     impl std::error::Error for DbError {}
+
+    #[test]
+    fn a_duplicate_is_the_same_error_or_keeps_its_text() {
+        let rpc = Error::Rpc(RpcError::parse(400, "PEER_ID_INVALID"));
+        assert_eq!(rpc.duplicate().rpc(), rpc.rpc());
+        assert!(matches!(Error::Unexpected("boom").duplicate(), Error::Unexpected("boom")));
+        let io = Error::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "slow"));
+        let Error::Io(copy) = io.duplicate() else { panic!("not an Io error") };
+        assert_eq!((copy.kind(), copy.to_string()), (std::io::ErrorKind::TimedOut, "slow".to_owned()));
+        assert_eq!(Error::other(DbError("db down")).duplicate().to_string(), "db down");
+    }
 
     #[test]
     fn splits_the_number_off() {

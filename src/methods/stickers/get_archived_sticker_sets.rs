@@ -76,7 +76,12 @@ impl SetPages {
         // An empty page ends the list too: asking again would loop forever. `read` counts from where this pager
         // started, so after `offset_id` it stays below `count` and the list ends on that empty page, one request
         // later than a list read from the start.
-        let next = sets.last().map(|set| set.id).filter(|_| self.read < usize::try_from(count).unwrap_or(0));
+        // The same id again means Telegram ignored the offset and would send this page forever.
+        let current = self.sets.offset().copied();
+        let next = sets
+            .last()
+            .map(|set| set.id)
+            .filter(|id| self.read < usize::try_from(count).unwrap_or(0) && Some(*id) != current);
         self.sets.push(sets, next);
     }
 }

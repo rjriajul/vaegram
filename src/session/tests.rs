@@ -1776,3 +1776,286 @@ async fn a_main_connection_nobody_takes_updates_from_still_reconnects() {
     assert!(dials >= 2, "it never dialed again");
     assert!(reads < 1000, "it spun on the dead link: {reads} reads");
 }
+
+// The stress repro F-W3-1: a server 600 s behind the client refuses its msg_ids as too high.
+#[tokio::test]
+async fn msg_id_too_high_brings_the_resent_ids_back_to_the_server_clock() {
+    let (mut r, mut frames, _updates) = runner_with(Salt { value: 0, time_offset: 600 }).await;
+    let mut rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    let (bad_msg_id, bad_msg_seqno, _) = recv(&mut frames, &r).await;
+
+    let too_high = types::BadMsgNotification { bad_msg_id, bad_msg_seqno, error_code: 17 };
+    r.handle_message((internals::now() << 32) | 1, 0, &too_high.to_bytes());
+    r.flush().await.unwrap();
+    let (msg_id, _, body) = recv(&mut frames, &r).await;
+    let ahead = (msg_id >> 32) - internals::now();
+    assert_eq!(body, ping(1));
+    assert!(ahead.abs() <= 1, "the resent id is still {ahead} s ahead of the server");
+    assert!(r.pending.contains_key(&msg_id) && rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn msg_id_too_high_keeps_the_new_ids_above_the_ones_still_waiting() {
+    let (mut r, mut frames, _updates) = runner_with(Salt { value: 0, time_offset: 20 }).await;
+    let _first = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    let (taken, _, _) = recv(&mut frames, &r).await;
+    // The local clock jumps ahead, past what the server takes.
+    r.msg_ids.time_offset = 600;
+    let _second = request(&mut r, ping(2));
+    r.flush().await.unwrap();
+    let (bad_msg_id, bad_msg_seqno, _) = recv(&mut frames, &r).await;
+
+    let too_high = types::BadMsgNotification { bad_msg_id, bad_msg_seqno, error_code: 17 };
+    r.handle_message((internals::now() << 32) | 1, 0, &too_high.to_bytes());
+    r.flush().await.unwrap();
+    let (msg_id, _, body) = recv(&mut frames, &r).await;
+    assert_eq!(body, ping(2));
+    // Above the request the server may hold, and back where the server takes it.
+    assert!(taken < msg_id && msg_id < bad_msg_id, "{taken} < {msg_id} < {bad_msg_id}");
+    assert!((msg_id >> 32) - internals::now() <= 30);
+}
+
+// Closes `r` once `stuck` says its reconnect waits on the server, and returns how long the reconnect went on after, on
+// a clock that from the close jumps to the next deadline whenever nothing else can run.
+async fn reconnect_closed_while(mut r: Runner, stuck: impl Fn() -> bool) -> Duration {
+    let control = r.control.clone();
+    let events = r.events.record();
+    let (_sender, requests) = mpsc::unbounded_channel::<Request>();
+    let closer = async {
+        while !stuck() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        tokio::time::pause();
+        control.close();
+        tokio::time::Instant::now()
+    };
+    let reconnect = r.reconnect(&requests, false, false);
+    let done = tokio::time::timeout(Duration::from_secs(60), async { tokio::join!(reconnect, closer) }).await;
+    let ((), closed_at) = done.expect("the reconnect never ended");
+    assert!(events.try_recv().is_err(), "it reconnected after the close");
+    closed_at.elapsed()
+}
+
+#[tokio::test]
+async fn close_while_connecting_ends_the_reconnect_at_once() {
+    let (mut r, _frames, _updates) = runner().await;
+    let dials = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let dialed = dials.clone();
+    // A connect that never gets through, as to an address that drops the SYN.
+    let factory = move |_: std::net::SocketAddr| {
+        dialed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        std::future::pending::<std::io::Result<tokio::io::DuplexStream>>()
+    };
+    Arc::make_mut(&mut r.options).connection_factory = Some(Arc::new(factory));
+    let stuck = || dials.load(std::sync::atomic::Ordering::SeqCst) > 0;
+    let after = reconnect_closed_while(r, stuck).await;
+    assert!(after < Duration::from_secs(1), "the close waited {after:?} for the connect to give up");
+}
+
+#[tokio::test]
+async fn close_while_making_a_key_ends_the_reconnect_at_once() {
+    let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
+    // Already expired, so the reconnect makes a new key on the fresh connection, where the server never answers.
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), 0));
+    let asked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = asked.clone();
+    tokio::spawn(async move {
+        let (mut server, _) = listener.accept().await.unwrap();
+        // The transport's tag and the length of the key exchange's first message.
+        server.read_exact(&mut [0; 8]).await.unwrap();
+        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        while server.read(&mut [0; 64]).await.is_ok_and(|n| n > 0) {}
+    });
+    let stuck = || asked.load(std::sync::atomic::Ordering::SeqCst);
+    let after = reconnect_closed_while(r, stuck).await;
+    assert!(after < Duration::from_secs(1), "the close waited {after:?} for the key exchange to give up");
+}
+
+#[tokio::test]
+async fn answers_after_msg_id_too_high_still_prove_what_arrived() {
+    let (mut r, mut frames, _updates) = runner_with(Salt { value: 0, time_offset: 600 }).await;
+    let _rx = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    let (bad_msg_id, bad_msg_seqno, _) = recv(&mut frames, &r).await;
+    let too_high = types::BadMsgNotification { bad_msg_id, bad_msg_seqno, error_code: 17 };
+    r.handle_message((internals::now() << 32) | 1, 0, &too_high.to_bytes());
+    r.flush().await.unwrap();
+    let (msg_id, _, _) = recv(&mut frames, &r).await;
+    assert!(r.writer.backlog() > 0);
+    // The resent request has a lower msg_id than the refused one, yet its answer still proves it arrived.
+    r.handle_message(3, 0, &rpc_result(msg_id, &[0; 4]));
+    assert_eq!(r.writer.backlog(), 0, "the answer to the resent request proved nothing");
+}
+
+// The release notes' known issue: under PFS with a request_timeout under PROBE_DEAD_AFTER, a bind sent again for want
+// of an answer kept a transfer connection the server never answered until a part on it timed out.
+#[tokio::test]
+async fn a_bind_sent_again_does_not_keep_a_silent_transfer_connection() {
+    let (mut r, _server) = transfer_runner().await;
+    Arc::make_mut(&mut r.options).request_timeout = Duration::from_secs(5);
+    r.pfs = Some(Pfs::new([9; 256], None, ping(77), i64::MAX));
+    let _part = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    tokio::time::pause();
+    let start = tokio::time::Instant::now();
+    let mut ticks = 0;
+    while r.tick().await.is_ok() {
+        assert!(ticks < 60, "a connection the server never answers was kept");
+        ticks += 1;
+        tokio::time::advance(Duration::from_secs(1)).await;
+    }
+    assert!(r.pfs.as_ref().unwrap().binds_sent.len() > 2, "the bind was never sent again");
+    // Probed after PROBE_AFTER and dropped PROBE_DEAD_AFTER after the probe, whatever binds went out meanwhile.
+    let dropped = start.elapsed();
+    assert!(dropped <= PROBE_AFTER + PROBE_DEAD_AFTER + Duration::from_secs(3), "{dropped:?}");
+}
+
+#[tokio::test]
+async fn a_reconnect_notes_when_the_connection_came_up() {
+    let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
+    let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
+    let (_sender, requests) = mpsc::unbounded_channel();
+    assert!(r.control.up_since().is_none(), "the first connection");
+    let before = tokio::time::Instant::now();
+    r.reconnect(&requests, false, false).await;
+    let _server = server.await.unwrap();
+    assert!(r.control.up_since().is_some_and(|(drops, at)| drops == 1 && at >= before));
+    r.control.dropped();
+    assert!(r.control.up_since().is_none(), "while it reconnects");
+}
+
+// An answered request no longer waits, yet the server took its msg_id in: the ids after a correction stay above it.
+#[tokio::test]
+async fn msg_id_too_high_keeps_the_new_ids_above_answered_ones() {
+    let (mut r, mut frames, _updates) = runner_with(Salt { value: 0, time_offset: 20 }).await;
+    let _first = request(&mut r, ping(1));
+    r.flush().await.unwrap();
+    let (taken, _, _) = recv(&mut frames, &r).await;
+    r.handle_message(1, 0, &rpc_result(taken, &[0; 4]));
+    assert!(r.pending.is_empty());
+    // The local clock jumps ahead, past what the server takes.
+    r.msg_ids.time_offset = 600;
+    let _second = request(&mut r, ping(2));
+    r.flush().await.unwrap();
+    let (bad_msg_id, bad_msg_seqno, _) = recv(&mut frames, &r).await;
+
+    let too_high = types::BadMsgNotification { bad_msg_id, bad_msg_seqno, error_code: 17 };
+    r.handle_message((internals::now() << 32) | 1, 0, &too_high.to_bytes());
+    r.flush().await.unwrap();
+    let (msg_id, _, body) = recv(&mut frames, &r).await;
+    assert_eq!(body, ping(2));
+    assert!(taken < msg_id && msg_id < bad_msg_id, "{taken} < {msg_id} < {bad_msg_id}");
+}
+
+// A close while the reconnect sends its ping ends it there: the connection isn't reported back after the close.
+#[tokio::test]
+async fn close_while_resending_is_not_reported_as_back() {
+    let (mut r, _frames, _updates) = runner().await;
+    // Room for the transport's tag and little more: the ping the reconnect sends waits until the far end reads.
+    let (ours, mut theirs) = tokio::io::duplex(64);
+    let end = Mutex::new(Some(ours));
+    let factory = move |_: std::net::SocketAddr| {
+        let stream = end.lock().unwrap().take();
+        async move { stream.ok_or_else(|| std::io::Error::other("one connection only")) }
+    };
+    Arc::make_mut(&mut r.options).connection_factory = Some(Arc::new(factory));
+    let control = r.control.clone();
+    tokio::spawn(async move {
+        theirs.read_exact(&mut [0; 4]).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        control.close();
+        while theirs.read(&mut [0; 1024]).await.is_ok_and(|n| n > 0) {}
+    });
+    let (events, links) = (r.events.record(), r.events.record_link());
+    let (_sender, requests) = mpsc::unbounded_channel::<Request>();
+    r.reconnect(&requests, false, false).await;
+    assert!(r.control.closed());
+    assert!(events.try_recv().is_err(), "a reconnect closed while it resent was reported");
+    assert!(!r.events.take_reconnected());
+    assert_eq!(links.try_iter().collect::<Vec<_>>(), [false]);
+}
+
+// A close from another thread while the reconnect is being reported waits for the report to end, so nothing reports
+// the connection back after the close returned.
+#[tokio::test]
+async fn a_close_during_the_report_of_a_reconnect_waits_for_it() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
+    let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
+    let (reporting, reported) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let (inside, done) = (reporting.clone(), reported.clone());
+    r.events.listen(Arc::new(move |e: ClientEvent| {
+        if matches!(e, ClientEvent::Reconnected { .. }) {
+            inside.store(true, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(150));
+            done.store(true, Ordering::SeqCst);
+        }
+    }));
+    let control = r.control.clone();
+    let closer = std::thread::spawn(move || {
+        let start = std::time::Instant::now();
+        while !reporting.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        control.close();
+        reported.load(Ordering::SeqCst)
+    });
+    let (_sender, requests) = mpsc::unbounded_channel::<Request>();
+    r.reconnect(&requests, false, false).await;
+    let _server = server.await.unwrap();
+    assert!(closer.join().unwrap(), "the close returned while the reconnect was being reported");
+}
+
+// A listener may disconnect on the event itself, inside the report: that close doesn't wait for the report it is in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_listener_closing_on_reconnected_does_not_wait_for_itself() {
+    let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
+    let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
+    let control = r.control.clone();
+    let links = r.events.record_link();
+    r.events.listen(Arc::new(move |e: ClientEvent| {
+        if matches!(e, ClientEvent::Reconnected { .. }) {
+            control.close();
+        }
+    }));
+    let task = tokio::spawn(async move {
+        let (_sender, requests) = mpsc::unbounded_channel::<Request>();
+        r.reconnect(&requests, false, false).await;
+        r
+    });
+    let r = tokio::time::timeout(Duration::from_secs(10), task).await.expect("the close waited for itself").unwrap();
+    let _server = server.await.unwrap();
+    assert!(r.control.closed());
+    // The connect hooks went before the event, so before the close.
+    assert_eq!(links.try_iter().collect::<Vec<_>>(), [false, true]);
+}
+
+// A listener that blocks on a disconnect running on another thread holds that close up for REPORT_WAIT at most: then
+// the close goes ahead, rather than both waiting for ever.
+#[tokio::test]
+async fn a_close_waits_for_a_stuck_report_only_so_long() {
+    let (mut r, _frames, _updates, listener) = listening(Salt::default()).await;
+    let server = tokio::spawn(async move { listener.accept().await.unwrap().0 });
+    let (tx, took) = std::sync::mpsc::channel();
+    let control = r.control.clone();
+    r.events.listen(Arc::new(move |e: ClientEvent| {
+        if matches!(e, ClientEvent::Reconnected { .. }) {
+            let (control, (done, closed)) = (control.clone(), std::sync::mpsc::channel());
+            std::thread::spawn(move || {
+                let start = std::time::Instant::now();
+                control.close();
+                let _ = done.send(start.elapsed());
+            });
+            // Waits for that close, as a listener waiting on a disconnect would; for 10 s at most.
+            let _ = tx.send(closed.recv_timeout(Duration::from_secs(10)));
+        }
+    }));
+    let (_sender, requests) = mpsc::unbounded_channel::<Request>();
+    r.reconnect(&requests, false, false).await;
+    let _server = server.await.unwrap();
+    let took = took.try_recv().expect("never reported").expect("the close waited for the listener waiting for it");
+    assert!(took >= super::REPORT_WAIT && took < super::REPORT_WAIT + Duration::from_secs(2), "{took:?}");
+    assert!(r.control.closed());
+}

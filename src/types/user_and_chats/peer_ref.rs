@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::types::{Chat, Message, User};
-use crate::utils::get_channel_id;
+use crate::utils::checked_channel_id;
 
 /// A way to name a chat or user.
 ///
@@ -102,7 +102,8 @@ fn parse(s: &str) -> PeerRef {
     let (head, tail) = path.split_once('/').unwrap_or((path, ""));
     let tail = tail.split('/').next().unwrap_or_default();
     match (head, tail.parse()) {
-        ("c", Ok(channel_id)) => PeerRef::Id(get_channel_id(channel_id)),
+        // An id that names no channel becomes id 0, which `resolve_peer` refuses as an invalid argument.
+        ("c", Ok(channel_id)) => PeerRef::Id(checked_channel_id(channel_id).unwrap_or(0)),
         ("joinchat", _) => PeerRef::Invite(tail.into()),
         _ => name(head),
     }
@@ -152,6 +153,14 @@ mod tests {
 
     fn peer(peer: impl Into<PeerRef>) -> PeerRef {
         peer.into()
+    }
+
+    #[test]
+    fn a_t_me_c_link_needs_a_channel_id_that_fits() {
+        assert_eq!(PeerRef::from("t.me/c/9/20"), PeerRef::Id(get_channel_id(9)));
+        for link in ["t.me/c/-5/1", "t.me/c/0/1", "t.me/c/9223372036854775807/1"] {
+            assert_eq!(PeerRef::from(link), PeerRef::Id(0), "{link}");
+        }
     }
 
     #[test]

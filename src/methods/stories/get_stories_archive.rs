@@ -78,8 +78,8 @@ impl<'a> StoryPages<'a> {
         });
         let previous = self.offset_id;
         match last {
-            // An offset that doesn't move down means Telegram has nothing older to give.
-            Some(id) if previous == 0 || id < previous => self.offset_id = id,
+            // An offset that doesn't move down means Telegram has nothing older to give; so does an id below 1.
+            Some(id) if id > 0 && (previous == 0 || id < previous) => self.offset_id = id,
             _ => {
                 self.done = true;
                 return;
@@ -122,5 +122,15 @@ mod tests {
 
         pages.fill(42, Vec::new(), Vec::new(), Vec::new());
         assert!(pages.done);
+    }
+
+    #[test]
+    fn a_story_id_below_one_ends_the_list() {
+        let client = Client::offline();
+        for id in [0, -3] {
+            let mut pages = client.get_stories_archive(42);
+            pages.fill(42, vec![skipped(id)], Vec::new(), Vec::new());
+            assert!(pages.done, "{id}");
+        }
     }
 }

@@ -91,8 +91,14 @@ impl Entities {
         }
         for chat in chats {
             let id = match &chat {
-                base::Chat::Chat(c) => -c.id,
-                base::Chat::ChatForbidden(c) => -c.id,
+                base::Chat::Chat(c) => match c.id.checked_neg() {
+                    Some(id) => id,
+                    None => continue,
+                },
+                base::Chat::ChatForbidden(c) => match c.id.checked_neg() {
+                    Some(id) => id,
+                    None => continue,
+                },
                 base::Chat::Channel(c) => {
                     let id = get_channel_id(c.id);
                     if let (false, Some(access_hash)) = (c.min, c.access_hash) {
@@ -300,6 +306,14 @@ mod tests {
             base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 9, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(get_channel_id(9), group.clone());
         (client, group)
+    }
+
+    #[test]
+    fn a_group_id_that_cannot_be_negated_is_dropped() {
+        let client = Client::offline();
+        let group = |id: i64| base::Chat::ChatForbidden(types::ChatForbidden { id, title: "g".into() }.into());
+        let entities = Entities::new(&client, Vec::new(), vec![group(i64::MIN), group(5)]);
+        assert_eq!(entities.chats.keys().copied().collect::<Vec<_>>(), [-5]);
     }
 
     fn seen_in(group: &base::InputPeer, user_id: i64) -> base::InputPeer {

@@ -42,7 +42,8 @@ fn invoice_slug(link: &str) -> Result<&str> {
         Some(rest) => rest.strip_prefix('$').or_else(|| rest.strip_prefix("invoice/")).unwrap_or_default(),
         None => path.strip_prefix('$').unwrap_or(path),
     };
-    if slug.is_empty() || slug.contains('/') {
+    // Slugs are base64url, so a bare host like `t.me` or a leftover `https:` is no slug.
+    if slug.is_empty() || !slug.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
         return Err(Error::InvalidArgument("the invoice link has no slug"));
     }
     Ok(slug)
@@ -62,7 +63,25 @@ mod tests {
 
     #[test]
     fn a_link_without_a_slug_is_refused() {
-        for link in ["", "  ", "t.me/$", "t.me/invoice/", "https://t.me/invoice", "t.me/a/b"] {
+        for link in [
+            "",
+            "  ",
+            "t.me/$",
+            "t.me/invoice/",
+            "https://t.me/invoice",
+            "t.me/a/b",
+            "https://t.me/",
+            "https://t.me",
+            "http://t.me",
+            "t.me",
+            "https://telegram.me/",
+            "telegram.me",
+            "https://",
+            "http://",
+            "https://example.com/$abc",
+            "https://t.me/$/",
+            "https://t.me/invoice///",
+        ] {
             assert!(matches!(invoice_slug(link), Err(Error::InvalidArgument(_))), "{link}");
         }
     }

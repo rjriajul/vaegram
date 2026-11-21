@@ -122,6 +122,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_repeated_offset_id_ends_the_list() {
+        let same = || Ok(reply(i32::MAX, vec![covered(11)]));
+        let (client, mut rx) = Client::scripted(vec![same(), same(), same()]);
+        client.get_owned_sticker_sets().await.unwrap();
+        assert_eq!(std::iter::from_fn(|| rx.try_recv().ok()).count(), 2);
+    }
+
+    #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
         let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "OFFSET_INVALID")))]);
         let result = client.get_owned_sticker_sets().await;

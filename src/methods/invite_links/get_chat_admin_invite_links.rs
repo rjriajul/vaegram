@@ -20,6 +20,8 @@ pub struct GetChatAdminInviteLinks<'a> {
     // Built on the first page and moved along by each one after.
     request: Option<functions::messages::GetExportedChatInvites>,
     seen: usize,
+    // Room for the public join requests entry in the retried first page, which holds no link otherwise.
+    extra: i32,
     // The cursor lives in `request`, so the pages only track whether there are more.
     pages: OffsetPages<ChatInviteLink, ()>,
 }
@@ -38,6 +40,7 @@ impl Client {
             revoked: false,
             request: None,
             seen: 0,
+            extra: 0,
             pages: OffsetPages::starting_at(LINKS_LIMIT, ()),
         }
     }
@@ -76,10 +79,12 @@ impl GetChatAdminInviteLinks<'_> {
                 },
             };
             let request = self.request.insert(request);
-            request.limit = limit;
+            request.limit = limit + std::mem::take(&mut self.extra);
             let base::messages::ExportedChatInvites::ExportedChatInvites(page) = client.invoke(&*request).await?;
             let page = *page;
             self.seen += page.invites.len();
+            let had_placeholder =
+                page.invites.iter().any(|i| matches!(i, base::ExportedChatInvite::ChatInvitePublicJoinRequests));
             let next = page.invites.iter().rev().find_map(|invite| match invite {
                 base::ExportedChatInvite::ChatInviteExported(i) => Some((i.date, i.link.clone())),
                 base::ExportedChatInvite::ChatInvitePublicJoinRequests => None,
@@ -100,6 +105,19 @@ impl GetChatAdminInviteLinks<'_> {
                     request.offset_date == Some(date) && request.offset_link.as_deref() == Some(link.as_str());
                 if self.seen < usize::try_from(page.count).unwrap_or(0) && !repeated {
                     (request.offset_date, request.offset_link) = (Some(date), Some(link));
+                    more = Some(());
+                }
+            }
+            if more.is_none()
+                && had_placeholder
+                && links.is_empty()
+                && request.offset_date.is_none()
+                && request.limit == 1
+            {
+                // A first page of only the placeholder has no cursor; ask again with room for a real link.
+                if self.seen < usize::try_from(page.count).unwrap_or(0) {
+                    self.seen = 0;
+                    self.extra = 1;
                     more = Some(());
                 }
             }

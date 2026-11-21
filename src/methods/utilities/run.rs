@@ -1,4 +1,8 @@
+use std::sync::PoisonError;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
+
+use tokio::time::Instant;
 
 use crate::Client;
 use crate::dispatcher::Dispatcher;
@@ -60,6 +64,7 @@ impl Client {
         match crate::observe::untagged(self.start_dispatcher()).await {
             Err(Error::Disconnected) if *self.0.stop.borrow() => {
                 // Cleared as `drive` clears it when a run ends.
+                *self.0.stop_deadline.lock().unwrap_or_else(PoisonError::into_inner) = None;
                 self.0.stop.send_replace(false);
                 Ok(None)
             }
@@ -103,17 +108,35 @@ impl Client {
         drop(dispatcher);
         crate::observe::untagged(self.lifecycle_hook(UpdateKind::Stop)).await;
         // Cleared here, not on entry, so a stop() that lands before run gets going still counts.
+        *self.0.stop_deadline.lock().unwrap_or_else(PoisonError::into_inner) = None;
         self.0.stop.send_replace(false);
         drop(running);
         if stopped { Ok(()) } else { Err(Error::Disconnected) }
     }
 
-    /// Makes `run` stop taking updates, wait for the handlers already running, and return `Ok(())`.
+    /// Makes `run` stop taking updates, wait for the handlers already running, and return `Ok(())`. To bound that
+    /// wait, use [`stop_with_timeout`](Self::stop_with_timeout).
     ///
     /// For Ctrl-C, use [`run_until_ctrl_c`](Self::run_until_ctrl_c) in place of `run`; for Ctrl-C or SIGTERM, as a
     /// service needs, [`run_until_signal`](Self::run_until_signal).
     pub fn stop(&self) {
         self.0.stop.send_replace(true);
+    }
+
+    /// [`stop`](Self::stop), with `run` waiting at most `timeout` for the handlers already running: then those still
+    /// running are cancelled, each reported as a handler that returned `Error::Timeout`, to
+    /// [`on_error`](Self::on_error) or as [`ClientEvent::HandlerFailed`](crate::enums::ClientEvent::HandlerFailed),
+    /// and `run` returns `Ok(())`. `on_error` gets 5 seconds for those reports in all; the ones it hasn't finished by
+    /// then go out as `HandlerFailed` instead. A handler whose own error `on_error` is still reporting when the time
+    /// runs out is cancelled too, and that error goes out as `HandlerFailed`, not as a timeout. Called after `stop`,
+    /// it bounds the wait already begun; called again, the earliest deadline counts.
+    pub fn stop_with_timeout(&self, timeout: Duration) {
+        // A timeout too long to fall on a deadline bounds nothing.
+        if let Some(deadline) = Instant::now().checked_add(timeout) {
+            let mut held = self.0.stop_deadline.lock().unwrap_or_else(PoisonError::into_inner);
+            *held = Some(held.map_or(deadline, |earlier| earlier.min(deadline)));
+        }
+        self.stop();
     }
 
     async fn lifecycle_hook(&self, kind: UpdateKind) {

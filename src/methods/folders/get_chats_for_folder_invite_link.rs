@@ -25,7 +25,14 @@ impl Client {
             return Ok(Vec::new());
         }
         let shareable = |id: &i64| matches!(get_peer(*id), base::Peer::PeerChannel(_));
-        Ok(folder.pinned_chats.into_iter().chain(folder.included_chats).filter(shareable).collect())
+        let mut seen = std::collections::HashSet::new();
+        Ok(folder
+            .pinned_chats
+            .into_iter()
+            .chain(folder.included_chats)
+            .filter(shareable)
+            .filter(|id| seen.insert(*id))
+            .collect())
     }
 }
 
@@ -73,6 +80,14 @@ mod tests {
         let (client, mut sent) = Client::scripted(vec![Ok(reply)]);
         let chats = client.get_chats_for_folder_invite_link(4).await.unwrap();
         assert_eq!(sent.recv().await.unwrap(), functions::messages::GetDialogFilters {}.to_bytes());
+        assert_eq!(chats, [get_channel_id(9), get_channel_id(8)]);
+    }
+
+    #[tokio::test]
+    async fn a_pinned_channel_is_listed_once() {
+        let reply = folder(vec![channel(9)], vec![channel(9), channel(8)], Vec::new());
+        let (client, _sent) = Client::scripted(vec![Ok(reply)]);
+        let chats = client.get_chats_for_folder_invite_link(4).await.unwrap();
         assert_eq!(chats, [get_channel_id(9), get_channel_id(8)]);
     }
 

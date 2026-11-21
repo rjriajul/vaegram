@@ -260,7 +260,10 @@ impl ClientBuilder {
 
     /// Caps how many handlers run at once, at least 1; updates past the cap wait for a slot. Once 1024 wait, `run`
     /// takes no more updates until a handler ends: they queue up to `updates_capacity`, and what overflows that is
-    /// fetched again with getDifference. No cap by default.
+    /// fetched again with getDifference. With [`ordered`](Self::ordered), an update waiting behind its own chat's
+    /// handler waits for that chat, not for a slot, so it isn't counted there and one busy chat can't hold up the
+    /// others; once 1024 wait in one chat, or 4096 over every chat, the next update that would wait so is dropped and
+    /// reported as [`ClientEvent::UpdatesDropped`](crate::enums::ClientEvent::UpdatesDropped). No cap by default.
     pub fn max_concurrent_handlers(mut self, n: usize) -> Self {
         self.max_concurrent_handlers = Some(n);
         self
@@ -745,6 +748,8 @@ pub(crate) struct Inner {
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
+    // Set by `stop_with_timeout`: when a stopped `run` cancels the handlers still running. Cleared as `stop` is.
+    pub(crate) stop_deadline: Mutex<Option<tokio::time::Instant>>,
     // Set while a `run` (or a client in `compose`) owns the updates, so a second one is refused.
     pub(crate) running: AtomicBool,
     // Set by `disconnect`: the storage is let go of then, or when the running `run` ends.
@@ -850,6 +855,7 @@ impl Inner {
             auto_no_updates: false,
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
+            stop_deadline: Mutex::new(None),
             running: AtomicBool::new(false),
             disconnected: AtomicBool::new(false),
             recover: Mutex::new(None),

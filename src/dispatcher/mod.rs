@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 
 pub(crate) use entities::Entities;
@@ -110,7 +110,8 @@ impl Dispatcher {
         self.client.0.account.load(Ordering::Relaxed) == self.account
     }
 
-    /// `true` when `Client::stop` ended it, after the running handlers finished; `false` when the connection did.
+    /// `true` when `Client::stop` ended it, after the running handlers finished or, at the deadline
+    /// `Client::stop_with_timeout` set, were cancelled; `false` when the connection did.
     pub(crate) async fn run(&mut self, updates: &mut UpdatesRx) -> bool {
         let mut stop = self.client.0.stop.subscribe();
         self.client.0.handlers.listeners.open();
@@ -148,7 +149,7 @@ impl Dispatcher {
                     while recoveries.try_recv().is_ok() {}
                     // Before waiting: a handler parked in `listen` would otherwise hold `stop` up to its timeout.
                     self.client.0.handlers.listeners.close();
-                    self.tasks.finish().await;
+                    self.finish_handlers(&mut stop).await;
                     // A held seq batch has moved no counter, so the state saved is the one from before it: with
                     // catch-up the next start's getDifference returns its account-level updates, while a channel
                     // update in it comes back only through that channel's own difference, from a stored pts and a
@@ -182,6 +183,26 @@ impl Dispatcher {
                 Err(_) => self.tracker.expire(Instant::now()),
             }
             self.resolve().await;
+        }
+    }
+
+    /// Waits for the running handlers, up to the deadline `stop_with_timeout` set, even one set after `stop`; at it,
+    /// those left are cancelled and reported.
+    async fn finish_handlers(&mut self, stop: &mut watch::Receiver<bool>) {
+        loop {
+            let deadline = *self.client.0.stop_deadline.lock().unwrap_or_else(PoisonError::into_inner);
+            let expired = async {
+                match deadline {
+                    Some(deadline) => tokio::time::sleep_until(deadline).await,
+                    None => std::future::pending().await,
+                }
+            };
+            tokio::select! {
+                () = self.tasks.finish() => return,
+                () = expired => return self.tasks.abandon().await,
+                // `stop_with_timeout` called meanwhile: waited for again, up to its deadline.
+                Ok(()) = stop.changed() => {}
+            }
         }
     }
 
@@ -1352,8 +1373,10 @@ mod tests {
         let skipped = ClientEvent::UpdatesSkipped { chat_id: None, from: 1, to: 1, reason: SkipReason::Refused };
         assert!(matches!(got[..], [ClientEvent::DifferenceFailed { .. }, _]), "{got:?}");
         assert_eq!(format!("{:?}", got[1]), format!("{skipped:?}"));
-        // Not moved past the dropped ones, so the next difference, in this run or the next, brings them.
+        // Not moved past the dropped ones, so the next difference, in this run or the next, brings them, and one is
+        // asked for again.
         assert_eq!(d.tracker.state.qts, 5);
+        assert!(d.tracker.retries.iter().any(|&(_, key)| key == Key::Qts), "{:?}", d.tracker.retries);
     }
 
     /// A too-long answer for channel 9 that carries a dialogFolder, so no pts.
@@ -1439,6 +1462,27 @@ mod tests {
         assert_eq!(events.try_iter().count(), 0);
         let s = &d.tracker;
         assert_eq!((s.state.channels.get(&9), s.pending.len(), s.due.len()), (None, 0, 0));
+    }
+
+    fn with_seq(updates: Vec<base::Update>, seq: i32) -> base::Updates {
+        base::Updates::Updates(Box::new(types::Updates { updates, users: vec![], chats: vec![], date: 0, seq }))
+    }
+
+    #[tokio::test]
+    async fn a_forgotten_channel_drops_its_updates_from_the_batches_held_for_seq() {
+        let message = || base::Message::Message(Box::new(Message::bare(42, get_peer(get_channel_id(9)), 0)));
+        let (mut d, _events) = in_channel(vec![Ok(too_long_in_a_folder(vec![message()]))], 10);
+        let seen = raw_updates(&d.client);
+        // Held for seq 1, which hasn't come: the channel's message 42, which the too-long answer brings too.
+        let update = types::UpdateNewChannelMessage { message: message(), pts: 11, pts_count: 1 };
+        deliver(&mut d, with_seq(vec![base::Update::UpdateNewChannelMessage(Box::new(update))], 2)).await;
+        // Seq 1 comes, and the held batch goes out without the message the answer delivered.
+        deliver(&mut d, with_seq(Vec::new(), 1)).await;
+
+        let delivered: Vec<u32> = seen.lock().unwrap().iter().map(RawUpdate::constructor_id).collect();
+        assert_eq!(delivered, [types::UpdateNewChannelMessage::CONSTRUCTOR_ID]);
+        let s = &d.tracker;
+        assert_eq!((s.state.seq, s.state.channels.get(&9), s.pending.len()), (2, None, 0));
     }
 
     #[tokio::test]
@@ -1536,5 +1580,31 @@ mod tests {
         // One running, the waiting room, and what the update queue holds (8 in tests).
         let room = MAX_WAITING_HANDLERS..=1 + MAX_WAITING_HANDLERS + 8 + 1;
         assert!(room.contains(&taken), "the dispatcher took {taken} of {offered} updates");
+    }
+
+    // Real time: the store thread answers outside the runtime, which a paused clock would race past.
+    #[tokio::test]
+    async fn stop_with_timeout_cancels_the_handlers_left_and_reports_each() {
+        let client = Client::offline();
+        let events = client.0.events.record();
+        // The handler never ends, so only the deadline lets `run` return.
+        client.on_raw_update(|_, _| std::future::pending::<crate::errors::Result<()>>());
+        let mut d = Dispatcher::new(client.clone(), &state());
+        let (updates, mut rx) = UpdatesRx::channel_with(client.0.events.clone());
+        updates.send(Incoming { updates: short(new_message(2)), from_request: false }).await.unwrap();
+        let run = tokio::time::timeout(std::time::Duration::from_secs(10), d.run(&mut rx));
+        let (stopped, ()) = tokio::join!(run, async {
+            settle().await;
+            client.stop();
+            settle().await;
+            // Called after `stop`, it bounds the wait already begun.
+            client.stop_with_timeout(std::time::Duration::from_millis(50));
+        });
+
+        assert!(matches!(stopped, Ok(true)), "{stopped:?}");
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        let [ClientEvent::HandlerFailed { error }] = &got[..] else { panic!("{got:?}") };
+        assert_eq!(error.kind, crate::handlers::UpdateKind::Raw);
+        assert!(matches!(error.error, Error::Timeout), "{got:?}");
     }
 }

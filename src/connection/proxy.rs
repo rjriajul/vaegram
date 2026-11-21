@@ -487,7 +487,7 @@ pub(crate) async fn http_connect<S: AsyncRead + AsyncWrite + Unpin>(
     }
     let line = head.split(|&b| b == b'\r').next().unwrap_or_default();
     let status = line.strip_prefix(b"HTTP/1.").and_then(|rest| rest.split(|&b| b == b' ').nth(1));
-    if !status.is_some_and(|s| s.len() == 3 && s[0] == b'2') {
+    if !status.is_some_and(|s| s.len() == 3 && s[0] == b'2' && s.iter().all(u8::is_ascii_digit)) {
         // The proxy's own words, cut short and printable only: they end up in logs.
         let printable = |c: &char| c.is_ascii_graphic() || *c == ' ';
         let line: String = line.iter().take(64).map(|&b| char::from(b)).filter(printable).collect();
@@ -561,6 +561,12 @@ mod tests {
         server.write_all(b"HTTP/1.1 403 \x1b[2Jgo away\r\n\r\n").await.unwrap();
         let err = http_connect(&mut client, target, None).await.unwrap_err().to_string();
         assert!(err.ends_with("HTTP/1.1 403 [2Jgo away"), "{err}");
+
+        for reply in [&b"HTTP/1.1 2ab Bogus\r\n\r\n"[..], b"HTTP/1.1 2xx Error\r\n\r\n"] {
+            let (mut client, mut server) = tokio::io::duplex(512);
+            server.write_all(reply).await.unwrap();
+            assert!(http_connect(&mut client, target, None).await.is_err(), "{reply:?} was taken for a 2xx");
+        }
     }
 
     #[tokio::test]

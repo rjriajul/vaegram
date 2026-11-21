@@ -13,6 +13,11 @@ use crate::handlers::{HandlerError, UpdateKind};
 pub enum ClientEvent {
     /// A connection to `dc` came back after `attempt` tries. When it's the main connection, updates missed
     /// meanwhile are being fetched.
+    ///
+    /// The listener gets this as part of the connection coming back, and a [`disconnect`](crate::Client::disconnect)
+    /// on another thread waits until the listener returns, for 5 seconds at most. So the listener shouldn't block
+    /// waiting for a disconnect running elsewhere, which holds that disconnect up to then; calling `disconnect` from
+    /// the listener itself is fine.
     #[non_exhaustive]
     Reconnected {
         /// Id of the data center whose connection came back; file-transfer connections report theirs too.
@@ -46,6 +51,15 @@ pub enum ClientEvent {
         /// Length of the update in bytes.
         len: usize,
     },
+    /// A media object in a message couldn't be read and became `Media::Unknown`: a widget whose HTML is over 1 MiB
+    /// or isn't UTF-8 once inflated.
+    #[non_exhaustive]
+    MediaParseFailed {
+        /// TL constructor id of the media.
+        constructor_id: u32,
+        /// Why: `"widget payload isn't valid zlib data"`, `"widget HTML is over 1 MiB"` or `"widget HTML isn't UTF-8"`.
+        reason: &'static str,
+    },
     /// An update Telegram pushed holds a TL constructor this build's schema doesn't know, usually from a newer
     /// layer, and was skipped.
     #[non_exhaustive]
@@ -53,7 +67,9 @@ pub enum ClientEvent {
         /// The unknown constructor id; it can sit anywhere inside the update, not only at its start.
         id: u32,
     },
-    /// A handler or lifecycle hook returned `Err` and no [`on_error`](crate::Client::on_error) handler is set.
+    /// A handler or lifecycle hook returned `Err` and no [`on_error`](crate::Client::on_error) handler is set. Also
+    /// sent, with `on_error` set, for a handler [`stop_with_timeout`](crate::Client::stop_with_timeout) cancelled
+    /// that `on_error` didn't finish reporting in time.
     #[non_exhaustive]
     HandlerFailed {
         /// The error, with the route it came from and the chat, message, user and query of the update.
@@ -99,7 +115,11 @@ pub enum ClientEvent {
     },
     /// The handlers fell behind and `count` batches of updates didn't fit in the queue. Updates that move pts or
     /// qts are fetched again; `unrecoverable` of the batches also held others (callback queries, typing, ...) that
-    /// are gone. More `max_concurrent_handlers` or faster handlers keep it at 0.
+    /// are gone. With [`ordered`](crate::ClientBuilder::ordered) and
+    /// [`max_concurrent_handlers`](crate::ClientBuilder::max_concurrent_handlers), an update that would wait behind
+    /// its chat's running handler is dropped too when 1024 of its chat's, or 4096 over every chat, already wait so,
+    /// and is counted in both: no fetch brings it back.
+    /// More `max_concurrent_handlers` or faster handlers keep it at 0.
     #[non_exhaustive]
     UpdatesDropped {
         /// Batches dropped since the last report.
@@ -112,9 +132,9 @@ pub enum ClientEvent {
     /// nothing to fetch from ([`SkipReason::NoPts`]: no fetch was made). A report for the account also stands for
     /// its qts updates (participant changes, join requests, a bot being stopped, ...), whose own numbers it doesn't
     /// give: `from..to` are pts. Of those, the ones held behind a missing one went out past it. The ones dropped
-    /// because too many were held stay ahead of the stored qts and come with the account's next fetch: a later gap,
-    /// the idle fetch, a reconnect, [`recover_gaps`](crate::Client::recover_gaps), or the next start with
-    /// [`catch_up`](crate::ClientBuilder::catch_up). Nothing schedules one for them.
+    /// because too many were held stay ahead of the stored qts, so a fetch still brings them: the account's updates
+    /// are fetched again for them a few seconds later, and again after each fetch given up on, until one reads them,
+    /// or at the next start with [`catch_up`](crate::ClientBuilder::catch_up).
     #[non_exhaustive]
     UpdatesSkipped {
         /// Bot-API style id of the channel (`-100…`), or `None` for the account's own message box (private chats
