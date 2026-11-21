@@ -38,7 +38,7 @@ impl<T: Subject + Inspect> Filter<T> {
 
 impl<T> Filter<T> {
     pub(crate) fn eval(&self, facts: &Facts<'_>, item: &T) -> bool {
-        self.0.eval(facts, Some(item))
+        self.0.eval(facts, item)
     }
 
     pub(crate) fn decide(&self, facts: &Facts<'_>) -> Option<bool> {
@@ -63,10 +63,11 @@ impl<T> BitOr for Filter<T> {
 impl<T> Not for Filter<T> {
     type Output = Filter<T>;
     fn not(self) -> Filter<T> {
-        Filter(match self.0 {
-            Pred::Not(p) => *p,
-            p => Pred::Not(Box::new(p)),
-        })
+        let mut p = self.0;
+        if let Pred::Not(inner) = &mut p {
+            return Filter(std::mem::replace(&mut **inner, Pred::All));
+        }
+        Filter(Pred::Not(Box::new(p)))
     }
 }
 
