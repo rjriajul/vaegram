@@ -73,7 +73,7 @@ async fn handshakes_over_every_transport() {
 
 #[cfg(feature = "unstable-raw")]
 #[tokio::test]
-#[ignore = "connects through VAEGRAM_SOCKS5 (host:port[:user:pass]) and VAEGRAM_MTPROXY (host:port:secret)"]
+#[ignore = "connects through VAEGRAM_SOCKS5 (host:port[:user:pass]) and VAEGRAM_MTPROXY (a link or host:port:secret)"]
 async fn handshakes_through_proxies() {
     let dc = Dc::production(2).unwrap();
     let mut proxies = Vec::new();
@@ -83,12 +83,18 @@ async fn handshakes_through_proxies() {
         proxies.push(Proxy::Socks5 { host: parts[0].into(), port: parts[1].parse().unwrap(), auth });
     }
     if let Ok(s) = std::env::var("VAEGRAM_MTPROXY") {
-        let parts: Vec<&str> = s.split(':').collect();
-        proxies.push(Proxy::MtProxy {
-            host: parts[0].into(),
-            port: parts[1].parse().unwrap(),
-            secret: parts[2].parse().unwrap(),
-        });
+        let proxy = match s.parse::<Proxy>() {
+            Ok(proxy @ Proxy::MtProxy { .. }) => proxy,
+            _ => {
+                let parts: Vec<&str> = s.split(':').collect();
+                Proxy::MtProxy {
+                    host: parts[0].into(),
+                    port: parts[1].parse().unwrap(),
+                    secret: parts[2].parse().unwrap(),
+                }
+            }
+        };
+        proxies.push(proxy);
     }
     if proxies.is_empty() {
         eprintln!("skipped: set VAEGRAM_SOCKS5 or VAEGRAM_MTPROXY");
