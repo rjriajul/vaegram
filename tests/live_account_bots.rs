@@ -24,61 +24,55 @@ fn rpc_is(error: &Error, name: &str) -> bool {
     error.rpc().is_some_and(|e| e.is(name))
 }
 
-/// A test-server number, `99966` + DC 2 + four random digits; its login code is the DC digit five times.
+/// Four digits that change every call, after `999662`: a test-server number on DC 2, or a throwaway name.
 fn test_number() -> String {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos();
     format!("999662{:04}", nanos % 10_000)
 }
 
 #[tokio::test]
-#[ignore = "signs up a throwaway account on Telegram's test servers"]
-async fn test_account_logs_in_with_a_resent_code() {
+#[ignore = "sends a login code on Telegram's test servers"]
+async fn test_server_sends_and_resends_a_code() {
     if std::env::var("VAEGRAM_API_ID").is_err() {
         eprintln!("skipped: set VAEGRAM_API_ID and VAEGRAM_API_HASH");
         return;
     }
     let (api_id, api_hash) = api();
-    let session = "target/vaegram-live-test-login";
-    let client = Client::builder(session, api_id, api_hash).test_mode().connect().await.unwrap();
+    let client =
+        Client::builder("target/vaegram-live-test-login", api_id, api_hash).test_mode().connect().await.unwrap();
     assert!(!client.is_authorized().await.unwrap());
 
+    // Telegram stopped making accounts for `99966` numbers in January 2026 (tdlib/td#3083), so the code it sends
+    // can't sign in; the sign-in itself is covered by `test_session_is_on_the_test_servers`.
     let phone = test_number();
-    let mut hash = match client.send_code(&phone).await {
+    let hash = match client.send_code(&phone).await {
         Ok(code) => code.phone_code_hash,
         Err(e) if support::flood_limited(&e, "sending a test-server login code") => return,
         Err(e) => panic!("{e}"),
     };
     match client.resend_code(&phone, &hash).await {
-        Ok(code) => hash = code.phone_code_hash,
-        // Test numbers may have no second delivery method; the first hash stays valid then.
+        Ok(code) => assert!(!code.phone_code_hash.is_empty()),
+        // Test numbers may have no second delivery method.
         Err(e) if rpc_is(&e, "SEND_CODE_UNAVAILABLE") => {}
         Err(e) if support::flood_limited(&e, "resending a test-server login code") => return,
         Err(e) => panic!("{e}"),
     }
-    match client.sign_in(&phone, &hash, "22222").await {
-        Ok(_) => {}
-        Err(Error::SignUpRequired) => {
-            client.sign_up(&phone, &hash, "Live", "Test").await.unwrap();
-        }
-        Err(e) => panic!("{e}"),
-    }
+}
 
+#[tokio::test]
+#[ignore = "uses a logged-in test-server session"]
+async fn test_session_is_on_the_test_servers() {
+    let Ok(session) = std::env::var("VAEGRAM_TEST_SESSION") else {
+        eprintln!("skipped: set VAEGRAM_TEST_SESSION (a session logged in with `cargo run --example test_account`)");
+        return;
+    };
+    let (api_id, api_hash) = api();
+    // No `test_mode()`: the session remembers which servers it belongs to.
+    let client = Client::builder(session, api_id, api_hash).connect().await.unwrap();
     assert!(client.is_authorized().await.unwrap());
-    // A fresh test account has no cloud password.
-    assert_eq!(client.get_password_hint().await.unwrap(), None);
-
-    let me = client.get_me().await.unwrap();
-    let new_phone = test_number();
-    match client.send_phone_number_code(&new_phone).kind(vaegram::enums::PhoneNumberCodeType::Change).await {
-        Ok(code) => {
-            let user = client.change_phone_number(&new_phone, &code.phone_code_hash, "22222").await.unwrap();
-            assert_eq!(user.id, me.id);
-        }
-        // The account was created a moment ago, and Telegram holds number changes back for about a day.
-        Err(e) if rpc_is(&e, "FRESH_CHANGE_PHONE_FORBIDDEN") => {}
-        Err(e) => panic!("{e}"),
-    }
-    client.log_out().await.unwrap();
+    let base::Config::Config(config) = client.invoke(&functions::help::GetConfig {}).await.unwrap();
+    assert!(config.test_mode);
+    assert!(!client.get_me().await.unwrap().is_bot);
 }
 
 #[tokio::test]
