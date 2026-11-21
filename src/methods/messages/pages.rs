@@ -1,3 +1,4 @@
+use super::search_posts::SearchPostsFlood;
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::Result;
@@ -20,6 +21,10 @@ pub(super) struct Pages {
     // The count of the last page, or what a one-message request said before any.
     pub(super) total: Option<i32>,
     pub(super) offset_rate: i32,
+    // What the last slice said about the next page, apart from the date fallback `offset_rate` uses.
+    pub(super) next_rate: Option<i32>,
+    // What a post search said about its free searches; Telegram may only send it with some pages.
+    pub(super) search_flood: Option<SearchPostsFlood>,
     offset_peer: i64,
     pub(super) offset_id: i32,
     done: bool,
@@ -36,6 +41,8 @@ impl Pages {
             reverse: false,
             total: None,
             offset_rate: 0,
+            next_rate: None,
+            search_flood: None,
             offset_peer: 0,
             offset_id: 0,
             done: false,
@@ -57,7 +64,21 @@ impl Pages {
         }
     }
 
+    /// Keeps what a page says besides its messages. `next_rate` is the last page's, so a page without one clears it.
+    pub(super) fn note(&mut self, page: &base::messages::Messages) {
+        self.next_rate = match page {
+            base::messages::Messages::MessagesSlice(m) => m.next_rate,
+            _ => None,
+        };
+        if let base::messages::Messages::MessagesSlice(m) = page {
+            if let Some(base::SearchPostsFlood::SearchPostsFlood(flood)) = &m.search_flood {
+                self.search_flood = Some(SearchPostsFlood::from_raw(flood));
+            }
+        }
+    }
+
     pub(super) fn fill(&mut self, client: &Client, page: base::messages::Messages) {
+        self.note(&page);
         let (next_rate, complete) = match &page {
             base::messages::Messages::Messages(_) | base::messages::Messages::MessagesNotModified(_) => (None, true),
             base::messages::Messages::MessagesSlice(m) => (m.next_rate, false),
@@ -261,5 +282,38 @@ pub(super) mod tests {
         assert_eq!(pages.limit(), Some(30));
         pages.remaining = 0;
         assert_eq!(pages.limit(), None);
+    }
+
+    #[test]
+    fn next_rate_is_the_last_pages_and_a_page_without_one_clears_it() {
+        let mut pages = Pages::by_rate();
+        let slice = |next_rate| {
+            let slice = types::messages::MessagesSlice {
+                inexact: false,
+                count: 1,
+                next_rate,
+                offset_id_offset: None,
+                search_flood: None,
+                messages: Vec::new(),
+                topics: Vec::new(),
+                chats: Vec::new(),
+                users: Vec::new(),
+            };
+            base::messages::Messages::MessagesSlice(Box::new(slice))
+        };
+        pages.note(&slice(Some(5)));
+        assert_eq!(pages.next_rate, Some(5));
+        pages.note(&slice(None));
+        assert_eq!(pages.next_rate, None);
+
+        pages.next_rate = Some(5);
+        let plain = types::messages::Messages {
+            messages: Vec::new(),
+            topics: Vec::new(),
+            chats: Vec::new(),
+            users: Vec::new(),
+        };
+        pages.note(&base::messages::Messages::Messages(Box::new(plain)));
+        assert_eq!(pages.next_rate, None);
     }
 }

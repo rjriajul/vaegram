@@ -54,6 +54,8 @@ pub(super) struct Importers {
     // Built on the first page and moved along by each one after.
     request: Option<functions::messages::GetChatInviteImporters>,
     read: usize,
+    // The (date, user) pair the last request continued from; the server repeating it would loop forever.
+    cursor: Option<(i32, i64)>,
     // The cursor lives in `request`, so the pages only track whether there are more.
     pub(super) pages: OffsetPages<ChatJoiner, ()>,
 }
@@ -61,7 +63,7 @@ pub(super) struct Importers {
 impl Importers {
     pub(super) fn new(chat_id: PeerRef, requested: bool, link: Option<String>) -> Self {
         let pages = OffsetPages::starting_at(IMPORTERS_LIMIT, ());
-        Importers { chat_id, requested, link, query: None, request: None, read: 0, pages }
+        Importers { chat_id, requested, link, query: None, request: None, read: 0, cursor: None, pages }
     }
 
     pub(super) async fn next(&mut self, client: &Client) -> Result<Option<ChatJoiner>> {
@@ -87,7 +89,8 @@ impl Importers {
             request.limit = limit;
             let base::messages::ChatInviteImporters::ChatInviteImporters(page) = client.invoke(&*request).await?;
             let page = *page;
-            self.read += page.importers.len();
+            let fetched = page.importers.len();
+            self.read += fetched;
             let last = page.importers.last().map(|base::ChatInviteImporter::ChatInviteImporter(i)| (i.date, i.user_id));
             let entities = Entities::new(client, page.users, Vec::new());
             let joiners = page
@@ -96,8 +99,14 @@ impl Importers {
                 .map(|base::ChatInviteImporter::ChatInviteImporter(i)| ChatJoiner::parse(*i, &entities))
                 .collect();
             let more = match last {
-                Some((date, user_id)) if self.read < usize::try_from(page.count).unwrap_or(0) => {
+                // Without room for another page, the cursor would only cost a lookup that may fail on an empty user.
+                Some((date, user_id))
+                    if self.read < usize::try_from(page.count).unwrap_or(0)
+                        && self.pages.remaining > fetched
+                        && self.cursor != Some((date, user_id)) =>
+                {
                     // The next page starts after this (date, user) pair; the user's access hash was just cached.
+                    self.cursor = Some((date, user_id));
                     request.offset_date = date;
                     request.offset_user = client.resolve_user(&user_id.into()).await?;
                     Some(())
@@ -190,5 +199,36 @@ pub(crate) mod tests {
             limit,
         };
         assert_eq!(sent, [request(1).to_bytes(), request(100).to_bytes()]);
+    }
+
+    #[tokio::test]
+    async fn a_repeated_cursor_ends_the_list() {
+        let same = || page(i32::MAX, &[(10, 200)]);
+        let (client, mut rx) = setup(vec![same(), same(), same()]);
+        client.get_chat_join_requests(get_channel_id(CHANNEL_ID)).await.unwrap();
+        assert_eq!(std::iter::from_fn(|| rx.try_recv().ok()).count(), 2);
+    }
+
+    #[tokio::test]
+    async fn the_last_item_of_the_limit_needs_no_cursor() {
+        // The user is missing from the page, so looking up the cursor would fail.
+        let empty = types::UserEmpty { id: 10 };
+        let importer = types::ChatInviteImporter {
+            requested: true,
+            via_chatlist: false,
+            user_id: 10,
+            date: 200,
+            about: None,
+            approved_by: None,
+        };
+        let reply = types::messages::ChatInviteImporters {
+            count: 2,
+            importers: vec![base::ChatInviteImporter::ChatInviteImporter(Box::new(importer))],
+            users: vec![base::User::UserEmpty(empty)],
+        };
+        let reply = base::messages::ChatInviteImporters::ChatInviteImporters(Box::new(reply)).to_bytes();
+        let (client, _rx) = setup(vec![reply]);
+        let found = client.get_chat_join_requests(get_channel_id(CHANNEL_ID)).limit(1).await.unwrap();
+        assert_eq!(found.iter().map(|j| j.user.id).collect::<Vec<_>>(), [10]);
     }
 }

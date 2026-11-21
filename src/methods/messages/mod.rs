@@ -202,7 +202,7 @@ pub use save_draft::SaveDraft;
 pub use search_global::SearchGlobal;
 pub use search_messages::SearchMessages;
 pub use search_messages_count::SearchMessagesCount;
-pub use search_posts::SearchPosts;
+pub use search_posts::{SearchPosts, SearchPostsFlood};
 pub use send_animation::SendAnimation;
 pub use send_audio::SendAudio;
 pub use send_cached_media::SendCachedMedia;
