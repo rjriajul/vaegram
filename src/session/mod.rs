@@ -1151,7 +1151,9 @@ impl Runner {
                 self.finish(msg_id, p, Err(Error::Disconnected));
             }
         } else {
+            // msg_ids grow with send order, and the server answers per id in the order asked: resends keep it.
             self.recheck = self.pending.keys().copied().collect();
+            self.recheck.sort_unstable();
             self.check_state().await?;
         }
         self.ping().await
