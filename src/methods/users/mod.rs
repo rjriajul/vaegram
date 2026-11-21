@@ -10,6 +10,7 @@ mod get_default_channel_emoji_statuses;
 mod get_default_emoji_statuses;
 mod get_me;
 mod get_recent_emoji_statuses;
+mod get_requirements_to_contact;
 mod get_share_theme_backdrops;
 mod get_user_profile_audios;
 mod get_users;

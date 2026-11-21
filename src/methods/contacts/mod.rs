@@ -1,6 +1,7 @@
 mod add_contact;
 mod block_user;
 mod delete_contacts;
+mod edit_close_friends;
 mod export_no_paid_messages_token;
 mod get_blocked_message_senders;
 mod get_contacts;
@@ -9,6 +10,7 @@ mod import_contacts;
 mod import_no_paid_messages_token;
 mod search_contacts;
 mod set_contact_note;
+mod toggle_top_peers;
 mod unblock_user;
 
 pub use add_contact::AddContact;

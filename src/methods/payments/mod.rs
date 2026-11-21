@@ -24,6 +24,7 @@ mod get_gifts_for_crafting;
 mod get_giveaway_info;
 mod get_my_star_balance;
 mod get_payment_form;
+mod get_premium_gift_code_options;
 mod get_saved_order_info;
 mod get_star_balance;
 mod get_star_payment_options;

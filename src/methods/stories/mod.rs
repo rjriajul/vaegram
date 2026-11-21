@@ -11,6 +11,7 @@ mod get_chat_stories;
 mod get_pinned_stories;
 mod get_stories;
 mod get_stories_archive;
+mod get_story_albums;
 mod get_story_post_count;
 mod get_story_viewers;
 mod hide_chat_stories;

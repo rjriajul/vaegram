@@ -92,6 +92,7 @@ pub(crate) mod sticker_source;
 mod stories_stealth_mode;
 mod story;
 mod story_actions;
+mod story_album;
 mod story_area;
 mod story_replies;
 mod successful_payment;
@@ -211,6 +212,7 @@ pub use sticker_set_ref::StickerSetRef;
 pub use sticker_source::StickerSource;
 pub use stories_stealth_mode::StoriesStealthMode;
 pub use story::{Story, StoryViewer};
+pub use story_album::StoryAlbum;
 #[allow(deprecated)]
 pub use story_area::{AreaPosition, LocationAddress, StoryArea, StoryAreaPosition, StoryAreaType};
 pub use successful_payment::SuccessfulPayment;
