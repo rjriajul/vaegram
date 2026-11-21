@@ -731,7 +731,8 @@ impl fmt::Debug for Client {
     }
 }
 
-pub(crate) struct Inner {
+/// What a client shares between its clones, behind [`Inner`].
+pub(crate) struct InnerFields {
     session: RwLock<Session>,
     pub(crate) transfers: TransferPool,
     pub(crate) updates: tokio::sync::Mutex<UpdatesRx>,
@@ -784,6 +785,36 @@ pub(crate) struct Inner {
     pub(crate) fetch: Fetch,
     // The last app config `get_app_config` got; its hash lets Telegram answer "not modified".
     pub(crate) app_config: Mutex<Option<AppConfig>>,
+}
+
+/// [`InnerFields`] with `Send` and `Sync` stated rather than worked out: every friendly type holds a `Client`, and
+/// without these, proving one `Send` walks the whole client, which overflows nightly's recursion limit in callers'
+/// crates (`recursion_depth_exceeding_limit`, rust-lang/rust#159228). The other auto traits still come from the
+/// fields.
+pub(crate) struct Inner(InnerFields);
+
+// SAFETY: Inner is exactly InnerFields, checked Send + Sync below.
+unsafe impl Send for Inner {}
+// SAFETY: Inner is exactly InnerFields, checked Send + Sync below.
+unsafe impl Sync for Inner {}
+
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<InnerFields>()
+};
+
+impl std::ops::Deref for Inner {
+    type Target = InnerFields;
+
+    fn deref(&self) -> &InnerFields {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Inner {
+    fn deref_mut(&mut self) -> &mut InnerFields {
+        &mut self.0
+    }
 }
 
 /// What a client fetches for a new message before its handlers run.
@@ -853,7 +884,7 @@ mod me {
 
 impl Inner {
     fn new(session: Session, updates: UpdatesRx, store: Arc<Store>) -> Inner {
-        Inner {
+        Inner(InnerFields {
             session: RwLock::new(session),
             events: updates.events.clone(),
             updates: tokio::sync::Mutex::new(updates),
@@ -894,9 +925,11 @@ impl Inner {
             caches: Caches::default(),
             fetch: Fetch::default(),
             app_config: Mutex::new(None),
-        }
+        })
     }
+}
 
+impl InnerFields {
     fn stored(&self, update: Option<UpdateState>) -> StoredState {
         let owner = self.me.lock().unwrap_or_else(PoisonError::into_inner).id;
         let salt = self.session.read().unwrap_or_else(PoisonError::into_inner).salt();
