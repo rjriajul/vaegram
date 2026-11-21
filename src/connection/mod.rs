@@ -265,12 +265,13 @@ impl Options {
 }
 
 /// The client details sent in `initConnection`, which Telegram shows in the account's list of active sessions.
-/// The default is model `vaegram`, the OS name as the system version, this crate's version as the app version and
-/// language `en`.
+/// The default is the OS and CPU architecture as the model (such as `linux x86_64`), the OS name as the system
+/// version, this crate's version as the app version and language `en`.
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct Device {
-    /// The device model, `"vaegram"` by default.
+    /// The device model, the OS and CPU architecture (`std::env::consts::OS` and `ARCH`, such as `linux x86_64`)
+    /// by default.
     pub model: String,
     /// The operating system version, the OS name (`std::env::consts::OS`) by default.
     pub system_version: String,
@@ -292,7 +293,7 @@ pub struct Device {
 impl Default for Device {
     fn default() -> Self {
         Device {
-            model: "vaegram".into(),
+            model: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
             system_version: std::env::consts::OS.into(),
             app_version: env!("CARGO_PKG_VERSION").into(),
             lang_code: "en".into(),
@@ -768,6 +769,13 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::*;
+
+    #[test]
+    fn the_default_device_model_describes_the_machine() {
+        let model = Device::default().model;
+        assert_ne!(model, "vaegram");
+        assert_eq!(model, format!("{} {}", std::env::consts::OS, std::env::consts::ARCH));
+    }
 
     fn full() -> Options {
         Options { transport: Transport::Full, ..Options::default() }
