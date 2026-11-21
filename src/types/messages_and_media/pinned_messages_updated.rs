@@ -6,6 +6,7 @@ use crate::types::Chat;
 /// Messages in a chat were pinned or unpinned.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PinnedMessagesUpdated {
     /// The chat the messages are in.
     pub chat: Chat,
@@ -13,6 +14,7 @@ pub struct PinnedMessagesUpdated {
     pub message_ids: Vec<i32>,
     /// `true` if the messages were pinned, `false` if they were unpinned.
     pub is_pinned: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

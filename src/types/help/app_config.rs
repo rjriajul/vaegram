@@ -10,6 +10,7 @@ use crate::types::Json;
 /// whether it changed since. Clones share the JSON.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AppConfig {
     json: Arc<Json>,
     pub(crate) hash: i32,

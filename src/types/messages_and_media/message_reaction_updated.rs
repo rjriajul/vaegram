@@ -7,6 +7,7 @@ use crate::types::{Chat, ReactionType, User};
 
 /// A change to the reactions one user or chat left on a message.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MessageReactionUpdated {
     /// The chat the message is in.
     pub chat: Chat,
@@ -22,6 +23,7 @@ pub struct MessageReactionUpdated {
     pub old_reaction: Vec<ReactionType>,
     /// The reactions the actor has now. Empty if they removed all of them.
     pub new_reaction: Vec<ReactionType>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

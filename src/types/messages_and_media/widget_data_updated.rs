@@ -7,6 +7,7 @@ use crate::types::Chat;
 
 /// A change to a message widget's public or chat-specific data.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct WidgetDataUpdated {
     /// The chat containing the message.
     pub chat: Chat,
@@ -18,6 +19,7 @@ pub struct WidgetDataUpdated {
     pub public_data_hash: Option<i64>,
     /// The new chat-specific data, or `None` if it did not change.
     pub chat_data: Option<String>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

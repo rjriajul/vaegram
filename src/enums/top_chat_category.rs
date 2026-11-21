@@ -1,6 +1,7 @@
 /// Which list of frequently used chats [`Client::get_top_chats`](crate::Client::get_top_chats) returns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum TopChatCategory {
     /// Users you message most.
     Users,

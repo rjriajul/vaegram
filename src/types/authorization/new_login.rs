@@ -4,6 +4,7 @@ use crate::raw::types;
 /// Someone logged in to this account on a new device, or confirmed such a login.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct NewLogin {
     /// Hash of the new session, the same as [`ActiveSession::id`](crate::types::ActiveSession::id). Pass it to
     /// `terminate_session` to log that device out.
@@ -17,6 +18,7 @@ pub struct NewLogin {
     pub device: Option<String>,
     /// Where the login came from, as Telegram guessed it. `None` once it was confirmed.
     pub location: Option<String>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

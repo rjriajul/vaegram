@@ -4,6 +4,7 @@ use crate::types::{StatisticalGraph, StatisticalValue};
 /// Statistics of a channel over a period.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChannelStatistics {
     /// Unix time the period starts.
     pub min_date: i32,
@@ -56,6 +57,7 @@ pub struct ChannelStatistics {
 /// Interaction counts of one post or story.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PostInteractions {
     /// Id of the message, or of the story if `is_story` is `true`.
     pub id: i32,

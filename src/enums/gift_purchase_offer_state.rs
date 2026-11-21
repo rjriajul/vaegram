@@ -1,6 +1,7 @@
 /// Where an offer to buy someone's upgraded gift stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum GiftPurchaseOfferState {
     /// Neither accepted nor declined yet.
     Pending,

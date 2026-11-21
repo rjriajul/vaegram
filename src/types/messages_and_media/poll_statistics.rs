@@ -4,6 +4,7 @@ use crate::types::StatisticalGraph;
 /// Statistics of a poll.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PollStatistics {
     /// Graph of the poll's votes.
     pub votes_graph: StatisticalGraph,

@@ -7,9 +7,11 @@ use crate::raw::{base, types};
 /// or with [`StickerSet::set_ref`](crate::types::StickerSet::set_ref). A set's access hash belongs to the account
 /// that was given it, so a reference from one client may be refused by another.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StickerSetRef(Kind);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 enum Kind {
     Id { id: i64, access_hash: i64 },
     Name(String),

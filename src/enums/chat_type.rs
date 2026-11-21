@@ -26,6 +26,7 @@
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ChatType {
     /// A private chat with a user.
     Private,

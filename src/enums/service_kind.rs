@@ -5,6 +5,7 @@ use crate::raw::base;
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ServiceKind {
     /// Members were added, or joined by invite link or join request.
     NewChatMembers = 1,

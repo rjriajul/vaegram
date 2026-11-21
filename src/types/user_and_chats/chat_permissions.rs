@@ -3,6 +3,7 @@ use crate::raw::{base, types};
 /// What a member without admin rights may do. `Default` allows nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatPermissions {
     /// Whether members can send plain text messages.
     pub can_send_messages: bool,

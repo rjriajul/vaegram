@@ -5,6 +5,7 @@ use crate::types::{Chat, MessageEntity};
 /// A message draft saved in a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Draft {
     /// Chat the draft is saved in.
     pub chat: Chat,

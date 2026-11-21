@@ -70,6 +70,7 @@ fn walk(text: &str, mut spans: Vec<Span>, out: &mut impl Markup) {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub(crate) enum Kind {
     Bold,
     Italic,
@@ -117,6 +118,7 @@ pub(crate) fn date_time_format(flags: u8) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub(crate) struct Span {
     pub(crate) kind: Kind,
     pub(crate) start: i32,

@@ -9,6 +9,7 @@ use crate::types::{Chat, User};
 
 /// A user's request to join a chat that approves new members.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatJoinRequest {
     /// The chat the user wants to join.
     pub chat: Chat,
@@ -24,6 +25,7 @@ pub struct ChatJoinRequest {
     pub invite_link: Option<String>,
     /// Query id the chat's guard bot answers the request with. `None` if no guard bot handles it.
     pub query_id: Option<i64>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

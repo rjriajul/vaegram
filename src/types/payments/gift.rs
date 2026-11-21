@@ -9,6 +9,7 @@ use crate::utils::get_peer_id;
 /// A regular gift that can be sent to a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Gift {
     /// Id of the gift.
     pub id: i64,
@@ -67,6 +68,7 @@ pub struct Gift {
 /// A unique gift, upgraded from a regular [`Gift`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UniqueGift {
     /// Id of this unique gift.
     pub id: i64,
@@ -129,6 +131,7 @@ pub struct UniqueGift {
 /// A model or symbol of a unique gift.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UniqueGiftAttribute {
     /// Name of the attribute.
     pub name: String,
@@ -141,6 +144,7 @@ pub struct UniqueGiftAttribute {
 /// The backdrop of a unique gift.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UniqueGiftBackdrop {
     /// Name of the backdrop.
     pub name: String,

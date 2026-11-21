@@ -6,6 +6,7 @@ use crate::types::{Chat, User};
 /// The number of pending requests to join a chat this account administers changed.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PendingJoinRequestsUpdated {
     /// The chat the requests are for.
     pub chat: Chat,
@@ -13,6 +14,7 @@ pub struct PendingJoinRequestsUpdated {
     pub pending_count: i32,
     /// Some of the users who asked to join most recently.
     pub recent_requesters: Vec<User>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

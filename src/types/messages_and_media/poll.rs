@@ -6,6 +6,7 @@ use crate::types::MessageEntity;
 /// A poll or quiz.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Poll {
     /// Telegram's id of the poll.
     pub id: i64,
@@ -43,6 +44,7 @@ pub struct Poll {
 /// One answer option of a [`Poll`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PollOption {
     /// The option text, as plain text.
     pub text: String,

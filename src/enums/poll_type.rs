@@ -1,6 +1,7 @@
 /// Whether a poll is a regular poll or a quiz.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PollType {
     /// A poll with no correct answer.
     Regular,

@@ -1,6 +1,7 @@
 /// How outgoing text is turned into formatting entities.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ParseMode {
     /// The text is sent as it is.
     #[default]

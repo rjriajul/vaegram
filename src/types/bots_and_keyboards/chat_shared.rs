@@ -4,6 +4,7 @@ use crate::types::Photo;
 /// [`KeyboardButtonRequestChat`](crate::types::KeyboardButtonRequestChat) button.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatShared {
     /// The `request_id` of the button that was pressed.
     pub request_id: i32,

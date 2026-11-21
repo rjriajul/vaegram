@@ -276,6 +276,7 @@ macro_rules! update_kinds {
         /// [`HandlerError::kind`]: crate::handlers::HandlerError::kind
         #[non_exhaustive]
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize))]
         pub enum UpdateKind {
             $($(#[$doc])* $kind,)*
             /// Every update unparsed, before filtering: [`on_raw_update`](crate::Client::on_raw_update).
@@ -300,6 +301,7 @@ macro_rules! update_kinds {
         /// the variants you need and keep a `_` arm; don't rely on an update staying in `Other`.
         #[non_exhaustive]
         #[derive(Clone, Debug)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize))]
         pub enum Update {
             $($(#[$doc])* $kind(Box<$ty>),)*
             /// An update with no typed event yet.

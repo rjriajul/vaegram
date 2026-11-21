@@ -1,6 +1,7 @@
 /// The data center closest to the client.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct NearestDc {
     /// Two-letter country code Telegram detected from the client's IP address.
     pub country: String,

@@ -9,6 +9,7 @@ use crate::types::{OrderInfo, User};
 /// A buyer's final confirmation before paying an invoice. Answer it with [`approve`](Self::approve) or
 /// [`decline`](Self::decline).
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PreCheckoutQuery {
     /// Id of the query, used to answer it.
     pub id: i64,
@@ -25,6 +26,7 @@ pub struct PreCheckoutQuery {
     pub shipping_option_id: Option<String>,
     /// Details the user gave at checkout. `None` if the invoice asked for none.
     pub order_info: Option<OrderInfo>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

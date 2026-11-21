@@ -5,6 +5,7 @@ use crate::raw::{base, functions};
 /// A mini app opened for the user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct WebView {
     /// URL to load in the web view.
     pub url: String,
@@ -33,9 +34,11 @@ impl WebView {
 
 /// A [`WebView`] together with the request that keeps it alive.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct WebViewSession {
     /// The view to show. Keep it alive with [`prolong`](Self::prolong) while it stays open.
     pub view: WebView,
+    #[cfg_attr(feature = "serde", serde(skip))]
     request: functions::messages::ProlongWebView,
 }
 

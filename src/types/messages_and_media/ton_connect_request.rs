@@ -3,6 +3,7 @@ use crate::raw::types;
 /// A request to connect a TON wallet to a mini app, as the service message shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TonConnectRequest {
     /// Telegram's id of the connection session.
     pub session_id: i64,

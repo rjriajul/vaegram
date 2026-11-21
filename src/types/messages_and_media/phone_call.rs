@@ -3,6 +3,7 @@ use crate::enums::PhoneCallDiscardReason;
 /// A private call that ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PhoneCallEnded {
     /// Id of the call.
     pub id: i64,

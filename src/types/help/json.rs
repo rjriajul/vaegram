@@ -2,6 +2,7 @@ use crate::raw::base;
 
 /// A JSON value as Telegram sends it, for example in the app config.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Json {
     /// `null`.
     Null,

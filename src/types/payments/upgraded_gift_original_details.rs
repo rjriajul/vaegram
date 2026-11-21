@@ -6,6 +6,7 @@ use crate::types::{Chat, MessageEntity};
 /// Who sent a gift before it was upgraded, to whom, and with what message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UpgradedGiftOriginalDetails {
     /// Who sent the gift. `None` if the sender was hidden.
     pub sender: Option<Chat>,

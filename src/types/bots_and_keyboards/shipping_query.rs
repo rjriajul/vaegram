@@ -9,6 +9,7 @@ use crate::types::{ShippingAddress, ShippingOption, User};
 
 /// A buyer's shipping address, sent so the bot can offer shipping options and prices.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ShippingQuery {
     /// Id of the query, used to answer it.
     pub id: i64,
@@ -18,6 +19,7 @@ pub struct ShippingQuery {
     pub invoice_payload: String,
     /// The address to ship to.
     pub shipping_address: ShippingAddress,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

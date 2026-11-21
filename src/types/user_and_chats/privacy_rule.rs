@@ -6,6 +6,7 @@ use crate::utils::get_channel_id;
 /// One rule of a privacy setting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PrivacyRule {
     /// Everyone is allowed.
     AllowAll,

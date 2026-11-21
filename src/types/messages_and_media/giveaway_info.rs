@@ -4,6 +4,7 @@ use crate::utils::get_channel_id;
 /// The state of a giveaway, as seen by the current user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum GiveawayInfo {
     /// The giveaway hasn't finished yet.
     #[non_exhaustive]

@@ -3,6 +3,7 @@ use crate::raw::base;
 /// An amount in Telegram Stars (`nanostar_amount` holds 1/10^9 stars), or in nanotons when `is_ton` is set.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StarAmount {
     /// Whole stars, or nanotons when `is_ton` is `true`.
     pub amount: i64,

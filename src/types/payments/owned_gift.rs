@@ -8,6 +8,7 @@ use crate::types::{Gift, MessageEntity, UniqueGift, User};
 /// A gift on a user's or channel's profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum OwnedGift {
     /// A gift that isn't upgraded.
     Regular(Box<OwnedGiftRegular>),
@@ -18,6 +19,7 @@ pub enum OwnedGift {
 /// A gift on a profile that hasn't been upgraded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct OwnedGiftRegular {
     /// The gift.
     pub gift: Gift,
@@ -54,6 +56,7 @@ pub struct OwnedGiftRegular {
 /// A unique gift on a profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct OwnedGiftUnique {
     /// The gift.
     pub gift: UniqueGift,

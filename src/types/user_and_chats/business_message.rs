@@ -5,6 +5,7 @@ use crate::types::BusinessRecipients;
 /// The quick reply a business account sends to new or long-quiet chats.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BusinessGreetingMessage {
     /// Id of the quick reply that is sent.
     pub shortcut_id: i32,
@@ -17,6 +18,7 @@ pub struct BusinessGreetingMessage {
 /// The quick reply a business account sends while it is away.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BusinessAwayMessage {
     /// Id of the quick reply that is sent.
     pub shortcut_id: i32,

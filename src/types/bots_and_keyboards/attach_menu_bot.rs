@@ -6,6 +6,7 @@ use crate::types::User;
 /// A bot listed in the attachment menu or the side menu.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AttachMenuBot {
     /// The bot as a [`User`].
     pub bot: User,

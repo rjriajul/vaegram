@@ -4,6 +4,7 @@ use crate::raw::{base, types};
 /// The weekly opening hours of a business account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BusinessOpeningHours {
     /// Id of the time zone the hours are in. Setting the hours fails with `Error::InvalidArgument` if it's empty.
     pub time_zone_name: String,

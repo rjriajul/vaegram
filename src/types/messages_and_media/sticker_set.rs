@@ -6,6 +6,7 @@ use crate::types::{FileLocation, Sticker, StickerSetRef};
 /// A sticker set, mask set or custom emoji set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StickerSet {
     /// Telegram's id of the set.
     pub id: i64,

@@ -8,6 +8,7 @@ use crate::types::{Chat, Media, MessageEntity, PrivacyRule, ReactionCount, React
 
 /// A story posted to a chat's story feed.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Story {
     /// The chat whose story feed holds the story.
     pub chat: Chat,
@@ -72,6 +73,7 @@ pub struct Story {
     /// `true` for a placeholder Telegram sends instead of the full story. Only `id`, the dates and
     /// `is_close_friends` are set.
     pub is_skipped: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 
@@ -217,6 +219,7 @@ impl Story {
 /// A user who viewed a story.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StoryViewer {
     /// The user who viewed the story.
     pub user: User,

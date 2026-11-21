@@ -6,6 +6,7 @@ use crate::types::{LivePhoto, Media, Photo, StrippedThumbnail, Video};
 /// Media a message sells for Stars.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PaidMediaInfo {
     /// Price in Stars.
     pub star_count: i64,
@@ -16,6 +17,7 @@ pub struct PaidMediaInfo {
 /// One item of paid media.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PaidMedia {
     /// Until it is bought, only the size and a video's length are shown.
     #[non_exhaustive]

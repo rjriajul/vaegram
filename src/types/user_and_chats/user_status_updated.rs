@@ -5,9 +5,11 @@ use crate::types::User;
 
 /// A user's online status changed.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UserStatusUpdated {
     /// The user, with `status`, `last_online_date` and `next_offline_date` set from the update.
     pub user: User,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

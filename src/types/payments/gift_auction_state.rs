@@ -6,6 +6,7 @@ use crate::types::{Chat, Gift, User};
 /// Current state of a gift auction and the account's place in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GiftAuctionState {
     /// The gift being auctioned.
     pub gift: Gift,
@@ -24,6 +25,7 @@ pub struct GiftAuctionState {
 /// Whether a gift auction is running or over.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum GiftAuctionStatus {
     /// The auction is running.
     Active(Box<ActiveGiftAuction>),
@@ -34,6 +36,7 @@ pub enum GiftAuctionStatus {
 /// Details of a running gift auction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ActiveGiftAuction {
     /// Unix time the auction started.
     pub start_date: i32,
@@ -62,6 +65,7 @@ pub struct ActiveGiftAuction {
 /// Details of a finished gift auction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FinishedGiftAuction {
     /// Unix time the auction started.
     pub start_date: i32,
@@ -80,6 +84,7 @@ pub struct FinishedGiftAuction {
 /// The account's bid in a gift auction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GiftAuctionBid {
     /// Amount bid, in Stars.
     pub star_count: i64,
@@ -94,6 +99,7 @@ pub struct GiftAuctionBid {
 /// A bid level in a gift auction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GiftAuctionBidLevel {
     /// Position of the level in the ranking.
     pub position: i32,
@@ -106,6 +112,7 @@ pub struct GiftAuctionBidLevel {
 /// One round of a gift auction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GiftAuctionRound {
     /// Number of the round.
     pub number: i32,

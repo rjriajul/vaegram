@@ -5,6 +5,7 @@ use crate::raw::base;
 /// How Telegram will deliver the code if it is asked to send it again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum NextCodeType {
     /// A text message.
     Sms,

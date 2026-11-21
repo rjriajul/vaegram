@@ -5,6 +5,7 @@ use crate::types::BotPreviewMedia;
 /// The preview media of a bot's profile page.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BotPreviewInfo {
     /// The preview items.
     pub media: Vec<BotPreviewMedia>,

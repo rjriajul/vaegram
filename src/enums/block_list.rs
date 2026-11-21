@@ -1,6 +1,7 @@
 /// Which block list a block, unblock or listing call works on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum BlockList {
     /// People who can't message the account, and can't see its stories either.
     #[default]

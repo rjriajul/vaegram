@@ -7,6 +7,7 @@ use super::input_document;
 /// A sticker, mask or custom emoji.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Sticker {
     /// Identifier for downloading or reusing the file.
     pub file_id: String,

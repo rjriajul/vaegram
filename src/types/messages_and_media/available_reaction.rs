@@ -3,6 +3,7 @@ use crate::raw::base;
 /// An emoji reaction that Telegram offers for messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AvailableReaction {
     /// The reaction's emoji.
     pub emoji: String,

@@ -101,6 +101,21 @@ impl RichMessage {
     }
 }
 
+/// Serializes `is_rtl`, `is_partial` and the plain [`text`](RichMessage::text); the blocks themselves are not
+/// serializable.
+#[cfg(feature = "serde")]
+impl serde::Serialize for RichMessage {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct as _;
+
+        let mut state = serializer.serialize_struct("RichMessage", 3)?;
+        state.serialize_field("is_rtl", &self.is_rtl)?;
+        state.serialize_field("is_partial", &self.is_partial)?;
+        state.serialize_field("text", &self.text())?;
+        state.end()
+    }
+}
+
 /// Settings for a [`RichMessage`], from [`RichMessage::builder`]; [`build`](Self::build) makes the message.
 ///
 /// The message carries no photos or documents, so its media blocks read with no file.

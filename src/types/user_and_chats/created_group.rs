@@ -3,6 +3,7 @@ use crate::types::{Chat, FailedToAddMember};
 /// A basic group made by [`Client::create_group`](crate::Client::create_group), with the users left out of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CreatedGroup {
     /// The new group.
     pub chat: Chat,

@@ -7,6 +7,7 @@ use crate::utils::get_channel_id;
 /// An entry in a chat's admin log.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatEvent {
     /// Id of the log entry, unique within the chat's log.
     pub id: i64,
@@ -23,6 +24,7 @@ pub struct ChatEvent {
 /// Actions vaegram doesn't map, and entries whose message fails to parse, come as [`ChatEventAction::Unknown`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ChatEventAction {
     /// The chat title changed.
     #[non_exhaustive]

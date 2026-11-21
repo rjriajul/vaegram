@@ -8,6 +8,7 @@ use crate::file_id::FileId;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 // The order is the number a file id stores for its kind: append new kinds, never reorder.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum FileType {
     /// A preview of a sticker, video or other document; it can only be downloaded. A photo's smaller sizes are
     /// [`Photo`](Self::Photo).

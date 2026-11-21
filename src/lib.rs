@@ -33,6 +33,10 @@
 //! None is on by default.
 //!
 //! - `json`: `ToJson` for every TL type and function, and JSON for raw updates and recordings.
+//! - `serde`: `serde::Serialize` for the friendly types users receive, such as [`types::Message`], [`types::User`]
+//!   and [`enums::ClientEvent`], so they can be logged or stored as JSON. There is no `Deserialize`. Fields that
+//!   hold the [`Client`] or TL objects are left out, and the rich message block tree and the types you build
+//!   to send (`InputMedia`, `InlineQueryResult*`, ...) are not serializable.
 //! - `unstable-raw`: the TL objects behind raw updates (`RawUpdate::raw()`, `raw_users()`, `raw_chats()`),
 //!   `Incoming::into_updates()` and `UploadedFile::into_raw()`, and the session plumbing below `Client`
 //!   (`connection::Connection`, `session::{Session, UpdatesRx, Incoming, Events}`). Experimental: may change or

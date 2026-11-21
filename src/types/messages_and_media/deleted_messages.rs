@@ -7,11 +7,13 @@ use crate::types::Chat;
 ///
 /// `chat` is set only for channels and supergroups; Telegram sends bare ids for the rest.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct DeletedMessages {
     /// The chat, for channels and supergroups. `None` otherwise.
     pub chat: Option<Chat>,
     /// Ids of the deleted messages.
     pub message_ids: Vec<i32>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

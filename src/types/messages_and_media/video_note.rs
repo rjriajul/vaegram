@@ -6,6 +6,7 @@ use crate::types::{Document, FileLocation, Thumbnail};
 /// `==` compares every field, and `file_id` differs between bots and sessions or over time; compare
 /// `file_unique_id` to tell whether two values are the same file.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct VideoNote {
     /// Id for downloading or resending the file. It can change between sessions and accounts.
     pub file_id: String,

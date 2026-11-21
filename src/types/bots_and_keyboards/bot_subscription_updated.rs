@@ -8,6 +8,7 @@ use crate::types::User;
 
 /// A user's Star subscription to the bot was canceled, restored or failed to renew.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BotSubscriptionUpdated {
     /// The subscriber.
     pub user: User,
@@ -15,6 +16,7 @@ pub struct BotSubscriptionUpdated {
     pub invoice_payload: String,
     /// What happened to the subscription.
     pub state: SubscriptionState,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

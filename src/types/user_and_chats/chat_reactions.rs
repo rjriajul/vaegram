@@ -4,6 +4,7 @@ use crate::types::ReactionType;
 /// The reactions members can put on messages. An empty one allows none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatReactions {
     /// Whether every emoji reaction is allowed.
     pub all_are_enabled: bool,

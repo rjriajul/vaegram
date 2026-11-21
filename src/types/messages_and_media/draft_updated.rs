@@ -6,6 +6,7 @@ use crate::types::{Chat, Draft};
 /// The draft in a chat was saved or cleared, on this or another of the account's devices.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct DraftUpdated {
     /// The chat the draft is in.
     pub chat: Chat,
@@ -13,6 +14,7 @@ pub struct DraftUpdated {
     pub topic_id: Option<i32>,
     /// The draft now. `None` once it was cleared.
     pub draft: Option<Draft>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

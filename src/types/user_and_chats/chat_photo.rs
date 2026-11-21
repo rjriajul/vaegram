@@ -5,6 +5,7 @@ use crate::types::{AnimatedChatPhoto, ChatPhotoSticker};
 
 /// The current photo of a user or chat. Pass a file id to `download_media`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatPhoto {
     /// Whether the photo is a short video.
     pub has_animation: bool,

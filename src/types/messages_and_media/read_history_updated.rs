@@ -7,6 +7,7 @@ use crate::types::Chat;
 /// ones by the other side.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ReadHistoryUpdated {
     /// The chat the messages are in.
     pub chat: Chat,
@@ -18,6 +19,7 @@ pub struct ReadHistoryUpdated {
     pub message_thread_id: Option<i32>,
     /// How many incoming messages are still unread. `None` for outgoing messages and comment threads.
     pub unread_count: Option<i32>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

@@ -10,6 +10,7 @@ use crate::handlers::{HandlerError, UpdateKind};
 /// Errors are behind an [`Arc`], so an event clones cheaply, for example to send it to several channels.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ClientEvent {
     /// A connection to `dc` came back after `attempt` tries. When it's the main connection, updates missed
     /// meanwhile are being fetched.
@@ -32,6 +33,7 @@ pub enum ClientEvent {
         /// Id of the data center the connection was for.
         dc: i32,
         /// Why it couldn't be opened.
+        #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_display"))]
         error: Arc<Error>,
     },
     /// A packet from Telegram, or one message of a container, was thrown away unread, and the connection carries on.
@@ -73,6 +75,7 @@ pub enum ClientEvent {
     #[non_exhaustive]
     HandlerFailed {
         /// The error, with the route it came from and the chat, message, user and query of the update.
+        #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_debug"))]
         error: Arc<HandlerError>,
     },
     /// A handler, its filter, a raw handler or a lifecycle hook panicked. The panic is caught where it happened, so
@@ -86,6 +89,7 @@ pub enum ClientEvent {
     #[non_exhaustive]
     HandlerPanicked {
         /// The route of the handler that panicked, as in [`HandlerError::kind`].
+        #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_debug"))]
         kind: UpdateKind,
         /// Bot-API style id of the update's chat, as in [`HandlerError::chat_id`].
         chat_id: Option<i64>,
@@ -97,12 +101,14 @@ pub enum ClientEvent {
     #[non_exhaustive]
     DifferenceFailed {
         /// The error the fetch returned.
+        #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_display"))]
         error: Arc<Error>,
     },
     /// Writing to the file given to `ClientBuilder::record` failed; the message is missing from the recording.
     #[non_exhaustive]
     RecordingFailed {
         /// The I/O error from the recording file.
+        #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_display"))]
         error: Arc<std::io::Error>,
     },
     /// A call to the storage engine failed and `error` says which. The client carries on: a lookup falls back to
@@ -111,6 +117,7 @@ pub enum ClientEvent {
     #[non_exhaustive]
     StorageFailed {
         /// The engine's error; its message names the call that failed.
+        #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_display"))]
         error: Arc<std::io::Error>,
     },
     /// The handlers fell behind and `count` batches of updates didn't fit in the queue. Updates that move pts or
@@ -147,4 +154,23 @@ pub enum ClientEvent {
         /// Why the updates were given up on.
         reason: SkipReason,
     },
+}
+
+// Errors and the handler route have no serde form of their own; they go out as text.
+#[cfg(feature = "serde")]
+fn serialize_display<T, S>(value: &T, serializer: S) -> std::result::Result<S::Ok, S::Error>
+where
+    T: std::fmt::Display + ?Sized,
+    S: serde::Serializer,
+{
+    serializer.collect_str(value)
+}
+
+#[cfg(feature = "serde")]
+fn serialize_debug<T, S>(value: &T, serializer: S) -> std::result::Result<S::Ok, S::Error>
+where
+    T: std::fmt::Debug + ?Sized,
+    S: serde::Serializer,
+{
+    serializer.collect_str(&format_args!("{value:?}"))
 }

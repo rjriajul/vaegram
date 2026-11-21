@@ -7,6 +7,7 @@ use crate::raw::{base, types};
 /// [app config](crate::types::AppConfig) instead.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Config {
     /// When the configuration was made.
     pub date: i32,
@@ -45,6 +46,7 @@ pub struct Config {
 /// How to reach one data center.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct DcOption {
     /// Id of the data center.
     pub id: i32,

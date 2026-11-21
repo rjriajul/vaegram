@@ -4,6 +4,7 @@ use crate::types::AreaPosition;
 /// An NFT sticker to place on a TON wallet card.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct InputTonWalletCardSticker {
     /// Where the sticker sits on the card.
     pub position: AreaPosition,

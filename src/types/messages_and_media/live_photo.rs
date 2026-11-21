@@ -7,6 +7,7 @@ use crate::types::{Document, FileLocation, Photo};
 /// `==` compares every field, and `file_id` differs between bots and sessions or over time; compare
 /// `file_unique_id` to tell whether two values are the same file.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct LivePhoto {
     /// The still photo. `None` if Telegram sent none or it can't be downloaded.
     pub photo: Option<Photo>,

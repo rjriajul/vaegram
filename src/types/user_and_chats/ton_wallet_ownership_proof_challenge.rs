@@ -6,6 +6,7 @@ use crate::raw::base;
 /// [`Client::get_ton_wallet_ownership_proof_challenge`](crate::Client::get_ton_wallet_ownership_proof_challenge).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TonWalletOwnershipProofChallenge {
     /// The payload to sign.
     pub payload: String,

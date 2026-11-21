@@ -46,6 +46,14 @@ impl fmt::Display for InlineMessageId {
     }
 }
 
+/// Serializes as the Bot API `inline_message_id` string.
+#[cfg(feature = "serde")]
+impl serde::Serialize for InlineMessageId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
 impl FromStr for InlineMessageId {
     type Err = Error;
 
@@ -86,5 +94,13 @@ mod tests {
 
         assert!("BAAA".parse::<InlineMessageId>().is_err());
         assert!("not base64!".parse::<InlineMessageId>().is_err());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serializes_as_the_bot_api_string() {
+        let id = types::InputBotInlineMessageID { dc_id: 4, id: -5, access_hash: 7 };
+        let id = InlineMessageId(base::InputBotInlineMessageID::InputBotInlineMessageID(Box::new(id)));
+        assert_eq!(serde_json::to_value(&id).unwrap(), "BAAAAPv_________BwAAAAAAAAA");
     }
 }

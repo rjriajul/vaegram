@@ -5,9 +5,11 @@ use crate::types::StarAmount;
 /// This account's Telegram Stars balance changed.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StarsBalanceUpdated {
     /// The balance now.
     pub balance: StarAmount,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

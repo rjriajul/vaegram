@@ -87,8 +87,10 @@ impl Drop for Waiter {
 /// with; while that is pending, [`wait`](Self::wait) waits for the final text.
 #[non_exhaustive]
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Transcription {
     audio: TranscribedAudio,
+    #[cfg_attr(feature = "serde", serde(skip))]
     waiter: Waiter,
 }
 

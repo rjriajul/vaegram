@@ -3,6 +3,7 @@ use crate::raw::base;
 /// One step of a report started with [`Client::report_messages`](crate::Client::report_messages).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ReportResult {
     /// Telegram wants a reason. Report again with the `option` of one of `options`.
     #[non_exhaustive]
@@ -27,6 +28,7 @@ pub enum ReportResult {
 /// A choice offered during a report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ReportOption {
     /// Label to show for this reason.
     pub text: String,

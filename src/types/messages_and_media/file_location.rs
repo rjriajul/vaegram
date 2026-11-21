@@ -7,7 +7,9 @@ use crate::utils::CHANNEL_OFFSET;
 
 /// Where Telegram stores a file, as needed to download it.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FileLocation {
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) location: base::InputFileLocation,
     /// Data center that stores the file. `None` if unknown.
     pub dc_id: Option<i32>,

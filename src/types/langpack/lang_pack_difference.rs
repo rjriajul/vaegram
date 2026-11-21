@@ -3,6 +3,7 @@ use crate::raw::base;
 /// The strings of a language pack that changed between two versions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct LangPackDifference {
     /// Language code of the pack.
     pub lang_code: String,
@@ -17,6 +18,7 @@ pub struct LangPackDifference {
 /// A string of a language pack.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum LangPackString {
     /// A string with a single form.
     #[non_exhaustive]

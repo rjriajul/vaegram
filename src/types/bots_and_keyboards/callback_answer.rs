@@ -3,6 +3,7 @@ use crate::raw::base;
 /// The bot's reply to a callback button press.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CallbackAnswer {
     /// Message to show the user. `None` if the bot sent none.
     pub text: Option<String>,

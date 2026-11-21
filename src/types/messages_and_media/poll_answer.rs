@@ -5,6 +5,7 @@ use crate::types::{Chat, User};
 
 /// A change to someone's vote in a poll.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PollAnswer {
     /// Id of the poll.
     pub poll_id: i64,
@@ -14,6 +15,7 @@ pub struct PollAnswer {
     pub voter_chat: Option<Chat>,
     /// Positions of the chosen options, counted from 0.
     pub option_ids: Vec<i32>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

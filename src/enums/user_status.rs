@@ -1,6 +1,7 @@
 /// A user's last-seen status as Telegram reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum UserStatus {
     /// Online now.
     Online,

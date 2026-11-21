@@ -5,6 +5,7 @@ use crate::types::{Chat, User};
 /// Where a forwarded message originally came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum MessageOrigin {
     /// Sent by a user whose account is visible.
     #[non_exhaustive]

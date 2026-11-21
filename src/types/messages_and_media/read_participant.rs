@@ -1,6 +1,7 @@
 /// Someone who has read a message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ReadParticipant {
     /// Id of the user who read the message.
     pub user_id: i64,

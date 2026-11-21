@@ -10,6 +10,7 @@ use crate::types::MessageEntity;
 ///
 /// A parse mode only applies to a `Text` made straight from a string. A built or parsed one is sent as is.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Text {
     pub(crate) text: String,
     pub(crate) len: i32,

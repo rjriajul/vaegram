@@ -3,6 +3,7 @@ use crate::raw::base;
 /// The price a unique gift is listed at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GiftResaleParameters {
     /// The price in Stars. `None` when the seller takes only Toncoin.
     pub star_count: Option<i64>,

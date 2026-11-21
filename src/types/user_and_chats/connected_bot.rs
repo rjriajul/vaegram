@@ -5,6 +5,7 @@ use crate::types::{BusinessBotRights, BusinessRecipients, User};
 /// A bot connected to the account for Telegram Business.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ConnectedBot {
     /// The bot.
     pub bot: User,

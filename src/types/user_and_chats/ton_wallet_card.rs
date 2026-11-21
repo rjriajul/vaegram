@@ -5,6 +5,7 @@ use crate::types::{AreaPosition, UniqueGift};
 /// A TON wallet card shown on a profile or shared with a widget.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TonWalletCard {
     /// The wallet address.
     pub address: String,
@@ -19,6 +20,7 @@ pub struct TonWalletCard {
 /// An NFT sticker placed on a TON wallet card.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TonWalletCardSticker {
     /// Where the sticker sits on the card.
     pub position: AreaPosition,
@@ -46,6 +48,7 @@ impl Eq for TonWalletCardSticker {}
 /// An NFT on the TON blockchain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TonNft {
     /// The NFT address.
     pub address: String,
@@ -66,6 +69,7 @@ pub struct TonNft {
 /// A named attribute of a TON NFT.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TonNftAttribute {
     /// Name of the attribute.
     pub trait_type: String,

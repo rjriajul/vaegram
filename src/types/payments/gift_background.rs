@@ -3,6 +3,7 @@ use crate::raw::base;
 /// The colors a regular gift is drawn on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GiftBackground {
     /// Color at the center, as an RGB integer.
     pub center_color: i32,

@@ -14,6 +14,7 @@ use crate::utils::{get_channel_id, get_peer};
 /// chat kind doesn't have stay `None` or `false`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatFullInfo {
     // Every chat.
     /// Id of the latest pinned message. `None` if nothing is pinned.

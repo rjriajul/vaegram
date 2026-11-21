@@ -5,6 +5,7 @@ use crate::types::{PaidReactor, ReactionCount};
 /// The reactions on a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MessageReactions {
     /// Each reaction on the message with its count.
     pub reactions: Vec<ReactionCount>,

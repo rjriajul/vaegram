@@ -5,6 +5,7 @@ use crate::raw::{base, types};
 /// With every field `false`, the query isn't filtered and returns all events.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatEventFilter {
     /// Bans, unbans, kicks and restriction changes.
     pub new_restrictions: bool,

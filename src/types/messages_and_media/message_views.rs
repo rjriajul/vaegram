@@ -3,6 +3,7 @@ use crate::raw::base;
 /// View, forward and reply counters of a message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MessageViews {
     /// Number of views. `None` if Telegram sent no count.
     pub views: Option<i32>,

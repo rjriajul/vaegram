@@ -8,6 +8,7 @@ use crate::types::{Chat, Poll};
 /// Telegram leaves the poll itself out of updates once the account has seen it. Such an update reaches handlers only
 /// when the message cache is on (`max_message_cache_size`) and kept the poll from its message or an earlier update.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PollUpdated {
     /// The poll as it now stands.
     pub poll: Poll,
@@ -15,6 +16,7 @@ pub struct PollUpdated {
     pub chat: Option<Chat>,
     /// Id of the message with the poll, when Telegram names it.
     pub message_id: Option<i32>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

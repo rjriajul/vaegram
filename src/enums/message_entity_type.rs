@@ -1,6 +1,7 @@
 /// The kind of a [`MessageEntity`](crate::types::MessageEntity).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum MessageEntityType {
     /// An `@username` mention.
     Mention,

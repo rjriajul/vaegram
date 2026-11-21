@@ -3,6 +3,7 @@
 /// [`Client::get_gift_auction_state`](crate::Client::get_gift_auction_state) fetches its current state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GiftAuction {
     /// Slug that identifies the auction.
     pub slug: String,

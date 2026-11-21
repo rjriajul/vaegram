@@ -4,6 +4,7 @@ use crate::types::{Animation, Media, Photo};
 /// A game attached to a message.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Game {
     /// Telegram's id of the game.
     pub id: i64,

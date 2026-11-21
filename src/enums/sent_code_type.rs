@@ -5,6 +5,7 @@ use crate::raw::base;
 /// How Telegram delivered the login code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SentCodeType {
     /// A message in another Telegram app where the account is logged in.
     App,

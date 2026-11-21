@@ -5,6 +5,7 @@ use crate::types::{Chat, MessageEntity};
 /// A link that opens a chat with a business account, with a prefilled message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BusinessChatLink {
     /// The full `t.me` link.
     pub link: String,
@@ -21,6 +22,7 @@ pub struct BusinessChatLink {
 /// What a business chat link resolves to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BusinessChatLinkInfo {
     /// The business account the link opens.
     pub chat: Chat,

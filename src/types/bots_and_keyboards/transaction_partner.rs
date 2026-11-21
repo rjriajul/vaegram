@@ -5,6 +5,7 @@ use crate::types::{Chat, StarAmount, User};
 /// The other side of a Stars transaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum TransactionPartner {
     /// A user, for example paying for an invoice or a subscription.
     #[non_exhaustive]
@@ -49,6 +50,7 @@ pub enum TransactionPartner {
 /// Affiliate commission that came with a sale.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AffiliateInfo {
     /// The chat that earned the commission.
     pub affiliate: Chat,
@@ -61,6 +63,7 @@ pub struct AffiliateInfo {
 /// Progress of a withdrawal to Fragment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum RevenueWithdrawalState {
     /// The withdrawal is still in progress.
     Pending,

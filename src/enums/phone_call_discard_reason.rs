@@ -3,6 +3,7 @@ use crate::raw::base;
 /// Why a private call ended.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PhoneCallDiscardReason {
     /// Nobody answered.
     Missed,

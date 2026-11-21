@@ -3,6 +3,7 @@ use crate::enums::{NextCodeType, SentCodeType};
 /// A login code Telegram has sent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SentCode {
     /// How the code was delivered.
     pub kind: SentCodeType,

@@ -12,6 +12,7 @@ use crate::utils::get_peer;
 
 /// A press of an inline keyboard button that carries callback data.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CallbackQuery {
     /// The query id, used to answer it.
     pub id: i64,
@@ -27,12 +28,14 @@ pub struct CallbackQuery {
     pub chat_instance: i64,
     // A business update carries the pressed message, since the bot can't read the account's history.
     carried: Option<Box<Message>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 
 /// Where the pressed button lives.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum CallbackOrigin {
     /// A regular message in a chat.
     #[non_exhaustive]

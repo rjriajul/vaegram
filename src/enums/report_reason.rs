@@ -3,6 +3,7 @@ use crate::raw::base;
 /// Why a chat is reported, for [`Client::report_chat`](crate::Client::report_chat).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ReportReason {
     /// Spam.
     Spam,

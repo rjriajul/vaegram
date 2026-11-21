@@ -3,6 +3,7 @@ use crate::types::{CallbackAnswer, Message};
 /// What pressing a button on a message did.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ClickResult {
     /// The bot's answer to a callback or game button.
     Answer(CallbackAnswer),

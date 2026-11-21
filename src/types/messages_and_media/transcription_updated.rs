@@ -8,6 +8,7 @@ use crate::types::Chat;
 /// [`Transcription::wait`](crate::types::Transcription::wait).
 #[non_exhaustive]
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TranscriptionUpdated {
     /// The chat the message is in.
     pub chat: Chat,
@@ -19,6 +20,7 @@ pub struct TranscriptionUpdated {
     pub text: String,
     /// `true` while Telegram is still transcribing; more updates follow.
     pub is_pending: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

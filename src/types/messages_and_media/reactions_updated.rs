@@ -6,6 +6,7 @@ use crate::types::{Chat, MessageReactions};
 /// The reactions on a message changed, as a user account sees them: the full new set, not who changed what.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ReactionsUpdated {
     /// The chat the message is in.
     pub chat: Chat,
@@ -15,6 +16,7 @@ pub struct ReactionsUpdated {
     pub message_thread_id: Option<i32>,
     /// The reactions the message has now.
     pub reactions: MessageReactions,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

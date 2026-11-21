@@ -8,6 +8,7 @@ use crate::utils::{get_peer, get_peer_id};
 /// A regular gift sent or received in a chat, taken from a service message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GiftInfo {
     /// The gift.
     pub gift: Gift,
@@ -57,6 +58,7 @@ pub struct GiftInfo {
 /// A unique gift sent, received or changed, taken from a service message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UniqueGiftInfo {
     /// The unique gift.
     pub gift: UniqueGift,
@@ -103,6 +105,7 @@ pub struct UniqueGiftInfo {
 /// The two sides of the private chat a gift's service message is in. The action names neither there: the message's
 /// sender gave the gift and the other side got it.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub(crate) struct ChatSides {
     sender: i64,
     receiver: i64,

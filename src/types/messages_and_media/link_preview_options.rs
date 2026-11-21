@@ -9,6 +9,7 @@ use crate::raw::{base, types};
 /// gives none.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct LinkPreviewOptions {
     /// The link to preview instead of the first one in the text. On a received message it's the previewed page's
     /// url as Telegram normalized it, so `https://telegram.org` reads back as `https://telegram.org/`.

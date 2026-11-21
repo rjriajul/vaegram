@@ -6,6 +6,7 @@ use crate::types::{LoginUrl, PeerRef, SwitchInlineQueryChosenChat, WebAppInfo};
 /// A keyboard of buttons attached to a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct InlineKeyboardMarkup {
     /// The buttons, one inner `Vec` per row.
     pub rows: Vec<Vec<InlineKeyboardButton>>,
@@ -59,6 +60,7 @@ impl InlineKeyboardMarkup {
 /// Color of a keyboard button.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ButtonStyle {
     /// The client's normal button color.
     #[default]
@@ -89,6 +91,7 @@ impl ButtonStyle {
 /// A button on an [`InlineKeyboardMarkup`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct InlineKeyboardButton {
     /// The label.
     pub text: String,
@@ -103,6 +106,7 @@ pub struct InlineKeyboardButton {
 /// What an [`InlineKeyboardButton`] does when pressed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum InlineAction {
     /// Sends the data to the bot as a [`CallbackQuery`](crate::types::CallbackQuery). Read from a received message,
     /// data that isn't UTF-8 is decoded lossily.

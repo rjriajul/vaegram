@@ -15,6 +15,7 @@ use crate::utils::{get_channel_id, get_peer_id};
 /// What a service message reports, such as a member joining or a message being pinned.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ServiceAction {
     /// Users who joined or were added. A join by link or request lists the sender alone.
     NewChatMembers(Vec<User>),

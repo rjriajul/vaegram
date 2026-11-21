@@ -8,6 +8,7 @@ use crate::types::{InlineKeyboardButton, RichButtonStyle, RichText};
 /// Auto-detected links, emails and phone numbers read as their explicit forms, with the text as the value.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum RichTextKind {
     /// No text.
     Empty,

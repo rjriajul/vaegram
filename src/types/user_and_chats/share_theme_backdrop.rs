@@ -5,6 +5,7 @@ use crate::raw::base;
 /// Fetched with [`Client::get_share_theme_backdrops`](crate::Client::get_share_theme_backdrops).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ShareThemeBackdrop {
     /// Id to pass to [`SetShareTheme::backdrop_id`](crate::methods::SetShareTheme::backdrop_id).
     pub id: i32,

@@ -11,6 +11,7 @@ use crate::types::{
 /// respond there.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GuestMessage {
     /// The message that invoked the bot.
     pub message: Message,

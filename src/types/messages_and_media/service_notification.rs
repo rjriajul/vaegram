@@ -7,6 +7,7 @@ use crate::types::{Media, MessageEntity};
 /// in the chat with the Telegram service account, or as a popup.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ServiceNotification {
     /// Telegram's name for the kind of notice, such as `AUTH_KEY_DROP_DUPLICATE`. Notices of the same kind replace
     /// each other.
@@ -23,6 +24,7 @@ pub struct ServiceNotification {
     pub show_caption_above_media: bool,
     /// Unix time to show the notice in the service chat with. `None` for a popup that isn't stored there.
     pub date: Option<i32>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     client: Client,
 }
 

@@ -5,6 +5,7 @@ use crate::types::{StarAmount, TransactionPartner};
 /// One Stars transaction.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StarTransaction {
     /// Telegram's id for the transaction.
     pub id: String,
