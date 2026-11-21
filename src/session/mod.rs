@@ -223,6 +223,12 @@ impl UpdatesRx {
         }
     }
 
+    /// A queue of `capacity` batches: at least 1, and at most what tokio's bounded channels take
+    /// (`Semaphore::MAX_PERMITS`, far past any memory), which they refuse by panicking.
+    fn queue(capacity: usize) -> (mpsc::Sender<Incoming>, mpsc::Receiver<Incoming>) {
+        mpsc::channel(capacity.clamp(1, tokio::sync::Semaphore::MAX_PERMITS))
+    }
+
     #[cfg(test)]
     pub(crate) fn offline() -> UpdatesRx {
         UpdatesRx { rx: mpsc::channel(1).1, events: Arc::default() }
@@ -422,7 +428,7 @@ impl Session {
         events: Arc<Events>,
         pfs: Option<Vec<u8>>,
     ) -> Result<(Session, UpdatesRx)> {
-        let (tx, rx) = mpsc::channel(options.updates_capacity.max(1));
+        let (tx, rx) = UpdatesRx::queue(options.updates_capacity);
         let pfs = pfs.map(Arc::from);
         let auth_key = auth_key.map(|(key, salt)| Known { key, salt, made: None });
         let session = Session::open(dc, auth_key, None, options, events.clone(), Role::Main(tx), pfs).await?;

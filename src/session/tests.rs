@@ -2078,3 +2078,12 @@ async fn a_close_waits_for_a_stuck_report_only_so_long() {
     assert!(took >= super::REPORT_WAIT && took < super::REPORT_WAIT + Duration::from_secs(2), "{took:?}");
     assert!(r.control.closed());
 }
+
+#[test]
+fn the_updates_queue_takes_any_capacity_without_panicking() {
+    let (tx, _rx) = UpdatesRx::queue(usize::MAX);
+    assert!(tx.try_send(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false }).is_ok());
+    let (tx, _rx) = UpdatesRx::queue(0);
+    assert!(tx.try_send(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false }).is_ok());
+    assert!(tx.try_send(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false }).is_err());
+}

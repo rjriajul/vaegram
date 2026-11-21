@@ -259,7 +259,8 @@ impl ClientBuilder {
         self
     }
 
-    /// Caps how many handlers run at once, at least 1; updates past the cap wait for a slot. Once 1024 wait, `run`
+    /// Caps how many handlers run at once, at least 1 and at most tokio's `Semaphore::MAX_PERMITS` (a larger value
+    /// counts as that); updates past the cap wait for a slot. Once 1024 wait, `run`
     /// takes no more updates until a handler ends: they queue up to `updates_capacity`, and what overflows that is
     /// fetched again with getDifference. With [`ordered`](Self::ordered), an update waiting behind its own chat's
     /// handler waits for that chat, not for a slot, so it isn't counted there and one busy chat can't hold up the
@@ -272,15 +273,17 @@ impl ClientBuilder {
 
     /// Caps how many `listen`, `ask` and next-step listeners wait at once, the way `max_concurrent_handlers` caps
     /// handlers. One over the cap fails at once with `Error::ListenerLimitReached`; a listener gives its slot back
-    /// when it gets its update, times out, is stopped or removed. At least 1; no cap by default.
+    /// when it gets its update, times out, is stopped or removed. At least 1 and at most tokio's
+    /// `Semaphore::MAX_PERMITS`, a larger value counting as that; no cap by default.
     pub fn max_listeners(mut self, n: usize) -> Self {
         self.max_listeners = Some(n.max(1));
         self
     }
 
     /// Caps how many downloads and, separately, how many uploads run at once; the rest wait their turn. A
-    /// download holds its slot until it ends, and a `.stream()` until it's dropped or finishes. At least 1; no cap
-    /// by default, so every transfer runs at once.
+    /// download holds its slot until it ends, and a `.stream()` until it's dropped or finishes. At least 1 and at
+    /// most tokio's `Semaphore::MAX_PERMITS`, a larger value counting as that; no cap by default, so every transfer
+    /// runs at once.
     pub fn max_concurrent_transmissions(mut self, n: usize) -> Self {
         self.max_concurrent_transmissions = Some(n.max(1));
         self
@@ -478,7 +481,8 @@ impl ClientBuilder {
         self
     }
 
-    /// Update batches waiting for `run`, 1024 by default and at least 1. When it's full, a batch is dropped,
+    /// Update batches waiting for `run`, 1024 by default and at least 1; at most `Semaphore::MAX_PERMITS` of tokio,
+    /// which is more than any memory holds, so a larger value is taken as that. When it's full, a batch is dropped,
     /// `ClientEvent::UpdatesDropped` fires and a getDifference fetches what it held.
     pub fn updates_capacity(mut self, n: usize) -> Self {
         self.options.updates_capacity = n.max(1);
@@ -656,7 +660,7 @@ impl ClientBuilder {
         inner.me = Mutex::new(Me { id: user_id, is_bot, premium: None, username: None });
         inner.ordered = self.ordered;
         inner.catch_up = self.catch_up;
-        inner.handler_permits = self.max_concurrent_handlers.map(|n| Arc::new(Semaphore::new(n.max(1))));
+        inner.handler_permits = self.max_concurrent_handlers.map(permits);
         inner.client_platform = self.client_platform;
         inner.listener_timeout = self.listener_timeout;
         inner.unallowed_click_alert = self.unallowed_click_alert;
@@ -802,9 +806,15 @@ pub(crate) struct Transmissions {
     pub(crate) uploads: Arc<Semaphore>,
 }
 
+/// A semaphore of `n` permits, at least 1 and at most `Semaphore::MAX_PERMITS`, the most tokio takes: it panics on
+/// more.
+pub(crate) fn permits(n: usize) -> Arc<Semaphore> {
+    Arc::new(Semaphore::new(n.clamp(1, Semaphore::MAX_PERMITS)))
+}
+
 impl Transmissions {
     pub(crate) fn new(n: usize) -> Transmissions {
-        Transmissions { downloads: Arc::new(Semaphore::new(n)), uploads: Arc::new(Semaphore::new(n)) }
+        Transmissions { downloads: permits(n), uploads: permits(n) }
     }
 }
 
@@ -1307,6 +1317,15 @@ mod tests {
     #[test]
     fn a_zero_update_queue_is_stored_as_one() {
         assert_eq!(Client::builder("zero", 1, "hash").updates_capacity(0).options.updates_capacity, 1);
+    }
+
+    #[test]
+    fn semaphore_options_are_clamped_to_what_tokio_accepts() {
+        assert_eq!(super::permits(usize::MAX).available_permits(), tokio::sync::Semaphore::MAX_PERMITS);
+        assert_eq!(super::permits(0).available_permits(), 1);
+        let transmissions = super::Transmissions::new(usize::MAX);
+        assert_eq!(transmissions.downloads.available_permits(), tokio::sync::Semaphore::MAX_PERMITS);
+        assert_eq!(transmissions.uploads.available_permits(), tokio::sync::Semaphore::MAX_PERMITS);
     }
 
     #[tokio::test]
