@@ -1,3 +1,4 @@
+use std::pin::Pin;
 use std::sync::PoisonError;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -33,11 +34,15 @@ impl Client {
     /// the default, `run` first replays what came since the saved update state, so a client started from an old
     /// session, or from a copy of another client's, handles those updates again too.
     pub async fn run(&self) -> Result<()> {
-        let running = self.claim_run()?;
-        match self.prepare().await? {
-            Some(dispatcher) => self.drive(running, dispatcher).await,
-            None => Ok(()),
-        }
+        // Boxed: callers' `Send` proofs stop here, not deep in `drive` (nightly `recursion_depth_exceeding_limit`).
+        let run: Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> = Box::pin(async move {
+            let running = self.claim_run()?;
+            match self.prepare().await? {
+                Some(dispatcher) => self.drive(running, dispatcher).await,
+                None => Ok(()),
+            }
+        });
+        run.await
     }
 
     /// The client's updates for one `run`, until the returned guard is dropped.

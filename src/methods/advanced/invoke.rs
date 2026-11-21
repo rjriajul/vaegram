@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::ops::ControlFlow;
+use std::pin::Pin;
 use std::time::Duration;
 
 use crate::Client;
@@ -76,10 +77,13 @@ impl Client {
     }
 
     /// Waits for the rate limiter's go-ahead, if there is one. It comes before the request's own timeout starts.
-    async fn limit(&self, name: &str) {
-        if let Some(limiter) = &self.0.limiter {
-            limiter.acquire(RateCategory::of(name)).await;
-        }
+    // Boxed: callers' `Send` proofs stop here, not in the limiter (nightly `recursion_depth_exceeding_limit`).
+    fn limit(&self, name: &'static str) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move {
+            if let Some(limiter) = &self.0.limiter {
+                limiter.acquire(RateCategory::of(name)).await;
+            }
+        })
     }
 
     /// Sends `request` to data center `dc_id` under this login, which is exported there the first time. The home
@@ -202,12 +206,18 @@ impl Client {
     }
 
     /// The account and data center of the business connection `connection_id`, fetched once if not seen yet.
-    pub(crate) async fn business_home(&self, connection_id: &str) -> Result<BusinessHome> {
-        match self.0.caches.business_home(connection_id) {
-            Some(home) => Ok(home),
-            None => {
-                let connection = self.get_business_connection(connection_id).await?;
-                Ok(BusinessHome { user_id: connection.user.id, dc_id: connection.dc_id })
+    // Boxed: callers' `Send` proofs stop here, not in the fetch (nightly `recursion_depth_exceeding_limit`).
+    pub(crate) fn business_home<'a>(
+        &'a self,
+        connection_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<BusinessHome>> + Send + 'a>> {
+        Box::pin(async move {
+            match self.0.caches.business_home(connection_id) {
+                Some(home) => Ok(home),
+                None => {
+                    let connection = self.get_business_connection(connection_id).await?;
+                    Ok(BusinessHome { user_id: connection.user.id, dc_id: connection.dc_id })
+                }
             }
         })
     }
