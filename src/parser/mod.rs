@@ -636,8 +636,6 @@ mod tests {
             (Text::new().code("a`b"), "a\\`b"),
             (Text::new().pre("a```b", ""), "a\\`\\`\\`b"),
             (Text::new().plain("x ").blockquote("q", false), "x q"),
-            (Text::new().blockquote("q\n", false), "q\n"),
-            (Text::new().blockquote("q\n", true), "q\n"),
             (Text::new().bold(Text::new().plain("a").bold("b")), "**ab**"),
             (Text::new().code(Text::new().plain("a").bold("x")), "`ax`"),
             (Text::new().pre("a\n", "").blockquote("q", false), "```\na\n\n```q"),
@@ -647,6 +645,15 @@ mod tests {
         for (text, markdown) in cases {
             assert_eq!(text.to_markdown(), markdown, "{text:?}");
             assert_eq!(Text::from_markdown(markdown).as_str(), text.as_str(), "{markdown:?} lost text");
+        }
+    }
+
+    #[test]
+    fn markdown_keeps_a_quote_ending_in_a_line_break() {
+        for expandable in [false, true] {
+            let text = Text::new().blockquote("q\n", expandable);
+            let back = Text::from_markdown(&text.to_markdown());
+            assert_eq!((back.as_str(), back.entities()), (text.as_str(), text.entities()), "{expandable}");
         }
     }
 
