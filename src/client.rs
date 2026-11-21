@@ -113,7 +113,8 @@ impl ClientBuilder {
         self
     }
 
-    /// The device model shown in the account's active sessions, `"vaegram"` by default.
+    /// The device model shown in the account's active sessions; by default the OS and CPU architecture, such as
+    /// `"linux x86_64"`.
     pub fn device_model(mut self, model: impl Into<String>) -> Self {
         self.options.device.model = model.into();
         self
@@ -391,10 +392,17 @@ impl ClientBuilder {
         self
     }
 
-    /// Spaces requests out on the client's side, so a busy bot slows down instead of earning FLOOD_WAITs: each
-    /// category of request has a rate and a burst, and every request also counts against a global one. Off by
-    /// default. A rate must be above 0 and finite and a burst at least 1, or `connect` and `start` fail with
-    /// `Error::InvalidArgument`; [`Client::rate_limiter`] reads and changes them later.
+    /// Spaces requests out on the client's side, so a busy client slows down instead of earning FLOOD_WAITs: each
+    /// category of request has a rate and a burst, and every request also counts against a global one; a category
+    /// may also have a daily cap ([`RateLimits::daily_limit`]). These limits apply to any account, bot or user.
+    ///
+    /// Unset, a user account gets [`RateLimits::user_account`], about a person's pace in an official app, since a
+    /// user that sends like a bot risks a ban; a bot gets none. They hold nothing back before a login, and stand
+    /// aside for an account that logs in as a bot. Before 0.4 a user had no limits; the closest to that is
+    /// `rate_limits(RateLimits::default())`, the bots' pace (20 messages a second).
+    ///
+    /// A rate must be above 0 and finite, a burst at least 1 and a daily cap at least 1, or `connect` and `start`
+    /// fail with `Error::InvalidArgument`; [`Client::rate_limiter`] reads and changes them later.
     pub fn rate_limits(mut self, limits: RateLimits) -> Self {
         self.rate_limits = Some(limits);
         self
@@ -660,7 +668,13 @@ impl ClientBuilder {
         let set_names = if self.fetch.stickers { self.max_sticker_set_name_cache_size } else { 0 };
         inner.caches = Caches::new(self.max_message_cache_size, self.max_topic_cache_size).with_set_names(set_names);
         inner.fetch = self.fetch;
-        inner.limiter = self.rate_limits.as_ref().map(RateLimiter::new);
+        // A bot keeps going unlimited unless limits were set. A session not logged in yet gets the user's ones, which
+        // `set_me` turns on for a user only.
+        inner.limiter = match &self.rate_limits {
+            Some(limits) => Some(RateLimiter::new(limits)),
+            None if is_bot || (user_id == 0 && self.login.bot_token.is_some()) => None,
+            None => Some(RateLimiter::for_user_accounts(user_id != 0)),
+        };
         inner.auto_no_updates = self.auto_no_updates;
         let client = Client(Arc::new(inner), None);
         let imported = self.session_string.as_deref().is_some_and(session_string::is_import);
@@ -1036,6 +1050,9 @@ impl Client {
         if let base::User::User(u) = user {
             let username = u.username.as_deref().map(Arc::from);
             *self.0.me.lock().unwrap() = Me { id: u.id, is_bot: u.bot, premium: Some(u.premium), username };
+            if let Some(limiter) = &self.0.limiter {
+                limiter.set_user(!u.bot);
+            }
         }
     }
 
