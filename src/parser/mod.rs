@@ -1,5 +1,8 @@
+mod escape;
 mod html;
 mod markdown;
+
+pub use escape::{escape_html, escape_markdown};
 
 use crate::enums::ParseMode;
 use crate::raw::{base, types};

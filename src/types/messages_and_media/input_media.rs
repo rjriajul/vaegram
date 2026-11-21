@@ -29,6 +29,7 @@ pub struct InputMedia<'a> {
     pub(crate) force_file: bool,
     pub(crate) file_name: Option<String>,
     pub(crate) mask_position: Option<MaskPosition>,
+    pub(crate) waveform: Option<Vec<u8>>,
 }
 
 impl<'a> InputMedia<'a> {
@@ -59,6 +60,7 @@ impl<'a> InputMedia<'a> {
             force_file: false,
             file_name: None,
             mask_position: None,
+            waveform: None,
         }
     }
 
@@ -267,6 +269,16 @@ macro_rules! media_setters {
             }
         }
     };
+    (@waveform $builder:ident $(. $m:ident)?) => {
+        impl $builder<'_> {
+            /// Sets the waveform a voice note shows: 5-bit samples packed into bytes, as Telegram's own clients
+            /// write it. Ignored unless the media is a voice note being uploaded.
+            pub fn waveform(mut self, waveform: impl Into<Vec<u8>>) -> Self {
+                self$(.$m)?.waveform = Some(waveform.into());
+                self
+            }
+        }
+    };
     (@mask_position $builder:ident $(. $m:ident)?) => {
         impl $builder<'_> {
             /// Places a sticker on a face, which makes it a mask. Ignored unless the media is a sticker being
@@ -290,7 +302,8 @@ macro_rules! media_setters {
 pub(crate) use media_setters;
 
 media_setters!(InputMedia: caption thumb cover has_spoiler show_caption_above_media supports_streaming duration
-    start_timestamp width height length performer title emoji disable_content_type_detection file_name mask_position);
+    start_timestamp width height length performer title emoji disable_content_type_detection file_name mask_position
+    waveform);
 
 #[cfg(test)]
 mod tests {

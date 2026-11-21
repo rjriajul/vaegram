@@ -59,23 +59,36 @@ impl GuestMessage {
 
     /// Answers the guest query with an article that sends `text` when the user picks it.
     ///
-    /// The result's title is left unset. Awaiting the request returns the
+    /// The result's title is the first non-empty line of `text`, cut to 64 characters, because Telegram refuses an
+    /// article without one (`ARTICLE_TITLE_EMPTY`). Awaiting the request returns the
     /// [`SentGuestMessage`](crate::types::SentGuestMessage).
     pub fn answer_text(&self, text: impl Into<Text>) -> AnswerGuestQuery<'_> {
-        self.answer_article(InputMessageContent::text(text))
+        let text: Text = text.into();
+        self.answer_article(title_of(text.as_str()), InputMessageContent::text(text))
     }
 
     /// Answers the guest query with an article that sends the rich message `rich` when the user picks it.
     ///
-    /// The result's title is left unset. Awaiting the request returns the
+    /// The result's title is "Answer", because Telegram refuses an article without one (`ARTICLE_TITLE_EMPTY`) and a
+    /// rich message has no plain text to take it from. Awaiting the request returns the
     /// [`SentGuestMessage`](crate::types::SentGuestMessage).
     pub fn answer_rich(&self, rich: InputRichMessage) -> AnswerGuestQuery<'_> {
-        self.answer_article(InputMessageContent::Rich(rich))
+        self.answer_article(DEFAULT_TITLE.to_owned(), InputMessageContent::Rich(rich))
     }
 
-    fn answer_article(&self, content: InputMessageContent) -> AnswerGuestQuery<'_> {
-        self.client().answer_guest_query(self.query_id, InlineQueryResultArticle::untitled(content))
+    fn answer_article(&self, title: String, content: InputMessageContent) -> AnswerGuestQuery<'_> {
+        self.client().answer_guest_query(self.query_id, InlineQueryResultArticle::new(title, content))
     }
+}
+
+/// The title of an article whose content has no text to take one from.
+const DEFAULT_TITLE: &str = "Answer";
+
+/// The first non-empty line of `text`, at most 64 characters. [`DEFAULT_TITLE`] if there is none.
+fn title_of(text: &str) -> String {
+    let line = text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("");
+    let title: String = line.chars().take(64).collect();
+    if title.is_empty() { DEFAULT_TITLE.to_owned() } else { title }
 }
 
 #[cfg(test)]
@@ -83,7 +96,7 @@ mod tests {
     use super::GuestMessage;
     use crate::Client;
     use crate::dispatcher::Entities;
-    use crate::raw::{Identifiable, base, types};
+    use crate::raw::{Identifiable, Serializable, base, types};
     use crate::types::messages_and_media::message::tests::service;
     use crate::types::{InlineQueryResultArticle, InputRichMessage, Message};
     use crate::utils::get_peer;
@@ -137,27 +150,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn answer_text_leaves_the_title_unset() {
+    async fn answer_text_titles_the_article_with_the_first_line() {
         let (client, mut rx) = Client::recording();
         let guest = parsed_guest(&client);
-        let _ = guest.answer_text("hi").await;
+        let _ = guest.answer_text("\n  first line  \nsecond").await;
         let body = rx.try_recv().expect("no request sent");
-        assert_eq!(flags(&body), 0, "nothing but the result's id and type is set");
+        assert_eq!(flags(&body), TITLE, "only the title is set: Telegram refuses an article without one");
         assert!(body.windows(7).any(|w| w == "article".as_bytes()), "the result isn't an article");
+        let title = String::from("first line").to_bytes();
+        let at = send_message_at(&body);
+        assert_eq!(body[at..at + title.len()], title[..], "the title follows the type string");
     }
 
     #[tokio::test]
-    async fn answer_rich_sends_a_rich_message_without_a_title() {
+    async fn answer_rich_sends_a_rich_message_with_a_title() {
         let (client, mut rx) = Client::recording();
         let guest = parsed_guest(&client);
         let _ = guest.answer_rich(InputRichMessage::html("<b>hi</b>")).await;
         let body = rx.try_recv().expect("no request sent");
-        let result_flags = flags(&body);
-        assert_eq!(result_flags & TITLE, 0, "the article has no title");
-        assert_eq!(result_flags, 0, "nothing else is set, so the send message follows the type string");
+        assert_eq!(flags(&body), TITLE, "only the title is set");
+        let title = String::from("Answer").to_bytes();
         let at = send_message_at(&body);
+        assert_eq!(body[at..at + title.len()], title[..], "the title follows the type string");
+        let at = at + title.len();
         let send_message = u32::from_le_bytes(body[at..at + 4].try_into().unwrap());
         assert_eq!(send_message, <types::InputBotInlineMessageRichMessage as Identifiable>::CONSTRUCTOR_ID);
+    }
+
+    #[test]
+    fn a_title_is_never_empty() {
+        assert_eq!(super::title_of(""), "Answer");
+        assert_eq!(super::title_of(" \n\t\n"), "Answer");
+        assert_eq!(super::title_of("a\nb"), "a");
+        assert_eq!(super::title_of(&"x".repeat(100)).chars().count(), 64);
     }
 
     #[tokio::test]

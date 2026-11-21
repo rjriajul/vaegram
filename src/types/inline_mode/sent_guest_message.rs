@@ -1,6 +1,7 @@
 use crate::types::InlineMessageId;
 
-/// The message sent in answer to a guest query by `GuestMessage::answer`.
+/// The message sent in answer to a guest query by `GuestMessage::answer`, `GuestMessage::answer_text` or
+/// `GuestMessage::answer_rich`.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct SentGuestMessage {

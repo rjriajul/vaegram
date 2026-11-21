@@ -36,6 +36,9 @@ impl SendMediaGroup<'_> {
         if options.suggested_post_parameters.is_some() {
             return Err(Error::InvalidArgument("an album can't be a suggested post"));
         }
+        if options.schedule_repeat_period.is_some() {
+            return Err(Error::InvalidArgument("an album can't repeat: sendMultiMedia has no repeat period"));
+        }
         if !(2..=10).contains(&self.media.len()) {
             return Err(Error::InvalidArgument("an album holds 2 to 10 items"));
         }
@@ -120,5 +123,15 @@ mod tests {
             sent(&mut rx, album).await,
             functions::InvokeWithBusinessConnection::<functions::messages::SendMultiMedia>::CONSTRUCTOR_ID
         );
+    }
+
+    #[tokio::test]
+    async fn an_album_refuses_a_repeat_period() {
+        let (client, mut rx) = Client::recording();
+        let photo = || InputMedia::photo(FileSource::file_id(PHOTO).unwrap());
+        let album = client.send_media_group(-5, [photo(), photo()]).schedule_date(1_900_000_000);
+        let result = album.schedule_repeat_period(86_400).await;
+        assert!(matches!(result, Err(crate::errors::Error::InvalidArgument(_))));
+        assert!(rx.try_recv().is_err());
     }
 }

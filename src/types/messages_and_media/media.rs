@@ -1,6 +1,6 @@
 use crate::Client;
 use crate::dispatcher::Entities;
-use crate::enums::{FileType, MediaKind};
+use crate::enums::{ClientEvent, FileType, MediaKind};
 use crate::raw::base;
 use crate::types::{
     Animation, Audio, Checklist, Contact, Dice, Document, FileLocation, Game, Giveaway, GiveawayWinners, Invoice,
@@ -92,9 +92,14 @@ impl Media {
             }
             M::MessageMediaGiveaway(m) => Media::Giveaway(Giveaway::parse(m, entities)),
             M::MessageMediaGiveawayResults(m) => Media::GiveawayWinners(Box::new(GiveawayWinners::parse(m, entities))),
-            M::MessageMediaWidget(m) => Widget::parse(m)
-                .map(Media::Widget)
-                .unwrap_or_else(|| Media::Unknown { constructor_id: media.constructor_id() }),
+            M::MessageMediaWidget(m) => match Widget::try_parse(m) {
+                Ok(widget) => Media::Widget(widget),
+                Err(reason) => {
+                    let constructor_id = media.constructor_id();
+                    client.0.events.warn(ClientEvent::MediaParseFailed { constructor_id, reason });
+                    Media::Unknown { constructor_id }
+                }
+            },
             // A link preview is `Message::web_page`, not media.
             M::MessageMediaWebPage(_) => return None,
             _ => Media::Unknown { constructor_id: media.constructor_id() },

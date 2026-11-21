@@ -19,6 +19,7 @@ pub(crate) struct SendOptions {
     pub(crate) message_effect_id: Option<i64>,
     pub(crate) suggested_post_parameters: Option<SuggestedPostParameters>,
     pub(crate) schedule_date: Option<i32>,
+    pub(crate) schedule_repeat_period: Option<i32>,
     pub(crate) no_webpage: bool,
     pub(crate) invert_media: bool,
 }
@@ -106,6 +107,13 @@ macro_rules! send_builder {
             /// Schedules the message for this Unix timestamp instead of sending it now.
             pub fn schedule_date(mut self, date: i32) -> Self {
                 self.options.schedule_date = Some(date);
+                self
+            }
+
+            /// Repeats a scheduled message every this many seconds. Only has an effect together with
+            /// [`schedule_date`](Self::schedule_date); Telegram refuses a period it doesn't offer.
+            pub fn schedule_repeat_period(mut self, seconds: i32) -> Self {
+                self.options.schedule_repeat_period = Some(seconds);
                 self
             }
         }
@@ -265,7 +273,7 @@ impl Client {
                     reply_markup,
                     entities,
                     schedule_date: options.schedule_date,
-                    schedule_repeat_period: None,
+                    schedule_repeat_period: options.schedule_repeat_period,
                     send_as: None,
                     quick_reply_shortcut: None,
                     effect: options.message_effect_id,
@@ -292,7 +300,7 @@ impl Client {
                     reply_markup,
                     entities,
                     schedule_date: options.schedule_date,
-                    schedule_repeat_period: None,
+                    schedule_repeat_period: options.schedule_repeat_period,
                     send_as: None,
                     quick_reply_shortcut: None,
                     effect: options.message_effect_id,
@@ -476,5 +484,29 @@ mod tests {
         };
         let query = CallbackQuery::parse(&client, &press, &Entities::default());
         check(&query.message().await.unwrap().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod repeat_tests {
+    use crate::Client;
+    use crate::raw::{Identifiable, base, functions, types};
+
+    #[tokio::test]
+    async fn schedule_repeat_period_reaches_the_request() {
+        let (client, mut rx) = Client::recording();
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+
+        let _ = client.send_message(7, "hi").schedule_date(1_900_000_000).schedule_repeat_period(86_400).await;
+        let body = rx.try_recv().expect("no request sent");
+        let constructor = u32::from_le_bytes(body[..4].try_into().unwrap());
+        assert_eq!(constructor, functions::messages::SendMessage::CONSTRUCTOR_ID);
+        // flags: schedule_date (10), schedule_repeat_period (24).
+        assert_eq!(u32::from_le_bytes(body[4..8].try_into().unwrap()), 1 << 10 | 1 << 24);
+
+        let _ = client.send_message(7, "hi").schedule_date(1_900_000_000).await;
+        let body = rx.try_recv().expect("no request sent");
+        assert_eq!(u32::from_le_bytes(body[4..8].try_into().unwrap()), 1 << 10);
     }
 }

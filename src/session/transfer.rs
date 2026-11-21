@@ -291,7 +291,22 @@ pub(crate) fn part_timeout(in_flight: u64) -> Duration {
 }
 
 pub(crate) async fn invoke_part<R: RemoteCall>(session: &Session, request: &R, timeout: Duration) -> Result<R::Return> {
-    invoke_part_on(session, request, timeout, false, Pace::default()).await
+    invoke_part_on(session, request, timeout, false, Pace::default(), |_| false).await
+}
+
+/// [`invoke_paced_part`] for `upload.saveFilePart` and `upload.saveBigFilePart`: a `false` answer is sent again like a
+/// server error, and still `false` after the bound fails, naming the part.
+pub(crate) async fn invoke_saved_part<R: RemoteCall<Return = bool>>(
+    session: &Session,
+    request: &R,
+    timeout: Duration,
+    pace: Pace<'_>,
+    file_part: i32,
+) -> Result<()> {
+    if invoke_part_on(session, request, timeout, false, pace, |saved| !*saved).await? {
+        return Ok(());
+    }
+    Err(Error::other(format!("{} refused part {file_part} of the file: it answered false", R::NAME)))
 }
 
 /// [`invoke_part`], each send of it, a resend too, waiting its turn as `pace` says first.
@@ -301,7 +316,7 @@ pub(crate) async fn invoke_paced_part<R: RemoteCall>(
     timeout: Duration,
     pace: Pace<'_>,
 ) -> Result<R::Return> {
-    invoke_part_on(session, request, timeout, false, pace).await
+    invoke_part_on(session, request, timeout, false, pace, |_| false).await
 }
 
 pub(crate) async fn invoke_cdn_part<R: RemoteCall>(
@@ -309,7 +324,7 @@ pub(crate) async fn invoke_cdn_part<R: RemoteCall>(
     request: &R,
     timeout: Duration,
 ) -> Result<R::Return> {
-    invoke_part_on(session, request, timeout, true, Pace::default()).await
+    invoke_part_on(session, request, timeout, true, Pace::default(), |_| false).await
 }
 
 // One part that gives up fails a transfer of thousands, so besides what the retry policy asks for, timeouts and
@@ -321,6 +336,8 @@ async fn invoke_part_on<R: RemoteCall>(
     timeout: Duration,
     cdn: bool,
     pace: Pace<'_>,
+    // An answer that counts as a failed send, retried like a server error.
+    refused: fn(&R::Return) -> bool,
 ) -> Result<R::Return> {
     // Parts go straight to their session, so the user's request_timeout still has to count.
     let timeout = timeout.max(session.options().request_timeout);
@@ -341,7 +358,18 @@ async fn invoke_part_on<R: RemoteCall>(
         let reconnects = session.reconnects();
         let result = session.invoke_with_timeout(request, left).await;
         left = timeout;
-        let Err(e) = &result else { return result };
+        let e = match &result {
+            Ok(answer) if refused(answer) && own && !cdn && server_errors < MAX_SERVER_ERRORS => {
+                server_errors += 1;
+                drop(gate);
+                let wait = FIRST_SERVER_ERROR_WAIT * 2u32.pow(server_errors - 1);
+                tally.slept += wait;
+                tokio::time::sleep(wait).await;
+                continue;
+            }
+            Ok(_) => return result,
+            Err(e) => e,
+        };
         tally.failed(e);
         let wait = match session.should_retry(R::NAME, e, tally, cap, !cdn) {
             ControlFlow::Continue(wait) => wait,

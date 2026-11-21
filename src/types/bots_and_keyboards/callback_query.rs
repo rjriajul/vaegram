@@ -5,7 +5,9 @@ use crate::dispatcher::Entities;
 use crate::errors::{Error, Result};
 use crate::methods::{AnswerCallbackQuery, EditCallbackMessageText, SendEphemeralMessage};
 use crate::raw::{base, types};
-use crate::types::{Chat, EphemeralMessage, InlineKeyboardMarkup, InlineMessageId, Message, MessageText, User};
+use crate::types::{
+    Chat, EphemeralMessage, InlineKeyboardMarkup, InlineMessageId, Message, MessageText, PeerRef, User,
+};
 use crate::utils::get_peer;
 
 /// A press of an inline keyboard button that carries callback data.
@@ -201,12 +203,23 @@ impl CallbackQuery {
     ///
     /// The text is a [`MessageText`]: plain or formatted text, or a rich message. For a button on a regular message,
     /// chain [`replace_callback_query_message`](SendEphemeralMessage::replace_callback_query_message) to show it in
-    /// place of the pressed message; that has not been tried on a button of an ephemeral message. Fails with
-    /// [`Error::InvalidArgument`] if the button is on an inline message.
-    pub fn answer_ephemeral(&self, text: impl Into<MessageText>) -> Result<SendEphemeralMessage<'_>> {
-        let chat =
-            self.chat().ok_or(Error::InvalidArgument("inline callback queries can't receive ephemeral messages"))?;
-        Ok(self.client.send_ephemeral_message(chat.id, self.from_user.id, text).callback_query_id(self.id))
+    /// place of the pressed message; that has not been tried on a button of an ephemeral message.
+    ///
+    /// A button on an inline message has no chat, so the request names none: `ephemeral.sendMessage` takes the chat
+    /// as optional, as Bot API 10.4 does with a `callback_query_id`. The receiver stays named, since the TL field is
+    /// not optional. Such a request refuses [`media`](SendEphemeralMessage::media),
+    /// [`reply_to`](SendEphemeralMessage::reply_to) and
+    /// [`message_thread_id`](SendEphemeralMessage::message_thread_id) when awaited, with [`Error::InvalidArgument`].
+    /// Telegram's answer to it has not been observed.
+    pub fn answer_ephemeral(&self, text: impl Into<MessageText>) -> SendEphemeralMessage<'_> {
+        match self.chat() {
+            Some(chat) => {
+                self.client.send_ephemeral_message(chat.id, self.from_user.id, text).callback_query_id(self.id)
+            }
+            None => {
+                SendEphemeralMessage::without_chat(&self.client, PeerRef::from(self.from_user.id), self.id, text.into())
+            }
+        }
     }
 
     /// Edits the text of the message the button is on.
@@ -327,7 +340,7 @@ mod tests {
             message: ephemeral(true, Some(channel())),
         };
         let q = CallbackQuery::parse_ephemeral(&client, update, &Entities::default());
-        let send = q.answer_ephemeral("reply").unwrap();
+        let send = q.answer_ephemeral("reply");
         let _ = send.await;
         let body = sent.try_recv().expect("no request sent");
         // peer, receiver_id, query_id and message are adjacent in ephemeral.sendMessage.
@@ -353,7 +366,7 @@ mod tests {
             peers.insert(1000, base::InputPeer::InputPeerUser(Box::new(user)));
         }
         let q = crate::dispatcher::listeners::tests::query(&client, 1000, get_channel_id(42), 5);
-        let _ = q.answer_ephemeral("hi").unwrap().replace_callback_query_message().await;
+        let _ = q.answer_ephemeral("hi").replace_callback_query_message().await;
         let body = sent.try_recv().expect("no request sent");
         let expected = crate::raw::functions::ephemeral::SendMessage {
             invert_media: false,
@@ -378,8 +391,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_inline_callback_cannot_answer_ephemeral() {
+    async fn an_inline_callback_answers_ephemeral_without_a_chat() {
         let (client, mut sent) = Client::recording();
+        let user = types::InputPeerUser { user_id: 1000, access_hash: 9 };
+        client.0.peers.lock().unwrap().insert(1000, base::InputPeer::InputPeerUser(Box::new(user)));
         let id = types::InputBotInlineMessageID64 { dc_id: 2, owner_id: 5, id: 6, access_hash: 7 };
         let update = types::UpdateInlineBotCallbackQuery {
             query_id: 1,
@@ -390,8 +405,35 @@ mod tests {
             game_short_name: None,
         };
         let q = CallbackQuery::parse_inline(&client, update, &Entities::default());
-        assert!(matches!(q.answer_ephemeral("hi"), Err(Error::InvalidArgument(_))));
-        assert!(sent.try_recv().is_err(), "an inline press has no chat to send to");
+        let _ = q.answer_ephemeral("hi").await;
+        let body = sent.try_recv().expect("no request sent");
+        let expected = crate::raw::functions::ephemeral::SendMessage {
+            invert_media: false,
+            welcome: false,
+            anchor: false,
+            noforwards: false,
+            peer: None,
+            receiver_id: base::InputUser::InputUser(Box::new(types::InputUser { user_id: 1000, access_hash: 9 })),
+            query_id: Some(1),
+            message: "hi".into(),
+            entities: None,
+            media: None,
+            reply_markup: None,
+            rich_message: None,
+            random_id: 0,
+            reply_to: None,
+        }
+        .to_bytes();
+        // Only the random id, the last eight bytes when there is no reply, is left unchecked.
+        assert_eq!(body.len(), expected.len());
+        assert_eq!(body[..body.len() - 8], expected[..expected.len() - 8]);
+        // peer is flags.8: an inline press names no chat.
+        assert_eq!(u32::from_le_bytes(body[4..8].try_into().unwrap()), 1);
+
+        // A reply needs the chat, so it is refused before anything is sent.
+        let refused = q.answer_ephemeral("hi").reply_to(3).await;
+        assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
+        assert!(sent.try_recv().is_err(), "a refused answer must not send");
     }
 
     #[test]
@@ -479,7 +521,6 @@ mod tests {
         };
         let q = CallbackQuery::parse_inline(&client, update, &Entities::default());
         assert!(matches!(q.delete_message().await, Err(Error::InvalidArgument(_))));
-        assert!(matches!(q.answer_ephemeral("hi"), Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
         let _ = q.edit_message_reply_markup(None).await;
         let sent = u32::from_le_bytes(rx.try_recv().expect("no request sent")[..4].try_into().unwrap());

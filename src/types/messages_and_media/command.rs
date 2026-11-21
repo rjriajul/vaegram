@@ -1,11 +1,16 @@
 use std::str::SplitWhitespace;
 
+/// Longest command name, in characters.
+const MAX_NAME: usize = 32;
+
 /// A command read from message text, borrowed from it.
 ///
 /// `/ban@MyBot 42 spam` has the name `ban`, the bot `MyBot` and the arguments `42 spam`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Command<'a> {
-    /// Command name without the prefix and without the `@bot` suffix.
+    /// Command name without the prefix and without the `@bot` suffix, in the case it was typed in. The command
+    /// filters match it without case (`command_case_sensitive` aside), so compare it without case too when it
+    /// must agree with them.
     pub name: &'a str,
     /// Bot named after `@`. `None` if the command carries no mention.
     pub bot: Option<&'a str>,
@@ -28,13 +33,16 @@ impl<'a> Command<'a> {
         Command::read(&text[len..])
     }
 
+    /// A name is 1 to 32 letters, digits or underscores, so `/usr/bin/python3:` or `/start:` is no command.
     fn read(body: &'a str) -> Option<Command<'a>> {
         let (first, rest) = body.split_once(char::is_whitespace).unwrap_or((body, ""));
         let (name, bot) = match first.split_once('@') {
             Some((name, bot)) => (name, Some(bot)),
             None => (first, None),
         };
-        (!name.is_empty()).then_some(Command { name, bot, rest: rest.trim_start() })
+        let valid = (1..=MAX_NAME).contains(&name.chars().take(MAX_NAME + 1).count())
+            && name.chars().all(|c| c.is_alphanumeric() || c == '_');
+        valid.then_some(Command { name, bot, rest: rest.trim_start() })
     }
 
     pub(crate) fn is_for(&self, me: Option<&str>) -> bool {
@@ -112,5 +120,17 @@ mod tests {
         assert_eq!(read("/go@mybot\nx", Some("mybot")), Some(("go", vec!["x"])));
         assert_eq!(read("/пуск арг", None), Some(("пуск", vec!["арг"])));
         assert_eq!(Command::parse("пуск", "п").map(|c| c.name), Some("уск"));
+    }
+
+    #[test]
+    fn a_name_is_one_to_32_letters_digits_or_underscores() {
+        assert_eq!(read("/usr/bin/python3:", None), None);
+        assert_eq!(read("/start:", None), None);
+        assert_eq!(read("/a-b", None), None);
+        assert_eq!(read("/start.", None), None);
+        assert_eq!(read("/Do_It2 x", None), Some(("Do_It2", vec!["x"])));
+        let longest = "a".repeat(32);
+        assert_eq!(read(&format!("/{longest} x"), None), Some((longest.as_str(), vec!["x"])));
+        assert_eq!(read(&format!("/{longest}a"), None), None);
     }
 }

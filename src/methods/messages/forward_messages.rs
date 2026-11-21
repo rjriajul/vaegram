@@ -98,7 +98,7 @@ pub(super) fn request(
         top_msg_id: options.thread(),
         reply_to,
         schedule_date: options.schedule_date,
-        schedule_repeat_period: None,
+        schedule_repeat_period: options.schedule_repeat_period,
         send_as: None,
         quick_reply_shortcut: None,
         effect: options.message_effect_id,
@@ -130,6 +130,7 @@ mod tests {
             protect_content: true,
             allow_paid_broadcast: true,
             schedule_date: Some(1_900_000_000),
+            schedule_repeat_period: Some(86_400),
             message_effect_id: Some(5),
             paid_message_star_count: Some(10),
             message_thread_id: Some(7),
@@ -138,6 +139,7 @@ mod tests {
         let r = request(base::InputPeer::InputPeerSelf, base::InputPeer::InputPeerEmpty, &[1], None, options);
         assert_eq!((r.silent, r.noforwards, r.allow_paid_floodskip, r.top_msg_id), (true, true, true, Some(7)));
         assert_eq!((r.schedule_date, r.effect, r.allow_paid_stars), (Some(1_900_000_000), Some(5), Some(10)));
+        assert_eq!(r.schedule_repeat_period, Some(86_400));
     }
 
     #[test]
