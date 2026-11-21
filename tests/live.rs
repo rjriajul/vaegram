@@ -870,6 +870,11 @@ async fn user_posts_and_edits_a_story() {
     let story = match sent {
         // The account is at its `story_expiring_limit_*` of active stories (a few without Premium).
         Err(e) if support::story_limit_reached(&e) => return,
+        // Telegram lets only Premium accounts post stories at times; the test account has none.
+        Err(e) if e.rpc().is_some_and(|e| e.is("PREMIUM_ACCOUNT_REQUIRED")) => {
+            eprintln!("skipped: Telegram wants Premium on the VAEGRAM_USER_SESSION account to post a story");
+            return;
+        }
         sent => sent.unwrap(),
     };
     assert_eq!((story.chat.id, story.caption.as_deref(), story.is_close_friends), (me.id, Some("vaegram"), true));
