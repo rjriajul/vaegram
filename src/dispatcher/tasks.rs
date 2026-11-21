@@ -1,21 +1,31 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::task::Poll;
+use std::time::Duration;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::task::JoinSet;
+use tokio::time::Instant;
 
 use crate::Client;
 use crate::enums::ClientEvent;
+use crate::errors::Error;
 use crate::handlers::{BoxFuture, Callback, ErrorCallback, HandlerError, Routed, UpdateKind};
 use crate::session::Events;
 
 /// With `max_concurrent_handlers`, how many handler tasks may wait for a slot before the dispatcher stops taking
 /// updates. Past it, updates wait in the update queue, whose overflow getDifference fetches again, instead of
-/// piling up in memory.
+/// piling up in memory. With `ordered`, a task waiting behind its own chat's isn't counted there, so one busy chat
+/// can't hold up the others; as many may wait in each chat, and the chat's next update past them is dropped.
 pub(crate) const MAX_WAITING_HANDLERS: usize = 1024;
+
+/// With `ordered` and `max_concurrent_handlers`, how many tasks may wait behind their own chat's over every chat;
+/// past it, the next update that would wait so is dropped, as past one chat's bound, and intake goes on. Four
+/// chats' worth, so one busy chat never reaches it alone, while memory stays bounded however many chats flood.
+const MAX_WAITING_IN_LANES: usize = 4 * MAX_WAITING_HANDLERS;
 
 #[derive(Default)]
 pub(crate) struct Tasks {
@@ -26,6 +36,8 @@ pub(crate) struct Tasks {
     pub(crate) on_error: Option<ErrorCallback>,
     pub(crate) events: Arc<Events>,
     running: JoinSet<()>,
+    // Handlers `abandon` cancelled, each as the timeout it reports.
+    abandoned: Arc<Mutex<Vec<HandlerError>>>,
 }
 
 impl Tasks {
@@ -37,6 +49,7 @@ impl Tasks {
             on_error: None,
             events: Arc::default(),
             running: JoinSet::new(),
+            abandoned: Arc::default(),
         }
     }
 
@@ -45,11 +58,36 @@ impl Tasks {
         while self.running.join_next().await.is_some() {}
     }
 
-    /// Whether so many handlers wait for a slot that no more updates should be taken until one ends.
+    /// Cancels the handlers still running, then reports each as one that returned `Error::Timeout`: to `on_error`
+    /// while `REPORT_GRACE` lasts, and past it, so an `on_error` that hangs can't hold `stop` up again, as
+    /// `HandlerFailed`, the one `on_error` was given and didn't finish with included.
+    pub(crate) async fn abandon(&mut self) {
+        self.running.abort_all();
+        while self.running.join_next().await.is_some() {}
+        let abandoned = std::mem::take(&mut *self.abandoned.lock().unwrap_or_else(PoisonError::into_inner));
+        let until = Instant::now() + REPORT_GRACE;
+        for error in abandoned {
+            let error = match &self.on_error {
+                Some(on_error) if Instant::now() < until => {
+                    let again = like(&error, Error::Timeout);
+                    match tokio::time::timeout_at(until, on_error(error)).await {
+                        Ok(()) => continue,
+                        Err(_) => again,
+                    }
+                }
+                _ => error,
+            };
+            self.events.warn(ClientEvent::HandlerFailed { error: Arc::new(error) });
+        }
+    }
+
+    /// Whether so many handlers wait for a slot that no more updates should be taken until one ends. A task waiting
+    /// behind its own chat's waits for that chat, not for a slot, so it doesn't count.
     pub(crate) fn full(&mut self) -> bool {
         let Some(limit) = self.limit else { return false };
         while self.running.try_join_next().is_some() {}
-        self.running.len() >= limit
+        let queued = self.lanes.as_ref().map_or(0, |lanes| lanes.queued.load(Ordering::Relaxed));
+        self.running.len().saturating_sub(queued) >= limit
     }
 
     /// Returns once a started handler task ends.
@@ -57,54 +95,79 @@ impl Tasks {
         self.running.join_next().await;
     }
 
-    /// Runs `task`; a panic in it is caught and reported as `HandlerPanicked` for `kind` and `chat_id`.
-    fn spawn(&mut self, kind: UpdateKind, chat_id: Option<i64>, task: impl Future<Output = ()> + Send + 'static) {
+    /// Runs `task`; a panic in it is caught and reported as `HandlerPanicked` for the kind and chat of `timed_out`,
+    /// which is what is reported if `abandon` cancels it before it returns. The error it returns is reported after
+    /// that, still holding its slot and its chat's turn, so its chat's next update waits for the report; cancelled
+    /// while `on_error` has it, it goes out as `HandlerFailed` instead.
+    fn spawn(&mut self, timed_out: HandlerError, task: impl Future<Output = Failed> + Send + 'static) {
         while self.running.try_join_next().is_some() {}
-        let events = self.events.clone();
+        let (kind, chat_id) = (timed_out.kind, timed_out.chat_id);
+        let (on_error, events) = (self.on_error.clone(), self.events.clone());
+        let mut abandoned = Abandoned(Some(timed_out), self.abandoned.clone());
         self.running.spawn(async move {
-            if let Err(payload) = caught(task).await {
-                events.emit(panicked(kind, chat_id, payload));
+            let failed = caught(task).await;
+            // The handler has returned: cancelled from here on, it has nothing left to report but its own error.
+            abandoned.disarm();
+            match failed {
+                Ok(Some((error, _held))) => {
+                    let copy = on_error.as_ref().map(|_| like(&error, error.error.duplicate()));
+                    let mut unreported = Unreported(copy, events.clone());
+                    if let Err(payload) = caught(report(on_error, events.clone(), error)).await {
+                        events.emit(panicked(kind, chat_id, payload));
+                    }
+                    unreported.reported();
+                }
+                Ok(None) => {}
+                Err(payload) => events.emit(panicked(kind, chat_id, payload)),
             }
         });
     }
 
     pub(crate) fn run<T: Routed>(&mut self, kind: UpdateKind, item: T, callbacks: Vec<Callback<T>>) {
-        let turn = self.lanes.as_mut().zip(item.order_key()).map(|(lanes, key)| lanes.turn(key));
-        let (permits, on_error, events) = (self.permits.clone(), self.on_error.clone(), self.events.clone());
+        let turn = match self.lanes.as_mut().zip(item.order_key()) {
+            Some((lanes, key)) => {
+                let Some(turn) = lanes.turn(key, self.limit.is_some()) else {
+                    // The chat's backlog, or every chat's, is full: the update can't wait in the update queue for its
+                    // chat alone, and no fetch brings it back.
+                    self.events.emit(ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 });
+                    return;
+                };
+                Some(turn)
+            }
+            None => None,
+        };
+        let permits = self.permits.clone();
         let chat_id = item.chat_id();
         let (message_id, user_id, query_id) = (item.message_id(), item.user_id(), item.query_id());
         let failed = move |error| HandlerError { kind, chat_id, message_id, user_id, query_id, error };
-        self.spawn(kind, chat_id, async move {
-            let _done = match turn {
-                Some((previous, done)) => {
-                    if let Some(previous) = previous {
-                        let _ = previous.await;
+        self.spawn(failed(Error::Timeout), async move {
+            let done = match turn {
+                Some((behind, done)) => {
+                    if let Some(mut behind) = behind {
+                        let _ = (&mut behind.previous).await;
                     }
                     Some(done)
                 }
                 None => None,
             };
-            let _permit = permit(permits).await;
-            let Some((last, rest)) = callbacks.split_last() else { return };
+            let slot = permit(permits).await;
+            let (last, rest) = callbacks.split_last()?;
             let item = item.prepare().await;
             for callback in rest {
                 if let Err(error) = callback(item.clone()).await {
-                    return report(on_error, events, failed(error)).await;
+                    return Some((failed(error), (slot, done)));
                 }
             }
-            if let Err(error) = last(item).await {
-                report(on_error, events, failed(error)).await;
-            }
+            last(item).await.err().map(|error| (failed(error), (slot, done)))
         });
     }
 
     pub(crate) fn raw(&mut self, future: BoxFuture) {
-        let (permits, on_error, events) = (self.permits.clone(), self.on_error.clone(), self.events.clone());
-        self.spawn(UpdateKind::Raw, None, async move {
-            let _permit = permit(permits).await;
-            if let Err(error) = future.await {
-                report(on_error, events, HandlerError::bare(UpdateKind::Raw, error)).await;
-            }
+        let permits = self.permits.clone();
+        self.spawn(HandlerError::bare(UpdateKind::Raw, Error::Timeout), async move {
+            let slot = permit(permits).await;
+            let failed = |error| HandlerError::bare(UpdateKind::Raw, error);
+            future.await.err().map(|error| (failed(error), (slot, None::<oneshot::Sender<()>>)))
         });
     }
 }
@@ -166,21 +229,116 @@ async fn report(on_error: Option<ErrorCallback>, events: Arc<Events>, error: Han
     }
 }
 
+/// How long `abandon` gives `on_error` for the reports of the handlers it cancelled, all together.
+const REPORT_GRACE: Duration = Duration::from_secs(5);
+
+/// The error a handler task returned, with its slot and its chat's turn, which it holds until the error is reported.
+type Failed = Option<(HandlerError, (Option<OwnedSemaphorePermit>, Option<oneshot::Sender<()>>))>;
+
+/// `error` with another error in it, for a second report of the same handler.
+fn like(error: &HandlerError, other: Error) -> HandlerError {
+    let (kind, chat_id, message_id) = (error.kind, error.chat_id, error.message_id);
+    HandlerError { kind, chat_id, message_id, user_id: error.user_id, query_id: error.query_id, error: other }
+}
+
+/// Puts the error it holds in `abandon`'s list when it is dropped still holding it: the task it is in was cancelled.
+struct Abandoned(Option<HandlerError>, Arc<Mutex<Vec<HandlerError>>>);
+
+impl Drop for Abandoned {
+    fn drop(&mut self) {
+        if let Some(error) = self.0.take() {
+            self.1.lock().unwrap_or_else(PoisonError::into_inner).push(error);
+        }
+    }
+}
+
+impl Abandoned {
+    /// The handler returned on its own: nothing to report when it drops.
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+/// A copy of the error `on_error` is reporting, sent as `HandlerFailed` when it is dropped still holding it: the
+/// task was cancelled before `on_error` finished, so the error would otherwise be lost.
+struct Unreported(Option<HandlerError>, Arc<Events>);
+
+impl Drop for Unreported {
+    fn drop(&mut self) {
+        if let Some(error) = self.0.take() {
+            self.1.warn(ClientEvent::HandlerFailed { error: Arc::new(error) });
+        }
+    }
+}
+
+impl Unreported {
+    /// `on_error` finished, or panicked and was reported so: nothing to send when it drops.
+    fn reported(&mut self) {
+        self.0 = None;
+    }
+}
+
 #[derive(Default)]
 struct Lanes {
-    tails: HashMap<i64, oneshot::Receiver<()>>,
+    tails: HashMap<i64, Lane>,
     pruned_at: usize,
+    // Tasks waiting behind the one before them in their chat, over every chat.
+    queued: Arc<AtomicUsize>,
+}
+
+struct Lane {
+    tail: oneshot::Receiver<()>,
+    // Tasks waiting behind the one before them in this chat.
+    queued: Arc<AtomicUsize>,
 }
 
 impl Lanes {
-    fn turn(&mut self, key: i64) -> (Option<oneshot::Receiver<()>>, oneshot::Sender<()>) {
-        let (done, next) = oneshot::channel();
-        let previous = self.tails.insert(key, next);
+    /// The place of a task of `key`'s chat behind the one before it, if any, and what ends its own turn when dropped.
+    /// `None` when `bounded` and `MAX_WAITING_HANDLERS` already wait in the chat, or `MAX_WAITING_IN_LANES` in all.
+    fn turn(&mut self, key: i64, bounded: bool) -> Option<(Option<Behind>, oneshot::Sender<()>)> {
+        let (behind, done) = match self.tails.get_mut(&key) {
+            Some(lane) => {
+                let (in_chat, in_all) = (lane.queued.load(Ordering::Relaxed), self.queued.load(Ordering::Relaxed));
+                if bounded && (in_chat >= MAX_WAITING_HANDLERS || in_all >= MAX_WAITING_IN_LANES) {
+                    return None;
+                }
+                let (done, next) = oneshot::channel();
+                let previous = std::mem::replace(&mut lane.tail, next);
+                (Some(Behind::new(previous, &lane.queued, &self.queued)), done)
+            }
+            None => {
+                let (done, next) = oneshot::channel();
+                self.tails.insert(key, Lane { tail: next, queued: Arc::default() });
+                (None, done)
+            }
+        };
         if self.tails.len() >= 2 * self.pruned_at.max(64) {
-            self.tails.retain(|_, rx| matches!(rx.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
+            self.tails.retain(|_, lane| matches!(lane.tail.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
             self.pruned_at = self.tails.len();
         }
-        (previous, done)
+        Some((behind, done))
+    }
+}
+
+/// A task's place behind the one before it in its chat, counted as waiting there until dropped.
+struct Behind {
+    previous: oneshot::Receiver<()>,
+    lane: Arc<AtomicUsize>,
+    all: Arc<AtomicUsize>,
+}
+
+impl Behind {
+    fn new(previous: oneshot::Receiver<()>, lane: &Arc<AtomicUsize>, all: &Arc<AtomicUsize>) -> Self {
+        lane.fetch_add(1, Ordering::Relaxed);
+        all.fetch_add(1, Ordering::Relaxed);
+        Behind { previous, lane: lane.clone(), all: all.clone() }
+    }
+}
+
+impl Drop for Behind {
+    fn drop(&mut self) {
+        self.lane.fetch_sub(1, Ordering::Relaxed);
+        self.all.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -192,15 +350,157 @@ mod tests {
     fn lanes_prune_finished_chats() {
         let mut lanes = Lanes::default();
         for key in 0..200 {
-            drop(lanes.turn(key));
+            drop(lanes.turn(key, false));
         }
         assert!(lanes.tails.len() < 128);
-        let (_, alive) = lanes.turn(1000);
+        let (_, alive) = lanes.turn(1000, false).expect("an unbounded chat always has room");
         for key in 0..200 {
-            drop(lanes.turn(key));
+            drop(lanes.turn(key, false));
         }
         assert!(lanes.tails.contains_key(&1000));
+        assert_eq!(lanes.queued.load(Ordering::Relaxed), 0);
         drop(alive);
+    }
+
+    fn stuck() -> Callback<crate::types::CallbackQuery> {
+        use crate::types::CallbackQuery;
+        Arc::new(|_: CallbackQuery| -> BoxFuture { Box::pin(std::future::pending::<crate::Result<()>>()) })
+    }
+
+    #[tokio::test]
+    async fn one_chats_backlog_neither_fills_the_waiting_room_nor_outgrows_its_own_bound() {
+        use crate::dispatcher::listeners::tests::query;
+        use crate::types::CallbackQuery;
+
+        let client = Client::offline();
+        let mut tasks = Tasks::new(true, Some(Arc::new(Semaphore::new(2))));
+        let events = tasks.events.record();
+        // Chat 7's first handler never ends, so the chat's later updates all wait behind it.
+        for _ in 0..=MAX_WAITING_HANDLERS {
+            tasks.run(UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
+        }
+        assert!(!tasks.full(), "one chat's backlog filled the room every chat waits in");
+        assert!(events.try_recv().is_err());
+        // Past its own bound the chat's next update is dropped and reported, and the room stays open.
+        tasks.run(UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
+        let dropped = events.try_recv().expect("the dropped update wasn't reported");
+        assert!(matches!(dropped, ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 }), "{dropped:?}");
+        assert!(!tasks.full(), "one chat's backlog filled the room every chat waits in");
+
+        // Another chat still gets its turn and a slot.
+        let (ran, mut got) = tokio::sync::mpsc::unbounded_channel();
+        let other: Callback<CallbackQuery> = Arc::new(move |_: CallbackQuery| -> BoxFuture {
+            let _ = ran.send(());
+            Box::pin(async { Ok(()) })
+        });
+        tasks.run(UpdateKind::CallbackQuery, query(&client, 8, 8, 5), vec![other]);
+        assert!(got.recv().await.is_some(), "the other chat's handler didn't run");
+    }
+
+    #[tokio::test]
+    async fn backlogs_over_every_chat_are_bounded_too_and_never_close_the_room() {
+        use crate::dispatcher::listeners::tests::query;
+
+        let client = Client::offline();
+        let mut tasks = Tasks::new(true, Some(Arc::new(Semaphore::new(2))));
+        let events = tasks.events.record();
+        // Each of these chats' first handler never ends, and as many as one chat may hold wait behind it.
+        let chats = (MAX_WAITING_IN_LANES / MAX_WAITING_HANDLERS) as i64;
+        for chat in 1..=chats {
+            for _ in 0..=MAX_WAITING_HANDLERS {
+                tasks.run(UpdateKind::CallbackQuery, query(&client, chat, chat, 5), vec![stuck()]);
+            }
+        }
+        assert!(events.try_recv().is_err());
+        // Another chat's first update waits for no chat and goes; its next would wait behind it, and is dropped.
+        let next = chats + 1;
+        tasks.run(UpdateKind::CallbackQuery, query(&client, next, next, 5), vec![stuck()]);
+        assert!(events.try_recv().is_err());
+        tasks.run(UpdateKind::CallbackQuery, query(&client, next, next, 5), vec![stuck()]);
+        let dropped = events.try_recv().expect("the dropped update wasn't reported");
+        assert!(matches!(dropped, ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 }), "{dropped:?}");
+        assert!(!tasks.full(), "the chats' backlogs filled the room every chat waits in");
+    }
+
+    #[tokio::test]
+    async fn abandoned_handlers_are_cancelled_and_each_reported_as_timed_out() {
+        use crate::dispatcher::listeners::tests::query;
+
+        let client = Client::offline();
+        let mut tasks = Tasks::new(true, None);
+        let (handled, mut taken) = tokio::sync::mpsc::unbounded_channel();
+        let on_error = move |e: HandlerError| -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> {
+            let _ = handled.send(e);
+            Box::pin(async {})
+        };
+        tasks.on_error = Some(Arc::new(on_error));
+        // Chat 7's handler never ends and the chat's next one waits behind it; a raw handler never ends either.
+        tasks.run(UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
+        tasks.run(UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
+        tasks.raw(Box::pin(std::future::pending::<crate::Result<()>>()));
+        tokio::task::yield_now().await;
+        tasks.abandon().await;
+
+        assert!(tasks.running.is_empty());
+        assert_eq!(tasks.lanes.as_ref().map(|lanes| lanes.queued.load(Ordering::Relaxed)), Some(0));
+        let got: Vec<HandlerError> = std::iter::from_fn(|| taken.try_recv().ok()).collect();
+        assert_eq!(got.len(), 3, "{got:?}");
+        assert!(got.iter().all(|e| matches!(e.error, Error::Timeout)), "{got:?}");
+        let in_chat = |e: &&HandlerError| (e.kind, e.chat_id) == (UpdateKind::CallbackQuery, Some(7));
+        assert_eq!(got.iter().filter(in_chat).count(), 2, "{got:?}");
+    }
+
+    // A hanging `on_error`: it records whether each error it got was a timeout, then never returns.
+    fn hanging_on_error(tasks: &mut Tasks) -> tokio::sync::mpsc::UnboundedReceiver<bool> {
+        let (handled, taken) = tokio::sync::mpsc::unbounded_channel();
+        let on_error = move |e: HandlerError| -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> {
+            let _ = handled.send(matches!(e.error, Error::Timeout));
+            Box::pin(std::future::pending())
+        };
+        tasks.on_error = Some(Arc::new(on_error));
+        taken
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_handler_cancelled_while_on_error_reports_it_still_has_its_own_error_reported_once() {
+        let mut tasks = Tasks::default();
+        let events = tasks.events.record();
+        let (handled, mut taken) = tokio::sync::mpsc::unbounded_channel();
+        let on_error = move |e: HandlerError| -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> {
+            let _ = handled.send(matches!(e.error, Error::Timeout));
+            Box::pin(tokio::time::sleep(Duration::from_secs(10)))
+        };
+        tasks.on_error = Some(Arc::new(on_error));
+        tasks.raw(Box::pin(async { Err::<(), _>(Error::Unexpected("boom")) }));
+        // The handler returned its error, and `on_error` is still reporting it when the deadline comes.
+        assert_eq!(taken.recv().await, Some(false));
+        let abandoned = tokio::time::timeout(Duration::from_secs(60), tasks.abandon()).await;
+        assert!(abandoned.is_ok(), "abandon hung");
+        assert!(taken.try_recv().is_err(), "on_error was called again");
+        let got: Vec<ClientEvent> = events.try_iter().collect();
+        let [ClientEvent::HandlerFailed { error }] = &got[..] else { panic!("{got:?}") };
+        assert!(matches!(error.error, Error::Unexpected("boom")), "{got:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn abandon_gives_a_hanging_on_error_a_grace_then_reports_as_events() {
+        let mut tasks = Tasks::default();
+        let events = tasks.events.record();
+        let mut taken = hanging_on_error(&mut tasks);
+        tasks.raw(Box::pin(std::future::pending::<crate::Result<()>>()));
+        tasks.raw(Box::pin(std::future::pending::<crate::Result<()>>()));
+        let abandoned = tokio::time::timeout(REPORT_GRACE * 2, tasks.abandon()).await;
+        assert!(abandoned.is_ok(), "a hanging on_error held abandon up");
+        // `on_error` got the first and never returned; past the grace both went out as events.
+        assert_eq!(std::iter::from_fn(|| taken.try_recv().ok()).collect::<Vec<_>>(), [true]);
+        let got: Vec<Option<UpdateKind>> = events.try_iter().map(|e| timed_out(&e)).collect();
+        assert_eq!(got, [Some(UpdateKind::Raw); 2]);
+    }
+
+    /// The kind of a `HandlerFailed` that reports a timeout.
+    fn timed_out(event: &ClientEvent) -> Option<UpdateKind> {
+        let ClientEvent::HandlerFailed { error } = event else { return None };
+        matches!(error.error, Error::Timeout).then_some(error.kind)
     }
 
     #[tokio::test]

@@ -88,7 +88,8 @@ pub(super) struct Tracker {
     pub(super) pending: Vec<(Instant, Pending)>,
     pub(super) retries: Vec<(Instant, Key)>,
     // Per key, the counter value the cap dropped held updates up to, kept until a fetch for the key settles: a fetch
-    // given up on reports that range as skipped.
+    // given up on reports that range as skipped. Qts has no range of its own to report, so a fetch given up on keeps
+    // it, and a `Key::Qts` retry asks for the account's difference again.
     pub(super) dropped: Vec<(Key, i32)>,
     pub(super) failures: Vec<(Key, u32)>,
     pub(super) idle: Option<Instant>,
@@ -382,7 +383,8 @@ impl Tracker {
             // 4xx refusals and bad answers fail the same way next time, so deliver what we hold and give up on the gap.
             (Err(_), _) => Err(Some(SkipReason::Refused)),
         };
-        self.retries.retain(|(_, k)| *k != key);
+        // A retry for the qts the cap dropped is covered by a fetch of the account's box too.
+        self.retries.retain(|(_, k)| !due(*k));
         let delay = match retry {
             Ok(delay) => delay,
             Err(reason) => {
@@ -390,7 +392,14 @@ impl Tracker {
                 let mut skipped = self.settle(due, reason);
                 // What the cap dropped past the last update delivered is lost too, unless the fetch read it.
                 let dropped = self.dropped.iter().find(|(k, _)| *k == key).map(|(_, to)| *to);
-                self.dropped.retain(|(k, _)| !due(*k));
+                // Only getDifference brings back the qts the cap dropped, so given up on, it is asked for again after
+                // the back-off's longest wait; the stored qts stays below it until a fetch reads it.
+                let qts = self.state.qts;
+                let unread = |&(k, to): &(Key, i32)| reason.is_some() && due(k) && k == Key::Qts && qts < to;
+                self.dropped.retain(|held| !due(held.0) || unread(held));
+                if self.dropped.iter().any(unread) {
+                    self.retries.push((Instant::now() + GAP_TIMEOUT * 2u32.pow(MAX_RETRIES - 1), Key::Qts));
+                }
                 if let (Some(reason), Some(to), Key::Pts | Key::Channel(_)) = (reason, dropped, key) {
                     let at = self.counter(key);
                     if *at < to {
@@ -451,13 +460,30 @@ impl Tracker {
         }
         skipped
     }
+
+    /// Drops the updates of channel `id` held for its own gap and inside batches held for a seq gap, and says whether
+    /// there were any: a too-long difference stood in for them when it started the channel again.
+    pub(super) fn drop_held(&mut self, id: i64) -> bool {
+        let key = Key::Channel(id);
+        let held = self.pending.len();
+        self.pending.retain(|(_, p)| p.key != key);
+        let mut dropped = self.pending.len() < held;
+        for (_, p) in &mut self.pending {
+            if let Item::Batch(updates, ..) = &mut p.item {
+                let held = updates.len();
+                updates.retain(|u| !matches!(counter_of(u, channel_of(u)), Some((k, ..)) if k == key));
+                dropped |= updates.len() < held;
+            }
+        }
+        dropped
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        Arc, Duration, Entities, Error, GAP_TIMEOUT, IDLE_TIMEOUT, Instant, Key, MAX_PENDING, SkipReason, Skipped,
-        Tracker, UpdateState, base, types,
+        Arc, Duration, Entities, Error, GAP_TIMEOUT, IDLE_TIMEOUT, Instant, Key, MAX_PENDING, MAX_RETRIES, SkipReason,
+        Skipped, Tracker, UpdateState, base, types,
     };
     use crate::errors::RpcError;
 
@@ -597,6 +623,31 @@ mod tests {
         assert_eq!(t.recover(&Ok(()), Key::Pts), []);
         let refused = t.recover(&Err(Error::Rpc(RpcError::parse(400, "CHANNEL_PRIVATE"))), Key::Pts);
         assert_eq!(refused, [Skipped { key: Key::Pts, from: last, to: last, reason: SkipReason::Refused }]);
+    }
+
+    #[test]
+    fn a_fetch_given_up_on_asks_again_for_the_qts_the_cap_dropped() {
+        let (mut t, e) = (tracker(10, 0, 0), Arc::default());
+        // qts 1 never comes; one past the cap, the held ones are dropped for getDifference to bring back.
+        let last = MAX_PENDING as i32 + 2;
+        for qts in 2..=last {
+            t.update(stopped(qts), &e, false);
+        }
+        assert_eq!((t.pending.len(), t.due.clone()), (0, vec![Key::Pts]));
+        t.due.clear();
+        let skipped = t.recover(&Err(Error::Rpc(RpcError::parse(400, "CHANNEL_PRIVATE"))), Key::Pts);
+        assert_eq!(skipped, [Skipped { key: Key::Pts, from: 10, to: 10, reason: SkipReason::Refused }]);
+        // The stored qts stays below them, and the gap stays marked: a later fetch is asked for.
+        assert_eq!((t.state.qts, t.deadline().is_some()), (0, true));
+        t.expire(Instant::now() + GAP_TIMEOUT * 2u32.pow(MAX_RETRIES - 1));
+        assert_eq!(t.due, [Key::Pts]);
+        // Given up on again, it is asked for again; read, it is settled and nothing more is asked.
+        t.due.clear();
+        t.recover(&Err(Error::Rpc(RpcError::parse(400, "CHANNEL_PRIVATE"))), Key::Pts);
+        assert!(t.deadline().is_some());
+        t.state.qts = last;
+        assert_eq!(t.recover(&Ok(()), Key::Pts), []);
+        assert_eq!((t.dropped.clone(), t.deadline()), (vec![], None));
     }
 
     #[test]

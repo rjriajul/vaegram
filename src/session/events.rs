@@ -30,6 +30,9 @@ pub struct Events {
 
 // Past this many unread batches the oldest is dropped, which asks for a getDifference.
 const NESTED_LIMIT: usize = 64;
+// Past this many unread affected ranges the oldest is dropped: the tracker fills the hole it leaves with a
+// getDifference.
+const AFFECTED_LIMIT: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Affected {
@@ -116,12 +119,17 @@ impl Events {
             return;
         }
         let mut affected = self.affected.lock().unwrap();
-        match affected.iter_mut().find(|e| e.channel_id == a.channel_id) {
-            Some(e) if e.pts == a.pts.wrapping_sub(a.pts_count) => {
+        // Merged only into the range of its box it follows on from; another is held beside it, not over it.
+        match affected.iter_mut().find(|e| e.channel_id == a.channel_id && e.pts == a.pts.wrapping_sub(a.pts_count)) {
+            Some(e) => {
                 (e.pts, e.pts_count) = (a.pts, e.pts_count.wrapping_add(a.pts_count));
             }
-            Some(e) => *e = a,
-            None => affected.push(a),
+            None => {
+                if affected.len() == AFFECTED_LIMIT {
+                    affected.remove(0);
+                }
+                affected.push(a);
+            }
         }
         drop(affected);
         // As for nested updates: a waiting dispatcher takes it now, not with the next update.
@@ -199,7 +207,7 @@ fn unrecoverable(updates: &base::Updates) -> bool {
 mod tests {
     use std::sync::Arc;
 
-    use super::{Affected, Events, NESTED_LIMIT, describe};
+    use super::{AFFECTED_LIMIT, Affected, Events, NESTED_LIMIT, describe};
     use crate::enums::ClientEvent;
     use crate::errors::Error;
     use crate::handlers::{HandlerError, UpdateKind};
@@ -209,10 +217,25 @@ mod tests {
     fn affected_pts_merge_per_box() {
         let events = Events::default();
         let a = |channel_id, pts, pts_count| Affected { channel_id, pts, pts_count };
-        for affected in [a(None, 11, 1), a(None, 13, 2), a(Some(7), 5, 1), a(None, 20, 1), a(None, 21, 0)] {
+        let all = [a(None, 11, 1), a(None, 13, 2), a(Some(7), 5, 1), a(None, 20, 1), a(None, 22, 2), a(None, 21, 0)];
+        for affected in all {
             events.affected(affected);
         }
-        assert_eq!(*events.affected.lock().unwrap(), [a(None, 20, 1), a(Some(7), 5, 1)]);
+        // A range merges only into the one of its box it follows on from; one past a hole is held beside it.
+        assert_eq!(*events.affected.lock().unwrap(), [a(None, 13, 3), a(Some(7), 5, 1), a(None, 22, 3)]);
+    }
+
+    #[test]
+    fn unread_affected_ranges_are_capped_and_the_oldest_goes() {
+        let events = Events::default();
+        let a = |pts| Affected { channel_id: None, pts, pts_count: 1 };
+        // Each range leaves a hole before the next, so none merges.
+        for n in 0..AFFECTED_LIMIT as i32 + 2 {
+            events.affected(a(10 * n + 1));
+        }
+        let held = events.affected.lock().unwrap();
+        assert_eq!(held.len(), AFFECTED_LIMIT);
+        assert_eq!((held[0], held[AFFECTED_LIMIT - 1]), (a(21), a(10 * AFFECTED_LIMIT as i32 + 11)));
     }
 
     #[test]
