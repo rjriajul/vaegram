@@ -21,6 +21,11 @@ const VERSION: i64 = 1;
 const TIMEOUT: Duration = Duration::from_secs(10);
 /// How long the cancel request that stops a statement this engine gave up on may take.
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(2);
+/// Opens the transaction the session's lock lives in, left open for as long as the client runs. A server-side
+/// idle-in-transaction timeout would end it, so it is off for this transaction alone.
+const BEGIN_LOCK: &str = "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 0";
+/// Takes the session's lock until the transaction ends; `false` when another client holds it.
+const TAKE_LOCK: &str = "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS locked";
 
 // The tables of `sqlite_storage.rs`, column for column, in PostgreSQL types: a session moves between the two
 // engines field for field, which is what keeps the session format the same. `{schema}` is filled in once, by
@@ -221,6 +226,15 @@ impl Sql {
 /// pooler (PgBouncer, the pooled endpoints of Supabase and Neon), which may run each statement on a different
 /// server connection.
 ///
+/// One client per schema: two clients on one login get AUTH_KEY_DUPLICATED from Telegram, which ends the login. While
+/// one has the engine open it holds an advisory lock on the schema's name, and another client opening the same
+/// schema, in this process or another, fails with `ResourceBusy`. The lock lives in a transaction left open on a
+/// connection of its own, not in session state, and goes with that connection: a crashed client leaves none behind
+/// once the server sees it gone. Behind PgBouncer in transaction mode the lock held, and a client dropped without
+/// closing let it go (tested with PgBouncer only; other poolers, such as the pooled endpoints of Supabase and Neon,
+/// are untested and may keep the lock until they close that server connection). A lock connection the server ended
+/// is replaced, and the lock taken again, on the next call. Needs PostgreSQL 11 or newer.
+///
 /// The constructor only holds the [`Config`], the TLS connector and the schema name. Connecting, spawning the
 /// connection's own task and reconnecting all happen when the client opens the engine and on every call after, on
 /// the store thread's runtime, so the caller's runtime is never blocked on and a dropped client still saves.
@@ -236,6 +250,9 @@ pub struct PostgresStorage<T> {
     timeout: Duration,
     prepared: AtomicBool,
     conn: Mutex<Option<Client>>,
+    // The connection holding the schema's lock, from the first call until `close`; see `hold_lock`.
+    held: tokio::sync::Mutex<Option<Client>>,
+    lock_key: String,
     reports: Arc<Reports>,
 }
 
@@ -254,10 +271,12 @@ impl<T> PostgresStorage<T> {
             tls,
             sql: Sql::new(&name),
             limits: transaction_limits(TIMEOUT),
+            lock_key: format!("vaegram:{name}"),
             name,
             timeout: TIMEOUT,
             prepared: AtomicBool::new(false),
             conn: Mutex::new(None),
+            held: tokio::sync::Mutex::new(None),
             reports: Arc::default(),
         }
     }
@@ -292,7 +311,8 @@ where
     T::TlsConnect: Send,
     <T::TlsConnect as TlsConnect<Socket>>::Future: Send,
 {
-    /// The cached connection, or a new one, with this session's schema and tables created and the version checked.
+    /// The cached connection, or a new one, with this session's schema and tables created and the version checked,
+    /// and the schema's lock held.
     async fn open_conn(&self) -> io::Result<Client> {
         if !valid_name(&self.name) {
             let why = format!(
@@ -302,9 +322,28 @@ where
             );
             return Err(io::Error::new(io::ErrorKind::InvalidInput, why));
         }
+        self.hold_lock().await?;
         if let Some(client) = self.take() {
             return Ok(client);
         }
+        let client = self.connect().await?;
+        // Once per engine: the schema and tables outlive a connection, so a reconnect has no reason to create them
+        // again. An attempt that fails leaves the flag clear and the next call tries again.
+        if !self.prepared.load(Ordering::Acquire) {
+            match tokio::time::timeout(self.timeout, self.prepare(&client)).await {
+                Ok(result) => result?,
+                Err(_) => {
+                    self.cancel(&client).await;
+                    return Err(timed_out(self.timeout));
+                }
+            }
+            self.prepared.store(true, Ordering::Release);
+        }
+        Ok(client)
+    }
+
+    /// A new connection, its task spawned, with nothing on it yet.
+    async fn connect(&self) -> io::Result<Client> {
         // The whole connect, not just the TCP handshake: DNS, the TLS handshake and the login can hang as well as
         // the socket can.
         let connecting = self.config.connect(self.tls.clone());
@@ -320,19 +359,35 @@ where
                 reports.report(io_error(e));
             }
         });
-        // Once per engine: the schema and tables outlive a connection, so a reconnect has no reason to create them
-        // again. An attempt that fails leaves the flag clear and the next call tries again.
-        if !self.prepared.load(Ordering::Acquire) {
-            match tokio::time::timeout(self.timeout, self.prepare(&client)).await {
-                Ok(result) => result?,
-                Err(_) => {
-                    self.cancel(&client).await;
-                    return Err(timed_out(self.timeout));
-                }
-            }
-            self.prepared.store(true, Ordering::Release);
-        }
         Ok(client)
+    }
+
+    /// Holds the schema's lock, on a connection of its own, unless this engine holds it already: fails with
+    /// `ResourceBusy` while another client has the schema open.
+    async fn hold_lock(&self) -> io::Result<()> {
+        let mut held = self.held.lock().await;
+        if held.as_ref().is_some_and(|client| !client.is_closed()) {
+            return Ok(());
+        }
+        // A lock connection the server ended took the lock with it.
+        *held = None;
+        let client = self.connect().await?;
+        let taken = limited(self.timeout, take_lock(&client, &self.lock_key)).await;
+        match taken {
+            Some(Ok(true)) => {
+                *held = Some(client);
+                Ok(())
+            }
+            Some(Ok(false)) => {
+                let why = format!("{}: already open in another client; one client per schema", self.name);
+                Err(io::Error::new(io::ErrorKind::ResourceBusy, why))
+            }
+            Some(Err(e)) => Err(e),
+            None => {
+                self.cancel(&client).await;
+                Err(timed_out(self.timeout))
+            }
+        }
     }
 
     /// Creates this session's schema and tables and checks the version, retrying once when another process created
@@ -390,6 +445,15 @@ where
 /// Runs `operation` within `limit`; `None` when it ran out of time.
 async fn limited<R>(limit: Duration, operation: impl Future<Output = io::Result<R>> + Send) -> Option<io::Result<R>> {
     tokio::time::timeout(limit, operation).await.ok()
+}
+
+/// Opens the transaction the schema's lock lives in and takes it there; `false` when another client holds it. A
+/// transaction-level lock rather than a session-level one: a transaction-mode pooler hands a server connection, and
+/// a session-level lock with it, to other clients between transactions, but keeps an open transaction to one.
+async fn take_lock(client: &Client, key: &str) -> io::Result<bool> {
+    client.batch_execute(BEGIN_LOCK).await.map_err(io_error)?;
+    let row = client.query_one(TAKE_LOCK, &[&key]).await.map_err(io_error)?;
+    column(&row, "locked")
 }
 
 /// Whether `name` is a schema this engine may create: a lowercase SQL identifier of at most 63 characters, not one
@@ -669,7 +733,16 @@ where
             self.conn.lock().unwrap_or_else(PoisonError::into_inner).take();
             // The next open checks the schema again: it may have been dropped while the engine was closed.
             self.prepared.store(false, Ordering::Release);
-            Ok(())
+            // Rolled back, not just dropped, so the lock is free when this returns and a new client can open the
+            // schema at once.
+            let held = self.held.lock().await.take();
+            match held {
+                Some(client) if !client.is_closed() => {
+                    let rollback = async { client.batch_execute("ROLLBACK").await.map_err(io_error) };
+                    limited(self.timeout, rollback).await.unwrap_or_else(|| Err(timed_out(self.timeout)))
+                }
+                _ => Ok(()),
+            }
         })
     }
 
@@ -835,6 +908,14 @@ mod tests {
         assert!(!valid_name(&"a".repeat(64)));
     }
 
+    /// Two releases of vaegram on one schema must take the same lock, so the key never changes; and it is vaegram's
+    /// own, apart from any lock an application takes on the same name.
+    #[test]
+    fn the_lock_is_keyed_on_the_schema() {
+        assert_eq!(PostgresStorage::new(Config::new(), NoTls, "bot_1").lock_key, "vaegram:bot_1");
+        assert_eq!(super::TAKE_LOCK, "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS locked");
+    }
+
     /// A transaction-mode pooler may run the next statement on another connection, so no statement may depend on
     /// a session setting: each one names the schema itself.
     #[test]
@@ -924,6 +1005,40 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs VAEGRAM_POSTGRES_URL naming a database ending in _test, which it wipes"]
+    async fn a_second_client_on_the_same_schema_is_refused_until_the_first_closes() {
+        let Some(url) = url() else { return };
+        let name = "vaegram_one_client_test";
+        let first = storage(test_config(&url).unwrap(), name);
+        first.delete().await.unwrap();
+        first.save_session(&SessionData::new(2, [1; 256])).await.unwrap();
+        let second = storage(test_config(&url).unwrap(), name);
+        let refused = second.open().await.err().map(|e| e.kind());
+        let refused_write = second.save_session(&SessionData::new(4, [2; 256])).await.is_err();
+        first.close().await.unwrap();
+        let after_close = second.open().await;
+        let kept = second.load_session().await.unwrap().map(|s| s.dc_id);
+        assert_eq!(refused, Some(std::io::ErrorKind::ResourceBusy));
+        assert!(refused_write, "a refused storage still wrote");
+        assert!(after_close.is_ok(), "{after_close:?}");
+        assert_eq!(kept, Some(2), "the first client's session was overwritten");
+
+        // A client that goes without closing, as a crashed one does, lets go once the server sees its connection end.
+        drop(second);
+        let third = storage(test_config(&url).unwrap(), name);
+        let mut opened = third.open().await;
+        for _ in 0..100 {
+            if opened.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            opened = third.open().await;
+        }
+        assert!(opened.is_ok(), "{opened:?}");
+        third.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "needs VAEGRAM_POSTGRES_URL naming a database ending in _test, which it wipes"]
     async fn reconnects_after_the_server_drops() {
         let Some(url) = url() else { return };
         let mut config = test_config(&url).unwrap();
@@ -932,7 +1047,7 @@ mod tests {
         let reports = conformance::collect_reports(&storage);
         storage.save_session(&SessionData::new(2, [1; 256])).await.unwrap();
 
-        // A second connection ends the storage's backend, as a server restart would.
+        // A second connection ends the storage's backends, the lock's and the statements', as a server restart would.
         let (killer, connection) = test_config(&url).unwrap().connect(NoTls).await.unwrap();
         tokio::spawn(connection);
         let ended = killer
@@ -944,9 +1059,9 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(ended, 1, "exactly the storage's backend is ended");
+        assert_eq!(ended, 2, "exactly the storage's two backends are ended");
 
-        // The drop is reported and the backend leaves `pg_stat_activity` before the save that must work.
+        // Both drops are reported and the backends leave `pg_stat_activity` before the save that must work.
         let mut gone = false;
         let mut reported = false;
         for _ in 0..100 {
@@ -960,16 +1075,19 @@ mod tests {
                 .unwrap()
                 .get(0);
             gone = left == 0;
-            reported = !reports.lock().unwrap().is_empty();
+            reported = reports.lock().unwrap().len() >= 2;
             if gone && reported {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        assert!(gone, "the old backend is gone");
-        assert!(reported, "the drop is reported");
+        assert!(gone, "the old backends are gone");
+        assert!(reported, "the drops are reported");
         storage.save_session(&SessionData::new(4, [2; 256])).await.unwrap();
         assert_eq!(storage.load_session().await.unwrap().map(|s| s.dc_id), Some(4));
+        // The lock is back, on a connection of its own.
+        let rival = PostgresStorage::new(test_config(&url).unwrap(), NoTls, "vaegram_reconnect_test");
+        assert_eq!(rival.open().await.err().map(|e| e.kind()), Some(std::io::ErrorKind::ResourceBusy));
     }
 
     #[tokio::test]
@@ -1008,11 +1126,13 @@ mod tests {
             // When the client-side limit fires first, the connection that ran out of time is dropped, not parked on
             // the server: the next save opens a new one, and the old backend is gone (or going), not stuck until the
             // statement it was running answers. When the server's `lock_timeout` fires first, the statement has
-            // already failed and the connection is kept. Either way at most one backend is left.
+            // already failed and the connection is kept. Either way at most one backend is left besides the lock's,
+            // the one holding an advisory lock.
             let left: i64 = locker
                 .query_one(
                     "SELECT count(*) FROM pg_stat_activity \
-                     WHERE datname = current_database() AND application_name = 'vaegram-timeout-test'",
+                     WHERE datname = current_database() AND application_name = 'vaegram-timeout-test' \
+                     AND pid NOT IN (SELECT pid FROM pg_locks WHERE locktype = 'advisory')",
                     &[],
                 )
                 .await
