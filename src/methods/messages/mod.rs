@@ -2,6 +2,7 @@ mod add_checklist_tasks;
 mod add_poll_option;
 mod add_to_gifs;
 mod approve_suggested_post;
+mod check_search_posts_flood;
 mod clear_all_drafts;
 mod click;
 mod compose_text_with_ai;
