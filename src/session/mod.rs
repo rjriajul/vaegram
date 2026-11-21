@@ -81,6 +81,13 @@ const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(30);
 const KEY_EXCHANGE_TIMEOUT: Duration = Duration::from_secs(20);
 const TICK: Duration = Duration::from_secs(1);
 const ACK_EVERY: Duration = Duration::from_secs(15);
+// How long a close waits for a report of the connection coming back, which runs the user's listener: past it the
+// close goes ahead, as with `closed` set the report brings nothing back after the listener returns. Short in tests,
+// which wait it out in real time.
+#[cfg(not(test))]
+const REPORT_WAIT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const REPORT_WAIT: Duration = Duration::from_millis(500);
 
 type Answer = Result<Vec<u8>>;
 
@@ -302,12 +309,44 @@ struct Control {
     wake: Notify,
     // Shared by every lease of this connection, so a large bot download keeps one getFile out on it in all.
     gate: pacer::Gate,
+    // When the connection came up after a drop, with the count of drops it came after.
+    up: std::sync::Mutex<Option<(u64, tokio::time::Instant)>>,
+    // The thread reporting the connection back, while it does: `close` waits for that to end, so nothing reports it
+    // back after `close` returned; for REPORT_WAIT at most, and not when it comes from inside the report.
+    reporter: std::sync::Mutex<Option<std::thread::ThreadId>>,
+    reported: std::sync::Condvar,
+}
+
+/// The task reporting its connection back, for as long as this lives; see [`Control::reporting`].
+struct Reporting<'a>(&'a Control);
+
+impl Drop for Reporting<'_> {
+    fn drop(&mut self) {
+        *self.0.reporter.lock().unwrap() = None;
+        self.0.reported.notify_all();
+    }
 }
 
 impl Control {
     fn close(&self) {
+        let me = std::thread::current().id();
+        let reporter = self.reporter.lock().unwrap();
         self.closed.store(true, Ordering::Release);
+        let reporting = |thread: &mut Option<std::thread::ThreadId>| thread.is_some_and(|t| t != me);
+        let (reporter, _) = self.reported.wait_timeout_while(reporter, REPORT_WAIT, reporting).unwrap();
+        drop(reporter);
         self.wake.notify_one();
+    }
+
+    /// Starts reporting the connection back, unless it was closed first; a close from now on waits until the
+    /// report is done, or REPORT_WAIT has gone by.
+    fn reporting(&self) -> Option<Reporting<'_>> {
+        let mut reporter = self.reporter.lock().unwrap();
+        if self.closed() {
+            return None;
+        }
+        *reporter = Some(std::thread::current().id());
+        Some(Reporting(self))
     }
 
     fn closed(&self) -> bool {
@@ -341,6 +380,35 @@ impl Control {
     /// How many times the task dropped its connection to reconnect.
     fn drops(&self) -> u64 {
         self.restart.load(Ordering::Acquire) >> 1
+    }
+
+    /// Notes that the connection came up after the latest drop.
+    fn came_up(&self) {
+        *self.up.lock().unwrap() = Some((self.drops(), tokio::time::Instant::now()));
+    }
+
+    /// When the connection the task holds came up, and how many drops it came after: `None` for the first one and
+    /// while it reconnects.
+    fn up_since(&self) -> Option<(u64, tokio::time::Instant)> {
+        let up = *self.up.lock().unwrap();
+        up.filter(|&(drops, _)| drops == self.drops())
+    }
+
+    /// Runs `step` unless the connection is closed first, which gives `None`. A restart asked for meanwhile is taken:
+    /// the connection being opened is that restart.
+    async fn unless_closed<T>(&self, step: impl Future<Output = T>) -> Option<T> {
+        let mut step = std::pin::pin!(step);
+        loop {
+            tokio::select! {
+                out = &mut step => return (!self.closed()).then_some(out),
+                () = self.wake.notified() => {
+                    if self.closed() {
+                        return None;
+                    }
+                    self.take_restart();
+                }
+            }
+        }
     }
 }
 
@@ -522,6 +590,12 @@ impl Session {
     /// How many times the connection was dropped to reconnect so far; for [`restart_since`](Self::restart_since).
     pub(crate) fn reconnects(&self) -> u64 {
         self.control.drops()
+    }
+
+    /// When the connection came up after its latest drop, and the [`reconnects`](Self::reconnects) count it came up
+    /// at: `None` for the first connection and while it reconnects.
+    pub(crate) fn up_since(&self) -> Option<(u64, tokio::time::Instant)> {
+        self.control.up_since()
     }
 
     /// What lets a gated part out on this connection; see [`pacer::Pace`].
@@ -965,22 +1039,30 @@ impl Runner {
                 }
             }
             self.drop_abandoned();
-            let Ok(mut conn) = Connection::connect(&self.dc, &self.options).await else { continue };
+            // Connecting and making a key take up to half a minute: a close ends them rather than waits them out.
+            let Some(Ok(mut conn)) = self.control.unless_closed(Connection::connect(&self.dc, &self.options)).await
+            else {
+                continue;
+            };
             if self.temp_key_stale() {
                 let server = server_key(self.dc);
-                let Ok(key) = create_key(&mut conn, self.dc, &server, Some(pfs::TEMP_KEY_LIFETIME)).await else {
-                    continue;
-                };
+                let making = create_key(&mut conn, self.dc, &server, Some(pfs::TEMP_KEY_LIFETIME));
+                let Some(Ok(key)) = self.control.unless_closed(making).await else { continue };
                 self.use_temp_key(key);
             }
             (self.reader, self.writer) = conn.into_split();
-            self.writer.sent_before(self.msg_ids.last());
+            self.writer.ids_above(self.msg_ids.last());
             self.heard();
             if self.resend_pending().await.is_ok() {
+                // Closed meanwhile: `run` ends the session, so it isn't reported as back. A close from here on waits
+                // until the report is done. The hooks go first, so a listener closing on the event comes after them.
+                let control = Arc::clone(&self.control);
+                let Some(_reporting) = control.reporting() else { return };
+                self.control.came_up();
                 if !(renewing && attempt == 1) {
                     self.events.reconnected();
-                    self.events.emit(ClientEvent::Reconnected { dc: self.dc.id, attempt });
                     self.link(true);
+                    self.events.emit(ClientEvent::Reconnected { dc: self.dc.id, attempt });
                 }
                 self.request_difference();
                 return;
@@ -1011,9 +1093,8 @@ impl Runner {
             // The server answers a part only once the whole of it has arrived, which on a link at MIN_RATE is when
             // the bytes it isn't known to have got could have drained, and a big answer takes a while to come in;
             // so a transfer connection counts silence from the latest of those and of any byte read. It isn't
-            // watched idle. Any write moves `drained_by` on, a resent bind too: under PFS with a request_timeout
-            // under PROBE_DEAD_AFTER, an unanswered bind goes again before the silence gets there, so a dead
-            // transfer connection is only dropped when a part on it times out.
+            // watched idle. A write of something new moves `drained_by` on; a bind sent again for want of an answer
+            // doesn't, or under PFS with a request_timeout under PROBE_DEAD_AFTER it would keep a dead connection.
             None if waiting => {
                 let heard = self.last_read.max(self.reader.last_byte()).max(self.writer.drained_by());
                 tokio::time::Instant::now().saturating_duration_since(heard)
@@ -1102,8 +1183,12 @@ impl Runner {
         self.learned.salt.store(salt, Ordering::Relaxed);
     }
 
+    // A clock moved back takes the msg_ids back with it, above what the server may have taken in; the connection's
+    // writer learns where they start again.
     fn set_time_offset(&mut self, time_offset: i64) {
-        self.msg_ids.time_offset = time_offset;
+        if let Some(after) = self.msg_ids.set_time_offset(time_offset) {
+            self.writer.ids_above(after);
+        }
         self.learned.time_offset.store(time_offset, Ordering::Relaxed);
     }
 

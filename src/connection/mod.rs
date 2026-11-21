@@ -439,7 +439,8 @@ impl Connection {
                 written: 0,
                 arrived: 0,
                 unproven: VecDeque::new(),
-                arrived_id: i64::MIN,
+                floor: i64::MIN,
+                repeat: false,
             },
         })
     }
@@ -595,16 +596,19 @@ pub(crate) struct Writer {
     encrypt: Option<Ctr>,
     records: Option<RecordWriter>,
     pub(crate) buf: Vec<u8>,
-    // When the bytes past `arrived` could all have left at MIN_RATE, counted from the last proof that bytes arrived.
+    // When the bytes past `arrived` could all have left at MIN_RATE, counted from the last proof that bytes arrived;
+    // a packet that only repeats one already out (see `repeats`) doesn't move it.
     drained_by: tokio::time::Instant,
     // Bytes the stream took, and how many of them the server is known to have got.
     written: u64,
     arrived: u64,
-    // The packets past `arrived`, oldest first: the newest msg_id each carried, and `written` at its end.
-    unproven: VecDeque<(i64, u64)>,
-    // The newest msg_id known to have arrived, or the last one sent before this connection: a proof about one up
-    // to it says nothing new.
-    arrived_id: i64,
+    // The packets past `arrived`, oldest first: the msg_ids each carried, above the first number and up to the
+    // second, and `written` at its end.
+    unproven: VecDeque<(i64, i64, u64)>,
+    // The next packet's msg_ids are above this: the newest the last one carried, or what `ids_above` said.
+    floor: i64,
+    // The packet being written only repeats one already out.
+    repeat: bool,
 }
 
 impl Writer {
@@ -614,6 +618,7 @@ impl Writer {
     }
 
     pub(crate) async fn finish(&mut self) -> Result<()> {
+        let fresh = !std::mem::take(&mut self.repeat);
         let start = self.framing.frame_after(&mut self.buf, self.room);
         if let Some(encrypt) = &mut self.encrypt {
             encrypt.apply(&mut self.buf[start..]);
@@ -628,7 +633,9 @@ impl Writer {
                     .await
                     .map_err(stalled)??;
                 self.written += len as u64;
-                self.drained_by = taken(self.drained_by, len);
+                if fresh {
+                    self.drained_by = taken(self.drained_by, len);
+                }
                 return Ok(());
             }
         }
@@ -644,7 +651,9 @@ impl Writer {
                 Ok(Ok(0)) => return Err(io::Error::from(io::ErrorKind::WriteZero).into()),
                 Ok(Ok(n)) => {
                     self.written += n as u64;
-                    self.drained_by = taken(self.drained_by, n);
+                    if fresh {
+                        self.drained_by = taken(self.drained_by, n);
+                    }
                     wire = &wire[n..];
                 }
                 Ok(Err(e)) => return Err(e.into()),
@@ -657,9 +666,16 @@ impl Writer {
     }
 
     /// When the bytes not yet known to have reached the server could all have got there at MIN_RATE, counted from
-    /// the last proof that bytes arrived: the server can't answer the last request before then.
+    /// the last proof that bytes arrived: the server can't answer the last request before then. A packet that only
+    /// repeated one already out doesn't count: the server owes an answer to the first one by then.
     pub(crate) fn drained_by(&self) -> tokio::time::Instant {
         self.drained_by
+    }
+
+    /// The next packet only repeats one already out, as a bind sent again for want of an answer: its bytes don't move
+    /// `drained_by`, so a link that answers nothing isn't kept alive by what it is sent again.
+    pub(crate) fn repeats(&mut self) {
+        self.repeat = true;
     }
 
     /// Bytes the stream took that the server isn't known to have got.
@@ -667,34 +683,28 @@ impl Writer {
         self.written - self.arrived
     }
 
-    /// Notes that the packet just finished carried msg_ids up to `last`, all newer than the packets before it had.
+    /// Notes that the packet just finished carried msg_ids up to `last`, above those of the packet before it, or above
+    /// what `ids_above` said.
     pub(crate) fn sent(&mut self, last: i64) {
-        self.unproven.push_back((last, self.written));
+        self.unproven.push_back((self.floor, last, self.written));
+        self.floor = last;
     }
 
-    /// Msg_ids up to `last` went out on an earlier connection: the server referring to one proves nothing here.
-    pub(crate) fn sent_before(&mut self, last: i64) {
-        self.arrived_id = last;
+    /// The next packet's msg_ids are above `floor`, though maybe below some sent before: the ids up to it went out on
+    /// an earlier connection, or a clock correction moved the ids back. The server referring to one of those proves
+    /// nothing about the packets after.
+    pub(crate) fn ids_above(&mut self, floor: i64) {
+        self.floor = floor;
     }
 
     /// The server referred to `msg_id`, so it got the packet that carried it, and every packet written before that
     /// one on this stream. What is left of the backlog counts from now.
     pub(crate) fn arrived(&mut self, msg_id: i64) {
-        if msg_id <= self.arrived_id {
-            return;
-        }
-        let mut end = None;
-        while let Some((last, at)) = self.unproven.pop_front() {
-            self.arrived_id = last;
-            end = Some(at);
-            if last >= msg_id {
-                break;
-            }
-        }
-        if let Some(end) = end {
-            self.arrived = end;
-            self.drained_by = tokio::time::Instant::now() + at_min_rate(self.backlog());
-        }
+        let carried = |&(floor, last, _): &(i64, i64, u64)| floor < msg_id && msg_id <= last;
+        let Some(i) = self.unproven.iter().position(carried) else { return };
+        self.arrived = self.unproven[i].2;
+        self.unproven.drain(..=i);
+        self.drained_by = tokio::time::Instant::now() + at_min_rate(self.backlog());
     }
 
     pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<()> {
@@ -853,7 +863,7 @@ mod tests {
         let (link, _far) = slow_link::SlowLink::new(4 << 20, 1, 0);
         let mut connection = connected(link).await;
         let w = &mut connection.writer;
-        w.sent_before(5);
+        w.ids_above(5);
         // Three packets of the same size, carrying msg_ids up to 10, 20 and 30.
         for last in [10, 20, 30] {
             w.send(&[0; 1020]).await.unwrap();
@@ -873,6 +883,53 @@ mod tests {
         w.arrived(30);
         assert_eq!(w.backlog(), 0);
         assert_eq!(w.drained_by(), tokio::time::Instant::now());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn proofs_still_count_after_a_clock_correction_moves_the_msg_ids_back() {
+        let (link, _far) = slow_link::SlowLink::new(4 << 20, 1, 0);
+        let mut connection = connected(link).await;
+        let w = &mut connection.writer;
+        w.ids_above(50);
+        // Two packets with msg_ids up to 100 and 200, which the server refuses as too high; the ids then start again
+        // above 10.
+        for last in [100, 200] {
+            w.send(&[0; 1020]).await.unwrap();
+            w.sent(last);
+        }
+        w.ids_above(10);
+        for last in [20, 30] {
+            w.send(&[0; 1020]).await.unwrap();
+            w.sent(last);
+        }
+        let all = w.backlog();
+        // The first packet's refusal proves it alone, not the ones after it with lower msg_ids.
+        w.arrived(100);
+        assert_eq!(w.backlog(), all / 4 * 3);
+        // An answer to 15 proves the third packet, and the second, written before it.
+        w.arrived(15);
+        assert_eq!(w.backlog(), all / 4);
+        // The second packet's refusal coming late adds nothing.
+        w.arrived(200);
+        assert_eq!(w.backlog(), all / 4);
+        w.arrived(30);
+        assert!(w.backlog() == 0 && w.unproven.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_packet_that_only_repeats_one_already_out_does_not_move_drained_by() {
+        let (link, _far) = slow_link::SlowLink::new(4 << 20, 1, 0);
+        let mut connection = connected(link).await;
+        let w = &mut connection.writer;
+        w.send(&[0; 1020]).await.unwrap();
+        let drained_by = w.drained_by();
+        tokio::time::advance(Duration::from_secs(30)).await;
+        w.repeats();
+        w.send(&[0; 1020]).await.unwrap();
+        assert_eq!(w.drained_by(), drained_by);
+        // That packet only: the next one is new work again.
+        w.send(&[0; 1020]).await.unwrap();
+        assert_eq!(w.drained_by(), tokio::time::Instant::now() + at_min_rate(1024));
     }
 
     #[tokio::test]

@@ -9,6 +9,11 @@ impl Client {
     /// It doesn't wait for `run`, so a handler can call it. To let the running handlers finish first: `stop`,
     /// await `run`, then `disconnect`.
     ///
+    /// A reconnect being reported meanwhile, to the [`on_event`](Self::on_event) listener as
+    /// [`ClientEvent::Reconnected`](crate::enums::ClientEvent::Reconnected), is waited out first, for 5 seconds at
+    /// most, so no connection is reported back after this returns. A listener that blocks waiting for this
+    /// `disconnect` holds it up those 5 seconds, and goes on after it returns.
+    ///
     /// The storage is saved and closed here, or as the running `run` returns, even while clones of the client live,
     /// so a new client can open the same session file. Nothing is read from or written to it after that. The final
     /// save blocks the thread it runs on, this one or the one `run` returns on, for up to 10 seconds.

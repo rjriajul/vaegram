@@ -13,6 +13,11 @@ use crate::handlers::{HandlerError, UpdateKind};
 pub enum ClientEvent {
     /// A connection to `dc` came back after `attempt` tries. When it's the main connection, updates missed
     /// meanwhile are being fetched.
+    ///
+    /// The listener gets this as part of the connection coming back, and a [`disconnect`](crate::Client::disconnect)
+    /// on another thread waits until the listener returns, for 5 seconds at most. So the listener shouldn't block
+    /// waiting for a disconnect running elsewhere, which holds that disconnect up to then; calling `disconnect` from
+    /// the listener itself is fine.
     #[non_exhaustive]
     Reconnected {
         /// Id of the data center whose connection came back; file-transfer connections report theirs too.

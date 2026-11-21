@@ -174,8 +174,9 @@ impl TransferPool {
                     Auth::Cdn(key) => Some(key),
                     Auth::Home(..) => None,
                 };
-                let session =
-                    Session::connect_transfer(main, None, cdn_key, options, events.clone(), rebind(), number()).await?;
+                let n = number();
+                let dial = || Session::connect_transfer(main, None, cdn_key, options, events.clone(), rebind(), n);
+                let session = self.open(epoch, options, dial).await?;
                 if let Auth::Home(home, api_id) = auth {
                     let export = functions::auth::ExportAuthorization { dc_id: dc.id };
                     // Same as everything else this client sends, when it wants no updates.
@@ -202,7 +203,9 @@ impl TransferPool {
         };
         let missing = count.saturating_sub(sessions.len());
         let connect = |_| {
-            let opening = Session::connect_transfer(dc, Some(key), None, options, events.clone(), rebind(), number());
+            let n = number();
+            let dial = move || Session::connect_transfer(dc, Some(key), None, options, events.clone(), rebind(), n);
+            let opening = self.open(epoch, options, dial);
             async move { Ok(opening.await) }
         };
         let mut failed = Vec::new();
@@ -238,6 +241,30 @@ impl TransferPool {
         drop(keyed.map(|session| Lease { sessions: vec![session] }));
         sessions.truncate(count);
         Ok(Lease { sessions })
+    }
+
+    /// Opens a connection with `dial`, and again after a timeout, as a part goes again after one: up to MAX_TIMEOUTS
+    /// tries in all, unless the retry policy turns that off, and none after a `close_all` or `shut` since `epoch`,
+    /// which the lease would close it for.
+    async fn open<F: Future<Output = Result<Session>>>(
+        &self,
+        epoch: u64,
+        options: &Options,
+        dial: impl Fn() -> F,
+    ) -> Result<Session> {
+        let own = options.retry.0.retries_file_parts();
+        let mut tries = 1;
+        loop {
+            let error = match dial().await {
+                Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::TimedOut => Error::Io(e),
+                opened => return opened,
+            };
+            let closed = self.shut.load(Ordering::Acquire) || self.epoch.load(Ordering::Acquire) != epoch;
+            if !own || tries == MAX_TIMEOUTS || closed {
+                return Err(error);
+            }
+            tries += 1;
+        }
     }
 }
 
@@ -300,27 +327,47 @@ async fn invoke_part_on<R: RemoteCall>(
     let cap = cdn.then_some(MAX_CDN_FLOOD_WAIT);
     let own = session.retries_file_parts();
     let (mut timeouts, mut server_errors, mut tally) = (0, 0, Tally::default());
+    // How long this send waits: `timeout`, or what is left of it on a connection that came up while the part waited.
+    // And whether the part went on to such a connection before.
+    let (mut left, mut moved) = (timeout, false);
     loop {
         // Taken before the pacer, so a part waits its turn with its connection already its own.
         let gate = if pace.gated { Some(session.gate().enter().await) } else { None };
         if let Some(pacer) = pace.pacer {
             pacer.pace(pace.bytes).await;
         }
-        // Read before the request is queued: if something else drops the connection after this and the part goes
-        // on the new one, its first timeout there takes that drop for its own and doesn't restart, so it takes a
-        // second timeout to.
+        // Read before the request is queued, so a timeout tells a part that went down with its connection from one
+        // that went on to the connection that came up after a drop.
         let reconnects = session.reconnects();
-        let result = session.invoke_with_timeout(request, timeout).await;
+        let result = session.invoke_with_timeout(request, left).await;
+        left = timeout;
         let Err(e) = &result else { return result };
         tally.failed(e);
         let wait = match session.should_retry(R::NAME, e, tally, cap, !cdn) {
             ControlFlow::Continue(wait) => wait,
             ControlFlow::Break(()) if own && matches!(e, Error::Timeout) && timeouts + 1 < MAX_TIMEOUTS => {
                 timeouts += 1;
-                // The part most likely went down with a connection the server stopped answering on: open a fresh
-                // one, which sends the other parts waiting on it again too, as TDLib and mtcute do. Not when another
-                // part's timeout already had it dropped since this one went out, even if it isn't back yet.
-                session.restart_since(reconnects)?;
+                match session.up_since() {
+                    // Dropped meanwhile, by another part's timeout or for any other reason: the part went on to the
+                    // connection that came up after, which gets the rest of a whole timeout before it is restarted too.
+                    // So the part neither waits a second whole one on it nor restarts it right after another part did.
+                    Some((now_on, up)) if now_on != reconnects => match timeout.checked_sub(up.elapsed()) {
+                        Some(rest) if !rest.is_zero() => {
+                            // Only part of that timeout went by on this connection, so the first one isn't counted:
+                            // the part still gets every whole try here. Later ones are, so a connection that keeps
+                            // dropping still ends it.
+                            if !std::mem::replace(&mut moved, true) {
+                                timeouts -= 1;
+                            }
+                            left = rest;
+                        }
+                        _ => session.restart_since(now_on)?,
+                    },
+                    // The part most likely went down with a connection the server stopped answering on: open a fresh
+                    // one, which sends the other parts waiting on it again too, as TDLib and mtcute do. Not when
+                    // another part's timeout already had it dropped since this one went out and it isn't back yet.
+                    _ => session.restart_since(reconnects)?,
+                }
                 Duration::ZERO
             }
             // As TDLib, mtcute, teleproto and gogram send a part again after a pause: Telegram's trouble, not the
@@ -614,6 +661,40 @@ mod tests {
         assert!(session.control.take_restart(), "the part went again on the same connection");
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn a_part_moved_to_a_new_connection_waits_there_only_what_is_left_of_its_timeout() {
+        // Never answers the first three sends, as connections the server went quiet on; answers the fourth.
+        let (requests, mut rx) = tokio::sync::mpsc::unbounded_channel::<Request>();
+        let (log, mut came) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let mut lost = Vec::new();
+            while let Some(request) = rx.recv().await {
+                let _ = log.send(tokio::time::Instant::now());
+                if lost.len() < 3 {
+                    lost.push(request);
+                } else {
+                    let _ = request.answer.send(Ok(true.to_bytes()));
+                }
+            }
+        });
+        let session = Session::local(requests);
+        let control = Arc::clone(&session.control);
+        // 100 s in, the connection drops for another reason and comes back at once: the part goes on to the new one.
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(100)).await;
+            control.dropped();
+            control.came_up();
+        });
+        let start = tokio::time::Instant::now();
+        assert!(invoke_part(&session, &part(), MIN_PART_TIMEOUT).await.unwrap());
+        let sent: Vec<u64> = std::iter::from_fn(|| came.try_recv().ok()).map(|at| (at - start).as_secs()).collect();
+        // Timed out at 128 s, 28 s into the new connection: sent again for the 100 s left of a whole timeout there,
+        // then that connection is restarted, not 128 s more on. That first timeout wasn't counted, so the part still
+        // gets its last whole try after the second restart.
+        assert_eq!(sent, [0, 128, 228, 356]);
+        assert!(session.control.take_restart(), "the new connection was never restarted");
+    }
+
     type Asked = (&'static str, u32, Option<Duration>, bool);
     struct Record(Arc<Mutex<Vec<Asked>>>);
 
@@ -822,6 +903,32 @@ mod tests {
         // Each connection that failed to open is reported, though the lease went on without it.
         let failed = events.try_iter().filter(|e| matches!(e, ClientEvent::ConnectFailed { dc: 4, .. })).count();
         assert_eq!(failed, 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_lease_tries_a_connect_that_timed_out_again() {
+        // The first dial never gets through, as to an address that drops the SYN; the next one does.
+        let (dials, held) = (Arc::new(AtomicUsize::new(0)), Arc::new(Mutex::new(Vec::new())));
+        let (dialed, keep) = (Arc::clone(&dials), Arc::clone(&held));
+        let factory = move |_: std::net::SocketAddr| {
+            let first = dialed.fetch_add(1, Ordering::SeqCst) == 0;
+            let (ours, theirs) = tokio::io::duplex(1 << 16);
+            keep.lock().unwrap().push(theirs);
+            async move {
+                if first {
+                    std::future::pending::<()>().await;
+                }
+                Ok::<_, std::io::Error>(ours)
+            }
+        };
+        let options = Options::new().transport(Transport::Intermediate).connection_factory(factory);
+        let dc = Dc { id: 4, addr: ([127, 0, 0, 1], 1).into(), test: false, media: false };
+        let pool = TransferPool::default();
+        // Its request channel is closed, so the slot keeps only its key.
+        pool.insert(dc, &Session::offline());
+        let lease = pool.lease(dc, 1, Auth::Home(&Session::offline(), 1), &options, &Arc::default()).await;
+        assert_eq!(lease.map(|l| l.sessions.len()).ok(), Some(1), "a connect that timed out failed the lease");
+        assert_eq!(dials.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

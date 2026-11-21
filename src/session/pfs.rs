@@ -168,9 +168,14 @@ impl Runner {
         let request = bind_request(&p.perm_key, &self.auth_key_id, &self.session_id, msg_id, p.expires_at as i32);
         // `request_timeout` may be `Duration::MAX`; no bind waits longer than its temp key lives.
         let wait = self.options.request_timeout.min(Duration::from_secs(TEMP_KEY_LIFETIME as u64));
+        // Sent again for want of an answer: the server owes one for the first already.
+        let again = matches!(p.bind, Bind::Sent(..));
         p.bind = Bind::Sent(msg_id, Instant::now() + wait);
         let seq_no = self.seq.next(true);
         self.seal(msg_id, seq_no, &request.to_bytes());
+        if again {
+            self.writer.repeats();
+        }
         true
     }
 
