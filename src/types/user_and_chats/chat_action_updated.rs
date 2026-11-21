@@ -41,7 +41,7 @@ impl ChatActionUpdated {
         Some(ChatActionUpdated { chat, from_user, sender_chat, action, progress, message_thread_id, client })
     }
 
-    /// `None` for activities [`ChatAction`] has no variant for, such as streamed drafts and emoji interactions.
+    /// `None` for activities [`ChatAction`] has no variant for, such as streamed drafts.
     pub(crate) fn parse_user(client: &Client, raw: &types::UpdateUserTyping, entities: &Entities) -> Option<Self> {
         let peer = base::Peer::PeerUser(types::PeerUser { user_id: raw.user_id });
         let chat = Chat::parse(&peer, entities, false);

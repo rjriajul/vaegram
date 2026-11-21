@@ -1,7 +1,9 @@
 use crate::raw::{base, types};
 
 /// An activity shown to other members of a chat, such as "typing...". Upload actions are sent with progress 0.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// The emoji interaction actions carry text, so the enum is `Clone` but not `Copy`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ChatAction {
     /// Typing a text message.
@@ -34,6 +36,21 @@ pub enum ChatAction {
     Speaking,
     /// Importing a chat history.
     ImportHistory,
+    /// Playing an animated emoji's interaction with the other side of a private chat, as the official clients send
+    /// it.
+    EmojiInteraction {
+        /// The emoji.
+        emoticon: String,
+        /// The message the interaction animates.
+        message_id: i32,
+        /// The JSON that describes the animation.
+        interaction: String,
+    },
+    /// Having seen the other side's animated emoji interaction.
+    EmojiInteractionSeen {
+        /// The emoji.
+        emoticon: String,
+    },
     /// Clears the action that was showing.
     Cancel,
 }
@@ -69,12 +86,20 @@ impl ChatAction {
             ChatAction::ImportHistory => {
                 A::SendMessageHistoryImportAction(types::SendMessageHistoryImportAction { progress: 0 })
             }
+            ChatAction::EmojiInteraction { emoticon, message_id, interaction } => {
+                let interaction = base::DataJSON::DataJSON(Box::new(types::DataJSON { data: interaction }));
+                let action = types::SendMessageEmojiInteraction { emoticon, msg_id: message_id, interaction };
+                A::SendMessageEmojiInteraction(Box::new(action))
+            }
+            ChatAction::EmojiInteractionSeen { emoticon } => {
+                A::SendMessageEmojiInteractionSeen(Box::new(types::SendMessageEmojiInteractionSeen { emoticon }))
+            }
             ChatAction::Cancel => A::SendMessageCancelAction,
         }
     }
 
     /// The action with its upload progress, if it has one. `None` for actions this enum has no variant for, such
-    /// as streamed drafts and emoji interactions.
+    /// as streamed drafts.
     pub(crate) fn parse(raw: &base::SendMessageAction) -> Option<(ChatAction, Option<i32>)> {
         use base::SendMessageAction as A;
         let (action, progress) = match raw {
@@ -93,9 +118,40 @@ impl ChatAction {
             A::SendMessageChooseStickerAction => (ChatAction::ChooseSticker, None),
             A::SpeakingInGroupCallAction => (ChatAction::Speaking, None),
             A::SendMessageHistoryImportAction(a) => (ChatAction::ImportHistory, Some(a.progress)),
+            A::SendMessageEmojiInteraction(a) => {
+                let base::DataJSON::DataJSON(json) = &a.interaction;
+                let (emoticon, interaction) = (a.emoticon.clone(), json.data.clone());
+                (ChatAction::EmojiInteraction { emoticon, message_id: a.msg_id, interaction }, None)
+            }
+            A::SendMessageEmojiInteractionSeen(a) => {
+                (ChatAction::EmojiInteractionSeen { emoticon: a.emoticon.clone() }, None)
+            }
             A::SendMessageCancelAction => (ChatAction::Cancel, None),
             _ => return None,
         };
         Some((action, progress))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ChatAction;
+    use crate::raw::{base, types};
+
+    #[test]
+    fn emoji_interactions_round_trip() {
+        let interaction =
+            ChatAction::EmojiInteraction { emoticon: "🎲".into(), message_id: 7, interaction: "{\"v\":1}".into() };
+        let raw = interaction.clone().write();
+        let base::SendMessageAction::SendMessageEmojiInteraction(sent) = &raw else { panic!("{raw:?}") };
+        let base::DataJSON::DataJSON(json) = &sent.interaction;
+        assert_eq!((sent.emoticon.as_str(), sent.msg_id, json.data.as_str()), ("🎲", 7, "{\"v\":1}"));
+        assert_eq!(ChatAction::parse(&raw), Some((interaction, None)));
+
+        let seen = ChatAction::EmojiInteractionSeen { emoticon: "🎲".into() };
+        let raw = seen.clone().write();
+        let expected = types::SendMessageEmojiInteractionSeen { emoticon: "🎲".into() };
+        assert_eq!(raw, base::SendMessageAction::SendMessageEmojiInteractionSeen(Box::new(expected)));
+        assert_eq!(ChatAction::parse(&raw), Some((seen, None)));
     }
 }
