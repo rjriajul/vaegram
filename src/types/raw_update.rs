@@ -1,10 +1,13 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::Client;
 use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::types::{Chat, User};
 use crate::utils::get_peer;
+
+pub use crate::dispatcher::router::Update;
 
 /// An update as Telegram sent it, together with the users and chats that came in the same batch. Updates that
 /// arrive alone (`updateShort`) carry none.
@@ -121,6 +124,31 @@ impl fmt::Debug for RawUpdate {
             .field("user_ids", &self.user_ids().collect::<Vec<_>>())
             .field("chat_ids", &self.chat_ids().collect::<Vec<_>>())
             .finish()
+    }
+}
+
+/// An update vaegram has no typed event for yet, as [`Update::Other`] holds it. Read it through
+/// [`update`](Self::update); the TL object itself needs the `unstable-raw` feature.
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub struct OtherUpdate {
+    update: RawUpdate,
+    client: Client,
+}
+
+impl OtherUpdate {
+    pub(crate) fn new(client: &Client, update: RawUpdate) -> OtherUpdate {
+        OtherUpdate { update, client: client.clone() }
+    }
+
+    /// Returns the update, with the users and chats that came with it.
+    pub fn update(&self) -> &RawUpdate {
+        &self.update
+    }
+
+    /// The [`Client`] that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }
 

@@ -8,10 +8,11 @@ use crate::errors::{Error, Result};
 use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, ChatActionUpdated, ChatBoostRemoved, ChatBoostUpdated,
     ChatJoinRequest, ChatMemberUpdated, ChosenInlineResult, DeletedBusinessMessages, DeletedEphemeralMessages,
-    DeletedMessages, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message, MessageGenerationStopped,
-    MessageReactionCountUpdated, MessageReactionUpdated, PendingJoinRequestsUpdated, PinnedMessagesUpdated, PollAnswer,
-    PollUpdated, PreCheckoutQuery, PurchasedPaidMedia, RawUpdate, ReactionsUpdated, ReadHistoryUpdated,
-    SharedWidgetQuery, ShippingQuery, StarsBalanceUpdated, Story, TonWalletState, UserStatusUpdated, WidgetDataUpdated,
+    DeletedMessages, DraftUpdated, EphemeralMessage, GuestMessage, InlineQuery, ManagedBotUpdated, Message,
+    MessageGenerationStopped, MessageReactionCountUpdated, MessageReactionUpdated, NewLogin,
+    PendingJoinRequestsUpdated, PinnedMessagesUpdated, PollAnswer, PollUpdated, PreCheckoutQuery, PurchasedPaidMedia,
+    RawUpdate, ReactionsUpdated, ReadHistoryUpdated, ServiceNotification, SharedWidgetQuery, ShippingQuery,
+    StarsBalanceUpdated, Story, TonWalletState, TranscriptionUpdated, UserStatusUpdated, WidgetDataUpdated,
     WidgetQuery,
 };
 
@@ -591,5 +592,33 @@ impl Routed for Story {
 
     fn user_id(&self) -> Option<i64> {
         self.from_user.as_ref().map(|user| user.id)
+    }
+}
+
+impl Routed for TranscriptionUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
+    }
+
+    fn message_id(&self) -> Option<i32> {
+        Some(self.message_id)
+    }
+}
+
+impl Routed for NewLogin {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+}
+
+impl Routed for ServiceNotification {
+    fn chat_id(&self) -> Option<i64> {
+        None
+    }
+}
+
+impl Routed for DraftUpdated {
+    fn chat_id(&self) -> Option<i64> {
+        Some(self.chat.id)
     }
 }
