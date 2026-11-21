@@ -99,16 +99,16 @@ enum How {
 async fn answer(query: &CallbackQuery, how: How) -> vaegram::Result<EphemeralMessage> {
     let text = Text::new().plain(format!("ephemeral answer to {}", query.data).as_str());
     let send = match how {
-        How::Plain { replace: false } => return query.answer_ephemeral(text)?.await,
-        How::Plain { replace: true } => query.answer_ephemeral(text)?,
-        How::ReplyTo(target) => return query.answer_ephemeral(text)?.reply_to(target).await,
+        How::Plain { replace: false } => return query.answer_ephemeral(text).await,
+        How::Plain { replace: true } => query.answer_ephemeral(text),
+        How::ReplyTo(target) => return query.answer_ephemeral(text).reply_to(target).await,
         How::Rich => {
             let rich = InputRichMessage::html(format!("<b>rich</b> ephemeral answer to {}", query.data));
-            query.answer_ephemeral(rich)?
+            query.answer_ephemeral(rich)
         }
         How::Media => {
             let file = InputMedia::document(Upload::bytes("vaegram.txt", b"vaegram live test")).caption(text);
-            query.answer_ephemeral("")?.media(file)
+            query.answer_ephemeral("").media(file)
         }
         How::To(receiver) => {
             let chat = query.chat().ok_or(Error::InvalidArgument("the press has no chat"))?.id;

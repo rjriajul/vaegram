@@ -15,7 +15,7 @@ enum ReplyTo {
 #[must_use = "a request does nothing until it is awaited"]
 pub struct SendEphemeralMessage<'a> {
     client: &'a Client,
-    chat_id: PeerRef,
+    chat_id: Option<PeerRef>,
     receiver_user_id: Option<PeerRef>,
     text: MessageText,
     parse_mode: Option<ParseMode>,
@@ -50,6 +50,29 @@ impl<'a> SendEphemeralMessage<'a> {
     pub(crate) fn new(
         client: &'a Client,
         chat_id: PeerRef,
+        receiver_user_id: Option<PeerRef>,
+        text: MessageText,
+    ) -> Self {
+        Self::build(client, Some(chat_id), receiver_user_id, text)
+    }
+
+    /// An answer to the callback query `query_id` that names no chat: `peer` is optional in `ephemeral.sendMessage`
+    /// (Bot API 10.4: `chat_id` is optional with `callback_query_id`). `receiver_id` is not, so the receiver is still
+    /// named. Used for a press on an inline message, which has no chat. Without a chat, awaiting refuses
+    /// [`reply_to`](Self::reply_to), [`message_thread_id`](Self::message_thread_id) and [`media`](Self::media) with
+    /// `Error::InvalidArgument`, as each needs the chat.
+    pub(crate) fn without_chat(
+        client: &'a Client,
+        receiver_user_id: PeerRef,
+        query_id: i64,
+        text: MessageText,
+    ) -> Self {
+        Self::build(client, None, Some(receiver_user_id), text).callback_query_id(query_id)
+    }
+
+    fn build(
+        client: &'a Client,
+        chat_id: Option<PeerRef>,
         receiver_user_id: Option<PeerRef>,
         text: MessageText,
     ) -> Self {
@@ -149,7 +172,7 @@ impl<'a> SendEphemeralMessage<'a> {
 
     async fn request(
         self,
-        (chat_id, peer): (i64, base::InputPeer),
+        chat: Option<(i64, base::InputPeer)>,
         receiver_id: base::InputUser,
         message: String,
         entities: Option<Vec<base::MessageEntity>>,
@@ -163,26 +186,29 @@ impl<'a> SendEphemeralMessage<'a> {
             Some(ReplyTo::Ephemeral(id)) => (None, Some(id)),
             None => (None, None),
         };
-        let reply_to = match ephemeral {
-            Some(id) => {
+        let reply_to = match (ephemeral, &chat) {
+            (Some(id), _) => {
                 let reply = types::InputReplyToEphemeralMessage { id };
                 Some(base::InputReplyTo::InputReplyToEphemeralMessage(reply))
             }
-            None => {
+            (None, Some((chat_id, _))) => {
                 let options = SendOptions { reply_to: reply, message_thread_id: thread, ..SendOptions::default() };
-                options.input_reply_to(self.client, chat_id, thread).await?
+                options.input_reply_to(self.client, *chat_id, thread).await?
             }
+            // `send` refused a reply and a topic when there is no chat.
+            (None, None) => None,
         };
-        let media = match &self.media {
-            Some(media) => Some(self.client.input_media(&peer, media, None, None).await?),
-            None => None,
+        let media = match (&self.media, &chat) {
+            (Some(media), Some((_, peer))) => Some(self.client.input_media(peer, media, None, None).await?),
+            // `send` refused media when there is no chat.
+            _ => None,
         };
         Ok(functions::ephemeral::SendMessage {
             invert_media: self.media.as_ref().is_some_and(|m| m.show_caption_above_media),
             welcome: false,
             anchor: self.replace,
             noforwards: self.protect_content,
-            peer: Some(peer),
+            peer: chat.map(|(_, peer)| peer),
             receiver_id,
             query_id: self.callback_query_id,
             message,
@@ -233,7 +259,20 @@ impl<'a> SendEphemeralMessage<'a> {
             }
             None => text.write(client, self.parse_mode).await?,
         };
-        let chat = client.resolve(&self.chat_id).await?;
+        // Without a chat there is no peer to upload to or to name a reply in.
+        if self.chat_id.is_none()
+            && (self.media.is_some()
+                || matches!(self.reply_to, Some(ReplyTo::Message(_)))
+                || self.message_thread_id.filter(|&id| id != 1).is_some())
+        {
+            return Err(Error::InvalidArgument(
+                "an answer with no chat can't take media, reply_to or message_thread_id",
+            ));
+        }
+        let chat = match &self.chat_id {
+            Some(chat_id) => Some(client.resolve(chat_id).await?),
+            None => None,
+        };
         let receiver_id = client.resolve_user(&receiver).await?;
         let request = self.request(chat, receiver_id, message.unwrap_or_default(), entities, rich_message).await?;
         EphemeralMessage::from_updates(client, client.invoke(&request).await?)
@@ -301,7 +340,8 @@ mod tests {
     async fn maps_builder_to_request() {
         let client = Client::offline();
         let send = client.send_ephemeral_message(-1, 1000, "hi").callback_query_id(55).reply_to_ephemeral(3);
-        let request = send.protect_content().request((-1, peer()), receiver(), "hi".into(), None, None).await.unwrap();
+        let request = send.protect_content().request(Some((-1, peer())), receiver(), "hi".into(), None, None);
+        let request = request.await.unwrap();
         assert_eq!(
             (request.peer, request.receiver_id, request.query_id, request.message.as_str(), request.noforwards),
             (Some(peer()), receiver(), Some(55), "hi", true)
@@ -315,7 +355,7 @@ mod tests {
     async fn replace_callback_query_message_sets_anchor() {
         let client = Client::offline();
         let send = client.send_ephemeral_message(-1, 1000, "hi").callback_query_id(55).replace_callback_query_message();
-        let request = send.request((-1, peer()), receiver(), "hi".into(), None, None).await.unwrap();
+        let request = send.request(Some((-1, peer())), receiver(), "hi".into(), None, None).await.unwrap();
         let expected = functions::ephemeral::SendMessage {
             invert_media: false,
             welcome: false,
