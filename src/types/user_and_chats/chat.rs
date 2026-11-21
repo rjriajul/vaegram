@@ -140,6 +140,12 @@ pub struct Chat {
 
 impl Chat {
     pub(crate) fn parse(peer: &base::Peer, entities: &Entities, is_post: bool) -> Chat {
+        Chat::parse_hop(peer, entities, is_post, true)
+    }
+
+    /// `follow_parent` is off for a chat reached through `linked_monoforum_id`, so two chats pointing at each other
+    /// can't recurse forever.
+    fn parse_hop(peer: &base::Peer, entities: &Entities, is_post: bool, follow_parent: bool) -> Chat {
         let id = get_peer_id(peer);
         let mut chat = Chat {
             id,
@@ -251,9 +257,11 @@ impl Chat {
                     chat.is_direct_messages = c.monoforum;
                     // A direct messages chat links back to its channel through the same field.
                     if c.monoforum {
-                        chat.parent_chat = c
-                            .linked_monoforum_id
-                            .map(|parent| Box::new(Chat::parse(&get_peer(get_channel_id(parent)), entities, true)));
+                        if follow_parent {
+                            chat.parent_chat = c.linked_monoforum_id.map(|parent| {
+                                Box::new(Chat::parse_hop(&get_peer(get_channel_id(parent)), entities, true, false))
+                            });
+                        }
                     } else {
                         chat.direct_messages_chat_id = c.linked_monoforum_id.map(get_channel_id);
                     }
@@ -399,6 +407,20 @@ mod tests {
     fn parse_chat(id: i64, chat: base::Chat) -> Chat {
         let entities = Entities { users: Default::default(), chats: [(id, chat)].into() };
         Chat::parse(&get_peer(id), &entities, false)
+    }
+
+    #[test]
+    fn direct_messages_chats_linking_each_other_do_not_recurse() {
+        let link = |id: i64, other: i64| {
+            let channel = types::Channel { monoforum: true, linked_monoforum_id: Some(other), ..raw_channel(id) };
+            (get_channel_id(id), base::Chat::Channel(channel.into()))
+        };
+        let entities = Entities { users: Default::default(), chats: [link(1, 2), link(2, 1)].into() };
+        let chat = Chat::parse(&get_peer(get_channel_id(1)), &entities, false);
+
+        let parent = chat.parent_chat.expect("parent");
+        assert_eq!(parent.id, get_channel_id(2));
+        assert!(parent.parent_chat.is_none());
     }
 
     #[test]

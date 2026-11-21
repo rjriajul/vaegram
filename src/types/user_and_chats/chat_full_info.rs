@@ -407,7 +407,7 @@ impl ChatFullInfo {
             boosts_applied: c.boosts_applied,
             unrestrict_boost_count: c.boosts_unrestrict,
             // Basic groups have positive raw ids; the Bot API id is the negation.
-            migrated_from_chat_id: c.migrated_from_chat_id.map(|id| -id),
+            migrated_from_chat_id: c.migrated_from_chat_id.and_then(i64::checked_neg),
             migrated_from_max_message_id: c.migrated_from_max_id,
             can_view_participants: c.can_view_participants,
             can_set_sticker_set: c.can_set_stickers,
@@ -532,6 +532,32 @@ mod tests {
         assert_eq!(info.chat_background.map(|b| (b.id, b.is_dark)), Some((3, true)));
         assert_eq!((info.available_min_id, info.stats_dc_id), (Some(12), Some(4)));
         assert_eq!(info.share_theme.map(|t| t.backdrop_id), Some(Some(3)));
+    }
+
+    #[test]
+    fn channel_full_migrated_from_a_group_id_that_cannot_be_negated_is_none() {
+        let mut buf = Vec::new();
+        for word in [0u32, 0] {
+            word.serialize(&mut buf);
+        }
+        7i64.serialize(&mut buf);
+        "about".to_owned().serialize(&mut buf);
+        for n in [0i32, 0, 0] {
+            n.serialize(&mut buf);
+        }
+        base::Photo::PhotoEmpty(types::PhotoEmpty { id: 0 }).serialize(&mut buf);
+        let settings = types::PeerNotifySettings::deserialize_bare(&mut &0u32.to_le_bytes()[..]).unwrap();
+        base::PeerNotifySettings::PeerNotifySettings(settings.into()).serialize(&mut buf);
+        Vec::<i64>::new().serialize(&mut buf);
+        0i32.serialize(&mut buf);
+        let migrated = |id| types::ChannelFull {
+            migrated_from_chat_id: Some(id),
+            ..types::ChannelFull::deserialize_bare(&mut &buf[..]).unwrap()
+        };
+        let info = ChatFullInfo::parse_channel(migrated(5), &Entities::default());
+        assert_eq!(info.migrated_from_chat_id, Some(-5));
+        let info = ChatFullInfo::parse_channel(migrated(i64::MIN), &Entities::default());
+        assert_eq!(info.migrated_from_chat_id, None);
     }
 
     #[test]

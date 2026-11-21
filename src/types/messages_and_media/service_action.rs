@@ -291,7 +291,7 @@ impl ServiceAction {
                 ServiceAction::MigrateToChatId(get_channel_id(a.channel_id))
             }
             (K::MigrateFromChatId, A::MessageActionChannelMigrateFrom(a)) => {
-                ServiceAction::MigrateFromChatId(-a.chat_id)
+                ServiceAction::MigrateFromChatId(a.chat_id.checked_neg()?)
             }
             // The reply header points at the pinned message.
             (K::PinnedMessage, _) => match &raw.reply_to {
@@ -646,7 +646,7 @@ fn shared_user(peer: &base::RequestedPeer) -> Option<SharedUser> {
 fn shared_chat(request_id: i32, peer: &base::RequestedPeer) -> Option<ChatShared> {
     let (chat_id, title, username, photo) = match peer {
         base::RequestedPeer::RequestedPeerUser(_) => return None,
-        base::RequestedPeer::RequestedPeerChat(p) => (-p.chat_id, &p.title, None, &p.photo),
+        base::RequestedPeer::RequestedPeerChat(p) => (p.chat_id.checked_neg()?, &p.title, None, &p.photo),
         base::RequestedPeer::RequestedPeerChannel(p) => {
             (get_channel_id(p.channel_id), &p.title, p.username.clone(), &p.photo)
         }
@@ -723,6 +723,16 @@ mod tests {
             schedule_date: Some(9),
             price: Some(base::StarsAmount::StarsTonAmount(types::StarsTonAmount { amount: 5 })),
         }))
+    }
+
+    #[test]
+    fn a_migrated_from_group_id_that_cannot_be_negated_is_dropped() {
+        let from = |chat_id: i64| {
+            let action = types::MessageActionChannelMigrateFrom { title: "T".into(), chat_id };
+            parse(base::MessageAction::MessageActionChannelMigrateFrom(Box::new(action)))
+        };
+        assert!(matches!(from(3), Some(ServiceAction::MigrateFromChatId(-3))));
+        assert!(from(i64::MIN).is_none());
     }
 
     fn topic_edit(title: Option<&str>, closed: Option<bool>, hidden: Option<bool>) -> base::MessageAction {

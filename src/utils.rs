@@ -25,7 +25,7 @@ pub(crate) fn input_peer_id(peer: &base::InputPeer, me: i64) -> Option<i64> {
     Some(match peer {
         base::InputPeer::InputPeerEmpty => return None,
         base::InputPeer::InputPeerSelf => me,
-        base::InputPeer::InputPeerChat(p) => -p.chat_id,
+        base::InputPeer::InputPeerChat(p) => p.chat_id.checked_neg()?,
         base::InputPeer::InputPeerUser(p) => p.user_id,
         base::InputPeer::InputPeerChannel(p) => get_channel_id(p.channel_id),
         base::InputPeer::InputPeerUserFromMessage(p) => p.user_id,
@@ -35,9 +35,9 @@ pub(crate) fn input_peer_id(peer: &base::InputPeer, me: i64) -> Option<i64> {
 
 pub(crate) fn get_chat_id(chat: &base::Chat) -> Option<i64> {
     match chat {
-        base::Chat::ChatEmpty(c) => Some(-c.id),
-        base::Chat::Chat(c) => Some(-c.id),
-        base::Chat::ChatForbidden(c) => Some(-c.id),
+        base::Chat::ChatEmpty(c) => c.id.checked_neg(),
+        base::Chat::Chat(c) => c.id.checked_neg(),
+        base::Chat::ChatForbidden(c) => c.id.checked_neg(),
         base::Chat::Channel(c) => Some(get_channel_id(c.id)),
         base::Chat::ChannelForbidden(c) => Some(get_channel_id(c.id)),
         base::Chat::Community(_) | base::Chat::CommunityForbidden(_) => None,
@@ -47,6 +47,14 @@ pub(crate) fn get_chat_id(chat: &base::Chat) -> Option<i64> {
 /// The Bot-API-style id of a channel or supergroup: `-1000000000000 - channel_id`, so 1234 is `-1000000001234`.
 pub fn get_channel_id(channel_id: i64) -> i64 {
     (-CHANNEL_OFFSET).wrapping_sub(channel_id)
+}
+
+/// [`get_channel_id`] for an id typed by a caller, `None` unless it is a real channel id that fits the `-100…` form.
+pub(crate) fn checked_channel_id(channel_id: i64) -> Option<i64> {
+    if channel_id <= 0 {
+        return None;
+    }
+    (-CHANNEL_OFFSET).checked_sub(channel_id)
 }
 
 pub(crate) fn channel_id_of(chat_id: i64) -> i64 {
@@ -349,7 +357,27 @@ mod tests {
         base64_decode, base64_encode, base64url_decode, base64url_encode, decode_svg_path, expand_inline_bytes,
         form_decode, validate_web_app_data,
     };
+    use super::{checked_channel_id, get_chat_id, input_peer_id};
     use crate::Error;
+    use crate::raw::{base, types};
+
+    #[test]
+    fn a_group_id_that_cannot_be_negated_is_skipped() {
+        let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: i64::MIN });
+        assert_eq!(input_peer_id(&peer, 1), None);
+        let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
+        assert_eq!(input_peer_id(&peer, 1), Some(-5));
+        let empty = base::Chat::ChatEmpty(types::ChatEmpty { id: i64::MIN });
+        assert_eq!(get_chat_id(&empty), None);
+    }
+
+    #[test]
+    fn t_me_c_channel_ids_must_fit() {
+        assert_eq!(checked_channel_id(5), Some(-1_000_000_000_005));
+        assert_eq!(checked_channel_id(0), None);
+        assert_eq!(checked_channel_id(-5), None);
+        assert_eq!(checked_channel_id(i64::MAX), None);
+    }
 
     const BOT_TOKEN: &str = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11";
     // Signed with an independent HMAC-SHA256 implementation; `signature` is only part of the checked string here.
