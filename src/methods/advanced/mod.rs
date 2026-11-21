@@ -8,6 +8,8 @@ mod save_file;
 mod upload_file;
 mod upload_stream;
 
+#[cfg(feature = "unstable-raw")]
+pub use invoke::BusinessInvoker;
 pub(crate) use invoke::{invoke_sleeping_floods, without_retries};
 pub use recover_gaps::RecoverGaps;
 pub(crate) use resolve_peer::ChatPeer;
