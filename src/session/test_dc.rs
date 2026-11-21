@@ -96,6 +96,8 @@ struct Shared {
     handshakes: Vec<(usize, i32, bool)>,
     // Reads on but answers nothing encrypted, not even a ping: a server gone quiet behind a live socket.
     mute: bool,
+    // The `g` the key exchange offers; Telegram sends 3.
+    g: i32,
 }
 
 pub(crate) struct TestDc {
@@ -109,7 +111,7 @@ impl TestDc {
     pub(crate) async fn start(perm_key: [u8; 256], refuse_first_bind: bool) -> TestDc {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let mut shared = Shared { refuse_first_bind, ..Shared::default() };
+        let mut shared = Shared { refuse_first_bind, g: 3, ..Shared::default() };
         shared.keys.insert(mtproto::auth_key_id(&perm_key), (perm_key, false));
         let shared = Arc::new(Mutex::new(shared));
         let state = shared.clone();
@@ -161,6 +163,11 @@ impl TestDc {
     /// Answers nothing encrypted from now on, on any connection, while still reading all of it.
     pub(crate) fn mute(&self) {
         self.shared.lock().unwrap().mute = true;
+    }
+
+    /// Offers `g` in every key exchange from now on.
+    pub(crate) fn offer_g(&self, g: i32) {
+        self.shared.lock().unwrap().g = g;
     }
 
     /// Serves each stream it's given as one more connection, for a test that opens its own (an in-memory one, say).
@@ -364,12 +371,13 @@ impl Exchange {
                 shared.lock().unwrap().handshakes.push((connection, dc, temp));
                 self.a = BigUint::from_bytes_be(&random::<256>());
                 let dh_prime = prime::dh_prime();
-                let g_a = BigUint::from(3u32).modpow(&self.a, &dh_prime);
+                let g = shared.lock().unwrap().g;
+                let g_a = BigUint::from(g as u32).modpow(&self.a, &dh_prime);
                 let (nonce, server_nonce) = (self.nonce, self.server_nonce);
                 let inner = types::ServerDHInnerData {
                     nonce,
                     server_nonce,
-                    g: 3,
+                    g,
                     dh_prime: dh_prime.to_bytes_be(),
                     g_a: g_a.to_bytes_be(),
                     server_time: internals::now() as i32,

@@ -8,6 +8,8 @@ use crate::utils::{base64url_decode as b64_decode, base64url_encode as b64_encod
 const WEB_LOCATION_FLAG: i32 = 1 << 24;
 const FILE_REFERENCE_FLAG: i32 = 1 << 25;
 const NO_VOLUME_AND_LOCAL_ID_MINOR: u8 = 32;
+// Bot API ids unpack to under 100 bytes; this leaves room for long file references and stops zero-run bombs.
+const MAX_UNPACKED_LEN: usize = 1024;
 
 // Indexed by the number an id stores for its kind.
 const FILE_TYPES: [FileType; 18] = {
@@ -119,6 +121,14 @@ impl FileId {
             if has_volume_and_local_id {
                 (id.volume_id, id.local_id) = (volume_id, read(r)?);
             }
+        }
+        // Some encoders write a minor/major pair after a document id with no file reference. The pair carries no data,
+        // so it is read past after any id. An id older than major 4 still ends with the byte `encode` writes in the
+        // minor's place. Anything else left over is refused.
+        let pair = [i32::from(minor).to_le_bytes(), i32::from(major).to_le_bytes()].concat();
+        let legacy_minor = major < 4 && *r == [minor];
+        if !r.is_empty() && *r != pair.as_slice() && !legacy_minor {
+            return Err("file id has bytes after its fields");
         }
         Ok(id)
     }
@@ -312,6 +322,9 @@ fn unpack(s: &str) -> Result<Vec<u8>, &'static str> {
         } else {
             out.push(b);
         }
+        if out.len() > MAX_UNPACKED_LEN {
+            return Err("file id is too long");
+        }
     }
     if zero {
         return Err("truncated zero run in file id");
@@ -321,7 +334,7 @@ fn unpack(s: &str) -> Result<Vec<u8>, &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FILE_TYPES, FileId, FileType, ThumbnailSource, thumbnail_unique_id, unique_id};
+    use super::{FILE_TYPES, FileId, FileType, ThumbnailSource, pack, thumbnail_unique_id, unique_id, unpack};
 
     #[test]
     fn every_size_has_its_own_unique_id() {
@@ -424,6 +437,17 @@ mod tests {
     }
 
     #[test]
+    fn an_old_id_takes_one_byte_after_its_fields_and_no_more() {
+        let data = unpack("AgADAgADAQAHAgAHAwAHBQAHBAAEAg").unwrap();
+        let (body, tail) = data.split_at(data.len() - 2);
+        let longer = pack(&[body, &[0], tail].concat());
+        assert_eq!(FileId::decode(&longer), Err("file id has bytes after its fields"));
+        // The one byte is the minor `encode` writes, 0 for these ids; any other value is refused.
+        let other_minor = pack(&[body, &[7], &tail[1..]].concat());
+        assert_eq!(FileId::decode(&other_minor), Err("file id has bytes after its fields"));
+    }
+
+    #[test]
     fn rejects_a_zero_run_of_zero() {
         // `[0, 0, 1]`: a zero run marker followed by another zero instead of its length.
         assert_eq!(FileId::decode("AAAB"), Err("invalid zero run in file id"));
@@ -434,6 +458,23 @@ mod tests {
     fn rejects_a_zero_run_that_ends_the_id() {
         // `[1, 0]`: a run marker with no length after it.
         assert_eq!(FileId::decode("AQA"), Err("truncated zero run in file id"));
+    }
+
+    #[test]
+    fn rejects_a_zero_run_bomb() {
+        // 400 bytes that would unpack to 51,000 zeros.
+        let bomb = crate::utils::base64url_encode(&[0u8, 255].repeat(200));
+        assert_eq!(FileId::decode(&bomb), Err("file id is too long"));
+    }
+
+    #[test]
+    fn rejects_bytes_after_the_fields() {
+        let data = [5, 0, 0, 0, 1, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0];
+        let id = |extra: &[u8]| FileId::decode(&pack(&[&data[..], extra, &[30, 4]].concat()));
+        assert_eq!(id(&[]), Ok(FileId::new(FileType::Document, 1, 42, 7, &[])));
+        assert_eq!(id(&[9]), Err("file id has bytes after its fields"));
+        assert_eq!(id(&[30, 0, 0, 0, 4, 0, 0, 0]), Ok(FileId::new(FileType::Document, 1, 42, 7, &[])));
+        assert_eq!(id(&[31, 0, 0, 0, 4, 0, 0, 0]), Err("file id has bytes after its fields"));
     }
 
     #[test]

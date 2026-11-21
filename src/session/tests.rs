@@ -2087,3 +2087,22 @@ fn the_updates_queue_takes_any_capacity_without_panicking() {
     assert!(tx.try_send(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false }).is_ok());
     assert!(tx.try_send(Incoming { updates: base::Updates::UpdatesTooLong, from_request: false }).is_err());
 }
+
+#[tokio::test]
+async fn the_key_exchange_refuses_a_generator_outside_the_prime_order_subgroup() {
+    let dc = TestDc::start([5; 256], false).await;
+    let options = Options::new().transport(crate::connection::Transport::Intermediate);
+    // Telegram's prime is 3 mod 8, 3 mod 5 and 11 mod 24, so 2, 5 and 6 generate the whole group, not the subgroup.
+    for (g, refused) in [(2, true), (5, true), (6, true), (3, false), (4, false), (7, false)] {
+        dc.offer_g(g);
+        let mut conn = Connection::connect(&dc.dc(2), &options).await.unwrap();
+        let made = super::auth::create(&mut conn, dc.dc(2), &test_dc::public_key(), None).await;
+        if refused {
+            // Only the check on server_DH_inner_data says this, before set_client_DH_params goes out.
+            let why = "g doesn't generate the prime-order subgroup";
+            assert!(matches!(made, Err(Error::Security(w)) if w == why), "g = {g}");
+        } else {
+            assert!(made.is_ok(), "g = {g}");
+        }
+    }
+}
