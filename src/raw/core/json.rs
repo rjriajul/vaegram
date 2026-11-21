@@ -117,7 +117,7 @@ impl<T: ToJson + ?Sized> ToJson for Box<T> {
 #[cfg(test)]
 mod tests {
     use super::ToJson;
-    use crate::raw::{base, functions, types};
+    use crate::raw::{LAYER, base, functions, types};
 
     #[test]
     fn primitives() {
@@ -156,8 +156,9 @@ mod tests {
 
     #[test]
     fn generic_function() {
-        let call = functions::InvokeWithLayer { layer: 232, query: functions::help::GetConfig {} };
-        assert_eq!(call.json(), r#"{"_":"invokeWithLayer","layer":232,"query":{"_":"help.getConfig"}}"#);
+        let call = functions::InvokeWithLayer { layer: LAYER, query: functions::help::GetConfig {} };
+        let expected = format!(r#"{{"_":"invokeWithLayer","layer":{LAYER},"query":{{"_":"help.getConfig"}}}}"#);
+        assert_eq!(call.json(), expected);
     }
 
     // The frozen shape, byte for byte: changing any of these strings breaks users' stored JSON.
