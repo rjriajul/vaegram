@@ -7,7 +7,7 @@ use vaegram::types::{InputMedia, Text, Upload};
 #[ignore = "uses a logged-in user session and a bot"]
 async fn message_helpers_format_reply_read_and_refetch() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::text(), |m| async move {
+    kit.bot.on_message(filters::private() & filters::text(), |_client, m| async move {
         if m.text() == "format" {
             m.reply(Text::new().bold("b").plain(" ").link("l", "https://t.me/")).await?;
         } else if m.text() == "album" {

@@ -13,7 +13,7 @@
 //!         .start()
 //!         .await?;
 //!
-//!     app.on_message(filters::command("start") & filters::private(), |msg| async move {
+//!     app.on_message(filters::command("start") & filters::private(), |_client, msg| async move {
 //!         msg.answer("Hello from vaegram!").await?;
 //!         Ok(())
 //!     });

@@ -10,7 +10,7 @@ use vaegram::{Client, filters};
 async fn bot_replies_and_answers_with_media() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    kit.bot.on_message(filters::private() & filters::text(), move |m| {
+    kit.bot.on_message(filters::private() & filters::text(), move |_client, m| {
         let tx = tx.clone();
         async move {
             if m.text() == "media" {

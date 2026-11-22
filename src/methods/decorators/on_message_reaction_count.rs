@@ -14,7 +14,7 @@ impl Client {
         f: F,
     ) -> HandlerRef<'_>
     where
-        F: Fn(MessageReactionCountUpdated) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, MessageReactionCountUpdated) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         let kind = UpdateKind::MessageReactionCount;

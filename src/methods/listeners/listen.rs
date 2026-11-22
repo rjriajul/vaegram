@@ -175,7 +175,7 @@ mod tests {
         Arc::get_mut(&mut client.0).unwrap().unallowed_click_alert = None;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
-        client.on_callback_query(filters::all(), move |q: CallbackQuery| {
+        client.on_callback_query(filters::all(), move |_client, q: CallbackQuery| {
             log.lock().unwrap().push(q.from_user.id);
             async { Ok(()) }
         });

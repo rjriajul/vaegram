@@ -51,7 +51,7 @@ async fn on_reactions_receives_bot_reaction() {
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    kit.user.client.on_reactions(filters::chat(chat_id), move |event| {
+    kit.user.client.on_reactions(filters::chat(chat_id), move |_client, event| {
         let _ = tx.send(event);
         async { Ok(()) }
     });
@@ -119,7 +119,7 @@ async fn on_pinned_messages_sees_pin_and_unpin() {
     });
     listener.on_pinned_messages(filters::all(), {
         let listener_events = listener_events.clone();
-        move |event| {
+        move |_client, event| {
             listener_events.lock().unwrap().push((event.chat.id, event.is_pinned, event.message_ids.clone()));
             if event.chat.id == chat_id {
                 let _ = tx.send((event.is_pinned, event.message_ids));
@@ -240,7 +240,7 @@ async fn on_read_history_sees_peer_read() {
     let human = std::env::var("VAEGRAM_HUMAN_READ").is_ok_and(|v| v == "1");
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    kit.user.client.on_read_history(filters::all(), move |event| {
+    kit.user.client.on_read_history(filters::all(), move |_client, event| {
         let _ = tx.send(event);
         async { Ok(()) }
     });
@@ -341,7 +341,7 @@ async fn on_pending_join_requests_sees_request() {
         let user = user.clone();
         async move {
             let (tx, mut rx) = mpsc::unbounded_channel();
-            user.on_pending_join_requests(filters::chat(group), move |event| {
+            user.on_pending_join_requests(filters::chat(group), move |_client, event| {
                 let _ = tx.send(event);
                 async { Ok(()) }
             });
@@ -389,7 +389,7 @@ async fn on_chat_action_sees_bot_typing() {
     let bot_id = kit.bot.get_me().await.unwrap().id;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    kit.user.client.on_chat_action(filters::chat(bot_id), move |event| {
+    kit.user.client.on_chat_action(filters::chat(bot_id), move |_client, event| {
         let _ = tx.send(event);
         async { Ok(()) }
     });
@@ -430,11 +430,11 @@ async fn on_stars_balance_sees_spend() {
     let link = match std::env::var("VAEGRAM_STARS_INVOICE") {
         Ok(link) => link,
         Err(_) => {
-            kit.bot.on_pre_checkout_query(filters::all(), |q| async move {
+            kit.bot.on_pre_checkout_query(filters::all(), |_client, q| async move {
                 q.client().answer_pre_checkout_query(q.id).await
             });
             let paid = filters::create(|m: &Message| matches!(m.service, Some(ServiceAction::SuccessfulPayment(_))));
-            kit.bot.on_message(paid, move |m| {
+            kit.bot.on_message(paid, move |_client, m| {
                 if let Some(ServiceAction::SuccessfulPayment(payment)) = &m.service {
                     let _ = charge_tx.send((m.chat.id, payment.telegram_payment_charge_id.clone()));
                 }
@@ -458,7 +458,7 @@ async fn on_stars_balance_sees_spend() {
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_stars_balance(filters::all(), move |event| {
+    user.on_stars_balance(filters::all(), move |_client, event| {
         let _ = tx.send(event);
         async { Ok(()) }
     });

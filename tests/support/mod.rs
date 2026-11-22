@@ -48,7 +48,7 @@ impl Kit {
                 .await?;
 
         let (tx, received) = mpsc::unbounded_channel();
-        user.on_message(filters::private(), move |m| {
+        user.on_message(filters::private(), move |_client, m| {
             if !m.outgoing {
                 let _ = tx.send(m);
             }

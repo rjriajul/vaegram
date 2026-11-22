@@ -12,7 +12,7 @@ impl Client {
     /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_purchased_paid_media<F, Fut, T>(&self, filter: Filter<PurchasedPaidMedia>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(PurchasedPaidMedia) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, PurchasedPaidMedia) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::PurchasedPaidMedia, |r, id| r.purchased_paid_media.push(id, filter, callback(f)))

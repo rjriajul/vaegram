@@ -129,7 +129,7 @@ async fn bench(latency_ms: u64) {
     let seen = Arc::new(AtomicU64::new(0));
     let echo = Arc::new(AtomicBool::new(false));
     let (s, e) = (seen.clone(), echo.clone());
-    client.on_message(filters::all(), move |m| {
+    client.on_message(filters::all(), move |_client, m| {
         s.fetch_add(1, Ordering::Relaxed);
         let echo = e.load(Ordering::Relaxed);
         async move {

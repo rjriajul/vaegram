@@ -12,7 +12,7 @@ impl Client {
     /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_chosen_inline_result<F, Fut, T>(&self, filter: Filter<ChosenInlineResult>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(ChosenInlineResult) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, ChosenInlineResult) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::ChosenInlineResult, |r, id| r.chosen_inline_result.push(id, filter, callback(f)))

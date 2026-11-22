@@ -16,7 +16,7 @@ impl Client {
         f: F,
     ) -> HandlerRef<'_>
     where
-        F: Fn(MessageGenerationStopped) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, MessageGenerationStopped) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         let kind = UpdateKind::MessageGenerationStopped;

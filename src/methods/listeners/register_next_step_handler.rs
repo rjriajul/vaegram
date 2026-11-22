@@ -25,7 +25,7 @@ impl Client {
     pub fn register_next_step_handler<T, F, Fut, R>(&self, f: F) -> RegisterNextStepHandler<'_, T>
     where
         T: Listenable,
-        F: Fn(T) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, T) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<R>> + Send + 'static,
     {
         RegisterNextStepHandler { client: self, spec: Spec::new(self), callback: callback(f) }
@@ -67,9 +67,9 @@ mod tests {
 
     type Log = Arc<Mutex<Vec<i32>>>;
 
-    fn record(log: &Log) -> impl Fn(Message) -> std::future::Ready<Result<()>> + Send + Sync + 'static {
+    fn record(log: &Log) -> impl Fn(Client, Message) -> std::future::Ready<Result<()>> + Send + Sync + 'static {
         let log = log.clone();
-        move |m| {
+        move |_, m| {
             log.lock().unwrap().push(m.id);
             std::future::ready(Ok(()))
         }
@@ -103,10 +103,10 @@ mod tests {
             async {}
         });
         client
-            .register_next_step_handler(|_: Message| async { Err::<(), _>(Error::Unexpected("step")) })
+            .register_next_step_handler(|_client, _: Message| async { Err::<(), _>(Error::Unexpected("step")) })
             .await
             .unwrap();
-        let failing = |_: CallbackQuery| async { Err::<(), _>(Error::Unexpected("step")) };
+        let failing = |_, _: CallbackQuery| async { Err::<(), _>(Error::Unexpected("step")) };
         client.register_next_step_handler(failing).await.unwrap();
         dispatch(&client, new_message(1, 7));
         dispatch(&client, base::Update::UpdateBotCallbackQuery(Box::new(raw_query(7, 7, 2))));

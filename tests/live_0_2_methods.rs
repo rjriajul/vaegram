@@ -82,7 +82,7 @@ async fn quick_replies_round_trip() {
             }
 
             let (tx, mut rx) = mpsc::unbounded_channel();
-            bot.on_message(filters::private() & filters::text(), move |m| {
+            bot.on_message(filters::private() & filters::text(), move |_client, m| {
                 let _ = tx.send(m.text().to_owned());
                 async { Ok(()) }
             });
@@ -188,7 +188,7 @@ async fn ban_chat_member_revoke_messages_in_basic_group() {
         let bot = kit.bot.clone();
         async move {
             let (tx, mut rx) = mpsc::unbounded_channel();
-            bot.on_message(filters::chat(group_id) & filters::text(), move |m| {
+            bot.on_message(filters::chat(group_id) & filters::text(), move |_client, m| {
                 let _ = tx.send(m.id);
                 async { Ok(()) }
             });
@@ -237,7 +237,7 @@ async fn send_bot_requested_peer_shares_user() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let (tx, mut bot_seen) = mpsc::unbounded_channel();
 
-    kit.bot.on_message(filters::private() & filters::command("reqpeer"), |m| async move {
+    kit.bot.on_message(filters::private() & filters::command("reqpeer"), |_client, m| async move {
         let button = KeyboardButton::new("Pick user").request_users(KeyboardButtonRequestUsers::new(77));
         let markup = ReplyKeyboardMarkup::new([vec![button]]).one_time(true);
         m.reply("pick one").reply_markup(markup).await?;
@@ -245,7 +245,7 @@ async fn send_bot_requested_peer_shares_user() {
     });
     kit.bot.on_message(
         filters::private() & filters::create(|m: &Message| matches!(m.service, Some(ServiceAction::UsersShared(_)))),
-        move |m| {
+        move |_client, m| {
             if let Some(ServiceAction::UsersShared(shared)) = m.service.clone() {
                 let _ = tx.send(shared);
             }

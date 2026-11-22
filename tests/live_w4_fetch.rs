@@ -45,7 +45,7 @@ async fn fetch_replies_needs_no_request_in_the_handler() {
 
     let (tx, mut seen) = mpsc::unbounded_channel();
     let before = fetches.clone();
-    bot.on_message(filters::private() & filters::text(), move |m| {
+    bot.on_message(filters::private() & filters::text(), move |_client, m| {
         let (tx, before) = (tx.clone(), before.clone());
         async move {
             if m.reply_to_message_id().is_some() {
@@ -79,7 +79,7 @@ async fn fetch_stickers_names_the_set() {
     let user = Client::builder(session, api_id, api_hash).connect().await.unwrap();
 
     let (tx, mut seen) = mpsc::unbounded_channel();
-    bot.on_message(filters::private() & filters::sticker(), move |m| {
+    bot.on_message(filters::private() & filters::sticker(), move |_client, m| {
         let tx = tx.clone();
         async move {
             let name = match &m.media {

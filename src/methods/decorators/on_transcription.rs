@@ -16,7 +16,7 @@ impl Client {
     /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_transcription<F, Fut, T>(&self, filter: Filter<TranscriptionUpdated>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(TranscriptionUpdated) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, TranscriptionUpdated) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::Transcription, |r, id| r.transcription.push(id, filter, callback(f)))

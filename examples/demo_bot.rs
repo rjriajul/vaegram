@@ -23,13 +23,13 @@ async fn main() -> Result<()> {
         .start()
         .await?;
 
-    app.on_message(filters::command("start"), |msg| async move {
+    app.on_message(filters::command("start"), |_client, msg| async move {
         println!("start from {:?}", msg.from_user());
         msg.answer("<b>vaegram demo</b>\nTap a button:").html().reply_markup(menu()).await?;
         Ok(())
     });
 
-    app.on_message(filters::command("keyboard"), |msg| async move {
+    app.on_message(filters::command("keyboard"), |_client, msg| async move {
         let keyboard =
             ReplyKeyboardMarkup::new([vec![KeyboardButton::new("Hello"), KeyboardButton::new("Remove keyboard")]])
                 .placeholder("Pick one");
@@ -37,35 +37,38 @@ async fn main() -> Result<()> {
         Ok(())
     });
 
-    app.on_message(filters::command("react"), |msg| async move {
+    app.on_message(filters::command("react"), |_client, msg| async move {
         msg.react("👍").await?;
         Ok(())
     });
 
-    app.on_message(filters::text() & filters::create(|m: &Message| m.text() == "Remove keyboard"), |msg| async move {
-        msg.answer("Keyboard removed.").reply_markup(ReplyKeyboardRemove::default()).await?;
-        Ok(())
-    });
+    app.on_message(
+        filters::text() & filters::create(|m: &Message| m.text() == "Remove keyboard"),
+        |_client, msg| async move {
+            msg.answer("Keyboard removed.").reply_markup(ReplyKeyboardRemove::default()).await?;
+            Ok(())
+        },
+    );
 
-    app.on_message(filters::text() & filters::private(), |msg| async move {
+    app.on_message(filters::text() & filters::private(), |_client, msg| async move {
         println!("message: {:?}", msg.text());
         msg.reply(Text::new().plain("You said: ").bold(msg.text())).await?;
         Ok(())
     });
 
-    app.on_edited_message(filters::text(), |msg| async move {
+    app.on_edited_message(filters::text(), |_client, msg| async move {
         println!("edited: {:?}", msg.text());
         msg.reply(format!("You edited it to: {}", msg.text())).await?;
         Ok(())
     });
 
-    app.on_callback_query(filters::data("alert"), |query| async move {
+    app.on_callback_query(filters::data("alert"), |_client, query| async move {
         println!("alert from {}", query.from_user.first_name);
         query.answer().text("This is an alert from vaegram").alert().await?;
         Ok(())
     });
 
-    app.on_callback_query(filters::all(), |query| async move {
+    app.on_callback_query(filters::all(), |_client, query| async move {
         println!("pressed {:?}", query.data);
         query.answer().text(format!("You pressed {}", query.data)).await?;
         query
@@ -76,7 +79,7 @@ async fn main() -> Result<()> {
         Ok(())
     });
 
-    app.on_inline_query(filters::all(), |query| async move {
+    app.on_inline_query(filters::all(), |_client, query| async move {
         println!("inline query: {:?}", query.query);
         if query.query.is_empty() {
             return Ok(());
@@ -90,17 +93,17 @@ async fn main() -> Result<()> {
         Ok(())
     });
 
-    app.on_message_reaction(filters::all(), |update| async move {
+    app.on_message_reaction(filters::all(), |_client, update| async move {
         println!("reactions on {} changed to {:?}", update.message_id, update.new_reaction);
         Ok(())
     });
 
-    app.on_my_chat_member(filters::all(), |update| async move {
+    app.on_my_chat_member(filters::all(), |_client, update| async move {
         println!("my membership in {}: {:?}", update.chat.id, update.new_chat_member.map(|m| m.status()));
         Ok(())
     });
 
-    app.on_chat_member_updated(filters::all(), |update| async move {
+    app.on_chat_member_updated(filters::all(), |_client, update| async move {
         println!("member update in {}: {:?}", update.chat.id, update.new_chat_member.map(|m| m.status()));
         Ok(())
     });

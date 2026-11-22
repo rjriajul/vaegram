@@ -20,17 +20,30 @@ pub use crate::dispatcher::listeners::Listenable;
 pub use crate::dispatcher::router::UpdateKind;
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
-pub(crate) type Callback<T> = Arc<dyn Fn(T) -> BoxFuture + Send + Sync>;
+pub(crate) type Callback<T> = Arc<dyn Fn(Client, T) -> BoxFuture + Send + Sync>;
+pub(crate) type HookCallback = Arc<dyn Fn(Client) -> BoxFuture + Send + Sync>;
 pub(crate) type RawCallback = Arc<dyn Fn(Client, RawUpdate) -> BoxFuture + Send + Sync>;
 pub(crate) type ErrorCallback = Arc<dyn Fn(HandlerError) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 pub(crate) fn callback<T, F, Fut, R>(f: F) -> Callback<T>
 where
-    F: Fn(T) -> Fut + Send + Sync + 'static,
+    F: Fn(Client, T) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<R>> + Send + 'static,
 {
-    Arc::new(move |value| {
-        let future = f(value);
+    Arc::new(move |client, value| {
+        let future = f(client, value);
+        Box::pin(async move { future.await.map(drop) }) as BoxFuture
+    })
+}
+
+/// A lifecycle hook (`on_start`, `on_stop`, `on_connect`, `on_disconnect`), which gets only the client.
+pub(crate) fn hook<F, Fut, R>(f: F) -> HookCallback
+where
+    F: Fn(Client) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<R>> + Send + 'static,
+{
+    Arc::new(move |client| {
+        let future = f(client);
         Box::pin(async move { future.await.map(drop) }) as BoxFuture
     })
 }

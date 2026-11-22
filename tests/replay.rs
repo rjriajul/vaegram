@@ -131,7 +131,7 @@ async fn play_over(records: &[Record], record: Option<&Path>, transport: Transpo
     }
     let client = builder.connect().await.unwrap();
     let (tx, mut seen) = mpsc::unbounded_channel();
-    client.on_message(filters::private(), move |m| {
+    client.on_message(filters::private(), move |_client, m| {
         let tx = tx.clone();
         async move {
             let sent = m.reply(format!("echo: {}", m.text())).await?;

@@ -148,7 +148,7 @@ async fn bot_skips_missed_updates_without_catch_up() {
 
     let second = bot(false).start().await.unwrap();
     let (tx, mut texts) = mpsc::unbounded_channel();
-    second.on_message(filters::private(), move |m| {
+    second.on_message(filters::private(), move |_client, m| {
         let _ = tx.send(m.text().to_owned());
         async { Ok(()) }
     });

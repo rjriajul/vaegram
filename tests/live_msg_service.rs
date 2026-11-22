@@ -7,7 +7,7 @@ use vaegram::types::ServiceAction;
 #[ignore = "needs a logged-in user session and a bot"]
 async fn screenshot_notification_reads_back_as_a_service_message() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::text(), |m| async move {
+    kit.bot.on_message(filters::private() & filters::text(), |_client, m| async move {
         m.reply("ok").await?;
         Ok(())
     });

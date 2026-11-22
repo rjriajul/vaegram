@@ -742,7 +742,7 @@ pub(crate) mod tests {
         let client = Client::offline();
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
-        client.on_message(crate::filters::all(), move |m: Message| {
+        client.on_message(crate::filters::all(), move |_client, m: Message| {
             log.lock().unwrap().push(m.id);
             async { Ok(()) }
         });

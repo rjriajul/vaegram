@@ -14,7 +14,7 @@ impl Client {
     /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_chat_member_updated<F, Fut, T>(&self, filter: Filter<ChatMemberUpdated>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(ChatMemberUpdated) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, ChatMemberUpdated) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::ChatMemberUpdated, |r, id| r.chat_member_updated.push(id, filter, callback(f)))

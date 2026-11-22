@@ -54,7 +54,7 @@ async fn user_votes_views_and_links_messages() {
 #[ignore = "uses a bot token and a logged-in user session"]
 async fn bot_edits_the_media_it_sent() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::command("edit"), |m| async move {
+    kit.bot.on_message(filters::private() & filters::command("edit"), |_client, m| async move {
         let sent = m.reply_document(Upload::bytes("old.txt", b"old")).await?;
         sent.edit_media(InputMedia::document(Upload::bytes("new.txt", b"new"))).await?;
         m.reply("edited").await?;
@@ -86,7 +86,7 @@ async fn wait_for_click_gets_the_press_on_the_sent_keyboard() {
     // registers it, since a known chat id resolves without a request.
     let listening = Arc::new(Notify::new());
     let ready = listening.clone();
-    kit.bot.on_message(filters::private() & filters::command("click"), move |m| {
+    kit.bot.on_message(filters::private() & filters::command("click"), move |_client, m| {
         let ready = ready.clone();
         async move {
             let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Pick", "pick")]]);

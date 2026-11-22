@@ -89,7 +89,7 @@ mod tests {
         let client = Client::offline();
         let waiters = [spawn_wait(&client, Some(7)), spawn_wait(&client, None)];
         registered(&client, 2).await;
-        client.register_next_step_handler(|_: CallbackQuery| async { Ok(()) }).await.unwrap();
+        client.register_next_step_handler(|_client, _: CallbackQuery| async { Ok(()) }).await.unwrap();
         assert_eq!(client.stop_listening::<Message>().await.unwrap(), 2);
         for waiter in waiters {
             assert!(matches!(waiter.await.unwrap(), Err(Error::ListenerStopped)));
@@ -110,7 +110,7 @@ mod tests {
     #[tokio::test]
     async fn next_step_handlers_are_stopped_too() {
         let client = Client::offline();
-        let id = client.register_next_step_handler(|_: Message| async { Ok(()) }).chat(7).await.unwrap();
+        let id = client.register_next_step_handler(|_client, _: Message| async { Ok(()) }).chat(7).await.unwrap();
         assert_eq!(client.stop_listening::<Message>().chat(7).await.unwrap(), 1);
         assert!(!client.0.handlers.listeners.messages.waiting());
         assert!(!client.remove_handler(id));
