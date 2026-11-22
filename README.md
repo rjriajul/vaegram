@@ -24,8 +24,8 @@ async fn main() -> Result<()> {
         .start()
         .await?;
 
-    app.on_message(filters::command("start") & filters::private(), |_client, msg| async move {
-        msg.answer("Hello from vaegram!").await?;
+    app.on_message(filters::command("start") & filters::private(), |client, msg| async move {
+        msg.answer(&client, "Hello from vaegram!").await?;
         Ok(())
     });
 
@@ -91,17 +91,17 @@ app.send_message("me", "Hello from vaegram").await?;
 Buttons and callback queries ([examples/demo_bot.rs](examples/demo_bot.rs)):
 
 ```rust
-app.on_message(filters::command("menu"), |_client, msg| async move {
+app.on_message(filters::command("menu"), |client, msg| async move {
     let keyboard = InlineKeyboardMarkup::new([vec![
         InlineKeyboardButton::callback("Yes", "yes"),
         InlineKeyboardButton::callback("No", "no"),
     ]]);
-    msg.answer("Pick one").reply_markup(keyboard).await?;
+    msg.answer(&client, "Pick one").reply_markup(keyboard).await?;
     Ok(())
 });
 
-app.on_callback_query(filters::all(), |_client, query| async move {
-    query.answer().text(format!("You pressed {}", query.data)).await?;
+app.on_callback_query(filters::all(), |client, query| async move {
+    query.answer(&client).text(format!("You pressed {}", query.data)).await?;
     Ok(())
 });
 ```
@@ -109,9 +109,9 @@ app.on_callback_query(filters::all(), |_client, query| async move {
 A question and its answer:
 
 ```rust
-app.on_message(filters::command("name"), |_client, msg| async move {
-    let answer = msg.client().ask(msg.chat.id, "What's your name?").filter(filters::text()).await?;
-    answer.reply(format!("Hi {}", answer.text())).await?;
+app.on_message(filters::command("name"), |client, msg| async move {
+    let answer = client.ask(msg.chat.id, "What's your name?").filter(filters::text()).await?;
+    answer.reply(&client, format!("Hi {}", answer.text())).await?;
     Ok(())
 });
 ```

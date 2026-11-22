@@ -24,7 +24,7 @@ use crate::utils::{get_peer, get_peer_id, input_peer_id};
 /// preview doesn't count as media.
 /// The methods on this type, such as
 /// [`reply`](Message::reply) and [`edit_text`](Message::edit_text), act on this message in its own chat.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Message {
@@ -150,8 +150,6 @@ pub struct Message {
     // What the client's fetch options looked up before handlers saw the message.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) prefetched: Option<Box<Prefetched>>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 // Every update moves a `Message` and handlers often clone it, so a field that makes it grow should be a choice:
@@ -159,7 +157,7 @@ pub struct Message {
 // x86_64, on purpose: lower it whenever the type shrinks. It is checked in this crate's tests only, so a compiler
 // that lays the type out differently can't break a user's build.
 #[cfg(all(test, target_pointer_width = "64"))]
-const _: () = assert!(std::mem::size_of::<Message>() <= 1672);
+const _: () = assert!(std::mem::size_of::<Message>() <= 1624);
 
 #[cfg(feature = "serde")]
 fn serialize_text<S: serde::Serializer>(raw: &types::Message, serializer: S) -> std::result::Result<S::Ok, S::Error> {
@@ -168,7 +166,7 @@ fn serialize_text<S: serde::Serializer>(raw: &types::Message, serializer: S) -> 
 
 /// Each slot is `None` when nothing was fetched (the option is off, or the fetch failed), and `Some(None)` when
 /// Telegram answered that there's nothing there.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Prefetched {
     pub(crate) reply: Option<Option<Message>>,
     pub(crate) pinned: Option<Option<Message>>,
@@ -292,7 +290,6 @@ impl Message {
             parsed_entities,
             replied: None,
             prefetched: None,
-            client: client.clone(),
         }
     }
 
@@ -624,12 +621,12 @@ impl Message {
     /// edited through that connection.
     ///
     /// ```no_run
-    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
-    /// let edited = message.edit_text("Updated").await?;
+    /// # async fn f(client: &vaegram::Client, message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// let edited = message.edit_text(client, "Updated").await?;
     /// # Ok(()) }
     /// ```
-    pub fn edit_text(&self, text: impl Into<MessageText>) -> EditMessageText<'_> {
-        self.on_behalf(self.client.edit_message_text(self.chat.id, self.id, text))
+    pub fn edit_text<'a>(&'a self, client: &'a Client, text: impl Into<MessageText>) -> EditMessageText<'a> {
+        self.on_behalf(client.edit_message_text(self.chat.id, self.id, text))
     }
 
     /// Edits the caption of this media message.
@@ -637,13 +634,17 @@ impl Message {
     /// Telegram stores a caption as the message text, so this is the same request as
     /// [`edit_text`](Message::edit_text), minus the client's link preview default, as in
     /// [`Client::edit_message_caption`](crate::Client::edit_message_caption).
-    pub fn edit_caption(&self, caption: impl Into<Text>) -> EditMessageText<'_> {
-        self.edit_text(MessageText::Text(caption.into())).without_client_default()
+    pub fn edit_caption<'a>(&'a self, client: &'a Client, caption: impl Into<Text>) -> EditMessageText<'a> {
+        self.edit_text(client, MessageText::Text(caption.into())).without_client_default()
     }
 
     /// Replaces the inline keyboard of this message. `None` removes the keyboard.
-    pub fn edit_reply_markup(&self, reply_markup: Option<InlineKeyboardMarkup>) -> EditMessageReplyMarkup<'_> {
-        self.on_behalf(self.client.edit_message_reply_markup(self.chat.id, self.id, reply_markup))
+    pub fn edit_reply_markup<'a>(
+        &'a self,
+        client: &'a Client,
+        reply_markup: Option<InlineKeyboardMarkup>,
+    ) -> EditMessageReplyMarkup<'a> {
+        self.on_behalf(client.edit_message_reply_markup(self.chat.id, self.id, reply_markup))
     }
 
     /// Deletes this message.
@@ -651,14 +652,14 @@ impl Message {
     /// A message that arrived through a business connection is deleted through that connection.
     ///
     /// ```no_run
-    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
-    /// message.delete().await?;
+    /// # async fn f(client: &vaegram::Client, message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// message.delete(client).await?;
     /// # Ok(()) }
     /// ```
-    pub async fn delete(&self) -> Result<()> {
+    pub async fn delete(&self, client: &Client) -> Result<()> {
         match &self.business_connection_id {
-            Some(id) => self.client.delete_business_messages(id, &[self.id]).await,
-            None => self.client.delete_messages(self.chat.id, &[self.id]).await,
+            Some(id) => client.delete_business_messages(id, &[self.id]).await,
+            None => client.delete_messages(self.chat.id, &[self.id]).await,
         }
     }
 
@@ -668,12 +669,12 @@ impl Message {
     /// a business connection can't be forwarded: awaiting fails with `Error::InvalidArgument`.
     ///
     /// ```no_run
-    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
-    /// let forwarded = message.forward("me").await?;
+    /// # async fn f(client: &vaegram::Client, message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// let forwarded = message.forward(client, "me").await?;
     /// # Ok(()) }
     /// ```
-    pub fn forward(&self, chat_id: impl Into<PeerRef>) -> ForwardMessages<'_> {
-        let forward = self.client.forward_messages(chat_id, self.chat.id, std::slice::from_ref(&self.id));
+    pub fn forward<'a>(&'a self, client: &'a Client, chat_id: impl Into<PeerRef>) -> ForwardMessages<'a> {
+        let forward = client.forward_messages(chat_id, self.chat.id, std::slice::from_ref(&self.id));
         match self.business_connection_id {
             Some(_) => forward.refuse("a business message can't be forwarded"),
             None => forward,
@@ -686,12 +687,12 @@ impl Message {
     /// copied as this `Message` holds it, since it can't be fetched again.
     ///
     /// ```no_run
-    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
-    /// let copy = message.copy("me").await?;
+    /// # async fn f(client: &vaegram::Client, message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// let copy = message.copy(client, "me").await?;
     /// # Ok(()) }
     /// ```
-    pub fn copy(&self, chat_id: impl Into<PeerRef>) -> CopyMessage<'_> {
-        let copy = self.client.copy_message(chat_id, self.chat.id, self.id);
+    pub fn copy<'a>(&'a self, client: &'a Client, chat_id: impl Into<PeerRef>) -> CopyMessage<'a> {
+        let copy = client.copy_message(chat_id, self.chat.id, self.id);
         match self.business_connection_id {
             Some(_) => copy.held(self.raw.clone()),
             None => copy,
@@ -699,30 +700,25 @@ impl Message {
     }
 
     /// Pins this message in its chat.
-    pub fn pin(&self) -> PinChatMessage<'_> {
-        self.on_behalf(self.client.pin_chat_message(self.chat.id, self.id))
+    pub fn pin<'a>(&'a self, client: &'a Client) -> PinChatMessage<'a> {
+        self.on_behalf(client.pin_chat_message(self.chat.id, self.id))
     }
 
     /// Unpins this message in its chat.
-    pub fn unpin(&self) -> UnpinChatMessage<'_> {
-        self.on_behalf(self.client.unpin_chat_message(self.chat.id, self.id))
+    pub fn unpin<'a>(&'a self, client: &'a Client) -> UnpinChatMessage<'a> {
+        self.on_behalf(client.unpin_chat_message(self.chat.id, self.id))
     }
 
     /// Adds a reaction to this message.
     ///
     /// Telegram takes no reaction through a business connection, so on a message that came through one awaiting
     /// fails with `Error::InvalidArgument`.
-    pub fn react(&self, reaction: impl Into<ReactionType>) -> SendReaction<'_> {
-        let react = self.client.send_reaction(self.chat.id, self.id).reaction(reaction);
+    pub fn react<'a>(&'a self, client: &'a Client, reaction: impl Into<ReactionType>) -> SendReaction<'a> {
+        let react = client.send_reaction(self.chat.id, self.id).reaction(reaction);
         match self.business_connection_id {
             Some(_) => react.refuse("a business message can't take a reaction"),
             None => react,
         }
-    }
-
-    /// The [`Client`] that received this message.
-    pub fn client(&self) -> &Client {
-        &self.client
     }
 
     /// Downloads the file of this message's media.
@@ -736,17 +732,17 @@ impl Message {
     /// download it while handling it.
     ///
     /// ```no_run
-    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
-    /// let bytes = message.download().await?;
+    /// # async fn f(client: &vaegram::Client, message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// let bytes = message.download(client).await?;
     /// # Ok(()) }
     /// ```
-    pub fn download(&self) -> DownloadMedia<'_> {
+    pub fn download<'a>(&'a self, client: &'a Client) -> DownloadMedia<'a> {
         let location = self.media.as_ref().and_then(Media::file_location).cloned();
         let location = location.ok_or(Error::InvalidArgument("this message has no photo or document to download"));
         // A business chat's message ids aren't the bot's, and they can't be re-read through the connection, so an
         // expired reference there isn't renewed.
         let source = self.business_connection_id.is_none().then_some(DownloadSource::Message(self.chat.id, self.id));
-        DownloadMedia::new(&self.client, location, source)
+        DownloadMedia::new(client, location, source)
     }
 
     /// The photo or document is hidden behind a spoiler.
@@ -772,18 +768,18 @@ impl Message {
     /// Marks the contents of this message, such as a voice note, as played.
     ///
     /// Fails with `Error::InvalidArgument` on a message that came through a business connection.
-    pub async fn read_contents(&self) -> Result<()> {
+    pub async fn read_contents(&self, client: &Client) -> Result<()> {
         if self.business_connection_id.is_some() {
             return Err(Error::InvalidArgument("a business message's contents can't be marked as read"));
         }
-        self.client.read_message_contents(self.chat.id, &[self.id]).await
+        client.read_message_contents(self.chat.id, &[self.id]).await
     }
 
     /// Marks the chat as read up to and including this message.
-    pub async fn mark_as_read(&self) -> Result<()> {
+    pub async fn mark_as_read(&self, client: &Client) -> Result<()> {
         match &self.business_connection_id {
-            Some(id) => self.client.read_business_message(id, self.chat.id, self.id).await,
-            None => self.client.read_chat_history(self.chat.id, self.id).await,
+            Some(id) => client.read_business_message(id, self.chat.id, self.id).await,
+            None => client.read_chat_history(self.chat.id, self.id).await,
         }
     }
 
@@ -804,17 +800,16 @@ impl Message {
     /// Parses a command starting with `/` from the text or caption.
     ///
     /// Returns `None` if there is no command, or if it names another bot, as in `/start@other_bot`.
-    pub fn command(&self) -> Option<Command<'_>> {
-        self.command_with("/")
+    pub fn command(&self, client: &Client) -> Option<Command<'_>> {
+        self.command_with(client, "/")
     }
 
     /// Parses a command from the text or caption, with any character of `prefixes` starting it.
     ///
     /// Returns `None` if there is no command, or if it names another bot.
-    pub fn command_with(&self, prefixes: &str) -> Option<Command<'_>> {
+    pub fn command_with(&self, client: &Client, prefixes: &str) -> Option<Command<'_>> {
         let command = Command::parse(self.content(), prefixes)?;
-        (command.bot.is_none() || command.is_for(self.client.0.me.lock().unwrap().username.as_deref()))
-            .then_some(command)
+        (command.bot.is_none() || command.is_for(client.0.me.lock().unwrap().username.as_deref())).then_some(command)
     }
 
     /// Parses a command from the text or caption, with any of the `prefixes` strings starting it, as
@@ -822,16 +817,15 @@ impl Message {
     /// text starts with wins, and empty prefixes never match.
     ///
     /// Returns `None` if there is no command, or if it names another bot.
-    pub fn command_with_prefixes<S: AsRef<str>>(&self, prefixes: &[S]) -> Option<Command<'_>> {
+    pub fn command_with_prefixes<S: AsRef<str>>(&self, client: &Client, prefixes: &[S]) -> Option<Command<'_>> {
         let command = Command::parse_prefixed(self.content(), prefixes)?;
-        (command.bot.is_none() || command.is_for(self.client.0.me.lock().unwrap().username.as_deref()))
-            .then_some(command)
+        (command.bot.is_none() || command.is_for(client.0.me.lock().unwrap().username.as_deref())).then_some(command)
     }
 
     /// Fetches the message this one replies to, on demand, or takes what `fetch_replies` fetched, or the message
     /// cache's copy when that's on; `None` when it isn't a reply or that message is gone. A business message has
     /// only the replied message its update carried.
-    pub async fn reply_to_message(&self) -> Result<Option<Message>> {
+    pub async fn reply_to_message(&self, client: &Client) -> Result<Option<Message>> {
         if let Some(replied) = &self.replied {
             return Ok(Some((**replied).clone()));
         }
@@ -841,20 +835,20 @@ impl Message {
         let Some(id) = self.reply_to_message_id().filter(|_| self.business_connection_id.is_none()) else {
             return Ok(None);
         };
-        let cached = self.client.0.caches.message(self.chat.id, id);
-        if let Some(message) = cached.and_then(|c| Message::from_raw(&self.client, c.raw, &c.entities)) {
+        let cached = client.0.caches.message(self.chat.id, id);
+        if let Some(message) = cached.and_then(|c| Message::from_raw(client, c.raw, &c.entities)) {
             return Ok(Some(message));
         }
-        Ok(self.client.get_messages(self.chat.id, &[id]).await?.pop().flatten())
+        Ok(client.get_messages(self.chat.id, &[id]).await?.pop().flatten())
     }
 
     /// Fetches this message again, as it is now; `None` when it was deleted.
-    pub async fn refetch(&self) -> Result<Option<Message>> {
+    pub async fn refetch(&self, client: &Client) -> Result<Option<Message>> {
         // A business chat's message ids belong to the other account, so the bot can't look them up.
         if self.business_connection_id.is_some() {
             return Err(Error::InvalidArgument("a business message can't be fetched again"));
         }
-        Ok(self.client.get_messages(self.chat.id, &[self.id]).await?.pop().flatten())
+        Ok(client.get_messages(self.chat.id, &[self.id]).await?.pop().flatten())
     }
 
     /// Sends `text` to this chat as a reply to this message.
@@ -863,32 +857,40 @@ impl Message {
     /// message added.
     ///
     /// ```no_run
-    /// # async fn f(message: &vaegram::types::Message) -> vaegram::Result<()> {
-    /// let sent = message.reply("Got it").await?;
+    /// # async fn f(client: &vaegram::Client, message: &vaegram::types::Message) -> vaegram::Result<()> {
+    /// let sent = message.reply(client, "Got it").await?;
     /// # Ok(()) }
     /// ```
-    pub fn reply(&self, text: impl Into<Text>) -> SendMessage<'_> {
-        self.answer(text).reply_to(self.id)
+    pub fn reply<'a>(&'a self, client: &'a Client, text: impl Into<Text>) -> SendMessage<'a> {
+        self.answer(client, text).reply_to(self.id)
     }
 
     /// Sends `text` to this chat without a quote, in the same topic and through the same business connection.
     ///
     /// On queries (`CallbackQuery`, `InlineQuery`, `ShippingQuery`, `GuestMessage`) `answer` responds to the query
     /// instead, like the Bot API's `answer*` methods.
-    pub fn answer(&self, text: impl Into<Text>) -> SendMessage<'_> {
-        self.route(self.client.send_message(self.chat.id, text))
+    pub fn answer<'a>(&'a self, client: &'a Client, text: impl Into<Text>) -> SendMessage<'a> {
+        self.route(client.send_message(self.chat.id, text))
     }
 
     /// Sends an album to this chat as a reply to this message.
     ///
     /// Awaiting the request returns the sent messages.
-    pub fn reply_media_group<'a>(&'a self, media: impl IntoIterator<Item = InputMedia<'a>>) -> SendMediaGroup<'a> {
-        self.answer_media_group(media).reply_to(self.id)
+    pub fn reply_media_group<'a>(
+        &'a self,
+        client: &'a Client,
+        media: impl IntoIterator<Item = InputMedia<'a>>,
+    ) -> SendMediaGroup<'a> {
+        self.answer_media_group(client, media).reply_to(self.id)
     }
 
     /// Sends an album to this chat without a quote, in the same topic and through the same business connection.
-    pub fn answer_media_group<'a>(&'a self, media: impl IntoIterator<Item = InputMedia<'a>>) -> SendMediaGroup<'a> {
-        self.route(self.client.send_media_group(self.chat.id, media))
+    pub fn answer_media_group<'a>(
+        &'a self,
+        client: &'a Client,
+        media: impl IntoIterator<Item = InputMedia<'a>>,
+    ) -> SendMediaGroup<'a> {
+        self.route(client.send_media_group(self.chat.id, media))
     }
 }
 
@@ -1066,7 +1068,7 @@ pub(crate) mod tests {
         assert_eq!((media.text(), media.caption()), ("", Some("/start now")));
         let entities = (media.entities().map(<[_]>::len), media.caption_entities().map(<[_]>::len));
         assert_eq!((entities, media.document().is_some()), ((None, Some(1)), true));
-        let command = media.command().map(|c| (c.name, c.args().collect::<Vec<_>>()));
+        let command = media.command(&Client::offline()).map(|c| (c.name, c.args().collect::<Vec<_>>()));
         assert_eq!(command, Some(("start", vec!["now"])));
     }
 
@@ -1203,13 +1205,13 @@ pub(crate) mod tests {
         let message = Message::parse(&client, Box::new(raw), &Entities::default());
         assert!(sent.try_recv().is_err());
 
-        let replied = message.reply_to_message().await.unwrap().unwrap();
+        let replied = message.reply_to_message(&client).await.unwrap().unwrap();
         assert_eq!((replied.id, replied.chat.id), (4, -5));
         let body = sent.try_recv().unwrap();
         assert_eq!(body[..4], functions::messages::GetMessages::CONSTRUCTOR_ID.to_le_bytes());
 
         let plain = Message::parse(&client, Box::new(Message::bare(10, get_peer(-5), 0)), &Entities::default());
-        assert!(plain.reply_to_message().await.unwrap().is_none());
+        assert!(plain.reply_to_message(&client).await.unwrap().is_none());
         assert!(sent.try_recv().is_err());
     }
 
@@ -1232,10 +1234,10 @@ pub(crate) mod tests {
         };
 
         let carried = base::Message::Message(Box::new(Message::bare(4, get_peer(7), 0)));
-        let replied = business(Some(carried)).reply_to_message().await.unwrap().unwrap();
+        let replied = business(Some(carried)).reply_to_message(&client).await.unwrap().unwrap();
         assert_eq!((replied.id, replied.business_connection_id.as_deref()), (4, Some("conn")));
         // Without it, the bot's own message ids are another account's, so nothing is fetched.
-        assert!(business(None).reply_to_message().await.unwrap().is_none());
+        assert!(business(None).reply_to_message(&client).await.unwrap().is_none());
         assert!(sent.try_recv().is_err());
     }
 
@@ -1348,7 +1350,7 @@ pub(crate) mod tests {
         };
         assert_eq!(created.service, Some(ServiceAction::ForumTopicCreated(topic)));
         assert_eq!((created.message_thread_id, created.is_topic_message), (Some(9), true));
-        assert!(filters::topic(9).check(&created));
+        assert!(filters::topic(9).check(&client, &created));
 
         let renamed = service(in_topic.clone(), edit(Some("New"), None, None));
         let edited = ForumTopicEdited { title: Some("New".into()), icon_emoji_id: None };
@@ -1396,14 +1398,17 @@ pub(crate) mod tests {
         raw.rich_message = Some(base::RichMessage::RichMessage(Box::new(rich)));
         let message = parse(&raw);
         assert_eq!(message.text(), "/start\nhi Bob");
-        assert_eq!(message.command().map(|c| c.name), Some("start"));
+        assert_eq!(message.command(&Client::offline()).map(|c| c.name), Some("start"));
         assert!(message.rich_message.is_some_and(|r| r.is_rtl));
         assert_eq!(message.raw.rich_message, None);
 
         raw.media = Some(document_media("application/pdf", Vec::new()));
         let media = parse(&raw);
         assert_eq!((media.text(), media.caption(), media.raw.message.as_str()), ("", None, ""));
-        let (command, filtered) = (media.command().map(|c| c.name), filters::command("start").check(&media));
+        let (command, filtered) = (
+            media.command(&Client::offline()).map(|c| c.name),
+            filters::command("start").check(&Client::offline(), &media),
+        );
         assert_eq!((command, filtered, media.rich_message.is_some()), (None, false, true));
     }
 
@@ -1416,13 +1421,13 @@ pub(crate) mod tests {
         let raw = Message::bare(5, get_peer(7), 0);
         let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
         message.business_connection_id = Some("c".into());
-        assert!(message.delete().await.is_err());
+        assert!(message.delete(&client).await.is_err());
         assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
         let sent = [
-            message.reply("hi").await.map(drop),
-            message.edit_text("hi").await.map(drop),
-            message.pin().await,
-            message.unpin().await,
+            message.reply(&client, "hi").await.map(drop),
+            message.edit_text(&client, "hi").await.map(drop),
+            message.pin(&client).await,
+            message.unpin(&client).await,
         ];
         for sent in sent {
             assert!(sent.is_err());
@@ -1448,12 +1453,12 @@ pub(crate) mod tests {
         let mut message = Message::parse(&client, Box::new(Message::bare(5, get_peer(7), 0)), &Entities::default());
         message.business_connection_id = Some("c".into());
 
-        let sent = message.reply("hi").await.unwrap();
+        let sent = message.reply(&client, "hi").await.unwrap();
         assert_eq!(sent.business_connection_id.as_deref(), Some("c"));
         let _reply = rx.try_recv().expect("no reply sent");
         // What follows on the sent message goes through the same connection.
-        assert!(sent.edit_text("edited").await.is_err());
-        assert!(sent.delete().await.is_err());
+        assert!(sent.edit_text(&client, "edited").await.is_err());
+        assert!(sent.delete(&client).await.is_err());
         for _ in 0..2 {
             let body = rx.try_recv().expect("no request sent");
             assert_eq!((&body[..4], &body[4..6]), (&0xdd289f8e_u32.to_le_bytes()[..], &b"\x01c"[..]));
@@ -1467,17 +1472,17 @@ pub(crate) mod tests {
         let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
         message.business_connection_id = Some("c".into());
         let refused = |result: Result<(), Error>| matches!(result, Err(Error::InvalidArgument(_)));
-        assert!(refused(message.forward(7).await.map(drop)));
-        assert!(refused(message.react("👍").await));
-        assert!(refused(message.read_contents().await));
-        assert!(refused(message.get_media_group().await.map(drop)));
-        assert!(refused(message.copy_media_group(7).await.map(drop)));
-        assert!(refused(message.answer_inline_bot_result(1, "r").await.map(drop)));
-        assert!(refused(message.reply_inline_bot_result(1, "r").await.map(drop)));
+        assert!(refused(message.forward(&client, 7).await.map(drop)));
+        assert!(refused(message.react(&client, "👍").await));
+        assert!(refused(message.read_contents(&client).await));
+        assert!(refused(message.get_media_group(&client).await.map(drop)));
+        assert!(refused(message.copy_media_group(&client, 7).await.map(drop)));
+        assert!(refused(message.answer_inline_bot_result(&client, 1, "r").await.map(drop)));
+        assert!(refused(message.reply_inline_bot_result(&client, 1, "r").await.map(drop)));
         assert!(rx.try_recv().is_err(), "nothing was sent");
 
         // A copy is made of the message as held: message id 5 of the bot's own chat is never fetched.
-        let _ = message.copy(7).await;
+        let _ = message.copy(&client, 7).await;
         let body = rx.try_recv().expect("no request sent");
         assert_eq!(body[..4], functions::messages::SendMessage::CONSTRUCTOR_ID.to_le_bytes());
         assert!(body.windows(3).any(|w| w == b"\x02hi"));
@@ -1511,7 +1516,7 @@ pub(crate) mod tests {
         raw.media = Some(document_media("application/pdf", Vec::new()));
         let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
         message.business_connection_id = Some("c".into());
-        let result = message.download().await;
+        let result = message.download(&client).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "FILE_REFERENCE_EXPIRED"), "{result:?}");
         assert_eq!(std::iter::from_fn(|| rx.try_recv().ok()).count(), 1);
     }
@@ -1523,10 +1528,10 @@ pub(crate) mod tests {
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let raw = Message::bare(5, get_peer(7), 0);
         let mut message = Message::parse(&client, Box::new(raw), &Entities::default());
-        let _ = message.reply("hi").await;
-        let _ = message.answer("hi").await;
+        let _ = message.reply(&client, "hi").await;
+        let _ = message.answer(&client, "hi").await;
         (message.message_thread_id, message.is_topic_message) = (Some(3), true);
-        let _ = message.answer("hi").await;
+        let _ = message.answer(&client, "hi").await;
         // reply_to is flags.0 of messages.sendMessage, right after the constructor id.
         let mut has_reply_to = || rx.try_recv().expect("no request sent")[4] & 1 == 1;
         assert_eq!((has_reply_to(), has_reply_to(), has_reply_to()), (true, false, true));
@@ -1583,7 +1588,7 @@ pub(crate) mod tests {
         let reply = Ok(base::messages::Messages::Messages(Box::new(messages)).to_bytes());
         let (client, mut sent) = Client::scripted(vec![reply]);
         let message = Message::parse(&client, Box::new(Message::bare(5, get_peer(-5), 0)), &Entities::default());
-        let again = message.refetch().await.unwrap().unwrap();
+        let again = message.refetch(&client).await.unwrap().unwrap();
         assert_eq!((again.id, again.chat.id, again.text()), (5, -5, "edited"));
         let request = functions::messages::GetMessages {
             id: vec![base::InputMessage::InputMessageID(types::InputMessageID { id: 5 })],
@@ -1597,7 +1602,7 @@ pub(crate) mod tests {
         let (client, mut rx) = seeded();
         let mut message = Message::parse(&client, Box::new(Message::bare(5, get_peer(7), 0)), &Entities::default());
         message.business_connection_id = Some("c".into());
-        assert!(matches!(message.refetch().await, Err(Error::InvalidArgument(_))));
+        assert!(matches!(message.refetch(&client).await, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
     }
 
@@ -1607,17 +1612,17 @@ pub(crate) mod tests {
         let message =
             |chat_id| Message::parse(&client, Box::new(Message::bare(5, get_peer(chat_id), 0)), &Entities::default());
 
-        assert!(message(7).mark_as_read().await.is_err());
+        assert!(message(7).mark_as_read(&client).await.is_err());
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         assert_eq!(rx.try_recv().unwrap(), functions::messages::ReadHistory { peer, max_id: 5 }.to_bytes());
 
-        assert!(message(get_channel_id(9)).mark_as_read().await.is_err());
+        assert!(message(get_channel_id(9)).mark_as_read(&client).await.is_err());
         let channel = base::InputChannel::InputChannel(Box::new(types::InputChannel { channel_id: 9, access_hash: 2 }));
         assert_eq!(rx.try_recv().unwrap(), functions::channels::ReadHistory { channel, max_id: 5 }.to_bytes());
 
         let mut business = message(7);
         business.business_connection_id = Some("c".into());
-        assert!(business.mark_as_read().await.is_err());
+        assert!(business.mark_as_read(&client).await.is_err());
         assert_eq!(rx.try_recv().unwrap()[..4], 0xdd289f8e_u32.to_le_bytes());
         assert!(rx.try_recv().is_err());
     }
@@ -1627,10 +1632,10 @@ pub(crate) mod tests {
         let (client, mut rx) = seeded();
         let album = || [0, 1].map(|_| InputMedia::photo(FileSource::file_id(PHOTO).unwrap()));
         let mut message = Message::parse(&client, Box::new(Message::bare(5, get_peer(7), 0)), &Entities::default());
-        let _ = message.reply_media_group(album()).await;
-        let _ = message.answer_media_group(album()).await;
+        let _ = message.reply_media_group(&client, album()).await;
+        let _ = message.answer_media_group(&client, album()).await;
         (message.message_thread_id, message.is_topic_message) = (Some(3), true);
-        let _ = message.answer_media_group(album()).await;
+        let _ = message.answer_media_group(&client, album()).await;
         // reply_to is flags.0 of messages.sendMultiMedia, right after the constructor id.
         let mut has_reply_to = || {
             let body = rx.try_recv().expect("no request sent");
@@ -1646,7 +1651,7 @@ pub(crate) mod tests {
         let album = [0, 1].map(|_| InputMedia::photo(FileSource::file_id(PHOTO).unwrap()));
         let mut message = Message::parse(&client, Box::new(Message::bare(5, get_peer(7), 0)), &Entities::default());
         message.business_connection_id = Some("c".into());
-        assert!(message.reply_media_group(album).await.is_err());
+        assert!(message.reply_media_group(&client, album).await.is_err());
         assert_eq!(rx.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
     }
 

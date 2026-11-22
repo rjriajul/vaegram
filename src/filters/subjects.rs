@@ -1,5 +1,4 @@
 use super::facts::{Facts, PeerKinds};
-use crate::Client;
 use crate::client::Me;
 use crate::types::{
     BotSubscriptionUpdated, BusinessConnection, CallbackQuery, Chat, ChatActionUpdated, ChatBoostRemoved,
@@ -15,12 +14,11 @@ use crate::types::{
 // Public traits in a private module: nothing outside the crate can name them, so `Subject` stays sealed and
 // `Inspect` uncallable while `Filter::check` can still bound on it.
 pub(crate) mod private {
-    use super::{Client, Facts, Me};
+    use super::{Facts, Me};
 
     pub trait Sealed {}
 
     pub trait Inspect {
-        fn client(&self) -> &Client;
         fn facts<'a>(&'a self, me: &'a Me) -> Facts<'a>;
     }
 }
@@ -46,10 +44,6 @@ macro_rules! subject {
         impl private::Sealed for $ty {}
 
         impl private::Inspect for $ty {
-            fn client(&self) -> &Client {
-                $ty::client(self)
-            }
-
             fn facts<'a>(&'a self, $me: &'a Me) -> Facts<'a> {
                 let $s = self;
                 $facts

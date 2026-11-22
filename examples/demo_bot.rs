@@ -23,63 +23,63 @@ async fn main() -> Result<()> {
         .start()
         .await?;
 
-    app.on_message(filters::command("start"), |_client, msg| async move {
+    app.on_message(filters::command("start"), |client, msg| async move {
         println!("start from {:?}", msg.from_user());
-        msg.answer("<b>vaegram demo</b>\nTap a button:").html().reply_markup(menu()).await?;
+        msg.answer(&client, "<b>vaegram demo</b>\nTap a button:").html().reply_markup(menu()).await?;
         Ok(())
     });
 
-    app.on_message(filters::command("keyboard"), |_client, msg| async move {
+    app.on_message(filters::command("keyboard"), |client, msg| async move {
         let keyboard =
             ReplyKeyboardMarkup::new([vec![KeyboardButton::new("Hello"), KeyboardButton::new("Remove keyboard")]])
                 .placeholder("Pick one");
-        msg.answer("Here is a reply keyboard.").reply_markup(keyboard).await?;
+        msg.answer(&client, "Here is a reply keyboard.").reply_markup(keyboard).await?;
         Ok(())
     });
 
-    app.on_message(filters::command("react"), |_client, msg| async move {
-        msg.react("👍").await?;
+    app.on_message(filters::command("react"), |client, msg| async move {
+        msg.react(&client, "👍").await?;
         Ok(())
     });
 
     app.on_message(
         filters::text() & filters::create(|m: &Message| m.text() == "Remove keyboard"),
-        |_client, msg| async move {
-            msg.answer("Keyboard removed.").reply_markup(ReplyKeyboardRemove::default()).await?;
+        |client, msg| async move {
+            msg.answer(&client, "Keyboard removed.").reply_markup(ReplyKeyboardRemove::default()).await?;
             Ok(())
         },
     );
 
-    app.on_message(filters::text() & filters::private(), |_client, msg| async move {
+    app.on_message(filters::text() & filters::private(), |client, msg| async move {
         println!("message: {:?}", msg.text());
-        msg.reply(Text::new().plain("You said: ").bold(msg.text())).await?;
+        msg.reply(&client, Text::new().plain("You said: ").bold(msg.text())).await?;
         Ok(())
     });
 
-    app.on_edited_message(filters::text(), |_client, msg| async move {
+    app.on_edited_message(filters::text(), |client, msg| async move {
         println!("edited: {:?}", msg.text());
-        msg.reply(format!("You edited it to: {}", msg.text())).await?;
+        msg.reply(&client, format!("You edited it to: {}", msg.text())).await?;
         Ok(())
     });
 
-    app.on_callback_query(filters::data("alert"), |_client, query| async move {
+    app.on_callback_query(filters::data("alert"), |client, query| async move {
         println!("alert from {}", query.from_user.first_name);
-        query.answer().text("This is an alert from vaegram").alert().await?;
+        query.answer(&client).text("This is an alert from vaegram").alert().await?;
         Ok(())
     });
 
-    app.on_callback_query(filters::all(), |_client, query| async move {
+    app.on_callback_query(filters::all(), |client, query| async move {
         println!("pressed {:?}", query.data);
-        query.answer().text(format!("You pressed {}", query.data)).await?;
+        query.answer(&client).text(format!("You pressed {}", query.data)).await?;
         query
-            .edit_message_text(format!("You pressed <b>{}</b>. Tap again:", query.data))
+            .edit_message_text(&client, format!("You pressed <b>{}</b>. Tap again:", query.data))
             .html()
             .reply_markup(menu())
             .await?;
         Ok(())
     });
 
-    app.on_inline_query(filters::all(), |_client, query| async move {
+    app.on_inline_query(filters::all(), |client, query| async move {
         println!("inline query: {:?}", query.query);
         if query.query.is_empty() {
             return Ok(());
@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
             InlineQueryResultArticle::new("Bold", InputMessageContent::html(format!("<b>{}</b>", query.query)))
                 .description("HTML"),
         ];
-        query.answer(results).cache_time(0).await?;
+        query.answer(&client, results).cache_time(0).await?;
         Ok(())
     });
 

@@ -10,13 +10,13 @@ use vaegram::{Client, filters};
 async fn bot_replies_and_answers_with_media() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    kit.bot.on_message(filters::private() & filters::text(), move |_client, m| {
+    kit.bot.on_message(filters::private() & filters::text(), move |client, m| {
         let tx = tx.clone();
         async move {
             if m.text() == "media" {
-                let document = m.reply_document(Upload::bytes("a.txt", b"a")).await.map(drop);
-                let poll = m.answer_poll("q", ["a", "b"]).await.map(drop);
-                let dice = m.reply_dice().await.map(drop);
+                let document = m.reply_document(&client, Upload::bytes("a.txt", b"a")).await.map(drop);
+                let poll = m.answer_poll(&client, "q", ["a", "b"]).await.map(drop);
+                let dice = m.reply_dice(&client).await.map(drop);
                 let _ = tx.send([document, poll, dice]);
             }
             Ok(())
@@ -25,7 +25,7 @@ async fn bot_replies_and_answers_with_media() {
 
     let reply = kit.user.send_and_wait_reply(&kit.bot, "media").await.unwrap();
     assert!(reply.document().is_some(), "the first reply is the document");
-    let replied = reply.reply_to_message().await.unwrap().expect("the document replies to the request");
+    let replied = reply.reply_to_message(&kit.user.client).await.unwrap().expect("the document replies to the request");
     assert_eq!(replied.text(), "media");
     let sent = tokio::time::timeout(std::time::Duration::from_secs(30), rx.recv()).await.unwrap().unwrap();
     for result in sent {
@@ -58,7 +58,7 @@ async fn user_replies_to_a_story() {
         sent => sent.unwrap(),
     };
 
-    let reply = story.reply("hi").await;
+    let reply = story.reply(&user, "hi").await;
     user.delete_stories(me.id, &[story.id]).await.unwrap();
     let reply = reply.unwrap();
     assert_eq!(reply.chat.id, me.id);

@@ -594,7 +594,7 @@ mod tests {
         client.0.caches.store(&raw(4, 7), &Arc::default());
         let mut reply = message(&client, 5, 7);
         reply.reply_to = Some(crate::types::ReplyTo::message(4));
-        assert_eq!(reply.reply_to_message().await.unwrap().map(|m| (m.id, m.chat.id)), Some((4, 7)));
+        assert_eq!(reply.reply_to_message(&client).await.unwrap().map(|m| (m.id, m.chat.id)), Some((4, 7)));
         assert!(rx.try_recv().is_err());
     }
 
@@ -603,7 +603,7 @@ mod tests {
         let (client, mut rx) = caching(10, 0);
         client.0.caches.store(&raw(5, 7), &Arc::default());
         let press = crate::dispatcher::listeners::tests::query(&client, 7, 7, 5);
-        assert_eq!(press.message().await.unwrap().map(|m| m.id), Some(5));
+        assert_eq!(press.message(&client).await.unwrap().map(|m| m.id), Some(5));
         assert!(rx.try_recv().is_err());
     }
 
@@ -617,12 +617,12 @@ mod tests {
         client.0.caches.store_topic(forum, &topic(6));
         let mut in_topic = message(&client, 1, forum);
         (Arc::make_mut(&mut in_topic.chat).is_forum, in_topic.message_thread_id) = (true, Some(6));
-        assert_eq!(in_topic.topic().await.unwrap().map(|t| t.id), Some(6));
+        assert_eq!(in_topic.topic(&client).await.unwrap().map(|t| t.id), Some(6));
         assert!(rx.try_recv().is_err());
 
         let edit = types::UpdateNewChannelMessage { message: topic_edit(forum, Some(6)), pts: 1, pts_count: 1 };
         client.0.caches.observe(&base::Update::UpdateNewChannelMessage(Box::new(edit)), &Arc::default());
-        let _ = in_topic.topic().await;
+        let _ = in_topic.topic(&client).await;
         let fetch = functions::messages::GetForumTopicsByID { peer: input, topics: vec![6] };
         assert_eq!(rx.try_recv().unwrap(), fetch.to_bytes());
     }
@@ -634,11 +634,11 @@ mod tests {
         client.0.caches.store_topic(get_channel_id(9), &topic(6));
         let mut reply = message(&client, 5, 7);
         reply.reply_to = Some(crate::types::ReplyTo::message(4));
-        let _ = reply.reply_to_message().await;
+        let _ = reply.reply_to_message(&client).await;
         let id = base::InputMessage::InputMessageID(types::InputMessageID { id: 4 });
         assert_eq!(rx.try_recv().unwrap(), functions::messages::GetMessages { id: vec![id] }.to_bytes());
         let press = crate::dispatcher::listeners::tests::query(&client, 7, 7, 4);
-        let _ = press.message().await;
+        let _ = press.message(&client).await;
         assert!(rx.try_recv().is_ok());
     }
 
@@ -658,7 +658,7 @@ mod tests {
         rx.try_recv().unwrap();
         // Gone from the cache, so the press asks Telegram again.
         let press = crate::dispatcher::listeners::tests::query(&client, 7, 7, 4);
-        let _ = press.message().await;
+        let _ = press.message(&client).await;
         assert_eq!(rx.try_recv().unwrap(), get_messages(4));
     }
 

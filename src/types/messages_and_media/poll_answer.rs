@@ -4,7 +4,7 @@ use crate::raw::{base, types};
 use crate::types::{Chat, User};
 
 /// A change to someone's vote in a poll.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PollAnswer {
     /// Id of the poll.
@@ -15,22 +15,15 @@ pub struct PollAnswer {
     pub voter_chat: Option<Chat>,
     /// Positions of the chosen options, counted from 0.
     pub option_ids: Vec<i32>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl PollAnswer {
-    pub(crate) fn parse(client: &Client, raw: types::UpdateMessagePollVote, entities: &Entities) -> PollAnswer {
+    pub(crate) fn parse(_client: &Client, raw: types::UpdateMessagePollVote, entities: &Entities) -> PollAnswer {
         let (user, voter_chat) = match &raw.peer {
             base::Peer::PeerUser(p) => (Some(User::parse(p.user_id, entities)), None),
             peer => (None, Some(Chat::parse(peer, entities, false))),
         };
-        PollAnswer { poll_id: raw.poll_id, user, voter_chat, option_ids: raw.positions, client: client.clone() }
-    }
-
-    /// The [`Client`] that received this update.
-    pub fn client(&self) -> &Client {
-        &self.client
+        PollAnswer { poll_id: raw.poll_id, user, voter_chat, option_ids: raw.positions }
     }
 }
 

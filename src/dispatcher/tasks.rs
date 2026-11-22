@@ -153,7 +153,7 @@ impl Tasks {
             };
             let slot = permit(permits).await;
             let (last, rest) = callbacks.split_last()?;
-            let item = item.prepare().await;
+            let item = item.prepare(&client).await;
             for callback in rest {
                 if let Err(error) = callback(client.clone(), item.clone()).await {
                     return Some((failed(error), (slot, done)));

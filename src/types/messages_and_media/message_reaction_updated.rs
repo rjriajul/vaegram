@@ -6,7 +6,7 @@ use crate::raw::{base, types};
 use crate::types::{Chat, ReactionType, User};
 
 /// A change to the reactions one user or chat left on a message.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MessageReactionUpdated {
     /// The chat the message is in.
@@ -23,13 +23,11 @@ pub struct MessageReactionUpdated {
     pub old_reaction: Vec<ReactionType>,
     /// The reactions the actor has now. Empty if they removed all of them.
     pub new_reaction: Vec<ReactionType>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl MessageReactionUpdated {
     pub(crate) fn parse(
-        client: &Client,
+        _client: &Client,
         raw: &types::UpdateBotMessageReaction,
         entities: &Entities,
     ) -> MessageReactionUpdated {
@@ -45,13 +43,7 @@ impl MessageReactionUpdated {
             date: raw.date,
             old_reaction: raw.old_reactions.iter().filter_map(ReactionType::parse).collect(),
             new_reaction: raw.new_reactions.iter().filter_map(ReactionType::parse).collect(),
-            client: client.clone(),
         }
-    }
-
-    /// The [`Client`] that received this update.
-    pub fn client(&self) -> &Client {
-        &self.client
     }
 }
 

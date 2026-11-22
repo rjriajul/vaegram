@@ -492,7 +492,11 @@ mod tests {
             let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
             let parsed = Message::parse(&client, Box::new(m), &entities);
             assert_eq!(facts, parsed.facts(&me));
-            assert_eq!((facts.flags & REACTED != 0, filter.check(&parsed)), (reacted, reacted), "{reactions:?}");
+            assert_eq!(
+                (facts.flags & REACTED != 0, filter.check(&client, &parsed)),
+                (reacted, reacted),
+                "{reactions:?}"
+            );
 
             let photo =
                 types::MessageService { reactions, ..service(base::MessageAction::MessageActionChatDeletePhoto) };
@@ -500,7 +504,7 @@ mod tests {
             let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
             let parsed = Message::from_raw(&client, raw.clone(), &entities).unwrap();
             assert_eq!(facts, parsed.facts(&me));
-            assert_eq!((facts.flags & REACTED != 0, filter.check(&parsed)), (reacted, reacted));
+            assert_eq!((facts.flags & REACTED != 0, filter.check(&client, &parsed)), (reacted, reacted));
         }
     }
 

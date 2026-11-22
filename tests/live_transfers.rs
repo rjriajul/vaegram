@@ -20,8 +20,8 @@ async fn sent_document(kit: &support::Kit) -> (Message, Vec<u8>) {
 async fn a_byte_range_matches_the_whole_file() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let (message, data) = sent_document(&kit).await;
-    let whole = message.download().await;
-    let range = message.download().offset(CHUNK as u64 + 5).limit(1000).await;
+    let whole = message.download(&kit.user.client).await;
+    let range = message.download(&kit.user.client).offset(CHUNK as u64 + 5).limit(1000).await;
     kit.user.client.delete_messages("me", &[message.id]).await.unwrap();
     assert_eq!(whole.unwrap(), data);
     assert_eq!(range.unwrap(), data[CHUNK + 5..CHUNK + 1005]);

@@ -6,7 +6,7 @@ use crate::types::Chat;
 /// Messages in a chat were read up to an id: incoming ones by this account (on any of its devices), or outgoing
 /// ones by the other side.
 #[non_exhaustive]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ReadHistoryUpdated {
     /// The chat the messages are in.
@@ -19,14 +19,11 @@ pub struct ReadHistoryUpdated {
     pub message_thread_id: Option<i32>,
     /// How many incoming messages are still unread. `None` for outgoing messages and comment threads.
     pub unread_count: Option<i32>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl ReadHistoryUpdated {
-    fn new(client: &Client, chat: Chat, max_id: i32, is_outgoing: bool) -> Self {
-        let client = client.clone();
-        ReadHistoryUpdated { chat, max_id, is_outgoing, message_thread_id: None, unread_count: None, client }
+    fn new(_client: &Client, chat: Chat, max_id: i32, is_outgoing: bool) -> Self {
+        ReadHistoryUpdated { chat, max_id, is_outgoing, message_thread_id: None, unread_count: None }
     }
 
     fn channel(channel_id: i64, entities: &Entities) -> Chat {
@@ -75,10 +72,5 @@ impl ReadHistoryUpdated {
     ) -> Self {
         let read = Self::new(client, Self::channel(raw.channel_id, entities), raw.read_max_id, true);
         ReadHistoryUpdated { message_thread_id: Some(raw.top_msg_id), ..read }
-    }
-
-    /// The [`Client`] that received this update.
-    pub fn client(&self) -> &Client {
-        &self.client
     }
 }

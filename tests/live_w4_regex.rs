@@ -13,10 +13,10 @@ async fn regex_captures_an_order_number() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let order = Regex::new(r"order (\d+)").unwrap();
     let pattern = order.clone();
-    kit.bot.on_message(filters::private() & filters::regex(order), move |_client, m| {
+    kit.bot.on_message(filters::private() & filters::regex(order), move |client, m| {
         let number = filters::matches(&pattern, &m).first().map(|found| found[1].to_owned());
         async move {
-            m.reply(number.unwrap_or_default()).await?;
+            m.reply(&client, number.unwrap_or_default()).await?;
             Ok(())
         }
     });

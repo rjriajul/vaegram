@@ -7,7 +7,7 @@ use crate::raw::base;
 use crate::types::{Chat, Media, MessageEntity, PrivacyRule, ReactionCount, ReactionType, StoryArea, User};
 
 /// A story posted to a chat's story feed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Story {
     /// The chat whose story feed holds the story.
@@ -73,8 +73,6 @@ pub struct Story {
     /// `true` for a placeholder Telegram sends instead of the full story. Only `id`, the dates and
     /// `is_close_friends` are set.
     pub is_skipped: bool,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl Story {
@@ -135,7 +133,7 @@ impl Story {
 
     /// A story a message points at without carrying it, or one deleted since: only `chat` and `id` are known, so
     /// the dates are 0, the counters, authors and media `None`, the lists empty and the flags `false`.
-    pub(crate) fn from_media(client: &Client, peer: &base::Peer, id: i32, entities: &Entities) -> Story {
+    pub(crate) fn from_media(_client: &Client, peer: &base::Peer, id: i32, entities: &Entities) -> Story {
         Story {
             chat: Chat::parse(peer, entities, false),
             id,
@@ -166,22 +164,16 @@ impl Story {
             outgoing: false,
             has_protected_content: false,
             is_skipped: false,
-            client: client.clone(),
         }
-    }
-
-    /// Returns the client this story came from.
-    pub fn client(&self) -> &Client {
-        &self.client
     }
 
     /// Downloads the story's photo or video.
     ///
     /// Awaiting it fails with [`Error::InvalidArgument`] if the story has no downloadable media.
-    pub fn download(&self) -> DownloadMedia<'_> {
+    pub fn download<'a>(&'a self, client: &'a Client) -> DownloadMedia<'a> {
         let location = self.media.as_ref().and_then(Media::file_location).cloned();
         let location = location.ok_or(Error::InvalidArgument("this story has no photo or document to download"));
-        DownloadMedia::new(&self.client, location, Some(DownloadSource::Story(self.chat.id, self.id)))
+        DownloadMedia::new(client, location, Some(DownloadSource::Story(self.chat.id, self.id)))
     }
 
     pub(crate) fn parse_list(

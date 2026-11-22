@@ -359,8 +359,10 @@ async fn bot_rich_messages_and_custom_emoji() {
             let md_blocks = fetched_md.rich_message.expect("md rich_message parsed").blocks();
             assert_rich_emoji_paragraph(&md_blocks[0], "md ", emoji_id, &alt, "markdown");
 
-            let edited =
-                sent_md.edit_text(InputRichMessage::blocks([RichBlock::paragraph("edited rich")])).await.unwrap();
+            let edited = sent_md
+                .edit_text(&user, InputRichMessage::blocks([RichBlock::paragraph("edited rich")]))
+                .await
+                .unwrap();
             assert!(edited.rich_message.is_some());
             let fetched_edited =
                 user.get_rich_message(bot_id, user_md.id).await.unwrap().expect("edited rich message exists");

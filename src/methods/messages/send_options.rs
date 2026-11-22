@@ -483,7 +483,7 @@ mod tests {
             game_short_name: None,
         };
         let query = CallbackQuery::parse(&client, &press, &Entities::default());
-        check(&query.message().await.unwrap().unwrap());
+        check(&query.message(&client).await.unwrap().unwrap());
     }
 }
 

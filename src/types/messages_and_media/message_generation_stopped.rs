@@ -4,7 +4,7 @@ use crate::raw::{base, types};
 use crate::types::Chat;
 
 /// Notice that a bot stopped streaming a message draft, sent as a stop-draft typing action in a private chat.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MessageGenerationStopped {
     /// The private chat the draft was in.
@@ -13,13 +13,11 @@ pub struct MessageGenerationStopped {
     pub message_thread_id: Option<i32>,
     /// Id of the stopped draft.
     pub draft_id: i64,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl MessageGenerationStopped {
     pub(crate) fn parse(
-        client: &Client,
+        _client: &Client,
         raw: &types::UpdateUserTyping,
         entities: &Entities,
     ) -> Option<MessageGenerationStopped> {
@@ -31,13 +29,7 @@ impl MessageGenerationStopped {
             chat: Chat::parse(&peer, entities, false),
             message_thread_id: raw.top_msg_id,
             draft_id: action.random_id,
-            client: client.clone(),
         })
-    }
-
-    /// The [`Client`] that received this update.
-    pub fn client(&self) -> &Client {
-        &self.client
     }
 }
 

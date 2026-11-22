@@ -8,7 +8,7 @@ use crate::raw::types;
 use crate::types::{ShippingAddress, ShippingOption, User};
 
 /// A buyer's shipping address, sent so the bot can offer shipping options and prices.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ShippingQuery {
     /// Id of the query, used to answer it.
@@ -19,34 +19,30 @@ pub struct ShippingQuery {
     pub invoice_payload: String,
     /// The address to ship to.
     pub shipping_address: ShippingAddress,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl ShippingQuery {
-    pub(crate) fn parse(client: &Client, raw: &types::UpdateBotShippingQuery, entities: &Entities) -> ShippingQuery {
+    pub(crate) fn parse(_client: &Client, raw: &types::UpdateBotShippingQuery, entities: &Entities) -> ShippingQuery {
         ShippingQuery {
             id: raw.query_id,
             from_user: User::parse(raw.user_id, entities),
             invoice_payload: String::from_utf8_lossy(&raw.payload).into_owned(),
             shipping_address: ShippingAddress::parse(&raw.shipping_address),
-            client: client.clone(),
         }
     }
 
-    /// The client that received the query.
-    pub fn client(&self) -> &Client {
-        &self.client
-    }
-
     /// Offers shipping options for the address. Await the returned request to send it.
-    pub fn answer(&self, options: impl IntoIterator<Item = ShippingOption>) -> AnswerShippingQuery<'_> {
-        self.client.answer_shipping_query(self.id).shipping_options(options)
+    pub fn answer<'a>(
+        &'a self,
+        client: &'a Client,
+        options: impl IntoIterator<Item = ShippingOption>,
+    ) -> AnswerShippingQuery<'a> {
+        client.answer_shipping_query(self.id).shipping_options(options)
     }
 
     /// Tells the user the order can't ship to this address, with `reason` as the message.
-    pub async fn decline(&self, reason: impl Into<String>) -> Result<()> {
-        self.client.answer_shipping_query(self.id).error(reason).await
+    pub async fn decline(&self, client: &Client, reason: impl Into<String>) -> Result<()> {
+        client.answer_shipping_query(self.id).error(reason).await
     }
 }
 

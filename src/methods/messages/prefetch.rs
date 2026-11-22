@@ -411,7 +411,7 @@ mod tests {
         let (client, mut sent) = client(Fetch::default(), false, Vec::new());
         let mut m = sticker_message(&client, 9, 10);
         (m.reply_to, Arc::make_mut(&mut m.chat).is_forum) = (Some(crate::types::ReplyTo::message(4)), true);
-        let m = m.prepare().await;
+        let m = m.prepare(&client).await;
         assert!(sent.try_recv().is_err());
         assert!(m.prefetched.is_none());
         assert_eq!((m.reply_to_message_id(), set_name(&m)), (Some(4), None));
@@ -427,7 +427,7 @@ mod tests {
         let raw = Message::bare(9, get_peer(get_channel_id(9)), 0);
         let mut m = Message::parse(&client, Box::new(raw), &Entities::default());
         (Arc::make_mut(&mut m.chat).is_forum, m.message_thread_id) = (true, Some(6));
-        let m = m.prepare().await;
+        let m = m.prepare(&client).await;
         assert_eq!(sent.try_recv().unwrap(), messages::GetForumTopicsByID { peer: input, topics: vec![6] }.to_bytes());
         assert!(m.prefetched.is_none());
     }
@@ -446,8 +446,8 @@ mod tests {
         assert_eq!(sent.try_recv().unwrap(), get_messages(&[4, 5]));
 
         let [reply, pin] = batch;
-        assert_eq!(reply.reply_to_message().await.unwrap().map(|m| m.id), Some(4));
-        assert_eq!(pin.pinned_message().await.unwrap().map(|m| m.id), Some(5));
+        assert_eq!(reply.reply_to_message(&client).await.unwrap().map(|m| m.id), Some(4));
+        assert_eq!(pin.pinned_message(&client).await.unwrap().map(|m| m.id), Some(5));
         assert!(sent.try_recv().is_err(), "a helper asked again");
     }
 
@@ -456,9 +456,9 @@ mod tests {
         let (client, mut sent) = client(REPLIES, false, vec![found(vec![Message::bare(4, get_peer(-5), 0)])]);
         let mut m = message(&client, 9);
         m.reply_to = Some(crate::types::ReplyTo::message(4));
-        let m = m.prepare().await;
+        let m = m.prepare(&client).await;
         assert_eq!(sent.try_recv().unwrap(), get_messages(&[4]));
-        assert_eq!(m.reply_to_message().await.unwrap().map(|m| m.id), Some(4));
+        assert_eq!(m.reply_to_message(&client).await.unwrap().map(|m| m.id), Some(4));
         assert!(sent.try_recv().is_err());
     }
 
@@ -467,9 +467,9 @@ mod tests {
         let (client, mut sent) = client(REPLIES, false, vec![found(Vec::new())]);
         let mut m = message(&client, 9);
         m.reply_to = Some(crate::types::ReplyTo::message(4));
-        let m = m.prepare().await;
+        let m = m.prepare(&client).await;
         sent.try_recv().unwrap();
-        assert!(m.reply_to_message().await.unwrap().is_none());
+        assert!(m.reply_to_message(&client).await.unwrap().is_none());
         assert!(sent.try_recv().is_err());
     }
 
@@ -480,7 +480,7 @@ mod tests {
         client.0.caches.store(&cached, &Arc::default());
         let mut m = message(&client, 9);
         m.reply_to = Some(crate::types::ReplyTo::message(4));
-        let m = m.prepare().await;
+        let m = m.prepare(&client).await;
         assert!(sent.try_recv().is_err());
         assert_eq!(m.prefetched.unwrap().reply.unwrap().map(|m| m.id), Some(4));
     }
@@ -490,7 +490,7 @@ mod tests {
         let (client, mut sent) = client(REPLIES, false, vec![refused("CHANNEL_PRIVATE")]);
         let mut m = message(&client, 9);
         m.reply_to = Some(crate::types::ReplyTo::message(4));
-        let m = m.prepare().await;
+        let m = m.prepare(&client).await;
         sent.try_recv().unwrap();
         assert_eq!(m.id, 9);
         assert!(m.prefetched.is_none(), "an error must leave the helper to ask on demand");
@@ -504,7 +504,7 @@ mod tests {
         let (client, mut sent) = client(REPLIES, false, vec![found(vec![replied])]);
         let mut m = message(&client, 9);
         m.reply_to = Some(crate::types::ReplyTo::message(4));
-        let m = m.prepare().await;
+        let m = m.prepare(&client).await;
         assert_eq!(sent.try_recv().unwrap(), get_messages(&[4]));
         assert!(sent.try_recv().is_err(), "the reply's own reply was fetched");
         let replied = m.prefetched.unwrap().reply.unwrap().unwrap();
@@ -519,7 +519,7 @@ mod tests {
         let mut m = message(&client, 9);
         Arc::make_mut(&mut m.chat).is_forum = true;
         m.reply_to = Some(crate::types::ReplyTo::Story { chat_id: 7, story_id: 4 });
-        let m = m.prepare().await;
+        let m = m.prepare(&client).await;
         assert!(sent.try_recv().is_err());
         assert!(m.prefetched.is_none());
     }
@@ -532,7 +532,7 @@ mod tests {
         m.business_connection_id = Some("conn".into());
         Arc::make_mut(&mut m.chat).is_forum = true;
         m.reply_to = Some(crate::types::ReplyTo::Story { chat_id: 7, story_id: 4 });
-        let m = m.prepare().await;
+        let m = m.prepare(&client).await;
         let request = messages::GetStickerSet { stickerset: set_id(10), hash: 0 };
         assert_eq!(sent.try_recv().unwrap(), request.to_bytes());
         assert!(sent.try_recv().is_err());
@@ -548,7 +548,7 @@ mod tests {
         story.is_skipped = true;
         let mut m = message(&client, 9);
         m.media = Some(Media::Story(Box::new(story)));
-        let m = m.prepare().await;
+        let m = m.prepare(&client).await;
         let fetch = stories::GetStoriesByID { peer: base::InputPeer::InputPeerSelf, id: vec![4] };
         assert_eq!(sent.try_recv().unwrap(), fetch.to_bytes());
         // The failed fetch leaves the media as it came.
@@ -566,7 +566,7 @@ mod tests {
         assert!(sent.try_recv().is_err(), "one request per set");
         assert_eq!(batch.iter().map(set_name).collect::<Vec<_>>(), [Some("cats"), Some("cats")]);
 
-        let later = sticker_message(&client, 3, 10).prepare().await;
+        let later = sticker_message(&client, 3, 10).prepare(&client).await;
         assert!(sent.try_recv().is_err(), "the name cache answers");
         assert_eq!(set_name(&later), Some("cats"));
     }
@@ -578,7 +578,7 @@ mod tests {
         let flood = Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_30")));
         let (client, mut sent) = client(fetch, true, vec![flood]);
         let start = Instant::now();
-        let m = sticker_message(&client, 1, 10).prepare().await;
+        let m = sticker_message(&client, 1, 10).prepare(&client).await;
         assert!(start.elapsed() < Duration::from_secs(30), "the handler waited for the flood");
         sent.try_recv().unwrap();
         assert!(sent.try_recv().is_err(), "the flooded request went out again");
@@ -606,7 +606,7 @@ mod tests {
     async fn stickerset_invalid_leaves_no_name() {
         let fetch = Fetch { replies: false, topics: false, stories: false, stickers: true };
         let (client, mut sent) = client(fetch, true, vec![refused("STICKERSET_INVALID")]);
-        let m = sticker_message(&client, 1, 10).prepare().await;
+        let m = sticker_message(&client, 1, 10).prepare(&client).await;
         sent.try_recv().unwrap();
         assert_eq!(set_name(&m), None);
         assert!(client.0.caches.set_name(10).is_none());
@@ -637,7 +637,7 @@ mod tests {
         assert!(sent.try_recv().is_err(), "one getMessages for the page");
         let mut replies = Vec::new();
         for m in &read {
-            replies.push(m.reply_to_message().await.unwrap().map(|r| r.id));
+            replies.push(m.reply_to_message(&client).await.unwrap().map(|r| r.id));
         }
         assert_eq!(replies, [Some(1), Some(2), None]);
         assert!(sent.try_recv().is_err(), "a reply was fetched again");
@@ -664,7 +664,7 @@ mod tests {
         assert_eq!(sent.try_recv().unwrap(), get_messages(&[9]));
         assert_eq!(sent.try_recv().unwrap(), get_messages(&[4]));
         let [Some(m)] = got.as_slice() else { panic!("{got:?}") };
-        assert_eq!(m.reply_to_message().await.unwrap().map(|r| r.id), Some(4));
+        assert_eq!(m.reply_to_message(&client).await.unwrap().map(|r| r.id), Some(4));
         assert!(sent.try_recv().is_err());
     }
 

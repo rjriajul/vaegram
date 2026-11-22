@@ -10,8 +10,8 @@ use vaegram::types::{ReportResult, Text};
 #[ignore = "uses a logged-in user session and a bot token"]
 async fn report_lists_reasons_without_reporting() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::text(), |_client, m| async move {
-        m.reply("ok").await?;
+    kit.bot.on_message(filters::private() & filters::text(), |client, m| async move {
+        m.reply(&client, "ok").await?;
         Ok(())
     });
     let reply = kit.user.send_and_wait_reply(&kit.bot, "hi").await.unwrap();

@@ -237,10 +237,10 @@ async fn send_bot_requested_peer_shares_user() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let (tx, mut bot_seen) = mpsc::unbounded_channel();
 
-    kit.bot.on_message(filters::private() & filters::command("reqpeer"), |_client, m| async move {
+    kit.bot.on_message(filters::private() & filters::command("reqpeer"), |client, m| async move {
         let button = KeyboardButton::new("Pick user").request_users(KeyboardButtonRequestUsers::new(77));
         let markup = ReplyKeyboardMarkup::new([vec![button]]).one_time(true);
-        m.reply("pick one").reply_markup(markup).await?;
+        m.reply(&client, "pick one").reply_markup(markup).await?;
         Ok(())
     });
     kit.bot.on_message(
@@ -320,14 +320,14 @@ async fn poll_allows_revoting_controls_retraction() {
         let user = user.clone();
         async move {
             let fixed = user.send_poll(group, "Fixed?", ["A", "B"]).allows_revoting(false).await.unwrap();
-            fixed.vote(&[0]).await.unwrap();
-            let err = fixed.retract_vote().await.unwrap_err();
+            fixed.vote(&user, &[0]).await.unwrap();
+            let err = fixed.retract_vote(&user).await.unwrap_err();
             assert!(err.rpc().is_some(), "expected Telegram RPC error retracting non-revotable poll: {err:?}");
 
             // Quizzes disable revoting by default; `.allows_revoting(true)` asks Telegram to allow retracting.
             let quiz = user.send_poll(group, "Quiz?", ["1", "2"]).quiz([0]).allows_revoting(true).await.unwrap();
-            quiz.vote(&[0]).await.unwrap();
-            quiz.retract_vote().await.unwrap();
+            quiz.vote(&user, &[0]).await.unwrap();
+            quiz.retract_vote(&user).await.unwrap();
         }
     })
     .await;
