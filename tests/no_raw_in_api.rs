@@ -23,6 +23,8 @@ const ALLOWED: &[(&str, &str)] = &[
     // The chat id converters between Bot API ids and TL peers, for code built on `invoke`.
     ("src/utils.rs", "get_peer_id"),
     ("src/utils.rs", "get_peer"),
+    ("src/types/user_and_chats/peer_id.rs", "impl PeerId"),
+    ("src/types/user_and_chats/peer_id.rs", "impl base::Peer"),
     // The input half of the raw escape hatch next to `invoke`: the TL peer, with its access hash, for a chat.
     ("src/methods/advanced/resolve_peer.rs", "resolve_peer"),
 ];

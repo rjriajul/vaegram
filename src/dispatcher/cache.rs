@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 
 use super::Entities;
 use crate::raw::base;
+use crate::types::PeerId;
 use crate::types::{ForumTopic, StickerSet, StickerSetRef};
-use crate::utils::{CHANNEL_OFFSET, channel_id_of};
 
 /// At most `capacity` entries; inserting past it drops the one used longest ago, and `get` counts as a use.
 pub(crate) struct Lru<K, V> {
@@ -325,7 +325,7 @@ fn channel_of(peer: &base::Peer) -> i64 {
 }
 
 fn channel_of_chat(chat_id: i64) -> i64 {
-    if chat_id < -CHANNEL_OFFSET { channel_id_of(chat_id) } else { 0 }
+    PeerId::from_bot_api(chat_id).channel().unwrap_or(0)
 }
 
 /// `None` for `webPageNotModified`, which names no page.

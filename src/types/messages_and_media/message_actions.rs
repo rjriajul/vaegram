@@ -4,11 +4,11 @@ use crate::methods::{
     CopyMediaGroup, EditEphemeralMessage, EditMessageChecklist, EditMessageLiveLocation, EditMessageMedia, Listen,
     SendEphemeralMessage, StopMessageLiveLocation, SummarizeMessage,
 };
+use crate::types::PeerId;
 use crate::types::{
     CallbackQuery, EphemeralMessage, InlineKeyboardMarkup, InputChecklist, InputMedia, InvoiceRef, Message,
     MessageText, PeerRef, Text,
 };
-use crate::utils::channel_id_of;
 
 impl Message {
     /// Replaces the media of this message. Goes through the business connection if the message arrived on one.
@@ -129,7 +129,7 @@ impl Message {
         }
         let chat = match &self.chat.username {
             Some(username) => username.clone(),
-            None => format!("c/{}", channel_id_of(self.chat.id)),
+            None => format!("c/{}", PeerId::from_bot_api(self.chat.id).channel()?),
         };
         let thread = match self.message_thread_id {
             Some(thread) if self.is_topic_message => format!("{thread}/"),

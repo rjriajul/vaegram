@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{PeerRecord, Store};
 use crate::raw::{base, types};
-use crate::utils::{CHANNEL_OFFSET, get_channel_id};
+use crate::types::PeerId;
 
 /// How long a username learned from Telegram is trusted before it is looked up again: names change hands.
 pub(crate) const USERNAME_TTL: Duration = Duration::from_secs(8 * 60 * 60);
@@ -210,13 +210,14 @@ fn access_hash(peer: &base::InputPeer) -> Option<i64> {
 /// The input peer a stored record stands for: the id's sign tells users from channels. Basic groups need no hash
 /// and aren't stored.
 pub(crate) fn input_peer(id: i64, access_hash: i64) -> Option<base::InputPeer> {
-    if id > 0 {
-        Some(base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: id, access_hash })))
-    } else if id <= -CHANNEL_OFFSET {
-        let channel_id = get_channel_id(id);
-        Some(base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id, access_hash })))
-    } else {
-        None
+    match PeerId::from_bot_api(id) {
+        PeerId::User(user_id) => {
+            Some(base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id, access_hash })))
+        }
+        PeerId::Channel(channel_id) => {
+            Some(base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id, access_hash })))
+        }
+        PeerId::Chat(_) => None,
     }
 }
 

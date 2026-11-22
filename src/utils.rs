@@ -5,19 +5,14 @@ use crate::crypto::password::Srp;
 use crate::crypto::{hmac_sha256, random};
 use crate::errors::{Error, Result};
 use crate::raw::{base, types};
-
-pub(crate) const CHANNEL_OFFSET: i64 = 1_000_000_000_000;
+use crate::types::PeerId;
 
 const BASE64URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 /// The Bot-API-style id of a TL peer: users as they are, basic groups negated, channels as `-100…`
 /// ([`get_channel_id`]). An id from the server out of range wraps instead of panicking.
 pub fn get_peer_id(peer: &base::Peer) -> i64 {
-    match peer {
-        base::Peer::PeerUser(p) => p.user_id,
-        base::Peer::PeerChat(p) => p.chat_id.wrapping_neg(),
-        base::Peer::PeerChannel(p) => get_channel_id(p.channel_id),
-    }
+    PeerId::from(peer).bot_api()
 }
 
 /// The Bot-API-style id of an input peer, with `me` standing for `InputPeerSelf`. `None` for `InputPeerEmpty`.
@@ -46,31 +41,13 @@ pub(crate) fn get_chat_id(chat: &base::Chat) -> Option<i64> {
 
 /// The Bot-API-style id of a channel or supergroup: `-1000000000000 - channel_id`, so 1234 is `-1000000001234`.
 pub fn get_channel_id(channel_id: i64) -> i64 {
-    (-CHANNEL_OFFSET).wrapping_sub(channel_id)
-}
-
-/// [`get_channel_id`] for an id typed by a caller, `None` unless it is a real channel id that fits the `-100…` form.
-pub(crate) fn checked_channel_id(channel_id: i64) -> Option<i64> {
-    if channel_id <= 0 {
-        return None;
-    }
-    (-CHANNEL_OFFSET).checked_sub(channel_id)
-}
-
-pub(crate) fn channel_id_of(chat_id: i64) -> i64 {
-    -CHANNEL_OFFSET - chat_id
+    PeerId::Channel(channel_id).bot_api()
 }
 
 /// The TL peer of a Bot-API-style id: positive is a user, `-100…` (at most `-1000000000000`) a channel, and any
-/// other id, 0 included, a basic group.
+/// other id, 0 included, a basic group. See [`PeerId::from_bot_api`].
 pub fn get_peer(chat_id: i64) -> base::Peer {
-    if chat_id > 0 {
-        base::Peer::PeerUser(types::PeerUser { user_id: chat_id })
-    } else if chat_id <= -CHANNEL_OFFSET {
-        base::Peer::PeerChannel(types::PeerChannel { channel_id: -(chat_id + CHANNEL_OFFSET) })
-    } else {
-        base::Peer::PeerChat(types::PeerChat { chat_id: -chat_id })
-    }
+    PeerId::from_bot_api(chat_id).into()
 }
 
 pub(crate) fn chats_of(chats: base::messages::Chats) -> Vec<base::Chat> {
@@ -377,7 +354,7 @@ mod tests {
         base64_decode, base64_encode, base64url_decode, base64url_encode, decode_svg_path, expand_inline_bytes,
         form_decode, validate_web_app_data,
     };
-    use super::{checked_channel_id, get_chat_id, input_peer_id};
+    use super::{get_chat_id, input_peer_id};
     use crate::Error;
     use crate::raw::{base, types};
 
@@ -389,14 +366,6 @@ mod tests {
         assert_eq!(input_peer_id(&peer, 1), Some(-5));
         let empty = base::Chat::ChatEmpty(types::ChatEmpty { id: i64::MIN });
         assert_eq!(get_chat_id(&empty), None);
-    }
-
-    #[test]
-    fn t_me_c_channel_ids_must_fit() {
-        assert_eq!(checked_channel_id(5), Some(-1_000_000_000_005));
-        assert_eq!(checked_channel_id(0), None);
-        assert_eq!(checked_channel_id(-5), None);
-        assert_eq!(checked_channel_id(i64::MAX), None);
     }
 
     #[cfg(feature = "unstable-raw")]

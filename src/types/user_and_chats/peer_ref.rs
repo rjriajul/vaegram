@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use super::PeerId;
 use crate::types::{Chat, Message, User};
-use crate::utils::checked_channel_id;
 
 /// A way to name a chat or user.
 ///
@@ -30,6 +30,12 @@ pub enum PeerRef {
 impl From<i64> for PeerRef {
     fn from(id: i64) -> PeerRef {
         PeerRef::Id(id)
+    }
+}
+
+impl From<PeerId> for PeerRef {
+    fn from(id: PeerId) -> PeerRef {
+        PeerRef::Id(id.bot_api())
     }
 }
 
@@ -104,7 +110,7 @@ fn parse(s: &str) -> PeerRef {
     let tail = tail.split('/').next().unwrap_or_default();
     match (head, tail.parse()) {
         // An id that names no channel becomes id 0, which `resolve_peer` refuses as an invalid argument.
-        ("c", Ok(channel_id)) => PeerRef::Id(checked_channel_id(channel_id).unwrap_or(0)),
+        ("c", Ok(channel_id)) => PeerRef::Id(PeerId::checked_channel(channel_id).unwrap_or(0)),
         ("joinchat", _) => PeerRef::Invite(tail.into()),
         _ => name(head),
     }

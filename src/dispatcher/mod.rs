@@ -24,7 +24,8 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::session::{Incoming, UpdatesRx};
 use crate::storage::UpdateState;
-use crate::utils::{CHANNEL_OFFSET, channel_id_of, get_channel_id};
+use crate::types::PeerId;
+use crate::utils::get_channel_id;
 
 const SAVE_EVERY: Duration = Duration::from_secs(10);
 
@@ -240,9 +241,11 @@ impl Dispatcher {
                 for chat in chats {
                     if chat == 0 {
                         t.mark(Key::Pts);
-                    } else if chat <= -CHANNEL_OFFSET && t.state.channels.contains_key(&channel_id_of(chat)) {
+                    } else if let Some(channel_id) = PeerId::from_bot_api(chat).channel() {
                         // Only `-100…` ids are channels; a user's or group's id names no box.
-                        t.mark(Key::Channel(channel_id_of(chat)));
+                        if t.state.channels.contains_key(&channel_id) {
+                            t.mark(Key::Channel(channel_id));
+                        }
                     }
                 }
             }
@@ -821,7 +824,7 @@ mod tests {
         d.tracker.state.channels.insert(9, 1);
         d.tracker.due.clear();
         let (reply, answer) = tokio::sync::oneshot::channel();
-        let chats = vec![i64::MAX, 7, -7, -super::CHANNEL_OFFSET + 1, i64::MIN];
+        let chats = vec![i64::MAX, 7, -7, -1_000_000_000_000 + 1, i64::MIN];
         d.recover(super::Recover { chats: Some(chats), reply }).await;
         assert_eq!(answer.await.unwrap(), (0, 0));
         assert!(sent.try_recv().is_err(), "a box was fetched");

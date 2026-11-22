@@ -2,8 +2,8 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::{RemoteCall, base, functions};
 use crate::session::Affected;
+use crate::types::PeerId;
 use crate::types::PeerRef;
-use crate::utils::{CHANNEL_OFFSET, channel_id_of};
 
 impl Client {
     /// Unpins every pinned message in a chat.
@@ -22,7 +22,7 @@ impl Client {
         R: RemoteCall<Return = base::messages::AffectedHistory>,
     {
         // In a channel the answer counts in the channel's own pts, not the account's.
-        let channel_id = (chat_id <= -CHANNEL_OFFSET).then(|| channel_id_of(chat_id));
+        let channel_id = PeerId::from_bot_api(chat_id).channel();
         loop {
             let base::messages::AffectedHistory::AffectedHistory(affected) = self.invoke(request).await?;
             self.0.events.affected(Affected { channel_id, pts: affected.pts, pts_count: affected.pts_count });

@@ -12,7 +12,7 @@ use redis::{Client, Pipeline, RedisError, cmd, pipe};
 use super::engine::{PeerRecord, Reports, Storage, StorageFuture, StorageReporter, StoredState};
 use super::{SessionData, UpdateState};
 use crate::session::Salt;
-use crate::utils::{CHANNEL_OFFSET, get_channel_id};
+use crate::types::PeerId;
 
 const VERSION: i64 = 1;
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -199,8 +199,8 @@ impl RedisStorage {
                     seq: n("seq"),
                     ..UpdateState::default()
                 });
-            } else if id <= -CHANNEL_OFFSET {
-                channels.insert(get_channel_id(id), n("pts"));
+            } else if let Some(channel_id) = PeerId::from_bot_api(id).channel() {
+                channels.insert(channel_id, n("pts"));
             }
         }
         if let Some(update) = &mut update {
@@ -250,7 +250,7 @@ impl RedisStorage {
                 .arg(u.seq);
             p.cmd("SADD").arg(self.key("states")).arg(0);
             for (&channel, &pts) in &u.channels {
-                let id = get_channel_id(channel);
+                let id = PeerId::Channel(channel).bot_api();
                 p.cmd("HSET").arg(self.key(format_args!("state:{id}"))).arg("pts").arg(pts);
                 p.cmd("SADD").arg(self.key("states")).arg(id);
             }
@@ -343,7 +343,7 @@ impl RedisStorage {
                 .arg("access_hash")
                 .arg(p.access_hash)
                 .arg("type")
-                .arg(peer_type(id))
+                .arg(PeerId::from_bot_api(id).kind())
                 .arg("phone_number")
                 .arg(p.phone_number.as_deref().unwrap_or(""))
                 .arg("last_update_on")
@@ -482,16 +482,6 @@ fn decode_claims(flat: &[String]) -> HashMap<i64, i64> {
     flat.chunks(2)
         .filter_map(|pair| Some((decode_member(pair.first()?)?, pair.get(1)?.parse::<f64>().ok()? as i64)))
         .collect()
-}
-
-fn peer_type(id: i64) -> &'static str {
-    if id > 0 {
-        "user"
-    } else if id <= -CHANNEL_OFFSET {
-        "channel"
-    } else {
-        "group"
-    }
 }
 
 fn text<'a>(hash: &'a Hash, field: &str) -> Option<&'a str> {
