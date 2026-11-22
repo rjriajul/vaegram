@@ -1,0 +1,17 @@
+[package]
+name = "vaegram-tl"
+description = "Telegram TL types and their (de)serialization, generated from the API schema, for vaegram"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/rjriajul/vaegram"
+keywords = ["telegram", "mtproto", "tl"]
+categories = ["api-bindings", "encoding"]
+
+[dependencies]
+flate2 = "1"
+
+[features]
+# `ToJson` for every TL type and function; off by default to keep the generated code small.
+json = []

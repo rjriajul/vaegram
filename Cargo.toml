@@ -12,7 +12,7 @@ categories = ["api-bindings", "network-programming", "asynchronous"]
 exclude = [".github", "tools", "tests/botapi_coverage.rs"]
 
 [workspace]
-members = ["vae"]
+members = ["vae", "tl"]
 
 [dependencies]
 crc32fast = "1"
@@ -22,6 +22,7 @@ num-bigint = "0.4"
 rpassword = "7"
 sha1 = "0.10"
 sha2 = "0.10"
+vaegram-tl = { path = "tl", version = "0.3.0" }
 tokio = { version = "1", features = ["fs", "net", "io-util", "rt", "signal", "sync", "time", "macros"] }
 warpcrypto = "2.2"
 
@@ -48,7 +49,7 @@ libc = "0.2"
 
 [features]
 # `ToJson` for every TL type and function; off by default to keep the generated code small.
-json = []
+json = ["vaegram-tl/json"]
 # `serde::Serialize` for the friendly types users receive (`Message`, `User`, `Chat`, ...), not for TL types.
 serde = ["dep:serde"]
 # TL objects behind `RawUpdate` (`raw()`, `raw_users()`, `raw_chats()`), `Incoming::into_updates()` and

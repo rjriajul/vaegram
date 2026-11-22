@@ -78,7 +78,7 @@ impl ToJson for String {
 impl ToJson for [u8] {
     fn to_json(&self, out: &mut String) {
         out.push('"');
-        out.push_str(&crate::utils::base64url_encode(self));
+        base64url(self, out);
         out.push('"');
     }
 }
@@ -114,10 +114,21 @@ impl<T: ToJson + ?Sized> ToJson for Box<T> {
     }
 }
 
+/// Base64url without padding.
+fn base64url(data: &[u8], out: &mut String) {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    for chunk in data.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+        for i in 0..=chunk.len() {
+            out.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::ToJson;
-    use crate::raw::{LAYER, base, functions, types};
+    use crate::{LAYER, base, functions, types};
 
     #[test]
     fn primitives() {

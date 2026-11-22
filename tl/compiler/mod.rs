@@ -132,8 +132,8 @@ fn pascal(s: &str) -> String {
 
 fn path(kind: &str, tl_name: &str) -> String {
     match split_ns(tl_name) {
-        ("", n) => format!("crate::raw::{kind}::{}", pascal(n)),
-        (ns, n) => format!("crate::raw::{kind}::{ns}::{}", pascal(n)),
+        ("", n) => format!("crate::{kind}::{}", pascal(n)),
+        (ns, n) => format!("crate::{kind}::{ns}::{}", pascal(n)),
     }
 }
 
@@ -193,7 +193,7 @@ fn field_ty(f: &Field, generic: bool) -> String {
 
 fn gen_struct(out: &mut String, d: &Def) {
     let name = pascal(split_ns(&d.name).1);
-    let (g, g_ser) = if d.generic { ("<X>", "<X: crate::raw::Serializable>") } else { ("", "") };
+    let (g, g_ser) = if d.generic { ("<X>", "<X: crate::Serializable>") } else { ("", "") };
     let id = d.id;
 
     // `new` takes the fields every value has and leaves the flag-optional ones unset; a struct with only those
@@ -205,15 +205,14 @@ fn gen_struct(out: &mut String, d: &Def) {
         writeln!(out, "    pub {}: {},", ident(&f.name), field_ty(f, d.generic)).unwrap();
     }
     writeln!(out, "}}").unwrap();
-    writeln!(out, "impl{g} crate::raw::Identifiable for {name}{g} {{ const CONSTRUCTOR_ID: u32 = {id:#010x}; }}")
-        .unwrap();
+    writeln!(out, "impl{g} crate::Identifiable for {name}{g} {{ const CONSTRUCTOR_ID: u32 = {id:#010x}; }}").unwrap();
     if d.fields.iter().any(|f| f.flag.is_some()) {
         gen_new(out, d, &name, g, &required);
     }
 
-    writeln!(out, "impl{g_ser} crate::raw::Serializable for {name}{g} {{").unwrap();
+    writeln!(out, "impl{g_ser} crate::Serializable for {name}{g} {{").unwrap();
     writeln!(out, "    fn serialize(&self, buf: &mut ::std::vec::Vec<u8>) {{").unwrap();
-    writeln!(out, "        crate::raw::Serializable::serialize(&{id:#010x}u32, buf);").unwrap();
+    writeln!(out, "        crate::Serializable::serialize(&{id:#010x}u32, buf);").unwrap();
     for f in &d.fields {
         let field = ident(&f.name);
         if f.ty == "#" {
@@ -228,13 +227,13 @@ fn gen_struct(out: &mut String, d: &Def) {
                 })
                 .collect();
             let bits = if bits.is_empty() { "0u32".into() } else { bits.join(" | ") };
-            writeln!(out, "        crate::raw::Serializable::serialize(&({bits}), buf);").unwrap();
+            writeln!(out, "        crate::Serializable::serialize(&({bits}), buf);").unwrap();
         } else if f.flag.is_some() && f.ty == "true" {
         } else if f.flag.is_some() {
-            writeln!(out, "        if let Some(v) = &self.{field} {{ crate::raw::Serializable::serialize(v, buf); }}")
+            writeln!(out, "        if let Some(v) = &self.{field} {{ crate::Serializable::serialize(v, buf); }}")
                 .unwrap();
         } else {
-            writeln!(out, "        crate::raw::Serializable::serialize(&self.{field}, buf);").unwrap();
+            writeln!(out, "        crate::Serializable::serialize(&self.{field}, buf);").unwrap();
         }
     }
     writeln!(out, "    }}\n}}").unwrap();
@@ -265,13 +264,13 @@ fn gen_new(out: &mut String, d: &Def, name: &str, g: &str, required: &[&Field]) 
 
 fn gen_struct_json(out: &mut String, d: &Def) {
     let name = pascal(split_ns(&d.name).1);
-    let (g, g_json) = if d.generic { ("<X>", "<X: crate::raw::ToJson>") } else { ("", "") };
-    writeln!(out, "impl{g_json} crate::raw::ToJson for {name}{g} {{").unwrap();
+    let (g, g_json) = if d.generic { ("<X>", "<X: crate::ToJson>") } else { ("", "") };
+    writeln!(out, "impl{g_json} crate::ToJson for {name}{g} {{").unwrap();
     writeln!(out, "    fn to_json(&self, out: &mut ::std::string::String) {{").unwrap();
     writeln!(out, "        out.push_str(r#\"{{\"_\":\"{}\"\"#);", d.name).unwrap();
     for f in d.fields.iter().filter(|f| f.ty != "#") {
         let (key, field) = (format!("r#\",\"{}\":\"#", f.name), ident(&f.name));
-        let write = "{ out.push_str(KEY); crate::raw::ToJson::to_json(v, out); }".replace("KEY", &key);
+        let write = "{ out.push_str(KEY); crate::ToJson::to_json(v, out); }".replace("KEY", &key);
         if f.flag.is_some() && f.ty != "true" {
             writeln!(out, "        if let Some(v) = &self.{field} {write}").unwrap();
         } else {
@@ -282,7 +281,7 @@ fn gen_struct_json(out: &mut String, d: &Def) {
 }
 
 fn gen_enum_json(out: &mut String, ty: &str, ctors: &[&Def]) {
-    writeln!(out, "impl crate::raw::ToJson for {} {{", pascal(split_ns(ty).1)).unwrap();
+    writeln!(out, "impl crate::ToJson for {} {{", pascal(split_ns(ty).1)).unwrap();
     writeln!(out, "    fn to_json(&self, out: &mut ::std::string::String) {{\n        match self {{").unwrap();
     for c in ctors {
         let v = pascal(split_ns(&c.name).1);
@@ -290,7 +289,7 @@ fn gen_enum_json(out: &mut String, ty: &str, ctors: &[&Def]) {
             writeln!(out, "            Self::{v} => out.push_str(r#\"{{\"_\":\"{}\"}}\"#),", c.name).unwrap();
         } else {
             let x = if is_inline(c) { "x" } else { "&**x" };
-            writeln!(out, "            Self::{v}(x) => crate::raw::ToJson::to_json({x}, out),").unwrap();
+            writeln!(out, "            Self::{v}(x) => crate::ToJson::to_json({x}, out),").unwrap();
         }
     }
     writeln!(out, "        }}\n    }}\n}}").unwrap();
@@ -300,7 +299,7 @@ fn gen_deserialize_bare(out: &mut String, d: &Def) {
     let name = pascal(split_ns(&d.name).1);
     writeln!(out, "impl {name} {{").unwrap();
     writeln!(out, "    #[doc(hidden)]").unwrap();
-    writeln!(out, "    pub fn deserialize_bare(buf: &mut &[u8]) -> ::std::result::Result<Self, crate::raw::Error> {{")
+    writeln!(out, "    pub fn deserialize_bare(buf: &mut &[u8]) -> ::std::result::Result<Self, crate::Error> {{")
         .unwrap();
     let names = gen_reads(out, d);
     writeln!(out, "        Ok(Self {{ {} }})\n    }}\n}}", names.join(", ")).unwrap();
@@ -310,11 +309,10 @@ fn gen_deserialize_bare(out: &mut String, d: &Def) {
 fn gen_reads(out: &mut String, d: &Def) -> Vec<String> {
     let mut names = Vec::new();
     for f in d.fields.iter().filter(|f| !(d.generic && f.ty == "X")) {
-        let read = |ty: &str| format!("<{} as crate::raw::Deserializable>::deserialize(buf)?", rust_ty(ty, false));
+        let read = |ty: &str| format!("<{} as crate::Deserializable>::deserialize(buf)?", rust_ty(ty, false));
         match &f.flag {
             _ if f.ty == "#" => {
-                writeln!(out, "        let __{} = <u32 as crate::raw::Deserializable>::deserialize(buf)?;", f.name)
-                    .unwrap();
+                writeln!(out, "        let __{} = <u32 as crate::Deserializable>::deserialize(buf)?;", f.name).unwrap();
                 continue;
             }
             Some((flags, bit)) if f.ty == "true" => {
@@ -341,7 +339,7 @@ fn gen_reads(out: &mut String, d: &Def) -> Vec<String> {
 /// `answer_json_of(function, body)`: the answer to a call, read as the type the call returns, picked by the call's
 /// constructor id, which is how a bare vector can be read at all.
 fn gen_json_of(out: &mut String, defs: &[Def]) {
-    writeln!(out, "pub(crate) fn tl_name(id: u32) -> ::std::option::Option<&'static str> {{").unwrap();
+    writeln!(out, "#[doc(hidden)] pub fn tl_name(id: u32) -> ::std::option::Option<&'static str> {{").unwrap();
     writeln!(out, "    Some(match id {{").unwrap();
     for d in defs {
         writeln!(out, "        {:#010x} => {:?},", d.id, d.name).unwrap();
@@ -353,25 +351,25 @@ fn gen_json_of(out: &mut String, defs: &[Def]) {
     for d in defs.iter().filter(|d| d.function && !d.fields.is_empty()) {
         writeln!(
             out,
-            "fn {}(buf: &mut &[u8]) -> ::std::result::Result<::std::string::String, crate::raw::Error> {{",
+            "fn {}(buf: &mut &[u8]) -> ::std::result::Result<::std::string::String, crate::Error> {{",
             call_fn(d)
         )
         .unwrap();
         let names = gen_reads(out, d);
         if !d.generic {
             let call = format!("{} {{ {} }}", path("functions", &d.name), names.join(", "));
-            writeln!(out, "        Ok(crate::raw::ToJson::json(&{call}))").unwrap();
+            writeln!(out, "        Ok(crate::ToJson::json(&{call}))").unwrap();
         } else {
             assert!(d.fields.last().is_some_and(|f| f.ty == "X"), "{}: the query must come last", d.name);
             writeln!(out, "        let mut out = ::std::string::String::from(r#\"{{\"_\":\"{}\"\"#);", d.name).unwrap();
             for f in d.fields.iter().filter(|f| f.ty != "#") {
                 let key = format!("r#\",\"{}\":\"#", f.name);
                 if f.ty == "X" {
-                    let query = "json_of(buf).ok_or(crate::raw::Error::UnexpectedEof)?";
+                    let query = "json_of(buf).ok_or(crate::Error::UnexpectedEof)?";
                     writeln!(out, "        out.push_str({key}); out.push_str(&{query});").unwrap();
                     continue;
                 }
-                let write = format!("{{ out.push_str({key}); crate::raw::ToJson::to_json(v, &mut out); }}");
+                let write = format!("{{ out.push_str({key}); crate::ToJson::to_json(v, &mut out); }}");
                 let field = ident(&f.name);
                 if f.flag.is_some() && f.ty != "true" {
                     writeln!(out, "        if let Some(v) = &{field} {write}").unwrap();
@@ -384,7 +382,8 @@ fn gen_json_of(out: &mut String, defs: &[Def]) {
         writeln!(out, "}}").unwrap();
     }
 
-    writeln!(out, "pub(crate) fn json_of(body: &[u8]) -> ::std::option::Option<::std::string::String> {{").unwrap();
+    writeln!(out, "#[doc(hidden)] pub fn json_of(body: &[u8]) -> ::std::option::Option<::std::string::String> {{")
+        .unwrap();
     writeln!(out, "    let id = u32::from_le_bytes(body.get(..4)?.try_into().ok()?);").unwrap();
     writeln!(out, "    let buf = &mut &body[4..];").unwrap();
     writeln!(out, "    match id {{").unwrap();
@@ -394,13 +393,13 @@ fn gen_json_of(out: &mut String, defs: &[Def]) {
     }
     for (ty, ids) in &by_type {
         let ids: Vec<String> = ids.iter().map(|id| format!("{id:#010x}")).collect();
-        let read = format!("<{} as crate::raw::Deserializable>::from_bytes(body)", path("base", ty));
-        writeln!(out, "        {} => {read}.ok().map(|v| crate::raw::ToJson::json(&v)),", ids.join(" | ")).unwrap();
+        let read = format!("<{} as crate::Deserializable>::from_bytes(body)", path("base", ty));
+        writeln!(out, "        {} => {read}.ok().map(|v| crate::ToJson::json(&v)),", ids.join(" | ")).unwrap();
     }
     for d in defs.iter().filter(|d| d.function) {
         if d.fields.is_empty() {
             let call = format!("{} {{}}", path("functions", &d.name));
-            writeln!(out, "        {:#010x} => Some(crate::raw::ToJson::json(&{call})),", d.id).unwrap();
+            writeln!(out, "        {:#010x} => Some(crate::ToJson::json(&{call})),", d.id).unwrap();
         } else {
             writeln!(out, "        {:#010x} => {}(buf).ok(),", d.id, call_fn(d)).unwrap();
         }
@@ -414,14 +413,14 @@ fn gen_json_of(out: &mut String, defs: &[Def]) {
     }
     writeln!(
         out,
-        "pub(crate) fn answer_json_of(function: u32, body: &[u8]) -> ::std::option::Option<::std::string::String> {{"
+        "#[doc(hidden)] pub fn answer_json_of(function: u32, body: &[u8]) -> ::std::option::Option<::std::string::String> {{"
     )
     .unwrap();
     writeln!(out, "    match function {{").unwrap();
     for (ty, ids) in &by_return {
         let ids: Vec<String> = ids.iter().map(|id| format!("{id:#010x}")).collect();
-        let read = format!("<{ty} as crate::raw::Deserializable>::from_bytes(body)");
-        writeln!(out, "        {} => {read}.ok().map(|v| crate::raw::ToJson::json(&v)),", ids.join(" | ")).unwrap();
+        let read = format!("<{ty} as crate::Deserializable>::from_bytes(body)");
+        writeln!(out, "        {} => {read}.ok().map(|v| crate::ToJson::json(&v)),", ids.join(" | ")).unwrap();
     }
     writeln!(out, "        _ => None,\n    }}\n}}").unwrap();
 }
@@ -473,24 +472,22 @@ fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def], recursive: bool) {
     }
     writeln!(out, "        }}\n    }}\n}}").unwrap();
 
-    writeln!(out, "impl crate::raw::Serializable for {name} {{").unwrap();
+    writeln!(out, "impl crate::Serializable for {name} {{").unwrap();
     writeln!(out, "    fn serialize(&self, buf: &mut ::std::vec::Vec<u8>) {{\n        match self {{").unwrap();
     for (c, v) in ctors.iter().zip(&variants) {
         if c.fields.is_empty() {
-            writeln!(out, "            Self::{v} => crate::raw::Serializable::serialize(&{:#010x}u32, buf),", c.id)
-                .unwrap();
+            writeln!(out, "            Self::{v} => crate::Serializable::serialize(&{:#010x}u32, buf),", c.id).unwrap();
         } else {
             let x = if is_inline(c) { "x" } else { "&**x" };
-            writeln!(out, "            Self::{v}(x) => crate::raw::Serializable::serialize({x}, buf),").unwrap();
+            writeln!(out, "            Self::{v}(x) => crate::Serializable::serialize({x}, buf),").unwrap();
         }
     }
     writeln!(out, "        }}\n    }}\n}}").unwrap();
 
-    writeln!(out, "impl crate::raw::Deserializable for {name} {{").unwrap();
-    writeln!(out, "    fn deserialize(buf: &mut &[u8]) -> ::std::result::Result<Self, crate::raw::Error> {{").unwrap();
-    let (open, close) = if recursive { ("crate::raw::core::nested(|| ", ")") } else { ("", "") };
-    writeln!(out, "        {open}{{\n        let id = <u32 as crate::raw::Deserializable>::deserialize(buf)?;")
-        .unwrap();
+    writeln!(out, "impl crate::Deserializable for {name} {{").unwrap();
+    writeln!(out, "    fn deserialize(buf: &mut &[u8]) -> ::std::result::Result<Self, crate::Error> {{").unwrap();
+    let (open, close) = if recursive { ("crate::core::nested(|| ", ")") } else { ("", "") };
+    writeln!(out, "        {open}{{\n        let id = <u32 as crate::Deserializable>::deserialize(buf)?;").unwrap();
     writeln!(out, "        Ok(match id {{").unwrap();
     for (c, v) in ctors.iter().zip(&variants) {
         if c.fields.is_empty() {
@@ -501,7 +498,7 @@ fn gen_enum(out: &mut String, ty: &str, ctors: &[&Def], recursive: bool) {
             writeln!(out, "            {:#010x} => Self::{v}({read}),", c.id).unwrap();
         }
     }
-    writeln!(out, "            _ => return Err(crate::raw::Error::UnexpectedConstructor {{ id }}),").unwrap();
+    writeln!(out, "            _ => return Err(crate::Error::UnexpectedConstructor {{ id }}),").unwrap();
     writeln!(out, "        }})\n        }}{close}\n    }}\n}}").unwrap();
 }
 
@@ -558,9 +555,9 @@ fn gen_function(out: &mut String, d: &Def) {
     gen_struct(out, d);
     let name = pascal(split_ns(&d.name).1);
     let (head, ret) = if d.generic {
-        (format!("impl<X: crate::raw::RemoteCall> crate::raw::RemoteCall for {name}<X>"), "X::Return".into())
+        (format!("impl<X: crate::RemoteCall> crate::RemoteCall for {name}<X>"), "X::Return".into())
     } else {
-        (format!("impl crate::raw::RemoteCall for {name}"), rust_ty(&d.ty, false))
+        (format!("impl crate::RemoteCall for {name}"), rust_ty(&d.ty, false))
     };
     writeln!(out, "{head} {{ const NAME: &'static str = {:?}; type Return = {ret}; }}", d.name).unwrap();
 }
@@ -625,7 +622,8 @@ pub fn generate(api: &str, mtproto: &str, json: bool) -> String {
     let mut credentials: Vec<u32> = defs.iter().filter(|d| credential(d)).map(|d| d.id).collect();
     credentials.sort_unstable();
     let mut out = format!("/// The API layer this code was generated from.\npub const LAYER: i32 = {layer};\n");
-    writeln!(out, "pub(crate) const CREDENTIALS: [u32; {}] = {credentials:#010x?};", credentials.len()).unwrap();
+    writeln!(out, "#[doc(hidden)] pub const CREDENTIALS: [u32; {}] = {credentials:#010x?};", credentials.len())
+        .unwrap();
     if json {
         gen_json_of(&mut out, &defs);
     }

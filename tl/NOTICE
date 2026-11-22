@@ -1,0 +1,10 @@
+vaegram - Telegram MTProto client library for users and bots
+Copyright (C) 2026-present Riajul <https://github.com/rjriajul> and vaegram contributors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Under section 4 of that license, every fork, copy or modified version
+must keep this NOTICE file with the credit above.
+
+Under section 6, the license gives no right to use the name "vaegram"
+(or "vae") or the author's name to promote a fork or derived product.

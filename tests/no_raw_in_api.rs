@@ -1,6 +1,6 @@
 //! The friendly API takes and returns friendly types only: a TL type (`raw::base::*`, `raw::types::*`) in a public
-//! signature would tie every caller to the TL schema of one layer. This scans `src/` outside `src/raw/` and reports
-//! a TL type named in:
+//! signature would tie every caller to the TL schema of one layer. This scans `src/` (the TL types themselves live
+//! in the `vaegram-tl` crate) and reports a TL type named in:
 //! - a `pub fn` signature, or a method, associated type or const in a `pub trait`;
 //! - a `pub` field, a `pub struct` tuple field, a variant of a `pub enum`, a `pub type`, `pub const` or `pub static`;
 //! - an `impl` header (`impl<T> TryFrom<base::X> for Y`, `impl Trait for base::X`, …) or a `type X =` inside an
@@ -35,7 +35,7 @@ fn friendly_signatures_name_no_tl_types() {
     let mut found = Vec::new();
     let mut allowed_hits = Vec::new();
     for (path, source) in &files {
-        if path.starts_with("src/raw/") || test_modules.contains(path) {
+        if test_modules.contains(path) {
             continue;
         }
         for (line, item, text) in violations(source) {
