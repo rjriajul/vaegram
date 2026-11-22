@@ -181,7 +181,7 @@ impl Routed for Message {
     }
 
     fn user_id(&self) -> Option<i64> {
-        self.from_user.as_ref().map(|user| user.id)
+        self.from_user().map(|user| user.id)
     }
 
     // Boxed on purpose: with the `async` future itself as the hidden type, the compiler's `Send` proof for it runs
@@ -323,7 +323,7 @@ impl Routed for GuestMessage {
 
     fn user_id(&self) -> Option<i64> {
         // The sender of the message that invoked the bot, or who it came via when that message names no sender.
-        self.message.from_user.as_deref().or(self.caller_user.as_ref()).map(|user| user.id)
+        self.message.from_user().or(self.caller_user.as_ref()).map(|user| user.id)
     }
 
     fn query_id(&self) -> Option<i64> {

@@ -1,10 +1,9 @@
 use crate::Client;
 use crate::dispatcher::Entities;
-use crate::enums::ChatMemberStatus;
 use crate::errors::{Error, Result};
 use crate::methods::advanced::ChatPeer;
 use crate::raw::{base, functions};
-use crate::types::{ChatMember, PeerRef};
+use crate::types::{ChatMember, ChatMemberRole, PeerRef};
 
 impl Client {
     /// Returns one member of a chat.
@@ -47,7 +46,7 @@ impl Client {
     // Telegram answers a non-member with no user object, so fetch it to fill the Left member. A chat that posts
     // as itself is no user and has nothing to fetch, and a user this account never met can't be fetched.
     async fn left_member(&self, user_id: i64) -> Result<ChatMember> {
-        let left = |entities: &Entities| ChatMember::new(user_id, ChatMemberStatus::Left, entities);
+        let left = |entities: &Entities| ChatMember::new(user_id, ChatMemberRole::Left, entities);
         if user_id < 0 {
             return Ok(left(&Entities::default()));
         }
@@ -91,7 +90,7 @@ mod tests {
             peers.insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
         }
         let member = client.get_chat_member(channel, USER).await.unwrap();
-        assert_eq!(member.status, ChatMemberStatus::Left);
+        assert_eq!(member.status(), ChatMemberStatus::Left);
         assert!(!member.is_member);
         assert_eq!((member.user.id, member.user.first_name.as_str()), (USER, "Ann"));
 
@@ -113,7 +112,7 @@ mod tests {
             }
         }
         let member = client.get_chat_member(group, sender).await.unwrap();
-        assert_eq!((member.status, member.is_member, member.user.id), (ChatMemberStatus::Left, false, sender));
+        assert_eq!((member.status(), member.is_member, member.user.id), (ChatMemberStatus::Left, false, sender));
         let id = |body: &[u8]| u32::from_le_bytes(body[..4].try_into().unwrap());
         assert_eq!(id(&sent.try_recv().unwrap()), channels::GetParticipant::CONSTRUCTOR_ID);
         assert!(sent.try_recv().is_err());
@@ -138,6 +137,6 @@ mod tests {
         Vec::<i64>::new().serialize(&mut full);
         let (client, _sent) = Client::scripted(vec![Ok(full), Ok(Vec::<i64>::new().to_bytes())]);
         let member = client.get_chat_member(-5, 777).await.unwrap();
-        assert_eq!((member.status, member.is_member, member.user.id), (ChatMemberStatus::Left, false, 777));
+        assert_eq!((member.status(), member.is_member, member.user.id), (ChatMemberStatus::Left, false, 777));
     }
 }

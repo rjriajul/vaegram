@@ -64,7 +64,7 @@ async fn bot_edits_the_media_it_sent() {
     // Both answers reply to the command, and the user's handlers may pass them on in either order; the document
     // was sent first, so it has the lower id.
     let first = kit.user.send_and_wait_reply(&kit.bot, "/edit").await.unwrap();
-    let asked = first.reply_to_message_id.expect("the answer replies to the command");
+    let asked = first.reply_to_message_id().expect("the answer replies to the command");
     let second = kit.user.wait_reply(first.chat.id, asked).await.unwrap();
     let mut answers = [first, second];
     answers.sort_by_key(|m| m.id);
@@ -108,7 +108,7 @@ async fn wait_for_click_gets_the_press_on_the_sent_keyboard() {
     let user = &kit.user.client;
     let asked = kit.user.send_and_wait_reply(&kit.bot, "/click").await.unwrap();
     tokio::time::timeout(WAIT, listening.notified()).await.expect("the bot never listened for the press");
-    let command = asked.reply_to_message_id.expect("the keyboard replies to the command");
+    let command = asked.reply_to_message_id().expect("the keyboard replies to the command");
     let clicked = kit.user.wait_reply(asked.chat.id, command);
     let click = user.request_callback_answer(asked.chat.id, asked.id, "pick").into_future();
     let (clicked, click) = tokio::join!(clicked, click);

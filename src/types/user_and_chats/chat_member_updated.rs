@@ -3,7 +3,7 @@ use crate::client::Me;
 use crate::dispatcher::Entities;
 use crate::enums::ChatMemberStatus;
 use crate::raw::{base, types};
-use crate::types::{Chat, ChatInviteLink, ChatMember, User};
+use crate::types::{Chat, ChatInviteLink, ChatMember, ChatMemberRole, User};
 
 /// A change to a member's status in a chat.
 #[derive(Debug, Clone)]
@@ -85,7 +85,8 @@ impl ChatMemberUpdated {
         } else {
             (ChatMemberStatus::Banned, ChatMemberStatus::Member)
         };
-        let member = |status| ChatMember { user: bot.clone(), ..ChatMember::new(bot.id, status, entities) };
+        let member =
+            |status| ChatMember { user: bot.clone(), ..ChatMember::new(bot.id, ChatMemberRole::of(status), entities) };
         ChatMemberUpdated {
             chat: Chat::parse(&peer, entities, false),
             from_user: User::parse(raw.user_id, entities),
@@ -147,7 +148,7 @@ mod tests {
         assert_eq!((update.chat.id, update.from_user.id, update.date), (-1000000000042, 1, 100));
         assert_eq!(update.old_chat_member, None);
         let new = update.new_chat_member.unwrap();
-        assert_eq!((new.user.id, new.status, new.joined_date), (7, ChatMemberStatus::Member, Some(100)));
+        assert_eq!((new.user.id, new.status(), new.joined_date), (7, ChatMemberStatus::Member, Some(100)));
         assert_eq!(update.invite_link, None);
         assert!(update.via_join_request && update.via_chat_folder_invite_link);
     }
@@ -183,7 +184,7 @@ mod tests {
         };
         let update = ChatMemberUpdated::parse_chat(&Client::offline(), raw, &Entities::default());
         assert_eq!(update.chat.id, -42);
-        assert_eq!(update.old_chat_member.map(|m| m.status), Some(ChatMemberStatus::Owner));
+        assert_eq!(update.old_chat_member.map(|m| m.status()), Some(ChatMemberStatus::Owner));
         assert_eq!(update.new_chat_member, None);
         let link = update.invite_link.unwrap();
         assert_eq!((link.invite_link.as_str(), link.is_primary), ("https://t.me/+abc", true));
@@ -197,7 +198,10 @@ mod tests {
         let update = ChatMemberUpdated::parse_bot_stopped(&Client::offline(), &me, &raw, &Entities::default());
         assert_eq!((update.chat.id, update.from_user.id), (7, 7));
         let (old, new) = (update.old_chat_member.unwrap(), update.new_chat_member.unwrap());
-        assert_eq!((old.user.id, old.status, new.status), (1000, ChatMemberStatus::Member, ChatMemberStatus::Banned));
+        assert_eq!(
+            (old.user.id, old.status(), new.status()),
+            (1000, ChatMemberStatus::Member, ChatMemberStatus::Banned)
+        );
         assert!(old.is_member && !new.is_member);
     }
 }

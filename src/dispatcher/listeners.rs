@@ -10,7 +10,7 @@ use crate::client::Me;
 use crate::errors::{Error, Result};
 use crate::filters::{Filter, Inspect, Subject};
 use crate::handlers::{Callback, UpdateKind};
-use crate::types::{CallbackQuery, InlineMessageId, Message};
+use crate::types::{CallbackQuery, InlineMessageId, Message, Sender};
 
 pub(crate) static UNEXPECTED_CLICK: LazyLock<Arc<str>> =
     LazyLock::new(|| "You are not expected to click this button.".into());
@@ -52,7 +52,7 @@ impl Listened for Message {
         if self.outgoing && self.chat.id != me.id {
             return None;
         }
-        let user = self.from_user.as_ref().map(|u| u.id).or(self.sender_chat.as_ref().map(|c| c.id));
+        let user = self.sender.as_ref().map(Sender::id);
         Some(Identity { chat: Some(self.chat.id), user, message: Some(self.id), inline: None })
     }
 

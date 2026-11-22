@@ -8,7 +8,7 @@ impl Message {
     /// The story this message replies to, or what `fetch_stories` fetched for it. `None` when it replies to no
     /// story, or the story is gone.
     pub async fn replied_story(&self) -> Result<Option<Story>> {
-        let (Some(story_id), Some(chat_id)) = (self.reply_to_story_id, self.reply_to_story_user_id) else {
+        let Some((chat_id, story_id)) = self.story_reply() else {
             return Ok(None);
         };
         if let Some(story) = self.prefetched.as_ref().and_then(|p| p.story.as_ref()) {
@@ -88,7 +88,7 @@ mod tests {
     async fn a_story_reply_fetches_that_story() {
         let (client, mut rx) = Client::recording();
         let mut m = message(&client, 7);
-        (m.reply_to_story_id, m.reply_to_story_user_id) = (Some(4), Some(0));
+        m.reply_to = Some(crate::types::ReplyTo::Story { chat_id: 0, story_id: 4 });
         let _ = m.replied_story().await;
         let fetch = stories::GetStoriesByID { peer: base::InputPeer::InputPeerSelf, id: vec![4] };
         assert_eq!(rx.try_recv().unwrap(), fetch.to_bytes());

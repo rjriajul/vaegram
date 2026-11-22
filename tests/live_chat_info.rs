@@ -20,12 +20,13 @@ async fn bot_member_shows_who_promoted_it() {
     let Some(chat_id) = chat_id() else { return };
     let bot = kit.bot.get_me().await.unwrap();
     let member = kit.user.client.get_chat_member(chat_id, bot.id).await.unwrap();
-    if member.status != ChatMemberStatus::Administrator {
+    if member.status() != ChatMemberStatus::Administrator {
         eprintln!("skipped: the bot isn't an admin of VAEGRAM_CHAT_ID");
         return;
     }
-    assert!(member.promoted_by.is_some_and(|u| u.id != 0));
-    assert_eq!((member.chat, member.restricted_by), (None, None));
+    let vaegram::types::ChatMemberRole::Administrator { promoted_by, .. } = &member.role else { unreachable!() };
+    assert!(promoted_by.as_ref().is_some_and(|u| u.id != 0));
+    assert_eq!(member.chat, None);
 }
 
 #[tokio::test]

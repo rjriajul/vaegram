@@ -9,7 +9,7 @@ async fn main() -> Result<()> {
         .await?;
 
     app.on_message(filters::command("start"), |msg| async move {
-        let name = msg.from_user.as_ref().map_or("there", |u| u.first_name.as_str());
+        let name = msg.from_user().map_or("there", |u| u.first_name.as_str());
         msg.answer(format!("Hi {name}! Send me anything and I'll send it back.")).await?;
         Ok(())
     });

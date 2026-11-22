@@ -157,7 +157,7 @@ impl<'a> Facts<'a> {
     /// A service message's `raw` is a bare message, so its kind and topic come from the parsed fields. A business
     /// message's connection isn't in `raw` either; the raw path adds it through `via_business`.
     pub(crate) fn parsed(m: &'a Message, me: &'a Me) -> Facts<'a> {
-        let sender_bot = m.from_user.as_ref().is_some_and(|u| u.is_bot);
+        let sender_bot = m.from_user().is_some_and(|u| u.is_bot);
         let mut facts = Facts::plain(&m.raw, PeerKinds::of(Some(&m.chat), sender_bot), me)
             .via_business(m.business_connection_id.is_some());
         if let Some(service) = &m.service {

@@ -73,17 +73,17 @@ async fn a_setup_kit_bot_can_pin() {
     let user = &kit.user.client;
     let bot_id = bot_id_for_user(&kit).await;
     let member = user.get_chat_member(chat_id, bot_id).await.unwrap();
-    let admin = member.status == ChatMemberStatus::Administrator;
-    if admin && member.privileges.is_some_and(|p| p.can_pin_messages) {
+    let admin = member.status() == ChatMemberStatus::Administrator;
+    if admin && member.privileges().is_some_and(|p| p.can_pin_messages) {
         eprintln!("the kit bot may already pin in VAEGRAM_CHAT_ID");
         return;
     }
 
-    let privileges = member.privileges.unwrap_or_default().can_pin_messages(true);
+    let privileges = member.privileges().cloned().unwrap_or_default().can_pin_messages(true);
     user.promote_chat_member(chat_id, bot_id, privileges).await.unwrap();
     let after = user.get_chat_member(chat_id, bot_id).await.unwrap();
-    assert_eq!(after.status, ChatMemberStatus::Administrator);
-    assert!(after.privileges.is_some_and(|p| p.can_pin_messages), "the kit bot still may not pin: {after:?}");
+    assert_eq!(after.status(), ChatMemberStatus::Administrator);
+    assert!(after.privileges().is_some_and(|p| p.can_pin_messages), "the kit bot still may not pin: {after:?}");
 }
 
 /// Item 65: rich-message HTML with a newline inside a paragraph next to a `<tg-emoji>`, sent by the bot. Prints how
@@ -281,12 +281,12 @@ async fn ban_chat_sender_chat_bans_a_channel() {
         async move {
             user.ban_chat_sender_chat(group, channel).await.unwrap();
             let banned = user.get_chat_member(group, channel).await.unwrap();
-            assert_eq!(banned.status, ChatMemberStatus::Banned);
+            assert_eq!(banned.status(), ChatMemberStatus::Banned);
             assert_eq!(banned.chat.map(|c| c.id), Some(channel));
 
             user.unban_chat_sender_chat(group, channel).await.unwrap();
             let after = user.get_chat_member(group, channel).await.unwrap();
-            assert_ne!(after.status, ChatMemberStatus::Banned, "the channel is still banned after the unban");
+            assert_ne!(after.status(), ChatMemberStatus::Banned, "the channel is still banned after the unban");
         }
     })
     .await;
@@ -439,7 +439,7 @@ async fn a_guest_bot_answer_names_its_caller() {
     });
     let (tx, mut rx) = mpsc::unbounded_channel();
     user.on_message(filters::chat(group), move |m| {
-        if m.guest_bot_caller_user.is_some() || m.guest_bot_caller_chat.is_some() {
+        if m.guest_bot_caller.is_some() {
             let _ = tx.send(m);
         }
         async { Ok(()) }
@@ -456,11 +456,11 @@ async fn a_guest_bot_answer_names_its_caller() {
             let answer = answer.expect("message channel closed");
             eprintln!(
                 "guest answer: from {:?}, outgoing {}, caller user {:?}",
-                answer.from_user.as_ref().map(|u| u.id),
+                answer.from_user().map(|u| u.id),
                 answer.outgoing,
-                answer.guest_bot_caller_user.as_ref().map(|u| u.id)
+                answer.guest_bot_caller.as_ref().map(|s| s.id())
             );
-            assert_eq!(answer.guest_bot_caller_user.as_ref().map(|u| u.id), Some(user_id));
+            assert_eq!(answer.guest_bot_caller.as_ref().map(|s| s.id()), Some(user_id));
         }
     })
     .await;
@@ -558,7 +558,7 @@ async fn message_less_channel_updates_reach_the_user_by_push() {
     let bot_me = kit.bot.get_me().await.unwrap();
     let member = user.get_chat_member(chat_id, bot_me.id).await.unwrap();
     let bot_can_pin =
-        member.status == ChatMemberStatus::Administrator && member.privileges.is_some_and(|p| p.can_pin_messages);
+        member.status() == ChatMemberStatus::Administrator && member.privileges().is_some_and(|p| p.can_pin_messages);
 
     let (deleted_tx, mut deleted) = mpsc::unbounded_channel();
     user.on_deleted_messages(filters::all(), move |event| {

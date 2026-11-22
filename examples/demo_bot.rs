@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
         .await?;
 
     app.on_message(filters::command("start"), |msg| async move {
-        println!("start from {:?}", msg.from_user);
+        println!("start from {:?}", msg.from_user());
         msg.answer("<b>vaegram demo</b>\nTap a button:").html().reply_markup(menu()).await?;
         Ok(())
     });
@@ -96,12 +96,12 @@ async fn main() -> Result<()> {
     });
 
     app.on_my_chat_member(filters::all(), |update| async move {
-        println!("my membership in {}: {:?}", update.chat.id, update.new_chat_member.map(|m| m.status));
+        println!("my membership in {}: {:?}", update.chat.id, update.new_chat_member.map(|m| m.status()));
         Ok(())
     });
 
     app.on_chat_member_updated(filters::all(), |update| async move {
-        println!("member update in {}: {:?}", update.chat.id, update.new_chat_member.map(|m| m.status));
+        println!("member update in {}: {:?}", update.chat.id, update.new_chat_member.map(|m| m.status()));
         Ok(())
     });
 

@@ -197,7 +197,7 @@ impl Client {
 impl Message {
     // A business chat's message ids belong to the other account, so the bot can't look them up.
     fn reply_id(&self) -> Option<i32> {
-        self.reply_to_message_id.filter(|_| self.business_connection_id.is_none())
+        self.reply_to_message_id().filter(|_| self.business_connection_id.is_none())
     }
 }
 
@@ -231,8 +231,7 @@ impl Wanted {
                 }
                 _ => {}
             }
-            if let Some((id, chat)) = message.reply_to_story_id.zip(message.reply_to_story_user_id).filter(|_| stories)
-            {
+            if let Some((chat, id)) = message.story_reply().filter(|_| stories) {
                 push(&mut wanted.stories, chat, id);
             }
         }
@@ -262,10 +261,7 @@ impl Extras {
     fn apply(&self, message: &mut Message) {
         let chat = message.chat.id;
         let topic = message.topic_id().and_then(|id| self.topics.get(&(chat, id))).cloned();
-        let story = match (message.reply_to_story_id, message.reply_to_story_user_id) {
-            (Some(id), Some(chat)) => self.stories.get(&(chat, id)).cloned(),
-            _ => None,
-        };
+        let story = message.story_reply().and_then(|(chat, id)| self.stories.get(&(chat, id)).cloned());
         if topic.is_some() {
             message.prefetched.get_or_insert_with(Default::default).topic = topic;
         }
@@ -414,11 +410,11 @@ mod tests {
     async fn fetch_off_sends_nothing_and_parses_identically() {
         let (client, mut sent) = client(Fetch::default(), false, Vec::new());
         let mut m = sticker_message(&client, 9, 10);
-        (m.reply_to_message_id, Arc::make_mut(&mut m.chat).is_forum) = (Some(4), true);
+        (m.reply_to, Arc::make_mut(&mut m.chat).is_forum) = (Some(crate::types::ReplyTo::message(4)), true);
         let m = m.prepare().await;
         assert!(sent.try_recv().is_err());
         assert!(m.prefetched.is_none());
-        assert_eq!((m.reply_to_message_id, set_name(&m)), (Some(4), None));
+        assert_eq!((m.reply_to_message_id(), set_name(&m)), (Some(4), None));
     }
 
     #[tokio::test]
@@ -441,7 +437,7 @@ mod tests {
         let replies = found(vec![Message::bare(4, get_peer(-5), 0), Message::bare(5, get_peer(-5), 0)]);
         let (client, mut sent) = client(REPLIES, false, vec![replies]);
         let mut reply = message(&client, 9);
-        reply.reply_to_message_id = Some(4);
+        reply.reply_to = Some(crate::types::ReplyTo::message(4));
         let mut pin = message(&client, 10);
         pin.service = Some(ServiceAction::PinnedMessage(5));
         let mut batch = [reply, pin];
@@ -459,7 +455,7 @@ mod tests {
     async fn the_handler_hook_prefetches() {
         let (client, mut sent) = client(REPLIES, false, vec![found(vec![Message::bare(4, get_peer(-5), 0)])]);
         let mut m = message(&client, 9);
-        m.reply_to_message_id = Some(4);
+        m.reply_to = Some(crate::types::ReplyTo::message(4));
         let m = m.prepare().await;
         assert_eq!(sent.try_recv().unwrap(), get_messages(&[4]));
         assert_eq!(m.reply_to_message().await.unwrap().map(|m| m.id), Some(4));
@@ -470,7 +466,7 @@ mod tests {
     async fn a_gone_reply_answers_none_without_asking_again() {
         let (client, mut sent) = client(REPLIES, false, vec![found(Vec::new())]);
         let mut m = message(&client, 9);
-        m.reply_to_message_id = Some(4);
+        m.reply_to = Some(crate::types::ReplyTo::message(4));
         let m = m.prepare().await;
         sent.try_recv().unwrap();
         assert!(m.reply_to_message().await.unwrap().is_none());
@@ -483,7 +479,7 @@ mod tests {
         let cached = base::Message::Message(Box::new(Message::bare(4, get_peer(-5), 0)));
         client.0.caches.store(&cached, &Arc::default());
         let mut m = message(&client, 9);
-        m.reply_to_message_id = Some(4);
+        m.reply_to = Some(crate::types::ReplyTo::message(4));
         let m = m.prepare().await;
         assert!(sent.try_recv().is_err());
         assert_eq!(m.prefetched.unwrap().reply.unwrap().map(|m| m.id), Some(4));
@@ -493,7 +489,7 @@ mod tests {
     async fn a_fetch_error_leaves_the_slot_and_the_handler_runs() {
         let (client, mut sent) = client(REPLIES, false, vec![refused("CHANNEL_PRIVATE")]);
         let mut m = message(&client, 9);
-        m.reply_to_message_id = Some(4);
+        m.reply_to = Some(crate::types::ReplyTo::message(4));
         let m = m.prepare().await;
         sent.try_recv().unwrap();
         assert_eq!(m.id, 9);
@@ -507,12 +503,12 @@ mod tests {
         replied.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(header)));
         let (client, mut sent) = client(REPLIES, false, vec![found(vec![replied])]);
         let mut m = message(&client, 9);
-        m.reply_to_message_id = Some(4);
+        m.reply_to = Some(crate::types::ReplyTo::message(4));
         let m = m.prepare().await;
         assert_eq!(sent.try_recv().unwrap(), get_messages(&[4]));
         assert!(sent.try_recv().is_err(), "the reply's own reply was fetched");
         let replied = m.prefetched.unwrap().reply.unwrap().unwrap();
-        assert_eq!(replied.reply_to_message_id, Some(3));
+        assert_eq!(replied.reply_to_message_id(), Some(3));
         assert!(replied.prefetched.is_none());
     }
 
@@ -522,7 +518,7 @@ mod tests {
         let (client, mut sent) = client(fetch, true, Vec::new());
         let mut m = message(&client, 9);
         Arc::make_mut(&mut m.chat).is_forum = true;
-        (m.reply_to_story_id, m.reply_to_story_user_id) = (Some(4), Some(7));
+        m.reply_to = Some(crate::types::ReplyTo::Story { chat_id: 7, story_id: 4 });
         let m = m.prepare().await;
         assert!(sent.try_recv().is_err());
         assert!(m.prefetched.is_none());
@@ -534,8 +530,8 @@ mod tests {
         let (client, mut sent) = client(fetch, false, vec![sticker_set(10, "cats")]);
         let mut m = sticker_message(&client, 9, 10);
         m.business_connection_id = Some("conn".into());
-        (m.reply_to_message_id, Arc::make_mut(&mut m.chat).is_forum) = (Some(4), true);
-        (m.reply_to_story_id, m.reply_to_story_user_id) = (Some(4), Some(7));
+        Arc::make_mut(&mut m.chat).is_forum = true;
+        m.reply_to = Some(crate::types::ReplyTo::Story { chat_id: 7, story_id: 4 });
         let m = m.prepare().await;
         let request = messages::GetStickerSet { stickerset: set_id(10), hash: 0 };
         assert_eq!(sent.try_recv().unwrap(), request.to_bytes());
@@ -685,7 +681,7 @@ mod tests {
                 let raw = Message::bare(id, get_peer(get_channel_id(9)), 0);
                 let mut m = Message::parse(&client, Box::new(raw), &crate::dispatcher::Entities::default());
                 (Arc::make_mut(&mut m.chat).is_forum, m.message_thread_id) = (true, Some(thread));
-                (m.reply_to_story_id, m.reply_to_story_user_id) = (Some(story), Some(0));
+                m.reply_to = Some(crate::types::ReplyTo::Story { chat_id: 0, story_id: story });
                 m
             })
             .collect();

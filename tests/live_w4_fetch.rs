@@ -48,7 +48,7 @@ async fn fetch_replies_needs_no_request_in_the_handler() {
     bot.on_message(filters::private() & filters::text(), move |m| {
         let (tx, before) = (tx.clone(), before.clone());
         async move {
-            if m.reply_to_message_id.is_some() {
+            if m.reply_to_message_id().is_some() {
                 let asked = before.load(Ordering::Relaxed);
                 let replied = m.reply_to_message().await?.map(|r| r.text().to_owned());
                 let _ = tx.send((replied, before.load(Ordering::Relaxed) - asked));

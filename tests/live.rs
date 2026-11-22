@@ -129,7 +129,7 @@ async fn bot_sends_and_edits_messages() {
     let chat_id = env("VAEGRAM_CHAT_ID").parse().unwrap();
     let hello = app.send_message(chat_id, "hello from vaegram").await.unwrap();
     assert_eq!((hello.chat.id, hello.text(), hello.outgoing), (chat_id, "hello from vaegram", true));
-    assert_eq!(hello.from_user.as_ref().map(|u| u.id), Some(me.id));
+    assert_eq!(hello.from_user().map(|u| u.id), Some(me.id));
 
     let sent = app.send_message(chat_id, "<b>bold</b>, <i>italic</i> and <code>code</code>").html().await.unwrap();
     assert_eq!((sent.text(), entities(&sent)), ("bold, italic and code", 3));
@@ -161,7 +161,7 @@ async fn bot_sends_and_edits_messages() {
     rich.delete().await.unwrap();
 
     let reply = app.send_message(chat_id, "a reply").reply_to(hello.id).await.unwrap();
-    assert_eq!(reply.reply_to_message_id, Some(hello.id));
+    assert_eq!(reply.reply_to_message_id(), Some(hello.id));
 
     let keyboard = ReplyKeyboardMarkup::new([vec![KeyboardButton::new("One"), KeyboardButton::new("Two")]]);
     app.send_message(chat_id, "a reply keyboard").reply_markup(keyboard).await.unwrap();
@@ -206,7 +206,7 @@ async fn bot_sends_polls_and_media() {
     let contact = app.send_contact(chat_id, "+15555550100", "Vae").last_name("Gram").await.unwrap();
     assert!(matches!(contact.media, Some(Media::Contact(_))));
     let location = app.send_location(chat_id, 51.5007, -0.1246).reply_to(contact.id).await.unwrap();
-    assert_eq!(location.reply_to_message_id, Some(contact.id));
+    assert_eq!(location.reply_to_message_id(), Some(contact.id));
 
     let quiz = app
         .send_poll(chat_id, "2 + 2?", ["3", "4"])
@@ -530,12 +530,12 @@ async fn user_account_talks_to_bot() {
     // Each wait takes only the bot's answer to this test's message, newer than it: the chat may also bring older
     // messages that the user's saved session missed.
     let ping = user.send_message(bot_id, "ping").await.unwrap();
-    let pong = next(&mut rx, "new", |m| m.id > ping.id && m.reply_to_message_id == Some(ping.id)).await;
+    let pong = next(&mut rx, "new", |m| m.id > ping.id && m.reply_to_message_id() == Some(ping.id)).await;
     assert_eq!(pong.text(), "pong: ping");
     assert!(pong.reply_markup().is_some());
 
     let ping = ping.edit_text("ping 2").await.unwrap();
-    let edited = next(&mut rx, "new", |m| m.id > pong.id && m.reply_to_message_id == Some(ping.id)).await;
+    let edited = next(&mut rx, "new", |m| m.id > pong.id && m.reply_to_message_id() == Some(ping.id)).await;
     assert_eq!(edited.text(), "edited: ping 2");
 
     let peer = user.resolve_peer(bot_id).await.unwrap();
