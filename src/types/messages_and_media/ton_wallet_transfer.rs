@@ -61,6 +61,7 @@ mod tests {
             peer_address: "EQa".into(),
             transaction_id: "abc".into(),
             comment: Some("hi".into()),
+            onramp_provider_name: None,
         }
     }
 

@@ -41,6 +41,8 @@ impl GetForumTopics<'_> {
             let request = functions::messages::GetForumTopics {
                 peer,
                 q: None,
+                icon_emoji_id: None,
+                closed: None,
                 offset_date: self.pages.offset_date,
                 offset_id: self.pages.offset_id,
                 offset_topic: self.offset_topic,

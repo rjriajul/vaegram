@@ -778,7 +778,8 @@ mod tests {
     fn a_stale_seq_batch_still_asks_for_the_channel_its_too_long_names() {
         // Seq 2 comes after seq 3, which holds the only word that channel 5 has to be fetched.
         let (mut t, e) = (tracker(10, 0, 1), Arc::default());
-        let too_long = types::UpdateChannelTooLong { channel_id: 5, pts: Some(5) };
+        let too_long =
+            types::UpdateChannelTooLong { channel_id: 5, pts: Some(5), last_msg_id: None, last_msg_date: None };
         t.batch(vec![base::Update::UpdateChannelTooLong(Box::new(too_long))], Arc::clone(&e), (0, 3, 3), false);
         assert!(t.due.is_empty());
         t.batch(vec![base::Update::UpdateConfig], e, (0, 2, 3), false);
@@ -791,7 +792,8 @@ mod tests {
     fn a_too_long_in_a_batch_pushed_again_neither_starts_nor_asks_for_its_channel() {
         // Seq 2 was applied: a copy of its batch doesn't start channel 5, never known or forgotten since, or fetch it.
         let (mut t, e) = (tracker(10, 0, 3), Arc::default());
-        let too_long = types::UpdateChannelTooLong { channel_id: 5, pts: Some(5) };
+        let too_long =
+            types::UpdateChannelTooLong { channel_id: 5, pts: Some(5), last_msg_id: None, last_msg_date: None };
         t.batch(vec![base::Update::UpdateChannelTooLong(Box::new(too_long))], e, (0, 2, 2), false);
         assert_eq!((t.state.channels.get(&5), t.due.clone(), t.pending.len()), (None, vec![], 0));
         assert!(delivered(&mut t).is_empty());
@@ -800,7 +802,8 @@ mod tests {
     #[test]
     fn a_forgotten_channel_is_not_started_again_by_a_too_long_held_from_before() {
         let too_long = || {
-            base::Update::UpdateChannelTooLong(Box::new(types::UpdateChannelTooLong { channel_id: 5, pts: Some(5) }))
+            let u = types::UpdateChannelTooLong { channel_id: 5, pts: Some(5), last_msg_id: None, last_msg_date: None };
+            base::Update::UpdateChannelTooLong(Box::new(u))
         };
         // PERSISTENT_TIMESTAMP_INVALID forgets channel 5 while seq 3 holds its marker; then seq 2 comes.
         let (mut t, e) = (tracker(10, 0, 1), Arc::default());
@@ -877,7 +880,8 @@ mod tests {
     fn channel_too_long_starts_an_unknown_channel_at_the_pts_given() {
         let (mut t, e) = (tracker(0, 0, 0), Arc::default());
         let too_long = |channel_id, pts| {
-            base::Update::UpdateChannelTooLong(Box::new(types::UpdateChannelTooLong { channel_id, pts }))
+            let u = types::UpdateChannelTooLong { channel_id, pts, last_msg_id: None, last_msg_date: None };
+            base::Update::UpdateChannelTooLong(Box::new(u))
         };
         t.state.channels.insert(6, 7);
         t.update(too_long(5, Some(40)), &e, false);
@@ -1060,7 +1064,7 @@ mod tests {
         t.update(channel(2, 10), &e, false);
         assert_eq!(delivered(&mut t), [10]);
         t.expire(Instant::now() + GAP_TIMEOUT);
-        let too_long = types::UpdateChannelTooLong { channel_id: 1, pts: None };
+        let too_long = types::UpdateChannelTooLong { channel_id: 1, pts: None, last_msg_id: None, last_msg_date: None };
         t.update(base::Update::UpdateChannelTooLong(Box::new(too_long)), &e, false);
         assert_eq!(t.due, [Key::Channel(1)]);
         t.state.channels.insert(1, 7);

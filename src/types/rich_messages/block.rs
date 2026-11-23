@@ -241,7 +241,7 @@ impl RichBlock {
     pub fn blockquote(blocks: impl IntoIterator<Item = RichBlock>) -> Self {
         let mut files = Files::default();
         let blocks = unzip(blocks, &mut files);
-        let quote = types::PageBlockBlockquoteBlocks { blocks, caption: base::RichText::TextEmpty };
+        let quote = types::PageBlockBlockquoteBlocks { collapsed: false, blocks, caption: base::RichText::TextEmpty };
         RichBlock { block: base::PageBlock::PageBlockBlockquoteBlocks(Box::new(quote)), files }
     }
 

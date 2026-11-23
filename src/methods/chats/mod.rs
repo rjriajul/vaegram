@@ -999,6 +999,7 @@ mod forum_topic_tests {
     fn page(topics: Vec<base::ForumTopic>, messages: Vec<base::Message>, order_by_create_date: bool) -> Vec<u8> {
         let page = types::messages::ForumTopics {
             order_by_create_date,
+            top_icons: None,
             count: 1000,
             topics,
             messages,
@@ -1015,7 +1016,9 @@ mod forum_topic_tests {
     }
 
     fn list(offset_date: i32, offset_id: i32, offset_topic: i32, limit: i32) -> Vec<u8> {
-        messages::GetForumTopics { peer: channel(), q: None, offset_date, offset_id, offset_topic, limit }.to_bytes()
+        let (peer, q, icon_emoji_id, closed) = (channel(), None, None, None);
+        messages::GetForumTopics { peer, q, icon_emoji_id, closed, offset_date, offset_id, offset_topic, limit }
+            .to_bytes()
     }
 
     async fn request_after(first: Vec<u8>) -> Vec<u8> {

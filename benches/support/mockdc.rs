@@ -287,6 +287,7 @@ pub fn config(addr: SocketAddr, date: i32) -> base::Config {
         revoke_pm_inbox: false,
         blocked_mode: false,
         force_try_ipv6: false,
+        fpnv_allowed: false,
         date,
         expires: date + 3600,
         test_mode: false,

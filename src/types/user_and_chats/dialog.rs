@@ -142,6 +142,7 @@ mod tests {
         };
         let chat = types::ChatForbidden { id: 7, title: "Old group".into() };
         let page = base::messages::Dialogs::DialogsSlice(Box::new(types::messages::DialogsSlice {
+            topics: None,
             count: 40,
             dialogs: vec![base::Dialog::DialogFolder(Box::new(folder)), base::Dialog::Dialog(Box::new(dialog))],
             messages: Vec::new(),
@@ -181,6 +182,7 @@ mod tests {
             ttl_period: Some(86400),
         };
         let page = base::messages::Dialogs::Dialogs(Box::new(types::messages::Dialogs {
+            topics: None,
             dialogs: vec![base::Dialog::Dialog(Box::new(dialog))],
             messages: Vec::new(),
             chats: Vec::new(),
@@ -221,6 +223,7 @@ mod tests {
             ..service(base::MessageAction::MessageActionChatEditTitle(Box::new(title)))
         };
         let page = base::messages::Dialogs::Dialogs(Box::new(types::messages::Dialogs {
+            topics: None,
             dialogs: vec![base::Dialog::Dialog(Box::new(dialog))],
             messages: vec![base::Message::MessageService(Box::new(renamed))],
             chats: Vec::new(),

@@ -683,6 +683,7 @@ mod tests {
             ),
             (
                 B::PageBlockBlockquoteBlocks(Box::new(types::PageBlockBlockquoteBlocks {
+                    collapsed: false,
                     blocks: vec![paragraph()],
                     caption: t(),
                 })),
