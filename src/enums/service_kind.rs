@@ -196,6 +196,7 @@ impl ServiceKind {
             A::MessageActionInviteToGroupCall(_) => K::VideoChatParticipantsInvited,
             A::MessageActionBotAllowed(a) if a.domain.is_some() => K::ConnectedWebsite,
             A::MessageActionBotAllowed(_) => K::WriteAccessAllowed,
+            A::MessageActionBotInvite(_) => K::WriteAccessAllowed,
             A::MessageActionRequestedPeerSentMe(r)
                 if r.peers.iter().all(|p| matches!(p, base::RequestedPeer::RequestedPeerUser(_))) =>
             {

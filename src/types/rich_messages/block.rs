@@ -245,11 +245,13 @@ impl RichBlock {
         RichBlock { block: base::PageBlock::PageBlockBlockquoteBlocks(Box::new(quote)), files }
     }
 
-    /// Creates a text quote that stays collapsed until the reader expands it.
-    pub fn expandable_blockquote(text: impl Into<RichText>) -> Self {
-        let quote =
-            types::PageBlockBlockquote { collapsed: true, text: self::text(text), caption: base::RichText::TextEmpty };
-        Self::new(base::PageBlock::PageBlockBlockquote(Box::new(quote)))
+    /// Creates a quote of blocks that stays collapsed until the reader expands it. Add an attribution with
+    /// [`credit`](RichBlock::credit).
+    pub fn expandable_blockquote(blocks: impl IntoIterator<Item = RichBlock>) -> Self {
+        let mut files = Files::default();
+        let blocks = unzip(blocks, &mut files);
+        let quote = types::PageBlockBlockquoteBlocks { collapsed: true, blocks, caption: base::RichText::TextEmpty };
+        RichBlock { block: base::PageBlock::PageBlockBlockquoteBlocks(Box::new(quote)), files }
     }
 
     /// Creates a pullquote, a highlighted excerpt. Add an attribution with [`credit`](RichBlock::credit).
@@ -734,6 +736,10 @@ mod tests {
             panic!("expected a quote")
         };
         assert_eq!(q.caption, RichText::from("me").0);
+        let quote = RichBlock::expandable_blockquote([RichBlock::paragraph("q")]).credit("me");
+        let base::PageBlock::PageBlockBlockquoteBlocks(q) = quote.block else { panic!("expected a quote of blocks") };
+        assert!(q.collapsed);
+        assert_eq!((q.blocks, q.caption), (vec![RichBlock::paragraph("q").block], RichText::from("me").0));
 
         let RichTableCell(base::PageTableCell::PageTableCell(c)) =
             RichTableCell::new("x").header().align(Align::Right).valign(VAlign::Middle);

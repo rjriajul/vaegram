@@ -45,6 +45,10 @@ pub struct ChatSettings {
     pub name_change_date: Option<i32>,
     /// Unix time the other user last changed their photo.
     pub photo_change_date: Option<i32>,
+    /// In a private chat with a bot: the bot's owner who invited the account through a `t.me/botinvite` link.
+    pub bot_inviter: Option<User>,
+    /// In a private chat with a bot the account was invited to: the bot's owner.
+    pub bot_owner: Option<User>,
 }
 
 impl ChatSettings {
@@ -71,6 +75,8 @@ impl ChatSettings {
             phone_country: None,
             name_change_date: None,
             photo_change_date: None,
+            bot_inviter: None,
+            bot_owner: None,
         }
     }
 
@@ -95,6 +101,8 @@ impl ChatSettings {
             phone_country: raw.phone_country,
             name_change_date: raw.name_change_date,
             photo_change_date: raw.photo_change_date,
+            bot_inviter: raw.bot_inviter_id.map(|id| User::parse(id, entities)),
+            bot_owner: raw.bot_owner_id.map(|id| User::parse(id, entities)),
         }
     }
 }
@@ -154,8 +162,8 @@ mod tests {
             phone_country: Some("DE".into()),
             name_change_date: Some(200),
             photo_change_date: Some(300),
-            bot_inviter_id: None,
-            bot_owner_id: None,
+            bot_inviter_id: Some(7),
+            bot_owner_id: Some(8),
         };
         let entities = Entities::new(&Client::offline(), vec![bot(42)], Vec::new());
         let settings = ChatSettings::parse(raw, &entities);
@@ -179,6 +187,8 @@ mod tests {
             phone_country: Some("DE".into()),
             name_change_date: Some(200),
             photo_change_date: Some(300),
+            bot_inviter: Some(User::parse(7, &entities)),
+            bot_owner: Some(User::parse(8, &entities)),
         };
         assert_eq!(settings, expected);
         assert_eq!(settings.business_bot.map(|b| b.first_name), Some("Helper".into()));
