@@ -48,7 +48,7 @@ jobs:
 
       - name: Package
         if: matrix.toolchain == 'stable' && matrix.os == 'ubuntu-latest'
-        run: cargo publish --dry-run -p vaegram-tl
+        run: cargo publish --dry-run -p vaegram
 
       - name: Disk space
         if: always() && runner.os != 'Windows'

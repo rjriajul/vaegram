@@ -373,10 +373,7 @@ impl From<std::io::Error> for Error {
 
 impl From<raw::Error> for Error {
     fn from(e: raw::Error) -> Self {
-        match e {
-            raw::Error::TooLong => Error::InvalidArgument("a string or bytes field is 16 MiB or longer"),
-            e => Error::Deserialize(e),
-        }
+        Error::Deserialize(e)
     }
 }
 

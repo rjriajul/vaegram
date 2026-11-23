@@ -3257,16 +3257,8 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tokio-rustls",
- "vaegram-tl",
  "warpcrypto",
  "webpki-roots",
-]
-
-[[package]]
-name = "vaegram-tl"
-version = "0.3.0"
-dependencies = [
- "flate2",
 ]
 
 [[package]]

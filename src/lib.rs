@@ -120,7 +120,7 @@ pub(crate) mod parser;
 /// item.
 pub mod prelude;
 /// Every type and function of Telegram's API, generated from the TL schema, for [`Client::invoke`].
-pub use vaegram_tl as raw;
+pub mod raw;
 /// The encrypted MTProto session: requests, retries, rate limits, observers and replaying recordings.
 #[cfg_attr(
     not(feature = "unstable-raw"),

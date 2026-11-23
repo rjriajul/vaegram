@@ -25,7 +25,7 @@ thread_local! {
 
 /// `value`'s TL bytes, or `None` when one of its strings or bytes fields is [`MAX_BYTES`] or longer. Where
 /// `to_bytes` panics on such a field, this lets a caller's argument come back as an error.
-fn checked_bytes<T: Serializable + ?Sized>(value: &T) -> Option<Vec<u8>> {
+pub(crate) fn checked_bytes<T: Serializable + ?Sized>(value: &T) -> Option<Vec<u8>> {
     // Restored on unwind too, so a panic elsewhere in `serialize` can't leave the thread checking.
     struct Restore(Option<bool>);
     impl Drop for Restore {
@@ -71,8 +71,6 @@ pub enum Error {
     InvalidGzip,
     /// Objects nested more than 64 deep, refused so hostile data can't overflow the stack.
     TooDeep,
-    /// A string or bytes field of 16 MiB or more, which TL can't encode.
-    TooLong,
 }
 
 impl std::fmt::Display for Error {
@@ -82,7 +80,6 @@ impl std::fmt::Display for Error {
             Error::UnexpectedConstructor { id } => write!(f, "unexpected TL constructor {id:#010x}"),
             Error::InvalidGzip => f.write_str("invalid gzip_packed data"),
             Error::TooDeep => f.write_str("TL data nests too deeply"),
-            Error::TooLong => f.write_str("a TL string or bytes field is 16 MiB or longer"),
         }
     }
 }
@@ -118,10 +115,10 @@ pub trait Serializable {
         buf
     }
 
-    /// Like [`to_bytes`](Serializable::to_bytes), but a string or bytes field of 16 MiB or more is
-    /// [`Error::TooLong`] instead of a panic.
-    fn try_to_bytes(&self) -> Result<Vec<u8>, Error> {
-        checked_bytes(self).ok_or(Error::TooLong)
+    /// Like [`to_bytes`](Serializable::to_bytes), but a string or bytes field of 16 MiB or more is an
+    /// `Error::InvalidArgument` instead of a panic.
+    fn try_to_bytes(&self) -> crate::errors::Result<Vec<u8>> {
+        checked_bytes(self).ok_or(crate::errors::Error::InvalidArgument("a string or bytes field is 16 MiB or longer"))
     }
 }
 

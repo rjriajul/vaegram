@@ -712,9 +712,8 @@ impl Session {
     /// carries on. A request with a string or bytes field of 16 MiB or more, or a body over 16 MiB, fails with
     /// `Error::InvalidArgument` before it is sent.
     pub async fn invoke_with_timeout<R: RemoteCall>(&self, request: &R, timeout: Duration) -> Result<R::Return> {
-        let body = request
-            .try_to_bytes()
-            .map_err(|_| Error::InvalidArgument("a string or bytes field of the request is 16 MiB or longer"))?;
+        let body = crate::raw::core::checked_bytes(request)
+            .ok_or(Error::InvalidArgument("a string or bytes field of the request is 16 MiB or longer"))?;
         if body.len() > MAX_PACKET {
             return Err(Error::InvalidArgument("a request can't be over 16 MiB"));
         }

@@ -164,10 +164,11 @@ mod tests {
 
     #[test]
     fn try_to_bytes_refuses_a_16_mib_field_without_panicking() {
-        use crate::{Error, Serializable};
+        use crate::errors::Error;
+        use crate::raw::Serializable;
         let big = vec![0u8; super::MAX_BYTES];
-        assert_eq!(big.try_to_bytes(), Err(Error::TooLong));
-        assert_eq!(vec![big].try_to_bytes(), Err(Error::TooLong));
+        assert!(matches!(big.try_to_bytes(), Err(Error::InvalidArgument(_))));
+        assert!(matches!(vec![big].try_to_bytes(), Err(Error::InvalidArgument(_))));
         assert_eq!(vec![1u8, 2, 3].try_to_bytes().unwrap(), vec![3, 1, 2, 3]);
     }
 }
