@@ -60,7 +60,7 @@ mod tests {
     #[tokio::test]
     async fn set_ton_wallet_card_stickers_sends_request_bytes() {
         let reply = crate::types::user_and_chats::ton_wallet_card::tests::wallet_card().to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let position = AreaPosition::new(10.0, 20.0, 30.0, 40.0).rotation_angle(45.0).corner_radius_percentage(5.0);
         let sticker = InputTonWalletCardSticker::new(position, "EQDsticker_address");
         let card =

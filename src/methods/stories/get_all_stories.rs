@@ -51,11 +51,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_repeated_or_empty_state_ends_the_list() {
-        let (client, mut rx) = Client::scripted(vec![Ok(page("a")), Ok(page("a")), Ok(page("a"))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(page("a")), Ok(page("a")), Ok(page("a"))]);
         assert!(client.get_all_stories(false).await.unwrap().is_empty());
         assert_eq!(std::iter::from_fn(|| rx.try_recv().ok()).count(), 2);
 
-        let (client, mut rx) = Client::scripted(vec![Ok(page("")), Ok(page(""))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(page("")), Ok(page(""))]);
         assert!(client.get_all_stories(false).await.unwrap().is_empty());
         assert_eq!(std::iter::from_fn(|| rx.try_recv().ok()).count(), 1);
     }

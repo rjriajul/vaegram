@@ -42,7 +42,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_through_the_business_connection() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.0.caches.know_business("c1", 7, 2);
         let checklist = InputChecklist::new("Trip").task(1, "Tickets").others_can_add_tasks();
         assert!(client.send_checklist("me", checklist).business_connection_id("c1").await.is_err());

@@ -129,7 +129,7 @@ mod tests {
     }
 
     fn recording() -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::recording();
+        let (client, rx) = Client::recording_raw();
         for user_id in [BOT, USER] {
             let peer = types::InputPeerUser { user_id, access_hash: 7 };
             client.0.peers.lock().unwrap().insert(user_id, base::InputPeer::InputPeerUser(Box::new(peer)));
@@ -344,7 +344,7 @@ mod tests {
 
     #[tokio::test]
     async fn inline_results_default_to_saved_messages() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.0.peers.lock().unwrap().insert(BOT, bot_peer());
         let _ = client.get_inline_bot_results(BOT, "cats").offset("10").await;
         let expected = functions::messages::GetInlineBotResults {
@@ -359,7 +359,7 @@ mod tests {
 
     #[tokio::test]
     async fn game_callback_sends_no_data() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.0.peers.lock().unwrap().insert(BOT, bot_peer());
         let _ = client.request_callback_answer(BOT, 3, b"x".as_slice()).game().await;
         let expected = functions::messages::GetBotCallbackAnswer {

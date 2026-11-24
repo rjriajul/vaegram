@@ -252,7 +252,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn lists_one_collection() {
-        let (client, mut sent) = Client::scripted(vec![Ok(empty_page())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(empty_page())]);
         assert!(client.get_chat_gifts("me").collection(4).await.unwrap().is_empty());
         let mut request = request("", 100);
         request.collection_id = Some(4);
@@ -263,7 +263,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn pages_with_the_offset_telegram_hands_out() {
         let replies = vec![Ok(page(3, 2, Some("p2"))), Ok(page(3, 1, None))];
-        let (client, mut sent) = Client::scripted(replies);
+        let (client, mut sent) = Client::scripted_raw(replies);
         let gifts = client.get_chat_gifts("me").offset("p1").await.unwrap();
         assert_eq!(ids(&gifts), ["10", "11", "10"]);
         assert_eq!(sent.try_recv().unwrap(), request("p1", 100).to_bytes());
@@ -273,7 +273,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn the_limit_caps_the_pages_and_the_gifts() {
-        let (client, mut sent) = Client::scripted(vec![Ok(page(9, 2, Some("p2"))), Ok(page(9, 1, Some("p3")))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(page(9, 2, Some("p2"))), Ok(page(9, 1, Some("p3")))]);
         let mut gifts = client.get_chat_gifts("me").limit(3);
         assert_eq!(gifts.total().await.unwrap(), 9);
         let mut got = Vec::new();
@@ -288,7 +288,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn next_offset_is_where_a_later_pager_resumes() {
-        let (client, mut sent) = Client::scripted(vec![Ok(page(9, 2, Some("p2"))), Ok(empty_page())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(page(9, 2, Some("p2"))), Ok(empty_page())]);
         let mut gifts = client.get_chat_gifts("me").limit(2);
         assert_eq!(gifts.next_offset(), Some(""));
         while gifts.next().await.unwrap().is_some() {}

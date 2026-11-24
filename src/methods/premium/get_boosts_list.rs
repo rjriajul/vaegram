@@ -92,7 +92,8 @@ mod tests {
 
     #[tokio::test]
     async fn walks_pages_until_the_offset_runs_out() {
-        let (client, mut sent) = Client::scripted(vec![Ok(page(&["a", "b"], Some("next"))), Ok(page(&["c"], None))]);
+        let (client, mut sent) =
+            Client::scripted_raw(vec![Ok(page(&["a", "b"], Some("next"))), Ok(page(&["c"], None))]);
         let peer = types::InputPeerChannel { channel_id: 1, access_hash: 2 };
         client.0.peers.lock().unwrap().insert(get_channel_id(1), base::InputPeer::InputPeerChannel(Box::new(peer)));
 
@@ -107,7 +108,8 @@ mod tests {
 
     #[tokio::test]
     async fn awaiting_collects_across_pages_up_to_the_limit() {
-        let (client, mut sent) = Client::scripted(vec![Ok(page(&["a", "b"], Some("next"))), Ok(page(&["c"], None))]);
+        let (client, mut sent) =
+            Client::scripted_raw(vec![Ok(page(&["a", "b"], Some("next"))), Ok(page(&["c"], None))]);
         let peer = types::InputPeerChannel { channel_id: 1, access_hash: 2 };
         client.0.peers.lock().unwrap().insert(get_channel_id(1), base::InputPeer::InputPeerChannel(Box::new(peer)));
 

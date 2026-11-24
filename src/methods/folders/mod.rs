@@ -172,7 +172,7 @@ mod tests {
 
     #[tokio::test]
     async fn reordering_no_folders_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert!(matches!(client.reorder_folders(&[]).await, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
     }
@@ -186,7 +186,7 @@ mod tests {
     }
 
     fn recording() -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::recording();
+        let (client, rx) = Client::recording_raw();
         client.0.peers.lock().unwrap().insert(get_channel_id(9), channel());
         (client, rx)
     }
@@ -308,7 +308,7 @@ mod tests {
     async fn folder_tags_send_the_flag_and_return_telegram_errors() {
         use crate::raw::functions::messages::ToggleDialogFilterTags;
         let premium = Error::Rpc(RpcError::parse(400, "PREMIUM_ACCOUNT_REQUIRED"));
-        let (client, mut rx) = Client::scripted(vec![Err(premium)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Err(premium)]);
         let result = client.toggle_folder_tags(true).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "PREMIUM_ACCOUNT_REQUIRED"), "{result:?}");
         assert_eq!(rx.try_recv().unwrap(), ToggleDialogFilterTags { enabled: true }.to_bytes());

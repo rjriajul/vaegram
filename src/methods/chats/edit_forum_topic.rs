@@ -85,7 +85,7 @@ mod tests {
     }
 
     fn topic_client(replies: Vec<Vec<u8>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(replies.into_iter().map(Ok).collect());
+        let (client, rx) = Client::scripted_raw(replies.into_iter().map(Ok).collect());
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: USER, access_hash: 2 }));
         client.0.peers.lock().unwrap().extend([(get_channel_id(9), topic_peer()), (USER, user)]);
         (client, rx)

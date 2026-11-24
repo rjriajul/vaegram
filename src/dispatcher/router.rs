@@ -1655,7 +1655,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_stranger_click_is_answered_and_skips_handlers() {
-        let ((client, mut sent), log) = (Client::recording(), Log::default());
+        let ((client, mut sent), log) = (Client::recording_raw(), Log::default());
         client.0.handlers.add(|r| r.callback_query.push(1, filters::all(), record(&log, "handler")));
         let waiter = spawn_listen::<CallbackQuery>(&client, |l| l.user(8).message_id(2));
         until_waiting(&client.0.handlers.listeners.callbacks).await;

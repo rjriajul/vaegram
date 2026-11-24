@@ -91,7 +91,7 @@ mod tests {
     use crate::methods::utilities::run::tests::stopped_client;
 
     fn failing_client() -> Client {
-        Client::scripted(vec![Err(Error::Rpc(RpcError::parse(401, "AUTH_KEY_UNREGISTERED")))]).0
+        Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(401, "AUTH_KEY_UNREGISTERED")))]).0
     }
 
     #[tokio::test]
@@ -119,7 +119,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_same_client_twice_is_refused() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let result = Client::compose(&[client.clone(), client]).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(sent.try_recv().is_err(), "a client ran");
@@ -169,7 +169,7 @@ mod tests {
     #[tokio::test]
     async fn sequential_skips_a_client_disconnected_during_its_start_without_an_error() {
         // `disconnect` stops the client, then fails the start's waiting request with `Disconnected`.
-        let (disconnected, _sent) = Client::scripted(vec![Err(Error::Disconnected)]);
+        let (disconnected, _sent) = Client::scripted_raw(vec![Err(Error::Disconnected)]);
         disconnected.disconnect();
         let (running, _updates) = stopped_client().await;
         let log = Log::default();

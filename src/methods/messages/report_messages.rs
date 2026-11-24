@@ -69,7 +69,7 @@ mod tests {
     }
 
     fn setup(answers: Vec<base::ReportResult>) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(answers.iter().map(|a| Ok(a.to_bytes())).collect());
+        let (client, rx) = Client::scripted_raw(answers.iter().map(|a| Ok(a.to_bytes())).collect());
         client.0.peers.lock().unwrap().insert(7, peer());
         (client, rx)
     }

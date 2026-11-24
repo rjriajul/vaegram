@@ -24,7 +24,7 @@ mod tests {
     async fn lists_the_ids_and_an_unchanged_answer_is_empty() {
         let found = base::EmojiList::EmojiList(Box::new(types::EmojiList { hash: 2, document_id: vec![7, 8] }));
         let unchanged = base::EmojiList::EmojiListNotModified;
-        let (client, mut sent) = Client::scripted(vec![Ok(found.to_bytes()), Ok(unchanged.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(found.to_bytes()), Ok(unchanged.to_bytes())]);
         assert_eq!(client.search_custom_emoji("🐱").await.unwrap(), [7, 8]);
         assert!(client.search_custom_emoji("🐱").await.unwrap().is_empty());
         let expected = functions::messages::SearchCustomEmoji { emoticon: "🐱".into(), hash: 0 };

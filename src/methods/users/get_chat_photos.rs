@@ -109,7 +109,7 @@ mod tests {
     }
 
     fn user_7(replies: Vec<crate::Result<Vec<u8>>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, sent) = Client::scripted(replies);
+        let (client, sent) = Client::scripted_raw(replies);
         let user = types::InputPeerUser { user_id: 7, access_hash: 3 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         (client, sent)

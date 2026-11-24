@@ -32,13 +32,13 @@ mod tests {
     }
 
     async fn resend(reply: Result<Vec<u8>>) -> Result<SentCode> {
-        let (client, _sent) = Client::scripted(vec![reply]);
+        let (client, _sent) = Client::scripted_raw(vec![reply]);
         client.resend_code("8801", "h1").await
     }
 
     #[tokio::test]
     async fn sends_the_number_and_hash_as_given() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.resend_code("8801", "h1").await;
         let expected =
             functions::auth::ResendCode { phone_number: "8801".into(), phone_code_hash: "h1".into(), reason: None };
@@ -60,7 +60,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_resent_hash_is_what_sign_in_sends() {
-        let (client, mut sent) = Client::scripted(vec![Ok(sms_code("h1", None)), Ok(sms_code("h2", None))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(sms_code("h1", None)), Ok(sms_code("h2", None))]);
         let first = client.send_code("8801").await.unwrap();
         let second = client.resend_code("8801", &first.phone_code_hash).await.unwrap();
         // Nothing answers the sign-in; only its body matters here.
@@ -88,7 +88,7 @@ mod tests {
     async fn sign_in_errors_after_a_resend_come_back_unchanged() {
         for (code, name) in [(400, "PHONE_CODE_EXPIRED"), (400, "PHONE_CODE_INVALID"), (401, "SESSION_PASSWORD_NEEDED")]
         {
-            let (client, _sent) = Client::scripted(vec![Ok(sms_code("h2", None)), rpc(code, name)]);
+            let (client, _sent) = Client::scripted_raw(vec![Ok(sms_code("h2", None)), rpc(code, name)]);
             let code_hash = client.resend_code("8801", "h1").await.unwrap().phone_code_hash;
             let result = client.sign_in("8801", &code_hash, "22222").await;
             assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::parse(code, name)), "{result:?}");

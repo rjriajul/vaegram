@@ -33,7 +33,7 @@ mod tests {
 
     #[tokio::test]
     async fn cached_message_reads_the_cache_without_a_request() {
-        let (mut client, mut rx) = Client::recording();
+        let (mut client, mut rx) = Client::recording_raw();
         Arc::get_mut(&mut client.0).unwrap().caches = Caches::new(10, 0);
         let channel = get_channel_id(9);
         client.0.caches.store(&raw(4, 7), &Arc::default());
@@ -49,7 +49,7 @@ mod tests {
 
     #[tokio::test]
     async fn cached_message_is_none_with_the_cache_off() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.0.caches.store(&raw(4, 7), &Arc::default());
         assert!(client.cached_message(7, 4).is_none());
         assert!(rx.try_recv().is_err());

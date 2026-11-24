@@ -59,7 +59,7 @@ mod tests {
             let text = types::TextWithEntities { text: "Short".into(), entities: Vec::new() };
             Ok(base::TextWithEntities::TextWithEntities(Box::new(text)).to_bytes())
         };
-        let (client, mut rx) = Client::scripted(vec![reply(), reply()]);
+        let (client, mut rx) = Client::scripted_raw(vec![reply(), reply()]);
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 2 }));
         client.0.peers.lock().unwrap().insert(7, peer.clone());
         let request = |to_lang: Option<&str>, tone: Option<&str>| {

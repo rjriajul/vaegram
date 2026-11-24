@@ -43,7 +43,7 @@ mod tests {
             show_previews: true,
         };
         let raw = base::ReactionsNotifySettings::ReactionsNotifySettings(Box::new(raw));
-        let (client, mut sent) = Client::scripted(vec![Ok(raw.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(raw.to_bytes())]);
         assert_eq!(client.set_reactions_notify_settings(settings.clone()).await.unwrap(), settings);
         assert_eq!(sent.try_recv().unwrap(), account::SetReactionsNotifySettings { settings: raw }.to_bytes());
     }

@@ -1042,19 +1042,21 @@ impl Client {
     }
 
     #[cfg(test)]
-    pub(crate) fn recording() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        Client::scripted(Vec::new())
+    pub(crate) fn recording_raw() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
+        Client::scripted_raw(Vec::new())
     }
 
     #[cfg(test)]
-    pub(crate) fn scripted(replies: Vec<Result<Vec<u8>>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
+    pub(crate) fn scripted_raw(
+        replies: Vec<Result<Vec<u8>>>,
+    ) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
         let (session, sent) = Session::scripted(replies);
         (Client::with_session(session), sent)
     }
 
-    /// [`scripted`](Self::scripted), handing back each request's tag along with its body.
+    /// [`scripted_raw`](Self::scripted_raw), handing back each request's tag along with its body.
     #[cfg(test)]
-    pub(crate) fn scripted_tags(replies: Vec<Result<Vec<u8>>>) -> (Client, crate::session::TaggedBodies) {
+    pub(crate) fn scripted_tags_raw(replies: Vec<Result<Vec<u8>>>) -> (Client, crate::session::TaggedBodies) {
         let (session, sent) = Session::scripted_tags(replies);
         (Client::with_session(session), sent)
     }
@@ -1511,7 +1513,7 @@ mod tests {
     #[tokio::test]
     async fn the_default_file_keeps_the_login_the_state_and_known_peers() {
         let dir = temp_dir("files");
-        let (mut client, _) = Client::scripted(Vec::new());
+        let (mut client, _) = Client::scripted_raw(Vec::new());
         Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
         *client.0.me.lock().unwrap() = Me { id: 1001, is_bot: true, ..Me::default() };
         let peer = types::InputPeerUser { user_id: 777, access_hash: 5 };
@@ -1588,7 +1590,7 @@ mod tests {
     async fn a_cold_peer_comes_from_the_store_without_a_request() {
         let engine = Arc::new(MemoryStorage::new());
         engine.update_peers(&[PeerRecord::new(777, 5)]).await.unwrap();
-        let (mut client, mut sent) = Client::scripted(Vec::new());
+        let (mut client, mut sent) = Client::scripted_raw(Vec::new());
         Arc::get_mut(&mut client.0).unwrap().set_store(engine);
         let peer = client.resolve_peer(777).await.unwrap();
         let expected = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 777, access_hash: 5 }));
@@ -1600,7 +1602,7 @@ mod tests {
     #[tokio::test]
     async fn a_stored_username_survives_a_restart() {
         let dir = temp_dir("usernames");
-        let (mut client, _) = Client::scripted(Vec::new());
+        let (mut client, _) = Client::scripted_raw(Vec::new());
         Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
         *client.0.me.lock().unwrap() = Me { id: 1001, is_bot: true, ..Me::default() };
         client.save().await.unwrap();
@@ -1608,7 +1610,7 @@ mod tests {
         client.close().await;
         drop(client);
 
-        let (mut client, mut sent) = Client::scripted(Vec::new());
+        let (mut client, mut sent) = Client::scripted_raw(Vec::new());
         Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
         let found = client.resolve(&PeerRef::Username("@alice".into())).await;
         let _ = std::fs::remove_dir_all(&dir);
@@ -1730,7 +1732,7 @@ mod tests {
         let dc = TestDc::start([5; 256], false).await;
         let export = types::auth::ExportedAuthorization { id: 1, bytes: vec![1] };
         let export = base::auth::ExportedAuthorization::ExportedAuthorization(Box::new(export)).to_bytes();
-        let (client, _sent) = Client::scripted(vec![Ok(export)]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(export)]);
         // Both of DC 4's addresses are the test DC's: only the id the client sends tells them apart.
         *client.0.dcs.write().unwrap() = vec![(4, dc.dc(4).addr)];
         *client.0.media_dcs.write().unwrap() = vec![(4, dc.dc(4).addr)];
@@ -1745,7 +1747,7 @@ mod tests {
     // would stall every task.
     #[tokio::test]
     async fn dropping_the_client_leaves_the_runtime_running_and_still_saves() {
-        let (mut client, _sent) = Client::scripted(Vec::new());
+        let (mut client, _sent) = Client::scripted_raw(Vec::new());
         let engine = Arc::new(Gated::default());
         Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
         client.0.me.lock().unwrap().id = 1001;
@@ -1773,7 +1775,7 @@ mod tests {
         let dir = temp_dir("main-returns");
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         runtime.block_on(async {
-            let (mut client, _sent) = Client::scripted(Vec::new());
+            let (mut client, _sent) = Client::scripted_raw(Vec::new());
             Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
             *client.0.me.lock().unwrap() = Me { id: 1001, ..Me::default() };
             client.save().await.unwrap();

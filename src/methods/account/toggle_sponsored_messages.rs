@@ -20,7 +20,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_flag_both_ways() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
         for enabled in [false, true] {
             client.toggle_sponsored_messages(enabled).await.unwrap();
             assert_eq!(sent.try_recv().unwrap(), account::ToggleSponsoredMessages { enabled }.to_bytes());

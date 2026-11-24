@@ -23,7 +23,7 @@ mod tests {
     #[tokio::test]
     async fn loads_a_set_by_name_or_by_reference() {
         let reply = || Ok(set(false, false, None).to_bytes());
-        let (client, mut sent) = Client::scripted(vec![reply(), reply()]);
+        let (client, mut sent) = Client::scripted_raw(vec![reply(), reply()]);
         let cats = client.get_sticker_set("cats_by_bot").await.unwrap();
         let name = types::InputStickerSetShortName { short_name: "cats_by_bot".into() };
         let stickerset = base::InputStickerSet::InputStickerSetShortName(Box::new(name));

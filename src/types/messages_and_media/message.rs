@@ -1202,7 +1202,7 @@ pub(crate) mod tests {
             users: Vec::new(),
         };
         let reply = Ok(base::messages::Messages::Messages(Box::new(messages)).to_bytes());
-        let (client, mut sent) = Client::scripted(vec![reply]);
+        let (client, mut sent) = Client::scripted_raw(vec![reply]);
         let mut raw = Message::bare(9, get_peer(-5), 0);
         let header = types::MessageReplyHeader { reply_to_msg_id: Some(4), ..header() };
         raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(header)));
@@ -1221,7 +1221,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_business_message_answers_with_the_replied_message_its_update_carried() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let business = |reply_to_message| {
             let mut raw = Message::bare(9, get_peer(7), 0);
             let header = types::MessageReplyHeader { reply_to_msg_id: Some(4), ..header() };
@@ -1415,7 +1415,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn business_messages_are_answered_through_their_connection() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         client.0.caches.know_business("c", 7, 2);
@@ -1447,7 +1447,7 @@ pub(crate) mod tests {
         };
         let update = base::Update::UpdateBotNewBusinessMessage(Box::new(update));
         let answer = base::Updates::UpdateShort(Box::new(types::UpdateShort { update, date: 0 }));
-        let (client, mut rx) = Client::scripted(vec![Ok(answer.to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(answer.to_bytes())]);
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         client.0.caches.know_business("c", 7, 2);
@@ -1492,7 +1492,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn live_locations_and_polls_close_through_the_business_connection() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         client.0.caches.know_business("c", 7, 2);
@@ -1511,7 +1511,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn business_media_is_not_looked_up_in_the_bots_own_messages() {
         let expired = Err(Error::Rpc(RpcError::parse(400, "FILE_REFERENCE_EXPIRED")));
-        let (client, mut rx) = Client::scripted(vec![expired]);
+        let (client, mut rx) = Client::scripted_raw(vec![expired]);
         client.0.me.lock().unwrap().premium = Some(false);
         let mut raw = Message::bare(5, get_peer(7), 0);
         raw.media = Some(document_media("application/pdf", Vec::new()));
@@ -1524,7 +1524,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn reply_quotes_and_answer_stays_in_the_topic() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let raw = Message::bare(5, get_peer(7), 0);
@@ -1567,7 +1567,7 @@ pub(crate) mod tests {
     const PHOTO: &str = "AgACAgIAAxkBAAIENGfeY4AfRquwTL2LpDrzqvFMVNt_AAIG9DEbXX3wSq3oI7t_PqQGAQADAgADbQADNgQ";
 
     fn seeded() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::recording();
+        let (client, rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let channel = types::InputPeerChannel { channel_id: 9, access_hash: 2 };
@@ -1587,7 +1587,7 @@ pub(crate) mod tests {
             users: Vec::new(),
         };
         let reply = Ok(base::messages::Messages::Messages(Box::new(messages)).to_bytes());
-        let (client, mut sent) = Client::scripted(vec![reply]);
+        let (client, mut sent) = Client::scripted_raw(vec![reply]);
         let message = Message::parse(&client, Box::new(Message::bare(5, get_peer(-5), 0)), &Entities::default());
         let again = message.refetch().await.unwrap().unwrap();
         assert_eq!((again.id, again.chat.id, again.text()), (5, -5, "edited"));
@@ -1926,7 +1926,7 @@ pub(crate) mod tests {
     #[cfg(feature = "unstable-raw")]
     #[tokio::test]
     async fn from_updates_turns_a_raw_send_into_a_message() {
-        let (client, _rx) = Client::recording();
+        let (client, _rx) = Client::recording_raw();
         let short = types::UpdateShortSentMessage {
             out: true,
             id: 5,

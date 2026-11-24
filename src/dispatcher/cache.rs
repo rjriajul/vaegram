@@ -562,7 +562,7 @@ mod tests {
     }
 
     fn caching(messages: usize, topics: usize) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (mut client, rx) = Client::recording();
+        let (mut client, rx) = Client::recording_raw();
         Arc::get_mut(&mut client.0).unwrap().caches = Caches::new(messages, topics);
         (client, rx)
     }
@@ -645,7 +645,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_default_client_still_fetches() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.0.caches.store(&raw(4, 7), &Arc::default());
         client.0.caches.store_topic(get_channel_id(9), &topic(6));
         let mut reply = message(&client, 5, 7);
@@ -667,7 +667,7 @@ mod tests {
     async fn own_deletes_evict() {
         let affected = types::messages::AffectedMessages { pts: 1, pts_count: 1 };
         let affected = Ok(base::messages::AffectedMessages::AffectedMessages(affected).to_bytes());
-        let (mut client, mut rx) = Client::scripted(vec![affected]);
+        let (mut client, mut rx) = Client::scripted_raw(vec![affected]);
         Arc::get_mut(&mut client.0).unwrap().caches = Caches::new(10, 0);
         client.0.caches.store(&raw(4, 7), &Arc::default());
         client.delete_messages(7, &[4]).await.unwrap();
@@ -681,7 +681,7 @@ mod tests {
     #[tokio::test]
     async fn own_reactions_evict() {
         let updates = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
-        let (mut client, _rx) = Client::scripted(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
+        let (mut client, _rx) = Client::scripted_raw(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
         Arc::get_mut(&mut client.0).unwrap().caches = Caches::new(10, 0);
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, user);

@@ -136,7 +136,7 @@ pub(super) mod tests {
     pub(in crate::methods::payments) type Sent = tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>;
 
     pub(in crate::methods::payments) fn client(replies: Vec<Vec<u8>>) -> (Client, Sent) {
-        let (client, sent) = Client::scripted(replies.into_iter().map(Ok).collect());
+        let (client, sent) = Client::scripted_raw(replies.into_iter().map(Ok).collect());
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 5, access_hash: 6 }));
         client.0.peers.lock().unwrap().insert(5, peer);
         (client, sent)
@@ -487,7 +487,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn a_refused_payment_returns_the_telegram_error() {
         let replies = vec![Ok(stars_form("XTR", &[900])), Err(Error::Rpc(RpcError::parse(400, "FORM_EXPIRED")))];
-        let (client, _sent) = Client::scripted(replies);
+        let (client, _sent) = Client::scripted_raw(replies);
         let form = client.get_payment_form(InvoiceRef::Link("abc".into())).await.unwrap();
         let result = client.send_payment_form(form).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "FORM_EXPIRED"), "{result:?}");

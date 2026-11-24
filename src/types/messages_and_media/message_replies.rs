@@ -331,7 +331,7 @@ mod tests {
     const BUSINESS: u32 = 0xdd289f8e;
 
     fn seeded() -> (Client, UnboundedReceiver<Vec<u8>>, Message) {
-        let (client, rx) = Client::recording();
+        let (client, rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         client.0.caches.know_business("c", 7, 2);

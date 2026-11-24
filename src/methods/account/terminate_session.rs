@@ -17,7 +17,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_session_hash() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.terminate_session(-77).await;
         assert_eq!(sent.recv().await.unwrap(), functions::account::ResetAuthorization { hash: -77 }.to_bytes());
     }

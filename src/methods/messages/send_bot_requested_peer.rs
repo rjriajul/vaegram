@@ -77,7 +77,7 @@ mod tests {
         let update = types::UpdateNewMessage { message, pts: 1, pts_count: 1 };
         let update = base::Update::UpdateNewMessage(Box::new(update));
         let updates = types::Updates { updates: vec![update], users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
-        let (client, mut rx) = Client::scripted(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
         for id in [BOT, FRIEND] {
             client.0.peers.lock().unwrap().insert(id, user(id));
         }
@@ -98,7 +98,7 @@ mod tests {
 
     #[tokio::test]
     async fn refuses_an_empty_choice() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let none: [i64; 0] = [];
         let result = client.send_bot_requested_peer(BOT, 5, 1, none).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");

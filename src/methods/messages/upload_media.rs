@@ -350,7 +350,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_live_photo_uploads_its_photo_and_video_side_by_side() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         client.0.me.lock().unwrap().premium = Some(false);
         let media = InputMedia::live_photo(Upload::bytes("a.jpg", b"jpg"), Upload::bytes("a.mp4", b"mp4"));
         // The recording session never answers, so only parts that went out before the first failure are seen.
@@ -360,7 +360,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_url_refuses_a_file_name_without_a_request() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let peer = base::InputPeer::InputPeerEmpty;
         let url = || FileSource::url("https://example.com/a.pdf").unwrap();
         for media in [InputMedia::document(url()).file_name("b.pdf"), InputMedia::photo(url()).file_name("b.jpg")] {
@@ -372,7 +372,7 @@ mod tests {
 
     #[tokio::test]
     async fn uploads_keep_their_flags_and_the_business_connection() {
-        let (client, mut sent) = Client::scripted(vec![Ok(document_media("video/mp4", Vec::new()).to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(document_media("video/mp4", Vec::new()).to_bytes())]);
         let cover = types::InputPhoto { id: 7, access_hash: 8, file_reference: vec![9] };
         let mut uploaded = document(InputMedia::video("a.mp4"));
         uploaded.spoiler = true;
@@ -392,7 +392,7 @@ mod tests {
     #[tokio::test]
     async fn a_business_send_stores_its_upload_first() {
         let stored = document_media("application/pdf", Vec::new()).to_bytes();
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(stored)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(stored)]);
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         client.0.caches.know_business("c", 7, 2);
@@ -432,7 +432,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_uploaded_file_is_sent_without_another_upload() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let peer = base::InputPeer::InputPeerEmpty;
         let photo = UploadedFile(stored("a.jpg"));
         let media = client.input_media(&peer, &InputMedia::photo(&photo), None, None).await.unwrap();
@@ -459,7 +459,7 @@ mod tests {
     #[tokio::test]
     async fn an_uploaded_cover_and_live_video_go_through_upload_media() {
         let failed = || Err(Error::Rpc(RpcError::parse(400, "FILE_PART_0_MISSING")));
-        let (client, mut sent) = Client::scripted(vec![failed(), failed()]);
+        let (client, mut sent) = Client::scripted_raw(vec![failed(), failed()]);
         let peer = base::InputPeer::InputPeerEmpty;
         let (cover, clip) = (UploadedFile(stored("cover.jpg")), UploadedFile(stored("clip.mp4")));
 

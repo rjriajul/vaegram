@@ -52,7 +52,7 @@ mod tests {
             data: "hello".into(),
             period: 20,
         }));
-        let (client, mut sent) = Client::scripted(vec![Ok(reply.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply.to_bytes())]);
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 42, access_hash: 7 }));
         {
             client.0.peers.lock().unwrap().insert(42, peer.clone());

@@ -56,7 +56,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_previews_or_unusable_ones_are_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let peer = types::InputPeerUser { user_id: 42, access_hash: 7 };
         client.0.peers.lock().unwrap().insert(42, base::InputPeer::InputPeerUser(Box::new(peer)));
         assert!(matches!(client.delete_bot_preview_media(42, &[]).await, Err(Error::InvalidArgument(_))));

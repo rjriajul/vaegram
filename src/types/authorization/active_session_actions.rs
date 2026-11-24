@@ -37,7 +37,7 @@ mod tests {
             country: String::new(),
             region: String::new(),
         };
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = ActiveSession::parse(session).reset(&client).await;
         assert_eq!(rx.try_recv().unwrap(), functions::account::ResetAuthorization { hash: -77 }.to_bytes());
     }

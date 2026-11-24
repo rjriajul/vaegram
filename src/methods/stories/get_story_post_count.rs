@@ -25,7 +25,7 @@ mod tests {
     async fn returns_the_stories_left() {
         let reply =
             base::stories::CanSendStoryCount::CanSendStoryCount(types::stories::CanSendStoryCount { count_remains: 3 });
-        let (client, mut rx) = Client::scripted(vec![Ok(reply.to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply.to_bytes())]);
         assert_eq!(client.get_story_post_count("me").await.unwrap(), 3);
         let expected = stories::CanSendStory { peer: base::InputPeer::InputPeerSelf };
         assert_eq!(rx.try_recv().unwrap(), expected.to_bytes());
@@ -33,7 +33,7 @@ mod tests {
 
     #[tokio::test]
     async fn story_limits_come_back_as_errors() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "STORIES_TOO_MUCH")))]);
+        let (client, _rx) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "STORIES_TOO_MUCH")))]);
         let result = client.get_story_post_count("me").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "STORIES_TOO_MUCH"), "{result:?}");
     }

@@ -82,7 +82,7 @@ mod tests {
             users: Vec::new(),
         };
         let reply = base::messages::Messages::Messages(Box::new(found)).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let peer = types::InputPeerUser { user_id: 7, access_hash: 2 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(peer)));
 
@@ -95,7 +95,7 @@ mod tests {
     }
 
     fn setup(replies: Vec<Vec<u8>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(replies.into_iter().map(Ok).collect());
+        let (client, rx) = Client::scripted_raw(replies.into_iter().map(Ok).collect());
         client.0.peers.lock().unwrap().insert(7, user());
         (client, rx)
     }

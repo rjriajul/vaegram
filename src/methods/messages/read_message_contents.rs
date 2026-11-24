@@ -37,7 +37,7 @@ mod tests {
 
     #[tokio::test]
     async fn channels_use_channel_methods() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let channel = get_channel_id(9);
         let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
@@ -50,7 +50,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_ids_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert!(matches!(client.read_message_contents(-5, &[]).await, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
     }

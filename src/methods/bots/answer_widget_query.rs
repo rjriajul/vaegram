@@ -43,7 +43,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_widget_answer_data() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.answer_widget_query(42).data("{\"saved\":true}").await.unwrap();
         let request =
             functions::messages::SetBotWidgetQueryAnswer { query_id: 42, result: Some("{\"saved\":true}".into()) };

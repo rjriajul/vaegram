@@ -174,7 +174,7 @@ mod tests {
 
     #[tokio::test]
     async fn exactly_one_of_query_and_hashtag() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert!(matches!(client.search_posts().next().await, Err(Error::InvalidArgument(_))));
         let both = client.search_posts().query("rust").hashtag("rust").next().await;
         assert!(matches!(both, Err(Error::InvalidArgument(_))));
@@ -214,7 +214,7 @@ mod tests {
             users: Vec::new(),
         };
         let reply = base::messages::Messages::MessagesSlice(Box::new(page)).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let mut posts = client.search_posts().hashtag("rust").limit(0);
         assert_eq!(posts.total().await.unwrap(), 7);
         assert_eq!(posts.next_rate().await.unwrap(), Some(5));

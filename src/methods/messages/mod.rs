@@ -271,7 +271,7 @@ mod saved_tests {
     const USER: i64 = 7;
 
     fn setup(answers: Vec<Vec<u8>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(answers.into_iter().map(Ok).collect());
+        let (client, rx) = Client::scripted_raw(answers.into_iter().map(Ok).collect());
         let peer = types::InputPeerUser { user_id: USER, access_hash: 2 };
         client.0.peers.lock().unwrap().insert(USER, base::InputPeer::InputPeerUser(Box::new(peer)));
         (client, rx)
@@ -428,7 +428,7 @@ mod saved_tests {
 
     #[tokio::test]
     async fn an_unread_message_has_no_read_date() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "MESSAGE_NOT_READ_YET")))]);
+        let (client, _rx) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "MESSAGE_NOT_READ_YET")))]);
         client.0.peers.lock().unwrap().insert(USER, user());
         assert_eq!(client.get_message_read_date(USER, 3).await.ok(), Some(None));
     }
@@ -624,7 +624,7 @@ mod search_tests {
 
     #[tokio::test]
     async fn each_call_sends_its_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let channel = get_channel_id(9);
         let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
@@ -684,7 +684,7 @@ mod reaction_tests {
     const USER: i64 = 7;
 
     fn setup(answers: Vec<Vec<u8>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(answers.into_iter().map(Ok).collect());
+        let (client, rx) = Client::scripted_raw(answers.into_iter().map(Ok).collect());
         let peer = types::InputPeerUser { user_id: USER, access_hash: 2 };
         client.0.peers.lock().unwrap().insert(USER, base::InputPeer::InputPeerUser(Box::new(peer)));
         (client, rx)
@@ -826,7 +826,7 @@ mod media_group_tests {
 
     #[tokio::test]
     async fn non_positive_ids_are_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         for id in [0, -1] {
             let result = client.get_media_group(GROUP, id).await;
             assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
@@ -836,7 +836,7 @@ mod media_group_tests {
 
     #[tokio::test]
     async fn the_window_covers_nine_ids_either_side() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.get_media_group(GROUP, 3).await;
         assert_eq!(rx.try_recv().unwrap(), get_messages(1..=12));
         let _ = client.get_media_group(GROUP, 20).await;
@@ -852,14 +852,14 @@ mod media_group_tests {
 
     #[tokio::test]
     async fn returns_only_the_anchors_album_in_order() {
-        let (client, _rx) = Client::scripted(vec![Ok(found(album()))]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(found(album()))]);
         assert_eq!(ids(&client.get_media_group(GROUP, 11).await.unwrap()), [10, 11]);
     }
 
     #[tokio::test]
     async fn a_missing_or_ungrouped_anchor_is_refused() {
         let ungrouped = found(vec![item(13, GROUP, None, "")]);
-        let (client, _rx) = Client::scripted(vec![Ok(found(album())), Ok(ungrouped)]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(found(album())), Ok(ungrouped)]);
         let missing = client.get_media_group(GROUP, 13).await;
         assert!(matches!(missing, Err(Error::InvalidArgument("no message with this id"))), "{missing:?}");
         let ungrouped = client.get_media_group(GROUP, 13).await;
@@ -870,7 +870,7 @@ mod media_group_tests {
     #[tokio::test]
     async fn forwards_the_whole_album() {
         let replies = vec![Ok(found(album())), Ok(new_messages(&[21, 20])), Ok(found(album()))];
-        let (client, mut rx) = Client::scripted(replies);
+        let (client, mut rx) = Client::scripted_raw(replies);
         assert_eq!(ids(&client.forward_media_group(GROUP, GROUP, 11).await.unwrap()), [20, 21]);
         rx.try_recv().unwrap();
         let body = rx.try_recv().unwrap();
@@ -893,7 +893,7 @@ mod media_group_tests {
         let resolved = types::contacts::ResolvedPeer { peer, chats: Vec::new(), users: Vec::new() };
         let resolved = base::contacts::ResolvedPeer::ResolvedPeer(Box::new(resolved)).to_bytes();
         let replies = vec![Ok(resolved), Ok(found(album())), Ok(new_messages(&[20, 21]))];
-        let (client, mut rx) = Client::scripted(replies);
+        let (client, mut rx) = Client::scripted_raw(replies);
         assert_eq!(ids(&client.forward_media_group(GROUP, "@group", 11).await.unwrap()), [20, 21]);
         let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).map(|body| word(&body, 0)).collect();
         let expected = [
@@ -908,7 +908,7 @@ mod media_group_tests {
     async fn copies_the_album_with_a_new_caption() {
         let mut source = album();
         source[2].invert_media = true;
-        let (client, mut rx) = Client::scripted(vec![Ok(found(source)), Ok(new_messages(&[21, 20]))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(found(source)), Ok(new_messages(&[21, 20]))]);
         let copied = client.copy_media_group(GROUP, GROUP, 10).caption(1, Text::new().bold("new")).await.unwrap();
         assert_eq!(ids(&copied), [20, 21]);
         rx.try_recv().unwrap();
@@ -923,7 +923,7 @@ mod media_group_tests {
     #[tokio::test]
     async fn bad_copies_are_refused_before_sending() {
         let ungrouped = found(vec![item(13, GROUP, None, "")]);
-        let (client, mut rx) = Client::scripted(vec![Ok(found(album())), Ok(ungrouped)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(found(album())), Ok(ungrouped)]);
         let past_the_end = client.copy_media_group(GROUP, GROUP, 10).caption(2, "x").await;
         assert!(matches!(past_the_end, Err(Error::InvalidArgument(_))), "{past_the_end:?}");
         let ungrouped = client.copy_media_group(GROUP, GROUP, 13).await;

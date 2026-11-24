@@ -108,7 +108,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_none_all_or_the_listed_reactions() {
-        let (client, mut sent) = Client::scripted(vec![done(), done(), done()]);
+        let (client, mut sent) = Client::scripted_raw(vec![done(), done(), done()]);
         client.set_chat_available_reactions(-5_i64).await.unwrap();
         client.set_chat_available_reactions(-5_i64).all(true).await.unwrap();
         let call = client.set_chat_available_reactions(-5_i64).reaction("👍").reaction(ReactionType::CustomEmoji(7));
@@ -127,7 +127,7 @@ mod tests {
 
     #[tokio::test]
     async fn all_together_with_a_list_is_refused_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         let result = client.set_chat_available_reactions(-5_i64).all(false).reaction("👍").await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(sent.try_recv().is_err());

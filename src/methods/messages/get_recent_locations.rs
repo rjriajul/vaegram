@@ -33,7 +33,7 @@ mod tests {
             users: Vec::new(),
         };
         let (client, mut rx) =
-            Client::scripted(vec![Ok(base::messages::Messages::Messages(Box::new(found)).to_bytes())]);
+            Client::scripted_raw(vec![Ok(base::messages::Messages::Messages(Box::new(found)).to_bytes())]);
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, user.clone());
 
@@ -44,7 +44,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_limit_past_i32_max_saturates() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, user.clone());
 

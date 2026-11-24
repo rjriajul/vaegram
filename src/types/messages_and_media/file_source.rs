@@ -153,7 +153,7 @@ mod tests {
     #[tokio::test]
     async fn sends_stored_ids_and_keeps_telegram_errors() {
         let expired = || Err(Error::Rpc(RpcError::parse(400, "FILE_REFERENCE_EXPIRED")));
-        let (client, mut sent) = Client::scripted(vec![expired(), expired()]);
+        let (client, mut sent) = Client::scripted_raw(vec![expired(), expired()]);
         let file_reference = FileId::decode(PHOTO).unwrap().file_reference;
 
         let result = client.send_photo(-5, FileSource::file_id(PHOTO).unwrap()).caption("again").await;
@@ -197,7 +197,7 @@ mod tests {
             assert!(matches!(e, Some(Error::InvalidArgument(_))), "{file_id}: {e:?}");
         }
 
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let e = client.send_photo(-5, FileSource::file_id(DOCUMENT).unwrap()).await.err();
         assert!(matches!(e, Some(Error::InvalidArgument(_))), "{e:?}");
         let e = client.send_document(-5, FileSource::file_id(PHOTO).unwrap()).await.err();
@@ -208,7 +208,7 @@ mod tests {
     #[tokio::test]
     async fn sends_urls_as_external_media_and_keeps_fetch_errors() {
         let failed = || Err(Error::Rpc(RpcError::parse(400, "WEBPAGE_CURL_FAILED")));
-        let (client, mut sent) = Client::scripted(vec![failed(), failed()]);
+        let (client, mut sent) = Client::scripted_raw(vec![failed(), failed()]);
         let url = "https://example.com/cat.jpg";
 
         let result = client.send_photo(-5, FileSource::url(url).unwrap()).await;
@@ -236,7 +236,7 @@ mod tests {
             assert!(matches!(e, Some(Error::InvalidArgument(_))), "{url}: {e:?}");
         }
 
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let url = || FileSource::url("https://example.com/a.ogg").unwrap();
         let errors = [
             client.send_live_photo(-5, url(), FileSource::file_id(DOCUMENT).unwrap()).await.err(),
@@ -258,7 +258,7 @@ mod tests {
     #[tokio::test]
     async fn sends_uploaded_files_and_keeps_telegram_errors() {
         let missing = || Err(Error::Rpc(RpcError::parse(400, "FILE_PART_0_MISSING")));
-        let (client, mut sent) = Client::scripted(vec![missing(), missing(), missing()]);
+        let (client, mut sent) = Client::scripted_raw(vec![missing(), missing(), missing()]);
         let input = |name: &str| {
             let file = types::InputFile { id: 7, parts: 1, name: name.into(), md5_checksum: String::new() };
             base::InputFile::InputFile(Box::new(file))

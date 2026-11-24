@@ -95,7 +95,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_page_ends_the_list_and_keeps_the_offset() {
-        let (client, mut sent) = Client::scripted(vec![not_modified(4)]);
+        let (client, mut sent) = Client::scripted_raw(vec![not_modified(4)]);
         let user = types::InputPeerUser { user_id: 7, access_hash: 3 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let mut audios = client.get_user_profile_audios(7).offset(2).limit(5);

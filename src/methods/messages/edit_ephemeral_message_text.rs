@@ -148,7 +148,7 @@ mod tests {
 
     #[tokio::test]
     async fn refuses_text_and_media_together() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let edit = client.edit_ephemeral_message_media(-5, "me", 3, InputMedia::photo("cat.jpg")).text("x".into());
         assert!(matches!(edit.await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
@@ -156,7 +156,7 @@ mod tests {
 
     #[tokio::test]
     async fn rich_text_goes_to_rich_message() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let edit = client.edit_ephemeral_message_text("me", "me", 3, InputRichMessage::html("<b>hi</b>"));
         assert!(edit.await.is_err());
         let body = rx.try_recv().expect("no request sent");
@@ -169,7 +169,7 @@ mod tests {
     #[tokio::test]
     async fn media_edits_carry_the_caption_of_the_media() {
         const PHOTO: &str = "AgACAgIAAxkBAAIENGfeY4AfRquwTL2LpDrzqvFMVNt_AAIG9DEbXX3wSq3oI7t_PqQGAQADAgADbQADNgQ";
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let photo = FileSource::file_id(PHOTO).unwrap();
         let media = InputMedia::photo(photo.clone()).caption("<b>new</b>").html().show_caption_above_media();
         let _ = client.edit_ephemeral_message_media(-5, "me", 3, media).await;

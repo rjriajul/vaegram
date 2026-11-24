@@ -115,7 +115,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_business_album_goes_through_the_connection() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.0.caches.know_business("conn", 7, 2);
         let photo = || InputMedia::photo(FileSource::file_id(PHOTO).unwrap());
         let album = client.send_media_group(-5, [photo(), photo()]).business_connection_id("conn");
@@ -127,7 +127,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_album_refuses_a_repeat_period() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let photo = || InputMedia::photo(FileSource::file_id(PHOTO).unwrap());
         let album = client.send_media_group(-5, [photo(), photo()]).schedule_date(1_900_000_000);
         let result = album.schedule_repeat_period(86_400).await;

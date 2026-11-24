@@ -46,7 +46,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("vaegram-disconnect-file-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let (mut client, _sent) = Client::scripted(Vec::new());
+        let (mut client, _sent) = Client::scripted_raw(Vec::new());
         Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
         client.0.me.lock().unwrap().id = 1001;
         client.save().await.unwrap();

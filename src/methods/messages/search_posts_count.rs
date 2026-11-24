@@ -43,7 +43,7 @@ mod tests {
             users: Vec::new(),
         };
         let page = base::messages::Messages::ChannelMessages(Box::new(page));
-        let (client, mut rx) = Client::scripted(vec![Ok(page.to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(page.to_bytes())]);
         assert_eq!(client.search_posts_count("#rust").await.unwrap(), 42);
         let expected = functions::channels::SearchPosts {
             hashtag: Some("rust".into()),
@@ -59,7 +59,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_hashtag_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         for hashtag in ["", "#"] {
             let result = client.search_posts_count(hashtag).await;
             assert!(matches!(result, Err(Error::InvalidArgument(_))), "{hashtag}: {result:?}");

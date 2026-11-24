@@ -206,7 +206,7 @@ mod tests {
             base::ChatFull::ChannelFull(full.into()),
             vec![raw_channel(9, "main"), raw_channel(11, "linked")],
         );
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let chat = client.get_chat(known_channel(&client, 9)).await.unwrap();
         rx.try_recv().expect("the full chat request");
         assert!(rx.try_recv().is_err(), "get_chat sent a second request");
@@ -255,7 +255,7 @@ mod tests {
             reactions_limit: Some(11),
         };
         let reply = chat_full_reply(base::ChatFull::ChatFull(full.into()), Vec::new());
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let chat = client.get_chat(GROUP).await.unwrap();
         rx.try_recv().expect("the full chat request");
         assert!(rx.try_recv().is_err());
@@ -279,7 +279,7 @@ mod tests {
         channel.participants_count = Some(40);
         let full = base::ChatFull::ChannelFull(channel_full(9).into());
         let reply = chat_full_reply(full, vec![base::Chat::Channel(channel)]);
-        let (client, _rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(reply)]);
         let chat = client.get_chat(known_channel(&client, 9)).await.unwrap();
         assert_eq!(chat.members_count, Some(40));
     }
@@ -331,7 +331,7 @@ mod tests {
             users: vec![base::User::User(user.into())],
         };
         let reply = base::users::UserFull::UserFull(reply.into()).to_bytes();
-        let (client, _rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(reply)]);
         let peer = types::InputPeerUser { user_id: USER, access_hash: 77 };
         client.0.peers.lock().unwrap().insert(USER, base::InputPeer::InputPeerUser(Box::new(peer)));
         let chat = client.get_chat(USER).await.unwrap();
@@ -374,7 +374,7 @@ mod tests {
             chats: Vec::new(),
             users: vec![base::User::User(user.into())],
         };
-        let (client, _rx) = Client::scripted(vec![Ok(base::users::UserFull::UserFull(reply.into()).to_bytes())]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(base::users::UserFull::UserFull(reply.into()).to_bytes())]);
         let peer = types::InputPeerUser { user_id: USER, access_hash: 77 };
         client.0.peers.lock().unwrap().insert(USER, base::InputPeer::InputPeerUser(Box::new(peer)));
         client.get_chat(USER).await.unwrap()
@@ -472,7 +472,7 @@ mod tests {
             users: vec![raw_user(USER, 77)],
         };
         let reply = base::users::UserFull::UserFull(reply.into()).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let user = types::InputPeerUser { user_id: USER, access_hash: 77 };
         client.0.peers.lock().unwrap().insert(USER, base::InputPeer::InputPeerUser(Box::new(user)));
         let chat = client.get_chat(USER).await.unwrap();
@@ -509,7 +509,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatches_on_chat_id_kind() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let channel = get_channel_id(9);
         {
             let mut peers = client.0.peers.lock().unwrap();
@@ -573,7 +573,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_a_user_id_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: USER, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(USER, base::InputPeer::InputPeerUser(Box::new(user)));
         assert!(matches!(client.leave_chat(USER).await, Err(Error::InvalidArgument(_))));
@@ -585,7 +585,7 @@ mod tests {
     #[tokio::test]
     async fn server_peer_id_invalid_stays_an_rpc_error() {
         let refused = crate::errors::RpcError::parse(400, "PEER_ID_INVALID");
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(refused))]);
+        let (client, _sent) = Client::scripted_raw(vec![Err(Error::Rpc(refused))]);
         let result = client.leave_chat(GROUP).await;
         assert!(matches!(result, Err(Error::Rpc(e)) if e.name == "PEER_ID_INVALID"));
     }

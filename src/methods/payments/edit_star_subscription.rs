@@ -29,7 +29,7 @@ mod tests {
     #[tokio::test]
     async fn cancels_and_restores() {
         let replies = vec![Ok(true.to_bytes()), Ok(true.to_bytes())];
-        let (client, mut sent) = Client::scripted(replies);
+        let (client, mut sent) = Client::scripted_raw(replies);
         for canceled in [true, false] {
             client.edit_star_subscription("sub1", canceled).await.unwrap();
             let request = functions::payments::ChangeStarsSubscription {
@@ -43,14 +43,15 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_id_is_refused_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         assert!(matches!(client.edit_star_subscription("", true).await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
     }
 
     #[tokio::test]
     async fn rpc_errors_come_back_unchanged() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "SUBSCRIPTION_ID_INVALID")))]);
+        let (client, _sent) =
+            Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "SUBSCRIPTION_ID_INVALID")))]);
         let result = client.edit_star_subscription("sub1", true).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "SUBSCRIPTION_ID_INVALID"), "{result:?}");
     }

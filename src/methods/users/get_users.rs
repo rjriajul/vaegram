@@ -45,7 +45,7 @@ mod tests {
     async fn a_user_saved_in_an_earlier_run_goes_out_with_its_hash() {
         let engine = Arc::new(MemoryStorage::new());
         engine.update_peers(&[PeerRecord::new(777, 5)]).await.unwrap();
-        let (mut client, mut sent) = Client::scripted(vec![Err(Error::Unexpected("offline"))]);
+        let (mut client, mut sent) = Client::scripted_raw(vec![Err(Error::Unexpected("offline"))]);
         Arc::get_mut(&mut client.0).unwrap().set_store(engine);
         let _ = client.get_users([777, 778]).await;
         let user =
@@ -59,7 +59,7 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_id_is_none_in_its_slot() {
         let found = vec![user(777)];
-        let (client, _sent) = Client::scripted(vec![Ok(found.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(found.to_bytes())]);
         let users = client.get_users([777, 778]).await.unwrap();
         let ids: Vec<Option<i64>> = users.iter().map(|user| user.as_ref().map(|user| user.id)).collect();
         assert_eq!(ids, [Some(777), None]);

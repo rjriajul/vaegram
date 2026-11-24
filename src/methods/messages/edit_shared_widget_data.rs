@@ -42,7 +42,7 @@ mod tests {
     };
     #[tokio::test]
     async fn sends_shared_widget_data_and_cache_time() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.edit_shared_widget_data(42, "data").cache_time(60).await.unwrap();
         assert_eq!(
             sent.try_recv().unwrap(),

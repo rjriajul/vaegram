@@ -35,7 +35,7 @@ mod tests {
     async fn returns_the_stored_welcome_messages() {
         let list = types::ephemeral::WelcomeMessages { hash: 1, messages: vec![ephemeral(false, Some(channel()))] };
         let reply = base::ephemeral::WelcomeMessages::WelcomeMessages(Box::new(list)).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let messages = client.get_welcome_messages(-5_i64).await.unwrap();
         assert_eq!(rx.try_recv().unwrap(), request());
         assert_eq!(messages.len(), 1);
@@ -47,7 +47,7 @@ mod tests {
     async fn not_modified_means_no_messages() {
         // Hash 0 never matches, so this reply only comes from an odd server; there's nothing to return.
         let reply = base::ephemeral::WelcomeMessages::WelcomeMessagesNotModified.to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         assert!(client.get_welcome_messages(-5_i64).await.unwrap().is_empty());
         assert_eq!(rx.try_recv().unwrap(), request());
     }

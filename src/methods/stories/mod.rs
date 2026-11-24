@@ -47,7 +47,7 @@ mod tests {
 
     #[tokio::test]
     async fn reaction_none_sends_empty_reaction() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.send_story_reaction(0_i64, 7).await;
         let expected = stories::SendReaction {
             add_to_recent: true,
@@ -64,7 +64,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_story_id_lists_are_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let results = (
             matches!(client.get_stories(0_i64, &[]).await, Err(Error::InvalidArgument(_))),
             matches!(client.view_stories(0_i64, &[]).await, Err(Error::InvalidArgument(_))),
@@ -128,7 +128,7 @@ mod tests {
 
     #[tokio::test]
     async fn custom_emoji_reactions_are_sent() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.send_story_reaction(0_i64, 7).reaction(ReactionType::CustomEmoji(5)).await;
         let emoji = types::ReactionCustomEmoji { document_id: 5 };
         let expected = stories::SendReaction {
@@ -280,7 +280,7 @@ mod tests {
 
     #[tokio::test]
     async fn edits_and_pins_send_only_what_changes() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let channel = known_channel(&client);
 
         let _ = client.edit_story_caption(channel, 3, "<i>new</i>").html().await;
@@ -341,7 +341,7 @@ mod tests {
             seq: 0,
         };
         let reply = base::Updates::Updates(Box::new(updates)).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let channel = known_channel(&client);
 
         let story = client.edit_story_privacy(channel, 4, StoriesPrivacyRules::CloseFriends).await.unwrap();

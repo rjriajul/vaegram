@@ -29,7 +29,7 @@ mod tests {
         };
         let list = types::stories::Albums { hash: 5, albums: vec![album(1, "Trips"), album(2, "Pets")] };
         let reply = base::stories::Albums::Albums(Box::new(list)).to_bytes();
-        let (client, mut sent) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply)]);
 
         let found = client.get_story_albums("me").await.unwrap();
         let expected = |id, title: &str| StoryAlbum { id, title: title.into(), icon_photo: None, icon_video: None };
@@ -41,7 +41,7 @@ mod tests {
     #[tokio::test]
     async fn not_modified_is_an_empty_list() {
         let reply = base::stories::Albums::AlbumsNotModified.to_bytes();
-        let (client, _sent) = Client::scripted(vec![Ok(reply)]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(reply)]);
         assert!(client.get_story_albums("me").await.unwrap().is_empty());
     }
 }

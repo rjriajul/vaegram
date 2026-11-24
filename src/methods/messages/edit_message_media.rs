@@ -99,7 +99,7 @@ mod tests {
 
     #[tokio::test]
     async fn stored_files_carry_the_new_flags() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let video = InputMedia::video(FileSource::file_id(DOCUMENT).unwrap())
             .cover(FileSource::file_id(PHOTO).unwrap())
             .start_timestamp(3)
@@ -135,7 +135,7 @@ mod tests {
 
     #[tokio::test]
     async fn bad_media_fails_without_a_request() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let id = types::InputBotInlineMessageID { dc_id: 2, id: 1, access_hash: 1 };
         let id = || InlineMessageId(base::InputBotInlineMessageID::InputBotInlineMessageID(Box::new(id.clone())));
         let upload = client.edit_inline_media(id(), InputMedia::photo("cat.jpg")).await;

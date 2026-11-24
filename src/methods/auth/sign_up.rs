@@ -34,7 +34,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_names_with_the_code_hash() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.sign_up("8801", "hash", "Ada", "").await;
         let expected = functions::auth::SignUp {
             no_joined_notifications: false,

@@ -47,7 +47,7 @@ mod tests {
         let list = types::messages::Stickers { hash: 6, stickers: vec![sticker(1), sticker(2)] };
         let found = base::messages::Stickers::Stickers(Box::new(list));
         let unchanged = base::messages::Stickers::StickersNotModified;
-        let (client, mut sent) = Client::scripted(vec![Ok(found.to_bytes()), Ok(unchanged.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(found.to_bytes()), Ok(unchanged.to_bytes())]);
         let stickers = client.get_stickers("🐱").await.unwrap();
         assert_eq!(stickers.iter().map(|s| s.id).collect::<Vec<_>>(), [1, 2]);
         assert!(client.get_stickers("🐱").await.unwrap().is_empty());

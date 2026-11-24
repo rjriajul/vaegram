@@ -111,7 +111,7 @@ mod tests {
 
     #[tokio::test]
     async fn each_kind_sends_its_function() {
-        let (client, mut sent) = Client::scripted(vec![Ok(sms_code("a", None)), Ok(sms_code("b", None))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(sms_code("a", None)), Ok(sms_code("b", None))]);
         let kind = |k| client.send_phone_number_code("8802").kind(k);
         let change = kind(PhoneNumberCodeType::Change).await.unwrap();
         let verify = kind(PhoneNumberCodeType::Verify).await.unwrap();
@@ -131,7 +131,7 @@ mod tests {
             .allow_flash_call(true)
             .is_current_phone_number(true)
             .authentication_tokens([vec![1, 2]]);
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.send_phone_number_code("8801").settings(settings.clone()).await;
         let expected = functions::auth::SendCode {
             phone_number: "8801".into(),
@@ -144,7 +144,7 @@ mod tests {
 
     #[tokio::test]
     async fn recaptcha_wraps_the_call() {
-        let (client, mut sent) = Client::scripted(vec![Ok(sms_code("a", None))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(sms_code("a", None))]);
         client.send_phone_number_code("8802").kind(PhoneNumberCodeType::Verify).recaptcha_token("tok").await.unwrap();
         let inner =
             functions::account::SendVerifyPhoneCode { phone_number: "8802".into(), settings: default_settings() };
@@ -156,7 +156,7 @@ mod tests {
     async fn only_a_login_code_migrates() {
         // A change or verify code answered with a migration is handed back untouched.
         let migrate = || Err(Error::Rpc(RpcError::parse(303, "PHONE_MIGRATE_2")));
-        let (client, mut sent) = Client::scripted(vec![migrate()]);
+        let (client, mut sent) = Client::scripted_raw(vec![migrate()]);
         let result = client.send_phone_number_code("8802").kind(PhoneNumberCodeType::Change).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "PHONE_MIGRATE"), "{result:?}");
         sent.recv().await.unwrap();

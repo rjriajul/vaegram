@@ -68,7 +68,7 @@ mod tests {
 
     #[tokio::test]
     async fn revoke_defaults_to_everyone_and_can_be_turned_off() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.delete_messages(7, &[4]).await;
         let both = functions::messages::DeleteMessages { revoke: true, id: vec![4] };
         assert_eq!(sent.recv().await.unwrap(), both.to_bytes());

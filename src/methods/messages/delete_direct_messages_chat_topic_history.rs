@@ -89,7 +89,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_topic_history_sends_dates() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         for id in [9, 5] {
             client.0.peers.lock().unwrap().insert(id, user(id));
         }

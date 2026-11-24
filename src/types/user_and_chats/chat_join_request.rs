@@ -148,7 +148,7 @@ mod tests {
 
     #[tokio::test]
     async fn guard_bot_requests_answer_the_query() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let channel = types::InputPeerChannel { channel_id: 42, access_hash: 1 };
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(get_channel_id(42), base::InputPeer::InputPeerChannel(Box::new(channel)));

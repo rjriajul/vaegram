@@ -187,7 +187,7 @@ mod tests {
 
     #[tokio::test]
     async fn chat_helpers_target_their_chat() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let chat = cached(&client);
         let rx = &mut rx;
         let privileges = ChatPrivileges::default();
@@ -249,7 +249,7 @@ mod tests {
 
     #[tokio::test]
     async fn listening_helpers_scope_to_the_chat() {
-        let (client, _rx) = Client::recording();
+        let (client, _rx) = Client::recording_raw();
         let chat = cached(&client);
         assert_eq!(chat.stop_listening::<Message>(&client).await.unwrap(), 0);
     }

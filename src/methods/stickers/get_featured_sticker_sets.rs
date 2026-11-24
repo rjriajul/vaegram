@@ -103,7 +103,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_offset_asks_for_older_sets() {
-        let (client, mut rx) = Client::scripted(vec![none(), none(), none()]);
+        let (client, mut rx) = Client::scripted_raw(vec![none(), none(), none()]);
         client.get_featured_sticker_sets().limit(5).await.unwrap();
         client.get_featured_sticker_sets().offset(20).limit(10).await.unwrap();
         client.get_featured_sticker_sets().offset(0).await.unwrap();
@@ -114,7 +114,7 @@ mod tests {
 
     #[tokio::test]
     async fn custom_emoji_with_an_offset_is_refused() {
-        let (client, mut rx) = Client::scripted(Vec::new());
+        let (client, mut rx) = Client::scripted_raw(Vec::new());
         let refused = client.get_featured_sticker_sets().custom_emoji().offset(20).await;
         assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
         let refused = client.get_featured_sticker_sets().offset(0).custom_emoji().await;
@@ -158,7 +158,7 @@ mod tests {
 
     #[tokio::test]
     async fn older_sets_are_read_page_by_page_up_to_the_count() {
-        let (client, mut rx) = Client::scripted(vec![featured(3, &[11, 12]), featured(3, &[13])]);
+        let (client, mut rx) = Client::scripted_raw(vec![featured(3, &[11, 12]), featured(3, &[13])]);
         let sets = client.get_featured_sticker_sets().offset(0).await.unwrap();
         assert_eq!(sets.iter().map(|s| s.id).collect::<Vec<_>>(), [11, 12, 13]);
         let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();

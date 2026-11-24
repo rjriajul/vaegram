@@ -19,7 +19,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_false_answer_is_ok() {
-        let (client, mut sent) = Client::scripted(vec![Ok(false.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(false.to_bytes())]);
         client.update_status(true).await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), account::UpdateStatus { offline: true }.to_bytes());
     }

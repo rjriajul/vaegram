@@ -26,7 +26,7 @@ mod tests {
 
     #[tokio::test]
     async fn asks_for_the_gift_by_its_name() {
-        let (client, mut sent) = Client::scripted(vec![Ok(reply())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply())]);
         let gift = client.get_unique_gift("PlushPepe-3").await.unwrap();
         assert_eq!((gift.name.as_str(), gift.number), ("PlushPepe-3", 3));
         let request = functions::payments::GetUniqueStarGift { slug: "PlushPepe-3".into() };

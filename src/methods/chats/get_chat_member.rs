@@ -81,7 +81,7 @@ mod tests {
         }
         users.extend_from_slice(&USER.to_le_bytes());
         users.extend_from_slice(b"\x03Ann");
-        let (client, mut sent) = Client::scripted(vec![Err(Error::Rpc(refused)), Ok(users)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Err(Error::Rpc(refused)), Ok(users)]);
         let channel = get_channel_id(9);
         {
             let mut peers = client.0.peers.lock().unwrap();
@@ -103,7 +103,7 @@ mod tests {
     #[tokio::test]
     async fn non_member_channel_is_left_without_a_user_lookup() {
         let refused = crate::errors::RpcError::parse(400, "USER_NOT_PARTICIPANT");
-        let (client, mut sent) = Client::scripted(vec![Err(Error::Rpc(refused))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Err(Error::Rpc(refused))]);
         let (group, sender) = (get_channel_id(9), get_channel_id(11));
         {
             let mut peers = client.0.peers.lock().unwrap();
@@ -136,7 +136,7 @@ mod tests {
         0u32.serialize(&mut full);
         Vec::<i64>::new().serialize(&mut full);
         Vec::<i64>::new().serialize(&mut full);
-        let (client, _sent) = Client::scripted(vec![Ok(full), Ok(Vec::<i64>::new().to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(full), Ok(Vec::<i64>::new().to_bytes())]);
         let member = client.get_chat_member(-5, 777).await.unwrap();
         assert_eq!((member.status, member.is_member, member.user.id), (ChatMemberStatus::Left, false, 777));
     }

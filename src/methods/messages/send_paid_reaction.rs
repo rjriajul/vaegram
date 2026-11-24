@@ -76,7 +76,7 @@ mod tests {
     use crate::raw::{Serializable, base, types};
 
     async fn recorded(privacy: Option<PaidReactionPrivacy>) -> Vec<u8> {
-        let (client, mut rx) = crate::Client::recording();
+        let (client, mut rx) = crate::Client::recording_raw();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let mut request = client.send_paid_reaction(7, 1, 5);
@@ -127,7 +127,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_stars_is_refused_without_a_request() {
-        let (client, mut rx) = crate::Client::scripted(Vec::new());
+        let (client, mut rx) = crate::Client::scripted_raw(Vec::new());
         for stars in [0, -1, i64::from(i32::MAX) + 1] {
             assert!(matches!(client.send_paid_reaction(7, 1, stars).await, Err(Error::InvalidArgument(_))));
         }

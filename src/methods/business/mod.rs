@@ -78,7 +78,7 @@ mod tests {
 
     #[tokio::test]
     async fn settings_requests() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let rx = &mut rx;
 
         let hours = BusinessOpeningHours::new("Europe/Berlin", [(540, 1020)]);
@@ -116,7 +116,7 @@ mod tests {
             users: Vec::new(),
         };
         let answer = base::messages::QuickReplies::QuickReplies(Box::new(replies)).to_bytes();
-        let (client, _rx) = Client::scripted(vec![Ok(answer)]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(answer)]);
         let expected = QuickReply { shortcut_id: 4, shortcut: "hello".into(), top_message: 9, count: 2 };
         assert_eq!(client.get_quick_replies().await.unwrap(), [expected]);
     }
@@ -126,7 +126,7 @@ mod tests {
     }
 
     fn recording_client() -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::recording();
+        let (client, rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 42, access_hash: 7 };
         client.0.peers.lock().unwrap().insert(42, base::InputPeer::InputPeerUser(Box::new(user)));
         (client, rx)
@@ -213,7 +213,7 @@ mod tests {
             base::Update::UpdateBotBusinessConnect(Box::new(types::UpdateBotBusinessConnect { connection, qts: 0 }));
         let connected = base::Updates::UpdateShort(Box::new(types::UpdateShort { update, date: 0 })).to_bytes();
         let replies = vec![Ok(connected), Ok(vec![1_i32].to_bytes()), Ok(vec![2_i32].to_bytes())];
-        let (client, mut rx) = Client::scripted(replies);
+        let (client, mut rx) = Client::scripted_raw(replies);
         let user = types::InputPeerUser { user_id: 42, access_hash: 7 };
         client.0.peers.lock().unwrap().insert(42, base::InputPeer::InputPeerUser(Box::new(user)));
         client.delete_business_story("c", 1).await.unwrap();
@@ -274,7 +274,7 @@ mod tests {
             users: Vec::new(),
         };
         let answer = base::messages::Messages::Messages(Box::new(found)).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(answer.clone()), Ok(answer)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(answer.clone()), Ok(answer)]);
 
         let all = client.get_quick_reply_messages(4).await.unwrap();
         let request = messages::GetQuickReplyMessages { shortcut_id: 4, id: None, hash: 0 };
@@ -297,7 +297,7 @@ mod tests {
             base::Update::UpdateNewQuickReply(Box::new(created)),
             base::Update::UpdateQuickReplyMessage(Box::new(added)),
         ]);
-        let (client, mut rx) = Client::scripted(vec![Ok(answer)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(answer)]);
         let message = client.add_quick_reply_message("hello", "<b>hi</b>").html().await.unwrap();
         assert_eq!((message.id, message.text(), message.quick_reply_shortcut_id()), (9, "hi", Some(4)));
 
@@ -339,7 +339,7 @@ mod tests {
     async fn editing_a_quick_reply_message_names_its_shortcut() {
         let edited = types::UpdateQuickReplyMessage { message: quick_reply_raw(9, "hey") };
         let answer = quick_reply_answer(vec![base::Update::UpdateQuickReplyMessage(Box::new(edited))]);
-        let (client, mut rx) = Client::scripted(vec![Ok(answer)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(answer)]);
         let message = client.edit_quick_reply_message(4, 9, "hey").await.unwrap();
         assert_eq!((message.id, message.text(), message.quick_reply_shortcut_id()), (9, "hey", Some(4)));
 
@@ -362,7 +362,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_quick_reply_answer_without_the_message_fails() {
-        let (client, _rx) = Client::scripted(vec![Ok(quick_reply_answer(Vec::new()))]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(quick_reply_answer(Vec::new()))]);
         assert!(matches!(client.edit_quick_reply_message(4, 9, "hey").await, Err(Error::Unexpected(_))));
     }
 
@@ -398,7 +398,7 @@ mod tests {
             (Some(false), Some(no_unique), privacy(false, Some(no_unique))),
         ];
         for (show_gift_button, accepted, settings) in cases {
-            let (client, mut rx) = Client::scripted(vec![Ok(current.to_bytes())]);
+            let (client, mut rx) = Client::scripted_raw(vec![Ok(current.to_bytes())]);
             client.0.caches.know_business("c", 7, 2);
             let mut request = client.set_business_account_gift_settings("c");
             if let Some(show) = show_gift_button {
@@ -442,7 +442,7 @@ mod tests {
         let mut caption = String::from("hi").to_bytes();
         caption.extend(bold.to_bytes());
         for edit in [true, false] {
-            let (client, mut rx) = Client::scripted(vec![Ok(connected.clone()), Ok(true.to_bytes())]);
+            let (client, mut rx) = Client::scripted_raw(vec![Ok(connected.clone()), Ok(true.to_bytes())]);
             let user = types::InputPeerUser { user_id: 42, access_hash: 7 };
             client.0.peers.lock().unwrap().insert(42, base::InputPeer::InputPeerUser(Box::new(user)));
             let photo = InputStoryContent::photo(Upload::bytes("a.jpg", b"x"));

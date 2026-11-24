@@ -41,7 +41,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("vaegram-close-file-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let (mut client, _sent) = Client::scripted(Vec::new());
+        let (mut client, _sent) = Client::scripted_raw(Vec::new());
         Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
         client.0.me.lock().unwrap().id = 1001;
         client.save().await.unwrap();
@@ -65,7 +65,7 @@ mod tests {
     // On this `current_thread` runtime the task that lets the save through runs only if `close` yields to it.
     #[tokio::test]
     async fn close_awaits_the_save_without_blocking_the_runtime() {
-        let (mut client, _sent) = Client::scripted(Vec::new());
+        let (mut client, _sent) = Client::scripted_raw(Vec::new());
         let engine = Arc::new(Gated::default());
         Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
         client.0.me.lock().unwrap().id = 1001;

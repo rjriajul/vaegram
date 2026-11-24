@@ -29,7 +29,7 @@ mod tests {
 
     #[tokio::test]
     async fn contact_calls_reach_the_right_methods() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 9, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(9, base::InputPeer::InputPeerUser(Box::new(user)));
         let mut sent = || u32::from_le_bytes(rx.try_recv().expect("no request sent")[..4].try_into().unwrap());
@@ -50,7 +50,7 @@ mod tests {
     async fn block_list_sets_my_stories_from() {
         use crate::enums::BlockList;
         use crate::raw::Serializable;
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 9, access_hash: 1 };
         let id = base::InputPeer::InputPeerUser(Box::new(user.clone()));
         client.0.peers.lock().unwrap().insert(9, id.clone());
@@ -67,7 +67,7 @@ mod tests {
 
     #[tokio::test]
     async fn deleting_no_contacts_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let result = client.delete_contacts(Vec::<i64>::new()).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(rx.try_recv().is_err());

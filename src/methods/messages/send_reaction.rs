@@ -86,7 +86,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_to_recent_defaults_to_true_and_can_be_turned_off() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let peer = types::InputPeerUser { user_id: 7, access_hash: 2 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(peer)));
         let request = |add_to_recent| {

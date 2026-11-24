@@ -31,7 +31,7 @@ mod tests {
             chats: Vec::new(),
             users: Vec::new(),
         }));
-        let (client, mut sent) = Client::scripted(vec![Ok(views.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(views.to_bytes())]);
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, peer.clone());
         client.view_messages(7, &[3, 4]).await.unwrap();
@@ -41,7 +41,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_ids_is_refused_without_a_request() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         assert!(matches!(client.view_messages(7, &[]).await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
     }

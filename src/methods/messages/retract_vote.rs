@@ -22,7 +22,7 @@ mod tests {
 
     #[tokio::test]
     async fn retracting_sends_no_options() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.retract_vote(-5, 9).await;
         let peer = client.resolve_peer(-5).await.unwrap();
         let expected = functions::messages::SendVote { peer, msg_id: 9, options: Vec::new() };

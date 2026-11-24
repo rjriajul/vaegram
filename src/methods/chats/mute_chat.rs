@@ -37,7 +37,7 @@ mod tests {
     use crate::raw::{Serializable, base, functions, types};
 
     async fn muted(until: Option<i32>) -> Vec<u8> {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 9, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(9, base::InputPeer::InputPeerUser(Box::new(user)));
         let _ = match until {

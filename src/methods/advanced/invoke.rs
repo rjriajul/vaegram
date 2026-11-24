@@ -346,7 +346,7 @@ mod tests {
     // Answers FLOOD_WAIT_1 first, then a pong.
     fn flooded(flood_sleep_threshold: Duration) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
         let (mut client, sent) =
-            Client::scripted(vec![Err(flood(1)), Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes())]);
+            Client::scripted_raw(vec![Err(flood(1)), Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes())]);
         let retry = Retry::new(AutoSleep::new().threshold(flood_sleep_threshold));
         client.set_options(Options::new().retry(retry));
         (client, sent)
@@ -373,7 +373,7 @@ mod tests {
 
     #[tokio::test]
     async fn invoke_in_dc_on_the_home_dc_is_a_plain_invoke() {
-        let (client, mut sent) = Client::scripted(vec![Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes())]);
         let ping = functions::Ping { ping_id: 7 };
         assert!(client.invoke_in_dc(2, &ping).await.is_ok());
         assert_eq!(sent.try_recv().unwrap(), ping.to_bytes());
@@ -382,7 +382,7 @@ mod tests {
     #[tokio::test]
     async fn a_takeout_client_wraps_every_request() {
         let pong = || Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes());
-        let (client, mut sent) = Client::scripted(vec![pong(), pong()]);
+        let (client, mut sent) = Client::scripted_raw(vec![pong(), pong()]);
         let takeout = Client(client.0.clone(), Some(7));
         let ping = functions::Ping { ping_id: 7 };
         let wrapped = functions::InvokeWithTakeout { takeout_id: 7, query: functions::Ping { ping_id: 7 } }.to_bytes();
@@ -486,7 +486,7 @@ mod tests {
 
     #[tokio::test]
     async fn invoke_in_dc_on_an_unknown_dc_fails_before_any_request() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let result = client.invoke_in_dc(99, &functions::Ping { ping_id: 7 }).await;
         assert!(matches!(result, Err(Error::InvalidDc(99))), "{result:?}");
         assert!(sent.try_recv().is_err());
@@ -525,7 +525,7 @@ mod tests {
 
     async fn ping_with(options: Options, mut replies: Vec<Result<Vec<u8>>>) -> (Result<base::Pong>, usize) {
         replies.push(Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes()));
-        let (mut client, mut sent) = Client::scripted(replies);
+        let (mut client, mut sent) = Client::scripted_raw(replies);
         client.set_options(options);
         let result = client.invoke(&functions::Ping { ping_id: 7 }).await;
         (result, count(&mut sent))
@@ -600,7 +600,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_wrapped_request_is_named_by_the_request_inside() {
         let seen = Arc::default();
-        let (mut client, _sent) = Client::scripted(vec![rpc_420("FLOOD_WAIT_9"), Ok(true.to_bytes())]);
+        let (mut client, _sent) = Client::scripted_raw(vec![rpc_420("FLOOD_WAIT_9"), Ok(true.to_bytes())]);
         client.set_options(with_policy(Watching(Arc::clone(&seen))));
         client.0.caches.know_business("c", 7, 2);
         client.invoke_business(Some("c"), functions::account::UpdateStatus { offline: true }).await.unwrap();
@@ -630,7 +630,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_caller_timeout_ends_the_flood_sleep() {
         let pong = Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes());
-        let (client, mut sent) = Client::scripted(vec![rpc_420("FLOOD_WAIT_30"), pong]);
+        let (client, mut sent) = Client::scripted_raw(vec![rpc_420("FLOOD_WAIT_30"), pong]);
         let call = client.invoke(&functions::Ping { ping_id: 7 });
         assert!(tokio::time::timeout(Duration::from_secs(10), call).await.is_err());
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -660,7 +660,7 @@ mod tests {
 
     #[tokio::test]
     async fn business_calls_use_the_inner_name() {
-        let (mut client, _sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (mut client, _sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         limited(&mut client);
         client.0.caches.know_business("c", 7, 2);
         client.invoke_business(Some("c"), set_typing()).await.unwrap();
@@ -671,7 +671,7 @@ mod tests {
     #[cfg(feature = "unstable-raw")]
     #[tokio::test]
     async fn business_wrapper_sends_through_the_connection() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.0.caches.know_business("c", 7, 2);
         assert!(client.business("c").invoke(&set_typing()).await.unwrap());
         assert_eq!(sent.try_recv().unwrap(), business_typing().to_bytes());
@@ -698,7 +698,7 @@ mod tests {
     #[tokio::test]
     async fn file_parts_and_difference_are_not_limited() {
         let replies = (0..4).map(|_| Ok(true.to_bytes())).collect();
-        let (mut client, _sent) = Client::scripted(replies);
+        let (mut client, _sent) = Client::scripted_raw(replies);
         limited(&mut client);
         let session = client.session();
         // File parts go to their connection, and the dispatcher's getDifference straight to the session.
@@ -717,7 +717,7 @@ mod tests {
 
     fn quiet_client(replies: usize) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
         let pong = || Ok(types::Pong { msg_id: 0, ping_id: 7 }.to_bytes());
-        let (mut client, sent) = Client::scripted((0..replies).map(|_| pong()).collect());
+        let (mut client, sent) = Client::scripted_raw((0..replies).map(|_| pong()).collect());
         client.set_options(Options::new().no_updates(true));
         (client, sent)
     }
@@ -743,7 +743,7 @@ mod tests {
     }
 
     fn auto_client(replies: usize, no_updates: bool) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (mut client, sent) = Client::scripted((0..replies).map(|_| Ok(true.to_bytes())).collect());
+        let (mut client, sent) = Client::scripted_raw((0..replies).map(|_| Ok(true.to_bytes())).collect());
         client.set_options(Options::new().no_updates(no_updates));
         Arc::get_mut(&mut client.0).unwrap().auto_no_updates = true;
         (client, sent)
@@ -786,7 +786,7 @@ mod tests {
     #[tokio::test]
     async fn service_calls_are_never_auto_wrapped() {
         let pong = types::Pong { msg_id: 0, ping_id: 7 }.to_bytes();
-        let (mut client, mut sent) = Client::scripted(vec![Ok(pong)]);
+        let (mut client, mut sent) = Client::scripted_raw(vec![Ok(pong)]);
         Arc::get_mut(&mut client.0).unwrap().auto_no_updates = true;
         client.invoke(&functions::Ping { ping_id: 7 }).await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), functions::Ping { ping_id: 7 }.to_bytes());
@@ -801,7 +801,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_field_too_long_for_tl_is_an_invalid_argument() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let text = "a".repeat(16 << 20);
         let result = client.send_message(crate::types::PeerRef::Me, text.as_str()).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
@@ -812,7 +812,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_request_over_16_mib_is_an_invalid_argument() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         // 8 bytes each and no field too long: only the total is over the cap.
         let id = vec![base::InputMessage::InputMessageID(types::InputMessageID { id: 1 }); 2_200_000];
         let result = client.invoke(&functions::messages::GetMessages { id }).await;
@@ -847,7 +847,7 @@ mod tests {
 
     /// A client at home on DC 2 with a scripted session for `FOREIGN_DC`, which lives as long as the returned one.
     fn with_foreign(home: Vec<Result<Vec<u8>>>, foreign: Vec<Result<Vec<u8>>>) -> (Client, Sent, Sent, Session) {
-        let (client, home) = Client::scripted(home);
+        let (client, home) = Client::scripted_raw(home);
         let (session, away) = Session::scripted(foreign);
         client.0.transfers.insert(client.dc(FOREIGN_DC).unwrap(), &session);
         (client, home, away, session)

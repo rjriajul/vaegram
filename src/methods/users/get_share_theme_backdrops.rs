@@ -36,7 +36,7 @@ mod tests {
             backdrops: vec![base::ShareThemeBackdropOption::ShareThemeBackdropOption(Box::new(option))],
         };
         let reply = base::ShareThemeBackdrops::ShareThemeBackdrops(Box::new(reply)).to_bytes();
-        let (client, mut sent) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply)]);
         let backdrops = client.get_share_theme_backdrops().await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), functions::messages::GetShareThemeBackdrops { hash: 0 }.to_bytes());
         let b = &backdrops[0];

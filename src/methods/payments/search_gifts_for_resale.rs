@@ -111,7 +111,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_sends_attribute_filters() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         let _ = client
             .search_gifts_for_resale(7)
             .attributes([

@@ -41,7 +41,7 @@ mod tests {
                 stars_amount: 25,
             }),
         ];
-        let (client, mut sent) = Client::scripted(vec![Ok(reply.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply.to_bytes())]);
         let mut id = Vec::new();
         for user_id in [9, 10, 11] {
             let peer = types::InputPeerUser { user_id, access_hash: user_id + 100 };
@@ -61,7 +61,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_users_is_refused_without_a_request() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let result = client.get_requirements_to_contact(Vec::<i64>::new()).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(sent.try_recv().is_err());

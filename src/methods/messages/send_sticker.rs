@@ -139,7 +139,8 @@ mod tests {
 
     #[tokio::test]
     async fn sends_from_a_set_read_once() {
-        let (client, mut sent) = Client::scripted(vec![cats(), refused("CHAT_SEND_STICKERS_FORBIDDEN"), refused("X")]);
+        let (client, mut sent) =
+            Client::scripted_raw(vec![cats(), refused("CHAT_SEND_STICKERS_FORBIDDEN"), refused("X")]);
         let e = client.send_sticker(-5, StickerSource::from_set("cats_by_bot", 3)).await.err();
         assert!(e.is_some_and(|e| e.is("CHAT_SEND_STICKERS_FORBIDDEN")));
         assert_eq!(sent.try_recv().unwrap(), get_set(0));
@@ -154,7 +155,7 @@ mod tests {
     #[tokio::test]
     async fn reads_the_set_again_once_when_the_file_reference_expired() {
         let expired = || refused("FILE_REFERENCE_EXPIRED");
-        let (client, mut sent) = Client::scripted(vec![cats(), expired(), cats(), expired()]);
+        let (client, mut sent) = Client::scripted_raw(vec![cats(), expired(), cats(), expired()]);
         let e = client.send_sticker(-5, StickerSource::from_set("cats_by_bot", 3)).await.err();
         assert!(e.is_some_and(|e| e.is_file_reference_error()));
         let bodies: Vec<_> = std::iter::from_fn(|| sent.try_recv().ok()).collect();
@@ -166,7 +167,7 @@ mod tests {
     #[tokio::test]
     async fn checks_the_set_hash_for_a_sticker_the_kept_set_lacks() {
         let unchanged = Ok(base::messages::StickerSet::StickerSetNotModified.to_bytes());
-        let (client, mut sent) = Client::scripted(vec![cats(), refused("X"), unchanged]);
+        let (client, mut sent) = Client::scripted_raw(vec![cats(), refused("X"), unchanged]);
         assert!(client.send_sticker(-5, StickerSource::from_set("cats_by_bot", 3)).await.is_err());
         let _ = (sent.try_recv().unwrap(), sent.try_recv().unwrap());
 

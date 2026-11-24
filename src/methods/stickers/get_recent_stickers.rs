@@ -44,7 +44,7 @@ mod tests {
     #[tokio::test]
     async fn attached_sets_the_flag() {
         let none = || Ok(base::messages::RecentStickers::RecentStickersNotModified.to_bytes());
-        let (client, mut rx) = Client::scripted(vec![none(), none()]);
+        let (client, mut rx) = Client::scripted_raw(vec![none(), none()]);
         assert!(client.get_recent_stickers().await.unwrap().is_empty());
         assert!(client.get_recent_stickers().attached().await.unwrap().is_empty());
         let sent = [rx.try_recv().unwrap(), rx.try_recv().unwrap()];

@@ -21,7 +21,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_chat() {
-        let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.delete_all_welcome_messages(-5_i64).await.unwrap();
         let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
         assert_eq!(rx.try_recv().unwrap(), DeleteAllWelcomeMessages { peer }.to_bytes());
@@ -29,7 +29,7 @@ mod tests {
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "PEER_ID_INVALID")))]);
+        let (client, _rx) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "PEER_ID_INVALID")))]);
         let result = client.delete_all_welcome_messages(-5_i64).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "PEER_ID_INVALID"), "{result:?}");
     }

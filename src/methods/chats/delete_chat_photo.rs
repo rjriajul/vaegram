@@ -36,7 +36,7 @@ mod tests {
 
     #[tokio::test]
     async fn photo_requests_go_to_the_right_place() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let channel = get_channel_id(9);
         {
             let mut peers = client.0.peers.lock().unwrap();
@@ -60,7 +60,7 @@ mod tests {
 
     #[tokio::test]
     async fn user_chat_ids_are_invalid_for_chat_photos() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let photo = Upload::bytes("p.jpg", b"jpeg");

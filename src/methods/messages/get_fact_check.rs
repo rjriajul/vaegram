@@ -30,7 +30,7 @@ mod tests {
         let checked = types::FactCheck { need_check: false, country: None, text: None, hash: 11 };
         let pending = types::FactCheck { need_check: true, country: None, text: None, hash: 12 };
         let reply = vec![base::FactCheck::FactCheck(Box::new(checked)), base::FactCheck::FactCheck(Box::new(pending))];
-        let (client, mut sent) = Client::scripted(vec![Ok(reply.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply.to_bytes())]);
         let checks = client.get_fact_check(-5_i64, &[3, 4]).await.unwrap();
         assert_eq!(checks.iter().map(|c| (c.needs_check, c.hash)).collect::<Vec<_>>(), [(false, 11), (true, 12)]);
         let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
@@ -40,7 +40,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_ids_send_nothing() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         assert!(client.get_fact_check(-5_i64, &[]).await.unwrap().is_empty());
         assert!(sent.try_recv().is_err());
     }

@@ -21,7 +21,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_flag_both_ways() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
         for sensitive_enabled in [true, false] {
             client.set_content_settings(sensitive_enabled).await.unwrap();
             let request = account::SetContentSettings { sensitive_enabled };

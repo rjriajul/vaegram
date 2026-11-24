@@ -25,7 +25,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_username_always_asks() {
-        let (client, mut sent) = Client::scripted(vec![Err(Error::Unexpected("offline"))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Err(Error::Unexpected("offline"))]);
         let mut fresh = crate::storage::PeerRecord::new(100, 7);
         (fresh.usernames, fresh.updated) = (vec!["alice".into()], i64::MAX);
         client.0.peers.lock().unwrap().load([fresh]);

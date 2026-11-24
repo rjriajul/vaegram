@@ -55,7 +55,7 @@ mod tests {
             Ok(reply(base::PaidReactionPrivacy::PaidReactionPrivacyAnonymous)),
             Ok(reply(base::PaidReactionPrivacy::PaidReactionPrivacyPeer(Box::new(peer)))),
         ];
-        let (client, mut sent) = Client::scripted(replies);
+        let (client, mut sent) = Client::scripted_raw(replies);
         assert_eq!(client.get_paid_reaction_privacy().await.unwrap(), PaidReactionPrivacy::Default);
         assert_eq!(client.get_paid_reaction_privacy().await.unwrap(), PaidReactionPrivacy::Anonymous);
         let chat = PaidReactionPrivacy::Chat(get_channel_id(9).into());
@@ -68,7 +68,7 @@ mod tests {
     #[tokio::test]
     async fn an_answer_without_the_update_is_unexpected() {
         let empty = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
-        let (client, _sent) = Client::scripted(vec![Ok(base::Updates::Updates(Box::new(empty)).to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(base::Updates::Updates(Box::new(empty)).to_bytes())]);
         let result = client.get_paid_reaction_privacy().await;
         assert!(matches!(result, Err(Error::Unexpected(_))), "{result:?}");
     }

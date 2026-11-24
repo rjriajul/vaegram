@@ -50,7 +50,7 @@ mod tests {
     #[tokio::test]
     async fn preview_reads_an_unjoined_invite() {
         let answer = base::ChatInvite::ChatInvite(Box::new(invite())).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(answer)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(answer)]);
         let preview = client.get_chat_preview("https://t.me/+AbCdEf").await.unwrap();
         assert!(rx.try_recv().is_ok());
         assert_eq!((preview.title.as_str(), preview.kind, preview.members_count), ("Cats", ChatType::Supergroup, 42));
@@ -80,7 +80,7 @@ mod tests {
         };
         let already = types::ChatInviteAlready { chat: base::Chat::Chat(Box::new(group)) };
         let answer = base::ChatInvite::ChatInviteAlready(Box::new(already)).to_bytes();
-        let (client, _rx) = Client::scripted(vec![Ok(answer)]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(answer)]);
         let preview = client.get_chat_preview("t.me/+AbCdEf").await.unwrap();
         let chat = preview.chat.expect("the chat");
         assert_eq!((chat.id, preview.title.as_str(), preview.members_count), (-5, "friends", 3));
@@ -88,7 +88,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_invite_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         for link in ["@cats", "t.me/cats", "12345"] {
             let result = client.get_chat_preview(link).await;
             assert!(matches!(result, Err(Error::InvalidArgument(_))), "{link}: {result:?}");

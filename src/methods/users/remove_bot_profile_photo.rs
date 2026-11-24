@@ -20,7 +20,7 @@ mod tests {
 
     #[tokio::test]
     async fn remove_bot_photo_sends_empty_photo() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let bot = types::InputPeerUser { user_id: 9, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(9, base::InputPeer::InputPeerUser(Box::new(bot)));
         let _ = client.remove_bot_profile_photo(9_i64).await;

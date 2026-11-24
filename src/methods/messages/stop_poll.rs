@@ -141,7 +141,7 @@ mod tests {
     use crate::utils::get_peer;
 
     fn setup(replies: Vec<Vec<u8>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(replies.into_iter().map(Ok).collect());
+        let (client, rx) = Client::scripted_raw(replies.into_iter().map(Ok).collect());
         let user = types::InputPeerUser { user_id: 7, access_hash: 2 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         (client, rx)

@@ -22,7 +22,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_ids_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert!(matches!(client.read_featured_sticker_sets(&[]).await, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
     }

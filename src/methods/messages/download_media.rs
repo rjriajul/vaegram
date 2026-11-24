@@ -680,7 +680,7 @@ mod tests {
     #[tokio::test]
     async fn a_memory_download_holds_exactly_its_declared_size() {
         let c = CHUNK as usize;
-        let (client, _rx) = Client::scripted(vec![file(vec![1; c]), file(b"hi".into())]);
+        let (client, _rx) = Client::scripted_raw(vec![file(vec![1; c]), file(b"hi".into())]);
         let bytes = download(&client, Some(c as i64 + 2), None).await.0.unwrap();
         assert_eq!((bytes.len(), bytes.capacity()), (c + 2, c + 2));
     }
@@ -795,7 +795,7 @@ mod tests {
         let dir = scratch("bad-id");
         let path = dir.join("keep.jpg");
         std::fs::write(&path, b"old").unwrap();
-        let (client, _rx) = Client::scripted(Vec::new());
+        let (client, _rx) = Client::scripted_raw(Vec::new());
         let result = client.download_media("not a file id").save(&path).await;
         assert!(result.is_err());
         assert_eq!((std::fs::read(&path).unwrap(), leftovers(&dir)), (b"old".to_vec(), vec!["keep.jpg".to_string()]));
@@ -810,7 +810,7 @@ mod tests {
         let dir = scratch("failed");
         let path = dir.join("keep.bin");
         std::fs::write(&path, b"old").unwrap();
-        let (client, _rx) = Client::scripted(vec![error("FILE_REFERENCE_EXPIRED")]);
+        let (client, _rx) = Client::scripted_raw(vec![error("FILE_REFERENCE_EXPIRED")]);
         client.0.transfers.insert(client.dc(2).unwrap(), &client.session());
         let location =
             FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
@@ -824,7 +824,7 @@ mod tests {
         let dir = scratch("replaced");
         let path = dir.join("out.bin");
         std::fs::write(&path, b"old").unwrap();
-        let (client, _rx) = Client::scripted(vec![file(b"hi".into())]);
+        let (client, _rx) = Client::scripted_raw(vec![file(b"hi".into())]);
         client.0.transfers.insert(client.dc(2).unwrap(), &client.session());
         let location =
             FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
@@ -857,7 +857,7 @@ mod tests {
     #[tokio::test]
     async fn a_directory_is_not_a_destination() {
         let dir = scratch("directory");
-        let (client, _rx) = Client::scripted(Vec::new());
+        let (client, _rx) = Client::scripted_raw(Vec::new());
         let location =
             FileLocation { location: get_file(b"old", 0, true).location, dc_id: Some(2), file_size: Some(2) };
         assert!(matches!(to_file(&client, Ok(location)).save(&dir).await, Err(Error::InvalidArgument(_))));
@@ -872,7 +872,7 @@ mod tests {
     #[cfg(feature = "websocket")]
     #[tokio::test]
     async fn websocket_turns_off_cdn() {
-        let (mut client, mut rx) = Client::scripted(vec![file(b"hi".into())]);
+        let (mut client, mut rx) = Client::scripted_raw(vec![file(b"hi".into())]);
         Arc::get_mut(&mut client.0).unwrap().options.websocket = true;
         let (result, _) = download(&client, Some(2), None).await;
         assert_eq!((result, drain(&mut rx)), (Ok(b"hi".to_vec()), vec![get_file(b"old", 0, false).to_bytes()]));
@@ -885,16 +885,17 @@ mod tests {
         let expired = || Err("FILE_REFERENCE_EXPIRED".into());
         let source = Some(DownloadSource::Message(-5, 5));
 
-        let (client, mut rx) = Client::scripted(vec![error("FILE_REFERENCE_EXPIRED"), messages(), file(b"hi".into())]);
+        let (client, mut rx) =
+            Client::scripted_raw(vec![error("FILE_REFERENCE_EXPIRED"), messages(), file(b"hi".into())]);
         let (result, _) = download(&client, Some(2), source).await;
         let sent = drain(&mut rx);
         assert_eq!((result, [&sent[0], &sent[2]]), (Ok(b"hi".to_vec()), [&old, &fresh]));
         assert_eq!(sent[1][..4], get_messages);
 
         let replies = vec![error("FILE_REFERENCE_EXPIRED"), messages(), error("FILE_REFERENCE_EXPIRED")];
-        let (client, mut rx) = Client::scripted(replies);
+        let (client, mut rx) = Client::scripted_raw(replies);
         assert_eq!((download(&client, Some(5), source).await.0, drain(&mut rx).len()), (expired(), 3));
-        let (client, mut rx) = Client::scripted(vec![error("FILE_REFERENCE_EXPIRED")]);
+        let (client, mut rx) = Client::scripted_raw(vec![error("FILE_REFERENCE_EXPIRED")]);
         assert_eq!((download(&client, Some(5), None).await.0, drain(&mut rx)), (expired(), vec![old]));
     }
 
@@ -941,7 +942,8 @@ mod tests {
     #[tokio::test]
     async fn refetches_the_story_once_for_an_expired_reference() {
         let (old, fresh) = (get_file(b"old", 0, true).to_bytes(), get_file(&[3], 0, true).to_bytes());
-        let (client, mut rx) = Client::scripted(vec![error("FILE_REFERENCE_EXPIRED"), stories(), file(b"hi".into())]);
+        let (client, mut rx) =
+            Client::scripted_raw(vec![error("FILE_REFERENCE_EXPIRED"), stories(), file(b"hi".into())]);
         let (result, _) = download(&client, Some(2), Some(DownloadSource::Story(-5, 7))).await;
         let sent = drain(&mut rx);
         assert_eq!((result, [&sent[0], &sent[2]]), (Ok(b"hi".to_vec()), [&old, &fresh]));
@@ -952,7 +954,7 @@ mod tests {
     #[tokio::test]
     async fn a_story_download_renews_through_the_story() {
         let (client, mut rx) =
-            Client::scripted(vec![error("FILE_REFERENCE_EXPIRED"), stories(), file(b"hello".into())]);
+            Client::scripted_raw(vec![error("FILE_REFERENCE_EXPIRED"), stories(), file(b"hello".into())]);
         client.0.me.lock().unwrap().premium = Some(false);
         let item = base::StoryItem::StoryItem(Box::new(story_item()));
         let story = Story::parse(&client, &get_peer(-5), item, &Entities::default()).unwrap();
@@ -965,7 +967,7 @@ mod tests {
     async fn renews_a_reference_that_expires_mid_file() {
         let c = CHUNK as usize;
         let replies = vec![file(vec![1; c]), error("FILE_REFERENCE_EXPIRED"), messages(), file(b"hi".into())];
-        let (client, mut rx) = Client::scripted(replies);
+        let (client, mut rx) = Client::scripted_raw(replies);
         let (result, done) = download(&client, None, Some(DownloadSource::Message(-5, 5))).await;
         let sent = drain(&mut rx);
         let expected = [vec![1; c], b"hi".to_vec()].concat();
@@ -978,7 +980,7 @@ mod tests {
     async fn workers_hitting_the_same_expiry_renew_it_once() {
         let expired = || error("FILE_REFERENCE_EXPIRED");
         let replies = vec![expired(), expired(), messages(), file(b"a".into()), file(b"b".into())];
-        let (client, mut rx) = Client::scripted(replies);
+        let (client, mut rx) = Client::scripted_raw(replies);
         let sessions = [client.session()];
         let master = Master {
             timeout: crate::session::transfer::MIN_PART_TIMEOUT,
@@ -1029,7 +1031,7 @@ mod tests {
         let mut replies = vec![redirect];
         replies.extend(next_hashes.map(|h| Ok(h.to_bytes())));
         replies.push(file(master.clone()));
-        let (client, mut rx) = Client::scripted(replies);
+        let (client, mut rx) = Client::scripted_raw(replies);
         client.serve_cdn(203, &cdn);
         client.0.transfers.insert(client.dc(203).unwrap(), &cdn);
         let (result, done) = download(&client, size, None).await;
@@ -1062,16 +1064,16 @@ mod tests {
     async fn a_short_chunk_before_the_known_end_is_an_error() {
         let c = CHUNK as usize;
         let short = |result: Result<Vec<u8>, String>| result.is_err_and(|e| e.contains("doesn't match the file size"));
-        let (client, _rx) = Client::scripted(vec![file(vec![1; c]), file(b"hi".into())]);
+        let (client, _rx) = Client::scripted_raw(vec![file(vec![1; c]), file(b"hi".into())]);
         assert!(short(download(&client, Some(2 * c as i64), None).await.0));
-        let (client, _rx) = Client::scripted(vec![file(b"hi".into())]);
+        let (client, _rx) = Client::scripted_raw(vec![file(b"hi".into())]);
         assert!(short(download(&client, Some(5), None).await.0));
     }
 
     #[tokio::test]
     async fn a_takeout_download_wraps_every_chunk_and_skips_the_cdn() {
         let c = CHUNK as usize;
-        let (client, mut rx) = Client::scripted(vec![file(vec![1; c]), file(b"hi".into())]);
+        let (client, mut rx) = Client::scripted_raw(vec![file(vec![1; c]), file(b"hi".into())]);
         let takeout = Client(client.0.clone(), Some(7));
         let (result, _) = download(&takeout, None, None).await;
         assert_eq!(result, Ok([vec![1; c], b"hi".to_vec()].concat()));
@@ -1119,7 +1121,8 @@ mod tests {
     /// Bytes CHUNK + 10 .. 2 * CHUNK + 10 of a three-chunk file.
     async fn middle_of_three() -> (Ranged, Vec<Vec<u8>>, Vec<u8>) {
         let (c, whole) = (CHUNK as usize, numbered(3));
-        let (client, mut rx) = Client::scripted(vec![file(whole[c..2 * c].to_vec()), file(whole[2 * c..].to_vec())]);
+        let (client, mut rx) =
+            Client::scripted_raw(vec![file(whole[c..2 * c].to_vec()), file(whole[2 * c..].to_vec())]);
         let got = ranged(&client, Some(3 * c as i64), c as u64 + 10, Some(c as u64), None).await;
         (got, drain(&mut rx), whole)
     }
@@ -1143,7 +1146,7 @@ mod tests {
     #[tokio::test]
     async fn a_range_stream_yields_only_the_range_in_order() {
         let (c, whole) = (CHUNK as usize, numbered(3));
-        let (client, _rx) = Client::scripted(vec![file(whole[c..2 * c].to_vec()), file(whole[2 * c..].to_vec())]);
+        let (client, _rx) = Client::scripted_raw(vec![file(whole[c..2 * c].to_vec()), file(whole[2 * c..].to_vec())]);
         let mut stream = client.download_media(located(&client, Some(3 * c as i64))).offset(c as u64 + 10).stream();
         let mut got = Vec::new();
         while let Some(piece) = stream.next().await.unwrap() {
@@ -1155,7 +1158,7 @@ mod tests {
     #[tokio::test]
     async fn a_range_to_a_file_starts_at_the_files_start() {
         let whole = numbered(1);
-        let (client, _rx) = Client::scripted(vec![file(whole.clone())]);
+        let (client, _rx) = Client::scripted_raw(vec![file(whole.clone())]);
         let location = located(&client, Some(2 * i64::from(CHUNK)));
         let path = std::env::temp_dir().join(format!("vaegram-range-{}.bin", std::process::id()));
         client.download_media(location).offset(5).limit(10).save(&path).await.unwrap();
@@ -1166,7 +1169,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_offset_past_the_known_end_sends_nothing() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert_eq!(client.download_media(location(Some(5))).offset(5).await.unwrap(), b"");
         assert_eq!(client.download_media(location(Some(5))).offset(9).stream().next().await.unwrap(), None);
         // No file Telegram stores reaches this chunk, whatever size it gives.
@@ -1176,7 +1179,7 @@ mod tests {
 
     #[tokio::test]
     async fn limit_zero_sends_nothing() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert_eq!(client.download_media(location(None)).limit(0).await.unwrap(), b"");
         assert_eq!(client.download_media(location(Some(5))).offset(2).limit(0).await.unwrap(), b"");
         assert!(drain(&mut rx).is_empty());
@@ -1185,7 +1188,7 @@ mod tests {
     #[tokio::test]
     async fn an_open_range_without_a_size_ends_at_the_short_chunk() {
         let (c, at) = (CHUNK as usize, i64::from(CHUNK));
-        let (client, mut rx) = Client::scripted(vec![file(vec![1; c]), file(b"hi".into())]);
+        let (client, mut rx) = Client::scripted_raw(vec![file(vec![1; c]), file(b"hi".into())]);
         let (result, _) = ranged(&client, None, c as u64 + 3, None, None).await;
         assert_eq!(result, Ok([vec![1; c - 3], b"hi".to_vec()].concat()));
         assert_eq!(drain(&mut rx), [get_file(b"old", at, true).to_bytes(), get_file(b"old", 2 * at, false).to_bytes()]);
@@ -1194,7 +1197,7 @@ mod tests {
     #[tokio::test]
     async fn a_ranged_takeout_download_wraps_every_chunk_and_skips_the_cdn() {
         let c = CHUNK as usize;
-        let (client, mut rx) = Client::scripted(vec![file(vec![1; c]), file(b"hi".into())]);
+        let (client, mut rx) = Client::scripted_raw(vec![file(vec![1; c]), file(b"hi".into())]);
         let takeout = Client(client.0.clone(), Some(7));
         let (result, _) = ranged(&takeout, None, c as u64 + 1, None, None).await;
         assert_eq!(result, Ok([vec![1; c - 1], b"hi".to_vec()].concat()));
@@ -1207,7 +1210,7 @@ mod tests {
     async fn a_ranged_download_renews_an_expired_reference() {
         let at = i64::from(CHUNK);
         let replies = vec![error("FILE_REFERENCE_EXPIRED"), messages(), file(b"hello".into())];
-        let (client, mut rx) = Client::scripted(replies);
+        let (client, mut rx) = Client::scripted_raw(replies);
         let (result, _) = ranged(&client, None, at as u64 + 1, None, Some(DownloadSource::Message(-5, 5))).await;
         assert_eq!(result, Ok(b"ello".to_vec()));
         let sent = drain(&mut rx);
@@ -1240,7 +1243,7 @@ mod tests {
         let (cdn, mut cdn_rx) = Session::scripted(vec![Ok(part.to_bytes())]);
         let none: Vec<base::FileHash> = Vec::new();
         let replies = vec![redirect, Ok(vec![hash(at, &plain)].to_bytes()), Ok(none.to_bytes())];
-        let (client, mut rx) = Client::scripted(replies);
+        let (client, mut rx) = Client::scripted_raw(replies);
         client.serve_cdn(203, &cdn);
         client.0.transfers.insert(client.dc(203).unwrap(), &cdn);
 
@@ -1257,7 +1260,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_second_download_waits_for_the_first() {
-        let (mut client, mut rx) = Client::scripted(vec![file(b"hi".to_vec())]);
+        let (mut client, mut rx) = Client::scripted_raw(vec![file(b"hi".to_vec())]);
         one_download_at_a_time(&mut client);
         let location = located(&client, Some(2));
         let held = client.download_slot().await;
@@ -1276,7 +1279,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_window_takes_no_permit() {
-        let (mut client, mut rx) = Client::recording();
+        let (mut client, mut rx) = Client::recording_raw();
         one_download_at_a_time(&mut client);
         let _held = client.download_slot().await;
         let empty = client.download_media(location(Some(5))).offset(5).await;
@@ -1291,7 +1294,7 @@ mod tests {
         // dial the real data center, so the test would pass or fail with the network.
         let (c, whole) = (CHUNK as usize, numbered(2));
         let replies = (0..2).map(|i| file(whole[i * c..(i + 1) * c].to_vec())).collect();
-        let (mut client, _rx) = Client::scripted(replies);
+        let (mut client, _rx) = Client::scripted_raw(replies);
         one_download_at_a_time(&mut client);
         let slots = client.0.transmissions.as_ref().unwrap().downloads.clone();
         let mut stream = client.download_media(located(&client, Some(2 * c as i64))).stream();
@@ -1374,7 +1377,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_bots_chunks_go_one_at_a_time_at_its_pace() {
         let c = CHUNK as usize;
-        let (client, mut rx) = Client::scripted((0..16).map(|_| file(vec![1; c])).collect());
+        let (client, mut rx) = Client::scripted_raw((0..16).map(|_| file(vec![1; c])).collect());
         let (start, location) = (Instant::now(), on_eight(&client, 2, 16 * c));
         let download = async { client.download_media(location).await };
         let (bytes, after) = tokio::join!(download, sent_after(&mut rx, start, 16));
@@ -1436,7 +1439,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn many_small_downloads_by_a_bot_at_once_all_go_at_once() {
         let small = 200 << 10;
-        let (client, mut rx) = Client::scripted((0..50).map(|_| file(vec![1; small])).collect());
+        let (client, mut rx) = Client::scripted_raw((0..50).map(|_| file(vec![1; small])).collect());
         on_eight(&client, 2, small);
         let start = Instant::now();
         let client = &client;
@@ -1513,7 +1516,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn downloads_from_one_dc_share_its_pace() {
         let c = CHUNK as usize;
-        let (client, mut rx) = Client::scripted((0..32).map(|_| file(vec![1; c])).collect());
+        let (client, mut rx) = Client::scripted_raw((0..32).map(|_| file(vec![1; c])).collect());
         let (start, one, two) = (Instant::now(), on_eight(&client, 2, 16 * c), on_eight(&client, 2, 16 * c));
         let (one, two) = (async { client.download_media(one).await }, async { client.download_media(two).await });
         let (one, two, after) = tokio::join!(one, two, sent_after(&mut rx, start, 32));
@@ -1524,7 +1527,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn downloads_from_two_dcs_are_paced_apart() {
         let c = CHUNK as usize;
-        let (client, mut rx) = Client::scripted((0..32).map(|_| file(vec![1; c])).collect());
+        let (client, mut rx) = Client::scripted_raw((0..32).map(|_| file(vec![1; c])).collect());
         let (start, two, four) = (Instant::now(), on_eight(&client, 2, 16 * c), on_eight(&client, 4, 16 * c));
         let (two, four) = (async { client.download_media(two).await }, async { client.download_media(four).await });
         let (two, four, after) = tokio::join!(two, four, sent_after(&mut rx, start, 2));
@@ -1536,7 +1539,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn small_files_are_not_held_back() {
         let small = 100 << 10;
-        let (client, mut rx) = Client::scripted((0..3).map(|_| file(vec![1; small])).collect());
+        let (client, mut rx) = Client::scripted_raw((0..3).map(|_| file(vec![1; small])).collect());
         let start = Instant::now();
         for _ in 0..3 {
             assert_eq!(client.download_media(on_eight(&client, 2, small)).await.unwrap().len(), small);
@@ -1549,7 +1552,7 @@ mod tests {
         let c = CHUNK as usize;
         // Unpaced, and a chunk a second.
         for (rate, turn) in [(None, Duration::ZERO), (Some(CHUNK as u64), Duration::from_secs(1))] {
-            let (mut client, mut rx) = Client::scripted((0..16).map(|_| file(vec![1; c])).collect());
+            let (mut client, mut rx) = Client::scripted_raw((0..16).map(|_| file(vec![1; c])).collect());
             let lane = Lane { connections: None, max_bytes_per_sec: Some(rate) };
             Arc::get_mut(&mut client.0).unwrap().transfer_settings.download = lane;
             let (start, location) = (Instant::now(), on_eight(&client, 2, 16 * c));

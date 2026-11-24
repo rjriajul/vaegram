@@ -19,7 +19,7 @@ mod tests {
     async fn challenge_keeps_payload_domain_expiry() {
         let raw = types::wallet::ProofChallenge { payload: "p".into(), expires: 99, domain: "d.org".into() };
         let reply = base::wallet::ProofChallenge::ProofChallenge(Box::new(raw)).to_bytes();
-        let (client, _rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(reply)]);
         let challenge = client.get_ton_wallet_ownership_proof_challenge().await.unwrap();
         assert_eq!(
             (challenge.payload.as_str(), challenge.domain.as_str(), challenge.expiration_date),

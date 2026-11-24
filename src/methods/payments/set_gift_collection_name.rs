@@ -48,7 +48,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn renames_only() {
-        let (client, mut sent) = Client::scripted(vec![Ok(collection_reply())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(collection_reply())]);
         assert_eq!(client.set_gift_collection_name("me", 4, "Best").await.unwrap(), best());
         assert_eq!(sent.try_recv().unwrap(), update(Some("Best"), None, None, None));
     }

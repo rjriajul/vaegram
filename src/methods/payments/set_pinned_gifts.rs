@@ -26,7 +26,7 @@ mod tests {
 
     #[tokio::test]
     async fn pins_the_gifts_in_order() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.set_pinned_gifts("me", &["9", "PlushPepe-3"]).await.unwrap();
         let stargift = vec![
             base::InputSavedStarGift::InputSavedStarGiftUser(types::InputSavedStarGiftUser { msg_id: 9 }),

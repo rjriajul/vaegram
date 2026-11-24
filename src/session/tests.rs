@@ -1541,7 +1541,7 @@ async fn after_log_out_a_transfer_lease_authorizes_again() {
     let logged_out = base::auth::LoggedOut::LoggedOut(Box::new(types::auth::LoggedOut { future_auth_token: None }));
     let export = types::auth::ExportedAuthorization { id: 1, bytes: vec![1] };
     let export = base::auth::ExportedAuthorization::ExportedAuthorization(Box::new(export));
-    let (client, mut home_sent) = crate::Client::scripted(vec![Ok(logged_out.to_bytes()), Ok(export.to_bytes())]);
+    let (client, mut home_sent) = crate::Client::scripted_raw(vec![Ok(logged_out.to_bytes()), Ok(export.to_bytes())]);
     let (imported, mut on_imported) = Session::scripted(Vec::new());
     client.0.transfers.insert(dc.dc(4), &imported);
 

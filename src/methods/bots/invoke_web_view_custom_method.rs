@@ -34,7 +34,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_method_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let peer = types::InputPeerUser { user_id: 42, access_hash: 7 };
         client.0.peers.lock().unwrap().insert(42, base::InputPeer::InputPeerUser(Box::new(peer)));
         assert!(matches!(client.invoke_web_view_custom_method(42, "", "{}").await, Err(Error::InvalidArgument(_))));

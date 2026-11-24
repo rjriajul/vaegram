@@ -69,7 +69,7 @@ mod tests {
             date: 1,
             seq: 0,
         };
-        let (client, mut rx) = Client::scripted(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
         client.0.peers.lock().unwrap().insert(get_channel_id(9), channel());
 
         let edited = client.edit_fact_check(get_channel_id(9), 5, "<b>Fake</b>").html().await.unwrap();
@@ -83,7 +83,7 @@ mod tests {
 
     #[tokio::test]
     async fn fact_check_errors_pass_through() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(403, "CHAT_ADMIN_REQUIRED")))]);
+        let (client, _rx) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(403, "CHAT_ADMIN_REQUIRED")))]);
         client.0.peers.lock().unwrap().insert(get_channel_id(9), channel());
         let result = client.edit_fact_check(get_channel_id(9), 5, "Fake").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "CHAT_ADMIN_REQUIRED"), "{result:?}");

@@ -44,7 +44,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_result_on_await() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let answer = client.answer_guest_query(9, InlineQueryResultArticle::new("t", "hi"));
         assert!(rx.try_recv().is_err(), "nothing is sent before the await");
         let _ = answer.await;
@@ -58,7 +58,7 @@ mod tests {
     async fn the_answer_is_edited_by_the_id_telegram_returned() {
         let id = types::InputBotInlineMessageID64 { dc_id: 2, owner_id: 5, id: 6, access_hash: 7 };
         let id = base::InputBotInlineMessageID::InputBotInlineMessageID64(Box::new(id));
-        let (client, mut rx) = Client::scripted(vec![Ok(id.to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(id.to_bytes())]);
         let sent = client.answer_guest_query(9, InlineQueryResultArticle::new("t", "hi")).await.unwrap();
         let _ = rx.try_recv().expect("no answer sent");
         let _ = sent.edit_text("edited").await;

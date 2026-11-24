@@ -380,7 +380,7 @@ mod tests {
 
     #[tokio::test]
     async fn replace_callback_query_message_needs_a_query() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         // Resolving a username takes a request, as the control shows, so a check that moved after the resolve would
         // let one through.
         let _ = client.send_ephemeral_message("@vaegram_nobody", "me", "hi").await;
@@ -399,7 +399,7 @@ mod tests {
 
     #[tokio::test]
     async fn replace_callback_query_message_refuses_a_reply_and_a_thread() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         // The chat takes a request to resolve (see replace_callback_query_message_needs_a_query), so a check that moved
         // after the resolve would let one through.
         let chat = "@vaegram_nobody";
@@ -421,7 +421,7 @@ mod tests {
 
     #[tokio::test]
     async fn reply_ephemeral_refuses_replace() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         // Seeded, the chat resolves without a request and the send would go out (see
         // a_reply_to_a_topic_message_carries_the_topic), so only the check stops it.
         seeded(&client);
@@ -434,7 +434,7 @@ mod tests {
 
     #[tokio::test]
     async fn media_sends_refuse_message_text() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let send = client.send_ephemeral_message("me", "me", "text").media(InputMedia::photo("cat.jpg"));
         assert!(matches!(send.await, Err(Error::InvalidArgument(_))));
         let send = client.send_ephemeral_message("me", "me", InputRichMessage::html("<b>hi</b>"));
@@ -444,7 +444,7 @@ mod tests {
 
     #[tokio::test]
     async fn built_text_keeps_its_entities() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.send_ephemeral_message("me", "me", Text::new().bold("hi")).await;
         let body = sent.try_recv().expect("no request sent");
         let bold = vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 })];
@@ -455,7 +455,7 @@ mod tests {
 
     #[tokio::test]
     async fn rich_text_goes_to_rich_message() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.send_ephemeral_message("me", "me", InputRichMessage::html("<b>hi</b>")).await;
         let body = sent.try_recv().expect("no request sent");
         assert_ne!(flags(&body) & 1 << 4, 0, "rich_message is flags.4");
@@ -466,7 +466,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_reply_to_a_topic_message_carries_the_topic() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         seeded(&client);
         let _ = topic_message(&client, 12, 3).reply_ephemeral("hi").await;
         let body = sent.try_recv().expect("no request sent");
@@ -476,7 +476,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_reply_to_the_topic_root_carries_no_topic() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         seeded(&client);
         let _ = topic_message(&client, 3, 3).reply_ephemeral("hi").await;
         let body = sent.try_recv().expect("no request sent");
@@ -486,7 +486,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_thread_without_a_reply_replies_to_the_topic_root() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.send_ephemeral_message("me", "me", "hi").message_thread_id(3).await;
         let body = sent.try_recv().expect("no request sent");
         let reply = topic_reply(3, None);
@@ -495,7 +495,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_thread_refuses_a_reply_to_an_ephemeral_message() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let send = client.send_ephemeral_message("me", "me", "hi").message_thread_id(3).reply_to_ephemeral(7);
         assert!(matches!(send.await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());

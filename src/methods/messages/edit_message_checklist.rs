@@ -79,7 +79,7 @@ mod tests {
 
     #[tokio::test]
     async fn replaces_the_checklist_media() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let checklist = InputChecklist::new("Trip").task(1, "Tickets").others_can_mark_tasks_as_done();
         assert!(client.edit_message_checklist("me", 5, checklist.clone()).await.is_err());
         let body = rx.try_recv().expect("no request sent");

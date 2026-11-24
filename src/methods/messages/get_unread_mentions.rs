@@ -93,7 +93,7 @@ pub(super) mod paging {
             };
             Ok(base::messages::Messages::MessagesSlice(Box::new(page)).to_bytes())
         };
-        let (client, rx) = Client::scripted(pages.iter().copied().map(page).collect());
+        let (client, rx) = Client::scripted_raw(pages.iter().copied().map(page).collect());
         client.0.peers.lock().unwrap().insert(7, peer());
         (client, rx)
     }

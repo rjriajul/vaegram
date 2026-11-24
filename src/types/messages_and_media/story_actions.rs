@@ -84,7 +84,7 @@ mod tests {
     // Chat id 0 is the own account, so every helper's peer resolves without a lookup.
     #[tokio::test]
     async fn each_helper_sends_its_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let story = Story::from_media(&client, &get_peer(0), 7, &Entities::default());
         let me = base::InputPeer::InputPeerSelf;
 

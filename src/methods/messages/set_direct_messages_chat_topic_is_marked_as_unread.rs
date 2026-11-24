@@ -28,7 +28,7 @@ mod tests {
 
     #[tokio::test]
     async fn topic_unread_sets_parent_peer() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = |id| base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: id, access_hash: 1 }));
         for id in [9, 5] {
             client.0.peers.lock().unwrap().insert(id, user(id));

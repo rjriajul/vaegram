@@ -23,7 +23,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_number_the_hash_and_the_code() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.verify_phone_number("8802", "h3", "12345").await.unwrap();
         let expected = functions::account::VerifyPhone {
             phone_number: "8802".into(),
@@ -36,7 +36,7 @@ mod tests {
     #[tokio::test]
     async fn code_errors_come_back_unchanged() {
         for name in ["PHONE_CODE_EXPIRED", "PHONE_CODE_INVALID"] {
-            let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, name)))]);
+            let (client, _sent) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, name)))]);
             let result = client.verify_phone_number("8802", "h3", "12345").await;
             assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::parse(400, name)), "{result:?}");
         }

@@ -145,7 +145,7 @@ mod tests {
 
     fn scripted(password: types::account::Password) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
         let reply = base::account::Password::Password(Box::new(password)).to_bytes();
-        Client::scripted(vec![Ok(reply)])
+        Client::scripted_raw(vec![Ok(reply)])
     }
 
     fn known_password() -> types::account::Password {
@@ -198,11 +198,11 @@ mod tests {
         let with_password = base::account::Password::Password(Box::new(account)).to_bytes();
         let refused = || Err(Error::Rpc(RpcError::parse(400, "NEW_SETTINGS_INVALID")));
 
-        let (client, mut sent) = Client::scripted(vec![Ok(reply), refused()]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply), refused()]);
         let enable = client.enable_cloud_password("").await;
         sent.recv().await.unwrap();
         let enable_sent = sent.try_recv().is_ok();
-        let (client, mut sent) = Client::scripted(vec![Ok(with_password), refused()]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(with_password), refused()]);
         let change = client.change_cloud_password("hunter2", "").await;
         sent.recv().await.unwrap();
         let change_sent = sent.try_recv().is_ok();

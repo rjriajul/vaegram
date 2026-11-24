@@ -20,7 +20,7 @@ mod tests {
     #[tokio::test]
     async fn accepts_and_declines() {
         let replies = (0..2).map(|_| Ok(base::Updates::UpdatesTooLong.to_bytes())).collect();
-        let (client, mut sent) = Client::scripted(replies);
+        let (client, mut sent) = Client::scripted_raw(replies);
         client.process_gift_purchase_offer(12, true).await.unwrap();
         client.process_gift_purchase_offer(12, false).await.unwrap();
         for decline in [false, true] {
@@ -31,7 +31,7 @@ mod tests {
 
     #[tokio::test]
     async fn rpc_errors_come_back_unchanged() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "MESSAGE_ID_INVALID")))]);
+        let (client, _sent) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "MESSAGE_ID_INVALID")))]);
         let result = client.process_gift_purchase_offer(12, true).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "MESSAGE_ID_INVALID"), "{result:?}");
     }

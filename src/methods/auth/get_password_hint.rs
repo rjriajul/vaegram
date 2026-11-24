@@ -37,13 +37,13 @@ mod tests {
     }
 
     async fn hint(reply: Result<Vec<u8>>) -> Result<Option<String>> {
-        let (client, _sent) = Client::scripted(vec![reply]);
+        let (client, _sent) = Client::scripted_raw(vec![reply]);
         client.get_password_hint().await
     }
 
     #[tokio::test]
     async fn asks_for_the_password_settings() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.get_password_hint().await;
         assert_eq!(sent.recv().await.unwrap(), functions::account::GetPassword {}.to_bytes());
     }

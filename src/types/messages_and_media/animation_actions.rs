@@ -35,7 +35,7 @@ mod tests {
             attributes: Vec::new(),
         }));
         let gif = Animation::parse(Document::parse(&raw).unwrap(), None, None);
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let id = || {
             let document = types::InputDocument { id: 1, access_hash: 2, file_reference: vec![3] };
             base::InputDocument::InputDocument(Box::new(document))

@@ -27,7 +27,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_short_name_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let peer = types::InputPeerUser { user_id: 42, access_hash: 7 };
         client.0.peers.lock().unwrap().insert(42, base::InputPeer::InputPeerUser(Box::new(peer)));
         assert!(matches!(client.get_bot_app(42, "").await, Err(Error::InvalidArgument(_))));

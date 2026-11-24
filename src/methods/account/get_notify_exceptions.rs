@@ -103,7 +103,7 @@ mod tests {
         ];
         let reply = types::Updates { updates, users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
         let reply = base::Updates::Updates(Box::new(reply)).to_bytes();
-        let (client, mut sent) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply)]);
 
         let found = client.get_notify_exceptions().compare_sound().await.unwrap();
         let expected = [

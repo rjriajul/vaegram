@@ -50,7 +50,7 @@ mod tests {
     }
 
     fn client_with(engine: Arc<dyn Storage>, replies: Vec<Result<Vec<u8>>>) -> Client {
-        let (mut client, _) = Client::scripted(replies);
+        let (mut client, _) = Client::scripted_raw(replies);
         Arc::get_mut(&mut client.0).unwrap().set_store(engine);
         client
     }

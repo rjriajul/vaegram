@@ -23,7 +23,7 @@ mod tests {
     #[tokio::test]
     async fn a_client_default_leaves_inline_captions_alone() {
         let default = crate::types::LinkPreviewOptions::new().show_above_text(true);
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.set_link_preview_options(Some(default));
         let _ = client.edit_inline_caption(id(), "new").await;
         let body = rx.try_recv().unwrap();
@@ -32,7 +32,7 @@ mod tests {
 
     #[tokio::test]
     async fn inline_caption_edits_message_only() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.edit_inline_caption(id(), "new").show_caption_above_media().await;
         let msg = types::InputBotInlineMessageID64 { dc_id: 2, owner_id: 5, id: 6, access_hash: 7 };
         let expected = EditInlineBotMessage {

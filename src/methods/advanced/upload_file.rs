@@ -48,7 +48,7 @@ mod tests {
 
     #[tokio::test]
     async fn uploads_bytes_and_keeps_the_name() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         let file = client.upload_file(Upload::bytes("a.txt", b"hi")).await.unwrap();
         assert_eq!(file.name(), "a.txt");
         let base::InputFile::InputFile(f) = &file.0 else { panic!("not a small file") };
@@ -60,7 +60,7 @@ mod tests {
 
     #[tokio::test]
     async fn progress_counts_every_byte() {
-        let (client, _sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
         let upload = client.upload_file(Upload::bytes("a.txt", b"hi"));

@@ -134,7 +134,7 @@ mod tests {
     const THEME: &str = r##"{"bg_color":"#ffffff"}"##;
 
     fn bot_client(replies: Vec<Result<Vec<u8>>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(replies);
+        let (client, rx) = Client::scripted_raw(replies);
         let bot = types::InputPeerUser { user_id: BOT, access_hash: 99 };
         client.0.peers.lock().unwrap().insert(BOT, base::InputPeer::InputPeerUser(Box::new(bot)));
         (client, rx)

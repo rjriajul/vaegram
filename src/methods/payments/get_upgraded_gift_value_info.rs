@@ -44,7 +44,7 @@ mod tests {
 
     #[tokio::test]
     async fn maps_every_field() {
-        let (client, mut sent) = Client::scripted(vec![Ok(reply(info()))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply(info()))]);
         let info = client.get_upgraded_gift_value_info("t.me/nft/PlushPepe-3").await.unwrap();
         let expected = UpgradedGiftValueInfo {
             currency: "USD".into(),
@@ -81,7 +81,7 @@ mod tests {
             fragment_listed_url: None,
             ..info()
         };
-        let (client, _sent) = Client::scripted(vec![Ok(reply(bare))]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(reply(bare))]);
         let info = client.get_upgraded_gift_value_info("PlushPepe-3").await.unwrap();
         assert!(!info.is_value_average && !info.is_last_sale_on_fragment);
         assert_eq!(
@@ -96,7 +96,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_link_without_a_name_is_refused_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         assert!(matches!(client.get_upgraded_gift_value_info("").await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
     }

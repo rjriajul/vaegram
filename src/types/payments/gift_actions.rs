@@ -182,7 +182,7 @@ mod tests {
             publisher_chat: None,
             ..UniqueGift::empty()
         };
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         assert!(gift.wear(&client).await.is_err());
         let collectible = types::InputEmojiStatusCollectible { collectible_id: 11, until: None };
         let emoji_status = base::EmojiStatus::InputEmojiStatusCollectible(Box::new(collectible));
@@ -194,7 +194,7 @@ mod tests {
     }
 
     fn owner_client() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, sent) = Client::recording();
+        let (client, sent) = Client::recording_raw();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 5, access_hash: 6 }));
         client.0.peers.lock().unwrap().insert(5, peer);
         (client, sent)

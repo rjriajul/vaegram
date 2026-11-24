@@ -134,7 +134,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn inline_edit_on_behalf_wraps_business() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.edit_inline_text(id(), "hi").business_connection_id("conn").await;
         let body = rx.try_recv().unwrap();
         assert_eq!(

@@ -499,7 +499,7 @@ mod tests {
         };
         let page = base::updates::ChannelDifference::ChannelDifference(Box::new(page));
         let refused = || Err(Error::Rpc(RpcError::parse(400, "CHANNEL_BROKEN")));
-        let (client, _sent) = Client::scripted(vec![Ok(page.to_bytes()), refused()]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(page.to_bytes()), refused()]);
         let seen = raw_updates(&client);
         let peer = types::InputPeerChannel { channel_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(get_channel_id(7), base::InputPeer::InputPeerChannel(Box::new(peer)));
@@ -515,7 +515,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_flood_wait_on_get_difference_is_returned_not_slept() {
         let flood = Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_30"));
-        let (client, mut sent) = Client::scripted(vec![Err(flood)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Err(flood)]);
         let mut d = Dispatcher::new(client, &state());
         let result = d.difference().await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.code == 420), "{result:?}");
@@ -680,7 +680,7 @@ mod tests {
             state: base::updates::State::State(Box::new(types::updates::State { pts: 2, ..state() })),
         };
         let difference = base::updates::Difference::Difference(Box::new(difference));
-        let (client, _sent) = Client::scripted(vec![Ok(difference.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(difference.to_bytes())]);
         let seen = raw_updates(&client);
         let mut d = Dispatcher::new(client.clone(), &state());
         deliver(&mut d, base::Updates::UpdatesTooLong).await;
@@ -722,7 +722,7 @@ mod tests {
         replies: Vec<crate::errors::Result<Vec<u8>>>,
         pts: i32,
     ) -> (Dispatcher, std::sync::mpsc::Receiver<ClientEvent>) {
-        let (client, _sent) = Client::scripted(replies);
+        let (client, _sent) = Client::scripted_raw(replies);
         let channel =
             base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 9, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(get_channel_id(9), channel);
@@ -746,7 +746,7 @@ mod tests {
             state: base::updates::State::State(Box::new(types::updates::State { pts: 2, ..state() })),
         };
         let difference = base::updates::Difference::Difference(Box::new(difference));
-        let (client, _sent) = Client::scripted(vec![Ok(difference.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(difference.to_bytes())]);
         let mut d = Dispatcher::new(client, &state());
         let (reply, answer) = tokio::sync::oneshot::channel();
         d.recover(super::Recover { chats: None, reply }).await;
@@ -760,7 +760,7 @@ mod tests {
     async fn stop_does_not_wait_for_a_handler_stuck_in_recover_gaps() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
-        let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 1, date: 1, ..Default::default() });
         let (updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
@@ -820,7 +820,7 @@ mod tests {
 
     #[tokio::test]
     async fn recovery_skips_ids_that_are_no_channel() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let mut d = Dispatcher::new(client, &state());
         d.tracker.state.channels.insert(9, 1);
         d.tracker.due.clear();
@@ -835,7 +835,7 @@ mod tests {
     async fn pts_changed_refetches_the_state() {
         let fresh = types::updates::State { pts: 500, qts: 3, date: 9, seq: 4, unread_count: 0 };
         let fresh = base::updates::State::State(Box::new(fresh));
-        let (client, mut sent) = Client::scripted(vec![Ok(fresh.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(fresh.to_bytes())]);
         let seen = raw_updates(&client);
         let mut d = Dispatcher::new(client, &state());
         // Held for a gap under the old numbering.
@@ -872,7 +872,7 @@ mod tests {
         let difference = base::updates::Difference::Difference(Box::new(difference));
         let fresh = types::updates::State { pts: 500, qts: 0, date: 0, seq: 5, unread_count: 0 };
         let fresh = base::updates::State::State(Box::new(fresh));
-        let (client, mut sent) = Client::scripted(vec![Ok(difference.to_bytes()), Ok(fresh.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(difference.to_bytes()), Ok(fresh.to_bytes())]);
         let mut d = Dispatcher::new(client, &types::updates::State { pts: 10, seq: 1, ..state() });
         let batch = types::Updates {
             updates: vec![base::Update::UpdatePtsChanged],
@@ -898,7 +898,7 @@ mod tests {
     async fn too_long_differences_report_the_skipped_range() {
         let too_long = base::updates::Difference::DifferenceTooLong(types::updates::DifferenceTooLong { pts: 50 });
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 0, seq: 0 });
-        let (client, _sent) = Client::scripted(vec![Ok(too_long.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(too_long.to_bytes()), Ok(empty.to_bytes())]);
         let events = client.0.events.record();
         let mut d = Dispatcher::new(client, &types::updates::State { pts: 10, ..state() });
         deliver(&mut d, base::Updates::UpdatesTooLong).await;
@@ -971,7 +971,7 @@ mod tests {
             users: Vec::new(),
         };
         let page = base::updates::ChannelDifference::ChannelDifference(Box::new(page));
-        let (client, mut sent) = Client::scripted(vec![Ok(difference.to_bytes()), Ok(page.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(difference.to_bytes()), Ok(page.to_bytes())]);
         let channel = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(get_channel_id(9), base::InputPeer::InputPeerChannel(Box::new(channel)));
         let seen = raw_updates(&client);
@@ -991,7 +991,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_channel_too_long_without_a_pts_for_an_unknown_channel_is_reported() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         let events = client.0.events.record();
         let mut d = Dispatcher::new(client, &state());
         let short = types::UpdateShort { update: channel_too_long(None), date: 0 };
@@ -1078,7 +1078,7 @@ mod tests {
             users: Vec::new(),
         };
         let page = base::updates::ChannelDifference::ChannelDifference(Box::new(page));
-        let (client, mut sent) = Client::scripted(vec![Ok(difference.to_bytes()), Ok(page.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(difference.to_bytes()), Ok(page.to_bytes())]);
         let channel = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(get_channel_id(9), base::InputPeer::InputPeerChannel(Box::new(channel)));
         let seen = raw_updates(&client);
@@ -1140,7 +1140,7 @@ mod tests {
         let fresh = types::updates::State { pts: 40, qts: 0, date: 5, seq: 3, unread_count: 0 };
         let fresh = base::updates::State::State(Box::new(fresh));
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 5, seq: 3 });
-        let (client, mut sent) = Client::scripted(vec![refused_pts(), Ok(fresh.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![refused_pts(), Ok(fresh.to_bytes()), Ok(empty.to_bytes())]);
         let events = client.0.events.record();
         let mut d = Dispatcher::new(client, &types::updates::State { pts: 10, ..state() });
         deliver(&mut d, base::Updates::UpdatesTooLong).await;
@@ -1178,7 +1178,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_getstate_that_keeps_failing_is_asked_again_only_after_its_wait() {
         use std::time::Duration;
-        let (client, mut sent) = Client::scripted(vec![refused_pts(), server_error(), server_error()]);
+        let (client, mut sent) = Client::scripted_raw(vec![refused_pts(), server_error(), server_error()]);
         let events = client.0.events.record();
         let mut d = Dispatcher::new(client, &types::updates::State { pts: 10, ..state() });
         deliver(&mut d, base::Updates::UpdatesTooLong).await;
@@ -1208,7 +1208,7 @@ mod tests {
         use std::time::Duration;
         let flood = Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_30")));
         let fresh = base::updates::State::State(Box::new(types::updates::State { pts: 40, ..state() }));
-        let (client, mut sent) = Client::scripted(vec![refused_pts(), flood, Ok(fresh.to_bytes()), server_error()]);
+        let (client, mut sent) = Client::scripted_raw(vec![refused_pts(), flood, Ok(fresh.to_bytes()), server_error()]);
         let mut d = Dispatcher::new(client, &types::updates::State { pts: 10, ..state() });
         deliver(&mut d, base::Updates::UpdatesTooLong).await;
         assert_eq!(requests(&mut sent), 2, "getDifference, then getState");
@@ -1255,7 +1255,7 @@ mod tests {
         let fresh = base::updates::State::State(Box::new(types::updates::State { pts: 40, ..state() }));
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 0, seq: 0 });
         let replies = vec![refused_pts(), server_error(), server_error(), Ok(fresh.to_bytes()), Ok(empty.to_bytes())];
-        let (client, mut sent) = Client::scripted(replies);
+        let (client, mut sent) = Client::scripted_raw(replies);
         let mut d = Dispatcher::new(client, &types::updates::State { pts: 10, ..state() });
         deliver(&mut d, base::Updates::UpdatesTooLong).await;
         tokio::time::advance(Duration::from_millis(500)).await;
@@ -1292,7 +1292,7 @@ mod tests {
             state: base::updates::State::State(Box::new(state())),
         };
         let difference = base::updates::Difference::Difference(Box::new(difference));
-        let (client, mut sent) = Client::scripted(vec![Ok(difference.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(difference.to_bytes())]);
         let events = client.0.events.record();
         let mut d = Dispatcher::from_now(client, &state(), 10);
         d.resolve().await;
@@ -1321,7 +1321,7 @@ mod tests {
             state: base::updates::State::State(Box::new(types::updates::State { seq: 3, ..state() })),
         };
         let difference = base::updates::Difference::Difference(Box::new(difference));
-        let (client, _sent) = Client::scripted(vec![Ok(difference.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(difference.to_bytes())]);
         let seen = raw_updates(&client);
         let mut d = Dispatcher::new(client, &state());
         // Held for a seq gap that never fills, carrying a copy of what the difference brings.
@@ -1336,7 +1336,7 @@ mod tests {
     async fn stop_ends_waiting_listeners_before_waiting_for_handlers() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
-        let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 1, date: 1, ..Default::default() });
         let (updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
@@ -1372,7 +1372,7 @@ mod tests {
 
     fn recording_client_with(replies: Vec<crate::errors::Result<Vec<u8>>>) -> (Client, Arc<Recording>) {
         let engine = Arc::new(Recording::default());
-        let (mut client, _sent) = Client::scripted(replies);
+        let (mut client, _sent) = Client::scripted_raw(replies);
         Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
         (client, engine)
     }
@@ -1531,7 +1531,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_refused_difference_after_the_qts_cap_reports_once_and_leaves_qts_to_fetch() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "X")))]);
+        let (client, _sent) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "X")))]);
         let events = client.0.events.record();
         let mut d = Dispatcher::new(client, &types::updates::State { qts: 5, ..state() });
         let stopped = |qts| {

@@ -91,7 +91,7 @@ mod tests {
 
     #[tokio::test]
     async fn pages_through_the_sets_the_user_created() {
-        let (client, mut rx) = Client::scripted(vec![Ok(reply(1, vec![covered(11)])), Ok(reply(1, Vec::new()))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply(1, vec![covered(11)])), Ok(reply(1, Vec::new()))]);
         let sets = client.get_owned_sticker_sets().await.unwrap();
         assert_eq!(rx.try_recv().unwrap(), GetMyStickers { offset_id: 0, limit: 100 }.to_bytes());
         assert_eq!(sets.len(), 1);
@@ -109,7 +109,7 @@ mod tests {
     #[tokio::test]
     async fn the_next_page_starts_after_the_last_set() {
         let pages = vec![Ok(reply(5, vec![covered(11), covered(12)])), Ok(reply(5, vec![covered(13)]))];
-        let (client, mut rx) = Client::scripted(pages);
+        let (client, mut rx) = Client::scripted_raw(pages);
         let mut sets = client.get_owned_sticker_sets().limit(3);
         let mut ids = Vec::new();
         while let Some(set) = sets.next().await.unwrap() {
@@ -124,14 +124,14 @@ mod tests {
     #[tokio::test]
     async fn a_repeated_offset_id_ends_the_list() {
         let same = || Ok(reply(i32::MAX, vec![covered(11)]));
-        let (client, mut rx) = Client::scripted(vec![same(), same(), same()]);
+        let (client, mut rx) = Client::scripted_raw(vec![same(), same(), same()]);
         client.get_owned_sticker_sets().await.unwrap();
         assert_eq!(std::iter::from_fn(|| rx.try_recv().ok()).count(), 2);
     }
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "OFFSET_INVALID")))]);
+        let (client, _rx) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "OFFSET_INVALID")))]);
         let result = client.get_owned_sticker_sets().await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "OFFSET_INVALID"), "{result:?}");
     }

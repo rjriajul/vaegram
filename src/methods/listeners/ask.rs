@@ -123,7 +123,7 @@ mod tests {
 
     /// Asks in Saved Messages (the account is 5), and the question gets id 9.
     async fn asking() -> (Client, tokio::task::JoinHandle<Result<Message>>) {
-        let (client, _sent) = Client::scripted(vec![Ok(sent(9))]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(sent(9))]);
         client.0.me.lock().unwrap().id = 5;
         let waiter = tokio::spawn({
             let client = client.clone();
@@ -138,7 +138,7 @@ mod tests {
     /// way.
     async fn asking_slowly(reply: Result<Vec<u8>>) -> (Client, tokio::task::JoinHandle<Result<Message>>) {
         let flood = Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_1")));
-        let (client, _sent) = Client::scripted(vec![flood, reply]);
+        let (client, _sent) = Client::scripted_raw(vec![flood, reply]);
         client.0.me.lock().unwrap().id = 5;
         let waiter = tokio::spawn({
             let client = client.clone();
@@ -184,7 +184,7 @@ mod tests {
 
     #[tokio::test]
     async fn prompt_options_reach_the_request() {
-        let (client, mut requests) = Client::scripted(vec![Ok(sent(9))]);
+        let (client, mut requests) = Client::scripted_raw(vec![Ok(sent(9))]);
         let markup = ForceReply::new().placeholder("name");
         let expected = markup.write().to_bytes();
         let waiter = tokio::spawn({
@@ -239,7 +239,7 @@ mod tests {
     async fn a_message_whose_filter_ran_across_the_release_is_checked_again() {
         let (entered, go) = (Arc::new(Barrier::new(2)), Arc::new(Barrier::new(2)));
         let flood = Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_1")));
-        let (client, _sent) = Client::scripted(vec![flood, Ok(sent(9))]);
+        let (client, _sent) = Client::scripted_raw(vec![flood, Ok(sent(9))]);
         client.0.me.lock().unwrap().id = 5;
         // Message 8 matches the hold, then its filter waits until the question is out and the hold released.
         let filter = filters::create({
@@ -302,7 +302,7 @@ mod tests {
     async fn a_message_one_ask_gives_back_can_answer_another() {
         let flood = |seconds: u32| Err(Error::Rpc(RpcError::parse(420, &format!("FLOOD_WAIT_{seconds}"))));
         // The first question sleeps off one second and gets id 9, the second five seconds and gets id 11.
-        let (client, mut requests) = Client::scripted(vec![flood(1), flood(5), Ok(sent(9)), Ok(sent(11))]);
+        let (client, mut requests) = Client::scripted_raw(vec![flood(1), flood(5), Ok(sent(9)), Ok(sent(11))]);
         client.0.me.lock().unwrap().id = 5;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
@@ -328,7 +328,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_answer_in_an_extra_chat_counts() {
-        let (client, _sent) = Client::scripted(vec![Ok(sent(9))]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(sent(9))]);
         client.0.me.lock().unwrap().id = 5;
         let waiter = tokio::spawn({
             let client = client.clone();
@@ -342,7 +342,7 @@ mod tests {
 
     #[tokio::test]
     async fn after_only_applies_to_the_question_chat() {
-        let (client, _sent) = Client::scripted(vec![Ok(sent(9))]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(sent(9))]);
         client.0.me.lock().unwrap().id = 5;
         let waiter = tokio::spawn({
             let client = client.clone();

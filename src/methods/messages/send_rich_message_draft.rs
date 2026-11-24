@@ -25,7 +25,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_rich_draft_action() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let draft = client.send_rich_message_draft("me", 42, InputRichMessage::html("<b>…</b>")).keep_on_stop();
         assert!(draft.await.is_err());
         let html =

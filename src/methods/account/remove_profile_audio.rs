@@ -22,7 +22,7 @@ mod tests {
 
     #[tokio::test]
     async fn unsaves_the_song() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.remove_profile_audio(&song(1)).await.unwrap();
         let expected = functions::account::SaveMusic { unsave: true, id: stored(1), after_id: None };
         assert_eq!(sent.recv().await.unwrap(), expected.to_bytes());

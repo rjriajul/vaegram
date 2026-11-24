@@ -166,7 +166,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_channel_is_read_page_by_page_from_the_offset() {
-        let (client, mut sent) = Client::scripted(vec![participants(4, &[1, 2]), participants(4, &[3])]);
+        let (client, mut sent) = Client::scripted_raw(vec![participants(4, &[1, 2]), participants(4, &[3])]);
         let channel = known_channel(&client);
         let members = client.get_chat_members(channel).offset(1).await.unwrap();
         assert_eq!(ids(&members), [1, 2, 3]);
@@ -179,7 +179,7 @@ mod tests {
     #[tokio::test]
     async fn the_limit_stops_reading_and_not_modified_ends_the_list() {
         let not_modified = Ok(base::channels::ChannelParticipants::ChannelParticipantsNotModified.to_bytes());
-        let (client, mut sent) = Client::scripted(vec![participants(9, &[1, 2]), not_modified]);
+        let (client, mut sent) = Client::scripted_raw(vec![participants(9, &[1, 2]), not_modified]);
         let channel = known_channel(&client);
         let mut members = client.get_chat_members(channel).limit(2);
         assert_eq!(members.next().await.unwrap().map(|m| m.user.id), Some(1));
@@ -241,7 +241,7 @@ mod tests {
             users: Vec::new(),
         };
         let (client, mut sent) =
-            Client::scripted(vec![Ok(base::messages::ChatFull::ChatFull(Box::new(reply)).to_bytes())]);
+            Client::scripted_raw(vec![Ok(base::messages::ChatFull::ChatFull(Box::new(reply)).to_bytes())]);
         let members = client.get_chat_members(-5_i64).offset(1).limit(1).await.unwrap();
         assert_eq!(ids(&members), [2]);
         assert_eq!(sent.try_recv().unwrap(), messages::GetFullChat { chat_id: 5 }.to_bytes());

@@ -138,7 +138,7 @@ mod tests {
 
     #[tokio::test]
     async fn follows_the_next_offset_until_telegram_gives_none() {
-        let (client, mut sent) = Client::scripted(vec![found(Some(60), &[1, 2]), found(None, &[3])]);
+        let (client, mut sent) = Client::scripted_raw(vec![found(Some(60), &[1, 2]), found(None, &[3])]);
         assert_eq!(ids(&client.search_stickers("cat").offset(10).await.unwrap()), [1, 2, 3]);
         assert_eq!(sent.try_recv().unwrap(), request(10, 50));
         assert_eq!(sent.try_recv().unwrap(), request(60, 50));
@@ -147,7 +147,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_page_ends_the_search_and_the_limit_sizes_the_page() {
-        let (client, mut sent) = Client::scripted(vec![found(Some(5), &[]), found(Some(9), &[1, 2])]);
+        let (client, mut sent) = Client::scripted_raw(vec![found(Some(5), &[]), found(Some(9), &[1, 2])]);
         assert!(client.search_stickers("cat").await.unwrap().is_empty());
         assert_eq!(sent.try_recv().unwrap(), request(0, 50));
         assert_eq!(ids(&client.search_stickers("cat").limit(1).await.unwrap()), [1]);
@@ -157,7 +157,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_offset_that_does_not_move_ends_the_search() {
-        let (client, mut sent) = Client::scripted(vec![found(Some(10), &[1])]);
+        let (client, mut sent) = Client::scripted_raw(vec![found(Some(10), &[1])]);
         assert_eq!(ids(&client.search_stickers("cat").offset(10).await.unwrap()), [1]);
         assert_eq!(sent.try_recv().unwrap(), request(10, 50));
         assert!(sent.try_recv().is_err());

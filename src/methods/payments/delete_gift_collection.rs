@@ -19,7 +19,7 @@ mod tests {
 
     #[tokio::test]
     async fn deletes_the_collection() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.delete_gift_collection("me", 4).await.unwrap();
         let request =
             functions::payments::DeleteStarGiftCollection { peer: base::InputPeer::InputPeerSelf, collection_id: 4 };

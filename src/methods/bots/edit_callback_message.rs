@@ -181,7 +181,7 @@ mod tests {
             chat_instance: 3,
             data: Some(b"buy".to_vec()),
         };
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, peer);
         client.0.caches.know_business("conn", 7, 2);
@@ -192,7 +192,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_built_caption_keeps_its_entities() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, peer);
         let _ = query(&client, 7, 7, 5).edit_message_caption(Text::new().bold("new")).await;
@@ -204,7 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_disabled_preview_reaches_message_and_inline_edits() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, peer);
         let off = || LinkPreviewOptions::new().is_disabled(true);

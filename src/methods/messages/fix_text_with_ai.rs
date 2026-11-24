@@ -17,7 +17,7 @@ mod tests {
 
     #[tokio::test]
     async fn fix_only_proofreads() {
-        let (client, mut rx) = Client::scripted(vec![Ok(composed())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(composed())]);
         client.fix_text_with_ai("Ths is a tset").await.unwrap();
         let expected = functions::messages::ComposeMessageWithAI {
             proofread: true,

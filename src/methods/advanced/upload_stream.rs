@@ -27,7 +27,7 @@ mod tests {
 
     #[tokio::test]
     async fn uploads_a_two_part_stream() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
         // Two workers lease two sessions; both are the scripted one, so nothing goes to the network.
         client.0.transfers.insert(client.dc(2).unwrap(), &client.session());
         let data: Vec<u8> = (0..PART + 1).map(|i| i as u8).collect();
@@ -44,7 +44,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_short_stream_fails_with_an_io_error_before_sending() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let e = client.upload_stream(&b"hello"[..], 10, "a.bin").await.err();
         assert!(matches!(&e, Some(Error::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof), "{e:?}");
         assert!(sent.try_recv().is_err());
@@ -52,7 +52,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_zero_size_stream_is_refused_before_any_request() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         {
             let mut me = client.0.me.lock().unwrap();
             (me.is_bot, me.premium) = (false, None);

@@ -76,7 +76,7 @@ mod tests {
     use crate::types::ReactionType;
 
     fn client() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        let (client, sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(true.to_bytes()), Ok(true.to_bytes())]);
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 5, access_hash: 6 }));
         client.0.peers.lock().unwrap().insert(5, peer);
         (client, sent)

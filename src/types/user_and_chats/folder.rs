@@ -381,7 +381,7 @@ mod tests {
         use crate::raw::Serializable;
         use crate::types::User;
 
-        let (client, _sent) = Client::scripted(vec![Ok(Vec::<i64>::new().to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(Vec::<i64>::new().to_bytes())]);
         let mut user = User::empty();
         user.id = 777;
         let mention = MessageEntity::new(MessageEntityType::TextMention, 0, 3).user(user);

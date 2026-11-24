@@ -79,7 +79,7 @@ mod tests {
     async fn a_users_photos_are_counted_from_one_slice() {
         let slice = types::photos::PhotosSlice { count: 5, photos: vec![photo()], users: Vec::new() };
         let (client, mut sent) =
-            Client::scripted(vec![Ok(base::photos::Photos::PhotosSlice(Box::new(slice)).to_bytes())]);
+            Client::scripted_raw(vec![Ok(base::photos::Photos::PhotosSlice(Box::new(slice)).to_bytes())]);
         let user = types::InputPeerUser { user_id: 7, access_hash: 3 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         assert_eq!(client.get_chat_photos_count(7).await.unwrap(), 5);
@@ -91,7 +91,7 @@ mod tests {
     #[tokio::test]
     async fn a_bot_counts_the_groups_photo() {
         let empty = base::Photo::PhotoEmpty(types::PhotoEmpty { id: 0 });
-        let (client, mut sent) = Client::scripted(vec![Ok(channel_full(photo())), Ok(channel_full(empty))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(channel_full(photo())), Ok(channel_full(empty))]);
         let channel = known_channel(&client);
         assert_eq!(client.get_chat_photos_count(channel).await.unwrap(), 1);
         assert_eq!(client.get_chat_photos_count(channel).await.unwrap(), 0);
@@ -110,7 +110,7 @@ mod tests {
             count: 3,
         };
         let counters = vec![base::messages::SearchCounter::SearchCounter(Box::new(counter))];
-        let (client, mut sent) = Client::scripted(vec![Ok(counters.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(counters.to_bytes())]);
         client.0.me.lock().unwrap().is_bot = false;
         let channel = known_channel(&client);
         assert_eq!(client.get_chat_photos_count(channel).await.unwrap(), 3);

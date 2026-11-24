@@ -287,7 +287,7 @@ mod tests {
 
     #[tokio::test]
     async fn ids_that_name_no_peer_are_refused() {
-        let (client, _rx) = Client::recording();
+        let (client, _rx) = Client::recording_raw();
         // A logged-in account; before login the own id is 0, which resolves to the account itself.
         client.0.me.lock().unwrap().id = 1;
         for id in [0, -super::CHANNEL_OFFSET, i64::MIN, i64::MAX, 1 << 52, -(1 << 52)] {
@@ -308,7 +308,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_every_kind_of_name() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.0.me.lock().unwrap().id = 1;
         let channel = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         let channel = base::InputPeer::InputPeerChannel(Box::new(channel));
@@ -362,14 +362,14 @@ mod tests {
             subscription_form_id: None,
             bot_verification: None,
         }));
-        let (client, _sent) = Client::scripted(vec![Ok(invite.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(invite.to_bytes())]);
         let result = client.resolve_peer("t.me/+AbC").await;
         assert!(matches!(result, Err(Error::ChatNotJoined)), "{result:?}");
     }
 
     #[tokio::test]
     async fn a_failing_store_falls_back_to_asking_telegram() {
-        let (mut client, mut sent) = Client::scripted(vec![Err(Error::Unexpected("offline"))]);
+        let (mut client, mut sent) = Client::scripted_raw(vec![Err(Error::Unexpected("offline"))]);
         let engine = std::sync::Arc::new(crate::storage::Recording::failing());
         std::sync::Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
         let result = client.resolve_peer(777).await;
@@ -382,7 +382,7 @@ mod tests {
     #[tokio::test]
     async fn a_failing_store_sends_names_and_numbers_to_telegram() {
         let offline = || Err(Error::Unexpected("offline"));
-        let (mut client, mut sent) = Client::scripted(vec![offline(), offline()]);
+        let (mut client, mut sent) = Client::scripted_raw(vec![offline(), offline()]);
         let engine = std::sync::Arc::new(crate::storage::Recording::failing());
         std::sync::Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
         let events = client.0.events.record();
@@ -423,7 +423,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_fresh_username_is_resolved_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         crate::dispatcher::Entities::new(&client, vec![user_named(100, "Alice")], Vec::new());
         let (id, _) = client.resolve(&PeerRef::Username("@alice".into())).await.unwrap();
         assert_eq!(id, 100);
@@ -432,7 +432,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_stale_username_is_looked_up_again() {
-        let (client, mut sent) = Client::scripted(vec![Err(Error::Unexpected("offline"))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Err(Error::Unexpected("offline"))]);
         let mut old = crate::storage::PeerRecord::new(100, 7);
         (old.usernames, old.updated) = (vec!["alice".into()], 1);
         client.0.peers.lock().unwrap().load([old]);
@@ -448,7 +448,7 @@ mod tests {
         let peer = base::Peer::PeerUser(types::PeerUser { user_id: 100 });
         let resolved = types::contacts::ResolvedPeer { peer, chats: Vec::new(), users: vec![user_named(100, "alice")] };
         let reply = base::contacts::ResolvedPeer::ResolvedPeer(Box::new(resolved)).to_bytes();
-        let (client, mut sent) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply)]);
         let mut old = crate::storage::PeerRecord::new(100, 7);
         let nine_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(9 * 60 * 60);
         let then = nine_hours_ago.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
@@ -465,7 +465,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_min_channel_is_reached_through_its_message() {
-        let (client, mut sent) = Client::scripted(vec![Err(Error::Unexpected("offline"))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Err(Error::Unexpected("offline"))]);
         let group = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         let group = base::InputPeer::InputPeerChannel(Box::new(group));
         let seen = types::InputPeerChannelFromMessage { peer: group.clone(), msg_id: 42, channel_id: 55 };
@@ -498,7 +498,8 @@ mod tests {
     #[tokio::test]
     async fn a_community_keeps_its_access_hash() {
         let chats = types::messages::Chats { chats: vec![community(71, 4)] };
-        let (client, mut sent) = Client::scripted(vec![Ok(base::messages::Chats::Chats(Box::new(chats)).to_bytes())]);
+        let (client, mut sent) =
+            Client::scripted_raw(vec![Ok(base::messages::Chats::Chats(Box::new(chats)).to_bytes())]);
         crate::dispatcher::Entities::new(&client, Vec::new(), vec![community(70, 3)]);
         let peer = |channel_id, access_hash| {
             base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id, access_hash }))
@@ -514,7 +515,7 @@ mod tests {
 
         let engine = std::sync::Arc::new(MemoryStorage::new());
         engine.update_peers(&[PeerRecord::new(7, 5)]).await.unwrap();
-        let (mut client, mut sent) = Client::scripted(Vec::new());
+        let (mut client, mut sent) = Client::scripted_raw(Vec::new());
         std::sync::Arc::get_mut(&mut client.0).unwrap().set_store(engine);
         let group =
             base::InputPeer::InputPeerChannel(Box::new(types::InputPeerChannel { channel_id: 9, access_hash: 1 }));

@@ -29,7 +29,7 @@ mod tests {
 
     #[tokio::test]
     async fn moves_the_song_to_the_top_or_after_another() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
         client.set_profile_audio_position(&song(1), None).await.unwrap();
         let top = functions::account::SaveMusic { unsave: false, id: stored(1), after_id: None };
         assert_eq!(sent.recv().await.unwrap(), top.to_bytes());
@@ -41,7 +41,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_song_after_itself_is_refused_before_sending() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let result = client.set_profile_audio_position(&song(1), Some(&song(1))).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(sent.try_recv().is_err());
@@ -49,7 +49,7 @@ mod tests {
 
     #[tokio::test]
     async fn errors_come_back_unchanged() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "DOCUMENT_INVALID")))]);
+        let (client, _sent) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "DOCUMENT_INVALID")))]);
         let result = client.set_profile_audio_position(&song(1), None).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.is("DOCUMENT_INVALID")), "{result:?}");
     }

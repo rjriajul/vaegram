@@ -136,7 +136,7 @@ mod tests {
 
     #[tokio::test]
     async fn inline_buttons_by_index_position_and_text() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let markup = InlineKeyboardMarkup::new([
             vec![InlineKeyboardButton::url("Site", "https://x.y"), InlineKeyboardButton::callback("Go", "data")],
             vec![InlineKeyboardButton::copy_text("Copy", "secret")],
@@ -161,7 +161,7 @@ mod tests {
 
     #[tokio::test]
     async fn reply_buttons_send_their_text() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let markup = ReplyKeyboardMarkup::new([vec![KeyboardButton::new("Yes"), KeyboardButton::new("No")]]);
         let message = message(&client, markup.write());
         let _ = message.click("No").await;
@@ -172,7 +172,7 @@ mod tests {
 
     #[tokio::test]
     async fn reply_button_text_skips_the_parse_mode() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.set_parse_mode(ParseMode::Html);
         let label = r#"<a href="https://x.example">Yes</a>"#;
         let message = message(&client, ReplyKeyboardMarkup::new([vec![KeyboardButton::new(label)]]).write());
@@ -185,7 +185,7 @@ mod tests {
 
     #[tokio::test]
     async fn reply_buttons_that_share_data_are_not_sent_as_text() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let mut markup = ReplyKeyboardMarkup::new([vec![
             KeyboardButton::new("Phone").request_contact(true),
             KeyboardButton::new("Here").request_location(true),

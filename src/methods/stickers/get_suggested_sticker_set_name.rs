@@ -22,14 +22,14 @@ mod tests {
     async fn returns_telegrams_suggestion() {
         let name = types::stickers::SuggestedShortName { short_name: "my_set".into() };
         let reply = base::stickers::SuggestedShortName::SuggestedShortName(Box::new(name)).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         assert_eq!(client.get_suggested_sticker_set_name("My Set").await.unwrap(), "my_set");
         assert_eq!(rx.try_recv().unwrap(), SuggestShortName { title: "My Set".into() }.to_bytes());
     }
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "TITLE_INVALID")))]);
+        let (client, _rx) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "TITLE_INVALID")))]);
         let result = client.get_suggested_sticker_set_name("").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "TITLE_INVALID"), "{result:?}");
     }

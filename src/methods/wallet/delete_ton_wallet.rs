@@ -44,7 +44,7 @@ mod tests {
     #[tokio::test]
     async fn delete_sends_new_wallet() {
         let reply = base::WalletState::WalletStateEmpty(types::WalletStateEmpty { creating: false }).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         client.delete_ton_wallet().await.unwrap();
         let expected = ReplaceWallet { wallet: base::InputWalletReplacement::InputWalletNew, password: None };
         assert_eq!(rx.try_recv().unwrap(), expected.to_bytes());
@@ -53,7 +53,7 @@ mod tests {
     #[tokio::test]
     async fn without_password_one_request() {
         let reply = base::WalletState::WalletStateEmpty(types::WalletStateEmpty { creating: false }).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         client.delete_ton_wallet().await.unwrap();
         rx.try_recv().unwrap();
         assert!(rx.try_recv().is_err());
@@ -63,7 +63,7 @@ mod tests {
     async fn a_password_is_fetched_then_sent_with_the_new_wallet() {
         use crate::methods::wallet::replace_ton_wallet::tests::{password_reply, sends_password};
         let state = base::WalletState::WalletStateEmpty(types::WalletStateEmpty { creating: false }).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(password_reply()), Ok(state)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(password_reply()), Ok(state)]);
         client.delete_ton_wallet().password("hunter2").await.unwrap();
         rx.try_recv().unwrap();
         assert!(sends_password(&rx.try_recv().unwrap()));

@@ -63,7 +63,7 @@ mod tests {
 
     #[tokio::test]
     async fn only_photos_and_videos_are_previews() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let peer = types::InputPeerUser { user_id: 42, access_hash: 7 };
         client.0.peers.lock().unwrap().insert(42, base::InputPeer::InputPeerUser(Box::new(peer)));
         let document = InputMedia::document("notes.txt");
