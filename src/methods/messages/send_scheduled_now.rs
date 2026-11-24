@@ -11,11 +11,9 @@ impl Client {
         if message_ids.is_empty() {
             return Err(Error::InvalidArgument("send_scheduled_now needs at least one message id"));
         }
-        let request = functions::messages::SendScheduledMessages {
-            peer: self.resolve_peer(chat_id).await?,
-            id: message_ids.to_vec(),
-        };
-        let updates = self.invoke(&request).await?;
+        let (chat_id, peer) = self.resolve(&chat_id.into()).await?;
+        let request = functions::messages::SendScheduledMessages { peer, id: message_ids.to_vec() };
+        let updates = self.invoke_for_chat(chat_id, &request).await?;
         Ok(Message::all_from_updates(self, updates).collect())
     }
 }

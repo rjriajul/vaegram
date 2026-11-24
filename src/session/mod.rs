@@ -24,7 +24,7 @@ pub use events::Events;
 #[cfg(not(feature = "unstable-raw"))]
 pub(crate) use events::Events;
 pub use internals::data_center::Dc;
-pub use rate_limiter::{RateCategory, RateLimiter, RateLimits};
+pub use rate_limiter::{ChatRateLimits, RateCategory, RateLimiter, RateLimits};
 pub use replay::Replay;
 pub(crate) use retry::Tally;
 pub use retry::{AutoSleep, NoRetries, Retry, RetryContext, RetryPolicy};

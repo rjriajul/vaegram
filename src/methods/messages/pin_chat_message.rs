@@ -50,14 +50,16 @@ impl PinChatMessage<'_> {
     }
 
     async fn send(self) -> Result<()> {
+        let (chat_id, peer) = self.client.resolve(&self.chat_id).await?;
         let request = functions::messages::UpdatePinnedMessage {
             silent: self.disable_notification,
             unpin: false,
             pm_oneside: !self.both_sides,
-            peer: self.client.resolve_peer(self.chat_id).await?,
+            peer,
             id: self.message_id,
         };
-        self.client.invoke_business(self.business_connection_id.as_deref(), request).await?;
+        let business = self.business_connection_id.as_deref();
+        self.client.invoke_business_for_chat(chat_id, false, business, request).await?;
         Ok(())
     }
 }

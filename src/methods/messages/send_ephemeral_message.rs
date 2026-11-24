@@ -274,8 +274,14 @@ impl<'a> SendEphemeralMessage<'a> {
             None => None,
         };
         let receiver_id = client.resolve_user(&receiver).await?;
+        let chat_id = chat.as_ref().map(|&(chat_id, _)| chat_id);
         let request = self.request(chat, receiver_id, message.unwrap_or_default(), entities, rich_message).await?;
-        EphemeralMessage::from_updates(client, client.invoke(&request).await?)
+        // An answer that names no chat counts against no chat's limits.
+        let updates = match chat_id {
+            Some(chat_id) => client.invoke_for_chat(chat_id, &request).await?,
+            None => client.invoke(&request).await?,
+        };
+        EphemeralMessage::from_updates(client, updates)
     }
 }
 

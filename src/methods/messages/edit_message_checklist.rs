@@ -57,7 +57,8 @@ impl EditMessageChecklist<'_> {
             reply_markup: ReplyMarkup::write_option(self.reply_markup.as_ref(), self.client).await?,
             ..edit_request(peer, self.message_id)
         };
-        let (updates, _) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;
+        let business = self.business_connection_id.as_deref();
+        let (updates, _) = client.invoke_business_for_chat(chat_id, false, business, request).await?;
         Message::from_updates(client, updates, Message::request(chat_id, String::new(), None))
     }
 }

@@ -239,6 +239,7 @@ impl Client {
         let reply_markup = ReplyMarkup::write_option(options.reply_markup.as_ref(), self).await?;
         let suggested_post = options.suggested_post_parameters.map(SuggestedPostParameters::write);
         let connection_id = options.business_connection_id;
+        let paid = options.allow_paid_broadcast;
         let me = self.0.me.lock().unwrap().id;
         // The message as the request describes it, for a short "sent" reply that carries little more than its id.
         macro_rules! sent {
@@ -280,7 +281,8 @@ impl Client {
                     allow_paid_stars: options.paid_message_star_count,
                     suggested_post,
                 };
-                let (updates, request) = self.invoke_business(connection_id.as_deref(), request).await?;
+                let (updates, request) =
+                    self.invoke_business_for_chat(chat_id, paid, connection_id.as_deref(), request).await?;
                 (updates, sent!(request), None)
             }
             None => {
@@ -308,7 +310,8 @@ impl Client {
                     suggested_post,
                     rich_message,
                 };
-                let (updates, request) = self.invoke_business(connection_id.as_deref(), request).await?;
+                let (updates, request) =
+                    self.invoke_business_for_chat(chat_id, paid, connection_id.as_deref(), request).await?;
                 let rich_message = request.rich_message;
                 (updates, sent!(request), rich_message)
             }
@@ -328,12 +331,14 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use super::*;
     use crate::client::Me;
     use crate::dispatcher::Entities;
     use crate::dispatcher::cache::Caches;
     use crate::raw::Serializable;
+    use crate::session::{ChatRateLimits, RateCategory, RateLimiter, RateLimits};
     use crate::types::{CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Text};
     use crate::utils::get_peer;
 
@@ -484,6 +489,46 @@ mod tests {
         };
         let query = CallbackQuery::parse(&client, &press, &Entities::default());
         check(&query.message().await.unwrap().unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_message_takes_a_token_of_its_chat() {
+        let (mut client, mut rx) = Client::recording();
+        // A private chat's bucket refills slowly, so the token the send took is still missing afterwards.
+        let limits = RateLimits::default().per_chat(ChatRateLimits::default().private(0.001, 1.0));
+        Arc::get_mut(&mut client.0).unwrap().limiter = Some(RateLimiter::new(&limits));
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+
+        let _ = client.send_message(7, "hi").await;
+        assert!(rx.try_recv().is_ok(), "no request sent");
+        let limiter = client.rate_limiter().unwrap();
+        assert_eq!(limiter.tracked_chats(), 1);
+        assert!(!limiter.try_acquire_chat(RateCategory::Message, 7), "the send took no token of its chat");
+        assert!(limiter.try_acquire_chat(RateCategory::Message, 8), "another chat was held back");
+    }
+
+    #[tokio::test]
+    async fn a_bots_paid_broadcast_skips_the_global_bucket() {
+        let (mut client, mut rx) = Client::recording();
+        let limits = RateLimits::default()
+            .limit(RateCategory::Global, 0.001, 1.0)
+            .per_chat(ChatRateLimits::default().private(1000.0, 1000.0));
+        Arc::get_mut(&mut client.0).unwrap().limiter = Some(RateLimiter::new(&limits));
+        let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
+        client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
+        client.rate_limiter().unwrap().acquire(RateCategory::Global).await;
+        let wait = Duration::from_millis(100);
+
+        let _ = tokio::time::timeout(wait, client.send_message(7, "hi").allow_paid_broadcast().into_future()).await;
+        assert!(rx.try_recv().is_ok(), "a bot's paid broadcast waited on the global bucket");
+        let _ = tokio::time::timeout(wait, client.send_message(7, "hi").into_future()).await;
+        assert!(rx.try_recv().is_err(), "a plain message skipped the global bucket");
+
+        // A user can't pay to go over the broadcast limit, so the flag skips nothing for one.
+        client.0.me.lock().unwrap().is_bot = false;
+        let _ = tokio::time::timeout(wait, client.send_message(7, "hi").allow_paid_broadcast().into_future()).await;
+        assert!(rx.try_recv().is_err(), "a user's paid broadcast skipped the global bucket");
     }
 }
 

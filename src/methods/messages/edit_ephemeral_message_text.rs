@@ -108,14 +108,14 @@ impl<'a> EditEphemeralMessage<'a> {
             }
             (None, None) => (None, None, None),
         };
-        let peer = client.resolve(&self.chat_id).await?.1;
+        let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let receiver_id = client.resolve_user(&self.receiver_user_id).await?;
         let media = match media {
             Some(media) => Some(client.input_media(&peer, &media, None, None).await?),
             None => None,
         };
         let request = self.request(peer, receiver_id, message, entities, rich_message, media).await?;
-        let updates = client.invoke(&request).await?;
+        let updates = client.invoke_for_chat(chat_id, &request).await?;
         EphemeralMessage::from_updates(client, updates)
     }
 }

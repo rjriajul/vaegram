@@ -27,15 +27,14 @@ impl EditMessageWidgetData<'_> {
         self
     }
     async fn send(self) -> Result<()> {
-        let peer = self.client.resolve(&self.chat_id).await?.1;
-        self.client
-            .invoke(&functions::messages::EditMessageWidgetData {
-                peer,
-                id: self.message_id,
-                public_data: self.public_data,
-                chat_data: self.chat_data,
-            })
-            .await?;
+        let (chat_id, peer) = self.client.resolve(&self.chat_id).await?;
+        let request = functions::messages::EditMessageWidgetData {
+            peer,
+            id: self.message_id,
+            public_data: self.public_data,
+            chat_data: self.chat_data,
+        };
+        self.client.invoke_for_chat(chat_id, &request).await?;
         Ok(())
     }
 }

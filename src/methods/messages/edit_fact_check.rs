@@ -37,8 +37,8 @@ impl EditFactCheck<'_> {
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let (text, entities) = client.write_text(self.text, self.parse_mode).await?;
         let text = base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities }));
-        let updates =
-            client.invoke(&functions::messages::EditFactCheck { peer, msg_id: self.message_id, text }).await?;
+        let request = functions::messages::EditFactCheck { peer, msg_id: self.message_id, text };
+        let updates = client.invoke_for_chat(chat_id, &request).await?;
         Message::from_updates(client, updates, Message::request(chat_id, String::new(), None))
     }
 }

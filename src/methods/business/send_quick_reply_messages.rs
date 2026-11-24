@@ -12,9 +12,10 @@ impl Client {
         shortcut_id: i32,
         message_ids: &[i32],
     ) -> Result<()> {
-        let peer = self.resolve_peer(chat_id).await?;
+        let (chat_id, peer) = self.resolve(&chat_id.into()).await?;
         let random_id = message_ids.iter().map(|_| i64::from_le_bytes(random())).collect();
         let id = message_ids.to_vec();
-        self.invoke(&functions::messages::SendQuickReplyMessages { peer, shortcut_id, id, random_id }).await.map(drop)
+        let request = functions::messages::SendQuickReplyMessages { peer, shortcut_id, id, random_id };
+        self.invoke_for_chat(chat_id, &request).await.map(drop)
     }
 }

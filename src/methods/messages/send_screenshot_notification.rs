@@ -11,7 +11,7 @@ impl Client {
         let reply_to = ReplyParameters::new(0).write(self, chat_id).await?;
         let request =
             functions::messages::SendScreenshotNotification { peer, reply_to, random_id: i64::from_le_bytes(random()) };
-        self.invoke(&request).await?;
+        self.invoke_for_chat(chat_id, &request).await?;
         Ok(())
     }
 }
