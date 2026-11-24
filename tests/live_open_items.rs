@@ -86,8 +86,10 @@ async fn a_setup_kit_bot_can_pin() {
     assert!(after.privileges.is_some_and(|p| p.can_pin_messages), "the kit bot still may not pin: {after:?}");
 }
 
-/// Item 65: rich-message HTML with a newline inside a paragraph next to a `<tg-emoji>`, sent by the bot. Prints how
-/// the newline came back; fails when the two lines were run together.
+/// Item 65: rich-message HTML with a `\n` and a `<br>` inside a paragraph next to a `<tg-emoji>`, sent by the bot.
+/// vaegram sends the HTML as given and reads plain text back unchanged, so what each becomes is Telegram's doing; the
+/// test prints it. Pass 2 (2026-11-21) showed Telegram turns a `\n` into a space, as a browser does. Fails only when
+/// text is lost.
 #[tokio::test]
 #[ignore = "uses a logged-in user session and a bot token"]
 async fn bot_rich_html_keeps_a_newline() {
@@ -105,7 +107,7 @@ async fn bot_rich_html_keeps_a_newline() {
     })
     .group(1);
 
-    let html = format!("<p>first line\nsecond line <tg-emoji emoji-id=\"{emoji_id}\">⭐</tg-emoji></p>");
+    let html = format!("<p>first line\nsecond line<br>third line <tg-emoji emoji-id=\"{emoji_id}\">⭐</tg-emoji></p>");
     let _sent = kit.bot.send_rich_message(user_id, InputRichMessage::html(html)).await.unwrap();
     let got = tokio::time::timeout(WAIT, rx.recv()).await.expect("timed out waiting for the rich message");
     let got = got.expect("message channel closed");
@@ -121,11 +123,17 @@ async fn bot_rich_html_keeps_a_newline() {
             _ => None,
         })
         .collect();
-    eprintln!("the HTML newline came back as {} block(s), paragraphs {paragraphs:?}", blocks.len());
-    assert!(
-        paragraphs.join("\n").contains("first line\nsecond line"),
-        "the newline between the two lines was lost: {paragraphs:?}"
+    let text = paragraphs.join("\n");
+    eprintln!(
+        "{} block(s), paragraphs {paragraphs:?}: the \\n is a line break: {}, the <br> is one: {}",
+        blocks.len(),
+        text.contains("first line\nsecond line"),
+        text.contains("second line\nthird line")
     );
+    let all = rich.text();
+    for line in ["first line", "second line", "third line"] {
+        assert!(all.contains(line), "{line:?} was lost: {all:?}");
+    }
 }
 
 /// Item 65: a widget sent by the bot. Telegram refused every widget with `INPUT_MEDIA_WIDGET_NOT_ALLOWED` from
@@ -546,9 +554,31 @@ async fn pushed<T>(rx: &mut mpsc::UnboundedReceiver<T>, hit: impl Fn(&T) -> bool
     tokio::time::timeout(WAIT, found).await.unwrap_or(false)
 }
 
-/// Item 67: updates that carry no message, in the supergroup `VAEGRAM_CHAT_ID`, reach the user by push alone: the
-/// bot deletes its own message, and pins and unpins one when it may. Nothing else is sent meanwhile, so no gap makes
-/// the client fetch a difference. Prints which kinds came and fails naming the ones that didn't.
+/// Whether `rx` brings a value `hit` accepts: by push, or else after `recover_gaps` fetches `chat_id`'s difference.
+/// Prints which.
+async fn arrives<T>(
+    user: &Client,
+    chat_id: i64,
+    what: &str,
+    rx: &mut mpsc::UnboundedReceiver<T>,
+    hit: impl Fn(&T) -> bool,
+) -> bool {
+    if pushed(rx, &hit).await {
+        eprintln!("pushed: {what}");
+        return true;
+    }
+    let _ = user.recover_gaps().chat_ids([chat_id]).await;
+    let recovered = pushed(rx, &hit).await;
+    if recovered {
+        eprintln!("not pushed, came with recover_gaps: {what}");
+    }
+    recovered
+}
+
+/// Item 67: updates that carry no message, in the supergroup `VAEGRAM_CHAT_ID`: the bot deletes its own message, and
+/// pins and unpins one when it may. Nothing else is sent meanwhile, so no gap makes the client fetch a difference.
+/// Prints which came by push and which only with `recover_gaps`: Telegram withheld the unpin's push in pass 2
+/// (2026-11-21), as release note `:182` says it may. Fails only for one that `recover_gaps` doesn't bring either.
 #[tokio::test]
 #[ignore = "uses a logged-in user session, a bot token and a supergroup VAEGRAM_CHAT_ID"]
 async fn message_less_channel_updates_reach_the_user_by_push() {
@@ -578,9 +608,7 @@ async fn message_less_channel_updates_reach_the_user_by_push() {
     let mut missing = Vec::new();
     let gone = kit.bot.send_message(chat_id, "vaegram: deleted for the push check").await.unwrap().id;
     kit.bot.delete_messages(chat_id, &[gone]).await.unwrap();
-    if pushed(&mut deleted, |ids: &Vec<i32>| ids.contains(&gone)).await {
-        eprintln!("pushed: the deletion");
-    } else {
+    if !arrives(user, chat_id, "the deletion", &mut deleted, |ids: &Vec<i32>| ids.contains(&gone)).await {
         missing.push("the deletion");
     }
 
@@ -588,15 +616,19 @@ async fn message_less_channel_updates_reach_the_user_by_push() {
         let pin = kit.bot.send_message(chat_id, "vaegram: pinned for the push check").await.unwrap().id;
         match kit.bot.pin_chat_message(chat_id, pin).disable_notification().await {
             Ok(()) => {
-                if pushed(&mut pinned, |(p, ids): &(bool, Vec<i32>)| *p && ids.contains(&pin)).await {
-                    eprintln!("pushed: the pin");
-                } else {
+                if !arrives(user, chat_id, "the pin", &mut pinned, |(p, ids): &(bool, Vec<i32>)| {
+                    *p && ids.contains(&pin)
+                })
+                .await
+                {
                     missing.push("the pin");
                 }
                 kit.bot.unpin_chat_message(chat_id, pin).await.unwrap();
-                if pushed(&mut pinned, |(p, ids): &(bool, Vec<i32>)| !*p && ids.contains(&pin)).await {
-                    eprintln!("pushed: the unpin");
-                } else {
+                if !arrives(user, chat_id, "the unpin", &mut pinned, |(p, ids): &(bool, Vec<i32>)| {
+                    !*p && ids.contains(&pin)
+                })
+                .await
+                {
                     missing.push("the unpin");
                 }
             }
@@ -607,7 +639,7 @@ async fn message_less_channel_updates_reach_the_user_by_push() {
     } else {
         eprintln!("skipped the pins: the kit bot can't pin in VAEGRAM_CHAT_ID");
     }
-    assert!(missing.is_empty(), "not pushed to the user within {WAIT:?} each: {missing:?}");
+    assert!(missing.is_empty(), "neither pushed nor brought by recover_gaps within {WAIT:?} each: {missing:?}");
 }
 
 /// Which way the relay stops moving bytes on the connection it stalls.
