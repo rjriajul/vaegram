@@ -246,7 +246,8 @@ async fn friendly_methods_go_out_as_bot_api_methods() {
     let fields = (&body["chat_id"], &body["from_chat_id"], &body["message_id"]);
     assert_eq!(fields, (&json!(USER), &json!(USER), &json!(50)));
 
-    // A copy: no friendly method gets there (`copy_message` first reads the message, which the Bot API can't).
+    // A copy through the TL forward with `drop_author`; the friendly `copy_message` takes its own branch to
+    // `copyMessage` (tests/bot_api_media.rs).
     let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: USER, access_hash: 0 }));
     let copy = functions::messages::ForwardMessages {
         silent: false,

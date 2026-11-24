@@ -161,6 +161,11 @@ macro_rules! send_media {
     ($builder:ident) => {
         impl $builder<'_> {
             async fn send(mut self) -> $crate::Result<$crate::types::Message> {
+                // Over the Bot API the file goes in the request of `sendPhoto` and the like: nothing is uploaded first.
+                #[cfg(feature = "bot-api")]
+                if let Some(bot) = self.client.0.bot_api.as_deref() {
+                    return bot.send_media(self.client, &self.chat_id, self.media, self.options).await;
+                }
                 let peer = self.client.resolve(&self.chat_id).await?.1;
                 let business = self.options.business_connection_id.as_deref();
                 let media = self.client.input_media(&peer, &self.media, self.progress.take(), business).await?;

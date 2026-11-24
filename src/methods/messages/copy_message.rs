@@ -69,6 +69,14 @@ impl CopyMessage<'_> {
 
     async fn send(mut self) -> Result<Message> {
         let client = self.client;
+        // The Bot API can't read the source, and doesn't need to: `copyMessage` copies it by id.
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = client.0.bot_api.as_deref() {
+            let parse_mode = self.parse_mode;
+            let caption = self.caption.take().map(|caption| (caption, parse_mode));
+            let (source, start) = ((&self.from_chat_id, self.message_id), self.video_start_timestamp);
+            return bot.copy_message(client, &self.chat_id, source, caption, start, self.options).await;
+        }
         let source = match self.held.take() {
             Some(held) => *held,
             None => {

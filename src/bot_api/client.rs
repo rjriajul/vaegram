@@ -70,6 +70,31 @@ impl BotApi {
         read(self.0.http.post(url).header(reqwest::header::CONTENT_TYPE, "application/json").body(body)).await
     }
 
+    /// [`call`](Self::call) with files: with any upload the body goes as `multipart/form-data`, every upload as a
+    /// part, else as JSON.
+    pub(crate) async fn call_with_files(
+        &self,
+        method: &str,
+        body: serde_json::Value,
+        uploads: Vec<Attachment>,
+    ) -> Result<serde_json::Value> {
+        if uploads.is_empty() {
+            return self.call(method, &body).await;
+        }
+        let url = format!("{}/{method}", self.0.base);
+        read(self.0.http.post(url).multipart(form(body, uploads))).await
+    }
+
+    /// Starts downloading the file `getFile` named by `file_path`; its bytes are read as they arrive.
+    pub(crate) async fn fetch(&self, file_path: &str) -> Result<FileBody> {
+        let response = self.0.http.get(self.file_url(file_path)).send().await.map_err(network)?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(Error::Io(std::io::Error::other(format!("the Bot API file server answered {status}"))));
+        }
+        Ok(FileBody(response))
+    }
+
     /// The URL to download a file from, given the `file_path` that `getFile` returned. It holds the bot's token, so
     /// it must not be shown to anyone.
     pub fn file_url(&self, file_path: &str) -> String {
@@ -104,6 +129,22 @@ impl BotApiBuilder {
         let base = format!("{url}/bot{}", self.token);
         let files = format!("{url}/file/bot{}", self.token);
         Ok(BotApi(Arc::new(Inner { http, base, files })))
+    }
+}
+
+/// A file being downloaded from the Bot API's file server.
+pub(crate) struct FileBody(reqwest::Response);
+
+impl FileBody {
+    /// Appends the next piece of the file to `buf`; `false`, with nothing appended, once the file has ended.
+    pub(crate) async fn read_into(&mut self, buf: &mut Vec<u8>) -> Result<bool> {
+        match self.0.chunk().await.map_err(network)? {
+            Some(piece) => {
+                buf.extend_from_slice(&piece);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 }
 

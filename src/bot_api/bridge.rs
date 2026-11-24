@@ -23,6 +23,8 @@ use crate::utils::{CHANNEL_OFFSET, channel_id_of, get_channel_id, get_peer, get_
 
 /// How many message ids of private chats and basic groups the bridge remembers the chat of, for deletes.
 const SEEN_CHATS: usize = 4096;
+/// How many replied messages the bridge keeps, as the Bot API sent them along with the messages replying to them.
+const CARRIED_REPLIES: usize = 1024;
 
 const WITHOUT_UPDATES: u32 = <f::InvokeWithoutUpdates<()> as Identifiable>::CONSTRUCTOR_ID;
 const GET_USERS: u32 = <f::users::GetUsers as Identifiable>::CONSTRUCTOR_ID;
@@ -78,6 +80,23 @@ pub(crate) struct Transport {
     pub(crate) offset: AtomicI64,
     me: AtomicI64,
     chats: Mutex<SeenChats>,
+    replies: Mutex<Replies>,
+}
+
+/// A replied message the Bot API sent along with the message replying to it, converted as an update's message is,
+/// with the users and chats it names.
+pub(crate) struct Carried {
+    pub(crate) message: types::Message,
+    pub(crate) users: Vec<base::User>,
+    pub(crate) chats: Vec<base::Chat>,
+}
+
+/// The Bot API sends a replied message only along with the reply, and has no way to read it later, so the bridge
+/// keeps it under the reply's chat and id, oldest forgotten first.
+#[derive(Default)]
+struct Replies {
+    by_reply: HashMap<(i64, i32), Arc<Carried>>,
+    order: VecDeque<(i64, i32)>,
 }
 
 /// TL's `messages.deleteMessages` names no chat: ids outside channels are unique per account, and the Bot API wants
@@ -90,7 +109,14 @@ struct SeenChats {
 
 impl Transport {
     pub(crate) fn new(api: BotApi, updates: mpsc::Sender<Incoming>) -> Transport {
-        Transport { api, updates, offset: AtomicI64::new(0), me: AtomicI64::new(0), chats: Mutex::default() }
+        Transport {
+            api,
+            updates,
+            offset: AtomicI64::new(0),
+            me: AtomicI64::new(0),
+            chats: Mutex::default(),
+            replies: Mutex::default(),
+        }
     }
 
     /// The bot's own id, 0 until `getMe` answered.
@@ -117,6 +143,29 @@ impl Transport {
 
     fn chat_of(&self, id: i32) -> Option<i64> {
         self.chats.lock().unwrap_or_else(PoisonError::into_inner).chats.get(&id).copied()
+    }
+
+    /// Keeps the replied message the Bot API sent along with `m`, for `reply_to_message()` of the message `m` is.
+    pub(crate) fn carry(&self, m: &bot::Message) {
+        let Some(replied) = m.reply_to_message.as_deref() else { return };
+        let mut peers = Peers::new(self.me());
+        let message = convert::message(replied.clone(), &mut peers);
+        let carried = Arc::new(Carried { message, users: peers.users, chats: peers.chats });
+        let key = (m.chat.id, int(m.message_id));
+        let mut replies = self.replies.lock().unwrap_or_else(PoisonError::into_inner);
+        if replies.by_reply.insert(key, carried).is_none() {
+            replies.order.push_back(key);
+            if replies.order.len() > CARRIED_REPLIES {
+                if let Some(old) = replies.order.pop_front() {
+                    replies.by_reply.remove(&old);
+                }
+            }
+        }
+    }
+
+    /// The replied message kept for message `id` of `chat_id`, if the Bot API sent one along with it.
+    pub(crate) fn carried(&self, chat_id: i64, id: i32) -> Option<Arc<Carried>> {
+        self.replies.lock().unwrap_or_else(PoisonError::into_inner).by_reply.get(&(chat_id, id)).cloned()
     }
 
     async fn call(&self, method: &str, body: Value) -> Result<Value> {
@@ -591,14 +640,21 @@ impl Transport {
 
     /// The TL answer to a send or an edit: the messages the Bot API returned, as `Updates`.
     fn sent(&self, messages: Vec<Value>, edit: bool) -> Result<Vec<u8>> {
+        Ok(self.updates(messages, edit)?.to_bytes())
+    }
+
+    /// The messages the Bot API returned for a send or an edit, as the `Updates` that tell of them.
+    pub(super) fn updates(&self, messages: Vec<Value>, edit: bool) -> Result<types::Updates> {
         let mut peers = Peers::new(self.me());
         let mut updates = Vec::with_capacity(messages.len());
         for value in messages {
-            let raw = convert::message(bot::Message::deserialize(&value).map_err(invalid)?, &mut peers);
+            let message = bot::Message::deserialize(&value).map_err(invalid)?;
+            self.carry(&message);
+            let raw = convert::message(message, &mut peers);
             self.saw(&raw);
             updates.push(convert::message_update(raw, edit));
         }
-        Ok(updates_bytes(updates, peers))
+        Ok(types::Updates { updates, users: peers.users, chats: peers.chats, date: int(now()), seq: 0 })
     }
 }
 
@@ -627,14 +683,14 @@ fn updates_bytes(updates: Vec<base::Update>, peers: Peers) -> Vec<u8> {
 }
 
 /// The send options TL and the Bot API share.
-fn options(body: &mut Map<String, Value>, silent: bool, protect: bool, paid: bool) {
+pub(super) fn options(body: &mut Map<String, Value>, silent: bool, protect: bool, paid: bool) {
     let flags = [("disable_notification", silent), ("protect_content", protect), ("allow_paid_broadcast", paid)];
     for (key, _) in flags.into_iter().filter(|&(_, on)| on) {
         body.insert(key.into(), true.into());
     }
 }
 
-fn reply_parameters(body: &mut Map<String, Value>, reply: &base::InputReplyTo, me: i64) -> Result<()> {
+pub(super) fn reply_parameters(body: &mut Map<String, Value>, reply: &base::InputReplyTo, me: i64) -> Result<()> {
     let base::InputReplyTo::InputReplyToMessage(r) = reply else {
         return Err(unsupported("replies to stories or in direct messages topics"));
     };

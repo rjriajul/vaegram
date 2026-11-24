@@ -42,6 +42,11 @@ impl SendMediaGroup<'_> {
         if !(2..=10).contains(&self.media.len()) {
             return Err(Error::InvalidArgument("an album holds 2 to 10 items"));
         }
+        // Over the Bot API the files go in the `sendMediaGroup` request: nothing is uploaded first.
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = client.0.bot_api.as_deref() {
+            return bot.send_media_group(client, &self.chat_id, self.media, options).await;
+        }
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let invert_media = self.media.iter().any(|m| m.show_caption_above_media);
         let business = options.business_connection_id.as_deref();

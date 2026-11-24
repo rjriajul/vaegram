@@ -151,8 +151,16 @@ enum Handed {
 async fn hand_on(transport: &Transport, value: Value) -> Handed {
     let Some(id) = update_id(&value) else { return Handed::Unnumbered };
     let mut peers = Peers::new(transport.me());
-    let update = serde_json::from_value::<bot::Update>(value).ok().and_then(|u| convert::update(u, &mut peers));
-    let Some(update) = update else { return Handed::Skipped(id) };
+    let parsed = serde_json::from_value::<bot::Update>(value).ok();
+    let carried = parsed.as_ref().and_then(|u| {
+        let message = u.message.as_deref().or(u.edited_message.as_deref());
+        message.or(u.channel_post.as_deref()).or(u.edited_channel_post.as_deref())
+    });
+    // Kept before the update is queued, so the message the dispatcher builds finds the message it replies to.
+    if let Some(message) = carried {
+        transport.carry(message);
+    }
+    let Some(update) = parsed.and_then(|u| convert::update(u, &mut peers)) else { return Handed::Skipped(id) };
     let message = match &update {
         base::Update::UpdateNewMessage(u) => Some(&u.message),
         base::Update::UpdateNewChannelMessage(u) => Some(&u.message),
