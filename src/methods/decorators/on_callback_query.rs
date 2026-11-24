@@ -12,7 +12,7 @@ impl Client {
     /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_callback_query<F, Fut, T>(&self, filter: Filter<CallbackQuery>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(CallbackQuery) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, CallbackQuery) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::CallbackQuery, |r, id| r.callback_query.push(id, filter, callback(f)))

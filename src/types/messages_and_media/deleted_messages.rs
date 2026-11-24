@@ -6,34 +6,27 @@ use crate::types::Chat;
 /// Messages deleted from a chat.
 ///
 /// `chat` is set only for channels and supergroups; Telegram sends bare ids for the rest.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct DeletedMessages {
     /// The chat, for channels and supergroups. `None` otherwise.
     pub chat: Option<Chat>,
     /// Ids of the deleted messages.
     pub message_ids: Vec<i32>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl DeletedMessages {
-    pub(crate) fn parse(client: &Client, raw: types::UpdateDeleteMessages) -> DeletedMessages {
-        DeletedMessages { chat: None, message_ids: raw.messages, client: client.clone() }
+    pub(crate) fn parse(_client: &Client, raw: types::UpdateDeleteMessages) -> DeletedMessages {
+        DeletedMessages { chat: None, message_ids: raw.messages }
     }
 
     pub(crate) fn parse_channel(
-        client: &Client,
+        _client: &Client,
         raw: types::UpdateDeleteChannelMessages,
         entities: &Entities,
     ) -> DeletedMessages {
         let peer = base::Peer::PeerChannel(types::PeerChannel { channel_id: raw.channel_id });
         let chat = Some(Chat::parse(&peer, entities, false));
-        DeletedMessages { chat, message_ids: raw.messages, client: client.clone() }
-    }
-
-    /// Returns the client that received the update.
-    pub fn client(&self) -> &Client {
-        &self.client
+        DeletedMessages { chat, message_ids: raw.messages }
     }
 }

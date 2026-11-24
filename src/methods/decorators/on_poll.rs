@@ -15,7 +15,7 @@ impl Client {
     /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_poll<F, Fut, T>(&self, filter: Filter<PollUpdated>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(PollUpdated) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, PollUpdated) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::Poll, |r, id| r.poll.push(id, filter, callback(f)))

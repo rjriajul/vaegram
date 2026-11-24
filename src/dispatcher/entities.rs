@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use crate::Client;
 use crate::client::Me;
 use crate::raw::{base, types};
-use crate::utils::{channel_id_of, get_channel_id, get_peer_id};
+use crate::types::PeerId;
+use crate::utils::{get_channel_id, get_peer_id};
 
 #[derive(Default)]
 pub(crate) struct Entities {
@@ -166,12 +167,17 @@ impl Entities {
                 return;
             }
             let peer = chat.clone();
-            let input = if id > 0 {
-                let user = types::InputPeerUserFromMessage { peer, msg_id, user_id: id };
-                base::InputPeer::InputPeerUserFromMessage(Box::new(user))
-            } else {
-                let channel = types::InputPeerChannelFromMessage { peer, msg_id, channel_id: channel_id_of(id) };
-                base::InputPeer::InputPeerChannelFromMessage(Box::new(channel))
+            let input = match PeerId::from_bot_api(id) {
+                PeerId::User(user_id) => {
+                    let user = types::InputPeerUserFromMessage { peer, msg_id, user_id };
+                    base::InputPeer::InputPeerUserFromMessage(Box::new(user))
+                }
+                PeerId::Channel(channel_id) => {
+                    let channel = types::InputPeerChannelFromMessage { peer, msg_id, channel_id };
+                    base::InputPeer::InputPeerChannelFromMessage(Box::new(channel))
+                }
+                // Basic groups need no hash, so `is_min` never names one.
+                PeerId::Chat(_) => return,
             };
             peers.insert(id, input);
         });

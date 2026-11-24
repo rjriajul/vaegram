@@ -7,7 +7,7 @@ use crate::raw::types;
 use crate::types::User;
 
 /// A user's Star subscription to the bot was canceled, restored or failed to renew.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BotSubscriptionUpdated {
     /// The subscriber.
@@ -16,12 +16,14 @@ pub struct BotSubscriptionUpdated {
     pub invoice_payload: String,
     /// What happened to the subscription.
     pub state: SubscriptionState,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl BotSubscriptionUpdated {
-    pub(crate) fn parse(client: &Client, raw: &types::UpdateBotStarsSubscription, entities: &Entities) -> Option<Self> {
+    pub(crate) fn parse(
+        _client: &Client,
+        raw: &types::UpdateBotStarsSubscription,
+        entities: &Entities,
+    ) -> Option<Self> {
         let state = match (raw.payment_failed, raw.canceled, raw.restored) {
             (true, ..) => SubscriptionState::Failed,
             (_, true, _) => SubscriptionState::Canceled,
@@ -32,13 +34,7 @@ impl BotSubscriptionUpdated {
             user: User::parse(raw.user_id, entities),
             invoice_payload: String::from_utf8_lossy(&raw.payload).into_owned(),
             state,
-            client: client.clone(),
         })
-    }
-
-    /// The client that received the update.
-    pub fn client(&self) -> &Client {
-        &self.client
     }
 }
 

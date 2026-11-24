@@ -1,7 +1,6 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::Client;
 use crate::dispatcher::Entities;
 use crate::raw::base;
 use crate::types::{Chat, User};
@@ -149,23 +148,16 @@ impl fmt::Debug for RawUpdate {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct OtherUpdate {
     update: RawUpdate,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl OtherUpdate {
-    pub(crate) fn new(client: &Client, update: RawUpdate) -> OtherUpdate {
-        OtherUpdate { update, client: client.clone() }
+    pub(crate) fn new(update: RawUpdate) -> OtherUpdate {
+        OtherUpdate { update }
     }
 
     /// Returns the update, with the users and chats that came with it.
     pub fn update(&self) -> &RawUpdate {
         &self.update
-    }
-
-    /// The [`Client`] that received this update.
-    pub fn client(&self) -> &Client {
-        &self.client
     }
 }
 

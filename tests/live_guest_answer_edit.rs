@@ -36,21 +36,21 @@ async fn next<T>(rx: &mut UnboundedReceiver<T>, mut pick: impl FnMut(&T) -> bool
 async fn guest_steps(user: Client, bot: Client, group: i64, username: String) {
     let nonce = nonce();
     let (guest_tx, mut guests) = mpsc::unbounded_channel();
-    bot.on_guest_message(filters::all(), move |guest| {
+    bot.on_guest_message(filters::all(), move |_, guest| {
         let _ = guest_tx.send(guest);
         async { Ok(()) }
     })
     .group(1);
     let (seen_tx, mut seen) = mpsc::unbounded_channel();
     let new_tx = seen_tx.clone();
-    user.on_message(filters::chat(group), move |m| {
+    user.on_message(filters::chat(group), move |_, m| {
         if !m.outgoing {
             let _ = new_tx.send((false, m));
         }
         async { Ok(()) }
     })
     .group(1);
-    user.on_edited_message(filters::chat(group), move |m| {
+    user.on_edited_message(filters::chat(group), move |_, m| {
         let _ = seen_tx.send((true, m));
         async { Ok(()) }
     })
@@ -78,7 +78,7 @@ async fn guest_steps(user: Client, bot: Client, group: i64, username: String) {
     // answer_text sends an article without a title. If Telegram refuses that, the edit is still tried on a titled
     // answer, and the test fails at the end.
     let first = format!("guest answer {nonce}");
-    let (sent, untitled) = match guest.answer_text(first.as_str()).await {
+    let (sent, untitled) = match guest.answer_text(&bot, first.as_str()).await {
         Ok(sent) => {
             eprintln!("answer_text (an article with no title) was accepted: {sent:?}");
             (sent, None)
@@ -86,7 +86,7 @@ async fn guest_steps(user: Client, bot: Client, group: i64, username: String) {
         Err(e) if support::flood_limited(&e, "answering a guest query") => return,
         Err(e) => {
             eprintln!("answer_text (an article with no title) was refused: {e:?}; answering with a titled article");
-            let titled = guest.answer(InlineQueryResultArticle::new("vaegram", first.as_str())).await;
+            let titled = guest.answer(&bot, InlineQueryResultArticle::new("vaegram", first.as_str())).await;
             (titled.expect("a titled answer to the guest query failed too"), Some(e))
         }
     };
@@ -97,9 +97,9 @@ async fn guest_steps(user: Client, bot: Client, group: i64, username: String) {
     eprintln!(
         "the user sees the answer as message {} from {:?} via {:?}, guest caller {:?}",
         answer.id,
-        answer.from_user.as_ref().map(|u| u.id),
+        answer.from_user().map(|u| u.id),
         answer.via_bot.as_ref().map(|u| u.id),
-        answer.guest_bot_caller_user.as_ref().map(|u| u.id)
+        answer.guest_bot_caller
     );
 
     let edited = format!("edited guest answer {nonce}");

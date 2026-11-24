@@ -39,12 +39,12 @@ async fn compose_runs_a_bot_and_a_user() {
     let (api_id, api_hash) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
     let builder = Client::builder("target/vaegram-compose-bot", api_id, api_hash).bot_token(token);
     let Some(bot) = support::start_bot(builder).await else { return };
-    bot.on_message(filters::private(), |m| async move {
-        m.reply("echo").await?;
+    bot.on_message(filters::private(), |client, m| async move {
+        m.reply(&client, "echo").await?;
         Ok(())
     });
     let (tx, mut replies) = mpsc::unbounded_channel();
-    user.on_message(filters::private(), move |m| {
+    user.on_message(filters::private(), move |_client, m| {
         if !m.outgoing {
             let _ = tx.send(m.chat.id);
         }

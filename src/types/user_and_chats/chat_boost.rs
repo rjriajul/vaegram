@@ -50,19 +50,17 @@ pub enum ChatBoostSource {
 }
 
 /// A boost of a chat was added or changed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatBoostUpdated {
     /// The boosted chat.
     pub chat: Chat,
     /// The boost as it is now.
     pub boost: ChatBoost,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 /// A boost of a chat was removed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatBoostRemoved {
     /// The chat that lost the boost.
@@ -73,8 +71,6 @@ pub struct ChatBoostRemoved {
     pub remove_date: i32,
     /// Where the removed boost came from.
     pub source: ChatBoostSource,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl ChatBoost {
@@ -108,20 +104,6 @@ impl ChatBoostSource {
     }
 }
 
-impl ChatBoostUpdated {
-    /// Returns the client that received this update.
-    pub fn client(&self) -> &Client {
-        &self.client
-    }
-}
-
-impl ChatBoostRemoved {
-    /// Returns the client that received this update.
-    pub fn client(&self) -> &Client {
-        &self.client
-    }
-}
-
 /// A changed boost or a removed one: Telegram sends both as `updateBotChatBoost`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub(crate) enum BoostUpdate {
@@ -130,8 +112,8 @@ pub(crate) enum BoostUpdate {
 }
 
 impl BoostUpdate {
-    pub(crate) fn parse(client: &Client, raw: types::UpdateBotChatBoost, entities: &Entities) -> Option<BoostUpdate> {
-        let (chat, client) = (Chat::parse(&raw.peer, entities, false), client.clone());
+    pub(crate) fn parse(_client: &Client, raw: types::UpdateBotChatBoost, entities: &Entities) -> Option<BoostUpdate> {
+        let chat = Chat::parse(&raw.peer, entities, false);
         let boost = ChatBoost::parse(raw.boost, entities)?;
         // A removed boost comes with expires 0, dated when it was removed.
         Some(match boost.expiration_date {
@@ -140,9 +122,8 @@ impl BoostUpdate {
                 boost_id: boost.boost_id,
                 remove_date: boost.add_date,
                 source: boost.source,
-                client,
             }),
-            _ => BoostUpdate::Updated(ChatBoostUpdated { chat, boost, client }),
+            _ => BoostUpdate::Updated(ChatBoostUpdated { chat, boost }),
         })
     }
 }

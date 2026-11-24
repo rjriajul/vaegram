@@ -12,7 +12,7 @@ impl Client {
     /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_managed_bot<F, Fut, T>(&self, filter: Filter<ManagedBotUpdated>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(ManagedBotUpdated) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, ManagedBotUpdated) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::ManagedBot, |r, id| r.managed_bot.push(id, filter, callback(f)))

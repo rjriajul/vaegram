@@ -73,17 +73,17 @@ async fn a_setup_kit_bot_can_pin() {
     let user = &kit.user.client;
     let bot_id = bot_id_for_user(&kit).await;
     let member = user.get_chat_member(chat_id, bot_id).await.unwrap();
-    let admin = member.status == ChatMemberStatus::Administrator;
-    if admin && member.privileges.is_some_and(|p| p.can_pin_messages) {
+    let admin = member.status() == ChatMemberStatus::Administrator;
+    if admin && member.privileges().is_some_and(|p| p.can_pin_messages) {
         eprintln!("the kit bot may already pin in VAEGRAM_CHAT_ID");
         return;
     }
 
-    let privileges = member.privileges.unwrap_or_default().can_pin_messages(true);
+    let privileges = member.privileges().cloned().unwrap_or_default().can_pin_messages(true);
     user.promote_chat_member(chat_id, bot_id, privileges).await.unwrap();
     let after = user.get_chat_member(chat_id, bot_id).await.unwrap();
-    assert_eq!(after.status, ChatMemberStatus::Administrator);
-    assert!(after.privileges.is_some_and(|p| p.can_pin_messages), "the kit bot still may not pin: {after:?}");
+    assert_eq!(after.status(), ChatMemberStatus::Administrator);
+    assert!(after.privileges().is_some_and(|p| p.can_pin_messages), "the kit bot still may not pin: {after:?}");
 }
 
 /// Item 65: rich-message HTML with a `\n` and a `<br>` inside a paragraph next to a `<tg-emoji>`, sent by the bot.
@@ -101,7 +101,7 @@ async fn bot_rich_html_keeps_a_newline() {
     let emoji_id = icons.first().expect("get_forum_topic_icon_stickers returned no stickers").id;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::private() & filters::user(bot_id), move |m| {
+    user.on_message(filters::private() & filters::user(bot_id), move |_client, m| {
         let _ = tx.send(m);
         async { Ok(()) }
     })
@@ -147,7 +147,7 @@ async fn bot_sends_a_widget() {
     let bot_id = bot_id_for_user(&kit).await;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::private() & filters::user(bot_id), move |m| {
+    user.on_message(filters::private() & filters::user(bot_id), move |_client, m| {
         if m.widget().is_some() {
             let _ = tx.send(m);
         }
@@ -289,12 +289,12 @@ async fn ban_chat_sender_chat_bans_a_channel() {
         async move {
             user.ban_chat_sender_chat(group, channel).await.unwrap();
             let banned = user.get_chat_member(group, channel).await.unwrap();
-            assert_eq!(banned.status, ChatMemberStatus::Banned);
+            assert_eq!(banned.status(), ChatMemberStatus::Banned);
             assert_eq!(banned.chat.map(|c| c.id), Some(channel));
 
             user.unban_chat_sender_chat(group, channel).await.unwrap();
             let after = user.get_chat_member(group, channel).await.unwrap();
-            assert_ne!(after.status, ChatMemberStatus::Banned, "the channel is still banned after the unban");
+            assert_ne!(after.status(), ChatMemberStatus::Banned, "the channel is still banned after the unban");
         }
     })
     .await;
@@ -332,7 +332,7 @@ async fn rich_collage_and_slideshow_arrive_as_their_kinds() {
     let bot_id = bot_id_for_user(&kit).await;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::private() & filters::user(bot_id), move |m| {
+    user.on_message(filters::private() & filters::user(bot_id), move |_client, m| {
         let _ = tx.send(m);
         async { Ok(()) }
     })
@@ -394,7 +394,7 @@ async fn a_forwarded_story_reaches_the_bot_as_a_story() {
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    kit.bot.on_message(filters::private() & filters::user(user_id), move |m| {
+    kit.bot.on_message(filters::private() & filters::user(user_id), move |_client, m| {
         if m.story().is_some() {
             let _ = tx.send(m);
         }
@@ -441,13 +441,13 @@ async fn a_guest_bot_answer_names_its_caller() {
     let Some(group) = support::test_supergroup(&user).await else { return };
 
     let (asked_tx, mut asked) = mpsc::unbounded_channel();
-    kit.bot.on_guest_message(filters::all(), move |g| {
+    kit.bot.on_guest_message(filters::all(), move |client, g| {
         let _ = asked_tx.send(g.caller_user.as_ref().map(|u| u.id));
-        async move { g.answer_text("guest answer from vaegram").await }
+        async move { g.answer_text(&client, "guest answer from vaegram").await }
     });
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::chat(group), move |m| {
-        if m.guest_bot_caller_user.is_some() || m.guest_bot_caller_chat.is_some() {
+    user.on_message(filters::chat(group), move |_client, m| {
+        if m.guest_bot_caller.is_some() {
             let _ = tx.send(m);
         }
         async { Ok(()) }
@@ -464,11 +464,11 @@ async fn a_guest_bot_answer_names_its_caller() {
             let answer = answer.expect("message channel closed");
             eprintln!(
                 "guest answer: from {:?}, outgoing {}, caller user {:?}",
-                answer.from_user.as_ref().map(|u| u.id),
+                answer.from_user().map(|u| u.id),
                 answer.outgoing,
-                answer.guest_bot_caller_user.as_ref().map(|u| u.id)
+                answer.guest_bot_caller.as_ref().map(|s| s.id())
             );
-            assert_eq!(answer.guest_bot_caller_user.as_ref().map(|u| u.id), Some(user_id));
+            assert_eq!(answer.guest_bot_caller.as_ref().map(|s| s.id()), Some(user_id));
         }
     })
     .await;
@@ -588,17 +588,17 @@ async fn message_less_channel_updates_reach_the_user_by_push() {
     let bot_me = kit.bot.get_me().await.unwrap();
     let member = user.get_chat_member(chat_id, bot_me.id).await.unwrap();
     let bot_can_pin =
-        member.status == ChatMemberStatus::Administrator && member.privileges.is_some_and(|p| p.can_pin_messages);
+        member.status() == ChatMemberStatus::Administrator && member.privileges().is_some_and(|p| p.can_pin_messages);
 
     let (deleted_tx, mut deleted) = mpsc::unbounded_channel();
-    user.on_deleted_messages(filters::all(), move |event| {
+    user.on_deleted_messages(filters::all(), move |_client, event| {
         if event.chat.as_ref().is_some_and(|c| c.id == chat_id) {
             let _ = deleted_tx.send(event.message_ids);
         }
         async { Ok(()) }
     });
     let (pinned_tx, mut pinned) = mpsc::unbounded_channel();
-    user.on_pinned_messages(filters::all(), move |event| {
+    user.on_pinned_messages(filters::all(), move |_client, event| {
         if event.chat.id == chat_id {
             let _ = pinned_tx.send((event.is_pinned, event.message_ids));
         }
@@ -774,7 +774,7 @@ async fn a_transfer_survives_a_dead_connection(stall: Stall) {
     let upload = async { client.send_document("me", Upload::bytes("vaegram-stall.bin", &data)).await };
     let sent = tokio::time::timeout(TRANSFER_LIMIT, upload).await.expect("the upload didn't finish in time");
     let sent = sent.expect("the upload failed");
-    let download = tokio::time::timeout(TRANSFER_LIMIT, async { sent.download().await }).await;
+    let download = tokio::time::timeout(TRANSFER_LIMIT, async { sent.download(&client).await }).await;
     support::cleanup(client.delete_messages("me", &[sent.id]).await, "deleting the stall test document");
     let got = download.expect("the download didn't finish in time").expect("the download failed");
 

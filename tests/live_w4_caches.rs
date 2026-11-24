@@ -34,17 +34,17 @@ async fn callback_on_a_cached_message_needs_no_request() {
     let Some(bot) = support::start_bot(bot).await else { return };
     let user = Client::builder(session, api_id, api_hash).connect().await.unwrap();
 
-    bot.on_message(filters::private() & filters::command("tap"), |m| async move {
+    bot.on_message(filters::private() & filters::command("tap"), |client, m| async move {
         let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Tap", "tap")]]);
-        m.reply("Tap it").reply_markup(keyboard).await?;
+        m.reply(&client, "Tap it").reply_markup(keyboard).await?;
         Ok(())
     });
     let (tx, mut pressed) = mpsc::unbounded_channel();
-    bot.on_callback_query(filters::all(), move |q| {
+    bot.on_callback_query(filters::all(), move |client, q| {
         let tx = tx.clone();
         async move {
-            let _ = tx.send(q.message().await?.map(|m| m.text().to_owned()));
-            q.answer().await?;
+            let _ = tx.send(q.message(&client).await?.map(|m| m.text().to_owned()));
+            q.answer(&client).await?;
             Ok(())
         }
     });

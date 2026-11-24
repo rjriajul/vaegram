@@ -15,7 +15,7 @@ impl Client {
     /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_reactions<F, Fut, T>(&self, filter: Filter<ReactionsUpdated>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(ReactionsUpdated) -> Fut + Send + Sync + 'static,
+        F: Fn(Client, ReactionsUpdated) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::Reactions, |r, id| r.reactions.push(id, filter, callback(f)))

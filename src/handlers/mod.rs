@@ -20,17 +20,30 @@ pub use crate::dispatcher::listeners::Listenable;
 pub use crate::dispatcher::router::UpdateKind;
 
 pub(crate) type BoxFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
-pub(crate) type Callback<T> = Arc<dyn Fn(T) -> BoxFuture + Send + Sync>;
+pub(crate) type Callback<T> = Arc<dyn Fn(Client, T) -> BoxFuture + Send + Sync>;
+pub(crate) type HookCallback = Arc<dyn Fn(Client) -> BoxFuture + Send + Sync>;
 pub(crate) type RawCallback = Arc<dyn Fn(Client, RawUpdate) -> BoxFuture + Send + Sync>;
 pub(crate) type ErrorCallback = Arc<dyn Fn(HandlerError) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 pub(crate) fn callback<T, F, Fut, R>(f: F) -> Callback<T>
 where
-    F: Fn(T) -> Fut + Send + Sync + 'static,
+    F: Fn(Client, T) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<R>> + Send + 'static,
 {
-    Arc::new(move |value| {
-        let future = f(value);
+    Arc::new(move |client, value| {
+        let future = f(client, value);
+        Box::pin(async move { future.await.map(drop) }) as BoxFuture
+    })
+}
+
+/// A lifecycle hook (`on_start`, `on_stop`, `on_connect`, `on_disconnect`), which gets only the client.
+pub(crate) fn hook<F, Fut, R>(f: F) -> HookCallback
+where
+    F: Fn(Client) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<R>> + Send + 'static,
+{
+    Arc::new(move |client| {
+        let future = f(client);
         Box::pin(async move { future.await.map(drop) }) as BoxFuture
     })
 }
@@ -166,7 +179,7 @@ pub(crate) trait Routed: Clone + Send + 'static {
     }
 
     /// Runs once before the handlers get the item: fills what the client's fetch options ask for.
-    fn prepare(self) -> impl Future<Output = Self> + Send {
+    fn prepare(self, _client: &Client) -> impl Future<Output = Self> + Send {
         std::future::ready(self)
     }
 }
@@ -181,24 +194,22 @@ impl Routed for Message {
     }
 
     fn user_id(&self) -> Option<i64> {
-        self.from_user.as_ref().map(|user| user.id)
+        self.from_user().map(|user| user.id)
     }
 
     // Boxed on purpose: with the `async` future itself as the hidden type, the compiler's `Send` proof for it runs
     // through `prefetch` -> `fill` -> the fetch helpers and back to this method's opaque type, past the recursion
     // limit (a nightly warning that will become an error). A boxed `dyn Future + Send` ends that cycle.
-    fn prepare(self) -> impl Future<Output = Self> + Send {
-        let boxed: Pin<Box<dyn Future<Output = Self> + Send>> = Box::pin(prefetched(self));
+    fn prepare(self, client: &Client) -> impl Future<Output = Self> + Send {
+        let boxed: Pin<Box<dyn Future<Output = Self> + Send>> = Box::pin(prefetched(client.clone(), self));
         boxed
     }
 }
 
-async fn prefetched(mut message: Message) -> Message {
-    if !message.client().0.fetch.any() {
-        return message;
+async fn prefetched(client: Client, mut message: Message) -> Message {
+    if client.0.fetch.any() {
+        client.prefetch(std::slice::from_mut(&mut message)).await;
     }
-    let client = message.client().clone();
-    client.prefetch(std::slice::from_mut(&mut message)).await;
     message
 }
 
@@ -323,7 +334,7 @@ impl Routed for GuestMessage {
 
     fn user_id(&self) -> Option<i64> {
         // The sender of the message that invoked the bot, or who it came via when that message names no sender.
-        self.message.from_user.as_deref().or(self.caller_user.as_ref()).map(|user| user.id)
+        self.message.from_user().or(self.caller_user.as_ref()).map(|user| user.id)
     }
 
     fn query_id(&self) -> Option<i64> {

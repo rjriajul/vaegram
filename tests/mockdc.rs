@@ -28,7 +28,7 @@ async fn full_client_talks_to_the_mock() {
 
     let seen = Arc::new(AtomicU64::new(0));
     let s = seen.clone();
-    client.on_message(filters::all(), move |m| {
+    client.on_message(filters::all(), move |_client, m| {
         assert_eq!(m.text(), "ping");
         s.fetch_add(1, Ordering::Relaxed);
         async { Ok(()) }

@@ -2,8 +2,8 @@ use crate::Client;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::session::Affected;
+use crate::types::PeerId;
 use crate::types::PeerRef;
-use crate::utils::CHANNEL_OFFSET;
 
 impl Client {
     /// Marks messages as opened: voice and video notes as played, mentions as seen, and self-destructing media as
@@ -14,7 +14,7 @@ impl Client {
         }
         let chat_id = self.peer_id(chat_id.into()).await?;
         let id = message_ids.to_vec();
-        if chat_id <= -CHANNEL_OFFSET {
+        if let PeerId::Channel(_) = PeerId::from_bot_api(chat_id) {
             let channel = self.resolve_channel(&chat_id.into()).await?;
             self.invoke(&functions::channels::ReadMessageContents { channel, id }).await?;
         } else {

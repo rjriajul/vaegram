@@ -39,7 +39,7 @@ impl<T: Listenable> Listen<'_, T> {
     async fn send(self) -> Result<T> {
         let criteria = self.spec.resolve(self.client).await?;
         let listeners = &self.client.0.handlers.listeners;
-        Ok(T::book(listeners).listen(listeners.next_id(), criteria).await?.prepare().await)
+        Ok(T::book(listeners).listen(listeners.next_id(), criteria).await?.prepare(self.client).await)
     }
 }
 
@@ -101,7 +101,7 @@ mod tests {
         until_waiting(book).await;
         tokio::time::advance(Duration::from_secs(2)).await;
         let me = client.0.me.lock().unwrap().clone();
-        assert!(matches!(book.offer(message(&client, 4, 7, None, false), &me), Offer::Claimed));
+        assert!(matches!(book.offer(message(&client, 4, 7, None, false), &me, &client.0.events), Offer::Claimed));
         assert_eq!(waiter.await.unwrap().unwrap().id, 4);
 
         let client = with_listener_timeout(None);
@@ -120,7 +120,7 @@ mod tests {
         until_waiting(book).await;
         tokio::time::advance(Duration::from_secs(301)).await;
         let me = client.0.me.lock().unwrap().clone();
-        assert!(matches!(book.offer(message(&client, 4, 7, None, false), &me), Offer::Claimed));
+        assert!(matches!(book.offer(message(&client, 4, 7, None, false), &me, &client.0.events), Offer::Claimed));
         assert_eq!(waiter.await.unwrap().unwrap().id, 4);
     }
 
@@ -166,7 +166,7 @@ mod tests {
         assert!(sent.try_recv().is_err(), "a request was sent");
         let me = client.0.me.lock().unwrap().clone();
         let book = &client.0.handlers.listeners.messages;
-        assert!(matches!(book.offer(message(&client, 1, 7, None, false), &me), Offer::Unclaimed(_)));
+        assert!(matches!(book.offer(message(&client, 1, 7, None, false), &me, &client.0.events), Offer::Unclaimed(_)));
     }
 
     #[tokio::test]
@@ -175,7 +175,7 @@ mod tests {
         Arc::get_mut(&mut client.0).unwrap().unallowed_click_alert = None;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
-        client.on_callback_query(filters::all(), move |q: CallbackQuery| {
+        client.on_callback_query(filters::all(), move |_client, q: CallbackQuery| {
             log.lock().unwrap().push(q.from_user.id);
             async { Ok(()) }
         });

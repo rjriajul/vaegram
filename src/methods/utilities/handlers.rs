@@ -18,10 +18,10 @@ mod tests {
     #[test]
     fn lists_routes_in_run_order_then_raw_handlers_and_hooks() {
         let client = Client::offline();
-        let late = client.on_message(filters::all(), |_| async { Ok(()) }).group(2).stop().id();
-        let first = client.on_message(filters::all(), |_| async { Ok(()) }).id();
-        let gone = client.on_message(filters::all(), |_| async { Ok(()) }).id();
-        let status = client.on_user_status(filters::all(), |_| async { Ok(()) }).group(-1).id();
+        let late = client.on_message(filters::all(), |_client, _| async { Ok(()) }).group(2).stop().id();
+        let first = client.on_message(filters::all(), |_client, _| async { Ok(()) }).id();
+        let gone = client.on_message(filters::all(), |_client, _| async { Ok(()) }).id();
+        let status = client.on_user_status(filters::all(), |_client, _| async { Ok(()) }).group(-1).id();
         let raw = client.on_raw_update(|_, _| async { Ok(()) }).id();
         let start = client.on_start(|_| async { Ok(()) }).id();
         assert!(client.remove_handler(gone));

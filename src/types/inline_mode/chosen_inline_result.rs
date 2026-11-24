@@ -6,7 +6,7 @@ use crate::raw::types;
 use crate::types::{InlineMessageId, Location, User};
 
 /// An inline result the user picked; arrives only with inline feedback enabled in @BotFather.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChosenInlineResult {
     /// Id of the chosen result, as set on the [`InlineQueryResult`](crate::types::InlineQueryResult).
@@ -19,25 +19,17 @@ pub struct ChosenInlineResult {
     pub inline_message_id: Option<InlineMessageId>,
     /// The inline query text that produced the result.
     pub query: String,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl ChosenInlineResult {
-    pub(crate) fn parse(client: &Client, raw: &types::UpdateBotInlineSend, entities: &Entities) -> ChosenInlineResult {
+    pub(crate) fn parse(_client: &Client, raw: &types::UpdateBotInlineSend, entities: &Entities) -> ChosenInlineResult {
         ChosenInlineResult {
             result_id: raw.id.clone(),
             from_user: User::parse(raw.user_id, entities),
             location: raw.geo.as_ref().and_then(Location::parse),
             inline_message_id: raw.msg_id.clone().map(InlineMessageId),
             query: raw.query.clone(),
-            client: client.clone(),
         }
-    }
-
-    /// Returns the client this update arrived on.
-    pub fn client(&self) -> &Client {
-        &self.client
     }
 }
 

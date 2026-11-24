@@ -12,7 +12,7 @@ use super::engine::{PeerRecord, Storage, StorageFuture, StoredState};
 use super::{SessionData, UpdateState, create_private};
 use crate::session::Salt;
 use crate::session::internals::data_center;
-use crate::utils::{CHANNEL_OFFSET, get_channel_id};
+use crate::types::PeerId;
 
 const VERSION: i64 = 8;
 
@@ -335,8 +335,8 @@ fn load_state(conn: &Connection) -> rusqlite::Result<Option<StoredState>> {
         let (id, pts, qts, date, seq) = row?;
         if id == 0 {
             update = Some(UpdateState { pts, qts, date, seq, channels: HashMap::new() });
-        } else if id <= -CHANNEL_OFFSET {
-            channels.insert(get_channel_id(id), pts);
+        } else if let Some(channel_id) = PeerId::from_bot_api(id).channel() {
+            channels.insert(channel_id, pts);
         }
     }
     if let Some(update) = &mut update {
@@ -365,21 +365,11 @@ fn save_state(conn: &mut Connection, state: &StoredState) -> rusqlite::Result<()
         tx.execute("INSERT INTO update_state VALUES (0, ?, ?, ?, ?)", params![u.pts, u.qts, u.date, u.seq])?;
         let mut channel = tx.prepare("INSERT INTO update_state (id, pts) VALUES (?, ?)")?;
         for (id, pts) in &u.channels {
-            channel.execute(params![get_channel_id(*id), pts])?;
+            channel.execute(params![PeerId::Channel(*id).bot_api(), pts])?;
         }
         drop(channel);
     }
     tx.commit()
-}
-
-fn peer_type(id: i64) -> &'static str {
-    if id > 0 {
-        "user"
-    } else if id <= -CHANNEL_OFFSET {
-        "channel"
-    } else {
-        "group"
-    }
 }
 
 fn update_peers(conn: &mut Connection, peers: &[PeerRecord]) -> rusqlite::Result<()> {
@@ -391,7 +381,7 @@ fn update_peers(conn: &mut Connection, peers: &[PeerRecord]) -> rusqlite::Result
         let mut forget = tx.prepare("DELETE FROM usernames WHERE id = ?")?;
         let mut username = tx.prepare("INSERT INTO usernames (id, username) VALUES (?, ?)")?;
         for p in peers {
-            peer.execute(params![p.id, p.access_hash, peer_type(p.id), p.phone_number, p.updated])?;
+            peer.execute(params![p.id, p.access_hash, PeerId::from_bot_api(p.id).kind(), p.phone_number, p.updated])?;
             forget.execute([p.id])?;
             for u in &p.usernames {
                 username.execute(params![p.id, u])?;

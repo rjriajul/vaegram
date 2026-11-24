@@ -8,7 +8,7 @@ use crate::raw::{base, types};
 use crate::types::{Chat, User};
 
 /// A user's request to join a chat that approves new members.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatJoinRequest {
     /// The chat the user wants to join.
@@ -25,13 +25,11 @@ pub struct ChatJoinRequest {
     pub invite_link: Option<String>,
     /// Query id the chat's guard bot answers the request with. `None` if no guard bot handles it.
     pub query_id: Option<i64>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    client: Client,
 }
 
 impl ChatJoinRequest {
     pub(crate) fn parse(
-        client: &Client,
+        _client: &Client,
         raw: &types::UpdateBotChatInviteRequester,
         entities: &Entities,
     ) -> ChatJoinRequest {
@@ -46,30 +44,24 @@ impl ChatJoinRequest {
                 base::ExportedChatInvite::ChatInvitePublicJoinRequests => None,
             },
             query_id: raw.query_id,
-            client: client.clone(),
         }
-    }
-
-    /// The client that received this update.
-    pub fn client(&self) -> &Client {
-        &self.client
     }
 
     /// Approves the request.
     ///
     /// A request with a `query_id` went to the chat's guard bot, which answers it with `bots.setJoinChatResults`.
-    pub async fn approve(&self) -> Result<()> {
+    pub async fn approve(&self, client: &Client) -> Result<()> {
         match self.query_id {
-            Some(id) => self.client.answer_chat_join_request_query(id, ChatJoinRequestResult::Approve).await,
-            None => self.client.approve_chat_join_request(self.chat.id, self.from_user.id).await,
+            Some(id) => client.answer_chat_join_request_query(id, ChatJoinRequestResult::Approve).await,
+            None => client.approve_chat_join_request(self.chat.id, self.from_user.id).await,
         }
     }
 
     /// Declines the request.
-    pub async fn decline(&self) -> Result<()> {
+    pub async fn decline(&self, client: &Client) -> Result<()> {
         match self.query_id {
-            Some(id) => self.client.answer_chat_join_request_query(id, ChatJoinRequestResult::Decline).await,
-            None => self.client.decline_chat_join_request(self.chat.id, self.from_user.id).await,
+            Some(id) => client.answer_chat_join_request_query(id, ChatJoinRequestResult::Decline).await,
+            None => client.decline_chat_join_request(self.chat.id, self.from_user.id).await,
         }
     }
 }
@@ -155,8 +147,8 @@ mod tests {
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let (public, entities) = (base::ExportedChatInvite::ChatInvitePublicJoinRequests, Entities::default());
         let request = |query_id| ChatJoinRequest::parse(&client, &update(query_id, "", public.clone()), &entities);
-        let _ = request(Some(1)).decline().await;
-        let _ = request(None).approve().await;
+        let _ = request(Some(1)).decline(&client).await;
+        let _ = request(None).approve(&client).await;
         let mut sent = || u32::from_le_bytes(rx.try_recv().expect("no request sent")[..4].try_into().unwrap());
         let expected = (bots::SetJoinChatResults::CONSTRUCTOR_ID, messages::HideChatJoinRequest::CONSTRUCTOR_ID);
         assert_eq!((sent(), sent()), expected);

@@ -426,7 +426,7 @@ mod tests {
         // a_reply_to_a_topic_message_carries_the_topic), so only the check stops it.
         seeded(&client);
         let message = Message::parse(&client, Box::new(Message::bare(12, get_peer(7), 0)), &Entities::default());
-        let send = message.reply_ephemeral("hi").callback_query_id(55).replace_callback_query_message();
+        let send = message.reply_ephemeral(&client, "hi").callback_query_id(55).replace_callback_query_message();
         let refused = send.await;
         assert!(matches!(refused, Err(Error::InvalidArgument(m)) if m.contains("reply_ephemeral")), "{refused:?}");
         assert!(sent.try_recv().is_err(), "a refused reply must not send");
@@ -468,7 +468,7 @@ mod tests {
     async fn a_reply_to_a_topic_message_carries_the_topic() {
         let (client, mut sent) = Client::recording();
         seeded(&client);
-        let _ = topic_message(&client, 12, 3).reply_ephemeral("hi").await;
+        let _ = topic_message(&client, 12, 3).reply_ephemeral(&client, "hi").await;
         let body = sent.try_recv().expect("no request sent");
         let reply = topic_reply(12, Some(3));
         assert!(body.windows(reply.len()).any(|w| w == reply), "the topic is not in the reply");
@@ -478,7 +478,7 @@ mod tests {
     async fn a_reply_to_the_topic_root_carries_no_topic() {
         let (client, mut sent) = Client::recording();
         seeded(&client);
-        let _ = topic_message(&client, 3, 3).reply_ephemeral("hi").await;
+        let _ = topic_message(&client, 3, 3).reply_ephemeral(&client, "hi").await;
         let body = sent.try_recv().expect("no request sent");
         let reply = topic_reply(3, None);
         assert!(body.windows(reply.len()).any(|w| w == reply), "the root reply names a topic");

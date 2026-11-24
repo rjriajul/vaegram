@@ -86,7 +86,7 @@ impl<'a> Ask<'a> {
         let me = client.0.me.lock().unwrap().clone();
         let answer = listeners.messages.release(id, (sent.chat.id, sent.id), deadline, &me).await;
         drop(hold);
-        Ok(answer?.prepare().await)
+        Ok(answer?.prepare(client).await)
     }
 }
 
@@ -154,7 +154,8 @@ mod tests {
 
     fn offer(client: &Client, id: i32, chat: i64, out: bool) -> bool {
         let me = client.0.me.lock().unwrap().clone();
-        let offer = client.0.handlers.listeners.messages.offer(message(client, id, chat, None, out), &me);
+        let offer =
+            client.0.handlers.listeners.messages.offer(message(client, id, chat, None, out), &me, &client.0.events);
         matches!(offer, Offer::Claimed)
     }
 
@@ -277,7 +278,7 @@ mod tests {
         let (client, waiter) = asking_slowly(Ok(sent(9))).await;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
-        client.on_message(filters::all(), move |m: Message| {
+        client.on_message(filters::all(), move |_client, m: Message| {
             log.lock().unwrap().push(m.id);
             async { Ok(()) }
         });
@@ -306,7 +307,7 @@ mod tests {
         client.0.me.lock().unwrap().id = 5;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
-        client.on_message(filters::all(), move |m: Message| {
+        client.on_message(filters::all(), move |_client, m: Message| {
             log.lock().unwrap().push(m.id);
             async { Ok(()) }
         });

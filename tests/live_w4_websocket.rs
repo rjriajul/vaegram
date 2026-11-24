@@ -55,7 +55,7 @@ async fn websocket_downloads_saved_file() {
         .unwrap();
     let data: Vec<u8> = (0..3_000_000u32).map(|i| (i * 7 + i / 251) as u8).collect();
     let sent = user.send_document("me", Upload::bytes("vaegram-ws.bin", &data)).await.unwrap();
-    let downloaded = sent.download().await;
-    sent.delete().await.unwrap();
+    let downloaded = sent.download(&user).await;
+    sent.delete(&user).await.unwrap();
     assert!(downloaded.unwrap() == data);
 }

@@ -1,3 +1,4 @@
+use crate::Client;
 use crate::enums::ParseMode;
 use crate::errors::Result;
 use crate::methods::{EditEphemeralMessage, EditInlineMedia, EditInlineText, EditMessageMedia, EditMessageText};
@@ -6,8 +7,12 @@ use crate::types::{CallbackOrigin, CallbackQuery, InputMedia, LinkPreviewOptions
 impl CallbackQuery {
     /// Edits the caption of the message the button is on. Calls [`CallbackQuery::edit_message_text`], since
     /// one request edits text and captions alike, minus the client's link preview default.
-    pub fn edit_message_caption(&self, caption: impl Into<Text>) -> EditCallbackMessageText<'_> {
-        match self.edit_message_text(MessageText::Text(caption.into())) {
+    pub fn edit_message_caption<'a>(
+        &'a self,
+        client: &'a Client,
+        caption: impl Into<Text>,
+    ) -> EditCallbackMessageText<'a> {
+        match self.edit_message_text(client, MessageText::Text(caption.into())) {
             EditCallbackMessageText::Message(edit) => EditCallbackMessageText::Message(edit.without_client_default()),
             EditCallbackMessageText::Inline(edit) => EditCallbackMessageText::Inline(edit.without_client_default()),
             edit @ EditCallbackMessageText::Ephemeral(_) => edit,
@@ -17,8 +22,7 @@ impl CallbackQuery {
     /// Replaces the media of the message the button is on.
     ///
     /// An inline message takes only a file already on Telegram, not a new upload.
-    pub fn edit_message_media<'a>(&'a self, media: InputMedia<'a>) -> EditCallbackMessageMedia<'a> {
-        let client = self.client();
+    pub fn edit_message_media<'a>(&'a self, client: &'a Client, media: InputMedia<'a>) -> EditCallbackMessageMedia<'a> {
         match &self.origin {
             CallbackOrigin::Message { chat, message_id, business_connection_id } => {
                 let edit = client.edit_message_media(chat.id, *message_id, media);
@@ -28,7 +32,9 @@ impl CallbackQuery {
                 })
             }
             CallbackOrigin::Inline(id) => EditCallbackMessageMedia::Inline(client.edit_inline_media(id.clone(), media)),
-            CallbackOrigin::Ephemeral(message) => EditCallbackMessageMedia::Ephemeral(message.edit_media(media)),
+            CallbackOrigin::Ephemeral(message) => {
+                EditCallbackMessageMedia::Ephemeral(message.edit_media(client, media))
+            }
         }
     }
 }
@@ -149,12 +155,12 @@ mod tests {
     fn each_origin_edits_its_own_kind_of_message() {
         let client = Client::offline();
         let q = query(&client, 7, 7, 5);
-        assert!(matches!(q.edit_message_media(photo()), EditCallbackMessageMedia::Message(_)));
-        assert!(matches!(q.edit_message_caption("new"), EditCallbackMessageText::Message(_)));
+        assert!(matches!(q.edit_message_media(&client, photo()), EditCallbackMessageMedia::Message(_)));
+        assert!(matches!(q.edit_message_caption(&client, "new"), EditCallbackMessageText::Message(_)));
 
         let q = inline_query(&client, 7, 1);
-        assert!(matches!(q.edit_message_media(photo()), EditCallbackMessageMedia::Inline(_)));
-        assert!(matches!(q.edit_message_caption("new"), EditCallbackMessageText::Inline(_)));
+        assert!(matches!(q.edit_message_media(&client, photo()), EditCallbackMessageMedia::Inline(_)));
+        assert!(matches!(q.edit_message_caption(&client, "new"), EditCallbackMessageText::Inline(_)));
 
         let update = types::UpdateEphemeralBotCallbackQuery {
             query_id: 9,
@@ -166,8 +172,8 @@ mod tests {
             message: ephemeral(true, Some(channel())),
         };
         let q = CallbackQuery::parse_ephemeral(&client, update, &Entities::default());
-        assert!(matches!(q.edit_message_media(photo()), EditCallbackMessageMedia::Ephemeral(_)));
-        assert!(matches!(q.edit_message_caption("new"), EditCallbackMessageText::Ephemeral(_)));
+        assert!(matches!(q.edit_message_media(&client, photo()), EditCallbackMessageMedia::Ephemeral(_)));
+        assert!(matches!(q.edit_message_caption(&client, "new"), EditCallbackMessageText::Ephemeral(_)));
     }
 
     #[tokio::test]
@@ -186,7 +192,7 @@ mod tests {
         client.0.peers.lock().unwrap().insert(7, peer);
         client.0.caches.know_business("conn", 7, 2);
         let q = CallbackQuery::parse_business(&client, update, &Entities::default());
-        assert!(q.edit_message_media(photo()).await.is_err());
+        assert!(q.edit_message_media(&client, photo()).await.is_err());
         assert_eq!(sent.try_recv().expect("no request sent")[..4], 0xdd289f8e_u32.to_le_bytes());
     }
 
@@ -195,7 +201,7 @@ mod tests {
         let (client, mut sent) = Client::recording();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, peer);
-        let _ = query(&client, 7, 7, 5).edit_message_caption(Text::new().bold("new")).await;
+        let _ = query(&client, 7, 7, 5).edit_message_caption(&client, Text::new().bold("new")).await;
         let body = sent.try_recv().expect("no request sent");
         let bold = vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 3 })];
         let has = |bytes: &[u8]| body.windows(bytes.len()).any(|w| w == bytes);
@@ -209,9 +215,9 @@ mod tests {
         client.0.peers.lock().unwrap().insert(7, peer);
         let off = || LinkPreviewOptions::new().is_disabled(true);
         for q in [query(&client, 7, 7, 5), inline_query(&client, 7, 1)] {
-            let _ = q.edit_message_text("hi").await;
+            let _ = q.edit_message_text(&client, "hi").await;
             assert_eq!(sent.try_recv().expect("no request sent")[4] & 0b10, 0, "previews stay on by default");
-            let _ = q.edit_message_text("hi").link_preview_options(off()).await;
+            let _ = q.edit_message_text(&client, "hi").link_preview_options(off()).await;
             assert_eq!(sent.try_recv().expect("no request sent")[4] & 0b10, 0b10, "no_webpage is set");
         }
     }
