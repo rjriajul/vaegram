@@ -5,7 +5,7 @@ use crate::types::{Chat, MessageReactions};
 
 /// The reactions on a message changed, as a user account sees them: the full new set, not who changed what.
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ReactionsUpdated {
     /// The chat the message is in.
@@ -16,19 +16,23 @@ pub struct ReactionsUpdated {
     pub message_thread_id: Option<i32>,
     /// The reactions the message has now.
     pub reactions: MessageReactions,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl ReactionsUpdated {
-    pub(crate) fn parse(
-        _client: &Client,
-        raw: &types::UpdateMessageReactions,
-        entities: &Entities,
-    ) -> ReactionsUpdated {
+    pub(crate) fn parse(client: &Client, raw: &types::UpdateMessageReactions, entities: &Entities) -> ReactionsUpdated {
         ReactionsUpdated {
             chat: Chat::parse(&raw.peer, entities, false),
             message_id: raw.msg_id,
             message_thread_id: raw.top_msg_id,
             reactions: MessageReactions::parse(&raw.reactions, entities),
+            client: client.clone(),
         }
+    }
+
+    /// The [`Client`] that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }

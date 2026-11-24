@@ -6,22 +6,33 @@ use crate::raw::types;
 use crate::types::User;
 
 /// A user bought paid media the bot sent.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PurchasedPaidMedia {
     /// The buyer.
     pub from_user: User,
     /// The payload the bot set on the paid media.
     pub payload: String,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl PurchasedPaidMedia {
     pub(crate) fn parse(
-        _client: &Client,
+        client: &Client,
         raw: &types::UpdateBotPurchasedPaidMedia,
         entities: &Entities,
     ) -> PurchasedPaidMedia {
-        PurchasedPaidMedia { from_user: User::parse(raw.user_id, entities), payload: raw.payload.clone() }
+        PurchasedPaidMedia {
+            from_user: User::parse(raw.user_id, entities),
+            payload: raw.payload.clone(),
+            client: client.clone(),
+        }
+    }
+
+    /// The client that received the update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }
 

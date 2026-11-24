@@ -31,8 +31,8 @@ async fn echo_bot(user: &Client) -> Option<(Client, i64)> {
     let (api_id, api_hash) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
     let bot = Client::builder("target/vaegram-w4-options-bot", api_id, api_hash).bot_token(token);
     let bot = support::start_bot(bot).await?;
-    bot.on_message(filters::private(), |client, m| async move {
-        m.reply(&client, "echo").await?;
+    bot.on_message(filters::private(), |m| async move {
+        m.reply("echo").await?;
         Ok(())
     });
     let me = bot.get_me().await.unwrap();
@@ -46,7 +46,7 @@ async fn ask_accepts_an_answer_in_a_second_chat() {
     let Some(builder) = user_builder() else { return };
     let user = builder.connect().await.unwrap();
     let Some((bot, bot_id)) = echo_bot(&user).await else { return };
-    user.on_message(filters::private(), |_client, _| async { Ok(()) });
+    user.on_message(filters::private(), |_| async { Ok(()) });
     let running = tokio::spawn({
         let clients = [user.clone(), bot.clone()];
         async move { Client::compose(&clients).await }
@@ -111,7 +111,7 @@ async fn compose_sequential_runs_bot_and_user() {
     let user = builder.connect().await.unwrap();
     let Some((bot, bot_id)) = echo_bot(&user).await else { return };
     let (tx, mut replies) = tokio::sync::mpsc::unbounded_channel();
-    user.on_message(filters::private(), move |_client, m| {
+    user.on_message(filters::private(), move |m| {
         if !m.outgoing {
             let _ = tx.send(m.chat.id);
         }

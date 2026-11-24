@@ -30,9 +30,9 @@ mod tests {
             _ = std::future::ready(()) => {}
         }
         let (book, me) = (&client.0.handlers.listeners.callbacks, client.0.me.lock().unwrap().clone());
-        assert!(matches!(book.offer(query(&client, 7, 7, 3), &me, &client.0.events), Offer::Unclaimed(_)));
-        assert!(matches!(book.offer(query(&client, 7, 8, 2), &me, &client.0.events), Offer::Unclaimed(_)));
-        assert!(matches!(book.offer(query(&client, 7, 7, 2), &me, &client.0.events), Offer::Claimed));
+        assert!(matches!(book.offer(query(&client, 7, 7, 3), &me), Offer::Unclaimed(_)));
+        assert!(matches!(book.offer(query(&client, 7, 8, 2), &me), Offer::Unclaimed(_)));
+        assert!(matches!(book.offer(query(&client, 7, 7, 2), &me), Offer::Claimed));
         assert_eq!(listen.await.unwrap().message_id(), Some(2));
     }
 
@@ -49,8 +49,8 @@ mod tests {
             _ = &mut inline => panic!("nothing was offered"),
             _ = std::future::ready(()) => {}
         }
-        assert!(matches!(book.offer(inline_query(&client, 7, 2), &me, &client.0.events), Offer::Unclaimed(_)));
-        assert!(matches!(book.offer(inline_query(&client, 7, 1), &me, &client.0.events), Offer::Claimed));
+        assert!(matches!(book.offer(inline_query(&client, 7, 2), &me), Offer::Unclaimed(_)));
+        assert!(matches!(book.offer(inline_query(&client, 7, 1), &me), Offer::Claimed));
         assert!(inline.await.unwrap().inline_message_id().is_some());
         assert!(book.waiting(), "the chat listener took an inline press");
         drop(in_chat);

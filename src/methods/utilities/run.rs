@@ -503,7 +503,7 @@ pub(super) mod tests {
         *client.0.updates.lock().await = rx;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
-        client.on_business_connection(crate::filters::all(), move |_client, c| {
+        client.on_business_connection(crate::filters::all(), move |c| {
             log.lock().unwrap().push(c.id);
             ready(Ok(()))
         });

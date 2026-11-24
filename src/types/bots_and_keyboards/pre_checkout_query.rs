@@ -8,7 +8,7 @@ use crate::types::{OrderInfo, User};
 
 /// A buyer's final confirmation before paying an invoice. Answer it with [`approve`](Self::approve) or
 /// [`decline`](Self::decline).
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PreCheckoutQuery {
     /// Id of the query, used to answer it.
@@ -26,11 +26,13 @@ pub struct PreCheckoutQuery {
     pub shipping_option_id: Option<String>,
     /// Details the user gave at checkout. `None` if the invoice asked for none.
     pub order_info: Option<OrderInfo>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl PreCheckoutQuery {
     pub(crate) fn parse(
-        _client: &Client,
+        client: &Client,
         raw: &types::UpdateBotPrecheckoutQuery,
         entities: &Entities,
     ) -> PreCheckoutQuery {
@@ -42,19 +44,25 @@ impl PreCheckoutQuery {
             invoice_payload: String::from_utf8_lossy(&raw.payload).into_owned(),
             shipping_option_id: raw.shipping_option_id.clone(),
             order_info: raw.info.as_ref().map(OrderInfo::parse),
+            client: client.clone(),
         }
+    }
+
+    /// The client that received the query.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 
     /// Confirms the payment can go ahead.
     ///
     /// Telegram cancels the payment unless the query is answered within 10 seconds.
-    pub async fn approve(&self, client: &Client) -> Result<()> {
-        client.answer_pre_checkout_query(self.id).await
+    pub async fn approve(&self) -> Result<()> {
+        self.client.answer_pre_checkout_query(self.id).await
     }
 
     /// Rejects the payment and shows `reason` to the user.
-    pub async fn decline(&self, client: &Client, reason: impl Into<String>) -> Result<()> {
-        client.answer_pre_checkout_query(self.id).error(reason).await
+    pub async fn decline(&self, reason: impl Into<String>) -> Result<()> {
+        self.client.answer_pre_checkout_query(self.id).error(reason).await
     }
 }
 

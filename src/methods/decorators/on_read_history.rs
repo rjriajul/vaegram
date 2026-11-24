@@ -14,7 +14,7 @@ impl Client {
     /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_read_history<F, Fut, T>(&self, filter: Filter<ReadHistoryUpdated>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(Client, ReadHistoryUpdated) -> Fut + Send + Sync + 'static,
+        F: Fn(ReadHistoryUpdated) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::ReadHistory, |r, id| r.read_history.push(id, filter, callback(f)))

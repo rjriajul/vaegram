@@ -31,7 +31,7 @@ impl GetChatAdministrators<'_> {
         let mut admins = self.client.get_chat_members(self.chat_id).filter(ChatMembersFilter::Administrators).await?;
         let me = self.client.0.me.lock().unwrap().id;
         admins.retain(|m| {
-            matches!(m.status(), ChatMemberStatus::Owner | ChatMemberStatus::Administrator)
+            matches!(m.status, ChatMemberStatus::Owner | ChatMemberStatus::Administrator)
                 && (self.return_bots || !m.user.is_bot || m.user.id == me)
         });
         Ok(admins)

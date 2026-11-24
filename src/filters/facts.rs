@@ -157,7 +157,7 @@ impl<'a> Facts<'a> {
     /// A service message's `raw` is a bare message, so its kind and topic come from the parsed fields. A business
     /// message's connection isn't in `raw` either; the raw path adds it through `via_business`.
     pub(crate) fn parsed(m: &'a Message, me: &'a Me) -> Facts<'a> {
-        let sender_bot = m.from_user().is_some_and(|u| u.is_bot);
+        let sender_bot = m.from_user.as_ref().is_some_and(|u| u.is_bot);
         let mut facts = Facts::plain(&m.raw, PeerKinds::of(Some(&m.chat), sender_bot), me)
             .via_business(m.business_connection_id.is_some());
         if let Some(service) = &m.service {
@@ -492,11 +492,7 @@ mod tests {
             let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
             let parsed = Message::parse(&client, Box::new(m), &entities);
             assert_eq!(facts, parsed.facts(&me));
-            assert_eq!(
-                (facts.flags & REACTED != 0, filter.check(&client, &parsed)),
-                (reacted, reacted),
-                "{reactions:?}"
-            );
+            assert_eq!((facts.flags & REACTED != 0, filter.check(&parsed)), (reacted, reacted), "{reactions:?}");
 
             let photo =
                 types::MessageService { reactions, ..service(base::MessageAction::MessageActionChatDeletePhoto) };
@@ -504,7 +500,7 @@ mod tests {
             let facts = Facts::message(&raw, PeerKinds::message(&raw, &entities), &me);
             let parsed = Message::from_raw(&client, raw.clone(), &entities).unwrap();
             assert_eq!(facts, parsed.facts(&me));
-            assert_eq!((facts.flags & REACTED != 0, filter.check(&client, &parsed)), (reacted, reacted));
+            assert_eq!((facts.flags & REACTED != 0, filter.check(&parsed)), (reacted, reacted));
         }
     }
 

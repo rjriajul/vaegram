@@ -13,7 +13,7 @@ use tokio::time::Instant;
 use crate::Client;
 use crate::enums::ClientEvent;
 use crate::errors::Error;
-use crate::handlers::{BoxFuture, Callback, ErrorCallback, HandlerError, HookCallback, Routed, UpdateKind};
+use crate::handlers::{BoxFuture, Callback, ErrorCallback, HandlerError, Routed, UpdateKind};
 use crate::session::Events;
 
 /// With `max_concurrent_handlers`, how many handler tasks may wait for a slot before the dispatcher stops taking
@@ -123,7 +123,7 @@ impl Tasks {
         });
     }
 
-    pub(crate) fn run<T: Routed>(&mut self, client: &Client, kind: UpdateKind, item: T, callbacks: Vec<Callback<T>>) {
+    pub(crate) fn run<T: Routed>(&mut self, kind: UpdateKind, item: T, callbacks: Vec<Callback<T>>) {
         let turn = match self.lanes.as_mut().zip(item.order_key()) {
             Some((lanes, key)) => {
                 let Some(turn) = lanes.turn(key, self.limit.is_some()) else {
@@ -137,7 +137,6 @@ impl Tasks {
             None => None,
         };
         let permits = self.permits.clone();
-        let client = client.clone();
         let chat_id = item.chat_id();
         let (message_id, user_id, query_id) = (item.message_id(), item.user_id(), item.query_id());
         let failed = move |error| HandlerError { kind, chat_id, message_id, user_id, query_id, error };
@@ -153,13 +152,13 @@ impl Tasks {
             };
             let slot = permit(permits).await;
             let (last, rest) = callbacks.split_last()?;
-            let item = item.prepare(&client).await;
+            let item = item.prepare().await;
             for callback in rest {
-                if let Err(error) = callback(client.clone(), item.clone()).await {
+                if let Err(error) = callback(item.clone()).await {
                     return Some((failed(error), (slot, done)));
                 }
             }
-            last(client, item).await.err().map(|error| (failed(error), (slot, done)))
+            last(item).await.err().map(|error| (failed(error), (slot, done)))
         });
     }
 
@@ -185,7 +184,7 @@ async fn permit(permits: Option<Arc<Semaphore>>) -> Option<OwnedSemaphorePermit>
 }
 
 /// Awaits a lifecycle hook; an `Err` or a panic goes where a handler's would.
-pub(crate) async fn run_hook(client: Client, kind: UpdateKind, hook: HookCallback) {
+pub(crate) async fn run_hook(client: Client, kind: UpdateKind, hook: Callback<Client>) {
     // Called inside `caught`, so a panic before the hook's first await is caught too.
     match caught(async { hook(client.clone()).await }).await {
         Ok(Ok(())) => {}
@@ -365,7 +364,7 @@ mod tests {
 
     fn stuck() -> Callback<crate::types::CallbackQuery> {
         use crate::types::CallbackQuery;
-        Arc::new(|_, _: CallbackQuery| -> BoxFuture { Box::pin(std::future::pending::<crate::Result<()>>()) })
+        Arc::new(|_: CallbackQuery| -> BoxFuture { Box::pin(std::future::pending::<crate::Result<()>>()) })
     }
 
     #[tokio::test]
@@ -378,23 +377,23 @@ mod tests {
         let events = tasks.events.record();
         // Chat 7's first handler never ends, so the chat's later updates all wait behind it.
         for _ in 0..=MAX_WAITING_HANDLERS {
-            tasks.run(&client, UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
+            tasks.run(UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
         }
         assert!(!tasks.full(), "one chat's backlog filled the room every chat waits in");
         assert!(events.try_recv().is_err());
         // Past its own bound the chat's next update is dropped and reported, and the room stays open.
-        tasks.run(&client, UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
+        tasks.run(UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
         let dropped = events.try_recv().expect("the dropped update wasn't reported");
         assert!(matches!(dropped, ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 }), "{dropped:?}");
         assert!(!tasks.full(), "one chat's backlog filled the room every chat waits in");
 
         // Another chat still gets its turn and a slot.
         let (ran, mut got) = tokio::sync::mpsc::unbounded_channel();
-        let other: Callback<CallbackQuery> = Arc::new(move |_, _: CallbackQuery| -> BoxFuture {
+        let other: Callback<CallbackQuery> = Arc::new(move |_: CallbackQuery| -> BoxFuture {
             let _ = ran.send(());
             Box::pin(async { Ok(()) })
         });
-        tasks.run(&client, UpdateKind::CallbackQuery, query(&client, 8, 8, 5), vec![other]);
+        tasks.run(UpdateKind::CallbackQuery, query(&client, 8, 8, 5), vec![other]);
         assert!(got.recv().await.is_some(), "the other chat's handler didn't run");
     }
 
@@ -409,15 +408,15 @@ mod tests {
         let chats = (MAX_WAITING_IN_LANES / MAX_WAITING_HANDLERS) as i64;
         for chat in 1..=chats {
             for _ in 0..=MAX_WAITING_HANDLERS {
-                tasks.run(&client, UpdateKind::CallbackQuery, query(&client, chat, chat, 5), vec![stuck()]);
+                tasks.run(UpdateKind::CallbackQuery, query(&client, chat, chat, 5), vec![stuck()]);
             }
         }
         assert!(events.try_recv().is_err());
         // Another chat's first update waits for no chat and goes; its next would wait behind it, and is dropped.
         let next = chats + 1;
-        tasks.run(&client, UpdateKind::CallbackQuery, query(&client, next, next, 5), vec![stuck()]);
+        tasks.run(UpdateKind::CallbackQuery, query(&client, next, next, 5), vec![stuck()]);
         assert!(events.try_recv().is_err());
-        tasks.run(&client, UpdateKind::CallbackQuery, query(&client, next, next, 5), vec![stuck()]);
+        tasks.run(UpdateKind::CallbackQuery, query(&client, next, next, 5), vec![stuck()]);
         let dropped = events.try_recv().expect("the dropped update wasn't reported");
         assert!(matches!(dropped, ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 }), "{dropped:?}");
         assert!(!tasks.full(), "the chats' backlogs filled the room every chat waits in");
@@ -436,8 +435,8 @@ mod tests {
         };
         tasks.on_error = Some(Arc::new(on_error));
         // Chat 7's handler never ends and the chat's next one waits behind it; a raw handler never ends either.
-        tasks.run(&client, UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
-        tasks.run(&client, UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
+        tasks.run(UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
+        tasks.run(UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![stuck()]);
         tasks.raw(Box::pin(std::future::pending::<crate::Result<()>>()));
         tokio::task::yield_now().await;
         tasks.abandon().await;
@@ -546,10 +545,9 @@ mod tests {
             Box::pin(async {})
         };
         tasks.on_error = Some(Arc::new(on_error));
-        let failing: Callback<CallbackQuery> = Arc::new(|_, _: CallbackQuery| -> BoxFuture {
-            Box::pin(async { Err::<(), _>(Error::Unexpected("boom")) })
-        });
-        tasks.run(&client, UpdateKind::CallbackQuery, press, vec![failing]);
+        let failing: Callback<CallbackQuery> =
+            Arc::new(|_: CallbackQuery| -> BoxFuture { Box::pin(async { Err::<(), _>(Error::Unexpected("boom")) }) });
+        tasks.run(UpdateKind::CallbackQuery, press, vec![failing]);
 
         let error = taken.recv().await.expect("no error came");
         assert_eq!((error.query_id, error.user_id, error.message_id), (Some(1), Some(7), Some(5)));
@@ -586,10 +584,10 @@ mod tests {
             Box::pin(async {})
         };
         tasks.on_error = Some(Arc::new(on_error));
-        let failing: Callback<ChatMemberUpdated> = Arc::new(|_, _: ChatMemberUpdated| -> BoxFuture {
+        let failing: Callback<ChatMemberUpdated> = Arc::new(|_: ChatMemberUpdated| -> BoxFuture {
             Box::pin(async { Err::<(), _>(Error::Unexpected("boom")) })
         });
-        tasks.run(&client, UpdateKind::ChatMemberUpdated, change, vec![failing]);
+        tasks.run(UpdateKind::ChatMemberUpdated, change, vec![failing]);
 
         let error = taken.recv().await.expect("no error came");
         assert_eq!((error.user_id, error.chat_id), (Some(1), Some(-42)));
@@ -659,7 +657,7 @@ mod tests {
         // The hook panics before returning its future.
         let client = Client::offline();
         let events = client.0.events.record();
-        let hook: HookCallback = Arc::new(|_: Client| -> BoxFuture { panic!("hook") });
+        let hook: Callback<Client> = Arc::new(|_: Client| -> BoxFuture { panic!("hook") });
         run_hook(client, UpdateKind::Start, hook).await;
         assert_eq!(panicked_as(&next_event(&events).await), Some((UpdateKind::Start, None, Some("hook"))));
     }

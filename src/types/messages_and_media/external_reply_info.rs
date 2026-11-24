@@ -4,7 +4,7 @@ use crate::raw::types;
 use crate::types::{Chat, LinkPreviewOptions, Media, MessageOrigin};
 
 /// The message a reply points to when that message is in another chat.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ExternalReplyInfo {

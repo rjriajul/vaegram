@@ -129,7 +129,7 @@ async fn bot_sends_and_edits_messages() {
     let chat_id = env("VAEGRAM_CHAT_ID").parse().unwrap();
     let hello = app.send_message(chat_id, "hello from vaegram").await.unwrap();
     assert_eq!((hello.chat.id, hello.text(), hello.outgoing), (chat_id, "hello from vaegram", true));
-    assert_eq!(hello.from_user().map(|u| u.id), Some(me.id));
+    assert_eq!(hello.from_user.as_ref().map(|u| u.id), Some(me.id));
 
     let sent = app.send_message(chat_id, "<b>bold</b>, <i>italic</i> and <code>code</code>").html().await.unwrap();
     assert_eq!((sent.text(), entities(&sent)), ("bold, italic and code", 3));
@@ -147,7 +147,7 @@ async fn bot_sends_and_edits_messages() {
     let asked = app.send_message(chat_id, "Do buttons work?").reply_markup(keyboard).await.unwrap();
     assert!(asked.reply_markup().is_some());
 
-    let edited = asked.edit_text(&app, "Buttons work, <b>edited</b>.").html().await.unwrap();
+    let edited = asked.edit_text("Buttons work, <b>edited</b>.").html().await.unwrap();
     assert_eq!((edited.id, edited.text(), entities(&edited)), (asked.id, "Buttons work, edited.", 1));
     assert!(edited.edit_date.is_some());
     assert!(edited.reply_markup().is_none());
@@ -155,21 +155,19 @@ async fn bot_sends_and_edits_messages() {
     // updateShortSentMessage has no rich_message field; this shows whether Telegram answers with it.
     let rich = app.send_rich_message(chat_id, InputRichMessage::html("<b>rich</b> hello")).await.unwrap();
     assert!(rich.rich_message.is_some());
-    let rich = rich
-        .edit_text(&app, InputRichMessage::blocks([RichBlock::paragraph(Text::new().bold("edited"))]))
-        .await
-        .unwrap();
+    let rich =
+        rich.edit_text(InputRichMessage::blocks([RichBlock::paragraph(Text::new().bold("edited"))])).await.unwrap();
     assert!(rich.rich_message.is_some() && rich.text().contains("edited"));
-    rich.delete(&app).await.unwrap();
+    rich.delete().await.unwrap();
 
     let reply = app.send_message(chat_id, "a reply").reply_to(hello.id).await.unwrap();
-    assert_eq!(reply.reply_to_message_id(), Some(hello.id));
+    assert_eq!(reply.reply_to_message_id, Some(hello.id));
 
     let keyboard = ReplyKeyboardMarkup::new([vec![KeyboardButton::new("One"), KeyboardButton::new("Two")]]);
     app.send_message(chat_id, "a reply keyboard").reply_markup(keyboard).await.unwrap();
     let removed = app.send_message(chat_id, "keyboard removed").reply_markup(ReplyKeyboardRemove::default()).await;
-    removed.unwrap().delete(&app).await.unwrap();
-    reply.delete(&app).await.unwrap();
+    removed.unwrap().delete().await.unwrap();
+    reply.delete().await.unwrap();
 
     let again = Client::builder("unused", env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"))
         .session_string(app.export_session_string())
@@ -208,7 +206,7 @@ async fn bot_sends_polls_and_media() {
     let contact = app.send_contact(chat_id, "+15555550100", "Vae").last_name("Gram").await.unwrap();
     assert!(matches!(contact.media, Some(Media::Contact(_))));
     let location = app.send_location(chat_id, 51.5007, -0.1246).reply_to(contact.id).await.unwrap();
-    assert_eq!(location.reply_to_message_id(), Some(contact.id));
+    assert_eq!(location.reply_to_message_id, Some(contact.id));
 
     let quiz = app
         .send_poll(chat_id, "2 + 2?", ["3", "4"])
@@ -222,7 +220,7 @@ async fn bot_sends_polls_and_media() {
     assert!(poll.is_closed && poll.kind == PollType::Quiz);
 
     for message in [dice, venue, contact, location, stopped] {
-        message.delete(&app).await.unwrap();
+        message.delete().await.unwrap();
     }
 }
 
@@ -247,13 +245,13 @@ async fn bot_uploads_and_downloads_a_document() {
     let document = sent.document().expect("the message has the document");
     assert_eq!((document.file_name.as_deref(), document.file_size), (Some("vaegram.bin"), data.len() as i64));
 
-    assert!(sent.download(&app).await.unwrap() == data);
+    assert!(sent.download().await.unwrap() == data);
     let path = std::path::Path::new("target/vaegram-live-download/vaegram.bin");
     app.download_media(document).save(path).await.unwrap();
     assert!(std::fs::read(path).unwrap() == data);
 
     let (mut reported, mut streamed) = (0, Vec::new());
-    let mut stream = sent.download(&app).progress(|done, _| reported = done).stream();
+    let mut stream = sent.download().progress(|done, _| reported = done).stream();
     while let Some(chunk) = stream.next().await.unwrap() {
         streamed.extend_from_slice(&chunk);
     }
@@ -265,8 +263,8 @@ async fn bot_uploads_and_downloads_a_document() {
     let copy = again.document().expect("the copy has the document");
     assert_eq!((copy.id, copy.file_unique_id.as_str()), (document.id, document.file_unique_id.as_str()));
     assert!(app.download_media(&copy.file_id).await.unwrap() == data);
-    again.delete(&app).await.unwrap();
-    sent.delete(&app).await.unwrap();
+    again.delete().await.unwrap();
+    sent.delete().await.unwrap();
 }
 
 #[tokio::test]
@@ -289,7 +287,7 @@ async fn bot_sends_live_photos_paid_media_and_poll_media() {
     let sent = app.send_live_photo(chat_id, photo.as_str(), video.as_str()).caption("live").await.unwrap();
     let live = sent.live_photo().expect("the message has the live photo");
     assert!(live.photo.is_some() && live.file_size > 0);
-    sent.delete(&app).await.unwrap();
+    sent.delete().await.unwrap();
 
     let media = [
         InputMedia::photo(photo.as_str()),
@@ -298,7 +296,7 @@ async fn bot_sends_live_photos_paid_media_and_poll_media() {
     ];
     let sent = app.send_paid_media(chat_id, 5, media).payload("order-7").caption("paid").await.unwrap();
     assert!(matches!(sent.media, Some(Media::PaidMedia(ref m)) if m.star_count == 5));
-    sent.delete(&app).await.unwrap();
+    sent.delete().await.unwrap();
 
     // A link goes only on an option, so the description gets the photo.
     let options = [
@@ -316,7 +314,7 @@ async fn bot_sends_live_photos_paid_media_and_poll_media() {
         Err(e) => panic!("sending the poll failed: {e:?}"),
     };
     assert!(sent.poll().is_some());
-    sent.delete(&app).await.unwrap();
+    sent.delete().await.unwrap();
 }
 
 #[tokio::test]
@@ -450,9 +448,9 @@ async fn user_account_talks_to_bot() {
 
     let saved = user.send_message(me.id, "**saved** by vaegram").markdown().await.unwrap();
     assert_eq!((saved.chat.id, saved.text(), entities(&saved)), (me.id, "saved by vaegram", 1));
-    let saved = saved.edit_text(&user, "edited by vaegram").await.unwrap();
+    let saved = saved.edit_text("edited by vaegram").await.unwrap();
     assert_eq!(saved.text(), "edited by vaegram");
-    saved.delete(&user).await.unwrap();
+    saved.delete().await.unwrap();
 
     let again = Client::builder("unused", api_id, api_hash.clone())
         .session_string(user.export_session_string())
@@ -477,7 +475,7 @@ async fn user_account_talks_to_bot() {
     let mention =
         user.send_message(me.id, format!("hi <a href=\"tg://user?id={bot_id}\">bot</a>")).html().await.unwrap();
     assert!(matches!(mention.entities(), Some([e]) if e.kind == MessageEntityType::TextMention));
-    mention.delete(&user).await.unwrap();
+    mention.delete().await.unwrap();
 
     let raw_updates = Arc::new(AtomicUsize::new(0));
     let counter = raw_updates.clone();
@@ -486,37 +484,37 @@ async fn user_account_talks_to_bot() {
         async { Ok(()) }
     });
     // Incoming only: a bot also gets the messages its other sessions send.
-    bot.on_message(filters::private() & filters::text() & filters::incoming(), |client, msg| async move {
+    bot.on_message(filters::private() & filters::text() & filters::incoming(), |msg| async move {
         let tap = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Tap", "tap")]]);
-        msg.reply(&client, format!("pong: {}", msg.text())).reply_markup(tap).await?;
+        msg.reply(format!("pong: {}", msg.text())).reply_markup(tap).await?;
         Ok(())
     });
-    bot.on_edited_message(filters::private() & filters::incoming(), |client, msg| async move {
-        msg.reply(&client, format!("edited: {}", msg.text())).await?;
+    bot.on_edited_message(filters::private() & filters::incoming(), |msg| async move {
+        msg.reply(format!("edited: {}", msg.text())).await?;
         Ok(())
     });
-    bot.on_callback_query(filters::data("tap"), |client, query| async move {
-        query.answer(&client).text("tapped").await?;
-        query.edit_message_text(&client, "tapped!").await?;
+    bot.on_callback_query(filters::data("tap"), |query| async move {
+        query.answer().text("tapped").await?;
+        query.edit_message_text("tapped!").await?;
         Ok(())
     });
-    bot.on_inline_query(filters::all(), |client, query| async move {
+    bot.on_inline_query(filters::all(), |query| async move {
         let result = InlineQueryResultArticle::new("Result", format!("inline: {}", query.query));
-        query.answer(&client, [result]).cache_time(0).await?;
+        query.answer([result]).cache_time(0).await?;
         Ok(())
     });
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let from_bot = filters::private() & filters::user(bot_id) & filters::incoming();
     let sent = tx.clone();
-    user.on_message(from_bot.clone(), move |_client, msg| {
+    user.on_message(from_bot.clone(), move |msg| {
         let tx = sent.clone();
         async move {
             let _ = tx.send(("new", msg));
             Ok(())
         }
     });
-    user.on_edited_message(from_bot, move |_client, msg| {
+    user.on_edited_message(from_bot, move |msg| {
         let tx = tx.clone();
         async move {
             let _ = tx.send(("edit", msg));
@@ -532,12 +530,12 @@ async fn user_account_talks_to_bot() {
     // Each wait takes only the bot's answer to this test's message, newer than it: the chat may also bring older
     // messages that the user's saved session missed.
     let ping = user.send_message(bot_id, "ping").await.unwrap();
-    let pong = next(&mut rx, "new", |m| m.id > ping.id && m.reply_to_message_id() == Some(ping.id)).await;
+    let pong = next(&mut rx, "new", |m| m.id > ping.id && m.reply_to_message_id == Some(ping.id)).await;
     assert_eq!(pong.text(), "pong: ping");
     assert!(pong.reply_markup().is_some());
 
-    let ping = ping.edit_text(&user, "ping 2").await.unwrap();
-    let edited = next(&mut rx, "new", |m| m.id > pong.id && m.reply_to_message_id() == Some(ping.id)).await;
+    let ping = ping.edit_text("ping 2").await.unwrap();
+    let edited = next(&mut rx, "new", |m| m.id > pong.id && m.reply_to_message_id == Some(ping.id)).await;
     assert_eq!(edited.text(), "edited: ping 2");
 
     let peer = user.resolve_peer(bot_id).await.unwrap();
@@ -610,8 +608,8 @@ async fn user_keeps_peers_across_restarts() {
 #[ignore = "uses a logged-in user session and a bot"]
 async fn user_gets_the_bots_reply_through_the_kit() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::text() & filters::incoming(), |client, m| async move {
-        m.reply(&client, format!("echo: {}", m.text())).await?;
+    kit.bot.on_message(filters::private() & filters::text() & filters::incoming(), |m| async move {
+        m.reply(format!("echo: {}", m.text())).await?;
         Ok(())
     });
     let reply = kit.user.send_and_wait_reply(&kit.bot, "hi from the kit").await.unwrap();
@@ -980,11 +978,11 @@ async fn user_uses_inline_bot() {
     let id = results.results.first().expect("@gif found no cats").id.clone();
     let sent = user.send_inline_bot_result(me.id, results.query_id, id).await.unwrap();
     assert_eq!(sent.chat.id, me.id);
-    sent.delete(&user).await.unwrap();
+    sent.delete().await.unwrap();
 
     let started = user.start_bot(gif, gif, "vaegram").await.unwrap();
     assert_eq!((started.chat.id, started.outgoing), (gif, true));
-    started.delete(&user).await.unwrap();
+    started.delete().await.unwrap();
 }
 
 #[tokio::test]
@@ -1009,7 +1007,7 @@ async fn user_searches_and_translates() {
         assert!(message.text().contains(&marker));
     }
     user.search_global_count("telegram", MessagesFilter::Url).await.unwrap();
-    saved.delete(&user).await.unwrap();
+    saved.delete().await.unwrap();
 
     // Translations keep their formatting only for Premium accounts.
     let premium = user.get_me().await.unwrap().is_premium;

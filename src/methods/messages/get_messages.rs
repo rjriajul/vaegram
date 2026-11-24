@@ -2,9 +2,8 @@ use crate::Client;
 use crate::dispatcher::Entities;
 use crate::errors::Result;
 use crate::raw::{base, functions, types};
-use crate::types::PeerId;
 use crate::types::{Message, PeerRef};
-use crate::utils::get_peer_id;
+use crate::utils::{CHANNEL_OFFSET, get_peer_id};
 
 impl Client {
     /// Returns messages of a chat by id.
@@ -26,7 +25,7 @@ impl Client {
         let chat_id = self.peer_id(chat_id.into()).await?;
         let id =
             message_ids.iter().map(|&id| base::InputMessage::InputMessageID(types::InputMessageID { id })).collect();
-        let found = if let PeerId::Channel(_) = PeerId::from_bot_api(chat_id) {
+        let found = if chat_id <= -CHANNEL_OFFSET {
             let channel = self.resolve_channel(&chat_id.into()).await?;
             self.invoke(&functions::channels::GetMessages { channel, id }).await?
         } else {

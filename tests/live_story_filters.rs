@@ -22,7 +22,7 @@ async fn on_story_sees_a_posted_story() {
     let user = &kit.user.client;
     let me = user.get_me().await.unwrap();
     let (tx, mut seen) = mpsc::unbounded_channel();
-    user.on_story(filters::chat(me.id), move |_client, story| {
+    user.on_story(filters::chat(me.id), move |story| {
         let _ = tx.send(story.id);
         async { Ok(()) }
     });
@@ -50,16 +50,16 @@ async fn on_story_sees_a_posted_story() {
 #[ignore = "uses a bot token and a logged-in user session"]
 async fn a_bot_keyboard_matches_inline_keyboard() {
     let Some(kit) = Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::command("keyboard"), |client, m| async move {
+    kit.bot.on_message(filters::private() & filters::command("keyboard"), |m| async move {
         let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Tap", "tap")]]);
-        m.reply(&client, "Keyboard").reply_markup(keyboard).await?;
+        m.reply("Keyboard").reply_markup(keyboard).await?;
         Ok(())
     });
     let bot = kit.bot.get_me().await.unwrap();
     let (tx, mut matched) = mpsc::unbounded_channel();
     kit.user
         .client
-        .on_message(filters::inline_keyboard() & filters::user(bot.id), move |_client, m| {
+        .on_message(filters::inline_keyboard() & filters::user(bot.id), move |m| {
             let _ = tx.send(m.id);
             async { Ok(()) }
         })

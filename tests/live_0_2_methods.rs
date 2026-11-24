@@ -82,7 +82,7 @@ async fn quick_replies_round_trip() {
             }
 
             let (tx, mut rx) = mpsc::unbounded_channel();
-            bot.on_message(filters::private() & filters::text(), move |_client, m| {
+            bot.on_message(filters::private() & filters::text(), move |m| {
                 let _ = tx.send(m.text().to_owned());
                 async { Ok(()) }
             });
@@ -139,7 +139,7 @@ async fn remove_chat_member_lets_member_rejoin() {
             user.remove_chat_member(group, bot_id).await.unwrap();
             let after = user.get_chat_member(group, bot_id).await.unwrap();
             assert!(!after.is_member);
-            assert_eq!(after.status(), ChatMemberStatus::Left);
+            assert_eq!(after.status, ChatMemberStatus::Left);
 
             let readded = user.add_chat_members(group, [bot_id], 0).await.unwrap();
             assert!(readded.is_empty(), "removed member could not rejoin: {readded:?}");
@@ -189,7 +189,7 @@ async fn ban_chat_member_revoke_messages_in_basic_group() {
         let bot = kit.bot.clone();
         async move {
             let (tx, mut rx) = mpsc::unbounded_channel();
-            bot.on_message(filters::chat(group_id) & filters::text(), move |_client, m| {
+            bot.on_message(filters::chat(group_id) & filters::text(), move |m| {
                 let _ = tx.send(m.id);
                 async { Ok(()) }
             });
@@ -231,15 +231,15 @@ async fn send_bot_requested_peer_shares_user() {
     let Some(kit) = support::Kit::from_env().await else { return };
     let (tx, mut bot_seen) = mpsc::unbounded_channel();
 
-    kit.bot.on_message(filters::private() & filters::command("reqpeer"), |client, m| async move {
+    kit.bot.on_message(filters::private() & filters::command("reqpeer"), |m| async move {
         let button = KeyboardButton::new("Pick user").request_users(KeyboardButtonRequestUsers::new(77));
         let markup = ReplyKeyboardMarkup::new([vec![button]]).one_time(true);
-        m.reply(&client, "pick one").reply_markup(markup).await?;
+        m.reply("pick one").reply_markup(markup).await?;
         Ok(())
     });
     kit.bot.on_message(
         filters::private() & filters::create(|m: &Message| matches!(m.service, Some(ServiceAction::UsersShared(_)))),
-        move |_client, m| {
+        move |m| {
             if let Some(ServiceAction::UsersShared(shared)) = m.service.clone() {
                 let _ = tx.send(shared);
             }
@@ -264,7 +264,7 @@ async fn send_bot_requested_peer_shares_user() {
     let ids = Arc::new(Mutex::new(Vec::new()));
     {
         let mut guard = ids.lock().unwrap();
-        if let Some(prompt_id) = asked.reply_to_message_id() {
+        if let Some(prompt_id) = asked.reply_to_message_id {
             guard.push(prompt_id);
         }
         guard.push(asked.id);
@@ -314,14 +314,14 @@ async fn poll_allows_revoting_controls_retraction() {
         let user = user.clone();
         async move {
             let fixed = user.send_poll(group, "Fixed?", ["A", "B"]).allows_revoting(false).await.unwrap();
-            fixed.vote(&user, &[0]).await.unwrap();
-            let err = fixed.retract_vote(&user).await.unwrap_err();
+            fixed.vote(&[0]).await.unwrap();
+            let err = fixed.retract_vote().await.unwrap_err();
             assert!(err.rpc().is_some(), "expected Telegram RPC error retracting non-revotable poll: {err:?}");
 
             // Quizzes disable revoting by default; `.allows_revoting(true)` asks Telegram to allow retracting.
             let quiz = user.send_poll(group, "Quiz?", ["1", "2"]).quiz([0]).allows_revoting(true).await.unwrap();
-            quiz.vote(&user, &[0]).await.unwrap();
-            quiz.retract_vote(&user).await.unwrap();
+            quiz.vote(&[0]).await.unwrap();
+            quiz.retract_vote().await.unwrap();
         }
     })
     .await;

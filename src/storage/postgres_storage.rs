@@ -14,7 +14,7 @@ use tokio_postgres::{Client, Config, Row, Socket};
 use super::engine::{PeerRecord, Reports, Storage, StorageFuture, StorageReporter, StoredState};
 use super::{SessionData, UpdateState};
 use crate::session::Salt;
-use crate::types::PeerId;
+use crate::utils::{CHANNEL_OFFSET, get_channel_id};
 
 const VERSION: i64 = 1;
 /// How long a connection and each operation may take before the engine gives up on it.
@@ -521,6 +521,16 @@ fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 
+fn peer_type(id: i64) -> &'static str {
+    if id > 0 {
+        "user"
+    } else if id <= -CHANNEL_OFFSET {
+        "channel"
+    } else {
+        "group"
+    }
+}
+
 /// A text value PostgreSQL can hold: it has no NUL byte, and neither can a stored name or number.
 fn storable(text: &str) -> bool {
     !text.contains('\0')
@@ -585,8 +595,8 @@ async fn load_state(client: &Client, sql: &Sql) -> io::Result<Option<StoredState
                 seq: column::<Option<i32>>(row, "seq")?.unwrap_or_default(),
                 channels: HashMap::new(),
             });
-        } else if let Some(channel_id) = PeerId::from_bot_api(id).channel() {
-            channels.insert(channel_id, pts);
+        } else if id <= -CHANNEL_OFFSET {
+            channels.insert(get_channel_id(id), pts);
         }
     }
     if let Some(update) = &mut update {
@@ -607,7 +617,7 @@ async fn save_state(client: &mut Client, sql: &Sql, limits: &str, state: &Stored
         tx.execute(sql.save_update.as_str(), &[&u.pts, &u.qts, &u.date, &u.seq]).await.map_err(io_error)?;
         let channel = tx.prepare(sql.save_channel.as_str()).await.map_err(io_error)?;
         for (id, pts) in &u.channels {
-            tx.execute(&channel, &[&PeerId::Channel(*id).bot_api(), pts]).await.map_err(io_error)?;
+            tx.execute(&channel, &[&get_channel_id(*id), pts]).await.map_err(io_error)?;
         }
     }
     tx.commit().await.map_err(io_error)
@@ -623,7 +633,7 @@ async fn update_peers(client: &mut Client, sql: &Sql, limits: &str, peers: &[Pee
     let forget = tx.prepare(sql.forget_usernames.as_str()).await.map_err(io_error)?;
     let add = tx.prepare(sql.add_username.as_str()).await.map_err(io_error)?;
     for p in peers {
-        let kind = PeerId::from_bot_api(p.id).kind();
+        let kind = peer_type(p.id);
         // A NUL byte can't be in a PostgreSQL text value: such a number is dropped and such a name skipped, as no
         // lookup could ever find them; neither fails the batch.
         let phone = p.phone_number.as_ref().filter(|number| storable(number));

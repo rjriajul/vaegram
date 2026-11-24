@@ -464,10 +464,10 @@ mod tests {
             .unwrap();
         let check = |m: &Message| {
             assert_eq!(m.reply_markup(), Some(ReplyMarkup::Inline(keyboard.clone())));
-            assert_eq!((m.reply_to_message_id(), m.quote.as_ref().map(|q| q.text.as_str())), (Some(3), Some("hi")));
+            assert_eq!((m.reply_to_message_id, m.quote.as_ref().map(|q| q.text.as_str())), (Some(3), Some("hi")));
             assert!(m.has_protected_content && m.silent);
             assert_eq!(m.effect_id, Some(5));
-            let from = m.from_user().unwrap();
+            let from = m.from_user.as_deref().unwrap();
             assert_eq!((from.id, from.is_bot, from.is_self, from.username.as_deref()), (42, true, true, Some("bot")));
         };
         check(&sent);
@@ -483,7 +483,7 @@ mod tests {
             game_short_name: None,
         };
         let query = CallbackQuery::parse(&client, &press, &Entities::default());
-        check(&query.message(&client).await.unwrap().unwrap());
+        check(&query.message().await.unwrap().unwrap());
     }
 }
 

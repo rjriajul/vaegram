@@ -1,96 +1,90 @@
-use crate::Client;
 use crate::enums::ChatType;
 use crate::errors::{Error, Result};
 use crate::methods::{
     CopyMediaGroup, EditEphemeralMessage, EditMessageChecklist, EditMessageLiveLocation, EditMessageMedia, Listen,
     SendEphemeralMessage, StopMessageLiveLocation, SummarizeMessage,
 };
-use crate::types::PeerId;
 use crate::types::{
     CallbackQuery, EphemeralMessage, InlineKeyboardMarkup, InputChecklist, InputMedia, InvoiceRef, Message,
     MessageText, PeerRef, Text,
 };
+use crate::utils::channel_id_of;
 
 impl Message {
     /// Replaces the media of this message. Goes through the business connection if the message arrived on one.
-    pub fn edit_media<'a>(&'a self, client: &'a Client, media: InputMedia<'a>) -> EditMessageMedia<'a> {
-        self.on_behalf(client.edit_message_media(self.chat.id, self.id, media))
+    pub fn edit_media<'a>(&'a self, media: InputMedia<'a>) -> EditMessageMedia<'a> {
+        self.on_behalf(self.client().edit_message_media(self.chat.id, self.id, media))
     }
 
     /// Moves the live location in this message. Goes through the business connection if the message arrived on one.
-    pub fn edit_live_location<'a>(
-        &'a self,
-        client: &'a Client,
-        latitude: f64,
-        longitude: f64,
-    ) -> EditMessageLiveLocation<'a> {
-        self.on_behalf(client.edit_message_live_location(self.chat.id, self.id, latitude, longitude))
+    pub fn edit_live_location(&self, latitude: f64, longitude: f64) -> EditMessageLiveLocation<'_> {
+        self.on_behalf(self.client().edit_message_live_location(self.chat.id, self.id, latitude, longitude))
     }
 
     /// Ends the live location in this message. Goes through the business connection if the message arrived on one.
-    pub fn stop_live_location<'a>(&'a self, client: &'a Client) -> StopMessageLiveLocation<'a> {
-        self.on_behalf(client.stop_message_live_location(self.chat.id, self.id))
+    pub fn stop_live_location(&self) -> StopMessageLiveLocation<'_> {
+        self.on_behalf(self.client().stop_message_live_location(self.chat.id, self.id))
     }
 
     /// Replaces the whole checklist; `InputChecklist::from(checklist)` keeps the formatting of an existing one.
-    pub fn edit_checklist<'a>(&'a self, client: &'a Client, checklist: InputChecklist) -> EditMessageChecklist<'a> {
-        self.on_behalf(client.edit_message_checklist(self.chat.id, self.id, checklist))
+    pub fn edit_checklist(&self, checklist: InputChecklist) -> EditMessageChecklist<'_> {
+        self.on_behalf(self.client().edit_message_checklist(self.chat.id, self.id, checklist))
     }
 
     /// Votes for the options at the given positions (several only in multiple-choice polls).
-    pub async fn vote(&self, client: &Client, options: &[usize]) -> Result<()> {
-        client.vote_poll(self.chat.id, self.id, options).await
+    pub async fn vote(&self, options: &[usize]) -> Result<()> {
+        self.client().vote_poll(self.chat.id, self.id, options).await
     }
 
     /// Withdraws the account's vote from the poll in this message.
-    pub async fn retract_vote(&self, client: &Client) -> Result<()> {
-        client.retract_vote(self.chat.id, self.id).await
+    pub async fn retract_vote(&self) -> Result<()> {
+        self.client().retract_vote(self.chat.id, self.id).await
     }
 
     /// Counts one view of this message, as opening it in an app does.
-    pub async fn view(&self, client: &Client) -> Result<()> {
-        client.view_messages(self.chat.id, &[self.id]).await
+    pub async fn view(&self) -> Result<()> {
+        self.client().view_messages(self.chat.id, &[self.id]).await
     }
 
     /// Pays the Stars invoice in this message; nothing is paid if its price is above `star_count`. A timed-out payment
     /// may have gone through: check the balance before retrying.
-    pub async fn pay(&self, client: &Client, star_count: i64) -> Result<()> {
+    pub async fn pay(&self, star_count: i64) -> Result<()> {
         if star_count <= 0 {
             return Err(Error::InvalidArgument("star_count must be positive"));
         }
         let invoice = InvoiceRef::Message { chat_id: PeerRef::from(self.chat.id), message_id: self.id };
-        let invoice = invoice.write(client).await?;
-        client.pay_in_stars_up_to(invoice, star_count).await
+        let invoice = invoice.write(self.client()).await?;
+        self.client().pay_in_stars_up_to(invoice, star_count).await
     }
 
     /// Accepts the gift purchase offer in this message, which sells the gift.
-    pub async fn accept_gift_purchase_offer(&self, client: &Client) -> Result<()> {
-        client.process_gift_purchase_offer(self.id, true).await
+    pub async fn accept_gift_purchase_offer(&self) -> Result<()> {
+        self.client().process_gift_purchase_offer(self.id, true).await
     }
 
     /// Rejects the gift purchase offer in this message.
-    pub async fn reject_gift_purchase_offer(&self, client: &Client) -> Result<()> {
-        client.process_gift_purchase_offer(self.id, false).await
+    pub async fn reject_gift_purchase_offer(&self) -> Result<()> {
+        self.client().process_gift_purchase_offer(self.id, false).await
     }
 
     /// Asks Telegram for a summary of this message's text. Awaiting it returns the summary as `FormattedText`.
-    pub fn summarize<'a>(&'a self, client: &'a Client) -> SummarizeMessage<'a> {
-        client.summarize_message(self.chat.id, self.id)
+    pub fn summarize(&self) -> SummarizeMessage<'_> {
+        self.client().summarize_message(self.chat.id, self.id)
     }
 
     /// Waits for the next press on this message's buttons, with the rules of [`Client::wait_for_callback_query`].
     ///
     /// [`Client::wait_for_callback_query`]: crate::Client::wait_for_callback_query
-    pub fn wait_for_click<'a>(&'a self, client: &'a Client) -> Listen<'a, CallbackQuery> {
-        client.wait_for_callback_query(self.chat.id).message_id(self.id)
+    pub fn wait_for_click(&self) -> Listen<'_, CallbackQuery> {
+        self.client().wait_for_callback_query(self.chat.id).message_id(self.id)
     }
 
     /// Copies the album this message belongs to into `chat_id`.
     ///
     /// The album is fetched by id, so on a message that came through a business connection awaiting fails with
     /// `Error::InvalidArgument`.
-    pub fn copy_media_group<'a>(&'a self, client: &'a Client, chat_id: impl Into<PeerRef>) -> CopyMediaGroup<'a> {
-        let copy = client.copy_media_group(chat_id, self.chat.id, self.id);
+    pub fn copy_media_group(&self, chat_id: impl Into<PeerRef>) -> CopyMediaGroup<'_> {
+        let copy = self.client().copy_media_group(chat_id, self.chat.id, self.id);
         match self.business_connection_id {
             Some(_) => copy.refuse("a business message's album can't be fetched"),
             None => copy,
@@ -101,11 +95,11 @@ impl Message {
     ///
     /// Fails with `Error::InvalidArgument` on a message that came through a business connection, whose album can't
     /// be fetched.
-    pub async fn get_media_group(&self, client: &Client) -> Result<Vec<Message>> {
+    pub async fn get_media_group(&self) -> Result<Vec<Message>> {
         if self.business_connection_id.is_some() {
             return Err(Error::InvalidArgument("a business message's album can't be fetched"));
         }
-        client.get_media_group(self.chat.id, self.id).await
+        self.client().get_media_group(self.chat.id, self.id).await
     }
 
     /// Replies with an ephemeral message that only the sender of this message sees.
@@ -118,9 +112,10 @@ impl Message {
     /// [`replace_callback_query_message`](SendEphemeralMessage::replace_callback_query_message); to answer a button
     /// press in place of the pressed message, use
     /// [`CallbackQuery::answer_ephemeral`](crate::types::CallbackQuery::answer_ephemeral).
-    pub fn reply_ephemeral<'a>(&'a self, client: &'a Client, text: impl Into<MessageText>) -> SendEphemeralMessage<'a> {
-        let receiver = self.from_user().map(|u| PeerRef::from(u.id));
-        let reply = SendEphemeralMessage::new(client, self.chat.id.into(), receiver, text.into()).reply_to(self.id);
+    pub fn reply_ephemeral(&self, text: impl Into<MessageText>) -> SendEphemeralMessage<'_> {
+        let receiver = self.from_user.as_ref().map(|u| PeerRef::from(u.id));
+        let reply =
+            SendEphemeralMessage::new(self.client(), self.chat.id.into(), receiver, text.into()).reply_to(self.id);
         match self.message_thread_id {
             Some(thread) if self.is_topic_message => reply.message_thread_id(thread),
             _ => reply,
@@ -134,7 +129,7 @@ impl Message {
         }
         let chat = match &self.chat.username {
             Some(username) => username.clone(),
-            None => format!("c/{}", PeerId::from_bot_api(self.chat.id).channel()?),
+            None => format!("c/{}", channel_id_of(self.chat.id)),
         };
         let thread = match self.message_thread_id {
             Some(thread) if self.is_topic_message => format!("{thread}/"),
@@ -152,22 +147,18 @@ impl Message {
 
 impl EphemeralMessage {
     /// Replaces the caption of this ephemeral message.
-    pub fn edit_caption<'a>(&'a self, client: &'a Client, caption: impl Into<Text>) -> EditEphemeralMessage<'a> {
-        client.edit_ephemeral_message_caption(self.chat.id, self.receiver_user.id, self.id, caption)
+    pub fn edit_caption(&self, caption: impl Into<Text>) -> EditEphemeralMessage<'_> {
+        self.client().edit_ephemeral_message_caption(self.chat.id, self.receiver_user.id, self.id, caption)
     }
 
     /// Replaces the media of this ephemeral message.
-    pub fn edit_media<'a>(&'a self, client: &'a Client, media: InputMedia<'a>) -> EditEphemeralMessage<'a> {
-        client.edit_ephemeral_message_media(self.chat.id, self.receiver_user.id, self.id, media)
+    pub fn edit_media<'a>(&'a self, media: InputMedia<'a>) -> EditEphemeralMessage<'a> {
+        self.client().edit_ephemeral_message_media(self.chat.id, self.receiver_user.id, self.id, media)
     }
 
     /// Replaces the inline keyboard of this ephemeral message. `None` removes the keyboard.
-    pub fn edit_reply_markup<'a>(
-        &'a self,
-        client: &'a Client,
-        reply_markup: Option<InlineKeyboardMarkup>,
-    ) -> EditEphemeralMessage<'a> {
-        let edit = client.edit_ephemeral_message_reply_markup(self.chat.id, self.receiver_user.id, self.id);
+    pub fn edit_reply_markup(&self, reply_markup: Option<InlineKeyboardMarkup>) -> EditEphemeralMessage<'_> {
+        let edit = self.client().edit_ephemeral_message_reply_markup(self.chat.id, self.receiver_user.id, self.id);
         match reply_markup {
             Some(markup) => edit.reply_markup(markup),
             None => edit,
@@ -229,10 +220,10 @@ mod tests {
         let mut message = message(&client);
         message.business_connection_id = Some("c".into());
         let results = [
-            message.edit_media(&client, photo()).await.map(drop),
-            message.edit_live_location(&client, 1.0, 2.0).await.map(drop),
-            message.stop_live_location(&client).await.map(drop),
-            message.edit_checklist(&client, InputChecklist::new("todo").task(1, "a")).await.map(drop),
+            message.edit_media(photo()).await.map(drop),
+            message.edit_live_location(1.0, 2.0).await.map(drop),
+            message.stop_live_location().await.map(drop),
+            message.edit_checklist(InputChecklist::new("todo").task(1, "a")).await.map(drop),
         ];
         for result in results {
             assert!(result.is_err());
@@ -245,7 +236,7 @@ mod tests {
     async fn plain_edits_skip_the_connection() {
         let (client, mut sent) = recording();
         let message = message(&client);
-        assert!(message.stop_live_location(&client).await.is_err());
+        assert!(message.stop_live_location().await.is_err());
         assert_ne!(sent.try_recv().expect("no request sent")[..4], BUSINESS);
     }
 
@@ -253,14 +244,14 @@ mod tests {
     async fn votes_send_what_the_client_methods_send() {
         let (client, mut sent) = recording();
         let message = message(&client);
-        assert!(matches!(message.vote(&client, &[]).await, Err(Error::InvalidArgument(_))));
+        assert!(matches!(message.vote(&[]).await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err(), "an empty vote must not send");
-        assert!(message.vote(&client, &[0]).await.is_err());
+        assert!(message.vote(&[0]).await.is_err());
         let (direct, mut direct_sent) = recording();
         assert!(direct.vote_poll(7, 5, &[0]).await.is_err());
         assert_eq!(sent.try_recv().unwrap(), direct_sent.try_recv().unwrap());
 
-        assert!(message.retract_vote(&client).await.is_err());
+        assert!(message.retract_vote().await.is_err());
         let retract = functions::messages::SendVote { peer: peer(), msg_id: 5, options: Vec::new() };
         assert_eq!(sent.try_recv().unwrap(), retract.to_bytes());
     }
@@ -269,8 +260,8 @@ mod tests {
     async fn gift_offers_resolve_by_message_id() {
         let (client, mut sent) = recording();
         let message = message(&client);
-        assert!(message.accept_gift_purchase_offer(&client).await.is_err());
-        assert!(message.reject_gift_purchase_offer(&client).await.is_err());
+        assert!(message.accept_gift_purchase_offer().await.is_err());
+        assert!(message.reject_gift_purchase_offer().await.is_err());
         for decline in [false, true] {
             let request = functions::payments::ResolveStarGiftOffer { decline, offer_msg_id: 5 };
             assert_eq!(sent.try_recv().unwrap(), request.to_bytes());
@@ -312,7 +303,7 @@ mod tests {
         let paid = base::payments::PaymentResult::PaymentResult(Box::new(paid)).to_bytes();
         let (client, mut sent) = Client::scripted(vec![Ok(stars_form(900)), Ok(paid)]);
         seeded(&client);
-        message(&client).pay(&client, 900).await.unwrap();
+        message(&client).pay(900).await.unwrap();
         let form = functions::payments::GetPaymentForm { invoice: message_invoice(), theme_params: None };
         assert_eq!(sent.try_recv().unwrap(), form.to_bytes());
         let pay = functions::payments::SendStarsForm { form_id: 7, invoice: message_invoice() };
@@ -323,7 +314,7 @@ mod tests {
     async fn pay_refuses_a_price_above_the_cap() {
         let (client, mut sent) = Client::scripted(vec![Ok(stars_form(1000))]);
         seeded(&client);
-        assert!(matches!(message(&client).pay(&client, 900).await, Err(Error::InvalidArgument(_))));
+        assert!(matches!(message(&client).pay(900).await, Err(Error::InvalidArgument(_))));
         let form = functions::payments::GetPaymentForm { invoice: message_invoice(), theme_params: None };
         assert_eq!(sent.try_recv().unwrap(), form.to_bytes());
         assert!(sent.try_recv().is_err(), "nothing may be paid above the cap");
@@ -334,7 +325,7 @@ mod tests {
         let (client, mut sent) = recording();
         let message = message(&client);
         for cap in [0, -1] {
-            assert!(matches!(message.pay(&client, cap).await, Err(Error::InvalidArgument(_))), "{cap}");
+            assert!(matches!(message.pay(cap).await, Err(Error::InvalidArgument(_))), "{cap}");
         }
         assert!(sent.try_recv().is_err());
     }
@@ -342,7 +333,7 @@ mod tests {
     #[tokio::test]
     async fn view_counts_a_view() {
         let (client, mut sent) = recording();
-        assert!(message(&client).view(&client).await.is_err());
+        assert!(message(&client).view().await.is_err());
         let request = functions::messages::GetMessagesViews { peer: peer(), id: vec![5], increment: true };
         assert_eq!(sent.try_recv().unwrap(), request.to_bytes());
     }
@@ -383,16 +374,16 @@ mod tests {
     async fn wait_for_click_takes_only_this_messages_buttons() {
         let client = Client::offline();
         let message = message(&client);
-        let mut click = message.wait_for_click(&client).into_future();
+        let mut click = message.wait_for_click().into_future();
         tokio::select! {
             biased;
             _ = &mut click => panic!("nothing was offered"),
             _ = std::future::ready(()) => {}
         }
         let (book, me) = (&client.0.handlers.listeners.callbacks, client.0.me.lock().unwrap().clone());
-        assert!(matches!(book.offer(query(&client, 7, 7, 6), &me, &client.0.events), Offer::Unclaimed(_)));
-        assert!(matches!(book.offer(query(&client, 7, 8, 5), &me, &client.0.events), Offer::Unclaimed(_)));
-        assert!(matches!(book.offer(query(&client, 7, 7, 5), &me, &client.0.events), Offer::Claimed));
+        assert!(matches!(book.offer(query(&client, 7, 7, 6), &me), Offer::Unclaimed(_)));
+        assert!(matches!(book.offer(query(&client, 7, 8, 5), &me), Offer::Unclaimed(_)));
+        assert!(matches!(book.offer(query(&client, 7, 7, 5), &me), Offer::Claimed));
         assert_eq!(click.await.unwrap().message_id(), Some(5));
     }
 
@@ -401,13 +392,13 @@ mod tests {
         let (client, mut sent) = recording();
         let mut message = message(&client);
         let mut from_channel = message.clone();
-        from_channel.sender = None;
-        let refused = from_channel.reply_ephemeral(&client, "hi").await;
+        from_channel.from_user = None;
+        let refused = from_channel.reply_ephemeral("hi").await;
         assert!(matches!(refused, Err(Error::InvalidArgument("this message has no sender user"))), "{refused:?}");
         assert!(sent.try_recv().is_err());
 
         std::sync::Arc::make_mut(&mut message.chat).id = 1000;
-        assert!(message.reply_ephemeral(&client, "hi").await.is_err());
+        assert!(message.reply_ephemeral("hi").await.is_err());
         let request = sent.try_recv().expect("no request sent");
         assert_eq!(request[..4], 0xba8d5f35_u32.to_le_bytes());
         // reply_to is flags.5 of ephemeral.sendMessage, right after the constructor id.
@@ -417,7 +408,7 @@ mod tests {
     #[tokio::test]
     async fn a_built_caption_keeps_its_entities() {
         let (client, mut sent) = recording();
-        let _ = message(&client).edit_caption(&client, Text::new().bold("new")).await;
+        let _ = message(&client).edit_caption(Text::new().bold("new")).await;
         let body = sent.try_recv().expect("no request sent");
         let bold = vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 3 })];
         let has = |bytes: &[u8]| body.windows(bytes.len()).any(|w| w == bytes);
@@ -428,8 +419,8 @@ mod tests {
     async fn a_client_default_leaves_caption_edits_alone() {
         let (client, mut sent) = recording();
         client.set_link_preview_options(Some(crate::types::LinkPreviewOptions::new().show_above_text(true)));
-        let _ = message(&client).edit_caption(&client, "cap").await;
-        let _ = message(&client).edit_text(&client, "text").await;
+        let _ = message(&client).edit_caption("cap").await;
+        let _ = message(&client).edit_text("text").await;
         // invert_media is flags.16 of messages.editMessage.
         let flags = |body: Vec<u8>| u32::from_le_bytes(body[4..8].try_into().unwrap()) >> 16 & 1;
         assert_eq!((flags(sent.try_recv().unwrap()), flags(sent.try_recv().unwrap())), (0, 1));
@@ -440,9 +431,9 @@ mod tests {
         let (client, mut sent) = recording();
         let message = EphemeralMessage::parse(&client, ephemeral(true, None), &Entities::default());
         let results = [
-            message.edit_caption(&client, "new").await.map(drop),
-            message.edit_media(&client, photo()).await.map(drop),
-            message.edit_reply_markup(&client, None).await.map(drop),
+            message.edit_caption("new").await.map(drop),
+            message.edit_media(photo()).await.map(drop),
+            message.edit_reply_markup(None).await.map(drop),
         ];
         for result in results {
             assert!(result.is_err());

@@ -7,7 +7,7 @@ use crate::raw::types;
 use crate::types::{User, WidgetQueryType};
 
 /// A query sent by a forwarded copy of a shared widget.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SharedWidgetQuery {
     /// The query id, used to answer it.
@@ -20,22 +20,30 @@ pub struct SharedWidgetQuery {
     pub data: String,
     /// Id of the shared widget.
     pub widget_id: i64,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl SharedWidgetQuery {
-    pub(crate) fn parse(_client: &Client, raw: &types::UpdateBotWidgetCopyQuery, entities: &Entities) -> Self {
+    pub(crate) fn parse(client: &Client, raw: &types::UpdateBotWidgetCopyQuery, entities: &Entities) -> Self {
         SharedWidgetQuery {
             id: raw.query_id,
             from_user: User::parse(raw.user_id, entities),
             query_type: WidgetQueryType::parse(&raw.query_type, raw.wallet_card.as_ref(), entities),
             data: String::from_utf8_lossy(&raw.data).into_owned(),
             widget_id: raw.widget_id,
+            client: client.clone(),
         }
     }
 
+    /// The client that received the update.
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
     /// Starts an answer to this query. See [`Client::answer_widget_query`].
-    pub fn answer<'a>(&'a self, client: &'a Client) -> AnswerWidgetQuery<'a> {
-        client.answer_widget_query(self.id)
+    pub fn answer(&self) -> AnswerWidgetQuery<'_> {
+        self.client.answer_widget_query(self.id)
     }
 }
 

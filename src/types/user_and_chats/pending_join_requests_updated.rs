@@ -5,7 +5,7 @@ use crate::types::{Chat, User};
 
 /// The number of pending requests to join a chat this account administers changed.
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PendingJoinRequestsUpdated {
     /// The chat the requests are for.
@@ -14,14 +14,22 @@ pub struct PendingJoinRequestsUpdated {
     pub pending_count: i32,
     /// Some of the users who asked to join most recently.
     pub recent_requesters: Vec<User>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl PendingJoinRequestsUpdated {
-    pub(crate) fn parse(_client: &Client, raw: &types::UpdatePendingJoinRequests, entities: &Entities) -> Self {
+    pub(crate) fn parse(client: &Client, raw: &types::UpdatePendingJoinRequests, entities: &Entities) -> Self {
         PendingJoinRequestsUpdated {
             chat: Chat::parse(&raw.peer, entities, false),
             pending_count: raw.requests_pending,
             recent_requesters: raw.recent_requesters.iter().map(|&id| User::parse(id, entities)).collect(),
+            client: client.clone(),
         }
+    }
+
+    /// The [`Client`] that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }

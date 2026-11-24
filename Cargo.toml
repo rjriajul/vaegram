@@ -95,11 +95,3 @@ harness = false
 [[example]]
 name = "dump_recording"
 required-features = ["json"]
-
-# The generated TL code is ~80k lines. With full debug info every test binary carried all of it, which made
-# linking slow and the target dir huge. Line tables keep file:line in backtraces and panics; dependencies get none.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false

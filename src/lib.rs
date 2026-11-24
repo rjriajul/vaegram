@@ -13,8 +13,8 @@
 //!         .start()
 //!         .await?;
 //!
-//!     app.on_message(filters::command("start") & filters::private(), |client, msg| async move {
-//!         msg.answer(&client, "Hello from vaegram!").await?;
+//!     app.on_message(filters::command("start") & filters::private(), |msg| async move {
+//!         msg.answer("Hello from vaegram!").await?;
 //!         Ok(())
 //!     });
 //!
@@ -35,8 +35,8 @@
 //! - `json`: `ToJson` for every TL type and function, and JSON for raw updates and recordings.
 //! - `serde`: `serde::Serialize` for the friendly types users receive, such as [`types::Message`], [`types::User`]
 //!   and [`enums::ClientEvent`], so they can be logged or stored as JSON. There is no `Deserialize`. Fields that
-//!   hold TL objects are left out, and the rich message block tree and the types you build to send (`InputMedia`,
-//!   `InlineQueryResult*`, ...) are not serializable.
+//!   hold the [`Client`] or TL objects are left out, and the rich message block tree and the types you build
+//!   to send (`InputMedia`, `InlineQueryResult*`, ...) are not serializable.
 //! - `unstable-raw`: the TL objects behind raw updates (`RawUpdate::raw()`, `raw_users()`, `raw_chats()`, the raw
 //!   update of an `OtherUpdate`), `Incoming::into_updates()`, `UploadedFile::into_raw()`, `Message::from_updates`,
 //!   `utils::input_user`, `Client::business`, `RichMessage::from_raw` and `Sticker::parse`, and the session plumbing

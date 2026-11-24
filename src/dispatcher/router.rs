@@ -9,9 +9,7 @@ use super::tasks::{Tasks, guard};
 use crate::Client;
 use crate::client::Me;
 use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
-use crate::handlers::{
-    Callback, ErrorCallback, HandlerId, HandlerInfo, HookCallback, RawCallback, Registered, Routed, callback,
-};
+use crate::handlers::{Callback, ErrorCallback, HandlerId, HandlerInfo, RawCallback, Registered, Routed, callback};
 use crate::raw::base;
 use crate::types::messages_and_media::transcription::Transcriptions;
 use crate::types::{
@@ -116,15 +114,7 @@ impl<T: Routed + Subject + Inspect> Handlers<T> {
     }
 
     /// `true` if a handler's filter matched, so a handler runs.
-    fn finish(
-        &self,
-        client: &Client,
-        kind: UpdateKind,
-        tasks: &mut Tasks,
-        me: &Me,
-        (mut matched, resume): Scan,
-        item: T,
-    ) -> bool {
+    fn finish(&self, kind: UpdateKind, tasks: &mut Tasks, me: &Me, (mut matched, resume): Scan, item: T) -> bool {
         if let Some(start) = resume {
             let facts = item.facts(me);
             let events = &tasks.events;
@@ -134,7 +124,7 @@ impl<T: Routed + Subject + Inspect> Handlers<T> {
         if matched.is_empty() {
             return false;
         }
-        tasks.run(client, kind, item, matched.iter().map(|&i| self.0[i].callback.clone()).collect());
+        tasks.run(kind, item, matched.iter().map(|&i| self.0[i].callback.clone()).collect());
         true
     }
 }
@@ -181,17 +171,12 @@ impl Handlers<Message> {
             message.set_business(client, connection_id, reply_to, entities);
         }
         if listening {
-            match listened(
-                client,
-                kind,
-                tasks,
-                client.0.handlers.listeners.messages.offer(message, &me, &client.0.events),
-            ) {
+            match listened(kind, tasks, client.0.handlers.listeners.messages.offer(message, &me)) {
                 Some(m) => message = m,
                 None => return true,
             }
         }
-        scan.is_some_and(|scan| self.finish(client, kind, tasks, &me, scan, message))
+        scan.is_some_and(|scan| self.finish(kind, tasks, &me, scan, message))
     }
 
     /// A new message a listener gave back: the other listeners, then the handlers, get it. One a full hold pushed
@@ -199,32 +184,28 @@ impl Handlers<Message> {
     fn redeliver(&self, tasks: &mut Tasks, client: &Client, message: Message, evicted: bool) {
         let me = client.0.me.lock().unwrap().clone();
         let messages = &client.0.handlers.listeners.messages;
-        let offer = if evicted {
-            messages.offer_evicted(message, &me, &client.0.events)
-        } else {
-            messages.offer(message, &me, &client.0.events)
-        };
-        let Some(message) = listened(client, UpdateKind::Message, tasks, offer) else { return };
+        let offer = if evicted { messages.offer_evicted(message, &me) } else { messages.offer(message, &me) };
+        let Some(message) = listened(UpdateKind::Message, tasks, offer) else { return };
         if !self.0.is_empty() {
-            self.finish(client, UpdateKind::Message, tasks, &me, PARSED, message);
+            self.finish(UpdateKind::Message, tasks, &me, PARSED, message);
         }
     }
 }
 
 /// What a new message offered to the listeners leaves for the handlers; `None` once one of the listeners, or a
 /// next-step handler, took it.
-fn listened(client: &Client, kind: UpdateKind, tasks: &mut Tasks, offer: Offer<Message>) -> Option<Message> {
+fn listened(kind: UpdateKind, tasks: &mut Tasks, offer: Offer<Message>) -> Option<Message> {
     match offer {
         Offer::Claimed => None,
         Offer::Call(callback, m) => {
-            tasks.run(client, kind, m, vec![callback]);
+            tasks.run(kind, m, vec![callback]);
             None
         }
         Offer::Unclaimed(m) | Offer::Stranger(m, _) => Some(m),
     }
 }
 
-type Hook = Option<(u32, HookCallback)>;
+type Hook = Option<(u32, Callback<Client>)>;
 
 /// The lifecycle hooks, one of each kind: registering again replaces.
 #[derive(Default, Clone)]
@@ -246,7 +227,7 @@ impl Hooks {
         }
     }
 
-    pub(crate) fn set(&mut self, kind: UpdateKind, id: u32, hook: HookCallback) {
+    pub(crate) fn set(&mut self, kind: UpdateKind, id: u32, hook: Callback<Client>) {
         if let Some(slot) = self.slot(kind) {
             *slot = Some((id, hook));
         }
@@ -256,7 +237,7 @@ impl Hooks {
         self.slot(kind).and_then(|slot| slot.take_if(|(i, _)| *i == id)).is_some()
     }
 
-    pub(crate) fn get(&self, kind: UpdateKind) -> Option<HookCallback> {
+    pub(crate) fn get(&self, kind: UpdateKind) -> Option<Callback<Client>> {
         let hook = match kind {
             UpdateKind::Start => &self.start,
             UpdateKind::Stop => &self.stop,
@@ -328,6 +309,14 @@ macro_rules! update_kinds {
         }
 
         impl Update {
+            /// The [`Client`] that received this update.
+            pub fn client(&self) -> &Client {
+                match self {
+                    $(Update::$kind(item) => Inspect::client(&**item),)*
+                    Update::Other(other) => other.client(),
+                }
+            }
+
             /// The route the update's typed event has. `None` for [`Other`](Update::Other).
             pub fn kind(&self) -> Option<UpdateKind> {
                 match self {
@@ -355,7 +344,7 @@ macro_rules! update_kinds {
                     update => Update::by_hand($client, update, $entities),
                 };
                 typed.unwrap_or_else(|| {
-                    Update::Other(OtherUpdate::new(RawUpdate { update, entities: shared.clone() }))
+                    Update::Other(OtherUpdate::new($client, RawUpdate { update, entities: shared.clone() }))
                 })
             }
         }
@@ -459,7 +448,7 @@ macro_rules! update_kinds {
                     $($(base::Update::$variant($u) if !self.$field.0.is_empty() => {
                         let item: Option<$ty> = $parse.into();
                         ControlFlow::Break(match item {
-                            Some(item) => self.$field.finish($client, UpdateKind::$kind, tasks, &$me(), PARSED, item),
+                            Some(item) => self.$field.finish(UpdateKind::$kind, tasks, &$me(), PARSED, item),
                             None => false,
                         })
                     })*)*
@@ -742,7 +731,7 @@ impl Router {
         let Some(update) = unhandled.filter(|_| !handled) else { return };
         let me = client.0.me.lock().unwrap().clone();
         let item = Update::parse(client, update, entities);
-        self.unhandled.finish(client, UpdateKind::Unhandled, tasks, &me, PARSED, item);
+        self.unhandled.finish(UpdateKind::Unhandled, tasks, &me, PARSED, item);
     }
 
     /// Hands an update to the listeners and the typed handlers; `true` if one of them took it.
@@ -774,7 +763,7 @@ impl Router {
                 let (me, kinds) = (me(), PeerKinds::callback(&u, entities));
                 let Some(scan) = self.callback_query.scan(&Facts::callback(&u, kinds, &me)) else { return false };
                 let query = CallbackQuery::parse(client, &u, entities);
-                self.callback_query.finish(client, UpdateKind::CallbackQuery, tasks, &me, scan, query)
+                self.callback_query.finish(UpdateKind::CallbackQuery, tasks, &me, scan, query)
             }
             U::UpdateBotNewBusinessMessage(u) => {
                 let (kind, u) = (UpdateKind::BusinessMessage, *u);
@@ -789,22 +778,23 @@ impl Router {
             U::UpdateBotChatBoost(u) if !self.chat_boost.0.is_empty() || !self.removed_chat_boost.0.is_empty() => {
                 match BoostUpdate::parse(client, *u, entities) {
                     Some(BoostUpdate::Updated(item)) => {
-                        self.chat_boost.finish(client, UpdateKind::ChatBoost, tasks, &me(), PARSED, item)
+                        self.chat_boost.finish(UpdateKind::ChatBoost, tasks, &me(), PARSED, item)
                     }
                     Some(BoostUpdate::Removed(item)) => {
-                        self.removed_chat_boost.finish(client, UpdateKind::RemovedChatBoost, tasks, &me(), PARSED, item)
+                        self.removed_chat_boost.finish(UpdateKind::RemovedChatBoost, tasks, &me(), PARSED, item)
                     }
                     None => false,
                 }
             }
-            U::UpdateChannelParticipant(u) => self.member_update(client, tasks, &me(), u.user_id, || {
-                ChatMemberUpdated::parse_channel(client, *u, entities)
-            }),
-            U::UpdateChatParticipant(u) => self
-                .member_update(client, tasks, &me(), u.user_id, || ChatMemberUpdated::parse_chat(client, *u, entities)),
+            U::UpdateChannelParticipant(u) => {
+                self.member_update(tasks, &me(), u.user_id, || ChatMemberUpdated::parse_channel(client, *u, entities))
+            }
+            U::UpdateChatParticipant(u) => {
+                self.member_update(tasks, &me(), u.user_id, || ChatMemberUpdated::parse_chat(client, *u, entities))
+            }
             U::UpdateBotStopped(u) => {
                 let me = me();
-                self.member_update(client, tasks, &me, me.id, || {
+                self.member_update(tasks, &me, me.id, || {
                     ChatMemberUpdated::parse_bot_stopped(client, &me, &u, entities)
                 })
             }
@@ -813,12 +803,12 @@ impl Router {
                 if !self.message_generation_stopped.0.is_empty() {
                     if let Some(item) = MessageGenerationStopped::parse(client, &u, entities) {
                         let kind = UpdateKind::MessageGenerationStopped;
-                        handled |= self.message_generation_stopped.finish(client, kind, tasks, &me(), PARSED, item);
+                        handled |= self.message_generation_stopped.finish(kind, tasks, &me(), PARSED, item);
                     }
                 }
                 if !self.chat_action.0.is_empty() {
                     if let Some(item) = ChatActionUpdated::parse_user(client, &u, entities) {
-                        handled |= self.chat_action.finish(client, UpdateKind::ChatAction, tasks, &me(), PARSED, item);
+                        handled |= self.chat_action.finish(UpdateKind::ChatAction, tasks, &me(), PARSED, item);
                     }
                 }
                 handled
@@ -851,22 +841,22 @@ impl Router {
     fn offer_callback(&self, client: &Client, query: CallbackQuery, tasks: &mut Tasks) -> bool {
         let me = client.0.me.lock().unwrap().clone();
         let kind = UpdateKind::CallbackQuery;
-        match client.0.handlers.listeners.callbacks.offer(query, &me, &client.0.events) {
+        match client.0.handlers.listeners.callbacks.offer(query, &me) {
             Offer::Claimed => true,
             Offer::Call(callback, query) => {
-                tasks.run(client, kind, query, vec![callback]);
+                tasks.run(kind, query, vec![callback]);
                 true
             }
             Offer::Unclaimed(query) if !self.callback_query.0.is_empty() => {
-                self.callback_query.finish(client, kind, tasks, &me, PARSED, query)
+                self.callback_query.finish(kind, tasks, &me, PARSED, query)
             }
             Offer::Unclaimed(_) => false,
             Offer::Stranger(query, alert) => {
-                let answer = callback(move |client, query: CallbackQuery| {
+                let answer = callback(move |query: CallbackQuery| {
                     let alert = alert.clone();
-                    async move { query.answer(&client).text(&*alert).alert().await }
+                    async move { query.answer().text(&*alert).alert().await }
                 });
-                tasks.run(client, kind, query, vec![answer]);
+                tasks.run(kind, query, vec![answer]);
                 true
             }
         }
@@ -887,7 +877,6 @@ impl Router {
     /// `true` if a handler took the member update.
     fn member_update(
         &self,
-        client: &Client,
         tasks: &mut Tasks,
         me: &Me,
         user_id: i64,
@@ -898,7 +887,7 @@ impl Router {
         } else {
             (&self.chat_member_updated, UpdateKind::ChatMemberUpdated)
         };
-        !handlers.0.is_empty() && handlers.finish(client, kind, tasks, me, PARSED, parse())
+        !handlers.0.is_empty() && handlers.finish(kind, tasks, me, PARSED, parse())
     }
 }
 
@@ -957,7 +946,7 @@ mod tests {
 
     fn record<T: Send + 'static>(log: &Log, name: &'static str) -> Callback<T> {
         let log = log.clone();
-        callback(move |_, _: T| {
+        callback(move |_: T| {
             log.lock().unwrap().push(name);
             async { Ok(()) }
         })
@@ -965,7 +954,7 @@ mod tests {
 
     fn fail<T: Send + 'static>(log: &Log, name: &'static str) -> Callback<T> {
         let log = log.clone();
-        callback(move |_, _: T| {
+        callback(move |_: T| {
             log.lock().unwrap().push(name);
             async { Err::<(), _>(Error::Unexpected("guard")) }
         })
@@ -1123,7 +1112,7 @@ mod tests {
     async fn wallet_state_update_reaches_on_ton_wallet_state() {
         let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
         let sink = seen.clone();
-        client.on_ton_wallet_state(filters::all(), move |_client, state| {
+        client.on_ton_wallet_state(filters::all(), move |state| {
             sink.lock().unwrap().push((state.is_being_created, state.wallet_address));
             async { Ok(()) }
         });
@@ -1138,7 +1127,7 @@ mod tests {
     async fn widget_data_update_reaches_handler_through_chat_filter() {
         let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
         let sink = seen.clone();
-        client.on_widget_data_updated(filters::chat(7), move |_client, event| {
+        client.on_widget_data_updated(filters::chat(7), move |event| {
             sink.lock().unwrap().push((event.chat.id, event.message_id, event.public_data));
             async { Ok(()) }
         });
@@ -1235,11 +1224,11 @@ mod tests {
         let (client, log) = (Client::offline(), Log::default());
         let chat = crate::utils::get_channel_id(42);
         let (reaction, other, count, late) = (log.clone(), log.clone(), log.clone(), log.clone());
-        client.on_message_reaction(filters::user(8), move |_client, _| {
+        client.on_message_reaction(filters::user(8), move |_| {
             other.lock().unwrap().push("other user");
             async { Ok(()) }
         });
-        client.on_message_reaction(filters::user(7) & filters::chat(chat), move |_client, r| {
+        client.on_message_reaction(filters::user(7) & filters::chat(chat), move |r| {
             if (r.chat.id, r.user.map(|u| u.id), r.message_id) == (chat, Some(7), 10) {
                 reaction.lock().unwrap().push("reaction");
             }
@@ -1247,12 +1236,12 @@ mod tests {
         });
         // Within a group the first match wins, so this one only runs if `.group(1)` reached its list.
         client
-            .on_message_reaction_count(filters::all(), move |_client, _| {
+            .on_message_reaction_count(filters::all(), move |_| {
                 late.lock().unwrap().push("count group 1");
                 async { Ok(()) }
             })
             .group(1);
-        client.on_message_reaction_count(filters::chat(chat), move |_client, r| {
+        client.on_message_reaction_count(filters::chat(chat), move |r| {
             if (r.chat.id, r.message_id) == (chat, 10) {
                 count.lock().unwrap().push("count");
             }
@@ -1300,17 +1289,17 @@ mod tests {
         let (client, log) = (Client::offline(), Log::default());
         let (late, early, first) = (log.clone(), log.clone(), log.clone());
         client
-            .on_message(filters::all(), move |_client, _| {
+            .on_message(filters::all(), move |_| {
                 late.lock().unwrap().push("group 1");
                 async { Ok(()) }
             })
             .group(1);
-        client.on_message(filters::command("start"), move |_client, _| {
+        client.on_message(filters::command("start"), move |_| {
             first.lock().unwrap().push("group 0");
             async { Ok(()) }
         });
         client
-            .on_message(filters::all(), move |_client, _| {
+            .on_message(filters::all(), move |_| {
                 early.lock().unwrap().push("group -1");
                 async { Ok(()) }
             })
@@ -1324,19 +1313,19 @@ mod tests {
     async fn stop_keeps_later_groups_out() {
         let (client, log) = (Client::offline(), Log::default());
         let (guard, rest, other) = (log.clone(), log.clone(), log.clone());
-        client.on_message(filters::all(), move |_client, _| {
+        client.on_message(filters::all(), move |_| {
             rest.lock().unwrap().push("handler");
             async { Ok(()) }
         });
         client
-            .on_message(filters::outgoing(), move |_client, _| {
+            .on_message(filters::outgoing(), move |_| {
                 other.lock().unwrap().push("outgoing");
                 async { Ok(()) }
             })
             .group(-2)
             .stop();
         client
-            .on_message(filters::command("start"), move |_client, _| {
+            .on_message(filters::command("start"), move |_| {
                 guard.lock().unwrap().push("guard");
                 async { Ok(()) }
             })
@@ -1383,7 +1372,7 @@ mod tests {
         let (client, log) = (Client::offline(), Log::default());
         let gate = Arc::new(tokio::sync::Notify::new());
         let (wait, done) = (gate.clone(), log.clone());
-        client.on_message(filters::all(), move |_client, m| {
+        client.on_message(filters::all(), move |m| {
             let (wait, done) = (wait.clone(), done.clone());
             async move {
                 if m.id == 1 {
@@ -1423,7 +1412,7 @@ mod tests {
     async fn a_panicking_handler_is_reported_and_frees_its_chat_and_slot() {
         let (client, log) = (Client::offline(), Log::default());
         let done = log.clone();
-        client.on_message(filters::all(), move |_client, m| {
+        client.on_message(filters::all(), move |m| {
             let done = done.clone();
             async move {
                 tokio::task::yield_now().await;
@@ -1453,10 +1442,10 @@ mod tests {
             async { Ok(()) }
         });
         let filter = filters::create(|m: &Message| -> bool { panic!("filter {}", m.id) });
-        client.on_message(filter, |_client, _| async { Ok(()) });
+        client.on_message(filter, |_| async { Ok(()) });
         let after = log.clone();
         client
-            .on_message(filters::all(), move |_client, _| {
+            .on_message(filters::all(), move |_| {
                 after.lock().unwrap().push("message");
                 async { Ok(()) }
             })
@@ -1477,7 +1466,7 @@ mod tests {
         let client = Client::offline();
         let (running, peak) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
         let (now, max) = (running.clone(), peak.clone());
-        client.on_message(filters::all(), move |_client, _| {
+        client.on_message(filters::all(), move |_| {
             let (now, max) = (now.clone(), max.clone());
             async move {
                 max.fetch_max(now.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
@@ -1546,7 +1535,7 @@ mod tests {
         let mut raw = Message::bare(1, get_peer(1), 0);
         raw.rich_message = Some(base::RichMessage::RichMessage(Box::new(rich)));
         let parsed = Message::parse(&Client::offline(), Box::new(raw.clone()), &Entities::default());
-        assert!(filters::command("start").check(&Client::offline(), &parsed));
+        assert!(filters::command("start").check(&parsed));
         let update = types::UpdateNewMessage { message: base::Message::Message(Box::new(raw)), pts: 0, pts_count: 0 };
         dispatch(&router, base::Update::UpdateNewMessage(Box::new(update)));
         settle().await;
@@ -1559,14 +1548,11 @@ mod tests {
         let entities = Entities::default();
         let base::Update::UpdateBotInlineQuery(raw) = inline_query() else { unreachable!() };
         let query = InlineQuery::parse(&client, &raw, &entities);
-        assert_eq!((filters::text().check(&client, &query), filters::user(1).check(&client, &query)), (true, true));
+        assert_eq!((filters::text().check(&query), filters::user(1).check(&query)), (true, true));
         let base::Update::UpdateNewMessage(raw) = new_message(1, false) else { unreachable!() };
         let base::Message::Message(raw) = &raw.message else { unreachable!() };
         let message = Message::parse(&client, raw.clone(), &entities);
-        assert_eq!(
-            (filters::text().check(&client, &message), filters::private().check(&client, &message)),
-            (true, true)
-        );
+        assert_eq!((filters::text().check(&message), filters::private().check(&message)), (true, true));
     }
 
     fn spawn_listen<T: crate::handlers::Listenable>(
@@ -1693,7 +1679,7 @@ mod tests {
         let (client, log) = (Client::offline(), Log::default());
         let gate = Arc::new(tokio::sync::Notify::new());
         let (held, handler_log) = (gate.clone(), log.clone());
-        client.on_message(filters::all(), move |_client, _| {
+        client.on_message(filters::all(), move |_| {
             let (held, log) = (held.clone(), handler_log.clone());
             async move {
                 held.notified().await;
@@ -1702,7 +1688,7 @@ mod tests {
             }
         });
         let next_log = log.clone();
-        let next = move |_, _: Message| {
+        let next = move |_: Message| {
             next_log.lock().unwrap().push("next");
             async { Ok(()) }
         };
@@ -1820,7 +1806,7 @@ mod tests {
         let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
         let chat = get_channel_id(42);
         let sink = seen.clone();
-        client.on_reactions(filters::chat(chat), move |_client, r| {
+        client.on_reactions(filters::chat(chat), move |r| {
             let counts: Vec<_> = r.reactions.reactions.iter().map(|c| c.total_count).collect();
             sink.lock().unwrap().push((r.chat.id, r.message_id, r.message_thread_id, counts));
             async { Ok(()) }
@@ -1855,7 +1841,7 @@ mod tests {
     async fn pins_in_any_chat_reach_on_pinned_messages() {
         let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
         let sink = seen.clone();
-        client.on_pinned_messages(filters::all(), move |_client, p| {
+        client.on_pinned_messages(filters::all(), move |p| {
             sink.lock().unwrap().push((p.chat.id, p.message_ids, p.is_pinned));
             async { Ok(()) }
         });
@@ -1881,7 +1867,7 @@ mod tests {
     async fn read_receipts_of_every_kind_reach_on_read_history() {
         let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
         let sink = seen.clone();
-        client.on_read_history(filters::all(), move |_client, r| {
+        client.on_read_history(filters::all(), move |r| {
             sink.lock().unwrap().push((r.chat.id, r.max_id, r.is_outgoing, r.message_thread_id, r.unread_count));
             async { Ok(()) }
         });
@@ -1935,7 +1921,7 @@ mod tests {
         let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
         let chat = get_channel_id(42);
         let sink = seen.clone();
-        client.on_pending_join_requests(filters::chat(chat), move |_client, r| {
+        client.on_pending_join_requests(filters::chat(chat), move |r| {
             let requesters: Vec<_> = r.recent_requesters.iter().map(|u| u.id).collect();
             sink.lock().unwrap().push((r.chat.id, r.pending_count, requesters));
             async { Ok(()) }
@@ -1954,13 +1940,13 @@ mod tests {
         let (client, log) = (Client::offline(), Log::default());
         let seen = Arc::new(Mutex::new(Vec::new()));
         let sink = seen.clone();
-        client.on_chat_action(filters::user(7), move |_client, a| {
+        client.on_chat_action(filters::user(7), move |a| {
             let sender = a.from_user.map(|u| u.id);
             sink.lock().unwrap().push((a.chat.id, sender, a.action, a.progress, a.message_thread_id));
             async { Ok(()) }
         });
         let stopped = log.clone();
-        client.on_message_generation_stopped(filters::all(), move |_client, _| {
+        client.on_message_generation_stopped(filters::all(), move |_| {
             stopped.lock().unwrap().push("stopped");
             async { Ok(()) }
         });
@@ -2003,7 +1989,7 @@ mod tests {
     async fn balance_changes_reach_on_stars_balance() {
         let (client, seen) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
         let sink = seen.clone();
-        client.on_stars_balance(filters::all(), move |_client, b| {
+        client.on_stars_balance(filters::all(), move |b| {
             sink.lock().unwrap().push(b.balance);
             async { Ok(()) }
         });
@@ -2018,20 +2004,20 @@ mod tests {
     async fn transcription_login_notice_and_draft_updates_reach_their_handlers() {
         let (client, log) = (Client::offline(), Arc::new(Mutex::new(Vec::new())));
         let (transcriptions, logins, notices, drafts) = (log.clone(), log.clone(), log.clone(), log.clone());
-        client.on_transcription(filters::chat(7), move |_client, t| {
+        client.on_transcription(filters::chat(7), move |t| {
             let line = format!("transcription {} {} {} {}", t.message_id, t.transcription_id, t.text, t.is_pending);
             transcriptions.lock().unwrap().push(line);
             async { Ok(()) }
         });
-        client.on_new_login(filters::all(), move |_client, l| {
+        client.on_new_login(filters::all(), move |l| {
             logins.lock().unwrap().push(format!("login {} {:?} {}", l.session_id, l.device, l.is_unconfirmed));
             async { Ok(()) }
         });
-        client.on_service_notification(filters::all(), move |_client, n| {
+        client.on_service_notification(filters::all(), move |n| {
             notices.lock().unwrap().push(format!("notice {} {} {}", n.kind, n.text, n.is_popup));
             async { Ok(()) }
         });
-        client.on_draft(filters::chat(7), move |_client, d| {
+        client.on_draft(filters::chat(7), move |d| {
             drafts.lock().unwrap().push(format!("draft {} {}", d.chat.id, d.draft.is_none()));
             async { Ok(()) }
         });
@@ -2084,7 +2070,7 @@ mod tests {
         router.inline_query.push(2, filters::user(9), record(&log, "inline"));
         router.raw.push((3, record_raw(&log)));
         let sink = seen.clone();
-        let unhandled = callback(move |_, update: Update| {
+        let unhandled = callback(move |update: Update| {
             let other = match &update {
                 Update::Other(other) => Some(other.update().constructor_id()),
                 _ => None,

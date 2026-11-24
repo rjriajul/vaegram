@@ -16,7 +16,7 @@ impl Client {
         f: F,
     ) -> HandlerRef<'_>
     where
-        F: Fn(Client, DeletedEphemeralMessages) -> Fut + Send + Sync + 'static,
+        F: Fn(DeletedEphemeralMessages) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::DeletedEphemeralMessages, |r, id| {

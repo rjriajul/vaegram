@@ -26,7 +26,7 @@ async fn pinned_message_sees_a_pin() {
         .await
         .unwrap();
     let (tx, mut pins) = mpsc::unbounded_channel();
-    user.on_message(filters::pinned_message() & filters::chat(chat), move |_client, m| {
+    user.on_message(filters::pinned_message() & filters::chat(chat), move |m| {
         let _ = tx.send(m.id);
         async { Ok(()) }
     });

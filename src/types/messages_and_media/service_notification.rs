@@ -6,7 +6,7 @@ use crate::types::{Media, MessageEntity};
 /// A notice from Telegram itself, such as a warning that the account was limited or frozen. Official apps show it
 /// in the chat with the Telegram service account, or as a popup.
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ServiceNotification {
     /// Telegram's name for the kind of notice, such as `AUTH_KEY_DROP_DUPLICATE`. Notices of the same kind replace
@@ -24,6 +24,8 @@ pub struct ServiceNotification {
     pub show_caption_above_media: bool,
     /// Unix time to show the notice in the service chat with. `None` for a popup that isn't stored there.
     pub date: Option<i32>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl ServiceNotification {
@@ -36,6 +38,12 @@ impl ServiceNotification {
             is_popup: raw.popup,
             show_caption_above_media: raw.invert_media,
             date: raw.inbox_date,
+            client: client.clone(),
         }
+    }
+
+    /// The [`Client`] that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }

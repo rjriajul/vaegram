@@ -2,7 +2,7 @@ use std::future::Future;
 
 use crate::Client;
 use crate::errors::Result;
-use crate::handlers::{HandlerRef, UpdateKind, hook};
+use crate::handlers::{HandlerRef, UpdateKind, callback};
 
 impl Client {
     /// Runs when the main connection is back after it was lost or `restart`ed. The first connection is made
@@ -15,7 +15,7 @@ impl Client {
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.watch_link();
-        self.register(UpdateKind::Connect, |r, id| r.hooks.set(UpdateKind::Connect, id, hook(f)))
+        self.register(UpdateKind::Connect, |r, id| r.hooks.set(UpdateKind::Connect, id, callback(f)))
     }
 }
 

@@ -96,23 +96,23 @@ enum How {
 }
 
 /// Sends the ephemeral answer `how` asks for to `query`.
-async fn answer(client: &Client, query: &CallbackQuery, how: How) -> vaegram::Result<EphemeralMessage> {
+async fn answer(query: &CallbackQuery, how: How) -> vaegram::Result<EphemeralMessage> {
     let text = Text::new().plain(format!("ephemeral answer to {}", query.data).as_str());
     let send = match how {
-        How::Plain { replace: false } => return query.answer_ephemeral(client, text).await,
-        How::Plain { replace: true } => query.answer_ephemeral(client, text),
-        How::ReplyTo(target) => return query.answer_ephemeral(client, text).reply_to(target).await,
+        How::Plain { replace: false } => return query.answer_ephemeral(text).await,
+        How::Plain { replace: true } => query.answer_ephemeral(text),
+        How::ReplyTo(target) => return query.answer_ephemeral(text).reply_to(target).await,
         How::Rich => {
             let rich = InputRichMessage::html(format!("<b>rich</b> ephemeral answer to {}", query.data));
-            query.answer_ephemeral(client, rich)
+            query.answer_ephemeral(rich)
         }
         How::Media => {
             let file = InputMedia::document(Upload::bytes("vaegram.txt", b"vaegram live test")).caption(text);
-            query.answer_ephemeral(client, "").media(file)
+            query.answer_ephemeral("").media(file)
         }
         How::To(receiver) => {
             let chat = query.chat().ok_or(Error::InvalidArgument("the press has no chat"))?.id;
-            client.send_ephemeral_message(chat, receiver, text).callback_query_id(query.id)
+            query.client().send_ephemeral_message(chat, receiver, text).callback_query_id(query.id)
         }
     };
     send.replace_callback_query_message().await
@@ -220,13 +220,13 @@ impl Ctx {
         let made: Arc<Mutex<Made>> = Arc::default();
         let (answer_tx, answers) = mpsc::unbounded_channel();
         let (handler_plan, handler_made) = (plan.clone(), made.clone());
-        bot.on_callback_query(filters::data_prefix(prefix), move |client, query| {
+        bot.on_callback_query(filters::data_prefix(prefix), move |query| {
             let (answer_tx, plan, made) = (answer_tx.clone(), handler_plan.clone(), handler_made.clone());
             async move {
                 // `press` counted this press before its click; it is done once its answer is recorded.
                 let how = plan.lock().unwrap().get(&query.data).cloned();
                 let sent = match how {
-                    Some(how) => answer(&client, &query, how).await,
+                    Some(how) => answer(&query, how).await,
                     None => Err(Error::InvalidArgument("no answer is planned for this button")),
                 };
                 {
@@ -236,7 +236,7 @@ impl Ctx {
                     }
                     made.pending = made.pending.saturating_sub(1);
                 }
-                let answered = query.answer(&client).await;
+                let answered = query.answer().await;
                 let _ = answer_tx.send((query.data.clone(), sent, answered));
                 Ok(())
             }
@@ -266,9 +266,7 @@ impl Ctx {
             return Err(Stuck::Missing("the user can't read the button's message".into()));
         };
         self.made.lock().unwrap().pending += 1;
-        let user = self.user.clone();
-        let click =
-            tokio::spawn(async move { tokio::time::timeout(WAIT, async { pressed.click(&user, "Tap").await }).await });
+        let click = tokio::spawn(async move { tokio::time::timeout(WAIT, async { pressed.click("Tap").await }).await });
 
         let answer = next(&mut self.answers, |(answered_data, _, _)| *answered_data == data).await;
         let click = format!("{:?}", click.await);
@@ -359,7 +357,7 @@ async fn replace_steps(mut ctx: Ctx, chat_id: i64, prefix: String, mut seen: Unb
 fn ephemerals_of(client: &Client) -> UnboundedReceiver<EphemeralMessage> {
     let (seen_tx, seen) = mpsc::unbounded_channel();
     client
-        .on_ephemeral_message(filters::all(), move |_client, m| {
+        .on_ephemeral_message(filters::all(), move |m| {
             let _ = seen_tx.send(m);
             async { Ok(()) }
         })

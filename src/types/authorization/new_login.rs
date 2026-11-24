@@ -3,7 +3,7 @@ use crate::raw::types;
 
 /// Someone logged in to this account on a new device, or confirmed such a login.
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct NewLogin {
     /// Hash of the new session, the same as [`ActiveSession::id`](crate::types::ActiveSession::id). Pass it to
@@ -18,16 +18,24 @@ pub struct NewLogin {
     pub device: Option<String>,
     /// Where the login came from, as Telegram guessed it. `None` once it was confirmed.
     pub location: Option<String>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl NewLogin {
-    pub(crate) fn parse(_client: &Client, raw: &types::UpdateNewAuthorization) -> Self {
+    pub(crate) fn parse(client: &Client, raw: &types::UpdateNewAuthorization) -> Self {
         NewLogin {
             session_id: raw.hash,
             is_unconfirmed: raw.unconfirmed,
             date: raw.date,
             device: raw.device.clone(),
             location: raw.location.clone(),
+            client: client.clone(),
         }
+    }
+
+    /// The [`Client`] that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }

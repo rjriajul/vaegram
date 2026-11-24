@@ -2,8 +2,8 @@ use crate::enums::FileType;
 use crate::errors::Error;
 use crate::file_id::{FileId, ThumbnailSource};
 use crate::raw::{base, types};
-use crate::types::PeerId;
 use crate::types::{Document, Photo};
+use crate::utils::CHANNEL_OFFSET;
 
 /// Where Telegram stores a file, as needed to download it.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,16 +49,15 @@ impl From<&FileId> for FileLocation {
                 | S::ChatPhotoSmallLegacy { chat_id, chat_access_hash }
                 | S::ChatPhotoBigLegacy { chat_id, chat_access_hash },
             ) if id.file_type == FileType::ChatPhoto => {
-                let peer = match PeerId::from_bot_api(chat_id) {
-                    PeerId::User(user_id) => {
-                        let peer = types::InputPeerUser { user_id, access_hash: chat_access_hash };
-                        base::InputPeer::InputPeerUser(Box::new(peer))
-                    }
-                    PeerId::Channel(channel_id) => {
-                        let peer = types::InputPeerChannel { channel_id, access_hash: chat_access_hash };
-                        base::InputPeer::InputPeerChannel(Box::new(peer))
-                    }
-                    PeerId::Chat(chat_id) => base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id }),
+                let peer = if chat_id > 0 {
+                    let peer = types::InputPeerUser { user_id: chat_id, access_hash: chat_access_hash };
+                    base::InputPeer::InputPeerUser(Box::new(peer))
+                } else if chat_id <= -CHANNEL_OFFSET {
+                    let channel_id = -chat_id - CHANNEL_OFFSET;
+                    let peer = types::InputPeerChannel { channel_id, access_hash: chat_access_hash };
+                    base::InputPeer::InputPeerChannel(Box::new(peer))
+                } else {
+                    base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: -chat_id })
                 };
                 let big = matches!(id.thumbnail_source, Some(S::ChatPhotoBig { .. } | S::ChatPhotoBigLegacy { .. }));
                 let location = types::InputPeerPhotoFileLocation { big, peer, photo_id: id.media_id };

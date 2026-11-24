@@ -4,17 +4,24 @@ use crate::raw::types;
 use crate::types::User;
 
 /// A user's online status changed.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UserStatusUpdated {
     /// The user, with `status`, `last_online_date` and `next_offline_date` set from the update.
     pub user: User,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl UserStatusUpdated {
-    pub(crate) fn parse(_client: &Client, raw: &types::UpdateUserStatus, entities: &Entities) -> UserStatusUpdated {
+    pub(crate) fn parse(client: &Client, raw: &types::UpdateUserStatus, entities: &Entities) -> UserStatusUpdated {
         let user = User::parse(raw.user_id, entities).parse_status(Some(&raw.status));
-        UserStatusUpdated { user }
+        UserStatusUpdated { user, client: client.clone() }
+    }
+
+    /// The client that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }
 

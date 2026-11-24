@@ -166,7 +166,7 @@ async fn bot_custom_emoji_in_button_text() {
     let (emoji_id, _alt) = custom_emoji_with_alt(&bot).await;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::private() & filters::user(bot_id), move |_client, m| {
+    user.on_message(filters::private() & filters::user(bot_id), move |m| {
         let _ = tx.send(m);
         async { Ok(()) }
     })
@@ -304,7 +304,7 @@ async fn bot_rich_messages_and_custom_emoji() {
     let placeholder = if alt == "👍" { "⭐" } else { "👍" };
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::private() & filters::user(bot_id), move |_client, m| {
+    user.on_message(filters::private() & filters::user(bot_id), move |m| {
         let _ = tx.send(m);
         async { Ok(()) }
     })
@@ -359,10 +359,8 @@ async fn bot_rich_messages_and_custom_emoji() {
             let md_blocks = fetched_md.rich_message.expect("md rich_message parsed").blocks();
             assert_rich_emoji_paragraph(&md_blocks[0], "md ", emoji_id, &alt, "markdown");
 
-            let edited = sent_md
-                .edit_text(&user, InputRichMessage::blocks([RichBlock::paragraph("edited rich")]))
-                .await
-                .unwrap();
+            let edited =
+                sent_md.edit_text(InputRichMessage::blocks([RichBlock::paragraph("edited rich")])).await.unwrap();
             assert!(edited.rich_message.is_some());
             let fetched_edited =
                 user.get_rich_message(bot_id, user_md.id).await.unwrap().expect("edited rich message exists");

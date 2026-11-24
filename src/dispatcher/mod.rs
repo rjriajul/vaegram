@@ -24,8 +24,7 @@ use crate::errors::Result;
 use crate::raw::{base, types};
 use crate::session::{Incoming, UpdatesRx};
 use crate::storage::UpdateState;
-use crate::types::PeerId;
-use crate::utils::get_channel_id;
+use crate::utils::{CHANNEL_OFFSET, channel_id_of, get_channel_id};
 
 const SAVE_EVERY: Duration = Duration::from_secs(10);
 
@@ -241,11 +240,9 @@ impl Dispatcher {
                 for chat in chats {
                     if chat == 0 {
                         t.mark(Key::Pts);
-                    } else if let Some(channel_id) = PeerId::from_bot_api(chat).channel() {
+                    } else if chat <= -CHANNEL_OFFSET && t.state.channels.contains_key(&channel_id_of(chat)) {
                         // Only `-100…` ids are channels; a user's or group's id names no box.
-                        if t.state.channels.contains_key(&channel_id) {
-                            t.mark(Key::Channel(channel_id));
-                        }
+                        t.mark(Key::Channel(channel_id_of(chat)));
                     }
                 }
             }
@@ -771,7 +768,7 @@ mod tests {
         let (tx, mut answers) = tokio::sync::mpsc::unbounded_channel();
         client.on_message(crate::filters::all(), {
             let (client, started, release) = (client.clone(), started.clone(), release.clone());
-            move |_client, _| {
+            move |_| {
                 let (client, started, release, tx) = (client.clone(), started.clone(), release.clone(), tx.clone());
                 async move {
                     started.notify_one();
@@ -828,7 +825,7 @@ mod tests {
         d.tracker.state.channels.insert(9, 1);
         d.tracker.due.clear();
         let (reply, answer) = tokio::sync::oneshot::channel();
-        let chats = vec![i64::MAX, 7, -7, -1_000_000_000_000 + 1, i64::MIN];
+        let chats = vec![i64::MAX, 7, -7, -super::CHANNEL_OFFSET + 1, i64::MIN];
         d.recover(super::Recover { chats: Some(chats), reply }).await;
         assert_eq!(answer.await.unwrap(), (0, 0));
         assert!(sent.try_recv().is_err(), "a box was fetched");
@@ -1345,7 +1342,7 @@ mod tests {
         *client.0.updates.lock().await = rx;
         let (tx, mut answers) = tokio::sync::mpsc::unbounded_channel();
         let listener = client.clone();
-        client.on_message(crate::filters::all(), move |_client, m| {
+        client.on_message(crate::filters::all(), move |m| {
             let (client, tx) = (listener.clone(), tx.clone());
             async move {
                 let _ = tx.send(client.wait_for_message(m.chat.id).await.map(|m| m.id));
@@ -1700,7 +1697,7 @@ mod tests {
         let client = Client::offline();
         let handled = Arc::new(Mutex::new(Vec::new()));
         let log = handled.clone();
-        client.on_message(crate::filters::all(), move |_client, m| {
+        client.on_message(crate::filters::all(), move |m| {
             log.lock().unwrap().push(m.id);
             async { Ok(()) }
         });

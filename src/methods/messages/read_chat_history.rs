@@ -2,8 +2,8 @@ use crate::Client;
 use crate::errors::Result;
 use crate::raw::{base, functions};
 use crate::session::Affected;
-use crate::types::PeerId;
 use crate::types::PeerRef;
+use crate::utils::CHANNEL_OFFSET;
 
 impl Client {
     /// Marks the messages of a chat up to and including `max_id` as read.
@@ -11,7 +11,7 @@ impl Client {
     /// Pass `max_id = 0` to mark every message in the chat as read.
     pub async fn read_chat_history(&self, chat_id: impl Into<PeerRef>, max_id: i32) -> Result<()> {
         let chat_id = self.peer_id(chat_id.into()).await?;
-        if let PeerId::Channel(_) = PeerId::from_bot_api(chat_id) {
+        if chat_id <= -CHANNEL_OFFSET {
             let channel = self.resolve_channel(&chat_id.into()).await?;
             self.invoke(&functions::channels::ReadHistory { channel, max_id }).await?;
         } else {

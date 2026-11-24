@@ -13,7 +13,7 @@ use mongodb::{Client, Collection, Cursor, Database, IndexModel};
 use super::engine::{PeerRecord, Storage, StorageFuture, StoredState};
 use super::{SessionData, UpdateState};
 use crate::session::Salt;
-use crate::types::PeerId;
+use crate::utils::{CHANNEL_OFFSET, get_channel_id};
 
 const VERSION: i64 = 1;
 
@@ -352,8 +352,11 @@ fn session(d: &Document) -> Option<SessionData> {
 fn update_state(rows: &[Document]) -> Option<UpdateState> {
     let n = |d: &Document, key| int(d, key).and_then(|v| i32::try_from(v).ok()).unwrap_or(0);
     let account = rows.iter().find(|d| int(d, "_id") == Some(0))?;
-    let channels =
-        rows.iter().filter_map(|d| Some((PeerId::from_bot_api(int(d, "_id")?).channel()?, n(d, "pts")))).collect();
+    let channels = rows
+        .iter()
+        .filter_map(|d| Some((int(d, "_id").filter(|&id| id <= -CHANNEL_OFFSET)?, n(d, "pts"))))
+        .map(|(id, pts)| (get_channel_id(id), pts))
+        .collect();
     let update = UpdateState {
         pts: n(account, "pts"),
         qts: n(account, "qts"),
@@ -367,15 +370,25 @@ fn update_state(rows: &[Document]) -> Option<UpdateState> {
 fn state_rows(state: &StoredState) -> Vec<Document> {
     let Some(u) = state.update.as_ref().filter(|u| u.date != 0) else { return Vec::new() };
     let mut rows = vec![doc! { "_id": 0_i64, "pts": u.pts, "qts": u.qts, "date": u.date, "seq": u.seq }];
-    rows.extend(u.channels.iter().map(|(&id, &pts)| doc! { "_id": PeerId::Channel(id).bot_api(), "pts": pts }));
+    rows.extend(u.channels.iter().map(|(&id, &pts)| doc! { "_id": get_channel_id(id), "pts": pts }));
     rows
+}
+
+fn peer_type(id: i64) -> &'static str {
+    if id > 0 {
+        "user"
+    } else if id <= -CHANNEL_OFFSET {
+        "channel"
+    } else {
+        "group"
+    }
 }
 
 fn peer_document(p: &PeerRecord) -> Document {
     doc! {
         "_id": p.id,
         "access_hash": p.access_hash,
-        "type": PeerId::from_bot_api(p.id).kind(),
+        "type": peer_type(p.id),
         "phone_number": p.phone_number.as_deref().map_or(Bson::Null, |n| Bson::String(n.to_owned())),
         "last_update_on": p.updated,
         "usernames": p.usernames.clone(),

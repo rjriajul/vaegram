@@ -1,8 +1,8 @@
 use crate::Client;
 use crate::errors::Result;
 use crate::raw::functions;
-use crate::types::PeerId;
 use crate::types::PeerRef;
+use crate::utils::CHANNEL_OFFSET;
 
 /// Request built by [`Client::delete_chat_history`]. Awaiting it returns `()`.
 #[must_use = "a request does nothing until it is awaited"]
@@ -49,7 +49,7 @@ impl DeleteChatHistory<'_> {
     async fn send(self) -> Result<()> {
         let client = self.client;
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
-        if let PeerId::Channel(_) = PeerId::from_bot_api(chat_id) {
+        if chat_id <= -CHANNEL_OFFSET {
             let channel = client.resolve_channel(&chat_id.into()).await?;
             let request =
                 functions::channels::DeleteHistory { for_everyone: self.revoke, channel, max_id: self.max_id };

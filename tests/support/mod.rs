@@ -48,7 +48,7 @@ impl Kit {
                 .await?;
 
         let (tx, received) = mpsc::unbounded_channel();
-        user.on_message(filters::private(), move |_client, m| {
+        user.on_message(filters::private(), move |m| {
             if !m.outgoing {
                 let _ = tx.send(m);
             }
@@ -156,7 +156,7 @@ impl User {
         let waited = tokio::time::timeout(REPLY_TIMEOUT, async {
             loop {
                 match received.recv().await {
-                    Some(m) if m.chat.id == bot_id && m.id > to && m.reply_to_message_id() == Some(to) => return Ok(m),
+                    Some(m) if m.chat.id == bot_id && m.id > to && m.reply_to_message_id == Some(to) => return Ok(m),
                     Some(_) => {}
                     None => return Err(Error::Disconnected),
                 }
@@ -166,7 +166,7 @@ impl User {
         let Ok(reply) = waited else {
             // Tells a reply the bot never sent from one the user's updates didn't bring: the server's copy of the chat.
             let last = self.client.get_chat_history(bot_id).limit(5).await;
-            let last: Vec<_> = last.iter().flatten().map(|m| (m.id, m.outgoing, m.reply_to_message_id())).collect();
+            let last: Vec<_> = last.iter().flatten().map(|m| (m.id, m.outgoing, m.reply_to_message_id)).collect();
             eprintln!(
                 "no reply to {to} within {REPLY_TIMEOUT:?}; the chat's last messages (id, outgoing, reply to): {last:?}"
             );

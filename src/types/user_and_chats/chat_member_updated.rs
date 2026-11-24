@@ -3,10 +3,10 @@ use crate::client::Me;
 use crate::dispatcher::Entities;
 use crate::enums::ChatMemberStatus;
 use crate::raw::{base, types};
-use crate::types::{Chat, ChatInviteLink, ChatMember, ChatMemberRole, User};
+use crate::types::{Chat, ChatInviteLink, ChatMember, User};
 
 /// A change to a member's status in a chat.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatMemberUpdated {
     /// The chat the change happened in.
@@ -25,10 +25,12 @@ pub struct ChatMemberUpdated {
     pub via_join_request: bool,
     /// `true` if the user joined through a chat folder invite link.
     pub via_chat_folder_invite_link: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl ChatMemberUpdated {
-    pub(crate) fn parse_channel(_client: &Client, raw: types::UpdateChannelParticipant, entities: &Entities) -> Self {
+    pub(crate) fn parse_channel(client: &Client, raw: types::UpdateChannelParticipant, entities: &Entities) -> Self {
         let peer = base::Peer::PeerChannel(types::PeerChannel { channel_id: raw.channel_id });
         let self_request = matches!(
             &raw.new_participant,
@@ -44,10 +46,11 @@ impl ChatMemberUpdated {
             invite_link,
             via_join_request: public_request || self_request,
             via_chat_folder_invite_link: raw.via_chatlist,
+            client: client.clone(),
         }
     }
 
-    pub(crate) fn parse_chat(_client: &Client, raw: types::UpdateChatParticipant, entities: &Entities) -> Self {
+    pub(crate) fn parse_chat(client: &Client, raw: types::UpdateChatParticipant, entities: &Entities) -> Self {
         let peer = base::Peer::PeerChat(types::PeerChat { chat_id: raw.chat_id });
         let (invite_link, via_join_request) = invite(raw.invite, entities);
         ChatMemberUpdated {
@@ -59,12 +62,13 @@ impl ChatMemberUpdated {
             invite_link,
             via_join_request,
             via_chat_folder_invite_link: false,
+            client: client.clone(),
         }
     }
 
     /// Blocking a bot reads as banning it from the private chat, and restarting it as letting it back in.
     pub(crate) fn parse_bot_stopped(
-        _client: &Client,
+        client: &Client,
         me: &Me,
         raw: &types::UpdateBotStopped,
         entities: &Entities,
@@ -81,8 +85,7 @@ impl ChatMemberUpdated {
         } else {
             (ChatMemberStatus::Banned, ChatMemberStatus::Member)
         };
-        let member =
-            |status| ChatMember { user: bot.clone(), ..ChatMember::new(bot.id, ChatMemberRole::of(status), entities) };
+        let member = |status| ChatMember { user: bot.clone(), ..ChatMember::new(bot.id, status, entities) };
         ChatMemberUpdated {
             chat: Chat::parse(&peer, entities, false),
             from_user: User::parse(raw.user_id, entities),
@@ -92,7 +95,13 @@ impl ChatMemberUpdated {
             invite_link: None,
             via_join_request: false,
             via_chat_folder_invite_link: false,
+            client: client.clone(),
         }
+    }
+
+    /// The client that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }
 
@@ -138,7 +147,7 @@ mod tests {
         assert_eq!((update.chat.id, update.from_user.id, update.date), (-1000000000042, 1, 100));
         assert_eq!(update.old_chat_member, None);
         let new = update.new_chat_member.unwrap();
-        assert_eq!((new.user.id, new.status(), new.joined_date), (7, ChatMemberStatus::Member, Some(100)));
+        assert_eq!((new.user.id, new.status, new.joined_date), (7, ChatMemberStatus::Member, Some(100)));
         assert_eq!(update.invite_link, None);
         assert!(update.via_join_request && update.via_chat_folder_invite_link);
     }
@@ -174,7 +183,7 @@ mod tests {
         };
         let update = ChatMemberUpdated::parse_chat(&Client::offline(), raw, &Entities::default());
         assert_eq!(update.chat.id, -42);
-        assert_eq!(update.old_chat_member.map(|m| m.status()), Some(ChatMemberStatus::Owner));
+        assert_eq!(update.old_chat_member.map(|m| m.status), Some(ChatMemberStatus::Owner));
         assert_eq!(update.new_chat_member, None);
         let link = update.invite_link.unwrap();
         assert_eq!((link.invite_link.as_str(), link.is_primary), ("https://t.me/+abc", true));
@@ -188,10 +197,7 @@ mod tests {
         let update = ChatMemberUpdated::parse_bot_stopped(&Client::offline(), &me, &raw, &Entities::default());
         assert_eq!((update.chat.id, update.from_user.id), (7, 7));
         let (old, new) = (update.old_chat_member.unwrap(), update.new_chat_member.unwrap());
-        assert_eq!(
-            (old.user.id, old.status(), new.status()),
-            (1000, ChatMemberStatus::Member, ChatMemberStatus::Banned)
-        );
+        assert_eq!((old.user.id, old.status, new.status), (1000, ChatMemberStatus::Member, ChatMemberStatus::Banned));
         assert!(old.is_member && !new.is_member);
     }
 }

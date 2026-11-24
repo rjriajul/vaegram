@@ -2,8 +2,8 @@ use crate::Client;
 use crate::errors::{Error, Result};
 use crate::raw::{base, functions};
 use crate::session::Affected;
-use crate::types::PeerId;
 use crate::types::PeerRef;
+use crate::utils::{CHANNEL_OFFSET, channel_id_of};
 
 /// Request built by [`Client::delete_messages`].
 #[must_use = "a request does nothing until it is awaited"]
@@ -46,9 +46,9 @@ impl DeleteMessages<'_> {
         }
         let chat_id = client.peer_id(chat_id).await?;
         let id = message_ids.clone();
-        let (channel_id, affected) = if let Some(channel_id) = PeerId::from_bot_api(chat_id).channel() {
+        let (channel_id, affected) = if chat_id <= -CHANNEL_OFFSET {
             let channel = client.resolve_channel(&chat_id.into()).await?;
-            (Some(channel_id), client.invoke(&functions::channels::DeleteMessages { channel, id }).await?)
+            (Some(channel_id_of(chat_id)), client.invoke(&functions::channels::DeleteMessages { channel, id }).await?)
         } else {
             (None, client.invoke(&functions::messages::DeleteMessages { revoke, id }).await?)
         };
