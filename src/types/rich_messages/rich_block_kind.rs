@@ -65,12 +65,12 @@ pub enum RichBlockKind {
         /// Attribution of the quote.
         credit: Option<RichText>,
     },
-    /// A text quote that stays collapsed until the reader expands it. `credit` is `None` when the quote has no
-    /// attribution.
+    /// A quote made of blocks that stays collapsed until the reader expands it. A plain text quote is read as one
+    /// paragraph block. `credit` is `None` when the quote has no attribution.
     #[non_exhaustive]
     ExpandableBlockQuote {
-        /// Text of the quote.
-        text: RichText,
+        /// Blocks inside the quote.
+        blocks: Vec<RichBlock>,
         /// Attribution of the quote.
         credit: Option<RichText>,
     },
@@ -248,12 +248,16 @@ impl RichBlock {
             B::PageBlockThinking(b) => RichBlockKind::Thinking(text(&b.text)),
             B::PageBlockList(b) => RichBlockKind::List(b.items.iter().map(|i| self.list_item(i)).collect()),
             B::PageBlockOrderedList(b) => RichBlockKind::List(self.ordered_items(b)),
+            B::PageBlockBlockquoteBlocks(b) if b.collapsed => {
+                RichBlockKind::ExpandableBlockQuote { blocks: blocks(&b.blocks), credit: credit(&b.caption) }
+            }
             B::PageBlockBlockquoteBlocks(b) => {
                 RichBlockKind::BlockQuote { blocks: blocks(&b.blocks), credit: credit(&b.caption) }
             }
-            B::PageBlockBlockquote(b) if b.collapsed => {
-                RichBlockKind::ExpandableBlockQuote { text: text(&b.text), credit: credit(&b.caption) }
-            }
+            B::PageBlockBlockquote(b) if b.collapsed => RichBlockKind::ExpandableBlockQuote {
+                blocks: vec![self.text_paragraph(&b.text)],
+                credit: credit(&b.caption),
+            },
             B::PageBlockBlockquote(b) => {
                 RichBlockKind::BlockQuote { blocks: vec![self.text_paragraph(&b.text)], credit: credit(&b.caption) }
             }
@@ -688,6 +692,14 @@ mod tests {
                     caption: t(),
                 })),
                 "BlockQuote",
+            ),
+            (
+                B::PageBlockBlockquoteBlocks(Box::new(types::PageBlockBlockquoteBlocks {
+                    collapsed: true,
+                    blocks: vec![paragraph()],
+                    caption: t(),
+                })),
+                "ExpandableBlockQuote",
             ),
             (
                 B::PageBlockPullquote(Box::new(types::PageBlockPullquote {

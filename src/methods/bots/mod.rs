@@ -38,6 +38,7 @@ mod get_owned_bots;
 mod get_popular_app_bots;
 mod get_similar_bots;
 mod get_user_chat_boosts;
+mod invite_users_to_bot;
 mod invoke_web_view_custom_method;
 mod refund_star_payment;
 mod remove_chat_verification;
@@ -328,6 +329,9 @@ mod tests {
         let owner_only =
             functions::bots::EditAccessSettings { restricted: true, bot: bot(), add_users: Some(Vec::new()) };
         assert_eq!(body, owner_only.to_bytes());
+        let body = sent(rx, client.invite_users_to_bot(BOT, [USER])).await;
+        let invite = functions::messages::InviteUsersToBot { bot: bot(), users: vec![input_user(USER)] };
+        assert_eq!(body, invite.to_bytes());
     }
 
     #[tokio::test]

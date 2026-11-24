@@ -322,6 +322,15 @@ impl ServiceAction {
                         _ => None,
                     },
                     from_attachment_menu: a.attach_menu,
+                    inviter: None,
+                })
+            }
+            (K::WriteAccessAllowed, A::MessageActionBotInvite(a)) => {
+                ServiceAction::WriteAccessAllowed(WriteAccessAllowed {
+                    from_request: false,
+                    web_app_name: None,
+                    from_attachment_menu: false,
+                    inviter: Some(Box::new(User::parse(a.inviter_id, entities))),
                 })
             }
             (K::ConnectedWebsite, A::MessageActionBotAllowed(a)) => ServiceAction::ConnectedWebsite(a.domain.clone()?),
@@ -1314,6 +1323,11 @@ mod tests {
         };
         let site = parse(A::MessageActionBotAllowed(Box::new(site)));
         assert_eq!(site, Some(ServiceAction::ConnectedWebsite("example.com".into())));
+
+        let invite = parse(A::MessageActionBotInvite(types::MessageActionBotInvite { inviter_id: 3 }));
+        let Some(ServiceAction::WriteAccessAllowed(allowed)) = invite else { panic!("expected write access allowed") };
+        assert_eq!(allowed.inviter.map(|u| u.id), Some(3));
+        assert!(!allowed.from_request && !allowed.from_attachment_menu && allowed.web_app_name.is_none());
         assert_eq!(parse(A::MessageActionScreenshotTaken), Some(ServiceAction::ScreenshotTaken));
     }
 
