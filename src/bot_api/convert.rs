@@ -39,6 +39,8 @@ impl Peers {
         user.is_self = u.id == self.me;
         user.min = true;
         user.bot = u.is_bot;
+        // `bot` and `bot_info_version` share flag 14: a bot without a version would be read back 4 bytes short.
+        user.bot_info_version = u.is_bot.then_some(1);
         user.premium = u.is_premium.unwrap_or(false);
         user.first_name = Some(u.first_name.clone());
         user.last_name = u.last_name.clone();

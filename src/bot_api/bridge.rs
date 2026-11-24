@@ -219,6 +219,8 @@ impl Transport {
         let mut user = types::User::new(me.id);
         user.is_self = true;
         user.bot = me.is_bot;
+        // `bot` and `bot_info_version` share flag 14: a bot without a version would be read back 4 bytes short.
+        user.bot_info_version = me.is_bot.then_some(1);
         user.access_hash = Some(0);
         user.first_name = Some(me.first_name);
         user.last_name = me.last_name;

@@ -118,7 +118,7 @@ fn settle(transport: &Transport, handed: &mut VecDeque<(i64, bool)>) -> bool {
         }
     }
     let done = handed.len() - waiting;
-    if let Some((id, _)) = handed.drain(..done).last() {
+    if let Some((id, _)) = handed.drain(..done).next_back() {
         transport.offset.fetch_max(id.saturating_add(1), Ordering::AcqRel);
     }
     handed.is_empty()
