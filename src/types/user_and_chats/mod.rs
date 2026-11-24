@@ -115,7 +115,7 @@ pub use chat_invite_link::ChatInviteLink;
 pub use chat_join_request::ChatJoinRequest;
 pub use chat_joiner::ChatJoiner;
 pub use chat_location::ChatLocation;
-pub use chat_member::{ChatMember, ChatMemberRole};
+pub use chat_member::ChatMember;
 pub use chat_member_updated::ChatMemberUpdated;
 pub use chat_notifications::ChatNotifications;
 pub use chat_permissions::ChatPermissions;

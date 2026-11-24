@@ -13,8 +13,8 @@ use crate::types::push_plain;
 use crate::types::{
     Chat, Command, DirectMessagesTopic, ExternalReplyInfo, FactCheck, ForumTopic, InlineKeyboardMarkup, InputMedia,
     LinkPreviewOptions, Media, MessageEntity, MessageOrigin, MessageReactions, MessageText, PeerRef, ReactionType,
-    ReplyMarkup, ReplyTo, RestrictionReason, RichMessage, RichText, Sender, ServiceAction, Story, SuggestedPostInfo,
-    Text, TextQuote, User, WebPage,
+    ReplyMarkup, RestrictionReason, RichMessage, RichText, ServiceAction, Story, SuggestedPostInfo, Text, TextQuote,
+    User, WebPage,
 };
 use crate::utils::{get_peer, get_peer_id, input_peer_id};
 
@@ -32,10 +32,10 @@ pub struct Message {
     pub id: i32,
     /// The chat the message belongs to. Shared, so cloning a message doesn't copy it.
     pub chat: Arc<Chat>,
-    /// Who sent it: a user, or the chat it was sent on behalf of. `None` for a message in a basic group or
-    /// supergroup that names no sender, such as some service messages. See [`from_user`](Message::from_user) and
-    /// [`sender_chat`](Message::sender_chat).
-    pub sender: Option<Sender>,
+    /// The sending user. `None` for channel posts and for messages sent on behalf of a chat.
+    pub from_user: Option<Box<User>>,
+    /// The chat the message was sent on behalf of. `None` when a user sent it as themselves.
+    pub sender_chat: Option<Arc<Chat>>,
     /// When the message was sent, as a Unix timestamp.
     pub date: i32,
     /// The message was sent by the account this client is logged in as.
@@ -55,9 +55,16 @@ pub struct Message {
     pub rich_message: Option<RichMessage>,
     /// How the link preview is shown. `None` if the message has no link preview.
     pub link_preview_options: Option<LinkPreviewOptions>,
-    /// What the message replies to: a message or a story. `None` if it's not a reply. See
-    /// [`reply_to_message_id`](Message::reply_to_message_id).
-    pub reply_to: Option<ReplyTo>,
+    /// Id of the message this one replies to. `None` if it's not a reply in this chat.
+    pub reply_to_message_id: Option<i32>,
+    /// The checklist task this message replies to.
+    pub reply_to_checklist_task_id: Option<i32>,
+    /// The story this message replies to.
+    pub reply_to_story_id: Option<i32>,
+    /// The chat that posted the replied story: a user, or a `-100…` channel id.
+    pub reply_to_story_user_id: Option<i64>,
+    /// The poll option this message replies to, the same bytes as [`PollOption::data`](crate::types::PollOption).
+    pub reply_to_poll_option_id: Option<Vec<u8>>,
     /// Id of the forum topic or reply thread the message is in. `None` outside of one, and outside forums for a
     /// direct reply to the thread's first message.
     pub message_thread_id: Option<i32>,
@@ -113,8 +120,10 @@ pub struct Message {
     pub sender_business_bot: Option<Box<User>>,
     /// The sender's custom tag (rank) in the group.
     pub sender_tag: Option<String>,
-    /// The user or chat whose guest bot request produced this message.
-    pub guest_bot_caller: Option<Sender>,
+    /// The user whose guest bot request produced this message.
+    pub guest_bot_caller_user: Option<Box<User>>,
+    /// The chat whose guest bot request produced this message.
+    pub guest_bot_caller_chat: Option<Arc<Chat>>,
     /// How many times the message was viewed. `None` if Telegram doesn't count views for it.
     pub views: Option<i32>,
     /// How many times the message was forwarded. `None` if Telegram doesn't count forwards for it.
@@ -177,33 +186,6 @@ pub(crate) struct Prefetched {
 }
 
 impl Message {
-    /// The sending user. `None` for channel posts and for messages sent on behalf of a chat.
-    pub fn from_user(&self) -> Option<&User> {
-        self.sender.as_ref().and_then(Sender::user)
-    }
-
-    /// The chat the message was sent on behalf of. `None` when a user sent it as themselves.
-    pub fn sender_chat(&self) -> Option<&Arc<Chat>> {
-        self.sender.as_ref().and_then(Sender::chat)
-    }
-
-    /// Id of the message this one replies to in this chat. `None` if it's not a reply, replies to a story, or
-    /// replies to a message in another chat.
-    pub fn reply_to_message_id(&self) -> Option<i32> {
-        match &self.reply_to {
-            Some(ReplyTo::Message { message_id, .. }) => *message_id,
-            _ => None,
-        }
-    }
-
-    /// The chat and id of the story this message replies to.
-    pub(crate) fn story_reply(&self) -> Option<(i64, i32)> {
-        match self.reply_to {
-            Some(ReplyTo::Story { chat_id, story_id }) => Some((chat_id, story_id)),
-            _ => None,
-        }
-    }
-
     pub(crate) fn parse(client: &Client, raw: Box<types::Message>, entities: &Entities) -> Message {
         Message::build(client, raw, None, entities)
     }
@@ -216,29 +198,45 @@ impl Message {
     ) -> Message {
         Message::fill_rich_text(&mut raw);
         let chat = Arc::new(Chat::parse(&raw.peer_id, entities, raw.post));
-        let sender = match (&raw.from_id, &raw.peer_id) {
-            (Some(peer), _) => Some(Sender::parse(peer, entities)),
+        let (mut from_user, mut sender_chat) = (None, None);
+        match (&raw.from_id, &raw.peer_id) {
+            (Some(base::Peer::PeerUser(p)), _) => from_user = Some(Box::new(User::parse(p.user_id, entities))),
+            (Some(peer), _) => sender_chat = Some(Arc::new(Chat::parse(peer, entities, false))),
             (None, base::Peer::PeerUser(p)) => {
                 let id = if raw.out { client.0.me.lock().unwrap().id } else { p.user_id };
-                Some(Sender::User(Box::new(User::parse(id, entities))))
+                from_user = Some(Box::new(User::parse(id, entities)));
             }
-            (None, _) if chat.kind == ChatType::Channel => Some(Sender::Chat(Arc::clone(&chat))),
-            (None, _) => None,
-        };
+            (None, _) if chat.kind == ChatType::Channel => sender_chat = Some(Arc::clone(&chat)),
+            (None, _) => {}
+        }
         let parsed_entities = raw.entities.as_deref().and_then(|e| MessageEntity::parse_all(e, entities));
-        let ReplyFields { reply_to, message_thread_id, is_topic_message, quote, external_reply } =
-            reply_fields(client, &raw, service.as_ref(), entities);
+        let ReplyFields {
+            reply_to_message_id,
+            reply_to_checklist_task_id,
+            reply_to_story_id,
+            reply_to_story_user_id,
+            reply_to_poll_option_id,
+            message_thread_id,
+            is_topic_message,
+            quote,
+            external_reply,
+        } = reply_fields(client, &raw, service.as_ref(), entities);
         let direct_messages_topic = match &raw.saved_peer_id {
             Some(peer) if chat.is_direct_messages => Some(Box::new(DirectMessagesTopic::parse(peer, entities))),
             _ => None,
         };
         let rich_message = raw.rich_message.take().map(RichMessage::parse);
         let is_automatic_forward = is_automatic_forward(&chat, raw.fwd_from.as_ref());
-        let guest_bot_caller = raw.guestchat_via_from.as_ref().map(|peer| Sender::parse(peer, entities));
+        let (guest_bot_caller_user, guest_bot_caller_chat) = match &raw.guestchat_via_from {
+            Some(base::Peer::PeerUser(p)) => (Some(Box::new(User::parse(p.user_id, entities))), None),
+            Some(peer) => (None, Some(Arc::new(Chat::parse(peer, entities, false)))),
+            None => (None, None),
+        };
         Message {
             id: raw.id,
             chat,
-            sender,
+            from_user,
+            sender_chat,
             date: raw.date,
             outgoing: raw.out,
             edit_date: raw.edit_date,
@@ -246,7 +244,11 @@ impl Message {
             web_page: raw.media.as_ref().and_then(WebPage::parse).map(Box::new),
             rich_message,
             link_preview_options: LinkPreviewOptions::parse(raw.media.as_ref(), raw.invert_media),
-            reply_to,
+            reply_to_message_id,
+            reply_to_checklist_task_id,
+            reply_to_story_id,
+            reply_to_story_user_id,
+            reply_to_poll_option_id,
             message_thread_id,
             is_topic_message,
             quote,
@@ -274,7 +276,8 @@ impl Message {
             video_processing_pending: raw.video_processing_pending,
             sender_business_bot: raw.via_business_bot_id.map(|id| Box::new(User::parse(id, entities))),
             sender_tag: raw.from_rank.clone(),
-            guest_bot_caller,
+            guest_bot_caller_user,
+            guest_bot_caller_chat,
             views: raw.views,
             forwards: raw.forwards,
             effect_id: raw.effect,
@@ -838,7 +841,7 @@ impl Message {
         if let Some(reply) = self.prefetched.as_ref().and_then(|p| p.reply.as_ref()) {
             return Ok(reply.clone());
         }
-        let Some(id) = self.reply_to_message_id().filter(|_| self.business_connection_id.is_none()) else {
+        let Some(id) = self.reply_to_message_id.filter(|_| self.business_connection_id.is_none()) else {
             return Ok(None);
         };
         let cached = self.client.0.caches.message(self.chat.id, id);
@@ -904,7 +907,11 @@ fn is_automatic_forward(chat: &Chat, header: Option<&base::MessageFwdHeader>) ->
 
 #[derive(Default)]
 struct ReplyFields {
-    reply_to: Option<ReplyTo>,
+    reply_to_message_id: Option<i32>,
+    reply_to_checklist_task_id: Option<i32>,
+    reply_to_story_id: Option<i32>,
+    reply_to_story_user_id: Option<i64>,
+    reply_to_poll_option_id: Option<Vec<u8>>,
     message_thread_id: Option<i32>,
     is_topic_message: bool,
     quote: Option<TextQuote>,
@@ -925,7 +932,8 @@ fn reply_fields(
         Some(base::MessageReplyHeader::MessageReplyHeader(reply)) => reply,
         Some(base::MessageReplyHeader::MessageReplyStoryHeader(story)) => {
             return ReplyFields {
-                reply_to: Some(ReplyTo::Story { chat_id: get_peer_id(&story.peer), story_id: story.story_id }),
+                reply_to_story_id: Some(story.story_id),
+                reply_to_story_user_id: Some(get_peer_id(&story.peer)),
                 ..Default::default()
             };
         }
@@ -948,15 +956,12 @@ fn reply_fields(
         position: reply.quote_offset.unwrap_or(0),
         is_manual: reply.quote,
     });
-    let (checklist_task_id, poll_option_id) = (reply.todo_item_id, reply.poll_option.clone());
-    // A forum topic's header names the topic, not a replied message: no reply then.
-    let replies = reply_to_message_id.is_some() || checklist_task_id.is_some() || poll_option_id.is_some();
     ReplyFields {
-        reply_to: replies.then_some(ReplyTo::Message {
-            message_id: reply_to_message_id,
-            checklist_task_id,
-            poll_option_id,
-        }),
+        reply_to_message_id,
+        reply_to_checklist_task_id: reply.todo_item_id,
+        reply_to_story_id: None,
+        reply_to_story_user_id: None,
+        reply_to_poll_option_id: reply.poll_option.clone(),
         message_thread_id,
         is_topic_message: reply.forum_topic,
         quote,
@@ -1081,7 +1086,7 @@ pub(crate) mod tests {
         assert_eq!(media.caption().map(str::as_ptr), Some(media.raw.message.as_ptr()));
         let copy = media.clone();
         assert!(std::sync::Arc::ptr_eq(&copy.chat, &media.chat));
-        let (sender, copied) = (media.sender_chat().unwrap(), copy.sender_chat().unwrap());
+        let (sender, copied) = (media.sender_chat.as_ref().unwrap(), copy.sender_chat.as_ref().unwrap());
         assert!(std::sync::Arc::ptr_eq(sender, copied) && std::sync::Arc::ptr_eq(sender, &media.chat));
     }
 
@@ -1135,7 +1140,7 @@ pub(crate) mod tests {
         let topic = types::MessageReplyHeader { forum_topic: true, reply_to_msg_id: Some(10), ..header() };
         raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(topic)));
         let m = parse(&raw);
-        assert_eq!((m.is_topic_message, m.message_thread_id, m.reply_to_message_id()), (true, Some(10), None));
+        assert_eq!((m.is_topic_message, m.message_thread_id, m.reply_to_message_id), (true, Some(10), None));
 
         let quoted = types::MessageReplyHeader {
             forum_topic: true,
@@ -1148,7 +1153,7 @@ pub(crate) mod tests {
         };
         raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(quoted)));
         let m = parse(&raw);
-        assert_eq!((m.message_thread_id, m.reply_to_message_id()), (Some(10), Some(12)));
+        assert_eq!((m.message_thread_id, m.reply_to_message_id), (Some(10), Some(12)));
         let quote = m.quote.unwrap();
         assert_eq!((quote.text.as_str(), quote.position, quote.is_manual), ("hi", 3, true));
 
@@ -1163,7 +1168,7 @@ pub(crate) mod tests {
         raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(external)));
         raw.fwd_from = Some(forward(None, Some("Hidden"), None));
         let m = parse(&raw);
-        assert_eq!(m.reply_to_message_id(), None);
+        assert_eq!(m.reply_to_message_id, None);
         let external = m.external_reply.unwrap();
         assert_eq!((external.chat.as_ref().map(|c| c.id), external.message_id), (Some(-1000000000003), Some(77)));
         assert!(matches!(external.origin, MessageOrigin::Channel { message_id: 77, .. }));
@@ -1356,7 +1361,7 @@ pub(crate) mod tests {
             (renamed.service, renamed.message_thread_id),
             (Some(ServiceAction::ForumTopicEdited(edited)), Some(4))
         );
-        assert_eq!(renamed.reply_to, None);
+        assert_eq!(renamed.reply_to_message_id, None);
         assert_eq!(service(in_topic, edit(None, Some(true), None)).service, Some(ServiceAction::ForumTopicClosed));
         assert_eq!(service(None, edit(None, Some(false), None)).service, Some(ServiceAction::ForumTopicReopened));
         assert_eq!(service(None, edit(None, None, Some(true))).service, Some(ServiceAction::GeneralForumTopicHidden));
@@ -1373,7 +1378,7 @@ pub(crate) mod tests {
         };
         let pinned = service(Some(pin), base::MessageAction::MessageActionPinMessage);
         assert_eq!(pinned.service, Some(ServiceAction::PinnedMessage(12)));
-        let topic = (pinned.message_thread_id, pinned.is_topic_message, pinned.reply_to_message_id());
+        let topic = (pinned.message_thread_id, pinned.is_topic_message, pinned.reply_to_message_id);
         assert_eq!(topic, (Some(4), true, None));
     }
 
@@ -1671,12 +1676,14 @@ pub(crate) mod tests {
         let flags = [bare.mentioned, bare.unread_media, bare.silent, bare.channel_post, bare.from_scheduled];
         let more = [bare.edit_hidden, bare.is_pinned, bare.show_caption_above_media, bare.from_offline];
         assert!(flags.iter().chain(&more).all(|f| !f) && !bare.video_processing_pending);
-        assert!(bare.sender_business_bot.is_none() && bare.sender_tag.is_none() && bare.guest_bot_caller.is_none());
+        assert!(
+            bare.sender_business_bot.is_none() && bare.sender_tag.is_none() && bare.guest_bot_caller_user.is_none()
+        );
         assert_eq!(
             (bare.views, bare.forwards, bare.effect_id, bare.send_paid_messages_stars),
             (None, None, None, None)
         );
-        assert_eq!((bare.repeat_period, bare.summary_language_code), (None, None));
+        assert_eq!((bare.repeat_period, bare.summary_language_code, bare.guest_bot_caller_chat), (None, None, None));
 
         let raw = types::Message {
             mentioned: true,
@@ -1706,10 +1713,7 @@ pub(crate) mod tests {
         assert!(flags.iter().all(|f| *f));
         assert!(m.show_caption_above_media && m.from_offline && m.video_processing_pending);
         assert_eq!(m.sender_business_bot.map(|u| u.id), Some(42));
-        assert_eq!(
-            (m.sender_tag.as_deref(), m.guest_bot_caller.as_ref().and_then(crate::types::Sender::user).map(|u| u.id)),
-            (Some("boss"), Some(43))
-        );
+        assert_eq!((m.sender_tag.as_deref(), m.guest_bot_caller_user.map(|u| u.id)), (Some("boss"), Some(43)));
         assert_eq!(
             (m.views, m.forwards, m.effect_id, m.send_paid_messages_stars),
             (Some(100), Some(3), Some(5_000), Some(25))
@@ -1718,7 +1722,7 @@ pub(crate) mod tests {
 
         let raw = types::Message { guestchat_via_from: Some(get_peer(-77)), ..raw };
         let m = parse(&raw);
-        assert!(matches!(&m.guest_bot_caller, Some(crate::types::Sender::Chat(c)) if c.id == -77));
+        assert_eq!((m.guest_bot_caller_user, m.guest_bot_caller_chat.map(|c| c.id)), (None, Some(-77)));
     }
 
     #[test]
@@ -1756,18 +1760,14 @@ pub(crate) mod tests {
         let story = types::MessageReplyStoryHeader { peer: get_peer(get_channel_id(9)), story_id: 4 };
         raw.reply_to = Some(base::MessageReplyHeader::MessageReplyStoryHeader(Box::new(story)));
         let m = parse(&raw);
-        assert_eq!(m.reply_to, Some(crate::types::ReplyTo::Story { chat_id: get_channel_id(9), story_id: 4 }));
-        assert_eq!((m.reply_to_message_id(), m.message_thread_id), (None, None));
+        assert_eq!((m.reply_to_story_id, m.reply_to_story_user_id), (Some(4), Some(get_channel_id(9))));
+        assert_eq!((m.reply_to_message_id, m.message_thread_id, m.reply_to_poll_option_id), (None, None, None));
 
         let option = types::MessageReplyHeader { reply_to_msg_id: Some(12), poll_option: Some(vec![1]), ..header() };
         raw.reply_to = Some(base::MessageReplyHeader::MessageReplyHeader(Box::new(option)));
         let m = parse(&raw);
-        let reply = crate::types::ReplyTo::Message {
-            message_id: Some(12),
-            checklist_task_id: None,
-            poll_option_id: Some(vec![1]),
-        };
-        assert_eq!(m.reply_to, Some(reply));
+        assert_eq!((m.reply_to_message_id, m.reply_to_poll_option_id), (Some(12), Some(vec![1])));
+        assert_eq!((m.reply_to_story_id, m.reply_to_story_user_id), (None, None));
     }
 
     #[test]

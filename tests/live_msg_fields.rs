@@ -24,7 +24,7 @@ async fn link_previews(kit: &support::Kit) {
         assert!(reply.text().starts_with(LINK), "the bot saw {:?}", reply.text());
         return;
     }
-    let sent = reply.reply_to_message_id().expect("the bot's answer replies to the link message");
+    let sent = reply.reply_to_message_id.expect("the bot's answer replies to the link message");
     for _ in 0..5 {
         tokio::time::sleep(Duration::from_secs(2)).await;
         if let Some(page) = fetch(&kit.user.client, reply.chat.id, sent).await.web_page {

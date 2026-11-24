@@ -98,8 +98,8 @@ async fn bot_sends_and_deletes_a_welcome_message() {
     let (user, bot) = (&kit.user.client, &kit.bot);
     // A bot sends welcome messages only with the admin right for them (Bot API `can_send_welcome_messages`).
     let bot_me = bot.get_me().await.unwrap();
-    let member = bot.get_chat_member(chat_id, bot_me.id).await.unwrap();
-    if !member.privileges().is_some_and(|r| r.can_send_welcome_messages) {
+    let rights = bot.get_chat_member(chat_id, bot_me.id).await.unwrap().privileges;
+    if !rights.is_some_and(|r| r.can_send_welcome_messages) {
         eprintln!("skipped: the bot isn't an admin of VAEGRAM_CHAT_ID with the right to send welcome messages");
         return;
     }

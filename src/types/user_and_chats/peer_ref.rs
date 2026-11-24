@@ -178,7 +178,7 @@ mod tests {
         let message = Message::parse(&client, Box::new(raw), &Entities::default());
         let channel = PeerRef::Id(get_channel_id(5));
         assert_eq!(peer(&message.chat), channel);
-        assert_eq!(message.sender_chat().map(peer), Some(channel.clone()));
+        assert_eq!(message.sender_chat.as_ref().map(peer), Some(channel.clone()));
         assert_eq!((peer(&*message.chat), peer(&message)), (channel.clone(), channel));
         // The shared chat goes straight into a method that takes a chat.
         let _ = client.send_message(&message.chat, "hi");
@@ -190,10 +190,10 @@ mod tests {
         let mut raw = Message::bare(1, get_peer(-7), 0);
         (raw.from_id, raw.via_bot_id) = (Some(get_peer(5)), Some(6));
         let message = Message::parse(&client, Box::new(raw), &Entities::default());
-        assert_eq!(message.from_user().map(peer), Some(PeerRef::Id(5)));
+        assert_eq!(message.from_user.as_ref().map(peer), Some(PeerRef::Id(5)));
         assert_eq!(message.via_bot.as_ref().map(peer), Some(PeerRef::Id(6)));
         // The boxed sender goes straight into a method that takes a chat.
-        if let Some(user) = message.from_user() {
+        if let Some(user) = &message.from_user {
             let _ = client.send_message(user, "hi");
         }
     }

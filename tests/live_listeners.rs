@@ -43,7 +43,7 @@ async fn wait_for_callback_query_gets_the_click() {
     let user = &kit.user.client;
     let asked = kit.user.send_and_wait_reply(&kit.bot, "/pick").await.unwrap();
     tokio::time::timeout(WAIT, listening.notified()).await.expect("the bot never listened for the press");
-    let command = asked.reply_to_message_id().expect("the keyboard replies to the command");
+    let command = asked.reply_to_message_id.expect("the keyboard replies to the command");
     let picked = kit.user.wait_reply(asked.chat.id, command);
     let click = user.request_callback_answer(asked.chat.id, asked.id, "pick").into_future();
     let (picked, click) = tokio::join!(picked, click);

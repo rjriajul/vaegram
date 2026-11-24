@@ -113,7 +113,7 @@ impl Message {
     /// press in place of the pressed message, use
     /// [`CallbackQuery::answer_ephemeral`](crate::types::CallbackQuery::answer_ephemeral).
     pub fn reply_ephemeral(&self, text: impl Into<MessageText>) -> SendEphemeralMessage<'_> {
-        let receiver = self.from_user().map(|u| PeerRef::from(u.id));
+        let receiver = self.from_user.as_ref().map(|u| PeerRef::from(u.id));
         let reply =
             SendEphemeralMessage::new(self.client(), self.chat.id.into(), receiver, text.into()).reply_to(self.id);
         match self.message_thread_id {
@@ -392,7 +392,7 @@ mod tests {
         let (client, mut sent) = recording();
         let mut message = message(&client);
         let mut from_channel = message.clone();
-        from_channel.sender = None;
+        from_channel.from_user = None;
         let refused = from_channel.reply_ephemeral("hi").await;
         assert!(matches!(refused, Err(Error::InvalidArgument("this message has no sender user"))), "{refused:?}");
         assert!(sent.try_recv().is_err());

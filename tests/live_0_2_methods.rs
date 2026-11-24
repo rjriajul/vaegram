@@ -139,7 +139,7 @@ async fn remove_chat_member_lets_member_rejoin() {
             user.remove_chat_member(group, bot_id).await.unwrap();
             let after = user.get_chat_member(group, bot_id).await.unwrap();
             assert!(!after.is_member);
-            assert_eq!(after.status(), ChatMemberStatus::Left);
+            assert_eq!(after.status, ChatMemberStatus::Left);
 
             let readded = user.add_chat_members(group, [bot_id], 0).await.unwrap();
             assert!(readded.is_empty(), "removed member could not rejoin: {readded:?}");
@@ -270,7 +270,7 @@ async fn send_bot_requested_peer_shares_user() {
     let ids = Arc::new(Mutex::new(Vec::new()));
     {
         let mut guard = ids.lock().unwrap();
-        if let Some(prompt_id) = asked.reply_to_message_id() {
+        if let Some(prompt_id) = asked.reply_to_message_id {
             guard.push(prompt_id);
         }
         guard.push(asked.id);

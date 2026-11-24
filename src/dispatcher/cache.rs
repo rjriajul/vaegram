@@ -593,7 +593,7 @@ mod tests {
         let (client, mut rx) = caching(10, 0);
         client.0.caches.store(&raw(4, 7), &Arc::default());
         let mut reply = message(&client, 5, 7);
-        reply.reply_to = Some(crate::types::ReplyTo::message(4));
+        reply.reply_to_message_id = Some(4);
         assert_eq!(reply.reply_to_message().await.unwrap().map(|m| (m.id, m.chat.id)), Some((4, 7)));
         assert!(rx.try_recv().is_err());
     }
@@ -633,7 +633,7 @@ mod tests {
         client.0.caches.store(&raw(4, 7), &Arc::default());
         client.0.caches.store_topic(get_channel_id(9), &topic(6));
         let mut reply = message(&client, 5, 7);
-        reply.reply_to = Some(crate::types::ReplyTo::message(4));
+        reply.reply_to_message_id = Some(4);
         let _ = reply.reply_to_message().await;
         let id = base::InputMessage::InputMessageID(types::InputMessageID { id: 4 });
         assert_eq!(rx.try_recv().unwrap(), functions::messages::GetMessages { id: vec![id] }.to_bytes());

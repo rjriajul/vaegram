@@ -102,8 +102,8 @@ async fn on_pinned_messages_sees_pin_and_unpin() {
     }
     let bot_me = kit.bot.get_me().await.unwrap();
     let bot_member = kit.user.client.get_chat_member(chat_id, bot_me.id).await.unwrap();
-    let bot_can_pin = bot_member.status() == ChatMemberStatus::Administrator
-        && bot_member.privileges().is_some_and(|p| p.can_pin_messages);
+    let bot_can_pin = bot_member.status == ChatMemberStatus::Administrator
+        && bot_member.privileges.is_some_and(|p| p.can_pin_messages);
 
     let (actor, listener) = if bot_can_pin { (&kit.bot, &kit.user.client) } else { (&kit.user.client, &kit.bot) };
     let actor_label = if bot_can_pin { "bot" } else { "user" };
