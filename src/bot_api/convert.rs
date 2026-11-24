@@ -1048,11 +1048,8 @@ mod tests {
     #[test]
     fn entities_go_back_out_as_bot_api_ones() {
         let text_url = types::MessageEntityTextUrl { offset: 1, length: 2, url: "https://e.x".into() };
-        let mention = types::InputMessageEntityMentionName {
-            offset: 3,
-            length: 4,
-            user_id: base::InputUser::InputUserSelf,
-        };
+        let mention =
+            types::InputMessageEntityMentionName { offset: 3, length: 4, user_id: base::InputUser::InputUserSelf };
         let list = vec![
             base::MessageEntity::MessageEntityTextUrl(Box::new(text_url)),
             base::MessageEntity::InputMessageEntityMentionName(Box::new(mention)),

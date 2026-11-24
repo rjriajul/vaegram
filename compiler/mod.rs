@@ -573,8 +573,12 @@ fn gen_deserialize_call(out: &mut String, d: &Def, name: &str) {
     writeln!(out, "#[cfg(feature = \"bot-api\")]\nimpl crate::raw::Deserializable for {name} {{").unwrap();
     writeln!(out, "    fn deserialize(buf: &mut &[u8]) -> ::std::result::Result<Self, crate::raw::Error> {{").unwrap();
     writeln!(out, "        let id = <u32 as crate::raw::Deserializable>::deserialize(buf)?;").unwrap();
-    writeln!(out, "        if id != {:#010x} {{ return Err(crate::raw::Error::UnexpectedConstructor {{ id }}); }}", d.id)
-        .unwrap();
+    writeln!(
+        out,
+        "        if id != {:#010x} {{ return Err(crate::raw::Error::UnexpectedConstructor {{ id }}); }}",
+        d.id
+    )
+    .unwrap();
     let names = gen_reads(out, d);
     writeln!(out, "        Ok(Self {{ {} }})\n    }}\n}}", names.join(", ")).unwrap();
 }

@@ -259,9 +259,9 @@ impl Transport {
         let chat = bot::Chat::deserialize(&value).map_err(invalid)?;
         let extra = Extra::deserialize(&value).map_err(invalid)?;
         let pinned = extra.pinned_message.map(|m| int(m.message_id));
-        let notify = base::PeerNotifySettings::PeerNotifySettings(Box::new(types::PeerNotifySettings::default()));
+        let notify = base::PeerNotifySettings::PeerNotifySettings(Box::default());
         if chat_id > 0 {
-            let settings = base::PeerSettings::PeerSettings(Box::new(types::PeerSettings::default()));
+            let settings = base::PeerSettings::PeerSettings(Box::default());
             let mut full = types::UserFull::new(chat_id, settings, notify, 0);
             full.about = extra.bio;
             full.pinned_msg_id = pinned;
