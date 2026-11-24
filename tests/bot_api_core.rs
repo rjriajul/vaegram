@@ -9,13 +9,20 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
+use vaegram::bot_api::Unsupported;
 use vaegram::enums::ChatAction;
-use vaegram::types::BotCommand;
+use vaegram::raw::{base, functions, types};
+use vaegram::types::{BotCommand, InlineQueryResult};
 use vaegram::{Client, filters};
 
 const TOKEN: &str = "123:ABC";
 const BOT: i64 = 99;
 const USER: i64 = 7;
+/// A basic group, Bot API style.
+const GROUP: i64 = -42;
+/// A supergroup, Bot API style, and its TL channel id.
+const CHANNEL: i64 = -1_000_000_000_123;
+const CHANNEL_ID: i64 = 123;
 
 /// One request the stub got: the Bot API method and its JSON body.
 type Call = (String, Value);
@@ -92,10 +99,15 @@ async fn serve(mut stream: TcpStream, calls: mpsc::UnboundedSender<Call>, pendin
     let prefix = format!("/bot{TOKEN}/");
     assert!(path.starts_with(&prefix), "request to {path}");
     let method = path[prefix.len()..].to_owned();
-    let body = if length == 0 { json!({}) } else { serde_json::from_slice(&data[head_end..head_end + length]).unwrap() };
+    let body = &data[head_end..head_end + length];
+    let body = if length == 0 { json!({}) } else { serde_json::from_slice(body).unwrap() };
     let _ = calls.send((method.clone(), body.clone()));
-    let result = answer(&method, &body, &pending).await;
-    let reply = json!({ "ok": true, "result": result }).to_string();
+    // An error is Telegram's envelope with `ok: false`.
+    let reply = match answer(&method, &body, &pending).await {
+        Ok(result) => json!({ "ok": true, "result": result }),
+        Err(description) => json!({ "ok": false, "error_code": 400, "description": description }),
+    }
+    .to_string();
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
         reply.len()
@@ -104,8 +116,12 @@ async fn serve(mut stream: TcpStream, calls: mpsc::UnboundedSender<Call>, pendin
     let _ = stream.shutdown().await;
 }
 
-async fn answer(method: &str, body: &Value, pending: &Pending) -> Value {
-    match method {
+/// Message 51 is a media message: its text is a caption, which `editMessageText` refuses.
+const MEDIA_MESSAGE: i64 = 51;
+
+async fn answer(method: &str, body: &Value, pending: &Pending) -> Result<Value, &'static str> {
+    let message_id = body["message_id"].as_i64().unwrap_or(0);
+    Ok(match method {
         "getMe" => json!({ "id": BOT, "is_bot": true, "first_name": "Bot", "username": "stub_bot" }),
         "getChat" => chat(body["chat_id"].as_i64().unwrap_or(0)),
         "getUpdates" => {
@@ -119,16 +135,24 @@ async fn answer(method: &str, body: &Value, pending: &Pending) -> Value {
             }
         }
         "sendMessage" => message(50, body),
-        "editMessageText" => message(body["message_id"].as_i64().unwrap_or(0), body),
+        "editMessageText" if message_id == MEDIA_MESSAGE => {
+            return Err("Bad Request: there is no text in the message to edit");
+        }
+        "editMessageText" | "editMessageCaption" | "editMessageReplyMarkup" => message(message_id, body),
+        "forwardMessage" => message(60, body),
+        "copyMessage" => json!({ "message_id": 61 }),
         _ => json!(true),
-    }
+    })
 }
 
+/// A chat as `getChat` describes it: private for a positive id, a basic group above `-10^12`, else a supergroup.
 fn chat(id: i64) -> Value {
     if id > 0 {
-        json!({ "id": id, "type": "private", "first_name": "Ann" })
+        json!({ "id": id, "type": "private", "first_name": "Ann", "bio": "hi there" })
+    } else if id > -1_000_000_000_000 {
+        json!({ "id": id, "type": "group", "title": "Group", "description": "about" })
     } else {
-        json!({ "id": id, "type": "supergroup", "title": "Group" })
+        json!({ "id": id, "type": "supergroup", "title": "Supergroup", "description": "about" })
     }
 }
 
@@ -197,6 +221,123 @@ async fn friendly_methods_go_out_as_bot_api_methods() {
     let (method, body) = stub.next().await;
     assert_eq!(method, "deleteMessages");
     assert_eq!((&body["chat_id"], &body["message_ids"]), (&json!(USER), &json!([50])));
+
+    // editMessageText refuses a media message's text, so the bridge edits its caption instead.
+    let edited = client.edit_message_caption(USER, 51, "caption").await.unwrap();
+    assert_eq!(edited.id, 51);
+    let (method, body) = stub.next().await;
+    assert_eq!((method.as_str(), &body["message_id"]), ("editMessageText", &json!(51)));
+    let (method, body) = stub.next().await;
+    assert_eq!(method, "editMessageCaption");
+    let fields = (&body["chat_id"], &body["message_id"], &body["caption"]);
+    assert_eq!(fields, (&json!(USER), &json!(51), &json!("caption")));
+
+    let edited = client.edit_message_reply_markup(USER, 50, None).await.unwrap();
+    assert_eq!(edited.id, 50);
+    let (method, body) = stub.next().await;
+    assert_eq!(method, "editMessageReplyMarkup");
+    assert_eq!((&body["chat_id"], &body["message_id"]), (&json!(USER), &json!(50)));
+    assert!(body.get("reply_markup").is_none() && body.get("text").is_none());
+
+    let forwarded = client.forward_messages(USER, USER, &[50]).await.unwrap();
+    assert_eq!(forwarded.iter().map(|m| m.id).collect::<Vec<_>>(), [60]);
+    let (method, body) = stub.next().await;
+    assert_eq!(method, "forwardMessage");
+    let fields = (&body["chat_id"], &body["from_chat_id"], &body["message_id"]);
+    assert_eq!(fields, (&json!(USER), &json!(USER), &json!(50)));
+
+    // A copy: no friendly method gets there (`copy_message` first reads the message, which the Bot API can't).
+    let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: USER, access_hash: 0 }));
+    let copy = functions::messages::ForwardMessages {
+        silent: false,
+        background: false,
+        with_my_score: false,
+        drop_author: true,
+        drop_media_captions: false,
+        noforwards: false,
+        allow_paid_floodskip: false,
+        from_ephemeral: false,
+        from_peer: user.clone(),
+        id: vec![50],
+        random_id: vec![1],
+        to_peer: user,
+        top_msg_id: None,
+        reply_to: None,
+        schedule_date: None,
+        schedule_repeat_period: None,
+        send_as: None,
+        quick_reply_shortcut: None,
+        effect: None,
+        video_timestamp: None,
+        allow_paid_stars: None,
+        suggested_post: None,
+    };
+    client.invoke(&copy).await.unwrap();
+    let (method, body) = stub.next().await;
+    assert_eq!(method, "copyMessage");
+    let fields = (&body["chat_id"], &body["from_chat_id"], &body["message_id"]);
+    assert_eq!(fields, (&json!(USER), &json!(USER), &json!(50)));
+
+    client.unpin_chat_message(USER, 50).await.unwrap();
+    let (method, body) = stub.next().await;
+    assert_eq!(method, "unpinChatMessage");
+    assert_eq!((&body["chat_id"], &body["message_id"]), (&json!(USER), &json!(50)));
+
+    client.unpin_all_chat_messages(USER).await.unwrap();
+    let (method, body) = stub.next().await;
+    assert_eq!((method.as_str(), &body["chat_id"]), ("unpinAllChatMessages", &json!(USER)));
+
+    client.answer_inline_query(3, std::iter::empty::<InlineQueryResult>()).personal().await.unwrap();
+    let (method, body) = stub.next().await;
+    assert_eq!(method, "answerInlineQuery");
+    assert_eq!((&body["inline_query_id"], &body["results"]), (&json!("3"), &json!([])));
+    assert_eq!((&body["cache_time"], &body["is_personal"]), (&json!(300), &json!(true)));
+
+    // users.getUsers for another user, and users.getFullUser: both are getChat.
+    let users = client.get_users([8_i64]).await.unwrap();
+    let user = users.into_iter().next().flatten().expect("user 8");
+    assert_eq!((user.id, user.first_name.as_str()), (8, "Ann"));
+    stub.next_where(get_chat(8)).await;
+    let chat = client.get_chat(USER).await.unwrap();
+    assert_eq!(chat.bio.as_deref(), Some("hi there"));
+    stub.next_where(get_chat(USER)).await;
+
+    // messages.getFullChat for a basic group; channels.getChannels, then channels.getFullChannel, for a supergroup.
+    let chat = client.get_chat(GROUP).await.unwrap();
+    assert_eq!((chat.title.as_deref(), chat.description.as_deref()), (Some("Group"), Some("about")));
+    stub.next_where(get_chat(GROUP)).await;
+    let chat = client.get_chat(CHANNEL).await.unwrap();
+    assert_eq!((chat.title.as_deref(), chat.description.as_deref()), (Some("Supergroup"), Some("about")));
+    stub.next_where(get_chat(CHANNEL)).await;
+    stub.next_where(get_chat(CHANNEL)).await;
+
+    // messages.getChats: no friendly method asks for a basic group by id alone.
+    client.invoke(&functions::messages::GetChats { id: vec![-GROUP] }).await.unwrap();
+    stub.next_where(get_chat(GROUP)).await;
+
+    // A channel's messages are deleted through channels.deleteMessages, which names the channel.
+    client.delete_messages(CHANNEL, &[5]).await.unwrap();
+    let (method, body) = stub.next().await;
+    assert_eq!(method, "deleteMessages");
+    assert_eq!((&body["chat_id"], &body["message_ids"]), (&json!(CHANNEL), &json!([5])));
+
+    // A forum topic's pins: no friendly method unpins all of one topic.
+    let channel = types::InputPeerChannel { channel_id: CHANNEL_ID, access_hash: 0 };
+    let peer = base::InputPeer::InputPeerChannel(Box::new(channel));
+    let unpin = functions::messages::UnpinAllMessages { peer, top_msg_id: Some(3), saved_peer_id: None };
+    client.invoke(&unpin).await.unwrap();
+    let (method, body) = stub.next().await;
+    assert_eq!(method, "unpinAllForumTopicMessages");
+    assert_eq!((&body["chat_id"], &body["message_thread_id"]), (&json!(CHANNEL), &json!(3)));
+
+    // A TL method with no Bot API counterpart fails without a request, naming the method.
+    let error = client.invoke(&functions::help::GetConfig {}).await.unwrap_err();
+    assert_eq!(error.downcast_ref::<Unsupported>().map(Unsupported::what), Some("help.getConfig"));
+}
+
+/// Matches the `getChat` that looks `id` up.
+fn get_chat(id: i64) -> impl Fn(&Call) -> bool {
+    move |(method, body): &Call| method == "getChat" && body["chat_id"] == json!(id)
 }
 
 #[tokio::test]
