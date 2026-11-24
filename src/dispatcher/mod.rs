@@ -42,6 +42,8 @@ pub(crate) struct Dispatcher {
     tracker: Tracker,
     saved_at: Instant,
     saved: UpdateState,
+    // The state is known to differ from `saved`, so `unsaved` needn't compare them again until the next save.
+    moved: bool,
     router: Arc<Router>,
     generation: u64,
     account: u64,
@@ -103,6 +105,7 @@ impl Dispatcher {
             tracker,
             saved_at: Instant::now(),
             saved,
+            moved: false,
             router,
             generation,
             account,
@@ -115,6 +118,19 @@ impl Dispatcher {
 
     fn same_account(&self) -> bool {
         self.client.0.account.load(Ordering::Relaxed) == self.account
+    }
+
+    /// Whether the state moved since the last save. The loop asks on every update, and with the scalars unchanged,
+    /// as after a channel update, comparing walks every channel's pts; once they differ, they aren't compared again
+    /// until the next save. A state that moves back to the saved one is written again, which is harmless.
+    fn unsaved(&mut self) -> bool {
+        self.moved = self.moved || self.tracker.state != self.saved;
+        self.moved
+    }
+
+    fn mark_saved(&mut self) {
+        self.saved = self.tracker.state.clone();
+        self.moved = false;
     }
 
     /// `true` when `Client::stop` ended it, after the running handlers finished or, at the deadline
@@ -133,12 +149,12 @@ impl Dispatcher {
             // written by the store on its own timer.
             if self.saved_at.elapsed() >= SAVE_EVERY {
                 self.saved_at = Instant::now();
-                if self.tracker.state != self.saved && self.same_account() {
+                if self.unsaved() && self.same_account() {
                     self.client.0.save_state_in_background(&self.tracker.state);
-                    self.saved = self.tracker.state.clone();
+                    self.mark_saved();
                 }
             }
-            let unsaved = self.tracker.state != self.saved && self.same_account();
+            let unsaved = self.unsaved() && self.same_account();
             let save_at = unsaved.then_some(self.saved_at + SAVE_EVERY);
             let save = async {
                 match save_at {
@@ -173,7 +189,7 @@ impl Dispatcher {
                     // later gap.
                     if self.same_account() {
                         self.client.0.save_state(&self.tracker.state).await;
-                        self.saved = self.tracker.state.clone();
+                        self.mark_saved();
                     }
                     return true;
                 }
@@ -197,7 +213,7 @@ impl Dispatcher {
                     // The connection is gone for good: save here, since the next save is on drop, which a crash skips.
                     if self.same_account() {
                         self.client.0.save_state(&self.tracker.state).await;
-                        self.saved = self.tracker.state.clone();
+                        self.mark_saved();
                     }
                     return false;
                 }
@@ -408,7 +424,7 @@ impl Drop for Dispatcher {
     fn drop(&mut self) {
         self.client.0.handlers.listeners.close();
         *self.client.0.recover.lock().unwrap_or_else(PoisonError::into_inner) = None;
-        if self.same_account() && self.tracker.state != self.saved {
+        if self.same_account() && self.unsaved() {
             // A run dropped, not stopped, before it saved: queued for the store's next flush, so the next `resume`,
             // which takes the state handed back for one the store has, doesn't leave it unwritten until close.
             self.client.0.save_state_in_background(&self.tracker.state);
@@ -450,6 +466,18 @@ mod tests {
             matches!(&got[..], [ClientEvent::DifferenceFailed { error }] if matches!(**error, Error::Disconnected)),
             "{got:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_channel_pts_moving_marks_the_state_unsaved_until_the_next_save() {
+        let mut d = Dispatcher::new(Client::offline(), &state());
+        d.tracker.state.channels.insert(9, 1);
+        d.mark_saved();
+        assert!(!d.unsaved());
+        d.tracker.state.channels.insert(9, 2);
+        assert!(d.unsaved());
+        d.mark_saved();
+        assert!(!d.unsaved());
     }
 
     #[tokio::test]
