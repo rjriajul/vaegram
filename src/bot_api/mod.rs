@@ -20,7 +20,7 @@ mod request;
 
 pub(crate) use bridge::Transport;
 pub use bridge::Unsupported;
-pub use client::{BotApi, BotApiBuilder};
+pub use client::{BotApi, BotApiBuilder, ChatMigrated};
 pub use input_file::InputFile;
 pub(crate) use media::carried_reply;
 pub(crate) use polling::poll;

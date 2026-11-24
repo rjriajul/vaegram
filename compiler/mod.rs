@@ -554,7 +554,8 @@ fn gen_update_impl(out: &mut String, ctors: &[&Def]) {
     writeln!(out, "}}").unwrap();
 }
 
-fn gen_function(out: &mut String, d: &Def) {
+/// `reads`: also read the call back from its bytes (the `bot-api` cargo feature).
+fn gen_function(out: &mut String, d: &Def, reads: bool) {
     gen_struct(out, d);
     let name = pascal(split_ns(&d.name).1);
     let (head, ret) = if d.generic {
@@ -563,14 +564,14 @@ fn gen_function(out: &mut String, d: &Def) {
         (format!("impl crate::raw::RemoteCall for {name}"), rust_ty(&d.ty, false))
     };
     writeln!(out, "{head} {{ const NAME: &'static str = {:?}; type Return = {ret}; }}", d.name).unwrap();
-    if !d.generic {
+    if reads && !d.generic {
         gen_deserialize_call(out, d, &name);
     }
 }
 
 /// Reading a call back from its bytes, for the Bot API bridge, which maps the requests friendly methods build.
 fn gen_deserialize_call(out: &mut String, d: &Def, name: &str) {
-    writeln!(out, "#[cfg(feature = \"bot-api\")]\nimpl crate::raw::Deserializable for {name} {{").unwrap();
+    writeln!(out, "impl crate::raw::Deserializable for {name} {{").unwrap();
     writeln!(out, "    fn deserialize(buf: &mut &[u8]) -> ::std::result::Result<Self, crate::raw::Error> {{").unwrap();
     writeln!(out, "        let id = <u32 as crate::raw::Deserializable>::deserialize(buf)?;").unwrap();
     writeln!(
@@ -583,8 +584,9 @@ fn gen_deserialize_call(out: &mut String, d: &Def, name: &str) {
     writeln!(out, "        Ok(Self {{ {} }})\n    }}\n}}", names.join(", ")).unwrap();
 }
 
-/// `json`: also implement `ToJson` for every type and function (the `json` cargo feature).
-pub fn generate(api: &str, mtproto: &str, json: bool) -> String {
+/// `json`: also implement `ToJson` for every type and function (the `json` cargo feature). `reads`: also implement
+/// `Deserializable` for every non-generic function, for the Bot API bridge (the `bot-api` cargo feature).
+pub fn generate(api: &str, mtproto: &str, json: bool, reads: bool) -> String {
     let layer: i32 = api
         .lines()
         .find_map(|l| l.strip_prefix("// LAYER "))
@@ -612,7 +614,7 @@ pub fn generate(api: &str, mtproto: &str, json: bool) -> String {
         let ns = split_ns(&d.name).0;
         if d.function {
             let out = mods.entry(("functions", ns)).or_default();
-            gen_function(out, d);
+            gen_function(out, d, reads);
             if json {
                 gen_struct_json(out, d);
             }

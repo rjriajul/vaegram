@@ -33,7 +33,7 @@ impl Client {
         let (file, in_set) = match sticker.0 {
             Kind::File(file) => (file, None),
             // Replaced by the sticker itself before sending; a URL sticker would be refused, never sent.
-            Kind::InSet(set, id) => (FileSource(Source::Url(String::new()), None), Some((set, id))),
+            Kind::InSet(set, id) => (FileSource::sourced(Source::Url(String::new()), None), Some((set, id))),
         };
         let media = InputMedia::sticker(file);
         SendSticker {

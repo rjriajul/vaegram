@@ -10,7 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use vaegram::bot_api::Unsupported;
-use vaegram::types::{FileSource, InputMedia, Media, Upload};
+use vaegram::types::{FileSource, InputMedia, Upload};
 use vaegram::{Client, Error, filters};
 
 const TOKEN: &str = "123:ABC";
@@ -290,7 +290,7 @@ async fn a_photo_by_file_id_goes_as_json() {
     assert_eq!(call.body["caption"], json!("look"));
 
     assert_eq!((sent.id, sent.chat.id, sent.caption()), (50, USER, Some("look")));
-    let photo = sent.media.as_ref().and_then(Media::photo).expect("a photo");
+    let photo = sent.photo().expect("a photo");
     assert_eq!((photo.width, photo.height, photo.file_size), (1280, 720, 99));
 }
 
@@ -314,8 +314,21 @@ async fn a_document_from_bytes_goes_as_one_multipart_request() {
     assert!(call.body.get("document").is_none(), "the upload went as a part only");
 
     assert_eq!((sent.id, sent.caption()), (52, Some("doc")));
-    let document = sent.media.as_ref().and_then(Media::document).expect("a document");
+    let document = sent.document().expect("a document");
     assert_eq!((document.file_name.as_deref(), document.file_size), (Some("notes.txt"), 10));
+}
+
+#[tokio::test]
+async fn a_caption_that_reads_like_an_attachment_stays_text() {
+    let mut stub = Stub::start(Vec::new()).await;
+    let client = client(&stub.url).await;
+
+    client.send_photo(USER, Upload::bytes("cat.jpg", b"jpeg")).caption("attach://file0").await.unwrap();
+    let call = stub.next().await;
+    assert_eq!(call.method, "sendPhoto");
+    let photo = Part { field: "photo".into(), filename: "cat.jpg".into(), data: b"jpeg".to_vec() };
+    assert_eq!(call.files, [photo]);
+    assert_eq!(call.body["caption"], json!("attach://file0"));
 }
 
 #[tokio::test]
@@ -357,7 +370,7 @@ async fn edit_message_media_and_copy_message_go_straight_to_the_bot_api() {
     let media = json!({ "type": "photo", "media": PHOTO, "caption": "edited", "has_spoiler": true });
     assert_eq!(call.body["media"], media);
     assert_eq!((edited.id, edited.caption()), (50, Some("edited")));
-    assert!(edited.media.as_ref().and_then(Media::photo).is_some());
+    assert!(edited.photo().is_some());
 
     // Nothing reads the source first: the Bot API has no way to.
     let copy = client.copy_message(USER, GROUP, 50).caption("new caption").await.unwrap();

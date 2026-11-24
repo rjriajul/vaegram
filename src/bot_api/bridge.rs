@@ -76,8 +76,14 @@ pub(crate) fn unsupported(what: &'static str) -> Error {
 pub(crate) struct Transport {
     pub(crate) api: BotApi,
     pub(crate) updates: mpsc::Sender<Incoming>,
-    /// The next `getUpdates` offset: one past the last update taken.
+    /// The next `getUpdates` offset: one past the last update the dispatcher took.
     pub(crate) offset: AtomicI64,
+    /// One past the last update handed on, queued or skipped: the offset once the dispatcher took the queue. Kept
+    /// here, not in a poll, so a `run` that stopped with updates still queued, or taken but not yet confirmed to
+    /// Telegram, is picked up by the next `run` without any update coming twice.
+    pub(crate) handed: AtomicI64,
+    /// What ended the last poll for good, such as a revoked token, for `run` to return.
+    pub(crate) failed: Mutex<Option<Error>>,
     me: AtomicI64,
     chats: Mutex<SeenChats>,
     replies: Mutex<Replies>,
@@ -113,6 +119,8 @@ impl Transport {
             api,
             updates,
             offset: AtomicI64::new(0),
+            handed: AtomicI64::new(0),
+            failed: Mutex::new(None),
             me: AtomicI64::new(0),
             chats: Mutex::default(),
             replies: Mutex::default(),

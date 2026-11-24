@@ -105,8 +105,9 @@ impl ClientBuilder {
     ///
     /// What the client builds from Bot API answers is partly made up: users and chats come as `min`, with an access
     /// hash of 0 once looked up, files carry what their `file_id` decodes to, and a message's raw TL holds only what
-    /// the Bot API sent. Nothing is stored: peers stay in memory, whatever storage is set, and `api_id` and
-    /// `api_hash` aren't used.
+    /// the Bot API sent. A user looked up by id (`get_users`, `get_chat`) comes from `getChat`, which doesn't say
+    /// whether it is a bot, so a bot reads back as a person there. Nothing is stored: peers stay in memory, whatever
+    /// storage is set, and `api_id` and `api_hash` aren't used.
     #[cfg(feature = "bot-api")]
     pub fn bot_api(mut self, token: impl Into<String>) -> Self {
         self.bot_api = Some(token.into());

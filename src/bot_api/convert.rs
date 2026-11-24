@@ -65,7 +65,9 @@ impl Peers {
 }
 
 /// The user behind a private chat. `resolved` gives it an access hash of 0, which the Bot API never needs, so
-/// requests can name it; otherwise it is `min`, as a user seen in an update is.
+/// requests can name it; otherwise it is `min`, as a user seen in an update is. The Bot API's `Chat` doesn't say
+/// whether the user is a bot, so a bot looked up this way (`getChat`, for `get_users` and `get_chat`) reads back as
+/// a person.
 pub(crate) fn chat_user(c: &bot::Chat, resolved: bool) -> base::User {
     let mut user = types::User::new(c.id);
     user.min = !resolved;

@@ -3,7 +3,6 @@
 //! the multipart request of the method that sends it, so TL's `upload.saveFilePart` flow never starts.
 
 use std::cell::Cell;
-use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -11,14 +10,14 @@ use serde_json::{Map, Value, json};
 use super::bridge::{Transport, options as send_flags, reply_parameters, unsupported};
 use super::client::{FileBody, invalid};
 use super::convert::{self, int};
-use super::input_file::Attachment;
+use super::input_file::{Attachment, marker};
 use super::raw::types as bot;
 use crate::Client;
 use crate::dispatcher::Entities;
 use crate::enums::{FileType, MediaKind, ParseMode};
 use crate::errors::{Error, Result};
 use crate::file_id::{FileId, ThumbnailSource};
-use crate::methods::messages::SendOptions;
+use crate::methods::SendOptions;
 use crate::raw::{base, types};
 use crate::session::internals::now;
 use crate::types::messages_and_media::Source;
@@ -28,13 +27,13 @@ use crate::utils::{get_chat_id, get_peer, get_peer_id};
 /// What `getFile` on `api.telegram.org` refuses: files over 20 MB.
 const TOO_BIG: &str = "the Bot API downloads files of up to 20 MB; use MTProto or a local Bot API server";
 
-/// The uploads of one request, each named by its `attach://` key.
+/// The uploads of one request, each named by its key.
 #[derive(Default)]
 struct Files(Vec<Attachment>);
 
 impl Files {
-    /// What names `file` in a request: its file id or URL, or `attach://<key>` for bytes that go along as a part of
-    /// the request, under `name` when one is set.
+    /// What names `file` in a request: its file id or URL, or the [`marker`] of bytes that go along as a part of the
+    /// request, under `name` when one is set.
     async fn add(&mut self, file: &FileSource<'_>, name: Option<&str>) -> Result<Value> {
         match &file.0 {
             Source::Url(url) => Ok(url.clone().into()),
@@ -48,12 +47,13 @@ impl Files {
     }
 
     async fn upload(&mut self, upload: Upload<'_>, name: Option<&str>) -> Result<Value> {
-        let data: Arc<[u8]> = match upload {
-            Upload::Path(path) => tokio::fs::read(path).await?.into(),
-            Upload::Bytes { data, .. } => data.into(),
+        // Read once, then moved into the request's part.
+        let data = match upload {
+            Upload::Path(path) => tokio::fs::read(path).await?,
+            Upload::Bytes { data, .. } => data.to_vec(),
         };
         let key = format!("file{}", self.0.len());
-        let value = Value::from(format!("attach://{key}"));
+        let value = marker(&key);
         self.0.push((key, name.unwrap_or(upload.name()).to_owned(), data));
         Ok(value)
     }
@@ -242,7 +242,7 @@ impl Transport {
         let (method, key) = send_method(media.kind);
         let mut files = Files::default();
         files.describe(client, self.me(), media, &mut body, (key, "live_photo")).await?;
-        let sent = self.api.call_with_files(method, Value::Object(body), files.0).await?;
+        let sent: Value = self.api.call_with_files(method, Value::Object(body), files.0).await?;
         self.message(client, chat_id, sent, false)
     }
 
@@ -263,7 +263,8 @@ impl Transport {
             items.push(input_media(&mut files, client, me, item).await?);
         }
         body.insert("media".into(), Value::Array(items));
-        let Value::Array(sent) = self.api.call_with_files("sendMediaGroup", Value::Object(body), files.0).await? else {
+        let sent: Value = self.api.call_with_files("sendMediaGroup", Value::Object(body), files.0).await?;
+        let Value::Array(sent) = sent else {
             return Err(Error::Unexpected("sendMediaGroup returned no messages"));
         };
         let updates = base::Updates::Updates(Box::new(self.updates(sent, false)?));
@@ -298,7 +299,7 @@ impl Transport {
         }
         let mut files = Files::default();
         body.insert("media".into(), input_media(&mut files, client, me, media).await?);
-        let edited = self.api.call_with_files("editMessageMedia", Value::Object(body), files.0).await?;
+        let edited: Value = self.api.call_with_files("editMessageMedia", Value::Object(body), files.0).await?;
         self.message(client, chat_id, edited, true)
     }
 
@@ -391,13 +392,26 @@ thread_local! {
     static CARRYING: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Holds [`CARRYING`] set while it lives, so a panic while building can't leave it set for the thread.
+struct Carrying;
+
+impl Carrying {
+    /// `None` when a carried message is already being built on this thread.
+    fn start() -> Option<Carrying> {
+        (!CARRYING.replace(true)).then_some(Carrying)
+    }
+}
+
+impl Drop for Carrying {
+    fn drop(&mut self) {
+        CARRYING.set(false);
+    }
+}
+
 /// The replied message the Bot API sent along with `raw`, which `Message::reply_to_message` returns; `None` for a
 /// client in another mode, a message that replies to nothing, or a reply that came without it.
 pub(crate) fn carried_reply(client: &Client, raw: &types::Message) -> Option<Box<Message>> {
     raw.reply_to.as_ref()?;
-    if CARRYING.get() {
-        return None;
-    }
     let carried = client.0.bot_api.as_ref()?.carried(get_peer_id(&raw.peer_id), raw.id)?;
     // Built as it is, without `Entities::new`: carried users and chats are `min`, with no hash to remember, and a
     // message can be built while the peer cache is locked.
@@ -412,11 +426,9 @@ pub(crate) fn carried_reply(client: &Client, raw: &types::Message) -> Option<Box
             entities.chats.insert(id, chat.clone());
         }
     }
-    // Building is synchronous, so the flag covers exactly this message.
-    CARRYING.set(true);
-    let message = Message::parse(client, Box::new(carried.message.clone()), &entities);
-    CARRYING.set(false);
-    Some(Box::new(message))
+    // Building is synchronous, so the guard covers exactly this message.
+    let _carrying = Carrying::start()?;
+    Some(Box::new(Message::parse(client, Box::new(carried.message.clone()), &entities)))
 }
 
 #[cfg(test)]
