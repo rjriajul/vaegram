@@ -13,16 +13,16 @@ const WAIT: Duration = Duration::from_secs(30);
 
 async fn polls(user: &Client, group: i64) {
     let sent = user.send_poll(group, "Lunch?", ["A", "B"]).await.unwrap();
-    sent.vote(user, &[0]).await.unwrap();
-    sent.retract_vote(user).await.unwrap();
-    sent.view(user).await.unwrap();
+    sent.vote(&user, &[0]).await.unwrap();
+    sent.retract_vote(&user).await.unwrap();
+    sent.view(&user).await.unwrap();
 }
 
 async fn albums_and_links(user: &Client, group: i64) {
     let album =
         [InputMedia::document(Upload::bytes("a.txt", b"a")), InputMedia::document(Upload::bytes("b.txt", b"b"))];
     let sent = user.send_media_group(group, album).await.unwrap();
-    let found = sent[0].get_media_group(user).await.unwrap();
+    let found = sent[0].get_media_group(&user).await.unwrap();
     assert_eq!(found.iter().map(|m| m.id).collect::<Vec<_>>(), sent.iter().map(|m| m.id).collect::<Vec<_>>());
 
     let exported = user.export_message_link(group, sent[0].id).await.unwrap();

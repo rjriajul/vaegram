@@ -38,7 +38,7 @@ async fn link_previews(kit: &support::Kit) {
 async fn reactions(user: &Client, group: i64) {
     let sent = user.send_message(group, "react to me").await.unwrap();
     assert!(sent.reactions.is_none());
-    sent.react(user, "👍").await.unwrap();
+    sent.react(&user, "👍").await.unwrap();
     let reactions = fetch(user, group, sent.id).await.reactions.expect("no reactions after reacting");
     assert_eq!(reactions.reactions.iter().map(|r| r.total_count).sum::<i32>(), 1);
 }
