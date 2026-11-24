@@ -99,6 +99,7 @@ getManagedBotToken                 get_managed_bot_token
 replaceManagedBotToken             replace_managed_bot_token
 getManagedBotAccessSettings        get_managed_bot_access_settings
 setManagedBotAccessSettings        set_managed_bot_access_settings
+setMySettings                      n/a: no MTProto call in layer 234; bots change these settings in @BotFather
 setMyCommands                      set_bot_commands
 deleteMyCommands                   delete_bot_commands
 getMyCommands                      get_bot_commands

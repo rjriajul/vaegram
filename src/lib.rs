@@ -66,6 +66,8 @@ macro_rules! unstable_raw_pub {
     };
 }
 
+#[cfg(feature = "bot-api")]
+pub mod bot_api;
 /// [`Client`] and its [`ClientBuilder`].
 pub mod client;
 /// The transport under a session: framing, obfuscation, proxies, and the connection settings in

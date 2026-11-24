@@ -33,7 +33,7 @@ opentelemetry = { version = "0.33", optional = true, default-features = false, f
 redb = { version = "2.6", optional = true }
 redis = { version = "1.2", optional = true, default-features = false, features = ["tokio-comp", "connection-manager"] }
 regex = { version = "1.12", optional = true }
-reqwest = { version = "0.13", optional = true, default-features = false, features = ["rustls-no-provider"] }
+reqwest = { version = "0.13", optional = true, default-features = false, features = ["rustls-no-provider", "multipart"] }
 rusqlite = { version = "0.40", optional = true, default-features = false, features = ["bundled"] }
 rustls = { version = "0.23.46", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", optional = true, features = ["derive", "rc"] }
@@ -64,6 +64,8 @@ mongodb = ["dep:mongodb"]
 postgres = ["dep:tokio-postgres"]
 s3 = ["dep:object_store"]
 vault = ["dep:reqwest", "dep:serde_json", "dep:rustls", "dep:webpki-roots"]
+# `bot_api::BotApi`: a bot over the Bot API's HTTPS interface instead of MTProto. Experimental in the 0.4.0 nightlies.
+bot-api = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:rustls", "dep:webpki-roots"]
 # Observability.
 metrics = ["dep:metrics"]
 opentelemetry = ["dep:opentelemetry"]
