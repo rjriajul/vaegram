@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::future::{Future, poll_fn};
 use std::ops::ControlFlow;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
@@ -36,6 +36,9 @@ pub(crate) struct TransferPool {
     epoch: AtomicU64,
     // Set by `shut`: no lease opens anything any more.
     shut: AtomicBool,
+    // Set for a client that must not reach Telegram (`Client::offline`, the clients of `crate::test`): one of the
+    // `DIALS`, `OFFLINE`, `TEST` below.
+    local: AtomicU8,
     // One per DC and direction, shared by every transfer there.
     pacers: Mutex<HashMap<(i32, Direction), Arc<Pacer>>>,
 }
@@ -65,7 +68,13 @@ pub(crate) enum Auth<'a> {
 
 pub(crate) struct Lease {
     pub(crate) sessions: Vec<Session>,
+    // Whether the connections idle a while after it, for the next lease to pick up; a local lease opened none.
+    linger: bool,
 }
+
+const DIALS: u8 = 0;
+const OFFLINE: u8 = 1;
+const TEST: u8 = 2;
 
 impl TransferPool {
     pub(crate) fn clear(&self) {
@@ -105,12 +114,51 @@ impl TransferPool {
         pacers.entry((dc_id, direction)).or_insert_with(|| Arc::new(Pacer::new(rate))).clone()
     }
 
+    /// Serves transfers to `dc` from `session`, already keyed, instead of dialing a connection there.
     #[cfg(test)]
     pub(crate) fn insert(&self, dc: Dc, session: &Session) {
         let slot = self.slots.lock().unwrap().entry((dc.id, dc.test)).or_default().clone();
         let mut state = slot.state.lock().unwrap();
         (state.auth_key, state.key_made, state.salt) = (Some(*session.auth_key()), session.key_made, session.salt());
         state.sessions.entry(dc).or_default().push(session.downgrade());
+    }
+
+    /// Never dials again: a lease gets the home session itself for the home DC (and, in tests, the sessions
+    /// `insert` gave it), and fails for any other DC: with `Error::Disconnected` when `offline`, with
+    /// [`TestError::NoConnection`](crate::test::TestError::NoConnection) otherwise.
+    pub(crate) fn keep_local(&self, offline: bool) {
+        self.local.store(if offline { OFFLINE } else { TEST }, Ordering::Release);
+    }
+
+    /// Why a connection to `dc_id` can't be opened, for a pool that [`keep_local`](Self::keep_local) holds back.
+    pub(crate) fn refusal(&self, dc_id: i32) -> Option<Error> {
+        match self.local.load(Ordering::Acquire) {
+            DIALS => None,
+            OFFLINE => Some(Error::Disconnected),
+            _ => Some(crate::test::TestError::NoConnection { dc_id }.into()),
+        }
+    }
+
+    /// A lease of the sessions this pool already has for `dc`, or else of the home session when `dc` is home; it
+    /// dials nothing. `None` when there is neither.
+    fn local_lease(&self, dc: Dc, count: usize, auth: Auth<'_>) -> Option<Lease> {
+        let mut sessions: Vec<Session> = match self.slots.lock().unwrap().get(&(dc.id, dc.test)) {
+            Some(slot) => {
+                let state = slot.state.lock().unwrap();
+                state.sessions.get(&dc).into_iter().flatten().filter_map(WeakSession::upgrade).collect()
+            }
+            None => Vec::new(),
+        };
+        if let Auth::Home(home, _) = auth {
+            if sessions.is_empty() && home.dc_id() == dc.id {
+                sessions.push(home.clone());
+            }
+        }
+        if sessions.is_empty() {
+            return None;
+        }
+        sessions.truncate(count);
+        Some(Lease { sessions, linger: false })
     }
 
     pub(crate) async fn lease(
@@ -143,6 +191,9 @@ impl TransferPool {
         };
         if self.shut.load(Ordering::Acquire) {
             return Err(Error::Disconnected);
+        }
+        if let Some(refused) = self.refusal(dc.id) {
+            return self.local_lease(dc, count, auth).ok_or(refused);
         }
         let (epoch, slot) = {
             let mut map = self.slots.lock().unwrap();
@@ -238,9 +289,9 @@ impl TransferPool {
         }
         drop(state);
         // Released like a lease: it idles on the main address a while, for a lease there to pick up.
-        drop(keyed.map(|session| Lease { sessions: vec![session] }));
+        drop(keyed.map(|session| Lease { sessions: vec![session], linger: true }));
         sessions.truncate(count);
-        Ok(Lease { sessions })
+        Ok(Lease { sessions, linger: true })
     }
 
     /// Opens a connection with `dial`, and again after a timeout, as a part goes again after one: up to MAX_TIMEOUTS
@@ -270,6 +321,9 @@ impl TransferPool {
 
 impl Drop for Lease {
     fn drop(&mut self) {
+        if !self.linger {
+            return;
+        }
         let sessions = std::mem::take(&mut self.sessions);
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
@@ -1065,5 +1119,29 @@ mod tests {
 
         let failing = [Err(Error::Timeout), Ok(1)].map(|r| async move { r });
         assert!(matches!(try_join_all(failing.into_iter()).await, Err(Error::Timeout)));
+    }
+
+    #[tokio::test]
+    async fn a_local_pool_serves_home_from_the_home_session_and_dials_nothing() {
+        let client = Client::offline();
+        let events = client.0.events.record();
+        // Nothing listens on these ports: a dial would fail with an I/O error, not the pool's own refusal.
+        let dc = |id| Dc { id, addr: ([127, 0, 0, 1], 1).into(), test: false, media: false };
+        let pool = TransferPool::default();
+        pool.keep_local(false);
+        let home = crate::session::Session::offline();
+        let (options, shared) = (&client.0.options, &client.0.events);
+
+        let lease = pool.lease(dc(2), 8, Auth::Home(&home, 1), options, shared).await.unwrap();
+        assert_eq!(lease.sessions.len(), 1, "the home session, and no connection opened for the other 7");
+        let refused = pool.lease(dc(4), 1, Auth::Home(&home, 1), options, shared).await.err().unwrap();
+        let refused = refused.downcast_ref::<crate::test::TestError>().cloned();
+        assert_eq!(refused, Some(crate::test::TestError::NoConnection { dc_id: 4 }));
+        assert_eq!(events.try_iter().filter(|e| matches!(e, ClientEvent::ConnectFailed { .. })).count(), 0);
+
+        // An offline client's pool refuses as its requests fail.
+        let away = client.0.transfers.lease(dc(4), 1, Auth::Home(&home, 1), options, shared).await;
+        assert!(matches!(away, Err(Error::Disconnected)));
+        assert_eq!(client.0.transfers.refusal(4).map(|e| e.to_string()), Some(Error::Disconnected.to_string()));
     }
 }

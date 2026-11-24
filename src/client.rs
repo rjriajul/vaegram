@@ -1032,12 +1032,56 @@ impl Client {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn offline() -> Client {
+    /// A bot client with in-memory storage and no connection: every request fails with `Error::Disconnected`, file
+    /// transfers and requests to other data centers included. For unit tests that need a `Client` and send nothing;
+    /// [`recording`](Self::recording) and [`scripted`](Self::scripted) make one whose requests are answered.
+    pub fn offline() -> Client {
+        let client = Client::unconnected(Session::offline(), Options::default(), |inner| {
+            inner.me.get_mut().unwrap_or_else(PoisonError::into_inner).is_bot = true;
+        });
+        client.0.transfers.keep_local(true);
+        client
+    }
+
+    /// A bot client for unit tests, with in-memory storage, that answers the common bot requests itself and
+    /// records every request it sends in the [`Recorder`](crate::test::Recorder). See [`crate::test`] for what it
+    /// answers and how. Not to be confused with [`ClientBuilder::record`], which writes a real client's traffic to a
+    /// file.
+    ///
+    /// # Panics
+    ///
+    /// Outside a Tokio runtime, such as the one `#[tokio::test]` starts.
+    pub fn recording() -> (Client, crate::test::Recorder) {
+        crate::test::TestBuilder::new().recording()
+    }
+
+    /// A bot client for unit tests, with in-memory storage, whose answers the [`Script`](crate::test::Script)
+    /// decides. It's strict: a request the script has no answer for fails. See [`crate::test`].
+    ///
+    /// # Panics
+    ///
+    /// Outside a Tokio runtime, such as the one `#[tokio::test]` starts.
+    pub fn scripted() -> (Client, crate::test::Script) {
+        crate::test::TestBuilder::new().scripted()
+    }
+
+    /// A client of [`crate::test`]: in-memory storage, every request going to `session` (file transfers to the home
+    /// DC included), and `options` (with the retry policy `session` has too). It never dials Telegram. `setup` sets
+    /// the rest before the client is shared.
+    pub(crate) fn local(session: Session, options: Options, setup: impl FnOnce(&mut Inner)) -> Client {
+        let client = Client::unconnected(session, options, setup);
+        client.0.transfers.keep_local(false);
+        client
+    }
+
+    /// A client with in-memory storage whose requests go to `session`, and whose file transfers dial as a real
+    /// client's do until its pool is kept local.
+    fn unconnected(session: Session, options: Options, setup: impl FnOnce(&mut Inner)) -> Client {
         let updates = UpdatesRx::offline();
         let store = Arc::new(Store::new(Arc::new(MemoryStorage::new()), updates.events.clone()));
-        let mut inner = Inner::new(Session::offline(), updates, store);
-        inner.me.get_mut().unwrap().is_bot = true;
+        let mut inner = Inner::new(session, updates, store);
+        inner.options = options;
+        setup(&mut inner);
         Client(Arc::new(inner), None)
     }
 
@@ -1061,12 +1105,13 @@ impl Client {
         (Client::with_session(session), sent)
     }
 
-    /// An offline client whose main and transfer session is `session`.
+    /// A bot client whose main and transfer session is `session`; other transfers dial, for tests of the pool.
     #[cfg(test)]
     pub(crate) fn with_session(session: Session) -> Client {
-        let client = Client::offline();
+        let client = Client::unconnected(session.clone(), Options::default(), |inner| {
+            inner.me.get_mut().unwrap().is_bot = true;
+        });
         client.0.transfers.insert(client.dc(2).unwrap(), &session);
-        *client.0.session.write().unwrap() = session;
         client
     }
 
@@ -1153,6 +1198,10 @@ impl Client {
     }
 
     pub(crate) async fn switch_dc(&self, dc_id: i32) -> Result<()> {
+        // A client that must not reach Telegram doesn't follow a migration either.
+        if let Some(refused) = self.0.transfers.refusal(dc_id) {
+            return Err(refused);
+        }
         let (inner, events, pfs) = (&self.0, self.0.events.clone(), self.session().pfs());
         let (session, updates, dc_options) =
             connect(self.dc(dc_id)?, None, inner.api_id, &inner.options, events, pfs).await?;

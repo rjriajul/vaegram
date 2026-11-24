@@ -229,7 +229,7 @@ impl UpdatesRx {
         mpsc::channel(capacity.clamp(1, tokio::sync::Semaphore::MAX_PERMITS))
     }
 
-    #[cfg(test)]
+    /// A queue nothing ever arrives on, for a client with no connection.
     pub(crate) fn offline() -> UpdatesRx {
         UpdatesRx { rx: mpsc::channel(1).1, events: Arc::default() }
     }
@@ -435,7 +435,6 @@ impl Session {
         Ok((session, UpdatesRx { rx, events }))
     }
 
-    #[cfg(test)]
     fn local(requests: mpsc::UnboundedSender<Request>) -> Session {
         let (options, learned, control) = (Arc::default(), Arc::default(), Arc::default());
         Session { requests, dc_id: 2, auth_key: [0; 256], key_made: None, options, pfs: None, learned, control }
@@ -446,7 +445,7 @@ impl Session {
         self.options = Arc::new(options);
     }
 
-    #[cfg(test)]
+    /// A session with no connection: every request fails with `Error::Disconnected`.
     pub(crate) fn offline() -> Session {
         Session::local(mpsc::unbounded_channel().0)
     }
@@ -481,7 +480,6 @@ impl Session {
 
     /// A session whose requests go to `respond` on a spawned task, one at a time in the order they were sent. A
     /// request whose answer `respond` drops fails.
-    #[cfg(test)]
     fn driven<F, Fut>(mut respond: F) -> Session
     where
         F: FnMut(Request) -> Fut + Send + 'static,
@@ -494,6 +492,21 @@ impl Session {
             }
         });
         Session::local(requests)
+    }
+
+    /// A session for [`crate::test`] that answers each request with `respond(name, body, tag)`, on a task of its
+    /// own, in the order they were sent; `options` holds its retry policy. Needs a Tokio runtime.
+    pub(crate) fn responding<F>(options: Options, mut respond: F) -> Session
+    where
+        F: FnMut(&'static str, Vec<u8>, Option<u64>) -> Result<Vec<u8>> + Send + 'static,
+    {
+        let mut session = Session::driven(move |request| {
+            let Request { name, body, tag, answer } = request;
+            let _ = answer.send(respond(name, body, tag));
+            std::future::ready(())
+        });
+        session.options = Arc::new(options);
+        session
     }
 
     /// A session that takes requests and never answers them.
