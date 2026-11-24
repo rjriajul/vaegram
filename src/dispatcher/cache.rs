@@ -302,6 +302,22 @@ impl Caches {
         }
     }
 
+    /// The topics a reply brings along (a difference, a dialog or message page), each keyed by its forum. Short ones,
+    /// with counters and read state unset, are left out: cached, they would stand in for the full topic.
+    pub(crate) fn store_topics(&self, topics: impl IntoIterator<Item = base::ForumTopic>, entities: &Entities) {
+        let Some(cache) = &self.topics else { return };
+        let mut cache = cache.lock().unwrap();
+        for raw in topics {
+            let chat = match &raw {
+                base::ForumTopic::ForumTopic(t) if !t.short => crate::utils::get_peer_id(&t.peer),
+                _ => continue,
+            };
+            if let Some(topic) = ForumTopic::parse(raw, entities) {
+                cache.insert((chat, topic.id), topic);
+            }
+        }
+    }
+
     fn forget_topic(&self, peer: &base::Peer, header: Option<&base::MessageReplyHeader>) {
         let Some(topics) = &self.topics else { return };
         // The thread is found the way filters find it; a topic edit outside any thread is the General topic's.

@@ -130,4 +130,21 @@ mod tests {
         let channel = ForumTopic::parse(topic(get_peer(get_channel_id(8))), &entities).unwrap();
         assert_eq!(channel.creator.map(|c| c.id), Some(get_channel_id(8)));
     }
+
+    #[test]
+    fn topics_brought_along_are_cached_under_their_forum_unless_short() {
+        use crate::dispatcher::cache::Caches;
+        let full = |id| match topic(get_peer(7)) {
+            base::ForumTopic::ForumTopic(t) => {
+                base::ForumTopic::ForumTopic(Box::new(types::ForumTopic { id, short: false, ..*t }))
+            }
+            deleted => deleted,
+        };
+        let deleted = base::ForumTopic::ForumTopicDeleted(types::ForumTopicDeleted { id: 8 });
+        let caches = Caches::new(0, 10);
+        caches.store_topics([full(6), topic(get_peer(7)), deleted], &Entities::default());
+        let forum = get_channel_id(9);
+        assert_eq!(caches.topic(forum, 6).map(|t| (t.id, t.is_short)), Some((6, false)));
+        assert_eq!((caches.topic(forum, 5), caches.topic(forum, 8)), (None, None));
+    }
 }

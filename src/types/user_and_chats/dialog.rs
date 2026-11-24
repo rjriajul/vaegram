@@ -37,12 +37,15 @@ pub struct Dialog {
 
 impl Dialog {
     pub(crate) fn unpack(client: &Client, page: base::messages::Dialogs) -> (Vec<Dialog>, Option<i32>) {
-        let (dialogs, mut messages, users, chats, count) = match page {
-            base::messages::Dialogs::Dialogs(d) => (d.dialogs, d.messages, d.users, d.chats, None),
-            base::messages::Dialogs::DialogsSlice(d) => (d.dialogs, d.messages, d.users, d.chats, Some(d.count)),
+        let (dialogs, mut messages, users, chats, topics, count) = match page {
+            base::messages::Dialogs::Dialogs(d) => (d.dialogs, d.messages, d.users, d.chats, d.topics, None),
+            base::messages::Dialogs::DialogsSlice(d) => {
+                (d.dialogs, d.messages, d.users, d.chats, d.topics, Some(d.count))
+            }
             base::messages::Dialogs::DialogsNotModified(d) => return (Vec::new(), Some(d.count)),
         };
         let entities = Entities::new(client, users, chats);
+        client.0.caches.store_topics(topics.into_iter().flatten(), &entities);
         let dialogs = dialogs
             .iter()
             .filter_map(|d| match d {

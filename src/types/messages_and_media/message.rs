@@ -399,13 +399,14 @@ impl Message {
     }
 
     pub(crate) fn unpack(client: &Client, messages: base::messages::Messages) -> (Vec<base::Message>, Entities) {
-        let (messages, users, chats) = match messages {
-            base::messages::Messages::Messages(m) => (m.messages, m.users, m.chats),
-            base::messages::Messages::MessagesSlice(m) => (m.messages, m.users, m.chats),
-            base::messages::Messages::ChannelMessages(m) => (m.messages, m.users, m.chats),
+        let (messages, users, chats, topics) = match messages {
+            base::messages::Messages::Messages(m) => (m.messages, m.users, m.chats, m.topics),
+            base::messages::Messages::MessagesSlice(m) => (m.messages, m.users, m.chats, m.topics),
+            base::messages::Messages::ChannelMessages(m) => (m.messages, m.users, m.chats, m.topics),
             base::messages::Messages::MessagesNotModified(_) => Default::default(),
         };
         let entities = Entities::new(client, users, chats);
+        client.0.caches.store_topics(topics, &entities);
         for message in &messages {
             entities.remember_min_peers(client, message);
         }
