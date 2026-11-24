@@ -563,6 +563,20 @@ fn gen_function(out: &mut String, d: &Def) {
         (format!("impl crate::raw::RemoteCall for {name}"), rust_ty(&d.ty, false))
     };
     writeln!(out, "{head} {{ const NAME: &'static str = {:?}; type Return = {ret}; }}", d.name).unwrap();
+    if !d.generic {
+        gen_deserialize_call(out, d, &name);
+    }
+}
+
+/// Reading a call back from its bytes, for the Bot API bridge, which maps the requests friendly methods build.
+fn gen_deserialize_call(out: &mut String, d: &Def, name: &str) {
+    writeln!(out, "#[cfg(feature = \"bot-api\")]\nimpl crate::raw::Deserializable for {name} {{").unwrap();
+    writeln!(out, "    fn deserialize(buf: &mut &[u8]) -> ::std::result::Result<Self, crate::raw::Error> {{").unwrap();
+    writeln!(out, "        let id = <u32 as crate::raw::Deserializable>::deserialize(buf)?;").unwrap();
+    writeln!(out, "        if id != {:#010x} {{ return Err(crate::raw::Error::UnexpectedConstructor {{ id }}); }}", d.id)
+        .unwrap();
+    let names = gen_reads(out, d);
+    writeln!(out, "        Ok(Self {{ {} }})\n    }}\n}}", names.join(", ")).unwrap();
 }
 
 /// `json`: also implement `ToJson` for every type and function (the `json` cargo feature).

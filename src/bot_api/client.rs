@@ -59,10 +59,15 @@ impl BotApi {
         } else {
             builder.multipart(form(json, uploads))
         };
-        let response = builder.send().await.map_err(network)?;
-        let body = response.bytes().await.map_err(network)?;
-        let envelope: Envelope = serde_json::from_slice(&body).map_err(invalid)?;
-        envelope.into_result()
+        read(builder).await
+    }
+
+    /// Sends `method` with a JSON body built by hand and returns its `result` as it came, for the bridge, which
+    /// reads only the fields it needs.
+    pub(crate) async fn call(&self, method: &str, body: &serde_json::Value) -> Result<serde_json::Value> {
+        let url = format!("{}/{method}", self.0.base);
+        let body = serde_json::to_vec(body).map_err(invalid)?;
+        read(self.0.http.post(url).header(reqwest::header::CONTENT_TYPE, "application/json").body(body)).await
     }
 
     /// The URL to download a file from, given the `file_path` that `getFile` returned. It holds the bot's token, so
@@ -182,7 +187,15 @@ fn error_name(description: &str) -> String {
     name.trim_matches('_').to_owned()
 }
 
-fn invalid(e: serde_json::Error) -> Error {
+/// Sends `request` and reads the envelope Telegram answers with.
+async fn read<T: serde::de::DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T> {
+    let response = request.send().await.map_err(network)?;
+    let body = response.bytes().await.map_err(network)?;
+    let envelope: Envelope = serde_json::from_slice(&body).map_err(invalid)?;
+    envelope.into_result()
+}
+
+pub(super) fn invalid(e: serde_json::Error) -> Error {
     Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 

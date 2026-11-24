@@ -91,6 +91,14 @@ const REPORT_WAIT: Duration = Duration::from_millis(500);
 
 type Answer = Result<Vec<u8>>;
 
+/// The TL body of a [`Session::detached`] session's answer, to come.
+#[cfg(feature = "bot-api")]
+pub(crate) type Reply = std::pin::Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send>>;
+
+/// What answers a [`Session::detached`] session's requests, given each one's name and TL body.
+#[cfg(feature = "bot-api")]
+pub(crate) type Responder = Arc<dyn Fn(&'static str, Vec<u8>) -> Reply + Send + Sync>;
+
 /// The body and tag of each request a scripted test session took.
 #[cfg(test)]
 pub(crate) type TaggedBodies = mpsc::UnboundedReceiver<(Vec<u8>, Option<u64>)>;
@@ -227,6 +235,14 @@ impl UpdatesRx {
     /// (`Semaphore::MAX_PERMITS`, far past any memory), which they refuse by panicking.
     fn queue(capacity: usize) -> (mpsc::Sender<Incoming>, mpsc::Receiver<Incoming>) {
         mpsc::channel(capacity.clamp(1, tokio::sync::Semaphore::MAX_PERMITS))
+    }
+
+    /// A queue fed through the returned sender instead of a connection, for a client whose updates come from
+    /// elsewhere (the Bot API's `getUpdates`).
+    #[cfg(feature = "bot-api")]
+    pub(crate) fn detached(capacity: usize, events: Arc<Events>) -> (mpsc::Sender<Incoming>, UpdatesRx) {
+        let (tx, rx) = UpdatesRx::queue(capacity);
+        (tx, UpdatesRx { rx, events })
     }
 
     /// A queue nothing ever arrives on, for a client with no connection.
@@ -433,6 +449,32 @@ impl Session {
         let auth_key = auth_key.map(|(key, salt)| Known { key, salt, made: None });
         let session = Session::open(dc, auth_key, None, options, events.clone(), Role::Main(tx), pfs).await?;
         Ok((session, UpdatesRx { rx, events }))
+    }
+
+    /// A session with no connection: `respond` answers each request, by its name and TL body, with the TL body of
+    /// the answer. For a client that talks to Telegram another way (the Bot API over HTTP). It counts as connected
+    /// until it is closed, after which requests fail with `Error::Disconnected`.
+    #[cfg(feature = "bot-api")]
+    pub(crate) fn detached(options: &Options, respond: Responder) -> Session {
+        let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
+        let control = Arc::new(Control::default());
+        control.connected.store(true, Ordering::Release);
+        let task_control = control.clone();
+        tokio::spawn(async move {
+            while let Some(request) = rx.recv().await {
+                let Request { name, body, answer, .. } = request;
+                if task_control.closed() {
+                    let _ = answer.send(Err(Error::Disconnected));
+                    continue;
+                }
+                let reply = respond(name, body);
+                tokio::spawn(async move {
+                    let _ = answer.send(reply.await);
+                });
+            }
+        });
+        let (options, learned) = (Arc::new(options.clone()), Arc::default());
+        Session { requests, dc_id: 0, auth_key: [0; 256], key_made: None, options, pfs: None, learned, control }
     }
 
     fn local(requests: mpsc::UnboundedSender<Request>) -> Session {

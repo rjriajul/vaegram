@@ -75,6 +75,10 @@ pub struct ClientBuilder {
     auto_sleep: AutoSleep,
     retry_policy: Option<Retry>,
     auto_no_updates: bool,
+    #[cfg(feature = "bot-api")]
+    bot_api: Option<String>,
+    #[cfg(feature = "bot-api")]
+    bot_api_url: Option<String>,
 }
 
 #[derive(Default)]
@@ -90,6 +94,30 @@ impl ClientBuilder {
     /// [`phone_number`](Self::phone_number).
     pub fn bot_token(mut self, token: impl Into<String>) -> Self {
         self.login.bot_token = Some(token.into());
+        self
+    }
+
+    /// Talks to Telegram through the HTTP Bot API, as the bot with this token from @BotFather, instead of MTProto
+    /// (feature `bot-api`; experimental). No MTProto connection is opened: `start` and `connect` call `getMe`, each
+    /// request a friendly method makes goes out as its Bot API counterpart, and `run` takes updates from
+    /// `getUpdates`, so methods, types, filters and handlers stay the same. A request with no counterpart yet fails
+    /// with [`Unsupported`](crate::bot_api::Unsupported) in `Error::Other`.
+    ///
+    /// What the client builds from Bot API answers is partly made up: users and chats come as `min`, with an access
+    /// hash of 0 once looked up, files carry what their `file_id` decodes to, and a message's raw TL holds only what
+    /// the Bot API sent. Nothing is stored: peers stay in memory, whatever storage is set, and `api_id` and
+    /// `api_hash` aren't used.
+    #[cfg(feature = "bot-api")]
+    pub fn bot_api(mut self, token: impl Into<String>) -> Self {
+        self.bot_api = Some(token.into());
+        self
+    }
+
+    /// The Bot API server [`bot_api`](Self::bot_api) talks to, `https://api.telegram.org` unless set; a local Bot
+    /// API server's URL goes here.
+    #[cfg(feature = "bot-api")]
+    pub fn bot_api_url(mut self, url: impl Into<String>) -> Self {
+        self.bot_api_url = Some(url.into());
         self
     }
 
@@ -587,6 +615,10 @@ impl ClientBuilder {
     }
 
     async fn open(mut self) -> Result<(Client, Login)> {
+        #[cfg(feature = "bot-api")]
+        if let Some(token) = self.bot_api.take() {
+            return self.open_bot_api(token).await;
+        }
         let device = &self.options.device;
         if device.tz_offset.is_some() && device.params.as_ref().is_some_and(|p| !matches!(p, Json::Object(_))) {
             return Err(Error::InvalidArgument("init_connection_params must be an object to carry tz_offset"));
@@ -647,6 +679,7 @@ impl ClientBuilder {
         };
         let (session, updates, dc_options) = result?;
         let mut inner = Inner::new(session, updates, store);
+        self.configure(&mut inner);
         inner.peers.get_mut().unwrap_or_else(PoisonError::into_inner).load(warm);
         inner.api_id = self.api_id;
         inner.api_hash = self.api_hash;
@@ -655,25 +688,8 @@ impl ClientBuilder {
         inner.test_mode = test_mode;
         inner.pinned = pinned;
         inner.ipv6 = self.ipv6;
-        inner.options = self.options;
-        inner.parse_mode = Mutex::new(self.parse_mode);
-        inner.link_preview_options = Mutex::new(self.link_preview_options);
         inner.state = Mutex::new(state);
         inner.me = Mutex::new(Me { id: user_id, is_bot, premium: None, username: None });
-        inner.ordered = self.ordered;
-        inner.catch_up = self.catch_up;
-        inner.handler_permits = self.max_concurrent_handlers.map(permits);
-        inner.client_platform = self.client_platform;
-        inner.listener_timeout = self.listener_timeout;
-        inner.unallowed_click_alert = self.unallowed_click_alert;
-        if let Some(n) = self.max_listeners {
-            inner.handlers.listeners.limit(n);
-        }
-        inner.transmissions = self.max_concurrent_transmissions.map(Transmissions::new);
-        inner.transfer_settings = self.transfer_settings;
-        let set_names = if self.fetch.stickers { self.max_sticker_set_name_cache_size } else { 0 };
-        inner.caches = Caches::new(self.max_message_cache_size, self.max_topic_cache_size).with_set_names(set_names);
-        inner.fetch = self.fetch;
         // A bot keeps going unlimited unless limits were set. A session not logged in yet gets the user's ones, which
         // `set_me` turns on for a user only.
         inner.limiter = match &self.rate_limits {
@@ -681,7 +697,6 @@ impl ClientBuilder {
             None if is_bot || (user_id == 0 && self.login.bot_token.is_some()) => None,
             None => Some(RateLimiter::for_user_accounts(user_id != 0)),
         };
-        inner.auto_no_updates = self.auto_no_updates;
         let client = Client(Arc::new(inner), None);
         let imported = self.session_string.as_deref().is_some_and(session_string::is_import);
         if imported && user_id == 0 {
@@ -693,6 +708,57 @@ impl ClientBuilder {
             }
         }
         client.save().await?;
+        Ok((client, self.login))
+    }
+
+    /// The settings every client takes the same way, whatever it talks to Telegram over.
+    fn configure(&mut self, inner: &mut Inner) {
+        inner.options = std::mem::take(&mut self.options);
+        inner.parse_mode = Mutex::new(self.parse_mode);
+        inner.link_preview_options = Mutex::new(self.link_preview_options.take());
+        inner.ordered = self.ordered;
+        inner.catch_up = self.catch_up;
+        inner.handler_permits = self.max_concurrent_handlers.map(permits);
+        inner.client_platform = std::mem::take(&mut self.client_platform);
+        inner.listener_timeout = self.listener_timeout;
+        inner.unallowed_click_alert = self.unallowed_click_alert.take();
+        if let Some(n) = self.max_listeners {
+            inner.handlers.listeners.limit(n);
+        }
+        inner.transmissions = self.max_concurrent_transmissions.map(Transmissions::new);
+        inner.transfer_settings = std::mem::take(&mut self.transfer_settings);
+        let set_names = if self.fetch.stickers { self.max_sticker_set_name_cache_size } else { 0 };
+        inner.caches = Caches::new(self.max_message_cache_size, self.max_topic_cache_size).with_set_names(set_names);
+        inner.fetch = self.fetch;
+        inner.auto_no_updates = self.auto_no_updates;
+    }
+
+    /// [`open`](Self::open) for [`bot_api`](Self::bot_api): no connection, no storage, and the account from `getMe`.
+    #[cfg(feature = "bot-api")]
+    async fn open_bot_api(mut self, token: String) -> Result<(Client, Login)> {
+        use crate::bot_api::{BotApi, bridge};
+        if let Some(limits) = &self.rate_limits {
+            limits.validate()?;
+        }
+        self.options.retry = self.retry_policy.take().unwrap_or_else(|| Retry::new(self.auto_sleep));
+        let mut api = BotApi::builder(token);
+        if let Some(url) = self.bot_api_url.take() {
+            api = api.url(url);
+        }
+        let events = Arc::new(Events::default());
+        let store = Arc::new(Store::new(Arc::new(MemoryStorage::new()), events.clone()));
+        store.open().await?;
+        let (updates_tx, updates) = UpdatesRx::detached(self.options.updates_capacity, events);
+        let transport = Arc::new(bridge::Transport::new(api.build()?, updates_tx));
+        let session = Session::detached(&self.options, bridge::responder(transport.clone()));
+        let mut inner = Inner::new(session, updates, store);
+        self.configure(&mut inner);
+        inner.api_id = self.api_id;
+        inner.api_hash = self.api_hash;
+        inner.limiter = self.rate_limits.as_ref().map(RateLimiter::new);
+        inner.bot_api = Some(transport);
+        let client = Client(Arc::new(inner), None);
+        client.set_me(&client.get_me_raw().await?);
         Ok((client, self.login))
     }
 
@@ -772,6 +838,9 @@ pub(crate) struct InnerFields {
     pub(crate) transfer_settings: TransferSettings,
     pub(crate) limiter: Option<RateLimiter>,
     pub(crate) auto_no_updates: bool,
+    // The Bot API bridge a client from `ClientBuilder::bot_api` talks through.
+    #[cfg(feature = "bot-api")]
+    pub(crate) bot_api: Option<Arc<crate::bot_api::Transport>>,
     pub(crate) events: Arc<Events>,
     pub(crate) streams: Mutex<HashMap<i64, Arc<StreamShared>>>,
     pub(crate) stop: tokio::sync::watch::Sender<bool>,
@@ -918,6 +987,8 @@ impl Inner {
             transfer_settings: TransferSettings::default(),
             limiter: None,
             auto_no_updates: false,
+            #[cfg(feature = "bot-api")]
+            bot_api: None,
             streams: Mutex::new(HashMap::new()),
             stop: tokio::sync::watch::Sender::new(false),
             stop_deadline: Mutex::new(None),
@@ -1031,6 +1102,10 @@ impl Client {
             auto_sleep: AutoSleep::default(),
             retry_policy: None,
             auto_no_updates: false,
+            #[cfg(feature = "bot-api")]
+            bot_api: None,
+            #[cfg(feature = "bot-api")]
+            bot_api_url: None,
         }
     }
 

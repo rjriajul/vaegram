@@ -120,7 +120,12 @@ impl Client {
     // `dispatcher` comes after `running`, so a cancelled `drive` drops it first: it hands its state back to the
     // client before `Running` saves it for a disconnected client.
     pub(super) async fn drive(&self, running: Running, mut dispatcher: Dispatcher) -> Result<()> {
+        // A client in Bot API mode has no connection pushing updates: `getUpdates` feeds the queue while this runs.
+        #[cfg(feature = "bot-api")]
+        let polling = crate::bot_api::poll(self);
         let stopped = crate::observe::untagged(dispatcher.run(&mut *self.0.updates.lock().await)).await;
+        #[cfg(feature = "bot-api")]
+        drop(polling);
         // Dropped first, so the update state is back in the client when the stop hook runs.
         drop(dispatcher);
         crate::observe::untagged(self.lifecycle_hook(UpdateKind::Stop)).await;
