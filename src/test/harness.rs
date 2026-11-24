@@ -51,9 +51,9 @@ impl Drop for Detached {
 ///
 /// # async fn f() {
 /// let (client, recorder) = Client::recording();
-/// client.on_message(filters::command("name"), |client, msg| async move {
-///     let answer = client.ask(msg.chat.id, "What's your name?").await?;
-///     msg.reply(&client, format!("Hi, {}", answer.text())).await
+/// client.on_message(filters::command("name"), |msg| async move {
+///     let answer = msg.client().ask(msg.chat.id, "What's your name?").await?;
+///     msg.reply(format!("Hi, {}", answer.text())).await
 /// });
 ///
 /// recorder.dispatch(TestMessage::private(42, "/name")).await;

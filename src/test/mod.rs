@@ -14,7 +14,7 @@
 //! # async fn f() -> vaegram::Result<()> {
 //! let (client, recorder) = Client::recording();
 //! let sent = client.send_message(42, "hi").await?;
-//! sent.reply(&client, "again").await?;
+//! sent.reply("again").await?;
 //! assert_eq!(recorder.sent_texts(42), ["hi", "again"]);
 //! assert!(recorder.calls().iter().any(|call| matches!(
 //!     &call.kind,
@@ -59,7 +59,7 @@
 //!
 //! # async fn f() {
 //! let (client, recorder) = Client::recording();
-//! client.on_message(filters::command("start"), |client, msg| async move { msg.reply(&client, "Welcome!").await });
+//! client.on_message(filters::command("start"), |msg| async move { msg.reply("Welcome!").await });
 //! recorder.feed(TestMessage::private(42, "/start")).await;
 //! assert_eq!(recorder.sent_texts(42), ["Welcome!"]);
 //! # }

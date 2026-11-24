@@ -7,8 +7,15 @@ use super::calls::{CallKind, RecordedCall};
 use super::{State, TestError};
 use crate::errors::Result;
 use crate::raw::{Deserializable, RemoteCall, Serializable, base, functions, types};
-use crate::types::PeerId;
 use crate::utils::get_peer;
+
+/// The TL id of the channel or supergroup a Bot-API-style id names; `None` for users and basic groups.
+pub(crate) fn channel_of(chat_id: i64) -> Option<i64> {
+    match get_peer(chat_id) {
+        base::Peer::PeerChannel(c) => Some(c.channel_id),
+        _ => None,
+    }
+}
 
 /// The access hash of every user, channel, photo and document a test client is told about.
 pub(crate) const ACCESS_HASH: i64 = 0x7e57;
@@ -44,7 +51,7 @@ pub(crate) fn answer(state: &State, call: &RecordedCall) -> Result<Vec<u8>> {
         EDIT_MESSAGE => return edited(state, call, None),
         DELETE_MESSAGES | DELETE_CHANNEL_MESSAGES | READ_HISTORY => {
             let channel = match &call.kind {
-                CallKind::DeleteMessages { chat_id: Some(chat_id), .. } => PeerId::from_bot_api(*chat_id).channel(),
+                CallKind::DeleteMessages { chat_id: Some(chat_id), .. } => channel_of(*chat_id),
                 _ => None,
             };
             let pts = channel.map_or_else(|| state.next_pts(), |channel| state.next_channel_pts(channel));
@@ -178,7 +185,7 @@ fn edited(state: &State, call: &RecordedCall, id: Option<i32>) -> Result<Vec<u8>
         ..crate::types::Message::request(*chat_id, text.clone().unwrap_or_default(), None)
     };
     let message = base::Message::Message(Box::new(message));
-    let update = match PeerId::from_bot_api(*chat_id).channel() {
+    let update = match channel_of(*chat_id) {
         Some(channel) => {
             let pts = state.next_channel_pts(channel);
             let update = types::UpdateEditChannelMessage { message, pts, pts_count: 1 };

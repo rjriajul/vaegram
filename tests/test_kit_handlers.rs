@@ -37,7 +37,7 @@ fn sent_text(kind: &CallKind) -> (i64, &str) {
 #[tokio::test]
 async fn command_handler_replies_and_the_reply_is_recorded() {
     let (client, recorder) = Client::recording();
-    client.on_message(filters::command("start"), |client, msg| async move { msg.reply(&client, "Welcome!").await });
+    client.on_message(filters::command("start"), |msg| async move { msg.reply("Welcome!").await });
 
     soon(recorder.feed(TestMessage::private(42, "/start"))).await;
     assert_eq!(recorder.sent_texts(42), ["Welcome!"]);
@@ -56,7 +56,7 @@ async fn command_handler_replies_and_the_reply_is_recorded() {
 #[tokio::test]
 async fn a_filter_that_does_not_match_records_nothing() {
     let (client, recorder) = Client::recording();
-    client.on_message(filters::command("start"), |client, msg| async move { msg.reply(&client, "Welcome!").await });
+    client.on_message(filters::command("start"), |msg| async move { msg.reply("Welcome!").await });
 
     soon(recorder.feed(TestMessage::private(42, "/help"))).await;
     soon(recorder.feed(TestMessage::private(42, "start"))).await;
@@ -70,9 +70,7 @@ async fn a_filter_that_does_not_match_records_nothing() {
 #[tokio::test]
 async fn callback_query_answer_is_recorded() {
     let (client, recorder) = Client::recording();
-    client.on_callback_query(filters::all(), |client, query| async move {
-        query.answer(&client).text("Clicked").alert().await
-    });
+    client.on_callback_query(filters::all(), |query| async move { query.answer().text("Clicked").alert().await });
 
     soon(recorder.feed(TestCallbackQuery::new(42, 42, 1, "btn:ok").query_id(99))).await;
     let calls = recorder.calls();
@@ -90,7 +88,7 @@ async fn callback_query_in_a_channel_names_the_channel() {
     let (client, recorder) = Client::recording();
     let kinds = Arc::new(Mutex::new(Vec::new()));
     let seen = kinds.clone();
-    client.on_callback_query(filters::all(), move |_, query| {
+    client.on_callback_query(filters::all(), move |query| {
         let seen = seen.clone();
         async move {
             seen.lock().unwrap().push(query.chat().map(|c| (c.id, matches!(c.kind, ChatType::Channel))));
@@ -108,7 +106,7 @@ async fn group_supergroup_and_channel_messages_reach_handlers() {
     let (client, recorder) = Client::recording();
     let seen = Arc::new(Mutex::new(Vec::new()));
     let log = seen.clone();
-    client.on_message(filters::all(), move |_, msg| {
+    client.on_message(filters::all(), move |msg| {
         let log = log.clone();
         async move {
             let kind = match msg.chat.kind {
@@ -117,7 +115,7 @@ async fn group_supergroup_and_channel_messages_reach_handlers() {
                 ChatType::Channel => "channel",
                 _ => "other",
             };
-            log.lock().unwrap().push((msg.chat.id, kind, msg.from_user().map(|u| u.id)));
+            log.lock().unwrap().push((msg.chat.id, kind, msg.from_user.as_ref().map(|u| u.id)));
             Ok(())
         }
     });
@@ -146,8 +144,8 @@ async fn edited_message_reaches_on_edited_message() {
     let (client, recorder) = Client::recording();
     let edits = Arc::new(Mutex::new(Vec::new()));
     let seen = edits.clone();
-    client.on_message(filters::all(), |client, msg| async move { msg.reply(&client, "new").await });
-    client.on_edited_message(filters::all(), move |_, msg| {
+    client.on_message(filters::all(), |msg| async move { msg.reply("new").await });
+    client.on_edited_message(filters::all(), move |msg| {
         let seen = seen.clone();
         async move {
             seen.lock().unwrap().push((msg.id, msg.text().to_owned(), msg.edit_date.is_some()));
@@ -165,10 +163,10 @@ async fn reply_and_thread_headers_are_read() {
     let (client, recorder) = Client::recording();
     let seen = Arc::new(Mutex::new(Vec::new()));
     let log = seen.clone();
-    client.on_message(filters::all(), move |_, msg| {
+    client.on_message(filters::all(), move |msg| {
         let log = log.clone();
         async move {
-            log.lock().unwrap().push((msg.reply_to_message_id(), msg.message_thread_id, msg.is_topic_message));
+            log.lock().unwrap().push((msg.reply_to_message_id, msg.message_thread_id, msg.is_topic_message));
             Ok(())
         }
     });
@@ -200,9 +198,9 @@ async fn know_user_and_know_chat_let_a_strict_client_send() {
 #[tokio::test]
 async fn ask_dialog_takes_two_turns() {
     let (client, recorder) = Client::recording();
-    client.on_message(filters::command("name"), |client, msg| async move {
-        let answer = client.ask(msg.chat.id, "What's your name?").await?;
-        msg.reply(&client, format!("Hi, {}", answer.text())).await
+    client.on_message(filters::command("name"), |msg| async move {
+        let answer = msg.client().ask(msg.chat.id, "What's your name?").await?;
+        msg.reply(format!("Hi, {}", answer.text())).await
     });
 
     // `feed` would wait for the handler, which waits for the answer: start it, then answer.
@@ -216,9 +214,9 @@ async fn ask_dialog_takes_two_turns() {
 #[tokio::test]
 async fn feeds_from_two_tasks_do_not_wait_on_each_other() {
     let (client, recorder) = Client::recording();
-    client.on_message(filters::command("name"), |client, msg| async move {
-        let answer = client.ask(msg.chat.id, "What's your name?").await?;
-        msg.reply(&client, format!("Hi, {}", answer.text())).await
+    client.on_message(filters::command("name"), |msg| async move {
+        let answer = msg.client().ask(msg.chat.id, "What's your name?").await?;
+        msg.reply(format!("Hi, {}", answer.text())).await
     });
 
     // The first feed waits for its handler, parked in `ask`, while the answer is fed from here.
@@ -235,7 +233,7 @@ async fn ordered_keeps_one_chats_handlers_in_order() {
     let (client, recorder) = TestBuilder::new().ordered(true).recording();
     let log = Arc::new(Mutex::new(Vec::new()));
     let seen = log.clone();
-    client.on_message(filters::all(), move |_, msg| {
+    client.on_message(filters::all(), move |msg| {
         let seen = seen.clone();
         async move {
             if msg.text() == "slow" {
@@ -257,7 +255,7 @@ async fn max_concurrent_handlers_caps_the_handlers_running() {
     let (client, recorder) = TestBuilder::new().max_concurrent_handlers(1).recording();
     let (now, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
     let (running, peak) = (now.clone(), most.clone());
-    client.on_message(filters::all(), move |_, _| {
+    client.on_message(filters::all(), move |_| {
         let (running, peak) = (running.clone(), peak.clone());
         async move {
             peak.fetch_max(running.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
@@ -282,7 +280,7 @@ async fn on_error_sees_a_scripted_rpc_error() {
     script.auto_reply(true);
     let errors = Arc::new(Mutex::new(Vec::new()));
     let seen = errors.clone();
-    client.on_message(filters::command("ping"), |client, msg| async move { msg.reply(&client, "pong").await });
+    client.on_message(filters::command("ping"), |msg| async move { msg.reply("pong").await });
     client.on_error(move |e| {
         seen.lock().unwrap().push(e.error.is("BOT_WAS_BLOCKED"));
         async {}
@@ -296,7 +294,7 @@ async fn on_error_sees_a_scripted_rpc_error() {
 #[tokio::test]
 async fn run_takes_pushed_updates_until_the_stream_closes() {
     let (client, recorder) = Client::recording();
-    client.on_message(filters::command("ping"), |client, msg| async move { msg.reply(&client, "pong").await });
+    client.on_message(filters::command("ping"), |msg| async move { msg.reply("pong").await });
     let running = client.clone();
     let run = tokio::spawn(async move { running.run().await });
 
@@ -317,7 +315,7 @@ async fn run_takes_pushed_updates_until_the_stream_closes() {
 async fn script_push_stream_reaches_run() {
     let (client, script) = Client::scripted();
     script.auto_reply(true);
-    client.on_message(filters::command("ping"), |client, msg| async move { msg.reply(&client, "pong").await });
+    client.on_message(filters::command("ping"), |msg| async move { msg.reply("pong").await });
     let running = client.clone();
     let run = tokio::spawn(async move { running.run().await });
 

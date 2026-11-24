@@ -47,8 +47,8 @@ async fn send_message_is_recorded_and_returns_the_message() {
 async fn a_reply_names_the_message_it_replies_to() {
     let (client, recorder) = Client::recording();
     let first = client.send_message(42, "question").await.unwrap();
-    let reply = first.reply(&client, "answer").await.unwrap();
-    assert_eq!(reply.reply_to_message_id(), Some(first.id));
+    let reply = first.reply("answer").await.unwrap();
+    assert_eq!(reply.reply_to_message_id, Some(first.id));
 
     let calls = recorder.calls();
     let last = sends(&calls).pop().unwrap();

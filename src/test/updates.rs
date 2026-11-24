@@ -3,9 +3,9 @@
 //! ones, and the users and chats they name land in the client's peer cache.
 
 use super::State;
-use super::auto_reply::{ACCESS_HASH, now};
+use super::auto_reply::{ACCESS_HASH, channel_of, now};
 use crate::raw::{base, types};
-use crate::types::{Message, PeerId};
+use crate::types::Message;
 use crate::utils::{get_channel_id, get_peer};
 
 /// A user an update comes from, or a peer the client should know: [`Recorder::know_user`](super::Recorder::know_user).
@@ -181,7 +181,7 @@ impl TestChat {
     fn guess(id: i64) -> Self {
         if id > 0 {
             TestChat::private(id)
-        } else if PeerId::from_bot_api(id).channel().is_some() {
+        } else if channel_of(id).is_some() {
             TestChat::supergroup(id)
         } else {
             TestChat::group(id)
@@ -191,7 +191,7 @@ impl TestChat {
     /// The TL id of a supergroup or channel.
     fn channel_tl(&self) -> Option<i64> {
         match self.kind {
-            ChatKind::Supergroup | ChatKind::Channel => PeerId::from_bot_api(self.id).channel(),
+            ChatKind::Supergroup | ChatKind::Channel => channel_of(self.id),
             ChatKind::Private | ChatKind::Group => None,
         }
     }
