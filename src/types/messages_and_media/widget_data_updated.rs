@@ -6,7 +6,7 @@ use crate::raw::types;
 use crate::types::Chat;
 
 /// A change to a message widget's public or chat-specific data.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct WidgetDataUpdated {
     /// The chat containing the message.
@@ -19,17 +19,25 @@ pub struct WidgetDataUpdated {
     pub public_data_hash: Option<i64>,
     /// The new chat-specific data, or `None` if it did not change.
     pub chat_data: Option<String>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl WidgetDataUpdated {
-    pub(crate) fn parse(_client: &Client, raw: &types::UpdateMessageWidgetData, entities: &Entities) -> Self {
+    pub(crate) fn parse(client: &Client, raw: &types::UpdateMessageWidgetData, entities: &Entities) -> Self {
         Self {
             chat: Chat::parse(&raw.peer, entities, false),
             message_id: raw.msg_id,
             public_data: raw.public_data.clone(),
             public_data_hash: raw.public_data_hash,
             chat_data: raw.chat_data.clone(),
+            client: client.clone(),
         }
+    }
+
+    /// The [`Client`] that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }
 

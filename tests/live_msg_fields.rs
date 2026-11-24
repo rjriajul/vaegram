@@ -14,9 +14,9 @@ async fn fetch(user: &Client, chat_id: i64, id: i32) -> Message {
 
 /// The bot echoes the preview url it received; a preview still loading shows up on a fetch a little later.
 async fn link_previews(kit: &support::Kit) {
-    kit.bot.on_message(filters::private() & filters::text(), |client, m| async move {
+    kit.bot.on_message(filters::private() & filters::text(), |_client, m| async move {
         let url = m.web_page.as_ref().map_or("pending".to_owned(), |p| p.url.clone());
-        m.reply(&client, url).await?;
+        m.reply(url).await?;
         Ok(())
     });
     let reply = kit.user.send_and_wait_reply(&kit.bot, LINK).await.unwrap();
@@ -38,7 +38,7 @@ async fn link_previews(kit: &support::Kit) {
 async fn reactions(user: &Client, group: i64) {
     let sent = user.send_message(group, "react to me").await.unwrap();
     assert!(sent.reactions.is_none());
-    sent.react(&user, "👍").await.unwrap();
+    sent.react("👍").await.unwrap();
     let reactions = fetch(user, group, sent.id).await.reactions.expect("no reactions after reacting");
     assert_eq!(reactions.reactions.iter().map(|r| r.total_count).sum::<i32>(), 1);
 }

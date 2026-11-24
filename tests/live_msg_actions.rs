@@ -13,16 +13,16 @@ const WAIT: Duration = Duration::from_secs(30);
 
 async fn polls(user: &Client, group: i64) {
     let sent = user.send_poll(group, "Lunch?", ["A", "B"]).await.unwrap();
-    sent.vote(&user, &[0]).await.unwrap();
-    sent.retract_vote(&user).await.unwrap();
-    sent.view(&user).await.unwrap();
+    sent.vote(&[0]).await.unwrap();
+    sent.retract_vote().await.unwrap();
+    sent.view().await.unwrap();
 }
 
 async fn albums_and_links(user: &Client, group: i64) {
     let album =
         [InputMedia::document(Upload::bytes("a.txt", b"a")), InputMedia::document(Upload::bytes("b.txt", b"b"))];
     let sent = user.send_media_group(group, album).await.unwrap();
-    let found = sent[0].get_media_group(&user).await.unwrap();
+    let found = sent[0].get_media_group().await.unwrap();
     assert_eq!(found.iter().map(|m| m.id).collect::<Vec<_>>(), sent.iter().map(|m| m.id).collect::<Vec<_>>());
 
     let exported = user.export_message_link(group, sent[0].id).await.unwrap();
@@ -54,10 +54,10 @@ async fn user_votes_views_and_links_messages() {
 #[ignore = "uses a bot token and a logged-in user session"]
 async fn bot_edits_the_media_it_sent() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::command("edit"), |client, m| async move {
-        let sent = m.reply_document(&client, Upload::bytes("old.txt", b"old")).await?;
-        sent.edit_media(&client, InputMedia::document(Upload::bytes("new.txt", b"new"))).await?;
-        m.reply(&client, "edited").await?;
+    kit.bot.on_message(filters::private() & filters::command("edit"), |_client, m| async move {
+        let sent = m.reply_document(Upload::bytes("old.txt", b"old")).await?;
+        sent.edit_media(InputMedia::document(Upload::bytes("new.txt", b"new"))).await?;
+        m.reply("edited").await?;
         Ok(())
     });
 
@@ -86,12 +86,12 @@ async fn wait_for_click_gets_the_press_on_the_sent_keyboard() {
     // registers it, since a known chat id resolves without a request.
     let listening = Arc::new(Notify::new());
     let ready = listening.clone();
-    kit.bot.on_message(filters::private() & filters::command("click"), move |client, m| {
+    kit.bot.on_message(filters::private() & filters::command("click"), move |_client, m| {
         let ready = ready.clone();
         async move {
             let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Pick", "pick")]]);
-            let sent = m.reply(&client, "Pick one").reply_markup(keyboard).await?;
-            let mut press = std::pin::pin!(sent.wait_for_click(&client).timeout(WAIT).into_future());
+            let sent = m.reply("Pick one").reply_markup(keyboard).await?;
+            let mut press = std::pin::pin!(sent.wait_for_click().timeout(WAIT).into_future());
             tokio::select! {
                 biased;
                 early = &mut press => early.map(drop)?,
@@ -99,8 +99,8 @@ async fn wait_for_click_gets_the_press_on_the_sent_keyboard() {
             }
             ready.notify_one();
             let press = press.await?;
-            press.answer(&client).await?;
-            m.reply(&client, format!("clicked {}", press.data)).await?;
+            press.answer().await?;
+            m.reply(format!("clicked {}", press.data)).await?;
             Ok(())
         }
     });

@@ -8,7 +8,7 @@ use crate::types::{
 };
 
 /// The media a message carries, one variant per kind.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Media {

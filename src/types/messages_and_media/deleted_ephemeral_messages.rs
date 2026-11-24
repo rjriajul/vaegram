@@ -4,17 +4,24 @@ use crate::raw::types;
 use crate::types::Chat;
 
 /// Ephemeral messages that were deleted from a chat.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct DeletedEphemeralMessages {
     /// The chat the messages were deleted from.
     pub chat: Chat,
     /// Ids of the deleted messages.
     pub ids: Vec<i32>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl DeletedEphemeralMessages {
-    pub(crate) fn parse(_client: &Client, raw: types::UpdateDeleteEphemeralMessages, entities: &Entities) -> Self {
-        DeletedEphemeralMessages { chat: Chat::parse(&raw.peer, entities, false), ids: raw.ids }
+    pub(crate) fn parse(client: &Client, raw: types::UpdateDeleteEphemeralMessages, entities: &Entities) -> Self {
+        DeletedEphemeralMessages { chat: Chat::parse(&raw.peer, entities, false), ids: raw.ids, client: client.clone() }
+    }
+
+    /// Returns the client that received the update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }

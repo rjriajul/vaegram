@@ -2,7 +2,7 @@ use crate::raw::base;
 use crate::types::{Media, Photo};
 
 /// A link preview shown under a text message.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct WebPage {

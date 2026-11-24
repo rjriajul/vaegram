@@ -6,7 +6,7 @@ use crate::raw::types;
 use crate::types::{Chat, ReactionCount};
 
 /// An update to the reaction counts of a message.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MessageReactionCountUpdated {
     /// The chat the message is in.
@@ -17,11 +17,13 @@ pub struct MessageReactionCountUpdated {
     pub date: i32,
     /// The reactions the message has now, with their counts.
     pub reactions: Vec<ReactionCount>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl MessageReactionCountUpdated {
     pub(crate) fn parse(
-        _client: &Client,
+        client: &Client,
         raw: &types::UpdateBotMessageReactions,
         entities: &Entities,
     ) -> MessageReactionCountUpdated {
@@ -30,7 +32,13 @@ impl MessageReactionCountUpdated {
             message_id: raw.msg_id,
             date: raw.date,
             reactions: raw.reactions.iter().filter_map(ReactionCount::parse).collect(),
+            client: client.clone(),
         }
+    }
+
+    /// The [`Client`] that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }
 

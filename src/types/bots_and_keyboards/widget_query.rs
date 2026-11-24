@@ -7,7 +7,7 @@ use crate::raw::{base, types};
 use crate::types::{Chat, InlineMessageId, TonWalletCard, User};
 
 /// A query sent by a widget in a chat or an inline message.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct WidgetQuery {
     /// The query id, used to answer it.
@@ -26,10 +26,12 @@ pub struct WidgetQuery {
     pub data: String,
     /// Id of the shared widget, if any.
     pub widget_id: Option<i64>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 /// Where a widget query originated.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum WidgetQueryOrigin {
@@ -90,7 +92,7 @@ pub struct WidgetQueryWallet {
 }
 
 impl WidgetQuery {
-    pub(crate) fn parse(_client: &Client, raw: &types::UpdateBotWidgetQuery, entities: &Entities) -> Self {
+    pub(crate) fn parse(client: &Client, raw: &types::UpdateBotWidgetQuery, entities: &Entities) -> Self {
         WidgetQuery {
             id: raw.query_id,
             from_user: User::parse(raw.user_id, entities),
@@ -103,10 +105,11 @@ impl WidgetQuery {
             query_type: WidgetQueryType::parse(&raw.query_type, raw.wallet_card.as_ref(), entities),
             data: String::from_utf8_lossy(&raw.data).into_owned(),
             widget_id: raw.widget_id,
+            client: client.clone(),
         }
     }
 
-    pub(crate) fn parse_inline(_client: &Client, raw: types::UpdateInlineBotWidgetQuery, entities: &Entities) -> Self {
+    pub(crate) fn parse_inline(client: &Client, raw: types::UpdateInlineBotWidgetQuery, entities: &Entities) -> Self {
         WidgetQuery {
             id: raw.query_id,
             from_user: User::parse(raw.user_id, entities),
@@ -116,12 +119,18 @@ impl WidgetQuery {
             query_type: WidgetQueryType::parse(&raw.query_type, raw.wallet_card.as_ref(), entities),
             data: String::from_utf8_lossy(&raw.data).into_owned(),
             widget_id: raw.widget_id,
+            client: client.clone(),
         }
     }
 
+    /// The client that received the update.
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
     /// Starts an answer to this query. See [`Client::answer_widget_query`].
-    pub fn answer<'a>(&'a self, client: &'a Client) -> AnswerWidgetQuery<'a> {
-        client.answer_widget_query(self.id)
+    pub fn answer(&self) -> AnswerWidgetQuery<'_> {
+        self.client.answer_widget_query(self.id)
     }
 
     /// The chat of the message. `None` for inline messages.

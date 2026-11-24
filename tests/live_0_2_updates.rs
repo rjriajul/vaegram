@@ -430,8 +430,8 @@ async fn on_stars_balance_sees_spend() {
     let link = match std::env::var("VAEGRAM_STARS_INVOICE") {
         Ok(link) => link,
         Err(_) => {
-            kit.bot.on_pre_checkout_query(filters::all(), |client, q| async move {
-                client.answer_pre_checkout_query(q.id).await
+            kit.bot.on_pre_checkout_query(filters::all(), |_client, q| async move {
+                q.client().answer_pre_checkout_query(q.id).await
             });
             let paid = filters::create(|m: &Message| matches!(m.service, Some(ServiceAction::SuccessfulPayment(_))));
             kit.bot.on_message(paid, move |_client, m| {

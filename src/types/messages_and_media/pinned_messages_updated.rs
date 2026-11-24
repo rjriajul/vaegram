@@ -5,7 +5,7 @@ use crate::types::Chat;
 
 /// Messages in a chat were pinned or unpinned.
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PinnedMessagesUpdated {
     /// The chat the messages are in.
@@ -14,21 +14,24 @@ pub struct PinnedMessagesUpdated {
     pub message_ids: Vec<i32>,
     /// `true` if the messages were pinned, `false` if they were unpinned.
     pub is_pinned: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl PinnedMessagesUpdated {
-    pub(crate) fn parse(_client: &Client, raw: types::UpdatePinnedMessages, entities: &Entities) -> Self {
+    pub(crate) fn parse(client: &Client, raw: types::UpdatePinnedMessages, entities: &Entities) -> Self {
         let chat = Chat::parse(&raw.peer, entities, false);
-        PinnedMessagesUpdated { chat, message_ids: raw.messages, is_pinned: raw.pinned }
+        PinnedMessagesUpdated { chat, message_ids: raw.messages, is_pinned: raw.pinned, client: client.clone() }
     }
 
-    pub(crate) fn parse_channel(
-        _client: &Client,
-        raw: types::UpdatePinnedChannelMessages,
-        entities: &Entities,
-    ) -> Self {
+    pub(crate) fn parse_channel(client: &Client, raw: types::UpdatePinnedChannelMessages, entities: &Entities) -> Self {
         let peer = base::Peer::PeerChannel(types::PeerChannel { channel_id: raw.channel_id });
         let chat = Chat::parse(&peer, entities, false);
-        PinnedMessagesUpdated { chat, message_ids: raw.messages, is_pinned: raw.pinned }
+        PinnedMessagesUpdated { chat, message_ids: raw.messages, is_pinned: raw.pinned, client: client.clone() }
+    }
+
+    /// The [`Client`] that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }

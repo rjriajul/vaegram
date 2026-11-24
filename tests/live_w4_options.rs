@@ -31,8 +31,8 @@ async fn echo_bot(user: &Client) -> Option<(Client, i64)> {
     let (api_id, api_hash) = (env("VAEGRAM_API_ID").parse().unwrap(), env("VAEGRAM_API_HASH"));
     let bot = Client::builder("target/vaegram-w4-options-bot", api_id, api_hash).bot_token(token);
     let bot = support::start_bot(bot).await?;
-    bot.on_message(filters::private(), |client, m| async move {
-        m.reply(&client, "echo").await?;
+    bot.on_message(filters::private(), |_client, m| async move {
+        m.reply("echo").await?;
         Ok(())
     });
     let me = bot.get_me().await.unwrap();

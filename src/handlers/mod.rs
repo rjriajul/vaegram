@@ -179,7 +179,7 @@ pub(crate) trait Routed: Clone + Send + 'static {
     }
 
     /// Runs once before the handlers get the item: fills what the client's fetch options ask for.
-    fn prepare(self, _client: &Client) -> impl Future<Output = Self> + Send {
+    fn prepare(self) -> impl Future<Output = Self> + Send {
         std::future::ready(self)
     }
 }
@@ -200,16 +200,18 @@ impl Routed for Message {
     // Boxed on purpose: with the `async` future itself as the hidden type, the compiler's `Send` proof for it runs
     // through `prefetch` -> `fill` -> the fetch helpers and back to this method's opaque type, past the recursion
     // limit (a nightly warning that will become an error). A boxed `dyn Future + Send` ends that cycle.
-    fn prepare(self, client: &Client) -> impl Future<Output = Self> + Send {
-        let boxed: Pin<Box<dyn Future<Output = Self> + Send>> = Box::pin(prefetched(client.clone(), self));
+    fn prepare(self) -> impl Future<Output = Self> + Send {
+        let boxed: Pin<Box<dyn Future<Output = Self> + Send>> = Box::pin(prefetched(self));
         boxed
     }
 }
 
-async fn prefetched(client: Client, mut message: Message) -> Message {
-    if client.0.fetch.any() {
-        client.prefetch(std::slice::from_mut(&mut message)).await;
+async fn prefetched(mut message: Message) -> Message {
+    if !message.client().0.fetch.any() {
+        return message;
     }
+    let client = message.client().clone();
+    client.prefetch(std::slice::from_mut(&mut message)).await;
     message
 }
 

@@ -8,7 +8,7 @@ use crate::raw::{base, types};
 use crate::types::{InlineQueryResult, Location, User};
 
 /// An inline query a user typed after the bot's username.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct InlineQuery {
     /// Id to pass to [`Client::answer_inline_query`] when answering.
@@ -23,10 +23,12 @@ pub struct InlineQuery {
     pub chat_type: Option<ChatType>,
     /// Location of the user. `None` if Telegram doesn't send one.
     pub location: Option<Location>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl InlineQuery {
-    pub(crate) fn parse(_client: &Client, raw: &types::UpdateBotInlineQuery, entities: &Entities) -> InlineQuery {
+    pub(crate) fn parse(client: &Client, raw: &types::UpdateBotInlineQuery, entities: &Entities) -> InlineQuery {
         use base::InlineQueryPeerType as T;
         let chat_type = raw.peer_type.as_ref().map(|t| match t {
             T::InlineQueryPeerTypeSameBotPM | T::InlineQueryPeerTypePM => ChatType::Private,
@@ -42,18 +44,20 @@ impl InlineQuery {
             offset: raw.offset.clone(),
             chat_type,
             location: raw.geo.as_ref().and_then(Location::parse),
+            client: client.clone(),
         }
+    }
+
+    /// Returns the client this update arrived on.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 
     /// Answers the query with `results`.
     ///
     /// Shorthand for [`Client::answer_inline_query`] with this query's id.
-    pub fn answer<'a, R: Into<InlineQueryResult>>(
-        &'a self,
-        client: &'a Client,
-        results: impl IntoIterator<Item = R>,
-    ) -> AnswerInlineQuery<'a> {
-        client.answer_inline_query(self.id, results)
+    pub fn answer<R: Into<InlineQueryResult>>(&self, results: impl IntoIterator<Item = R>) -> AnswerInlineQuery<'_> {
+        self.client.answer_inline_query(self.id, results)
     }
 }
 

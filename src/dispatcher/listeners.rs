@@ -6,12 +6,10 @@ use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::time::Instant;
 
 use super::tasks::guard;
-use crate::Client;
 use crate::client::Me;
 use crate::errors::{Error, Result};
 use crate::filters::{Filter, Inspect, Subject};
 use crate::handlers::{Callback, UpdateKind};
-use crate::session::Events;
 use crate::types::{CallbackQuery, InlineMessageId, Message, Sender};
 
 pub(crate) static UNEXPECTED_CLICK: LazyLock<Arc<str>> =
@@ -27,7 +25,7 @@ pub trait Listened: Subject + Inspect + Sized {
     fn identity<'a>(&'a self, me: &Me) -> Option<Identity<'a>>;
 
     /// Runs once before `Client::listen` hands the answer back: fills what the client's fetch options ask for.
-    fn prepare(self, _client: &Client) -> impl Future<Output = Self> + Send {
+    fn prepare(self) -> impl Future<Output = Self> + Send {
         std::future::ready(self)
     }
 }
@@ -58,8 +56,8 @@ impl Listened for Message {
         Some(Identity { chat: Some(self.chat.id), user, message: Some(self.id), inline: None })
     }
 
-    fn prepare(self, client: &Client) -> impl Future<Output = Self> + Send {
-        crate::handlers::Routed::prepare(self, client)
+    fn prepare(self) -> impl Future<Output = Self> + Send {
+        crate::handlers::Routed::prepare(self)
     }
 }
 
@@ -492,17 +490,17 @@ impl<T: Listened> Book<T> {
     }
 
     /// Hands `item` to the oldest listener that matches it. Filters run outside the lock.
-    pub(crate) fn offer(&self, item: T, me: &Me, events: &Events) -> Offer<T> {
-        self.offer_to(item, me, events, true)
+    pub(crate) fn offer(&self, item: T, me: &Me) -> Offer<T> {
+        self.offer_to(item, me, true)
     }
 
     /// [`offer`](Self::offer) for an update a full hold pushed out: no hold takes it. The full one would take it
     /// back and push out the next, around and around until it ends.
-    pub(crate) fn offer_evicted(&self, item: T, me: &Me, events: &Events) -> Offer<T> {
-        self.offer_to(item, me, events, false)
+    pub(crate) fn offer_evicted(&self, item: T, me: &Me) -> Offer<T> {
+        self.offer_to(item, me, false)
     }
 
-    fn offer_to(&self, mut item: T, me: &Me, events: &Events, holds: bool) -> Offer<T> {
+    fn offer_to(&self, mut item: T, me: &Me, holds: bool) -> Offer<T> {
         let now = Instant::now();
         let (mut candidates, stranger, expired, chat) = {
             let Some(identity) = item.identity(me) else { return Offer::Unclaimed(item) };
@@ -520,7 +518,7 @@ impl<T: Listened> Book<T> {
         };
         drop(expired);
         if candidates.iter().any(|(_, filter)| filter.is_some()) {
-            let facts = item.facts(me);
+            let (facts, events) = (item.facts(me), &item.client().0.events);
             // A panicking filter counts as a miss, as on a handler.
             let test = |f: &Filter<T>| guard(events, T::KIND, chat, || f.eval(&facts, &item)).unwrap_or(false);
             candidates.retain(|(_, filter)| filter.as_deref().is_none_or(test));
@@ -729,7 +727,7 @@ pub(crate) mod tests {
         let _hold = book.hold(1, Criteria::default()).unwrap();
         let last = i32::try_from(MAX_HELD).unwrap() + 2;
         for id in 1..=last {
-            assert!(claimed(book.offer(message(&client, id, 7, None, false), &me(), &client.0.events)), "message {id}");
+            assert!(claimed(book.offer(message(&client, id, 7, None, false), &me())), "message {id}");
         }
         let back = book.take_returned();
         assert!(back.iter().all(|r| r.evicted), "pushed out by the cap");
@@ -769,18 +767,15 @@ pub(crate) mod tests {
     async fn a_hold_keeps_its_matches_until_released() {
         let (client, book) = (Client::offline(), Book::<Message>::default());
         let hold = book.hold(1, Criteria { chats: vec![7], ..Criteria::default() }).unwrap();
-        assert!(matches!(
-            book.offer(message(&client, 2, 8, None, false), &me(), &client.0.events),
-            Offer::Unclaimed(_)
-        ));
+        assert!(matches!(book.offer(message(&client, 2, 8, None, false), &me()), Offer::Unclaimed(_)));
         for id in [3, 5] {
-            assert!(claimed(book.offer(message(&client, id, 7, None, false), &me(), &client.0.events)), "message {id}");
+            assert!(claimed(book.offer(message(&client, id, 7, None, false), &me())), "message {id}");
         }
         assert!(book.waiting(), "a match doesn't end a hold");
         // Nothing held is newer than message 5: both go back, and the listener waits for the next one.
         let offer = async {
             until_released(&book).await;
-            assert!(claimed(book.offer(message(&client, 6, 7, None, false), &me(), &client.0.events)));
+            assert!(claimed(book.offer(message(&client, 6, 7, None, false), &me())));
         };
         let account = me();
         let (got, ()) = tokio::join!(book.release(1, (7, 5), None, &account), offer);
@@ -791,12 +786,12 @@ pub(crate) mod tests {
 
         // A dropped or stopped hold gives back what it kept.
         let hold = book.hold(2, Criteria::default()).unwrap();
-        assert!(claimed(book.offer(message(&client, 7, 7, None, false), &me(), &client.0.events)));
+        assert!(claimed(book.offer(message(&client, 7, 7, None, false), &me())));
         drop(hold);
         assert!(!book.waiting());
         assert_eq!(ids(book.take_returned()), [7]);
         let _hold = book.hold(3, Criteria::default()).unwrap();
-        assert!(claimed(book.offer(message(&client, 8, 7, None, false), &me(), &client.0.events)));
+        assert!(claimed(book.offer(message(&client, 8, 7, None, false), &me())));
         assert_eq!(book.stop(&Criteria::default()), 1);
         assert!(matches!(book.release(3, (7, 1), None, &account).await, Err(Error::ListenerStopped)));
         assert_eq!(ids(book.take_returned()), [8]);
@@ -808,8 +803,8 @@ pub(crate) mod tests {
         let chat = |chats| Criteria { chats, ..Criteria::default() };
         let mut first = book.wait(1, chat(vec![7])).unwrap();
         let mut second = book.wait(2, chat(vec![7])).unwrap();
-        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me(), &client.0.events)));
-        assert!(claimed(book.offer(message(&client, 2, 7, None, false), &me(), &client.0.events)));
+        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me())));
+        assert!(claimed(book.offer(message(&client, 2, 7, None, false), &me())));
         assert_eq!((first.try_recv().unwrap().id, second.try_recv().unwrap().id), (1, 2));
         assert!(!book.waiting());
     }
@@ -821,7 +816,7 @@ pub(crate) mod tests {
         let boom = crate::filters::create(|_: &Message| -> bool { panic!("boom") });
         let _panicking = book.wait(1, Criteria { filter: Some(Arc::new(boom)), ..Criteria::default() }).unwrap();
         let mut plain = book.wait(2, Criteria::default()).unwrap();
-        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me(), &client.0.events)));
+        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me())));
         assert_eq!(plain.try_recv().unwrap().id, 1);
         let event = events.try_recv().unwrap();
         let panicked = matches!(&event, crate::enums::ClientEvent::HandlerPanicked {
@@ -880,12 +875,10 @@ pub(crate) mod tests {
         let (client, book) = (Client::offline(), Book::<Message>::default());
         drop(book.wait(1, Criteria::default()).unwrap());
         let mut alive = book.wait(2, Criteria::default()).unwrap();
-        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me(), &client.0.events)));
+        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me())));
         assert_eq!(alive.try_recv().unwrap().id, 1);
         drop(book.wait(3, Criteria::default()).unwrap());
-        assert!(
-            matches!(book.offer(message(&client, 2, 7, None, false), &me(), &client.0.events), Offer::Unclaimed(m) if m.id == 2)
-        );
+        assert!(matches!(book.offer(message(&client, 2, 7, None, false), &me()), Offer::Unclaimed(m) if m.id == 2));
     }
 
     #[tokio::test]
@@ -899,7 +892,7 @@ pub(crate) mod tests {
         assert!(matches!(refused, Err(Error::ListenerStopped)), "{refused:?}");
         listeners.open();
         let mut rx = listeners.messages.wait(3, Criteria::default()).unwrap();
-        assert!(claimed(listeners.messages.offer(message(&client, 1, 7, None, false), &me(), &client.0.events)));
+        assert!(claimed(listeners.messages.offer(message(&client, 1, 7, None, false), &me())));
         assert!(rx.try_recv().is_ok());
     }
 
@@ -915,7 +908,7 @@ pub(crate) mod tests {
         });
         until_waiting(&book).await;
         tokio::time::advance(Duration::from_secs(10 * 365 * 86_400)).await;
-        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me(), &client.0.events)));
+        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me())));
         assert_eq!(waiter.await.unwrap().unwrap().id, 1);
     }
 
@@ -923,7 +916,7 @@ pub(crate) mod tests {
     async fn a_timeout_racing_a_delivery_keeps_the_update() {
         let (client, book) = (Client::offline(), Book::<Message>::default());
         let mut rx = book.wait(1, Criteria::default()).unwrap();
-        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me(), &client.0.events)));
+        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me())));
         assert_eq!(book.expired(1, &mut rx).await.unwrap().id, 1);
 
         let mut rx = book.wait(2, Criteria::default()).unwrap();
@@ -935,18 +928,18 @@ pub(crate) mod tests {
     fn strangers_are_found_only_for_pinned_messages() {
         let (client, book) = (Client::offline(), Book::<CallbackQuery>::default());
         let _chat_only = book.wait(1, Criteria { chats: vec![7], users: vec![8], ..Criteria::default() }).unwrap();
-        assert!(matches!(book.offer(query(&client, 9, 7, 4), &me(), &client.0.events), Offer::Unclaimed(_)));
+        assert!(matches!(book.offer(query(&client, 9, 7, 4), &me()), Offer::Unclaimed(_)));
 
         let pinned = Criteria { messages: vec![4], users: vec![8], ..Criteria::default() };
         let _pinned = book.wait(2, pinned).unwrap();
-        assert!(matches!(book.offer(query(&client, 9, 7, 3), &me(), &client.0.events), Offer::Unclaimed(_)));
-        let offer = book.offer(query(&client, 9, 7, 4), &me(), &client.0.events);
+        assert!(matches!(book.offer(query(&client, 9, 7, 3), &me()), Offer::Unclaimed(_)));
+        let offer = book.offer(query(&client, 9, 7, 4), &me());
         assert!(matches!(&offer, Offer::Stranger(q, text) if q.from_user.id == 9 && **text == **UNEXPECTED_CLICK));
 
         let silent = Criteria { messages: vec![5], users: vec![8], alert: None, ..Criteria::default() };
         let _silent = book.wait(3, silent).unwrap();
-        assert!(matches!(book.offer(query(&client, 9, 7, 5), &me(), &client.0.events), Offer::Unclaimed(_)));
-        assert!(claimed(book.offer(query(&client, 8, 7, 4), &me(), &client.0.events)));
+        assert!(matches!(book.offer(query(&client, 9, 7, 5), &me()), Offer::Unclaimed(_)));
+        assert!(claimed(book.offer(query(&client, 8, 7, 4), &me())));
     }
 
     fn limited(max: usize) -> Client {
@@ -982,7 +975,7 @@ pub(crate) mod tests {
         });
         until_waiting(&listeners.messages).await;
         assert_eq!(listeners.free_slots(), Some(0));
-        assert!(claimed(listeners.messages.offer(message(&client, 1, 7, None, false), &me(), &client.0.events)));
+        assert!(claimed(listeners.messages.offer(message(&client, 1, 7, None, false), &me())));
         assert_eq!(waiter.await.unwrap().unwrap().id, 1);
         assert_eq!(listeners.free_slots(), Some(1));
         let timed_out = client.listen::<Message>().timeout(Duration::from_secs(5)).await;
@@ -1024,7 +1017,7 @@ pub(crate) mod tests {
             _ = &mut listen => panic!("nothing was offered"),
             () = std::future::ready(()) => {}
         }
-        assert!(claimed(listeners.messages.offer(message(&client, 5, 7, Some(7), false), &me(), &client.0.events)));
+        assert!(claimed(listeners.messages.offer(message(&client, 5, 7, Some(7), false), &me())));
         drop(listen);
         let woken = tokio::time::timeout(Duration::from_secs(5), listeners.returned().notified()).await;
         let back: Vec<i32> = listeners.messages.take_returned().iter().map(|r| r.item.id).collect();
@@ -1035,7 +1028,7 @@ pub(crate) mod tests {
         let reader = listeners.messages.listen(2, Criteria::default());
         let offer = async {
             until_waiting(&listeners.messages).await;
-            assert!(claimed(listeners.messages.offer(message(&client, 6, 7, Some(7), false), &me(), &client.0.events)));
+            assert!(claimed(listeners.messages.offer(message(&client, 6, 7, Some(7), false), &me())));
         };
         let (read, ()) = tokio::join!(reader, offer);
         assert_eq!(read.unwrap().id, 6);

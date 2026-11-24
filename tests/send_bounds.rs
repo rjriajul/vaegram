@@ -11,8 +11,8 @@ fn send<T: Send>(_: T) {}
 
 fn send_sync<T: Send + Sync>() {}
 
-// At the default recursion limit, proving these `Send` must not overflow. Only a nightly build checks that depth (its
-// `recursion_depth_exceeding_limit` lint, rust-lang/rust#159228); stable compiles these regardless.
+// Every friendly type holds a `Client`; at the default recursion limit, proving them `Send` must not walk it. Only a
+// nightly build checks that depth (its `recursion_depth_exceeding_limit` lint); stable compiles these regardless.
 #[allow(dead_code)]
 fn friendly_types_are_send_and_sync() {
     send_sync::<Client>();
@@ -25,8 +25,7 @@ fn friendly_types_are_send_and_sync() {
 
 #[allow(dead_code)]
 fn spawned_calls_on_friendly_types(client: Client, message: Message) {
-    let deleter = client.clone();
-    drop(tokio::spawn(async move { message.delete(&deleter).await }));
+    drop(tokio::spawn(async move { message.delete().await }));
     drop(tokio::spawn(async move { client.download_media("file id").save("a.txt").await }));
 }
 

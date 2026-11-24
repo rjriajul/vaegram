@@ -7,7 +7,7 @@ use crate::types::Chat;
 /// [`Client::transcribe_audio`] started it. To wait for one transcription, use
 /// [`Transcription::wait`](crate::types::Transcription::wait).
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TranscriptionUpdated {
     /// The chat the message is in.
@@ -20,16 +20,24 @@ pub struct TranscriptionUpdated {
     pub text: String,
     /// `true` while Telegram is still transcribing; more updates follow.
     pub is_pending: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl TranscriptionUpdated {
-    pub(crate) fn parse(_client: &Client, raw: &types::UpdateTranscribedAudio, entities: &Entities) -> Self {
+    pub(crate) fn parse(client: &Client, raw: &types::UpdateTranscribedAudio, entities: &Entities) -> Self {
         TranscriptionUpdated {
             chat: Chat::parse(&raw.peer, entities, false),
             message_id: raw.msg_id,
             transcription_id: raw.transcription_id,
             text: raw.text.clone(),
             is_pending: raw.pending,
+            client: client.clone(),
         }
+    }
+
+    /// The [`Client`] that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }

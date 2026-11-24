@@ -11,7 +11,7 @@ use crate::types::{
 use crate::utils::get_peer;
 
 /// A press of an inline keyboard button that carries callback data.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CallbackQuery {
     /// The query id, used to answer it.
@@ -28,10 +28,12 @@ pub struct CallbackQuery {
     pub chat_instance: i64,
     // A business update carries the pressed message, since the bot can't read the account's history.
     carried: Option<Box<Message>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 /// Where the pressed button lives.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum CallbackOrigin {
@@ -52,7 +54,7 @@ pub enum CallbackOrigin {
 }
 
 impl CallbackQuery {
-    pub(crate) fn parse(_client: &Client, raw: &types::UpdateBotCallbackQuery, entities: &Entities) -> CallbackQuery {
+    pub(crate) fn parse(client: &Client, raw: &types::UpdateBotCallbackQuery, entities: &Entities) -> CallbackQuery {
         CallbackQuery {
             id: raw.query_id,
             from_user: User::parse(raw.user_id, entities),
@@ -65,11 +67,12 @@ impl CallbackQuery {
             game_short_name: raw.game_short_name.clone(),
             chat_instance: raw.chat_instance,
             carried: None,
+            client: client.clone(),
         }
     }
 
     pub(crate) fn parse_inline(
-        _client: &Client,
+        client: &Client,
         raw: types::UpdateInlineBotCallbackQuery,
         entities: &Entities,
     ) -> CallbackQuery {
@@ -81,6 +84,7 @@ impl CallbackQuery {
             game_short_name: raw.game_short_name,
             chat_instance: raw.chat_instance,
             carried: None,
+            client: client.clone(),
         }
     }
 
@@ -101,6 +105,7 @@ impl CallbackQuery {
             data: String::from_utf8_lossy(&raw.data).into_owned(),
             game_short_name: None,
             carried: None,
+            client: client.clone(),
         }
     }
 
@@ -131,7 +136,13 @@ impl CallbackQuery {
             game_short_name: None,
             chat_instance: raw.chat_instance,
             carried: carried.map(Box::new),
+            client: client.clone(),
         }
+    }
+
+    /// The client that received the update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 
     /// Returns the message the button was pressed on.
@@ -139,17 +150,17 @@ impl CallbackQuery {
     /// A business press already carries it. A regular one comes from the message cache when it's on and is
     /// fetched otherwise, so `None` means it was deleted since. Inline and ephemeral presses have no regular
     /// message and return `Ok(None)`.
-    pub async fn message(&self, client: &Client) -> Result<Option<Message>> {
+    pub async fn message(&self) -> Result<Option<Message>> {
         match &self.origin {
             CallbackOrigin::Message { chat, message_id, business_connection_id } => {
                 if business_connection_id.is_some() {
                     return Ok(self.carried.as_deref().cloned());
                 }
-                let cached = client.0.caches.message(chat.id, *message_id);
-                if let Some(message) = cached.and_then(|c| Message::from_raw(client, c.raw, &c.entities)) {
+                let cached = self.client.0.caches.message(chat.id, *message_id);
+                if let Some(message) = cached.and_then(|c| Message::from_raw(&self.client, c.raw, &c.entities)) {
                     return Ok(Some(message));
                 }
-                Ok(client.get_messages(chat.id, &[*message_id]).await?.into_iter().next().flatten())
+                Ok(self.client.get_messages(chat.id, &[*message_id]).await?.into_iter().next().flatten())
             }
             CallbackOrigin::Inline(_) | CallbackOrigin::Ephemeral(_) => Ok(None),
         }
@@ -187,8 +198,8 @@ impl CallbackQuery {
     }
 
     /// Starts an answer to this query. See [`Client::answer_callback_query`].
-    pub fn answer<'a>(&'a self, client: &'a Client) -> AnswerCallbackQuery<'a> {
-        client.answer_callback_query(self.id)
+    pub fn answer(&self) -> AnswerCallbackQuery<'_> {
+        self.client.answer_callback_query(self.id)
     }
 
     /// Sends an ephemeral message to the user who pressed the button, answering this query.
@@ -203,14 +214,14 @@ impl CallbackQuery {
     /// [`reply_to`](SendEphemeralMessage::reply_to) and
     /// [`message_thread_id`](SendEphemeralMessage::message_thread_id) when awaited, with [`Error::InvalidArgument`].
     /// Telegram's answer to it has not been observed.
-    pub fn answer_ephemeral<'a>(
-        &'a self,
-        client: &'a Client,
-        text: impl Into<MessageText>,
-    ) -> SendEphemeralMessage<'a> {
+    pub fn answer_ephemeral(&self, text: impl Into<MessageText>) -> SendEphemeralMessage<'_> {
         match self.chat() {
-            Some(chat) => client.send_ephemeral_message(chat.id, self.from_user.id, text).callback_query_id(self.id),
-            None => SendEphemeralMessage::without_chat(client, PeerRef::from(self.from_user.id), self.id, text.into()),
+            Some(chat) => {
+                self.client.send_ephemeral_message(chat.id, self.from_user.id, text).callback_query_id(self.id)
+            }
+            None => {
+                SendEphemeralMessage::without_chat(&self.client, PeerRef::from(self.from_user.id), self.id, text.into())
+            }
         }
     }
 
@@ -218,11 +229,8 @@ impl CallbackQuery {
     ///
     /// Works for regular, inline and ephemeral messages. A business account's message is edited through its
     /// connection.
-    pub fn edit_message_text<'a>(
-        &'a self,
-        client: &'a Client,
-        text: impl Into<MessageText>,
-    ) -> EditCallbackMessageText<'a> {
+    pub fn edit_message_text(&self, text: impl Into<MessageText>) -> EditCallbackMessageText<'_> {
+        let client = &self.client;
         match &self.origin {
             CallbackOrigin::Message { chat, message_id, business_connection_id } => {
                 let edit = client.edit_message_text(chat.id, *message_id, text);
@@ -232,27 +240,23 @@ impl CallbackQuery {
                 })
             }
             CallbackOrigin::Inline(id) => EditCallbackMessageText::Inline(client.edit_inline_text(id.clone(), text)),
-            CallbackOrigin::Ephemeral(message) => EditCallbackMessageText::Ephemeral(message.edit_text(client, text)),
+            CallbackOrigin::Ephemeral(message) => EditCallbackMessageText::Ephemeral(message.edit_text(text)),
         }
     }
 
     /// Replaces the inline keyboard of the message the button is on. `None` removes the keyboard.
-    pub async fn edit_message_reply_markup(
-        &self,
-        client: &Client,
-        reply_markup: Option<InlineKeyboardMarkup>,
-    ) -> Result<()> {
+    pub async fn edit_message_reply_markup(&self, reply_markup: Option<InlineKeyboardMarkup>) -> Result<()> {
         match &self.origin {
             CallbackOrigin::Message { chat, message_id, business_connection_id } => {
-                let edit = client.edit_message_reply_markup(chat.id, *message_id, reply_markup);
+                let edit = self.client.edit_message_reply_markup(chat.id, *message_id, reply_markup);
                 match business_connection_id {
                     Some(connection) => edit.business_connection_id(connection.clone()).await.map(drop),
                     None => edit.await.map(drop),
                 }
             }
-            CallbackOrigin::Inline(id) => client.edit_inline_reply_markup(id.clone(), reply_markup).await,
+            CallbackOrigin::Inline(id) => self.client.edit_inline_reply_markup(id.clone(), reply_markup).await,
             CallbackOrigin::Ephemeral(m) => {
-                let edit = client.edit_ephemeral_message_reply_markup(m.chat.id, m.receiver_user.id, m.id);
+                let edit = self.client.edit_ephemeral_message_reply_markup(m.chat.id, m.receiver_user.id, m.id);
                 match reply_markup {
                     Some(markup) => edit.reply_markup(markup).await.map(drop),
                     None => edit.await.map(drop),
@@ -262,14 +266,16 @@ impl CallbackQuery {
     }
 
     /// Deletes the message the button is on. Fails with `Error::InvalidArgument` for an inline message.
-    pub async fn delete_message(&self, client: &Client) -> Result<()> {
+    pub async fn delete_message(&self) -> Result<()> {
         match &self.origin {
             CallbackOrigin::Message { message_id, business_connection_id: Some(connection), .. } => {
-                client.delete_business_messages(connection, &[*message_id]).await
+                self.client.delete_business_messages(connection, &[*message_id]).await
             }
-            CallbackOrigin::Message { chat, message_id, .. } => client.delete_messages(chat.id, &[*message_id]).await,
+            CallbackOrigin::Message { chat, message_id, .. } => {
+                self.client.delete_messages(chat.id, &[*message_id]).await
+            }
             CallbackOrigin::Inline(_) => Err(Error::InvalidArgument("inline messages can't be deleted")),
-            CallbackOrigin::Ephemeral(message) => message.delete(client).await,
+            CallbackOrigin::Ephemeral(message) => message.delete().await,
         }
     }
 }
@@ -314,7 +320,7 @@ mod tests {
         let chat_id = q.chat().map(|c| c.id);
         assert_eq!((q.id, q.from_user.id, chat_id, q.data.as_str()), (9, 1000, Some(get_channel_id(42)), "tap"));
         assert_eq!(q.message_id(), Some(7));
-        assert!(matches!(q.edit_message_text(&Client::offline(), "tapped"), EditCallbackMessageText::Ephemeral(_)));
+        assert!(matches!(q.edit_message_text("tapped"), EditCallbackMessageText::Ephemeral(_)));
     }
 
     #[tokio::test]
@@ -337,7 +343,7 @@ mod tests {
             message: ephemeral(true, Some(channel())),
         };
         let q = CallbackQuery::parse_ephemeral(&client, update, &Entities::default());
-        let send = q.answer_ephemeral(&client, "reply");
+        let send = q.answer_ephemeral("reply");
         let _ = send.await;
         let body = sent.try_recv().expect("no request sent");
         // peer, receiver_id, query_id and message are adjacent in ephemeral.sendMessage.
@@ -363,7 +369,7 @@ mod tests {
             peers.insert(1000, base::InputPeer::InputPeerUser(Box::new(user)));
         }
         let q = crate::dispatcher::listeners::tests::query(&client, 1000, get_channel_id(42), 5);
-        let _ = q.answer_ephemeral(&client, "hi").replace_callback_query_message().await;
+        let _ = q.answer_ephemeral("hi").replace_callback_query_message().await;
         let body = sent.try_recv().expect("no request sent");
         let expected = crate::raw::functions::ephemeral::SendMessage {
             invert_media: false,
@@ -402,7 +408,7 @@ mod tests {
             game_short_name: None,
         };
         let q = CallbackQuery::parse_inline(&client, update, &Entities::default());
-        let _ = q.answer_ephemeral(&client, "hi").await;
+        let _ = q.answer_ephemeral("hi").await;
         let body = sent.try_recv().expect("no request sent");
         let expected = crate::raw::functions::ephemeral::SendMessage {
             invert_media: false,
@@ -428,7 +434,7 @@ mod tests {
         assert_eq!(u32::from_le_bytes(body[4..8].try_into().unwrap()), 1);
 
         // A reply needs the chat, so it is refused before anything is sent.
-        let refused = q.answer_ephemeral(&client, "hi").reply_to(3).await;
+        let refused = q.answer_ephemeral("hi").reply_to(3).await;
         assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
         assert!(sent.try_recv().is_err(), "a refused answer must not send");
     }
@@ -447,7 +453,7 @@ mod tests {
         let q = CallbackQuery::parse_inline(&Client::offline(), update, &Entities::default());
         assert_eq!((q.chat().is_none(), q.message_id(), q.game_short_name.as_deref()), (true, None, Some("race")));
         assert_eq!(q.inline_message_id().map(|i| i.dc_id()), Some(2));
-        assert!(matches!(q.edit_message_text(&Client::offline(), "won"), EditCallbackMessageText::Inline(_)));
+        assert!(matches!(q.edit_message_text("won"), EditCallbackMessageText::Inline(_)));
     }
 
     #[tokio::test]
@@ -470,7 +476,7 @@ mod tests {
         let chat_id = q.chat().map(|c| c.id);
         assert_eq!((chat_id, q.message_id(), q.from_user.id, q.data.as_str()), (Some(7), Some(5), 7, "buy"));
         assert_eq!(q.business_connection_id(), Some("conn"));
-        assert!(q.edit_message_text(&client, "bought").await.is_err());
+        assert!(q.edit_message_text("bought").await.is_err());
         let body = rx.try_recv().expect("no request sent");
         assert_eq!(body[..4], 0xdd289f8e_u32.to_le_bytes());
 
@@ -499,11 +505,11 @@ mod tests {
             data: None,
         };
         let mut q = CallbackQuery::parse_business(&client, update, &Entities::default());
-        let _ = q.delete_message(&client).await;
+        let _ = q.delete_message().await;
         if let CallbackOrigin::Message { business_connection_id, .. } = &mut q.origin {
             *business_connection_id = None;
         }
-        let _ = q.delete_message(&client).await;
+        let _ = q.delete_message().await;
         let mut sent = || u32::from_le_bytes(rx.try_recv().expect("no request sent")[..4].try_into().unwrap());
         assert_eq!((sent(), sent()), (0xdd289f8e, messages::DeleteMessages::CONSTRUCTOR_ID));
 
@@ -517,9 +523,9 @@ mod tests {
             game_short_name: None,
         };
         let q = CallbackQuery::parse_inline(&client, update, &Entities::default());
-        assert!(matches!(q.delete_message(&client).await, Err(Error::InvalidArgument(_))));
+        assert!(matches!(q.delete_message().await, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
-        let _ = q.edit_message_reply_markup(&client, None).await;
+        let _ = q.edit_message_reply_markup(None).await;
         let sent = u32::from_le_bytes(rx.try_recv().expect("no request sent")[..4].try_into().unwrap());
         assert_eq!(sent, messages::EditInlineBotMessage::CONSTRUCTOR_ID);
     }
@@ -537,7 +543,7 @@ mod tests {
             data: None,
         };
         let q = CallbackQuery::parse_business(&client, update, &Entities::default());
-        let message = q.message(&client).await.unwrap().expect("the update carries the message");
+        let message = q.message().await.unwrap().expect("the update carries the message");
         assert_eq!((message.id, message.business_connection_id.as_deref()), (5, Some("conn")));
         assert!(rx.try_recv().is_err());
     }
@@ -553,13 +559,13 @@ mod tests {
         let reply = base::messages::Messages::Messages(Box::new(found)).to_bytes();
         let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
         let q = crate::dispatcher::listeners::tests::query(&client, 7, 7, 5);
-        let message = q.message(&client).await.unwrap().expect("the message exists");
+        let message = q.message().await.unwrap().expect("the message exists");
         assert_eq!((message.id, message.chat.id), (5, 7));
         let id = base::InputMessage::InputMessageID(types::InputMessageID { id: 5 });
         assert_eq!(rx.try_recv().unwrap(), messages::GetMessages { id: vec![id] }.to_bytes());
 
         let inline = crate::dispatcher::listeners::tests::inline_query(&client, 7, 1);
-        assert!(inline.message(&client).await.unwrap().is_none());
+        assert!(inline.message().await.unwrap().is_none());
         assert!(rx.try_recv().is_err());
     }
 }

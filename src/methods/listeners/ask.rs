@@ -86,7 +86,7 @@ impl<'a> Ask<'a> {
         let me = client.0.me.lock().unwrap().clone();
         let answer = listeners.messages.release(id, (sent.chat.id, sent.id), deadline, &me).await;
         drop(hold);
-        Ok(answer?.prepare(client).await)
+        Ok(answer?.prepare().await)
     }
 }
 
@@ -154,8 +154,7 @@ mod tests {
 
     fn offer(client: &Client, id: i32, chat: i64, out: bool) -> bool {
         let me = client.0.me.lock().unwrap().clone();
-        let offer =
-            client.0.handlers.listeners.messages.offer(message(client, id, chat, None, out), &me, &client.0.events);
+        let offer = client.0.handlers.listeners.messages.offer(message(client, id, chat, None, out), &me);
         matches!(offer, Offer::Claimed)
     }
 

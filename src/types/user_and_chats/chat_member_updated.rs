@@ -6,7 +6,7 @@ use crate::raw::{base, types};
 use crate::types::{Chat, ChatInviteLink, ChatMember, ChatMemberRole, User};
 
 /// A change to a member's status in a chat.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChatMemberUpdated {
     /// The chat the change happened in.
@@ -25,10 +25,12 @@ pub struct ChatMemberUpdated {
     pub via_join_request: bool,
     /// `true` if the user joined through a chat folder invite link.
     pub via_chat_folder_invite_link: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl ChatMemberUpdated {
-    pub(crate) fn parse_channel(_client: &Client, raw: types::UpdateChannelParticipant, entities: &Entities) -> Self {
+    pub(crate) fn parse_channel(client: &Client, raw: types::UpdateChannelParticipant, entities: &Entities) -> Self {
         let peer = base::Peer::PeerChannel(types::PeerChannel { channel_id: raw.channel_id });
         let self_request = matches!(
             &raw.new_participant,
@@ -44,10 +46,11 @@ impl ChatMemberUpdated {
             invite_link,
             via_join_request: public_request || self_request,
             via_chat_folder_invite_link: raw.via_chatlist,
+            client: client.clone(),
         }
     }
 
-    pub(crate) fn parse_chat(_client: &Client, raw: types::UpdateChatParticipant, entities: &Entities) -> Self {
+    pub(crate) fn parse_chat(client: &Client, raw: types::UpdateChatParticipant, entities: &Entities) -> Self {
         let peer = base::Peer::PeerChat(types::PeerChat { chat_id: raw.chat_id });
         let (invite_link, via_join_request) = invite(raw.invite, entities);
         ChatMemberUpdated {
@@ -59,12 +62,13 @@ impl ChatMemberUpdated {
             invite_link,
             via_join_request,
             via_chat_folder_invite_link: false,
+            client: client.clone(),
         }
     }
 
     /// Blocking a bot reads as banning it from the private chat, and restarting it as letting it back in.
     pub(crate) fn parse_bot_stopped(
-        _client: &Client,
+        client: &Client,
         me: &Me,
         raw: &types::UpdateBotStopped,
         entities: &Entities,
@@ -92,7 +96,13 @@ impl ChatMemberUpdated {
             invite_link: None,
             via_join_request: false,
             via_chat_folder_invite_link: false,
+            client: client.clone(),
         }
+    }
+
+    /// The client that received this update.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }
 

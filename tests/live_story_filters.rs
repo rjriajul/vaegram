@@ -50,9 +50,9 @@ async fn on_story_sees_a_posted_story() {
 #[ignore = "uses a bot token and a logged-in user session"]
 async fn a_bot_keyboard_matches_inline_keyboard() {
     let Some(kit) = Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::command("keyboard"), |client, m| async move {
+    kit.bot.on_message(filters::private() & filters::command("keyboard"), |_client, m| async move {
         let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Tap", "tap")]]);
-        m.reply(&client, "Keyboard").reply_markup(keyboard).await?;
+        m.reply("Keyboard").reply_markup(keyboard).await?;
         Ok(())
     });
     let bot = kit.bot.get_me().await.unwrap();

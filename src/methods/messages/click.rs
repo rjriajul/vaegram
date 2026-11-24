@@ -1,7 +1,6 @@
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 
-use crate::Client;
 use crate::errors::{Error, Result};
 use crate::raw::base;
 use crate::types::{ButtonRef, ClickResult, Message, Text};
@@ -9,7 +8,6 @@ use crate::types::{ButtonRef, ClickResult, Message, Text};
 /// Request built by [`Message::click`]. Awaiting it returns the [`ClickResult`].
 #[must_use = "a request does nothing until it is awaited"]
 pub struct Click<'a> {
-    client: &'a Client,
     message: &'a Message,
     button: ButtonRef<'a>,
     password: Option<String>,
@@ -23,8 +21,8 @@ impl Message {
     /// label as a message. Awaiting fails with [`Error::InvalidArgument`] if the message has no such button
     /// or the button can't be pressed from a client. Answer a button that asks for users or chats with
     /// [`Client::send_bot_requested_peer`](crate::Client::send_bot_requested_peer).
-    pub fn click<'a>(&'a self, client: &'a Client, button: impl Into<ButtonRef<'a>>) -> Click<'a> {
-        Click { client, message: self, button: button.into(), password: None }
+    pub fn click<'a>(&'a self, button: impl Into<ButtonRef<'a>>) -> Click<'a> {
+        Click { message: self, button: button.into(), password: None }
     }
 }
 
@@ -37,7 +35,7 @@ impl Click<'_> {
 
     async fn send(self) -> Result<ClickResult> {
         use base::{ButtonType as B, InlineButtonType as T};
-        let (message, client) = (self.message, self.client);
+        let (message, client) = (self.message, self.message.client());
         let not_found = Error::InvalidArgument("this message has no such button");
         let button = match &message.raw.reply_markup {
             Some(base::ReplyMarkup::ReplyInlineMarkup(k)) => {
@@ -145,12 +143,12 @@ mod tests {
         ]);
         let message = message(&client, markup.write(&client).await.unwrap());
 
-        assert!(matches!(message.click(&client, 0).await, Ok(ClickResult::Url(u)) if u == "https://x.y"));
-        assert!(matches!(message.click(&client, "Copy").await, Ok(ClickResult::Copy(c)) if c == "secret"));
-        assert!(message.click(&client, ButtonRef::Position(1, 1)).await.is_err());
+        assert!(matches!(message.click(0).await, Ok(ClickResult::Url(u)) if u == "https://x.y"));
+        assert!(matches!(message.click("Copy").await, Ok(ClickResult::Copy(c)) if c == "secret"));
+        assert!(message.click(ButtonRef::Position(1, 1)).await.is_err());
         assert!(rx.try_recv().is_err());
 
-        let _ = message.click(&client, (0, 1)).await;
+        let _ = message.click((0, 1)).await;
         let expected = functions::messages::GetBotCallbackAnswer {
             game: false,
             peer: client.resolve_peer(BOT).await.unwrap(),
@@ -166,7 +164,7 @@ mod tests {
         let (client, mut rx) = Client::recording();
         let markup = ReplyKeyboardMarkup::new([vec![KeyboardButton::new("Yes"), KeyboardButton::new("No")]]);
         let message = message(&client, markup.write());
-        let _ = message.click(&client, "No").await;
+        let _ = message.click("No").await;
         let body = rx.try_recv().unwrap();
         assert_eq!(u32::from_le_bytes(body[..4].try_into().unwrap()), functions::messages::SendMessage::CONSTRUCTOR_ID);
         assert!(body.windows(3).any(|w| w == b"\x02No"));
@@ -178,7 +176,7 @@ mod tests {
         client.set_parse_mode(ParseMode::Html);
         let label = r#"<a href="https://x.example">Yes</a>"#;
         let message = message(&client, ReplyKeyboardMarkup::new([vec![KeyboardButton::new(label)]]).write());
-        let _ = message.click(&client, 0).await;
+        let _ = message.click(0).await;
         let body = rx.try_recv().unwrap();
         let flags = u32::from_le_bytes(body[4..8].try_into().unwrap());
         let literal = [&[label.len() as u8], label.as_bytes()].concat();
@@ -203,14 +201,10 @@ mod tests {
         }
         let message = message(&client, markup);
 
-        assert!(
-            matches!(message.click(&client, "Phone").await, Err(Error::InvalidArgument(e)) if e.contains("send_contact"))
-        );
-        assert!(
-            matches!(message.click(&client, "Here").await, Err(Error::InvalidArgument(e)) if e.contains("send_location"))
-        );
-        assert!(matches!(message.click(&client, "App").await, Ok(ClickResult::Url(u)) if u == "https://app.example"));
-        let pick = message.click(&client, "Pick").await;
+        assert!(matches!(message.click("Phone").await, Err(Error::InvalidArgument(e)) if e.contains("send_contact")));
+        assert!(matches!(message.click("Here").await, Err(Error::InvalidArgument(e)) if e.contains("send_location")));
+        assert!(matches!(message.click("App").await, Ok(ClickResult::Url(u)) if u == "https://app.example"));
+        let pick = message.click("Pick").await;
         assert!(matches!(pick, Err(Error::InvalidArgument(e)) if e.contains("send_bot_requested_peer")));
         assert!(rx.try_recv().is_err());
     }

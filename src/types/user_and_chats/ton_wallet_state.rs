@@ -5,7 +5,7 @@ use crate::raw::base;
 ///
 /// Telegram sends an empty state while it's still creating the wallet or when there is none. In an empty
 /// state the address, key and balance are `None` and every flag except `is_being_created` is `false`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TonWalletState {
     /// The wallet address. `None` in an empty state.
@@ -22,10 +22,12 @@ pub struct TonWalletState {
     pub can_enable_backup: bool,
     /// The wallet's recovery phrase can be exported.
     pub can_export_phrase: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl TonWalletState {
-    pub(crate) fn parse(_client: &Client, state: &base::WalletState) -> TonWalletState {
+    pub(crate) fn parse(client: &Client, state: &base::WalletState) -> TonWalletState {
         match state {
             base::WalletState::WalletStateEmpty(empty) => TonWalletState {
                 wallet_address: None,
@@ -35,6 +37,7 @@ impl TonWalletState {
                 is_backup_enabled: false,
                 can_enable_backup: false,
                 can_export_phrase: false,
+                client: client.clone(),
             },
             base::WalletState::WalletState(s) => TonWalletState {
                 wallet_address: Some(s.address.clone()),
@@ -44,8 +47,14 @@ impl TonWalletState {
                 is_backup_enabled: s.backup_enabled,
                 can_enable_backup: s.can_enable_backup,
                 can_export_phrase: s.can_export_phrase,
+                client: client.clone(),
             },
         }
+    }
+
+    /// The client that fetched this state.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 }
 

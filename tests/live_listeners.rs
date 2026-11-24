@@ -20,11 +20,11 @@ async fn wait_for_callback_query_gets_the_click() {
     // The user presses only once the bot listens for it: see the same test in live_msg_actions.
     let (bot, listening) = (kit.bot.clone(), Arc::new(Notify::new()));
     let ready = listening.clone();
-    kit.bot.on_message(filters::private() & filters::command("pick"), move |client, m| {
+    kit.bot.on_message(filters::private() & filters::command("pick"), move |_client, m| {
         let (bot, ready) = (bot.clone(), ready.clone());
         async move {
             let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Pick", "pick")]]);
-            let sent = m.reply(&client, "Pick one").reply_markup(keyboard).await?;
+            let sent = m.reply("Pick one").reply_markup(keyboard).await?;
             let press = bot.wait_for_callback_query(m.chat.id).message_id(sent.id).timeout(WAIT);
             let mut press = std::pin::pin!(press.into_future());
             tokio::select! {
@@ -34,8 +34,8 @@ async fn wait_for_callback_query_gets_the_click() {
             }
             ready.notify_one();
             let press = press.await?;
-            press.answer(&client).await?;
-            m.reply(&client, format!("picked {}", press.data)).await?;
+            press.answer().await?;
+            m.reply(format!("picked {}", press.data)).await?;
             Ok(())
         }
     });
@@ -58,12 +58,12 @@ async fn wait_for_callback_query_gets_the_click() {
 async fn ask_returns_the_users_answer() {
     let Some(kit) = Kit::from_env().await else { return };
     let bot = kit.bot.clone();
-    kit.bot.on_message(filters::private() & filters::command("ask"), move |client, m| {
+    kit.bot.on_message(filters::private() & filters::command("ask"), move |_client, m| {
         let bot = bot.clone();
         async move {
             let answer = bot.ask(m.chat.id, "Your name?").prompt(|q| q.reply_to(m.id));
             let answer = answer.filter(filters::text()).timeout(WAIT).await?;
-            answer.reply(&client, format!("Hi {}", answer.text())).await?;
+            answer.reply(format!("Hi {}", answer.text())).await?;
             Ok(())
         }
     });
@@ -80,15 +80,15 @@ async fn ask_returns_the_users_answer() {
 async fn next_step_handler_runs_on_the_next_message() {
     let Some(kit) = Kit::from_env().await else { return };
     let bot = kit.bot.clone();
-    kit.bot.on_message(filters::private() & filters::command("step"), move |client, m| {
+    kit.bot.on_message(filters::private() & filters::command("step"), move |_client, m| {
         let bot = bot.clone();
         async move {
-            let step = |client, answer: vaegram::types::Message| async move {
-                answer.reply(&client, format!("step {}", answer.text())).await?;
+            let step = |_client, answer: vaegram::types::Message| async move {
+                answer.reply(format!("step {}", answer.text())).await?;
                 Ok(())
             };
             bot.register_next_step_handler(step).chat(m.chat.id).filter(filters::text()).timeout(WAIT).await?;
-            m.reply(&client, "Send the next one").await?;
+            m.reply("Send the next one").await?;
             Ok(())
         }
     });

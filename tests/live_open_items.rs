@@ -433,9 +433,9 @@ async fn a_guest_bot_answer_names_its_caller() {
     let Some(group) = support::test_supergroup(&user).await else { return };
 
     let (asked_tx, mut asked) = mpsc::unbounded_channel();
-    kit.bot.on_guest_message(filters::all(), move |client, g| {
+    kit.bot.on_guest_message(filters::all(), move |_client, g| {
         let _ = asked_tx.send(g.caller_user.as_ref().map(|u| u.id));
-        async move { g.answer_text(&client, "guest answer from vaegram").await }
+        async move { g.answer_text("guest answer from vaegram").await }
     });
     let (tx, mut rx) = mpsc::unbounded_channel();
     user.on_message(filters::chat(group), move |_client, m| {
@@ -742,7 +742,7 @@ async fn a_transfer_survives_a_dead_connection(stall: Stall) {
     let upload = async { client.send_document("me", Upload::bytes("vaegram-stall.bin", &data)).await };
     let sent = tokio::time::timeout(TRANSFER_LIMIT, upload).await.expect("the upload didn't finish in time");
     let sent = sent.expect("the upload failed");
-    let download = tokio::time::timeout(TRANSFER_LIMIT, async { sent.download(&client).await }).await;
+    let download = tokio::time::timeout(TRANSFER_LIMIT, async { sent.download().await }).await;
     support::cleanup(client.delete_messages("me", &[sent.id]).await, "deleting the stall test document");
     let got = download.expect("the download didn't finish in time").expect("the download failed");
 

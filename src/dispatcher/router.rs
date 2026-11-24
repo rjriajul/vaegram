@@ -181,12 +181,7 @@ impl Handlers<Message> {
             message.set_business(client, connection_id, reply_to, entities);
         }
         if listening {
-            match listened(
-                client,
-                kind,
-                tasks,
-                client.0.handlers.listeners.messages.offer(message, &me, &client.0.events),
-            ) {
+            match listened(client, kind, tasks, client.0.handlers.listeners.messages.offer(message, &me)) {
                 Some(m) => message = m,
                 None => return true,
             }
@@ -199,11 +194,7 @@ impl Handlers<Message> {
     fn redeliver(&self, tasks: &mut Tasks, client: &Client, message: Message, evicted: bool) {
         let me = client.0.me.lock().unwrap().clone();
         let messages = &client.0.handlers.listeners.messages;
-        let offer = if evicted {
-            messages.offer_evicted(message, &me, &client.0.events)
-        } else {
-            messages.offer(message, &me, &client.0.events)
-        };
+        let offer = if evicted { messages.offer_evicted(message, &me) } else { messages.offer(message, &me) };
         let Some(message) = listened(client, UpdateKind::Message, tasks, offer) else { return };
         if !self.0.is_empty() {
             self.finish(client, UpdateKind::Message, tasks, &me, PARSED, message);
@@ -328,6 +319,14 @@ macro_rules! update_kinds {
         }
 
         impl Update {
+            /// The [`Client`] that received this update.
+            pub fn client(&self) -> &Client {
+                match self {
+                    $(Update::$kind(item) => Inspect::client(&**item),)*
+                    Update::Other(other) => other.client(),
+                }
+            }
+
             /// The route the update's typed event has. `None` for [`Other`](Update::Other).
             pub fn kind(&self) -> Option<UpdateKind> {
                 match self {
@@ -355,7 +354,7 @@ macro_rules! update_kinds {
                     update => Update::by_hand($client, update, $entities),
                 };
                 typed.unwrap_or_else(|| {
-                    Update::Other(OtherUpdate::new(RawUpdate { update, entities: shared.clone() }))
+                    Update::Other(OtherUpdate::new($client, RawUpdate { update, entities: shared.clone() }))
                 })
             }
         }
@@ -851,7 +850,7 @@ impl Router {
     fn offer_callback(&self, client: &Client, query: CallbackQuery, tasks: &mut Tasks) -> bool {
         let me = client.0.me.lock().unwrap().clone();
         let kind = UpdateKind::CallbackQuery;
-        match client.0.handlers.listeners.callbacks.offer(query, &me, &client.0.events) {
+        match client.0.handlers.listeners.callbacks.offer(query, &me) {
             Offer::Claimed => true,
             Offer::Call(callback, query) => {
                 tasks.run(client, kind, query, vec![callback]);
@@ -862,9 +861,9 @@ impl Router {
             }
             Offer::Unclaimed(_) => false,
             Offer::Stranger(query, alert) => {
-                let answer = callback(move |client, query: CallbackQuery| {
+                let answer = callback(move |_, query: CallbackQuery| {
                     let alert = alert.clone();
-                    async move { query.answer(&client).text(&*alert).alert().await }
+                    async move { query.answer().text(&*alert).alert().await }
                 });
                 tasks.run(client, kind, query, vec![answer]);
                 true
@@ -1546,7 +1545,7 @@ mod tests {
         let mut raw = Message::bare(1, get_peer(1), 0);
         raw.rich_message = Some(base::RichMessage::RichMessage(Box::new(rich)));
         let parsed = Message::parse(&Client::offline(), Box::new(raw.clone()), &Entities::default());
-        assert!(filters::command("start").check(&Client::offline(), &parsed));
+        assert!(filters::command("start").check(&parsed));
         let update = types::UpdateNewMessage { message: base::Message::Message(Box::new(raw)), pts: 0, pts_count: 0 };
         dispatch(&router, base::Update::UpdateNewMessage(Box::new(update)));
         settle().await;
@@ -1559,14 +1558,11 @@ mod tests {
         let entities = Entities::default();
         let base::Update::UpdateBotInlineQuery(raw) = inline_query() else { unreachable!() };
         let query = InlineQuery::parse(&client, &raw, &entities);
-        assert_eq!((filters::text().check(&client, &query), filters::user(1).check(&client, &query)), (true, true));
+        assert_eq!((filters::text().check(&query), filters::user(1).check(&query)), (true, true));
         let base::Update::UpdateNewMessage(raw) = new_message(1, false) else { unreachable!() };
         let base::Message::Message(raw) = &raw.message else { unreachable!() };
         let message = Message::parse(&client, raw.clone(), &entities);
-        assert_eq!(
-            (filters::text().check(&client, &message), filters::private().check(&client, &message)),
-            (true, true)
-        );
+        assert_eq!((filters::text().check(&message), filters::private().check(&message)), (true, true));
     }
 
     fn spawn_listen<T: crate::handlers::Listenable>(

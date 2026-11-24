@@ -14,7 +14,6 @@ use pred::{Pred, Prefixes};
 pub(crate) use subjects::private::Inspect;
 pub use subjects::{HasChat, HasData, HasMedia, HasSender, HasText, Subject};
 
-use crate::Client;
 use crate::enums::{ChatType, MediaKind, ServiceKind};
 use crate::types::Message;
 
@@ -30,9 +29,9 @@ impl<T> Clone for Filter<T> {
 }
 
 impl<T: Subject + Inspect> Filter<T> {
-    /// Tests `item` outside a handler, the way dispatch would, against the account `client` knows itself as.
-    pub fn check(&self, client: &Client, item: &T) -> bool {
-        let me = client.0.me.lock().unwrap().clone();
+    /// Tests `item` outside a handler, the way dispatch would, against the account the client knows itself as.
+    pub fn check(&self, item: &T) -> bool {
+        let me = item.client().0.me.lock().unwrap().clone();
         self.eval(&item.facts(&me), item)
     }
 }
@@ -687,9 +686,8 @@ mod tests {
         assert!(!hit(&xban, says("!xban")));
 
         let client = Client::offline();
-        let read = |text| {
-            message(&client, 5, text, None).command_with_prefixes(&client, &["!", "!x"]).map(|c| c.name.to_owned())
-        };
+        let read =
+            |text| message(&client, 5, text, None).command_with_prefixes(&["!", "!x"]).map(|c| c.name.to_owned());
         assert_eq!((read("!xban 1"), read("!ban"), read("/ban")), (Some("ban".into()), Some("ban".into()), None));
     }
 
@@ -767,11 +765,11 @@ mod tests {
             })
         };
         let (plain, empty) = (message(&client, 7, "hi", None), message(&client, 7, "", None));
-        assert!(!(!all() & counted.clone()).check(&client, &plain));
-        assert!((all() | counted.clone()).check(&client, &plain));
-        assert!(!(text() & counted.clone()).check(&client, &empty));
+        assert!(!(!all() & counted.clone()).check(&plain));
+        assert!((all() | counted.clone()).check(&plain));
+        assert!(!(text() & counted.clone()).check(&empty));
         assert_eq!(calls.load(Ordering::Relaxed), 0);
-        assert!((all() & text() & counted).check(&client, &plain));
+        assert!((all() & text() & counted).check(&plain));
         assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 
@@ -782,17 +780,17 @@ mod tests {
         let start: Filter = command(["start", "help"]);
         let cases = [("/START@MyBot now", true), ("/help", true), ("/start@otherbot", false), ("/stop", false)];
         for (input, matches) in cases {
-            assert_eq!(start.check(&client, &message(&client, 7, input, None)), matches, "{input}");
+            assert_eq!(start.check(&message(&client, 7, input, None)), matches, "{input}");
         }
 
         let (dm, group) = (message(&client, 7, "hi", None), message(&client, -5, "hi", None));
         let private: Filter = private();
-        assert_eq!((private.check(&client, &dm), private.check(&client, &group)), (true, false));
+        assert_eq!((private.check(&dm), private.check(&group)), (true, false));
         let dice = types::MessageMediaDice { value: 6, emoticon: "🎲".into(), game_outcome: None };
         let dice = Some(base::MessageMedia::MessageMediaDice(Box::new(dice)));
         let captioned = message(&client, 7, "/start", dice.clone());
         let (text, caption): (Filter, Filter) = (text(), caption());
-        let shapes = |m: &Message| (text.check(&client, m), caption.check(&client, m), start.check(&client, m));
+        let shapes = |m: &Message| (text.check(m), caption.check(m), start.check(m));
         assert_eq!(shapes(&dm), (true, false, false));
         assert_eq!(shapes(&captioned), (false, true, true));
         assert_eq!(shapes(&message(&client, 7, "", dice)), (false, false, false));
@@ -805,14 +803,7 @@ mod tests {
         let item = base::StoryItem::StoryItemSkipped(Box::new(skipped));
         let story = Story::parse(&Client::offline(), &get_peer(8), item, &Entities::default()).unwrap();
         let (private, channel, chat): (Filter<Story>, Filter<Story>, Filter<Story>) = (private(), channel(), chat(8));
-        assert_eq!(
-            (
-                private.check(&Client::offline(), &story),
-                channel.check(&Client::offline(), &story),
-                chat.check(&Client::offline(), &story)
-            ),
-            (true, false, true)
-        );
-        assert!(!outgoing::<Story>().check(&Client::offline(), &story));
+        assert_eq!((private.check(&story), channel.check(&story), chat.check(&story)), (true, false, true));
+        assert!(!outgoing::<Story>().check(&story));
     }
 }

@@ -9,7 +9,7 @@ use crate::types::{
 /// A message in a chat the bot isn't in. [`answer`](GuestMessage::answer) and its shortcuts
 /// ([`answer_text`](GuestMessage::answer_text), [`answer_rich`](GuestMessage::answer_rich)) are the only way to
 /// respond there.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GuestMessage {
@@ -47,11 +47,15 @@ impl GuestMessage {
         Some(GuestMessage { message, reference_messages, query_id: raw.query_id, caller_user, caller_chat })
     }
 
+    pub(crate) fn client(&self) -> &Client {
+        self.message.client()
+    }
+
     /// Answers the guest query with an inline result.
     ///
     /// Awaiting the request returns the [`SentGuestMessage`](crate::types::SentGuestMessage).
-    pub fn answer<'a>(&'a self, client: &'a Client, result: impl Into<InlineQueryResult>) -> AnswerGuestQuery<'a> {
-        client.answer_guest_query(self.query_id, result)
+    pub fn answer(&self, result: impl Into<InlineQueryResult>) -> AnswerGuestQuery<'_> {
+        self.client().answer_guest_query(self.query_id, result)
     }
 
     /// Answers the guest query with an article that sends `text` when the user picks it.
@@ -59,9 +63,9 @@ impl GuestMessage {
     /// The result's title is the first non-empty line of `text`, cut to 64 characters, because Telegram refuses an
     /// article without one (`ARTICLE_TITLE_EMPTY`). Awaiting the request returns the
     /// [`SentGuestMessage`](crate::types::SentGuestMessage).
-    pub fn answer_text<'a>(&'a self, client: &'a Client, text: impl Into<Text>) -> AnswerGuestQuery<'a> {
+    pub fn answer_text(&self, text: impl Into<Text>) -> AnswerGuestQuery<'_> {
         let text: Text = text.into();
-        self.answer_article(client, title_of(text.as_str()), InputMessageContent::text(text))
+        self.answer_article(title_of(text.as_str()), InputMessageContent::text(text))
     }
 
     /// Answers the guest query with an article that sends the rich message `rich` when the user picks it.
@@ -69,17 +73,12 @@ impl GuestMessage {
     /// The result's title is "Answer", because Telegram refuses an article without one (`ARTICLE_TITLE_EMPTY`) and a
     /// rich message has no plain text to take it from. Awaiting the request returns the
     /// [`SentGuestMessage`](crate::types::SentGuestMessage).
-    pub fn answer_rich<'a>(&'a self, client: &'a Client, rich: InputRichMessage) -> AnswerGuestQuery<'a> {
-        self.answer_article(client, DEFAULT_TITLE.to_owned(), InputMessageContent::Rich(rich))
+    pub fn answer_rich(&self, rich: InputRichMessage) -> AnswerGuestQuery<'_> {
+        self.answer_article(DEFAULT_TITLE.to_owned(), InputMessageContent::Rich(rich))
     }
 
-    fn answer_article<'a>(
-        &'a self,
-        client: &'a Client,
-        title: String,
-        content: InputMessageContent,
-    ) -> AnswerGuestQuery<'a> {
-        client.answer_guest_query(self.query_id, InlineQueryResultArticle::new(title, content))
+    fn answer_article(&self, title: String, content: InputMessageContent) -> AnswerGuestQuery<'_> {
+        self.client().answer_guest_query(self.query_id, InlineQueryResultArticle::new(title, content))
     }
 }
 
@@ -155,7 +154,7 @@ mod tests {
     async fn answer_text_titles_the_article_with_the_first_line() {
         let (client, mut rx) = Client::recording();
         let guest = parsed_guest(&client);
-        let _ = guest.answer_text(&client, "\n  first line  \nsecond").await;
+        let _ = guest.answer_text("\n  first line  \nsecond").await;
         let body = rx.try_recv().expect("no request sent");
         assert_eq!(flags(&body), TITLE, "only the title is set: Telegram refuses an article without one");
         assert!(body.windows(7).any(|w| w == "article".as_bytes()), "the result isn't an article");
@@ -168,7 +167,7 @@ mod tests {
     async fn answer_rich_sends_a_rich_message_with_a_title() {
         let (client, mut rx) = Client::recording();
         let guest = parsed_guest(&client);
-        let _ = guest.answer_rich(&client, InputRichMessage::html("<b>hi</b>")).await;
+        let _ = guest.answer_rich(InputRichMessage::html("<b>hi</b>")).await;
         let body = rx.try_recv().expect("no request sent");
         assert_eq!(flags(&body), TITLE, "only the title is set");
         let title = String::from("Answer").to_bytes();
@@ -191,7 +190,7 @@ mod tests {
     async fn a_titled_article_sets_the_title_flag() {
         let (client, mut rx) = Client::recording();
         let guest = parsed_guest(&client);
-        let _ = guest.answer(&client, InlineQueryResultArticle::new("t", "hi")).await;
+        let _ = guest.answer(InlineQueryResultArticle::new("t", "hi")).await;
         let body = rx.try_recv().expect("no request sent");
         assert_eq!(flags(&body) & TITLE, TITLE, "a titled article sets the flag");
     }

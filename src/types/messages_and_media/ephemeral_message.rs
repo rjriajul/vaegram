@@ -7,7 +7,7 @@ use crate::types::{Chat, Media, MessageEntity, MessageText, ReplyMarkup, User};
 use crate::utils::get_peer;
 
 /// A message in a chat that only one user, the receiver, sees.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct EphemeralMessage {
     /// Id of the message. Ephemeral ids have their own sequence, separate from regular message ids.
@@ -49,6 +49,8 @@ pub struct EphemeralMessage {
     pub show_caption_above_media: bool,
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) raw: Box<types::EphemeralMessage>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    client: Client,
 }
 
 impl EphemeralMessage {
@@ -85,6 +87,7 @@ impl EphemeralMessage {
             has_protected_content: raw.noforwards,
             show_caption_above_media: raw.invert_media,
             raw,
+            client: client.clone(),
         }
     }
 
@@ -113,22 +116,27 @@ impl EphemeralMessage {
     }
 
     /// Edits the text of the message. Awaiting returns the edited [`EphemeralMessage`].
-    pub fn edit_text<'a>(&'a self, client: &'a Client, text: impl Into<MessageText>) -> EditEphemeralMessage<'a> {
-        client.edit_ephemeral_message_text(self.chat.id, self.receiver_user.id, self.id, text)
+    pub fn edit_text(&self, text: impl Into<MessageText>) -> EditEphemeralMessage<'_> {
+        self.client.edit_ephemeral_message_text(self.chat.id, self.receiver_user.id, self.id, text)
     }
 
     /// Deletes the message for its receiver.
-    pub async fn delete(&self, client: &Client) -> Result<()> {
-        client.delete_ephemeral_message(self.chat.id, self.receiver_user.id, self.id).await
+    pub async fn delete(&self) -> Result<()> {
+        self.client.delete_ephemeral_message(self.chat.id, self.receiver_user.id, self.id).await
+    }
+
+    /// Returns the client that received the message.
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 
     /// Sends an ephemeral reply to this message in the same chat.
     ///
     /// The reply goes to the sender of an incoming message, or to the same receiver for an outgoing one. The text is
     /// a [`MessageText`]: plain or formatted text, or a rich message. Awaiting returns the sent [`EphemeralMessage`].
-    pub fn reply<'a>(&'a self, client: &'a Client, text: impl Into<MessageText>) -> SendEphemeralMessage<'a> {
+    pub fn reply(&self, text: impl Into<MessageText>) -> SendEphemeralMessage<'_> {
         let receiver = self.from_user.as_ref().filter(|_| !self.outgoing).map_or(self.receiver_user.id, |u| u.id);
-        client.send_ephemeral_message(self.chat.id, receiver, text).reply_to_ephemeral(self.id)
+        self.client.send_ephemeral_message(self.chat.id, receiver, text).reply_to_ephemeral(self.id)
     }
 }
 
