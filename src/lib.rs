@@ -70,6 +70,8 @@ macro_rules! unstable_raw_pub {
 pub mod bot_api;
 /// [`Client`] and its [`ClientBuilder`].
 pub mod client;
+/// Bot commands as an enum: the [`BotCommands`](commands::BotCommands) trait, its parse error and help text.
+pub mod commands;
 /// The transport under a session: framing, obfuscation, proxies, and the connection settings in
 /// [`Options`](connection::Options).
 #[cfg_attr(
