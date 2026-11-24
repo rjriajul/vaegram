@@ -339,6 +339,7 @@ fn config() -> base::Config {
         revoke_pm_inbox: false,
         blocked_mode: false,
         force_try_ipv6: false,
+        fpnv_allowed: false,
         date: DATE,
         expires: DATE + 3600,
         test_mode: false,

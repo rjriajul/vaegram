@@ -85,6 +85,7 @@ mod tests {
             revoke_pm_inbox: false,
             blocked_mode: false,
             force_try_ipv6: false,
+            fpnv_allowed: false,
             date: 1_700_000_000,
             expires: 1_700_003_600,
             test_mode: true,

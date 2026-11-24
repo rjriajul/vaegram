@@ -175,6 +175,7 @@ mod tests {
             unread_unmuted_messages_count: 0,
         };
         let page = types::messages::DialogsSlice {
+            topics: None,
             count: 500,
             dialogs: vec![base::Dialog::DialogFolder(Box::new(folder)); dialogs],
             messages: vec![unparsed(1, 1, 50)],
@@ -186,6 +187,7 @@ mod tests {
 
     fn whole() -> base::messages::Dialogs {
         let page = types::messages::Dialogs {
+            topics: None,
             dialogs: Vec::new(),
             messages: Vec::new(),
             chats: Vec::new(),

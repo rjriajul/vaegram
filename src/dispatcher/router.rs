@@ -2031,7 +2031,8 @@ mod tests {
                 text: "hello".into(),
             };
             dispatch(&router, base::Update::UpdateTranscribedAudio(Box::new(update)));
-            let draft = base::DraftMessage::DraftMessageEmpty(types::DraftMessageEmpty { date: Some(5) });
+            let draft = types::DraftMessageEmpty { date: Some(5), ai_style: None };
+            let draft = base::DraftMessage::DraftMessageEmpty(Box::new(draft));
             let update =
                 types::UpdateDraftMessage { peer: get_peer(peer), top_msg_id: None, saved_peer_id: None, draft };
             dispatch(&router, base::Update::UpdateDraftMessage(Box::new(update)));

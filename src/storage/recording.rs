@@ -570,6 +570,7 @@ mod tests {
             preload_featured_stickers: false,
             revoke_pm_inbox: false,
             blocked_mode: false,
+            fpnv_allowed: false,
             force_try_ipv6: false,
             date: 1_700_000_000,
             expires: 1_700_003_600,
@@ -858,6 +859,7 @@ mod tests {
         let updates = base::Updates::Updates(Box::new(batch(vec![update.clone()]))).to_bytes();
         let state = types::updates::State { pts: 1, qts: 0, date: 0, seq: 0, unread_count: 0 };
         let difference = types::updates::Difference {
+            topics: None,
             new_messages: Vec::new(),
             new_encrypted_messages: Vec::new(),
             other_updates: vec![update],

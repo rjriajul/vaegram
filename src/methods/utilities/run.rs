@@ -486,6 +486,7 @@ pub(super) mod tests {
         let confirmed = types::updates::State { pts: 50, qts: 5, date: 2, seq: 0, unread_count: 0 };
         let now = types::updates::State { qts: 6, date: 3, ..confirmed.clone() };
         let pending = types::updates::Difference {
+            topics: None,
             new_messages: Vec::new(),
             new_encrypted_messages: Vec::new(),
             other_updates: vec![connected("old", 6)],
@@ -549,6 +550,7 @@ pub(super) mod tests {
             _ => unreachable!("only new messages are held here"),
         });
         let pending = types::updates::Difference {
+            topics: None,
             new_messages: held.collect(),
             new_encrypted_messages: Vec::new(),
             other_updates: Vec::new(),

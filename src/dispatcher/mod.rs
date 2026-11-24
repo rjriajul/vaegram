@@ -488,6 +488,7 @@ mod tests {
     #[tokio::test]
     async fn a_failed_channel_page_does_not_replay_the_pages_before_it() {
         let page = types::updates::ChannelDifference {
+            topics: None,
             r#final: false,
             pts: 5,
             timeout: None,
@@ -670,6 +671,7 @@ mod tests {
     #[tokio::test]
     async fn missed_updates_bring_their_users_to_raw_handlers() {
         let difference = types::updates::Difference {
+            topics: None,
             new_messages: Vec::new(),
             new_encrypted_messages: Vec::new(),
             other_updates: vec![new_message(2)],
@@ -735,6 +737,7 @@ mod tests {
     async fn recovery_counts_messages_then_other_updates() {
         let bare = || base::Message::Message(Box::new(Message::bare(1, get_peer(7), 0)));
         let difference = types::updates::Difference {
+            topics: None,
             new_messages: vec![bare(), bare()],
             new_encrypted_messages: Vec::new(),
             other_updates: vec![new_message(2)],
@@ -796,6 +799,7 @@ mod tests {
     #[tokio::test]
     async fn recovery_only_asks_for_the_named_boxes() {
         let page = types::updates::ChannelDifference {
+            topics: None,
             r#final: true,
             pts: 5,
             timeout: None,
@@ -857,6 +861,7 @@ mod tests {
         // The difference moves seq to 2, so the batch held for seq 3 goes out as it settles.
         let moved = types::updates::State { pts: 11, qts: 0, date: 0, seq: 2, unread_count: 0 };
         let difference = types::updates::Difference {
+            topics: None,
             new_messages: Vec::new(),
             new_encrypted_messages: Vec::new(),
             other_updates: Vec::new(),
@@ -907,6 +912,7 @@ mod tests {
     #[tokio::test]
     async fn too_long_channel_differences_report_the_skipped_range() {
         let too_long = types::updates::ChannelDifferenceTooLong {
+            topics: None,
             r#final: true,
             timeout: None,
             dialog: dialog(9, 50),
@@ -938,12 +944,14 @@ mod tests {
     }
 
     fn channel_too_long(pts: Option<i32>) -> base::Update {
-        base::Update::UpdateChannelTooLong(Box::new(types::UpdateChannelTooLong { channel_id: 9, pts }))
+        let too_long = types::UpdateChannelTooLong { channel_id: 9, pts, last_msg_id: None, last_msg_date: None };
+        base::Update::UpdateChannelTooLong(Box::new(too_long))
     }
 
     #[tokio::test]
     async fn a_difference_at_startup_fetches_a_channel_it_names_from_the_pts_given() {
         let difference = types::updates::Difference {
+            topics: None,
             new_messages: Vec::new(),
             new_encrypted_messages: Vec::new(),
             other_updates: vec![channel_too_long(Some(5))],
@@ -953,6 +961,7 @@ mod tests {
         };
         let difference = base::updates::Difference::Difference(Box::new(difference));
         let page = types::updates::ChannelDifference {
+            topics: None,
             r#final: true,
             pts: 7,
             timeout: None,
@@ -1020,6 +1029,7 @@ mod tests {
     async fn a_channel_difference_without_catch_up_drops_messages_from_before_the_run() {
         let message = |id, date| base::Message::Message(Box::new(Message::bare(id, get_peer(get_channel_id(9)), date)));
         let page = types::updates::ChannelDifference {
+            topics: None,
             r#final: true,
             pts: 5,
             timeout: None,
@@ -1042,6 +1052,7 @@ mod tests {
     #[tokio::test]
     async fn without_catch_up_a_channel_the_first_difference_names_is_fetched_from_the_run_on() {
         let difference = types::updates::Difference {
+            topics: None,
             new_messages: Vec::new(),
             new_encrypted_messages: Vec::new(),
             other_updates: vec![channel_too_long(Some(5))],
@@ -1057,6 +1068,7 @@ mod tests {
         };
         let deleted = types::UpdateDeleteChannelMessages { channel_id: 9, messages: vec![1], pts: 7, pts_count: 1 };
         let page = types::updates::ChannelDifference {
+            topics: None,
             r#final: true,
             pts: 7,
             timeout: None,
@@ -1271,6 +1283,7 @@ mod tests {
     #[tokio::test]
     async fn without_catch_up_a_channel_the_first_difference_names_without_a_pts_is_not_reported() {
         let difference = types::updates::Difference {
+            topics: None,
             new_messages: Vec::new(),
             new_encrypted_messages: Vec::new(),
             other_updates: vec![channel_too_long(None)],
@@ -1299,6 +1312,7 @@ mod tests {
             base::Update::UpdateDeleteMessages(Box::new(update))
         };
         let difference = types::updates::Difference {
+            topics: None,
             new_messages: Vec::new(),
             new_encrypted_messages: Vec::new(),
             other_updates: vec![deleted()],
@@ -1561,6 +1575,7 @@ mod tests {
             unread_unmuted_messages_count: 0,
         };
         let too_long = types::updates::ChannelDifferenceTooLong {
+            topics: None,
             r#final: true,
             timeout: None,
             dialog: base::Dialog::DialogFolder(Box::new(folder)),
@@ -1651,6 +1666,7 @@ mod tests {
     async fn a_run_dropped_between_difference_pages_has_handled_what_it_hands_back() {
         let state = types::updates::State { pts: 50, qts: 0, date: 5, seq: 0, unread_count: 0 };
         let slice = types::updates::DifferenceSlice {
+            topics: None,
             new_messages: vec![base::Message::Message(Box::new(Message::bare(42, get_peer(7), 0)))],
             new_encrypted_messages: Vec::new(),
             other_updates: Vec::new(),

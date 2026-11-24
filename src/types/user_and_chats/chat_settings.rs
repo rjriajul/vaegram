@@ -154,6 +154,8 @@ mod tests {
             phone_country: Some("DE".into()),
             name_change_date: Some(200),
             photo_change_date: Some(300),
+            bot_inviter_id: None,
+            bot_owner_id: None,
         };
         let entities = Entities::new(&Client::offline(), vec![bot(42)], Vec::new());
         let settings = ChatSettings::parse(raw, &entities);

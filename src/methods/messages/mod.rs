@@ -469,6 +469,7 @@ mod saved_tests {
                 effect: None,
                 suggested_post: None,
                 rich_message: None,
+                ai_style: None,
             }))
         };
         let update = |peer, top_msg_id, draft| {
@@ -481,7 +482,8 @@ mod saved_tests {
         };
         let user_peer = base::Peer::PeerUser(types::PeerUser { user_id: USER });
         let group = base::Peer::PeerChat(types::PeerChat { chat_id: 9 });
-        let cleared = base::DraftMessage::DraftMessageEmpty(types::DraftMessageEmpty { date: None });
+        let cleared = types::DraftMessageEmpty { date: None, ai_style: None };
+        let cleared = base::DraftMessage::DraftMessageEmpty(Box::new(cleared));
         let updates = types::Updates {
             updates: vec![
                 update(user_peer, None, draft("hello")),
