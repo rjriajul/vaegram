@@ -43,27 +43,53 @@
 //!
 //! Any other request fails with [`TestError::NoDefaultAnswer`]; answer it with [`Script::reply_next`] or
 //! [`Script::on_call`]. Every failure of the kit's own is a [`TestError`] inside `Error::Other`.
+//!
+//! # Updates
+//!
+//! [`Recorder::feed`] hands an update built from [`TestMessage`], [`TestCallbackQuery`] or [`TestUpdate`] to the
+//! client's handlers and waits for them; see [`Recorder`] for `dispatch` and `settle`, which a handler waiting in
+//! `ask` or `listen` needs, and for `push_stream`, which feeds `run` instead. A test client's
+//! [`run`](Client::run) takes what `push_stream` pushes and waits for more, as a real client waits on its
+//! connection, until [`Client::stop`] or [`Recorder::close_stream`]: start it on a task of its own.
+//!
+//! ```no_run
+//! use vaegram::Client;
+//! use vaegram::filters;
+//! use vaegram::test::TestMessage;
+//!
+//! # async fn f() {
+//! let (client, recorder) = Client::recording();
+//! client.on_message(filters::command("start"), |client, msg| async move { msg.reply(&client, "Welcome!").await });
+//! recorder.feed(TestMessage::private(42, "/start")).await;
+//! assert_eq!(recorder.sent_texts(42), ["Welcome!"]);
+//! # }
+//! ```
 
 mod auto_reply;
 mod calls;
+mod harness;
 mod script;
+mod updates;
 
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::atomic::{AtomicI32, AtomicI64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 
 use tokio::sync::mpsc;
 
 pub use calls::{CallKind, RecordedCall};
 pub use script::Reply;
+pub use updates::{TestCallbackQuery, TestChat, TestMessage, TestUpdate, TestUser};
 
 use crate::Client;
-use crate::client::{Me, permits};
+use crate::client::{Inner, Me, permits};
 use crate::connection::Options;
+use crate::dispatcher::Handling;
 use crate::enums::ParseMode;
 use crate::errors::Error;
-use crate::session::{AutoSleep, NoRetries, Retry, Session};
+use crate::raw::{Deserializable, base};
+use crate::session::{AutoSleep, Incoming, NoRetries, Retry, Session, UpdatesRx};
 use script::Rules;
 
 /// The account a test client is logged in as when [`TestBuilder`] doesn't say.
@@ -158,7 +184,8 @@ impl TestBuilder {
         self
     }
 
-    /// The client and the [`Recorder`] of the requests it sends; it answers the common bot requests itself.
+    /// The client and the [`Recorder`] of the requests it sends; it answers the common bot requests itself. Its
+    /// `run` waits for pushed updates until `stop` or [`Recorder::close_stream`].
     ///
     /// # Panics
     ///
@@ -169,7 +196,7 @@ impl TestBuilder {
     }
 
     /// The client and the [`Script`] that answers its requests; strict until [`Script::auto_reply`] turns the
-    /// default answers on.
+    /// default answers on. Its `run` waits for pushed updates until `stop` or [`Script::close_stream`].
     ///
     /// # Panics
     ///
@@ -189,18 +216,29 @@ impl TestBuilder {
             let call = RecordedCall::new(name, tag, body, driver.me.id);
             driver.calls().push(call.clone());
             let _ = tx.send(call.clone());
-            script::answer(&driver, &call)
+            let answer = script::answer(&driver, &call);
+            if let Ok(body) = &answer {
+                driver.deliver(body);
+            }
+            answer
         });
         let me = &state.me;
         let username = me.username.as_deref().map(Arc::from);
         let me = Me { id: me.id, is_bot: me.bot, premium: Some(me.premium), username };
         let (ordered, handlers, parse_mode) = (self.ordered, self.max_concurrent_handlers, self.parse_mode);
+        let mut stream = None;
         let client = Client::local(session, options, |inner| {
             *inner.me.get_mut().unwrap_or_else(PoisonError::into_inner) = me;
             *inner.parse_mode.get_mut().unwrap_or_else(PoisonError::into_inner) = parse_mode;
             inner.ordered = ordered;
             inner.handler_permits = handlers.map(permits);
+            // The stream `run` reads, which `Recorder::push_stream` fills.
+            let (tx, rx) = UpdatesRx::channel_with(inner.events.clone());
+            *inner.updates.get_mut() = rx;
+            stream = Some(tx);
         });
+        *state.stream.lock().unwrap_or_else(PoisonError::into_inner) = stream;
+        let _ = state.client.set(Arc::downgrade(&client.0));
         (client, state)
     }
 }
@@ -367,6 +405,10 @@ pub enum TestError {
         /// The data center.
         dc_id: i32,
     },
+    /// [`push_stream`](Recorder::push_stream) found no `run` to take the update: none started, or it couldn't
+    /// start (a strict [`Script`] without an answer for `users.getUsers` or `updates.getState`), or it ended, or
+    /// the stream was closed.
+    NoRun,
 }
 
 impl fmt::Display for TestError {
@@ -387,6 +429,11 @@ impl fmt::Display for TestError {
                 write!(f, "the on_call responder for {method} panicked: {message}")
             }
             TestError::NoConnection { dc_id } => write!(f, "a test client opens no connection, here to DC {dc_id}"),
+            TestError::NoRun => write!(
+                f,
+                "no run took the pushed update: start client.run() on a task of its own first, with getMe and \
+                 updates.getState answered"
+            ),
         }
     }
 }
@@ -419,6 +466,14 @@ pub(crate) struct State {
     channel_pts: Mutex<HashMap<i64, i32>>,
     // The last photo or document id handed out.
     file_id: AtomicI64,
+    // The last callback query id handed out.
+    query_id: AtomicI64,
+    // The client, once built; weak, since its requests hold this state.
+    client: OnceLock<Weak<Inner>>,
+    // Where pushed updates go to `run`; `None` once the stream is closed.
+    stream: Mutex<Option<mpsc::Sender<Incoming>>>,
+    // What `feed` and `dispatch` hand updates to, made at the first.
+    handling: Mutex<Option<Handling>>,
 }
 
 impl State {
@@ -432,6 +487,10 @@ impl State {
             pts: AtomicI32::new(0),
             channel_pts: Mutex::new(HashMap::new()),
             file_id: AtomicI64::new(0),
+            query_id: AtomicI64::new(0),
+            client: OnceLock::new(),
+            stream: Mutex::new(None),
+            handling: Mutex::new(None),
         }
     }
 
@@ -458,6 +517,11 @@ impl State {
         self.file_id.fetch_add(1, Ordering::Relaxed).wrapping_add(1)
     }
 
+    /// A new callback query id.
+    pub(crate) fn next_query_id(&self) -> i64 {
+        self.query_id.fetch_add(1, Ordering::Relaxed).wrapping_add(1)
+    }
+
     /// Moves `pts` on by one and returns it.
     pub(crate) fn next_pts(&self) -> i32 {
         self.pts.fetch_add(1, Ordering::Relaxed).wrapping_add(1)
@@ -471,7 +535,22 @@ impl State {
         *pts
     }
 
+    /// The `pts` of the channel `channel_id` (its TL id), unmoved.
+    pub(crate) fn channel_pts(&self, channel_id: i64) -> i32 {
+        self.channel_pts.lock().unwrap_or_else(PoisonError::into_inner).get(&channel_id).copied().unwrap_or(0)
+    }
+
     pub(crate) fn pts(&self) -> i32 {
         self.pts.load(Ordering::Relaxed)
+    }
+
+    /// Hands an answer that is updates to a `run` going, as a real session hands those of every request: its
+    /// tracker learns the `pts` they moved, and no gap shows before the next pushed update.
+    fn deliver(&self, body: &[u8]) {
+        let Ok(updates) = base::Updates::from_bytes(body) else { return };
+        if let Some(stream) = &*self.stream.lock().unwrap_or_else(PoisonError::into_inner) {
+            // Full: `run` is behind or not going; a real session drops them too.
+            let _ = stream.try_send(Incoming { updates, from_request: true });
+        }
     }
 }

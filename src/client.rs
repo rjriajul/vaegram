@@ -1046,7 +1046,8 @@ impl Client {
     /// A bot client for unit tests, with in-memory storage, that answers the common bot requests itself and
     /// records every request it sends in the [`Recorder`](crate::test::Recorder). See [`crate::test`] for what it
     /// answers and how. Not to be confused with [`ClientBuilder::record`], which writes a real client's traffic to a
-    /// file.
+    /// file. Its [`run`](Self::run) waits for the updates the recorder pushes until [`stop`](Self::stop) or
+    /// [`Recorder::close_stream`](crate::test::Recorder::close_stream).
     ///
     /// # Panics
     ///
@@ -1056,7 +1057,9 @@ impl Client {
     }
 
     /// A bot client for unit tests, with in-memory storage, whose answers the [`Script`](crate::test::Script)
-    /// decides. It's strict: a request the script has no answer for fails. See [`crate::test`].
+    /// decides. It's strict: a request the script has no answer for fails. See [`crate::test`]. Its
+    /// [`run`](Self::run) waits for the updates the script pushes until [`stop`](Self::stop) or
+    /// [`Script::close_stream`](crate::test::Script::close_stream).
     ///
     /// # Panics
     ///

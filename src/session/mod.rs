@@ -239,7 +239,7 @@ impl UpdatesRx {
         UpdatesRx::channel_with(Arc::default())
     }
 
-    #[cfg(test)]
+    /// A queue of 8 batches fed through the sender, for a test client's pushed updates.
     pub(crate) fn channel_with(events: Arc<Events>) -> (mpsc::Sender<Incoming>, UpdatesRx) {
         let (tx, rx) = mpsc::channel(8);
         (tx, UpdatesRx { rx, events })

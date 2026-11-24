@@ -58,6 +58,11 @@ impl Tasks {
         while self.running.join_next().await.is_some() {}
     }
 
+    /// The handler tasks started so far, to wait for without holding these; they're no longer counted here.
+    pub(crate) fn take_running(&mut self) -> JoinSet<()> {
+        std::mem::replace(&mut self.running, JoinSet::new())
+    }
+
     /// Cancels the handlers still running, then reports each as one that returned `Error::Timeout`: to `on_error`
     /// while `REPORT_GRACE` lasts, and past it, so an `on_error` that hangs can't hold `stop` up again, as
     /// `HandlerFailed`, the one `on_error` was given and didn't finish with included.

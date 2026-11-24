@@ -78,7 +78,7 @@ pub(crate) fn sent(state: &State, call: &RecordedCall, id: i32) -> Result<Vec<u8
     }
 }
 
-fn now() -> i32 {
+pub(crate) fn now() -> i32 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i32)
 }
 

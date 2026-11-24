@@ -41,10 +41,8 @@ pub(crate) struct Dispatcher {
     tracker: Tracker,
     saved_at: Instant,
     saved: UpdateState,
-    router: Arc<Router>,
-    generation: u64,
     account: u64,
-    tasks: Tasks,
+    handling: Handling,
     // Messages and other updates the differences have brought in, counted by `difference.rs`.
     recovered: (usize, usize),
     // Set by `from_now` until the first difference is read whole or given up on: what it brings, and what is pushed
@@ -90,22 +88,16 @@ impl Dispatcher {
 
     fn with(client: Client, mut tracker: Tracker) -> Self {
         tracker.touch(Instant::now());
-        let generation = client.0.handlers.generation();
         let account = client.0.account.load(Ordering::Relaxed);
-        let router = client.0.handlers.current();
-        let mut tasks = Tasks::new(client.0.ordered, client.0.handler_permits.clone());
-        tasks.on_error = router.on_error.clone();
-        tasks.events = client.0.events.clone();
+        let handling = Handling::new(&client);
         let saved = Default::default();
         Dispatcher {
             client,
             tracker,
             saved_at: Instant::now(),
             saved,
-            router,
-            generation,
             account,
-            tasks,
+            handling,
             recovered: (0, 0),
             held_before: None,
             held_channels: Vec::new(),
@@ -153,7 +145,7 @@ impl Dispatcher {
                 }
             };
             // With a handler cap and the waiting room full, updates wait in the update queue instead.
-            let full = self.tasks.full();
+            let full = self.handling.tasks.full();
             let next = tokio::select! {
                 biased;
                 // The watch guard `wait_for` returns isn't Send, so it is dropped before awaiting the handlers.
@@ -177,7 +169,7 @@ impl Dispatcher {
                     return true;
                 }
                 next = next, if !full => next,
-                () = self.tasks.one_done(), if full => continue,
+                () = self.handling.tasks.one_done(), if full => continue,
                 // The save itself is at the top of the loop.
                 () = save => continue,
                 // After the updates, and one request a turn, so a tight `recover_gaps` loop can't starve them.
@@ -218,8 +210,8 @@ impl Dispatcher {
                 }
             };
             tokio::select! {
-                () = self.tasks.finish() => return,
-                () = expired => return self.tasks.abandon().await,
+                () = self.handling.tasks.finish() => return,
+                () = expired => return self.handling.tasks.abandon().await,
                 // `stop_with_timeout` called meanwhile: waited for again, up to its deadline.
                 Ok(()) = stop.changed() => {}
             }
@@ -370,6 +362,35 @@ impl Dispatcher {
     }
 
     fn dispatch(&mut self, update: base::Update, entities: &Arc<Entities>) {
+        self.handling.deliver(&self.client, update, entities);
+    }
+
+    /// Routes again the updates listeners were handed but dropped before reading.
+    fn redeliver(&mut self) {
+        self.handling.redeliver(&self.client);
+    }
+}
+
+/// What hands released updates to the handlers: the routes as last read, and the handler tasks. A running
+/// dispatcher has one; so has a test client, for the updates it is fed.
+pub(crate) struct Handling {
+    router: Arc<Router>,
+    generation: u64,
+    pub(crate) tasks: Tasks,
+}
+
+impl Handling {
+    pub(crate) fn new(client: &Client) -> Self {
+        let generation = client.0.handlers.generation();
+        let router = client.0.handlers.current();
+        let mut tasks = Tasks::new(client.0.ordered, client.0.handler_permits.clone());
+        tasks.on_error = router.on_error.clone();
+        tasks.events = client.0.events.clone();
+        Handling { router, generation, tasks }
+    }
+
+    /// Hands one update to the listeners and handlers.
+    pub(crate) fn deliver(&mut self, client: &Client, update: base::Update, entities: &Arc<Entities>) {
         let message = match &update {
             base::Update::UpdateNewMessage(u) => Some(&u.message),
             base::Update::UpdateNewChannelMessage(u) => Some(&u.message),
@@ -378,21 +399,22 @@ impl Dispatcher {
             _ => None,
         };
         if let Some(message) = message {
-            entities.remember_min_peers(&self.client, message);
+            entities.remember_min_peers(client, message);
         }
-        self.client.stop_stream(&update);
-        self.refresh_router();
-        self.router.dispatch(&self.client, update, entities, &mut self.tasks);
+        client.stop_stream(&update);
+        self.refresh(client);
+        self.router.dispatch(client, update, entities, &mut self.tasks);
     }
 
     /// Routes again the updates listeners were handed but dropped before reading.
-    fn redeliver(&mut self) {
-        self.refresh_router();
-        self.router.redeliver(&self.client, &mut self.tasks);
+    pub(crate) fn redeliver(&mut self, client: &Client) {
+        self.refresh(client);
+        self.router.redeliver(client, &mut self.tasks);
     }
 
-    fn refresh_router(&mut self) {
-        let handlers = &self.client.0.handlers;
+    /// Takes the routes registered since they were last read.
+    fn refresh(&mut self, client: &Client) {
+        let handlers = &client.0.handlers;
         let generation = handlers.generation();
         if generation != self.generation {
             (self.router, self.generation) = (handlers.current(), generation);
@@ -1484,11 +1506,11 @@ mod tests {
         let (client, engine) = recording_client();
         let mut d = Dispatcher::new(client.clone(), &state());
         // A handler cap with no free slot: every handler waits, and the waiting room fills.
-        d.tasks = super::tasks::Tasks::new(false, Some(Arc::new(tokio::sync::Semaphore::new(0))));
+        d.handling.tasks = super::tasks::Tasks::new(false, Some(Arc::new(tokio::sync::Semaphore::new(0))));
         for _ in 0..super::tasks::MAX_WAITING_HANDLERS {
-            d.tasks.raw(Box::pin(async { Ok::<(), Error>(()) }));
+            d.handling.tasks.raw(Box::pin(async { Ok::<(), Error>(()) }));
         }
-        assert!(d.tasks.full());
+        assert!(d.handling.tasks.full());
         d.tracker.state.pts = 2;
         let (_updates, mut rx) = UpdatesRx::channel();
         let start = tokio::time::Instant::now();
