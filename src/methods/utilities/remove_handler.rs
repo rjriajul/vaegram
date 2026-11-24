@@ -81,7 +81,7 @@ mod tests {
         let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = ran.clone();
         let id = client
-            .register_next_step_handler(move |_client, _: crate::types::Message| {
+            .register_next_step_handler(move |_: crate::types::Message| {
                 flag.store(true, std::sync::atomic::Ordering::Relaxed);
                 async { Ok(()) }
             })

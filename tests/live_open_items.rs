@@ -99,7 +99,7 @@ async fn bot_rich_html_keeps_a_newline() {
     let emoji_id = icons.first().expect("get_forum_topic_icon_stickers returned no stickers").id;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::private() & filters::user(bot_id), move |_client, m| {
+    user.on_message(filters::private() & filters::user(bot_id), move |m| {
         let _ = tx.send(m);
         async { Ok(()) }
     })
@@ -139,7 +139,7 @@ async fn bot_sends_a_widget() {
     let bot_id = bot_id_for_user(&kit).await;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::private() & filters::user(bot_id), move |_client, m| {
+    user.on_message(filters::private() & filters::user(bot_id), move |m| {
         if m.widget().is_some() {
             let _ = tx.send(m);
         }
@@ -324,7 +324,7 @@ async fn rich_collage_and_slideshow_arrive_as_their_kinds() {
     let bot_id = bot_id_for_user(&kit).await;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::private() & filters::user(bot_id), move |_client, m| {
+    user.on_message(filters::private() & filters::user(bot_id), move |m| {
         let _ = tx.send(m);
         async { Ok(()) }
     })
@@ -386,7 +386,7 @@ async fn a_forwarded_story_reaches_the_bot_as_a_story() {
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    kit.bot.on_message(filters::private() & filters::user(user_id), move |_client, m| {
+    kit.bot.on_message(filters::private() & filters::user(user_id), move |m| {
         if m.story().is_some() {
             let _ = tx.send(m);
         }
@@ -433,12 +433,12 @@ async fn a_guest_bot_answer_names_its_caller() {
     let Some(group) = support::test_supergroup(&user).await else { return };
 
     let (asked_tx, mut asked) = mpsc::unbounded_channel();
-    kit.bot.on_guest_message(filters::all(), move |_client, g| {
+    kit.bot.on_guest_message(filters::all(), move |g| {
         let _ = asked_tx.send(g.caller_user.as_ref().map(|u| u.id));
         async move { g.answer_text("guest answer from vaegram").await }
     });
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::chat(group), move |_client, m| {
+    user.on_message(filters::chat(group), move |m| {
         if m.guest_bot_caller.is_some() {
             let _ = tx.send(m);
         }
@@ -561,14 +561,14 @@ async fn message_less_channel_updates_reach_the_user_by_push() {
         member.status() == ChatMemberStatus::Administrator && member.privileges().is_some_and(|p| p.can_pin_messages);
 
     let (deleted_tx, mut deleted) = mpsc::unbounded_channel();
-    user.on_deleted_messages(filters::all(), move |_client, event| {
+    user.on_deleted_messages(filters::all(), move |event| {
         if event.chat.as_ref().is_some_and(|c| c.id == chat_id) {
             let _ = deleted_tx.send(event.message_ids);
         }
         async { Ok(()) }
     });
     let (pinned_tx, mut pinned) = mpsc::unbounded_channel();
-    user.on_pinned_messages(filters::all(), move |_client, event| {
+    user.on_pinned_messages(filters::all(), move |event| {
         if event.chat.id == chat_id {
             let _ = pinned_tx.send((event.is_pinned, event.message_ids));
         }

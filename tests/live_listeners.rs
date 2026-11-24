@@ -20,7 +20,7 @@ async fn wait_for_callback_query_gets_the_click() {
     // The user presses only once the bot listens for it: see the same test in live_msg_actions.
     let (bot, listening) = (kit.bot.clone(), Arc::new(Notify::new()));
     let ready = listening.clone();
-    kit.bot.on_message(filters::private() & filters::command("pick"), move |_client, m| {
+    kit.bot.on_message(filters::private() & filters::command("pick"), move |m| {
         let (bot, ready) = (bot.clone(), ready.clone());
         async move {
             let keyboard = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Pick", "pick")]]);
@@ -58,7 +58,7 @@ async fn wait_for_callback_query_gets_the_click() {
 async fn ask_returns_the_users_answer() {
     let Some(kit) = Kit::from_env().await else { return };
     let bot = kit.bot.clone();
-    kit.bot.on_message(filters::private() & filters::command("ask"), move |_client, m| {
+    kit.bot.on_message(filters::private() & filters::command("ask"), move |m| {
         let bot = bot.clone();
         async move {
             let answer = bot.ask(m.chat.id, "Your name?").prompt(|q| q.reply_to(m.id));
@@ -80,10 +80,10 @@ async fn ask_returns_the_users_answer() {
 async fn next_step_handler_runs_on_the_next_message() {
     let Some(kit) = Kit::from_env().await else { return };
     let bot = kit.bot.clone();
-    kit.bot.on_message(filters::private() & filters::command("step"), move |_client, m| {
+    kit.bot.on_message(filters::private() & filters::command("step"), move |m| {
         let bot = bot.clone();
         async move {
-            let step = |_client, answer: vaegram::types::Message| async move {
+            let step = |answer: vaegram::types::Message| async move {
                 answer.reply(format!("step {}", answer.text())).await?;
                 Ok(())
             };

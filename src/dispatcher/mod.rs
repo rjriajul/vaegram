@@ -796,7 +796,7 @@ mod tests {
         let (tx, mut answers) = tokio::sync::mpsc::unbounded_channel();
         client.on_message(crate::filters::all(), {
             let (client, started, release) = (client.clone(), started.clone(), release.clone());
-            move |_client, _| {
+            move |_| {
                 let (client, started, release, tx) = (client.clone(), started.clone(), release.clone(), tx.clone());
                 async move {
                     started.notify_one();
@@ -1359,7 +1359,7 @@ mod tests {
         *client.0.updates.lock().await = rx;
         let (tx, mut answers) = tokio::sync::mpsc::unbounded_channel();
         let listener = client.clone();
-        client.on_message(crate::filters::all(), move |_client, m| {
+        client.on_message(crate::filters::all(), move |m| {
             let (client, tx) = (listener.clone(), tx.clone());
             async move {
                 let _ = tx.send(client.wait_for_message(m.chat.id).await.map(|m| m.id));
@@ -1712,7 +1712,7 @@ mod tests {
         let client = Client::offline();
         let handled = Arc::new(Mutex::new(Vec::new()));
         let log = handled.clone();
-        client.on_message(crate::filters::all(), move |_client, m| {
+        client.on_message(crate::filters::all(), move |m| {
             log.lock().unwrap().push(m.id);
             async { Ok(()) }
         });

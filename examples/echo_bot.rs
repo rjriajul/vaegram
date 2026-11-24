@@ -8,13 +8,13 @@ async fn main() -> Result<()> {
         .start()
         .await?;
 
-    app.on_message(filters::command("start"), |_client, msg| async move {
+    app.on_message(filters::command("start"), |msg| async move {
         let name = msg.from_user().map_or("there", |u| u.first_name.as_str());
         msg.answer(format!("Hi {name}! Send me anything and I'll send it back.")).await?;
         Ok(())
     });
 
-    app.on_message(filters::text() & filters::private(), |_client, msg| async move {
+    app.on_message(filters::text() & filters::private(), |msg| async move {
         msg.answer(msg.text()).await?;
         Ok(())
     });

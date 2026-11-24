@@ -15,7 +15,7 @@ use vaegram::{Client, filters};
 
 // The code under test: registered the same way live and in the replay.
 fn handlers(app: &Client, replies: mpsc::UnboundedSender<String>) {
-    app.on_message(filters::private() & filters::text(), move |_client, m| {
+    app.on_message(filters::private() & filters::text(), move |m| {
         let replies = replies.clone();
         async move {
             let sent = m.reply(format!("pong: {}", m.text())).await?;

@@ -220,7 +220,7 @@ impl Ctx {
         let made: Arc<Mutex<Made>> = Arc::default();
         let (answer_tx, answers) = mpsc::unbounded_channel();
         let (handler_plan, handler_made) = (plan.clone(), made.clone());
-        bot.on_callback_query(filters::data_prefix(prefix), move |_client, query| {
+        bot.on_callback_query(filters::data_prefix(prefix), move |query| {
             let (answer_tx, plan, made) = (answer_tx.clone(), handler_plan.clone(), handler_made.clone());
             async move {
                 // `press` counted this press before its click; it is done once its answer is recorded.
@@ -357,7 +357,7 @@ async fn replace_steps(mut ctx: Ctx, chat_id: i64, prefix: String, mut seen: Unb
 fn ephemerals_of(client: &Client) -> UnboundedReceiver<EphemeralMessage> {
     let (seen_tx, seen) = mpsc::unbounded_channel();
     client
-        .on_ephemeral_message(filters::all(), move |_client, m| {
+        .on_ephemeral_message(filters::all(), move |m| {
             let _ = seen_tx.send(m);
             async { Ok(()) }
         })

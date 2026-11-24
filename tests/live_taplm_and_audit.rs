@@ -166,7 +166,7 @@ async fn bot_custom_emoji_in_button_text() {
     let (emoji_id, _alt) = custom_emoji_with_alt(&bot).await;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::private() & filters::user(bot_id), move |_client, m| {
+    user.on_message(filters::private() & filters::user(bot_id), move |m| {
         let _ = tx.send(m);
         async { Ok(()) }
     })
@@ -304,7 +304,7 @@ async fn bot_rich_messages_and_custom_emoji() {
     let placeholder = if alt == "👍" { "⭐" } else { "👍" };
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    user.on_message(filters::private() & filters::user(bot_id), move |_client, m| {
+    user.on_message(filters::private() & filters::user(bot_id), move |m| {
         let _ = tx.send(m);
         async { Ok(()) }
     })

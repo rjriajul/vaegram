@@ -14,7 +14,7 @@ async fn fetch(user: &Client, chat_id: i64, id: i32) -> Message {
 
 /// The bot echoes the preview url it received; a preview still loading shows up on a fetch a little later.
 async fn link_previews(kit: &support::Kit) {
-    kit.bot.on_message(filters::private() & filters::text(), |_client, m| async move {
+    kit.bot.on_message(filters::private() & filters::text(), |m| async move {
         let url = m.web_page.as_ref().map_or("pending".to_owned(), |p| p.url.clone());
         m.reply(url).await?;
         Ok(())

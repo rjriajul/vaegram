@@ -2,7 +2,7 @@ use std::future::Future;
 
 use crate::Client;
 use crate::errors::Result;
-use crate::handlers::{HandlerRef, UpdateKind, hook};
+use crate::handlers::{HandlerRef, UpdateKind, callback};
 
 impl Client {
     /// Runs as `run` returns, after the running handlers finished and the update state was handed back, so it can
@@ -13,6 +13,6 @@ impl Client {
         F: Fn(Client) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
-        self.register(UpdateKind::Stop, |r, id| r.hooks.set(UpdateKind::Stop, id, hook(f)))
+        self.register(UpdateKind::Stop, |r, id| r.hooks.set(UpdateKind::Stop, id, callback(f)))
     }
 }

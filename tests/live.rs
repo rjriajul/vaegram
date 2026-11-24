@@ -484,21 +484,21 @@ async fn user_account_talks_to_bot() {
         async { Ok(()) }
     });
     // Incoming only: a bot also gets the messages its other sessions send.
-    bot.on_message(filters::private() & filters::text() & filters::incoming(), |_client, msg| async move {
+    bot.on_message(filters::private() & filters::text() & filters::incoming(), |msg| async move {
         let tap = InlineKeyboardMarkup::new([vec![InlineKeyboardButton::callback("Tap", "tap")]]);
         msg.reply(format!("pong: {}", msg.text())).reply_markup(tap).await?;
         Ok(())
     });
-    bot.on_edited_message(filters::private() & filters::incoming(), |_client, msg| async move {
+    bot.on_edited_message(filters::private() & filters::incoming(), |msg| async move {
         msg.reply(format!("edited: {}", msg.text())).await?;
         Ok(())
     });
-    bot.on_callback_query(filters::data("tap"), |_client, query| async move {
+    bot.on_callback_query(filters::data("tap"), |query| async move {
         query.answer().text("tapped").await?;
         query.edit_message_text("tapped!").await?;
         Ok(())
     });
-    bot.on_inline_query(filters::all(), |_client, query| async move {
+    bot.on_inline_query(filters::all(), |query| async move {
         let result = InlineQueryResultArticle::new("Result", format!("inline: {}", query.query));
         query.answer([result]).cache_time(0).await?;
         Ok(())
@@ -507,14 +507,14 @@ async fn user_account_talks_to_bot() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let from_bot = filters::private() & filters::user(bot_id) & filters::incoming();
     let sent = tx.clone();
-    user.on_message(from_bot.clone(), move |_client, msg| {
+    user.on_message(from_bot.clone(), move |msg| {
         let tx = sent.clone();
         async move {
             let _ = tx.send(("new", msg));
             Ok(())
         }
     });
-    user.on_edited_message(from_bot, move |_client, msg| {
+    user.on_edited_message(from_bot, move |msg| {
         let tx = tx.clone();
         async move {
             let _ = tx.send(("edit", msg));
@@ -608,7 +608,7 @@ async fn user_keeps_peers_across_restarts() {
 #[ignore = "uses a logged-in user session and a bot"]
 async fn user_gets_the_bots_reply_through_the_kit() {
     let Some(kit) = support::Kit::from_env().await else { return };
-    kit.bot.on_message(filters::private() & filters::text() & filters::incoming(), |_client, m| async move {
+    kit.bot.on_message(filters::private() & filters::text() & filters::incoming(), |m| async move {
         m.reply(format!("echo: {}", m.text())).await?;
         Ok(())
     });

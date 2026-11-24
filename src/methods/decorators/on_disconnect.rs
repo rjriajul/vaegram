@@ -2,7 +2,7 @@ use std::future::Future;
 
 use crate::Client;
 use crate::errors::Result;
-use crate::handlers::{HandlerRef, UpdateKind, hook};
+use crate::handlers::{HandlerRef, UpdateKind, callback};
 
 impl Client {
     /// Runs when the main connection is lost, `restart`ed or closed by `disconnect`, once per outage. It runs in a
@@ -14,7 +14,7 @@ impl Client {
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.watch_link();
-        self.register(UpdateKind::Disconnect, |r, id| r.hooks.set(UpdateKind::Disconnect, id, hook(f)))
+        self.register(UpdateKind::Disconnect, |r, id| r.hooks.set(UpdateKind::Disconnect, id, callback(f)))
     }
 }
 

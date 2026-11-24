@@ -12,7 +12,7 @@ impl Client {
     /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_story<F, Fut, T>(&self, filter: Filter<Story>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(Client, Story) -> Fut + Send + Sync + 'static,
+        F: Fn(Story) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::Story, |r, id| r.story.push(id, filter, callback(f)))

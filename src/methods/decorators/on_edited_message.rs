@@ -13,7 +13,7 @@ impl Client {
     /// this client makes itself don't come here; see [`handlers`](crate::handlers).
     pub fn on_edited_message<F, Fut, T>(&self, filter: Filter<Message>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(Client, Message) -> Fut + Send + Sync + 'static,
+        F: Fn(Message) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         self.register(UpdateKind::EditedMessage, |r, id| r.edited_message.push(id, filter, callback(f)))

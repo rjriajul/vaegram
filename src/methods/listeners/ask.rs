@@ -277,7 +277,7 @@ mod tests {
         let (client, waiter) = asking_slowly(Ok(sent(9))).await;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
-        client.on_message(filters::all(), move |_client, m: Message| {
+        client.on_message(filters::all(), move |m: Message| {
             log.lock().unwrap().push(m.id);
             async { Ok(()) }
         });
@@ -306,7 +306,7 @@ mod tests {
         client.0.me.lock().unwrap().id = 5;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
-        client.on_message(filters::all(), move |_client, m: Message| {
+        client.on_message(filters::all(), move |m: Message| {
             log.lock().unwrap().push(m.id);
             async { Ok(()) }
         });

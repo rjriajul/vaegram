@@ -12,7 +12,7 @@ impl Client {
     /// Returns a [`HandlerRef`] that sets the handler's group, makes it stop later groups, or gives its id.
     pub fn on_widget_data_updated<F, Fut, T>(&self, filter: Filter<WidgetDataUpdated>, f: F) -> HandlerRef<'_>
     where
-        F: Fn(Client, WidgetDataUpdated) -> Fut + Send + Sync + 'static,
+        F: Fn(WidgetDataUpdated) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         let kind = UpdateKind::WidgetDataUpdated;
