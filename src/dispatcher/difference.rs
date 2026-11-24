@@ -93,7 +93,8 @@ impl Dispatcher {
             };
             // Straight to the session, not Client::invoke: a FLOOD_WAIT slept here would stop update intake, so it
             // goes to Tracker::recover, which retries after the wait while updates keep flowing.
-            let (messages, others, users, chats, state, done) = match self.client.session().invoke(&request).await? {
+            let reply = self.client.session().invoke(&request).await?;
+            let (messages, others, users, chats, topics, state, done) = match reply {
                 base::updates::Difference::DifferenceEmpty(d) => {
                     (t.state.date, t.state.seq) = (d.date, d.seq);
                     return Ok(());
@@ -109,14 +110,15 @@ impl Dispatcher {
                 base::updates::Difference::DifferenceTooLong(_) => return Ok(()),
                 base::updates::Difference::Difference(d) => {
                     let d = *d;
-                    (d.new_messages, d.other_updates, d.users, d.chats, d.state, true)
+                    (d.new_messages, d.other_updates, d.users, d.chats, d.topics, d.state, true)
                 }
                 base::updates::Difference::DifferenceSlice(d) => {
                     let d = *d;
-                    (d.new_messages, d.other_updates, d.users, d.chats, d.intermediate_state, false)
+                    (d.new_messages, d.other_updates, d.users, d.chats, d.topics, d.intermediate_state, false)
                 }
             };
             let entities = Arc::new(Entities::new(&self.client, users, chats));
+            self.client.0.caches.store_topics(topics.into_iter().flatten(), &entities);
             let held_before = self.held_before;
             for message in messages.into_iter().filter(|m| since_run(held_before, message_date(m))) {
                 t.emit(new_message(message), &entities);
@@ -224,6 +226,7 @@ impl Dispatcher {
                 base::updates::ChannelDifference::ChannelDifference(d) => {
                     let d = *d;
                     let entities = Arc::new(Entities::new(&self.client, d.users, d.chats));
+                    self.client.0.caches.store_topics(d.topics.into_iter().flatten(), &entities);
                     for message in d.new_messages.into_iter().filter(keep) {
                         self.tracker.emit(new_channel_message(message), &entities);
                         self.recovered.0 += 1;
