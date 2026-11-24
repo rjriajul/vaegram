@@ -3245,14 +3245,14 @@ dependencies = [
 
 [[package]]
 name = "vae"
-version = "0.4.0-nightly.1"
+version = "0.4.0-nightly.2"
 dependencies = [
  "vaegram",
 ]
 
 [[package]]
 name = "vaegram"
-version = "0.4.0-nightly.1"
+version = "0.4.0-nightly.2"
 dependencies = [
  "crc32fast",
  "flate2",
