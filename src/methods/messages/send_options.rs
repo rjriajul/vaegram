@@ -493,7 +493,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_message_takes_a_token_of_its_chat() {
-        let (mut client, mut rx) = Client::recording();
+        let (mut client, mut rx) = Client::recording_raw();
         // A private chat's bucket refills slowly, so the token the send took is still missing afterwards.
         let limits = RateLimits::default().per_chat(ChatRateLimits::default().private(0.001, 1.0));
         Arc::get_mut(&mut client.0).unwrap().limiter = Some(RateLimiter::new(&limits));
@@ -510,7 +510,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_bots_paid_broadcast_skips_the_global_bucket() {
-        let (mut client, mut rx) = Client::recording();
+        let (mut client, mut rx) = Client::recording_raw();
         let limits = RateLimits::default()
             .limit(RateCategory::Global, 0.001, 1.0)
             .per_chat(ChatRateLimits::default().private(1000.0, 1000.0));

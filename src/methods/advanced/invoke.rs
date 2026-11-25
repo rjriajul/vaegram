@@ -818,7 +818,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_slowmode_wait_holds_back_only_its_chat() {
-        let (mut client, _sent) = Client::scripted(vec![rpc_420("SLOWMODE_WAIT_3"), Ok(true.to_bytes())]);
+        let (mut client, _sent) = Client::scripted_raw(vec![rpc_420("SLOWMODE_WAIT_3"), Ok(true.to_bytes())]);
         let limits = RateLimits::default().per_chat(ChatRateLimits::default());
         Arc::get_mut(&mut client.0).unwrap().limiter = Some(RateLimiter::new(&limits));
         let start = Instant::now();
@@ -835,7 +835,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_flood_wait_handed_back_holds_its_chat_no_longer() {
-        let (mut client, _sent) = Client::scripted(vec![rpc_420("FLOOD_WAIT_3600"), Ok(true.to_bytes())]);
+        let (mut client, _sent) = Client::scripted_raw(vec![rpc_420("FLOOD_WAIT_3600"), Ok(true.to_bytes())]);
         let limits = RateLimits::default().per_chat(ChatRateLimits::default());
         Arc::get_mut(&mut client.0).unwrap().limiter = Some(RateLimiter::new(&limits));
         client.set_options(with_policy(NoRetries));
