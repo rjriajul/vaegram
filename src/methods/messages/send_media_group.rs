@@ -64,7 +64,8 @@ impl SendMediaGroup<'_> {
             effect: options.message_effect_id,
             allow_paid_stars: options.paid_message_star_count,
         };
-        let updates = client.invoke_business(business, request).await?.0;
+        let paid = options.allow_paid_broadcast;
+        let updates = client.invoke_business_for_chat(chat_id, paid, business, request).await?.0;
         let mut messages: Vec<_> = Message::all_from_updates(client, updates).collect();
         if messages.is_empty() {
             return Err(Error::Unexpected("messages.sendMultiMedia returned no messages"));

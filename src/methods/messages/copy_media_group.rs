@@ -107,7 +107,8 @@ impl CopyMediaGroup<'_> {
             effect: options.message_effect_id,
             allow_paid_stars: options.paid_message_star_count,
         };
-        let mut messages: Vec<_> = Message::all_from_updates(client, client.invoke(&request).await?).collect();
+        let updates = client.invoke_to_chat(chat_id, options.allow_paid_broadcast, &request).await?;
+        let mut messages: Vec<_> = Message::all_from_updates(client, updates).collect();
         if messages.is_empty() {
             return Err(Error::Unexpected("messages.sendMultiMedia returned no messages"));
         }

@@ -92,7 +92,7 @@ impl SendInlineBotResult<'_> {
             quick_reply_shortcut: None,
             allow_paid_stars: options.paid_message_star_count,
         };
-        let updates = client.invoke(&request).await?;
+        let updates = client.invoke_for_chat(chat_id, &request).await?;
         Message::from_updates(client, updates, Message::request(chat_id, String::new(), None))
     }
 }

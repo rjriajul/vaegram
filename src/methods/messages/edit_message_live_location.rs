@@ -122,6 +122,6 @@ pub(super) async fn edit_live_location(
         reply_markup: ReplyMarkup::write_option(reply_markup.as_ref(), client).await?,
         ..edit_request(peer, message_id)
     };
-    let (updates, _) = client.invoke_business(business_connection_id, request).await?;
+    let (updates, _) = client.invoke_business_for_chat(chat_id, false, business_connection_id, request).await?;
     Message::from_updates(client, updates, Message::request(chat_id, String::new(), None))
 }

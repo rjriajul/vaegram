@@ -397,12 +397,14 @@ impl ClientBuilder {
 
     /// Spaces requests out on the client's side, so a busy client slows down instead of earning FLOOD_WAITs: each
     /// category of request has a rate and a burst, and every request also counts against a global one; a category
-    /// may also have a daily cap ([`RateLimits::daily_limit`]). These limits apply to any account, bot or user.
+    /// may also have a daily cap ([`RateLimits::daily_limit`]), and each chat limits of its own
+    /// ([`RateLimits::per_chat`]). These limits apply to any account, bot or user.
     ///
     /// Unset, a user account gets [`RateLimits::user_account`], about a person's pace in an official app, since a
-    /// user that sends like a bot risks a ban; a bot gets none. They hold nothing back before a login, and stand
-    /// aside for an account that logs in as a bot. Before 0.4 a user had no limits; the closest to that is
-    /// `rate_limits(RateLimits::default())`, the bots' pace (20 messages a second).
+    /// user that sends like a bot risks a ban, with a message a second in each chat and 20 a minute in a group; a
+    /// bot gets none. They hold nothing back before a login, and stand aside for an account that logs in as a bot.
+    /// Before 0.4 a user had no limits; the closest to that is `rate_limits(RateLimits::default())`, the bots' pace
+    /// (20 messages a second) with no limits per chat.
     ///
     /// A rate must be above 0 and finite, a burst at least 1 and a daily cap at least 1, or `connect` and `start`
     /// fail with `Error::InvalidArgument`; [`Client::rate_limiter`] reads and changes them later.
@@ -1229,17 +1231,19 @@ impl Client {
         self.invoke_in_dc(dc_id, &request).await
     }
 
-    /// `invoke_in_dc` away from home, on a file connection with the login imported.
+    /// `invoke_in_dc` away from home, on a file connection with the login imported. `chat` is as in
+    /// `invoke_sleeping_floods`.
     pub(crate) async fn invoke_on_file_connection<R: RemoteCall>(
         &self,
         dc: Dc,
         name: &'static str,
         request: &R,
+        chat: Option<(&RateLimiter, i64)>,
     ) -> Result<R::Return> {
         let lease = self.transfer_sessions(dc, 1).await?;
         // A reopened file connection hasn't sent its layer, and the answer can carry users.
         let request = init_connection(self.0.api_id, &self.0.options, Borrowed(request));
-        invoke_sleeping_floods(&lease.sessions[0], name, &request, self.0.options.request_timeout).await
+        invoke_sleeping_floods(&lease.sessions[0], name, &request, self.0.options.request_timeout, chat).await
     }
 
     pub(crate) fn session_data(&self) -> SessionData {

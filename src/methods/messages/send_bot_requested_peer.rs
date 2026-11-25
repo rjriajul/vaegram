@@ -31,7 +31,7 @@ impl Client {
             button_id,
             requested_peers,
         };
-        let updates = self.invoke(&request).await?;
+        let updates = self.invoke_for_chat(chat_id, &request).await?;
         Message::from_updates(self, updates, Message::request(chat_id, String::new(), None))
     }
 }

@@ -1,9 +1,9 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use tokio::sync::Mutex as Queue;
+use tokio::sync::{Mutex as Queue, MutexGuard as Turn};
 use tokio::time::{Instant, sleep};
 
 use super::no_updates::has;
@@ -32,6 +32,9 @@ pub enum RateCategory {
 
 const CATEGORIES: usize = 7;
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+const MINUTE: Duration = Duration::from_secs(60);
+// As far ahead as tokio's own far-off instant: an `Instant` doesn't reach much further.
+const MAX_HOLD: Duration = Duration::from_secs(30 * 365 * 24 * 60 * 60);
 
 impl RateCategory {
     /// The category of a request by its TL name, such as `messages.sendMessage`.
@@ -66,12 +69,14 @@ impl RateCategory {
 }
 
 /// A rate in requests per second and a burst for each category: how many can go at once after a quiet time; and,
-/// optionally, a cap on how many go in any 24 hours. [`Default`] is the set for bots, at Bot API speeds (20 messages
-/// a second); [`user_account`](Self::user_account) is the one a user account gets unless the client is given one.
+/// optionally, a cap on how many go in any 24 hours, and limits for each chat ([`per_chat`](Self::per_chat)).
+/// [`Default`] is the set for bots, at Bot API speeds (20 messages a second), with no limits per chat;
+/// [`user_account`](Self::user_account) is the one a user account gets unless the client is given one.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RateLimits {
     limits: [(f64, f64); CATEGORIES],
     daily: [Option<u32>; CATEGORIES],
+    per_chat: Option<ChatRateLimits>,
 }
 
 impl Default for RateLimits {
@@ -79,6 +84,7 @@ impl Default for RateLimits {
         RateLimits {
             limits: [(20.0, 30.0), (5.0, 10.0), (30.0, 50.0), (15.0, 20.0), (3.0, 5.0), (10.0, 15.0), (30.0, 40.0)],
             daily: [None; CATEGORIES],
+            per_chat: None,
         }
     }
 }
@@ -101,11 +107,13 @@ impl RateLimits {
     /// second, a file every two seconds, a chat change a second, an account change every two seconds, each with a
     /// small burst. Reads go faster, as an app reads in bursts when it opens, and the update fetches the client makes
     /// itself keep the bots' pace. File parts never wait here. No daily cap; add one with
-    /// [`daily_limit`](Self::daily_limit).
+    /// [`daily_limit`](Self::daily_limit). Each chat also gets [`ChatRateLimits::default`]: a message a second, and
+    /// in a group at most 20 a minute; [`no_per_chat`](Self::no_per_chat) takes them off.
     pub fn user_account() -> RateLimits {
         RateLimits {
             limits: [(1.0, 5.0), (0.5, 3.0), (5.0, 20.0), (1.0, 5.0), (3.0, 5.0), (0.5, 3.0), (8.0, 30.0)],
             daily: [None; CATEGORIES],
+            per_chat: Some(ChatRateLimits::default()),
         }
     }
 
@@ -127,12 +135,127 @@ impl RateLimits {
         self
     }
 
+    /// Limits what goes to each chat as well, on top of the categories; see [`ChatRateLimits`]. Off in
+    /// [`Default`], on in [`user_account`](Self::user_account). For a bot that sends to many chats:
+    /// `RateLimits::default().per_chat(ChatRateLimits::default())`.
+    #[must_use]
+    pub fn per_chat(mut self, limits: ChatRateLimits) -> Self {
+        self.per_chat = Some(limits);
+        self
+    }
+
+    /// Takes the limits for each chat off, leaving the categories'.
+    #[must_use]
+    pub fn no_per_chat(mut self) -> Self {
+        self.per_chat = None;
+        self
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         self.limits.iter().try_for_each(|&(rate, burst)| check(rate, burst))?;
         if self.daily.contains(&Some(0)) {
             return Err(Error::InvalidArgument("a daily limit must be at least 1"));
         }
+        self.per_chat.as_ref().map_or(Ok(()), ChatRateLimits::validate)
+    }
+}
+
+/// Limits on what goes to any one chat, on top of the categories, since Telegram answers FLOOD_WAIT to more than
+/// about one message a second in a chat, or 20 a minute in a group. The limiter keeps a bucket for each chat by the
+/// chat's id, so `@name` and the id it resolves to share one, and a chat that waits never holds up another.
+///
+/// [`Default`] gives a private chat (a positive id) a message a second, with no burst; a group, supergroup or channel
+/// (a negative id) the same and at most 20 messages in any 60 seconds. It keeps up to 10 000 chats. When a new chat
+/// comes and there's no room, the chats that have had nothing for 10 minutes and whose buckets have filled up again
+/// go first, then the one used longest ago, and a message to it later starts from a full bucket. A bucket a call is
+/// using never goes: while every one is, the limiter keeps more chats than the cap.
+///
+/// The client counts a call against them when the call sends, edits, forwards, copies or pins messages in one chat,
+/// and for [`Client::invoke_for_chat`](crate::Client::invoke_for_chat). A FLOOD_WAIT or SLOWMODE_WAIT answer that a
+/// call sleeps off holds that chat's next message back by the wait, and no other chat's. Chat actions and drafts
+/// don't count: they aren't messages, and a typing action before each message would halve what a chat can get.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChatRateLimits {
+    private: (f64, f64),
+    group: (f64, f64),
+    group_per_minute: Option<u32>,
+    max_tracked_chats: usize,
+    idle_ttl: Duration,
+}
+
+impl Default for ChatRateLimits {
+    fn default() -> Self {
+        ChatRateLimits {
+            private: (1.0, 1.0),
+            group: (1.0, 1.0),
+            group_per_minute: Some(20),
+            max_tracked_chats: 10_000,
+            idle_ttl: Duration::from_secs(10 * 60),
+        }
+    }
+}
+
+impl ChatRateLimits {
+    /// Changes the rate in messages per second and the burst of a private chat, one with a positive id. The rate
+    /// must be above 0 and finite, and the burst at least 1; `ClientBuilder` refuses anything else when it connects.
+    #[must_use]
+    pub fn private(mut self, rate: f64, burst: f64) -> Self {
+        self.private = (rate, burst);
+        self
+    }
+
+    /// Changes the rate and burst of a group, supergroup or channel, a chat with a negative id, as
+    /// [`private`](Self::private) does for a private chat.
+    #[must_use]
+    pub fn group(mut self, rate: f64, burst: f64) -> Self {
+        self.group = (rate, burst);
+        self
+    }
+
+    /// Caps a group, supergroup or channel at `max` messages in any 60 seconds, on top of its rate: once `max` have
+    /// gone, the next waits until the oldest of them is a minute old. `None` takes the cap off. `max` must be at
+    /// least 1.
+    #[must_use]
+    pub fn group_per_minute(mut self, max: Option<u32>) -> Self {
+        self.group_per_minute = max;
+        self
+    }
+
+    /// How many chats the limiter keeps a bucket for, at least 1. When a new chat comes and there's no room, the
+    /// idle buckets go first ([`idle_ttl`](Self::idle_ttl)), then the one used longest ago that no call is using.
+    #[must_use]
+    pub fn max_tracked_chats(mut self, max: usize) -> Self {
+        self.max_tracked_chats = max;
+        self
+    }
+
+    /// How long a chat has nothing before its bucket, once full again, counts as idle: the first to go when a new
+    /// chat needs room. Buckets aren't dropped on a timer, only to make room.
+    #[must_use]
+    pub fn idle_ttl(mut self, ttl: Duration) -> Self {
+        self.idle_ttl = ttl;
+        self
+    }
+
+    fn validate(&self) -> Result<()> {
+        check(self.private.0, self.private.1)?;
+        check(self.group.0, self.group.1)?;
+        if self.group_per_minute == Some(0) {
+            return Err(Error::InvalidArgument("a group's per-minute cap must be at least 1"));
+        }
+        if self.max_tracked_chats == 0 {
+            return Err(Error::InvalidArgument("the rate limiter must track at least 1 chat"));
+        }
         Ok(())
+    }
+
+    /// A fresh bucket for `chat_id`. Chat ids are Bot API style: users positive, groups and channels negative.
+    fn bucket(&self, chat_id: i64) -> Bucket {
+        if chat_id < 0 {
+            Bucket::new(self.group, self.group_per_minute.map(|max| (MINUTE, max)))
+        } else {
+            Bucket::new(self.private, None)
+        }
     }
 }
 
@@ -146,20 +269,23 @@ fn check(rate: f64, burst: f64) -> Result<()> {
     Ok(())
 }
 
-/// A cap on requests in any 24 hours: when each of the last day's went, oldest first.
-struct Daily {
+/// A cap on requests in any `span`, such as a day: when each of the last span's went, oldest first.
+struct Window {
+    span: Duration,
     max: usize,
     sent: VecDeque<Instant>,
 }
 
-impl Daily {
+impl Window {
     /// How long until another request fits under the cap: zero when one does now.
     fn wait(&mut self, now: Instant) -> Duration {
-        while self.sent.front().is_some_and(|&at| now.saturating_duration_since(at) >= DAY) {
+        while self.sent.front().is_some_and(|&at| now.saturating_duration_since(at) >= self.span) {
             self.sent.pop_front();
         }
         match self.sent.front() {
-            Some(&oldest) if self.sent.len() >= self.max => DAY.saturating_sub(now.saturating_duration_since(oldest)),
+            Some(&oldest) if self.sent.len() >= self.max => {
+                self.span.saturating_sub(now.saturating_duration_since(oldest))
+            }
             _ => Duration::ZERO,
         }
     }
@@ -176,11 +302,15 @@ struct State {
     rate: f64,
     burst: f64,
     last: Instant,
-    daily: Option<Daily>,
+    window: Option<Window>,
 }
 
 impl State {
     fn refill(&mut self, now: Instant) {
+        // A held bucket has `last` ahead of now, and nothing builds up before it.
+        if now <= self.last {
+            return;
+        }
         let seconds = now.saturating_duration_since(self.last).as_secs_f64();
         self.tokens = (self.tokens + seconds * self.rate).min(self.burst);
         self.last = now;
@@ -195,9 +325,9 @@ struct Bucket {
 }
 
 impl Bucket {
-    fn new((rate, burst): (f64, f64), daily: Option<u32>) -> Bucket {
-        let daily = daily.map(|max| Daily { max: max as usize, sent: VecDeque::new() });
-        let state = State { tokens: burst, rate, burst, last: Instant::now(), daily };
+    fn new((rate, burst): (f64, f64), window: Option<(Duration, u32)>) -> Bucket {
+        let window = window.map(|(span, max)| Window { span, max: max as usize, sent: VecDeque::new() });
+        let state = State { tokens: burst, rate, burst, last: Instant::now(), window };
         Bucket { state: Mutex::new(state), queue: Queue::new(()) }
     }
 
@@ -206,26 +336,51 @@ impl Bucket {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Takes a token if there is one and the daily cap has room, and says how long until both will otherwise.
-    fn try_take(&self) -> Result<(), Duration> {
+    /// Whether a token is there, the bucket isn't held and its cap has room, taking the token if `take` says so; if
+    /// not, how long until all three will be.
+    fn token(&self, take: bool) -> Result<(), Duration> {
         let mut state = self.state();
         let now = Instant::now();
         state.refill(now);
-        let day = state.daily.as_mut().map_or(Duration::ZERO, |daily| daily.wait(now));
-        if state.tokens >= 1.0 && day.is_zero() {
-            state.tokens -= 1.0;
-            if let Some(daily) = &mut state.daily {
-                daily.sent.push_back(now);
+        let cap = state.window.as_mut().map_or(Duration::ZERO, |window| window.wait(now));
+        let held = state.last.saturating_duration_since(now);
+        if state.tokens >= 1.0 && cap.is_zero() && held.is_zero() {
+            if take {
+                state.tokens -= 1.0;
+                if let Some(window) = &mut state.window {
+                    window.sent.push_back(now);
+                }
             }
             return Ok(());
         }
         // A rate far below one a second can put the next token past what a Duration holds: that's never.
         let token = Duration::try_from_secs_f64((1.0 - state.tokens).max(0.0) / state.rate).unwrap_or(Duration::MAX);
-        Err(token.max(day).max(Duration::from_micros(1)))
+        Err(token.saturating_add(held).max(cap).max(Duration::from_micros(1)))
+    }
+
+    /// Takes a token if there is one, the bucket isn't held and its cap has room, and says how long until all three
+    /// will otherwise.
+    fn try_take(&self) -> Result<(), Duration> {
+        self.token(true)
     }
 
     async fn take(&self) {
         let _turn = self.queue.lock().await;
+        self.take_in_turn().await;
+    }
+
+    /// Waits for the bucket's turn and for a token, but takes none: the caller takes it with `take_in_turn` while it
+    /// holds the turn, once it is about to go.
+    async fn ready(&self) -> Turn<'_, ()> {
+        let turn = self.queue.lock().await;
+        while let Err(wait) = self.token(false) {
+            sleep(wait).await;
+        }
+        turn
+    }
+
+    /// Takes a token, waiting if it isn't there, for the caller that holds the bucket's turn.
+    async fn take_in_turn(&self) {
         while let Err(wait) = self.try_take() {
             sleep(wait).await;
         }
@@ -233,42 +388,124 @@ impl Bucket {
 
     fn give_back(&self) {
         let mut state = self.state();
-        state.tokens = (state.tokens + 1.0).min(state.burst);
-        if let Some(daily) = &mut state.daily {
-            daily.sent.pop_back();
+        if let Some(window) = &mut state.window {
+            window.sent.pop_back();
+        }
+        // A hold since the token was taken emptied the bucket, and the token doesn't come back past it.
+        if state.last <= Instant::now() {
+            state.tokens = (state.tokens + 1.0).min(state.burst);
         }
     }
 
-    /// The tokens there are, counting the fraction that's built up, and no more than the daily cap has room for.
+    /// The tokens there are, counting the fraction that's built up, and no more than the cap has room for.
     fn tokens(&self) -> f64 {
         let mut state = self.state();
         let now = Instant::now();
         state.refill(now);
         let tokens = state.tokens;
-        match &mut state.daily {
-            Some(daily) => tokens.min(daily.left(now) as f64),
+        match &mut state.window {
+            Some(window) => tokens.min(window.left(now) as f64),
             None => tokens,
+        }
+    }
+
+    /// Empties the bucket and lets nothing build up before `until`, after a FLOOD_WAIT on what it limits. The call
+    /// that met the wait goes again by itself when it ends, so the next one here waits a token's time more.
+    fn hold_until(&self, until: Instant) {
+        let mut state = self.state();
+        state.tokens = 0.0;
+        state.last = state.last.max(until);
+    }
+
+    /// Whether nothing touched the bucket for `ttl`, it has filled up since and its cap is clear, so that a new one
+    /// would be no different.
+    fn rested(&self, now: Instant, ttl: Duration) -> bool {
+        let state = self.state();
+        let idle = now.saturating_duration_since(state.last);
+        let full = state.tokens + idle.as_secs_f64() * state.rate >= state.burst;
+        let clear = state
+            .window
+            .as_ref()
+            .is_none_or(|window| window.sent.back().is_none_or(|&at| now.saturating_duration_since(at) >= window.span));
+        idle >= ttl && full && clear
+    }
+
+    /// When the bucket was last touched, or when its hold ends.
+    fn last(&self) -> Instant {
+        self.state().last
+    }
+}
+
+// The tokens a call took of its category and of the global bucket, which go back if it's dropped before it goes.
+#[derive(Default)]
+struct Refund<'a>([Option<&'a Bucket>; 2]);
+
+impl<'a> Refund<'a> {
+    fn push(&mut self, bucket: &'a Bucket) {
+        if let Some(slot) = self.0.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(bucket);
+        }
+    }
+
+    /// The call has every token it needs: none go back.
+    fn keep(mut self) {
+        self.0 = [None; 2];
+    }
+}
+
+impl Drop for Refund<'_> {
+    fn drop(&mut self) {
+        for bucket in self.0.iter().flatten() {
+            bucket.give_back();
         }
     }
 }
 
-// A token taken from the category that goes back if the caller is dropped while it waits for the global one.
-struct Refund<'a>(Option<&'a Bucket>);
+// The buckets of the chats sent to lately, by chat id. The lock is held only to find or add one, never across a
+// wait.
+struct Chats {
+    limits: ChatRateLimits,
+    buckets: Mutex<HashMap<i64, Arc<Bucket>>>,
+}
 
-impl Drop for Refund<'_> {
-    fn drop(&mut self) {
-        if let Some(bucket) = self.0 {
-            bucket.give_back();
+impl Chats {
+    fn buckets(&self) -> std::sync::MutexGuard<'_, HashMap<i64, Arc<Bucket>>> {
+        // As with a bucket's state: nothing under this lock can panic.
+        self.buckets.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `chat_id`'s bucket, made the first time. When there's no room for it, the idle ones go, and if that isn't
+    /// enough, the one used longest ago. A bucket a call is using stays: while every one is, the map grows past
+    /// `max_tracked_chats` until they're done.
+    fn get(&self, chat_id: i64) -> Arc<Bucket> {
+        let mut buckets = self.buckets();
+        if let Some(bucket) = buckets.get(&chat_id) {
+            return Arc::clone(bucket);
         }
+        let max = self.limits.max_tracked_chats;
+        if buckets.len() >= max {
+            let (now, ttl) = (Instant::now(), self.limits.idle_ttl);
+            // A bucket a call holds is in use, however long ago it was touched.
+            buckets.retain(|_, bucket| Arc::strong_count(bucket) > 1 || !bucket.rested(now, ttl));
+            while buckets.len() >= max {
+                let free = buckets.iter().filter(|(_, bucket)| Arc::strong_count(bucket) == 1);
+                let Some(oldest) = free.min_by_key(|(_, bucket)| bucket.last()).map(|(&id, _)| id) else { break };
+                buckets.remove(&oldest);
+            }
+        }
+        let bucket = Arc::new(self.limits.bucket(chat_id));
+        buckets.insert(chat_id, Arc::clone(&bucket));
+        bucket
     }
 }
 
 /// Spaces requests out on the client's side so Telegram doesn't answer FLOOD_WAIT. Waiters are served in the order
 /// they came; dropping a waiting call takes nothing. A user account has one by default, with
 /// [`RateLimits::user_account`], which stands aside for a bot and before login; `ClientBuilder::rate_limits` sets
-/// others, for any account.
+/// others, for any account. With [`ChatRateLimits`] it also keeps a bucket for each chat calls go to.
 pub struct RateLimiter {
     buckets: [Bucket; CATEGORIES],
+    chats: Option<Chats>,
     // Set on the default one: it holds calls back only while `user` says the account is a user.
     users_only: bool,
     user: AtomicBool,
@@ -282,8 +519,9 @@ impl std::fmt::Debug for RateLimiter {
 
 impl RateLimiter {
     pub(crate) fn new(limits: &RateLimits) -> RateLimiter {
-        let buckets = std::array::from_fn(|i| Bucket::new(limits.limits[i], limits.daily[i]));
-        RateLimiter { buckets, users_only: false, user: AtomicBool::new(false) }
+        let buckets = std::array::from_fn(|i| Bucket::new(limits.limits[i], limits.daily[i].map(|max| (DAY, max))));
+        let chats = limits.per_chat.clone().map(|limits| Chats { limits, buckets: Mutex::default() });
+        RateLimiter { buckets, chats, users_only: false, user: AtomicBool::new(false) }
     }
 
     /// The limiter of a client given none: [`RateLimits::user_account`], holding calls back only while the account
@@ -305,35 +543,100 @@ impl RateLimiter {
         &self.buckets[category.index()]
     }
 
+    /// `chat_id`'s bucket, when there is a chat and the limiter has limits for chats.
+    fn chat(&self, chat_id: Option<i64>) -> Option<Arc<Bucket>> {
+        Some(self.chats.as_ref()?.get(chat_id?))
+    }
+
+    /// The buckets a call takes a token of after its chat's turn came: its category's, then the global one, unless
+    /// the category is the global one or `global` is off.
+    fn route(&self, category: RateCategory, global: bool) -> impl Iterator<Item = &Bucket> {
+        let global = (global && category != RateCategory::Global).then(|| self.bucket(RateCategory::Global));
+        [Some(self.bucket(category)), global].into_iter().flatten()
+    }
+
     /// Waits for a token of `category` and one of the global bucket.
     pub async fn acquire(&self, category: RateCategory) {
+        self.acquire_routed(category, None, true).await;
+    }
+
+    /// Waits for `chat_id`'s turn, then for a token of `category` and of the global bucket, and takes the chat's
+    /// token last, as the call goes. Without [`ChatRateLimits`] it is [`acquire`](Self::acquire). Chat ids are Bot
+    /// API style: users positive, groups and channels negative.
+    pub async fn acquire_chat(&self, category: RateCategory, chat_id: i64) {
+        self.acquire_routed(category, Some(chat_id), true).await;
+    }
+
+    /// `acquire_chat` when there's a chat, `acquire` when not, past the global bucket when `global` is off. A token
+    /// taken goes back if the call is dropped before it has them all.
+    pub(crate) async fn acquire_routed(&self, category: RateCategory, chat_id: Option<i64>, global: bool) {
         if self.stands_aside() {
             return;
         }
-        let own = self.bucket(category);
-        own.take().await;
-        if category == RateCategory::Global {
-            return;
+        let chat = self.chat(chat_id);
+        // The chat's turn is kept until the call goes, and its token taken then, so the next call to the chat is
+        // spaced from when this one went. Waiting for the turn holds no token another chat could use.
+        let _turn = match &chat {
+            Some(chat) => Some(chat.ready().await),
+            None => None,
+        };
+        let mut refund = Refund::default();
+        for bucket in self.route(category, global) {
+            bucket.take().await;
+            refund.push(bucket);
         }
-        let mut refund = Refund(Some(own));
-        self.bucket(RateCategory::Global).take().await;
-        refund.0 = None;
+        if let Some(chat) = &chat {
+            // Normally there at once; a penalty that came meanwhile is waited out here.
+            chat.take_in_turn().await;
+        }
+        refund.keep();
     }
 
     /// Takes the tokens if both are there now; otherwise takes nothing and says so.
     pub fn try_acquire(&self, category: RateCategory) -> bool {
+        self.try_acquire_routed(category, None)
+    }
+
+    /// [`try_acquire`](Self::try_acquire) that takes a token of `chat_id`'s bucket too.
+    pub fn try_acquire_chat(&self, category: RateCategory, chat_id: i64) -> bool {
+        self.try_acquire_routed(category, Some(chat_id))
+    }
+
+    fn try_acquire_routed(&self, category: RateCategory, chat_id: Option<i64>) -> bool {
         if self.stands_aside() {
             return true;
         }
-        let own = self.bucket(category);
-        if own.try_take().is_err() {
+        let chat = self.chat(chat_id);
+        let mut refund = Refund::default();
+        for bucket in self.route(category, true) {
+            if bucket.try_take().is_err() {
+                return false;
+            }
+            refund.push(bucket);
+        }
+        if chat.is_some_and(|chat| chat.try_take().is_err()) {
             return false;
         }
-        if category == RateCategory::Global || self.bucket(RateCategory::Global).try_take().is_ok() {
-            return true;
+        refund.keep();
+        true
+    }
+
+    /// Holds `chat_id`'s next call back until `wait` from now, and one token's time more, as after Telegram answered
+    /// a call to it with FLOOD_WAIT or SLOWMODE_WAIT. Other chats and the categories aren't touched. The client does
+    /// it by itself for the calls it sends to one chat. Does nothing without [`ChatRateLimits`].
+    pub fn penalize_chat(&self, chat_id: i64, wait: Duration) {
+        if self.stands_aside() {
+            return;
         }
-        own.give_back();
-        false
+        if let Some(bucket) = self.chat(Some(chat_id)) {
+            bucket.hold_until(Instant::now() + wait.min(MAX_HOLD));
+        }
+    }
+
+    /// How many chats the limiter keeps a bucket for, at most
+    /// [`max_tracked_chats`](ChatRateLimits::max_tracked_chats).
+    pub fn tracked_chats(&self) -> usize {
+        self.chats.as_ref().map_or(0, |chats| chats.buckets().len())
     }
 
     /// How many requests of `category` could go right now, counting the fraction of a token that's built up.
@@ -538,6 +841,11 @@ mod tests {
             limiter.acquire(RateCategory::Message).await;
         }
         assert!(limiter.try_acquire(RateCategory::Media));
+        for _ in 0..2 {
+            assert!(limiter.try_acquire_chat(RateCategory::Message, 7));
+        }
+        limiter.penalize_chat(7, Duration::from_secs(30));
+        assert_eq!(limiter.tracked_chats(), 0, "a bot's chats were tracked");
         assert_eq!(start.elapsed(), Duration::ZERO, "a bot, or a client not logged in, was held back");
 
         limiter.set_user(true);
@@ -561,5 +869,182 @@ mod tests {
             assert!(u.0 <= b.0 && u.1 <= b.1, "{u:?} against {b:?}");
         }
         assert_eq!(user.limits[RateCategory::Message.index()], (1.0, 5.0));
+        assert_eq!(user.per_chat, Some(ChatRateLimits::default()));
+        assert_eq!(bot.per_chat, None);
+        assert_eq!(user.no_per_chat().per_chat, None);
+    }
+
+    // Only the chats' buckets hold calls back.
+    fn chat_limiter(chats: ChatRateLimits) -> RateLimiter {
+        let limits = RateLimits::default()
+            .limit(RateCategory::Global, 1000.0, 1000.0)
+            .limit(RateCategory::Message, 1000.0, 1000.0)
+            .per_chat(chats);
+        RateLimiter::new(&limits)
+    }
+
+    fn near(elapsed: Duration, expected: Duration) -> bool {
+        elapsed >= expected && elapsed < expected + Duration::from_millis(10)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_private_chat_gets_a_message_a_second() {
+        let limiter = chat_limiter(ChatRateLimits::default());
+        let start = Instant::now();
+        for n in 0..4 {
+            limiter.acquire_chat(RateCategory::Message, 7).await;
+            let elapsed = start.elapsed();
+            assert!(near(elapsed, Duration::from_secs(n)), "{n}: {elapsed:?}");
+        }
+        assert!(!limiter.try_acquire_chat(RateCategory::Message, 7));
+        // A call that names no chat doesn't wait for one.
+        assert!(limiter.try_acquire(RateCategory::Message));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_group_gets_twenty_messages_a_minute() {
+        let limiter = chat_limiter(ChatRateLimits::default());
+        let start = Instant::now();
+        for _ in 0..20 {
+            limiter.acquire_chat(RateCategory::Message, -5).await;
+        }
+        // A message a second, so the twentieth goes at 19 s; the next waits for the first to be a minute old.
+        assert!(near(start.elapsed(), Duration::from_secs(19)), "{:?}", start.elapsed());
+        limiter.acquire_chat(RateCategory::Message, -5).await;
+        assert!(near(start.elapsed(), Duration::from_secs(60)), "{:?}", start.elapsed());
+        limiter.acquire_chat(RateCategory::Message, -5).await;
+        assert!(near(start.elapsed(), Duration::from_secs(61)), "{:?}", start.elapsed());
+
+        // Without the cap a group goes at its rate alone.
+        let uncapped = chat_limiter(ChatRateLimits::default().group_per_minute(None));
+        let start = Instant::now();
+        for _ in 0..21 {
+            uncapped.acquire_chat(RateCategory::Message, -5).await;
+        }
+        assert!(near(start.elapsed(), Duration::from_secs(20)), "{:?}", start.elapsed());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_dropped_chat_acquire_gives_its_tokens_back() {
+        // The chat and the category refill slowly. The global bucket is empty, so the call gets its chat's turn,
+        // takes the category's token, then waits on the global one.
+        let limits = RateLimits::default()
+            .limit(RateCategory::Global, 1.0, 1.0)
+            .limit(RateCategory::Message, 0.001, 30.0)
+            .per_chat(ChatRateLimits::default().private(0.001, 1.0));
+        let limiter = RateLimiter::new(&limits);
+        limiter.acquire(RateCategory::Global).await;
+        let call = limiter.acquire_chat(RateCategory::Message, 7);
+        assert!(tokio::time::timeout(Duration::from_millis(100), call).await.is_err());
+        assert_eq!(limiter.available(RateCategory::Message), 30.0, "the category's token wasn't given back");
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(limiter.try_acquire_chat(RateCategory::Message, 7), "the dropped call used up the chat's token");
+
+        // Dropped while it waits for its chat, a call costs the category nothing.
+        let call = limiter.acquire_chat(RateCategory::Message, 7);
+        assert!(tokio::time::timeout(Duration::from_millis(100), call).await.is_err());
+        assert_eq!(limiter.available(RateCategory::Message).floor(), 29.0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_chat_is_spaced_from_when_its_calls_go() {
+        // The global bucket holds the calls up, so each goes a while after its chat's turn came.
+        let limits = RateLimits::default()
+            .limit(RateCategory::Global, 1.0, 1.0)
+            .limit(RateCategory::Message, 1000.0, 1000.0)
+            .per_chat(ChatRateLimits::default().group(1000.0, 1000.0).group_per_minute(Some(2)));
+        let limiter = Arc::new(RateLimiter::new(&limits));
+        limiter.acquire(RateCategory::Global).await;
+        let start = Instant::now();
+        let calls: Vec<_> = (0..3)
+            .map(|_| {
+                let limiter = Arc::clone(&limiter);
+                tokio::spawn(async move {
+                    limiter.acquire_chat(RateCategory::Message, -5).await;
+                    start.elapsed()
+                })
+            })
+            .collect();
+        let mut went = Vec::new();
+        for call in calls {
+            went.push(call.await.unwrap());
+        }
+        went.sort();
+        // Two a minute: no 60 seconds hold all three.
+        assert!(went[2] - went[0] >= Duration::from_secs(60), "{went:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_chat_that_waits_holds_up_no_other() {
+        let limiter = Arc::new(chat_limiter(ChatRateLimits::default().private(0.001, 1.0).group(0.001, 1.0)));
+        limiter.acquire_chat(RateCategory::Message, 7).await;
+        let waiting = tokio::spawn({
+            let limiter = Arc::clone(&limiter);
+            async move { limiter.acquire_chat(RateCategory::Message, 7).await }
+        });
+        tokio::task::yield_now().await;
+        let start = Instant::now();
+        limiter.acquire_chat(RateCategory::Message, 8).await;
+        limiter.acquire_chat(RateCategory::Message, -5).await;
+        assert_eq!(start.elapsed(), Duration::ZERO, "another chat waited");
+        assert!(!waiting.is_finished());
+        waiting.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_chats_tracked_stay_within_the_cap() {
+        let chats = ChatRateLimits::default().max_tracked_chats(3).idle_ttl(Duration::from_secs(60));
+        let limiter = chat_limiter(chats);
+        for chat_id in 1..=10 {
+            limiter.acquire_chat(RateCategory::Message, chat_id).await;
+            assert!(limiter.tracked_chats() <= 3, "{chat_id}: {}", limiter.tracked_chats());
+        }
+        assert_eq!(limiter.tracked_chats(), 3);
+        // Once idle long enough, they all go when the next chat comes.
+        tokio::time::advance(Duration::from_secs(61)).await;
+        limiter.acquire_chat(RateCategory::Message, 11).await;
+        assert_eq!(limiter.tracked_chats(), 1);
+
+        let invalid = [
+            ChatRateLimits::default().max_tracked_chats(0),
+            ChatRateLimits::default().group_per_minute(Some(0)),
+            ChatRateLimits::default().private(0.0, 1.0),
+            ChatRateLimits::default().group(1.0, 0.5),
+        ];
+        for chats in invalid {
+            assert!(RateLimits::default().per_chat(chats.clone()).validate().is_err(), "{chats:?}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_chat_in_use_is_never_evicted() {
+        let limiter = Arc::new(chat_limiter(ChatRateLimits::default().private(0.001, 1.0).max_tracked_chats(1)));
+        limiter.acquire_chat(RateCategory::Message, 7).await;
+        let waiting = tokio::spawn({
+            let limiter = Arc::clone(&limiter);
+            async move { limiter.acquire_chat(RateCategory::Message, 7).await }
+        });
+        tokio::task::yield_now().await;
+        limiter.acquire_chat(RateCategory::Message, 8).await;
+        // Chat 7's bucket is in use, so both stay, past the cap, rather than chat 7 starting again from full.
+        assert_eq!(limiter.tracked_chats(), 2);
+        assert!(!limiter.try_acquire_chat(RateCategory::Message, 7));
+        waiting.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_penalty_holds_back_only_its_chat() {
+        let limiter = chat_limiter(ChatRateLimits::default());
+        let start = Instant::now();
+        limiter.penalize_chat(7, Duration::from_secs(30));
+        limiter.acquire_chat(RateCategory::Message, 8).await;
+        limiter.acquire_chat(RateCategory::Message, -5).await;
+        limiter.acquire(RateCategory::Message).await;
+        assert_eq!(start.elapsed(), Duration::ZERO, "another chat waited");
+        assert!(!limiter.try_acquire_chat(RateCategory::Message, 7));
+        limiter.acquire_chat(RateCategory::Message, 7).await;
+        // The call that met the wait goes again by itself when it ends, and the next one a token's time later.
+        assert!(near(start.elapsed(), Duration::from_secs(31)), "{:?}", start.elapsed());
+        assert_eq!(limiter.tracked_chats(), 3);
     }
 }

@@ -12,14 +12,16 @@ impl Client {
         if button_text.is_empty() || data.is_empty() {
             return Err(Error::InvalidArgument("send_web_view_data takes a button text and data"));
         }
+        // The data goes to the bot's private chat, whose id is the bot's.
+        let (chat_id, _) = self.resolve(&bot_id.into()).await?;
         let request = functions::messages::SendWebViewData {
-            bot: self.resolve_user(&bot_id.into()).await?,
+            bot: self.resolve_user(&PeerRef::Id(chat_id)).await?,
             // Telegram drops a repeated random_id, so a retried call can't deliver the data twice.
             random_id: i64::from_le_bytes(random()),
             button_text: button_text.into(),
             data: data.into(),
         };
-        self.invoke(&request).await.map(drop)
+        self.invoke_for_chat(chat_id, &request).await.map(drop)
     }
 }
 

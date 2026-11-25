@@ -11,9 +11,17 @@ use crate::raw::{RemoteCall, base, functions};
 use crate::session::no_updates::needs_updates;
 use crate::session::pacer::Pace;
 use crate::session::transfer::invoke_paced_part;
-use crate::session::{RateCategory, Session, Tally};
+use crate::session::{RateCategory, RateLimiter, Session, Tally};
 
 const MAX_MIGRATIONS: usize = 3;
+
+/// Who a call goes to, for the rate limiter: the chat whose own limits it waits on, if any, and whether it pays to go
+/// over the broadcast limit (`allow_paid_floodskip`), which takes it past the global bucket.
+#[derive(Clone, Copy, Default)]
+struct Route {
+    chat: Option<i64>,
+    paid_broadcast: bool,
+}
 
 impl Client {
     /// Sends a raw request and returns its decoded answer.
@@ -42,7 +50,36 @@ impl Client {
         request: &R,
         timeout: Duration,
     ) -> Result<R::Return> {
-        self.invoke_wrapped(name, request, timeout, self.quiet_for(name)).await
+        self.limit(name, Route::default()).await;
+        self.invoke_wrapped(name, request, timeout, self.quiet_for(name), Route::default()).await
+    }
+
+    /// [`invoke`](Client::invoke) for a request that goes to one chat, `chat_id` (users positive, groups and
+    /// channels negative): it also waits on that chat's own limits when the rate limiter has them
+    /// ([`RateLimits::per_chat`](crate::session::RateLimits::per_chat)), and a FLOOD_WAIT or SLOWMODE_WAIT answer
+    /// holds that chat's next call back by the wait, and no other chat's. The client's own sends, edits, forwards
+    /// and copies go this way.
+    pub async fn invoke_for_chat<R: RemoteCall>(&self, chat_id: i64, request: &R) -> Result<R::Return> {
+        self.invoke_to_chat(chat_id, false, request).await
+    }
+
+    /// `invoke_for_chat` for a message that may pay to go over the broadcast limit: with `paid_broadcast`, a bot's
+    /// call skips the global bucket, while the chat's limits and its category's still hold. A user can't pay that, so
+    /// the flag skips nothing for one.
+    pub(crate) async fn invoke_to_chat<R: RemoteCall>(
+        &self,
+        chat_id: i64,
+        paid_broadcast: bool,
+        request: &R,
+    ) -> Result<R::Return> {
+        self.invoke_routed(Route { chat: Some(chat_id), paid_broadcast }, request).await
+    }
+
+    /// `invoke` on `route`.
+    async fn invoke_routed<R: RemoteCall>(&self, route: Route, request: &R) -> Result<R::Return> {
+        let timeout = self.session().options().request_timeout;
+        self.limit(R::NAME, route).await;
+        self.invoke_wrapped(R::NAME, request, timeout, self.quiet_for(R::NAME), route).await
     }
 
     /// Whether updates are off for the request called `name`: always with `no_updates`, and for the ones that only
@@ -52,38 +89,47 @@ impl Client {
     }
 
     /// Sends `request` as `name`, inside `invokeWithoutUpdates` if `off`. Takeout goes outside, updates off inside.
+    /// The caller has had the rate limiter's go-ahead for `route` already.
     async fn invoke_wrapped<R: RemoteCall>(
         &self,
         name: &'static str,
         request: &R,
         timeout: Duration,
         off: bool,
+        route: Route,
     ) -> Result<R::Return> {
-        self.limit(name).await;
         let session = self.session();
+        let chat = self.chat_held(route);
         let call = Borrowed(request);
         match (self.1, off) {
             (Some(takeout_id), true) => {
                 let request = functions::InvokeWithTakeout { takeout_id, query: quiet(call) };
-                invoke_sleeping_floods(&session, name, &request, timeout).await
+                invoke_sleeping_floods(&session, name, &request, timeout, chat).await
             }
             (Some(takeout_id), false) => {
                 let request = functions::InvokeWithTakeout { takeout_id, query: call };
-                invoke_sleeping_floods(&session, name, &request, timeout).await
+                invoke_sleeping_floods(&session, name, &request, timeout, chat).await
             }
-            (None, true) => invoke_sleeping_floods(&session, name, &quiet(call), timeout).await,
-            (None, false) => invoke_sleeping_floods(&session, name, request, timeout).await,
+            (None, true) => invoke_sleeping_floods(&session, name, &quiet(call), timeout, chat).await,
+            (None, false) => invoke_sleeping_floods(&session, name, request, timeout, chat).await,
         }
     }
 
     /// Waits for the rate limiter's go-ahead, if there is one. It comes before the request's own timeout starts.
     // Boxed: callers' `Send` proofs stop here, not in the limiter (nightly `recursion_depth_exceeding_limit`).
-    fn limit(&self, name: &'static str) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+    fn limit(&self, name: &'static str, route: Route) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        // Only a bot can pay to go over the broadcast limit.
+        let global = !route.paid_broadcast || !self.0.me.lock().unwrap().is_bot;
         Box::pin(async move {
             if let Some(limiter) = &self.0.limiter {
-                limiter.acquire(RateCategory::of(name)).await;
+                limiter.acquire_routed(RateCategory::of(name), route.chat, global).await;
             }
         })
+    }
+
+    /// The limiter and the chat that a FLOOD_WAIT or SLOWMODE_WAIT answer to a call on `route` holds back.
+    fn chat_held(&self, route: Route) -> Option<(&RateLimiter, i64)> {
+        Some((self.0.limiter.as_ref()?, route.chat?))
     }
 
     /// Sends `request` to data center `dc_id` under this login, which is exported there the first time. The home
@@ -94,31 +140,34 @@ impl Client {
         if dc_id == self.session().dc_id() {
             return self.invoke(request).await;
         }
-        self.invoke_away(dc_id, R::NAME, request, self.quiet_for(R::NAME)).await
+        self.limit(R::NAME, Route::default()).await;
+        self.invoke_away(dc_id, R::NAME, request, self.quiet_for(R::NAME), Route::default()).await
     }
 
-    /// `invoke_in_dc` for a DC that isn't home, counted as `name`, inside `invokeWithoutUpdates` if `off`.
+    /// `invoke_in_dc` for a DC that isn't home, counted as `name`, inside `invokeWithoutUpdates` if `off`. The caller
+    /// has had the rate limiter's go-ahead for `route` already.
     async fn invoke_away<R: RemoteCall>(
         &self,
         dc_id: i32,
         name: &'static str,
         request: &R,
         off: bool,
+        route: Route,
     ) -> Result<R::Return> {
-        self.limit(name).await;
         let dc = self.dc(dc_id)?;
+        let chat = self.chat_held(route);
         let call = Borrowed(request);
         match (self.1, off) {
             (Some(takeout_id), true) => {
                 let request = functions::InvokeWithTakeout { takeout_id, query: quiet(call) };
-                self.invoke_on_file_connection(dc, name, &request).await
+                self.invoke_on_file_connection(dc, name, &request, chat).await
             }
             (Some(takeout_id), false) => {
                 let request = functions::InvokeWithTakeout { takeout_id, query: call };
-                self.invoke_on_file_connection(dc, name, &request).await
+                self.invoke_on_file_connection(dc, name, &request, chat).await
             }
-            (None, true) => self.invoke_on_file_connection(dc, name, &quiet(call)).await,
-            (None, false) => self.invoke_on_file_connection(dc, name, request).await,
+            (None, true) => self.invoke_on_file_connection(dc, name, &quiet(call), chat).await,
+            (None, false) => self.invoke_on_file_connection(dc, name, request, chat).await,
         }
     }
 
@@ -163,9 +212,41 @@ impl Client {
     where
         R::Return: 'static,
     {
-        let Some(connection_id) = connection_id else { return Ok((self.invoke(&request).await?, request)) };
+        self.invoke_business_routed(Route::default(), connection_id, request).await
+    }
+
+    /// `invoke_business` for a request that goes to the chat `chat_id`, as
+    /// [`invoke_to_chat`](Self::invoke_to_chat) sends it. The chat's limits are keyed by its id alone, whatever the
+    /// connection.
+    pub(crate) async fn invoke_business_for_chat<R: RemoteCall>(
+        &self,
+        chat_id: i64,
+        paid_broadcast: bool,
+        connection_id: Option<&str>,
+        request: R,
+    ) -> Result<(R::Return, R)>
+    where
+        R::Return: 'static,
+    {
+        self.invoke_business_routed(Route { chat: Some(chat_id), paid_broadcast }, connection_id, request).await
+    }
+
+    async fn invoke_business_routed<R: RemoteCall>(
+        &self,
+        route: Route,
+        connection_id: Option<&str>,
+        request: R,
+    ) -> Result<(R::Return, R)>
+    where
+        R::Return: 'static,
+    {
+        let Some(connection_id) = connection_id else {
+            return Ok((self.invoke_routed(route, &request).await?, request));
+        };
         let mut dc_id = self.business_home(connection_id).await?.dc_id;
-        // Counted as the request inside, not as the wrapper, and updates go off inside it.
+        // Counted as the request inside, not as the wrapper, and updates go off inside it. A resend to the DC a
+        // migrate answer names is the same call, so it waits on the limiter once.
+        self.limit(R::NAME, route).await;
         let off = self.quiet_for(R::NAME);
         let mut moved = false;
         loop {
@@ -174,13 +255,13 @@ impl Client {
                     connection_id: connection_id.into(),
                     query: quiet(Borrowed(&request)),
                 };
-                self.invoke_business_in(dc_id, R::NAME, &call).await
+                self.invoke_business_in(dc_id, R::NAME, &call, route).await
             } else {
                 let call = functions::InvokeWithBusinessConnection {
                     connection_id: connection_id.into(),
                     query: Borrowed(&request),
                 };
-                self.invoke_business_in(dc_id, R::NAME, &call).await
+                self.invoke_business_in(dc_id, R::NAME, &call, route).await
             };
             let migrate = result.as_ref().err().and_then(Error::rpc).and_then(RpcError::migrate_dc);
             match migrate {
@@ -197,11 +278,17 @@ impl Client {
         }
     }
 
-    async fn invoke_business_in<R: RemoteCall>(&self, dc_id: i32, name: &'static str, call: &R) -> Result<R::Return> {
+    async fn invoke_business_in<R: RemoteCall>(
+        &self,
+        dc_id: i32,
+        name: &'static str,
+        call: &R,
+        route: Route,
+    ) -> Result<R::Return> {
         if dc_id == self.session().dc_id() {
-            self.invoke_wrapped(name, call, self.session().options().request_timeout, false).await
+            self.invoke_wrapped(name, call, self.session().options().request_timeout, false, route).await
         } else {
-            self.invoke_away(dc_id, name, call, false).await
+            self.invoke_away(dc_id, name, call, false, route).await
         }
     }
 
@@ -297,12 +384,15 @@ pub(crate) async fn without_retries<F: Future>(future: F) -> F::Output {
 }
 
 /// Sends `request`, asking the session's retry policy after every failure whether to send it again. `name` is
-/// what the policy is told the request is.
+/// what the policy is told the request is. When the request goes to one chat, `chat` names it and the limiter that
+/// keeps its bucket: a FLOOD_WAIT or SLOWMODE_WAIT answer that is slept off holds that chat back as long, so the
+/// calls queued for it don't meet the same wait. One handed to the caller holds nothing: the caller decides.
 pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(
     session: &Session,
     name: &'static str,
     request: &R,
     timeout: Duration,
+    chat: Option<(&RateLimiter, i64)>,
 ) -> Result<R::Return> {
     let mut tally = Tally::default();
     loop {
@@ -314,12 +404,21 @@ pub(crate) async fn invoke_sleeping_floods<R: RemoteCall>(
         tally.failed(error);
         match session.should_retry(name, error, tally, None, false) {
             ControlFlow::Continue(wait) => {
+                if let Some((limiter, chat_id)) = chat.filter(|_| is_chat_wait(error)) {
+                    limiter.penalize_chat(chat_id, wait);
+                }
                 tally.slept += wait;
                 tokio::time::sleep(wait).await;
             }
             ControlFlow::Break(()) => return result,
         }
     }
+}
+
+/// Whether an answer is a FLOOD_WAIT or SLOWMODE_WAIT, a wait asked of the chat a call went to. Other waits, such
+/// as FLOOD_PREMIUM_WAIT, aren't about the chat.
+fn is_chat_wait(error: &Error) -> bool {
+    error.is("FLOOD_WAIT") || error.is("SLOWMODE_WAIT")
 }
 
 #[cfg(test)]
@@ -335,7 +434,9 @@ mod tests {
     use crate::errors::RpcError;
     use crate::raw::{Serializable, base, types};
     use crate::session::RateCategory::{Account, Admin, Bulk, Global, Media, Message, Query};
-    use crate::session::{AutoSleep, NoRetries, RateLimiter, RateLimits, Retry, RetryContext, RetryPolicy};
+    use crate::session::{
+        AutoSleep, ChatRateLimits, NoRetries, RateLimiter, RateLimits, Retry, RetryContext, RetryPolicy,
+    };
 
     const FOREIGN_DC: i32 = 4;
 
@@ -713,6 +814,48 @@ mod tests {
         client.invoke_in_dc(session.dc_id(), &set_typing()).await.unwrap();
         let limiter = client.rate_limiter().unwrap();
         assert_eq!((limiter.available(Admin).round(), limiter.available(Global).round()), (3.0, 3.0));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_slowmode_wait_holds_back_only_its_chat() {
+        let (mut client, _sent) = Client::scripted(vec![rpc_420("SLOWMODE_WAIT_3"), Ok(true.to_bytes())]);
+        let limits = RateLimits::default().per_chat(ChatRateLimits::default());
+        Arc::get_mut(&mut client.0).unwrap().limiter = Some(RateLimiter::new(&limits));
+        let start = Instant::now();
+        assert!(client.invoke_for_chat(-5, &set_typing()).await.unwrap());
+        // The call slept the wait off and went again by itself.
+        assert_eq!(start.elapsed(), Duration::from_secs(3));
+        let limiter = client.rate_limiter().unwrap();
+        assert!(limiter.try_acquire_chat(Message, 7), "another chat was held back");
+        assert!(!limiter.try_acquire_chat(Message, -5));
+        // The next call to the group waits a token's time past the wait, so it doesn't meet the same one.
+        limiter.acquire_chat(Message, -5).await;
+        assert_eq!(start.elapsed(), Duration::from_secs(4));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_flood_wait_handed_back_holds_its_chat_no_longer() {
+        let (mut client, _sent) = Client::scripted(vec![rpc_420("FLOOD_WAIT_3600"), Ok(true.to_bytes())]);
+        let limits = RateLimits::default().per_chat(ChatRateLimits::default());
+        Arc::get_mut(&mut client.0).unwrap().limiter = Some(RateLimiter::new(&limits));
+        client.set_options(with_policy(NoRetries));
+        let result = client.invoke_for_chat(7, &set_typing()).await;
+        assert!(matches!(&result, Err(Error::Rpc(e)) if e.is("FLOOD_WAIT")), "{result:?}");
+        // The caller has the wait and decides; the chat only keeps its own pace.
+        let next = tokio::time::timeout(Duration::from_secs(5), client.invoke_for_chat(7, &set_typing())).await;
+        assert!(matches!(next, Ok(Ok(true))), "{next:?}");
+    }
+
+    #[tokio::test]
+    async fn a_moved_business_call_waits_on_the_limiter_once() {
+        let migrate = Err(Error::Rpc(RpcError::parse(303, "USER_MIGRATE_4")));
+        let (mut client, _home, _away, _foreign) = with_foreign(vec![migrate], vec![Ok(true.to_bytes())]);
+        limited(&mut client);
+        client.0.caches.know_business("c", 7, 2);
+        client.invoke_business(Some("c"), set_typing()).await.unwrap();
+        // Sent twice, home and then where the answer said, but one call: one token of each.
+        let limiter = client.rate_limiter().unwrap();
+        assert_eq!((limiter.available(Admin).round(), limiter.available(Global).round()), (4.0, 4.0));
     }
 
     fn quiet_client(replies: usize) -> (Client, mpsc::UnboundedReceiver<Vec<u8>>) {

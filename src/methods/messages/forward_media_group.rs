@@ -60,9 +60,11 @@ impl ForwardMediaGroup<'_> {
         let (chat_id, to_peer) = client.resolve(&self.chat_id).await?;
         // Forwards name the topic in top_msg_id, so the reply carries none.
         let reply_to = self.options.input_reply_to(client, chat_id, None).await?;
+        let paid = self.options.allow_paid_broadcast;
         let mut request = request(from_peer, to_peer, &ids, reply_to, self.options);
         (request.drop_author, request.drop_media_captions) = (self.hide_sender_name, self.hide_captions);
-        let mut messages: Vec<_> = Message::all_from_updates(client, client.invoke(&request).await?).collect();
+        let updates = client.invoke_to_chat(chat_id, paid, &request).await?;
+        let mut messages: Vec<_> = Message::all_from_updates(client, updates).collect();
         messages.sort_unstable_by_key(|m| m.id);
         Ok(messages)
     }

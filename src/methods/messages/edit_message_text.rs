@@ -105,7 +105,8 @@ impl EditMessageText<'_> {
             rich_message,
             ..edit_request(peer, self.message_id)
         };
-        let (updates, request) = client.invoke_business(self.business_connection_id.as_deref(), request).await?;
+        let business = self.business_connection_id.as_deref();
+        let (updates, request) = client.invoke_business_for_chat(chat_id, false, business, request).await?;
         Message::from_updates(
             client,
             updates,

@@ -19,13 +19,14 @@ impl Client {
                 "mark_checklist_tasks_as_done needs at least one task to mark as done or not done",
             ));
         }
+        let (chat_id, peer) = self.resolve(&chat_id.into()).await?;
         let request = functions::messages::ToggleTodoCompleted {
-            peer: self.resolve_peer(chat_id).await?,
+            peer,
             msg_id: message_id,
             completed: marked_as_done_task_ids.to_vec(),
             incompleted: marked_as_not_done_task_ids.to_vec(),
         };
-        self.invoke(&request).await?;
+        self.invoke_for_chat(chat_id, &request).await?;
         Ok(())
     }
 }

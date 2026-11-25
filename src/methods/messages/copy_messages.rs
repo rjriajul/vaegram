@@ -61,10 +61,11 @@ impl CopyMessages<'_> {
         let from_peer = client.resolve(&self.from_chat_id).await?.1;
         // Like forwards, the topic goes in top_msg_id, so the reply carries none.
         let reply_to = self.options.input_reply_to(client, chat_id, None).await?;
+        let paid = self.options.allow_paid_broadcast;
         let mut request = request(from_peer, to_peer, self.message_ids, reply_to, self.options);
         request.drop_author = true;
         request.drop_media_captions = self.remove_caption;
-        let updates = client.invoke(&request).await?;
+        let updates = client.invoke_to_chat(chat_id, paid, &request).await?;
         sent_ids(&updates, &request.random_id)
     }
 }

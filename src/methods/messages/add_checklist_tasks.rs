@@ -37,14 +37,15 @@ impl AddChecklistTasks<'_> {
             return Err(Error::InvalidArgument("add_checklist_tasks needs at least one task"));
         }
         let client = self.client;
-        let peer = client.resolve_peer(self.chat_id).await?;
+        let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let mut list = Vec::with_capacity(self.tasks.len());
         for (id, text) in self.tasks {
             let (text, entities) = client.write_text(text, self.parse_mode).await?;
             let title = base::TextWithEntities::TextWithEntities(Box::new(types::TextWithEntities { text, entities }));
             list.push(base::TodoItem::TodoItem(Box::new(types::TodoItem { id, title })));
         }
-        client.invoke(&functions::messages::AppendTodoList { peer, msg_id: self.message_id, list }).await?;
+        let request = functions::messages::AppendTodoList { peer, msg_id: self.message_id, list };
+        client.invoke_for_chat(chat_id, &request).await?;
         Ok(())
     }
 }
