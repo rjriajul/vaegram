@@ -203,6 +203,21 @@ pub fn command_with_prefixes<T: HasText>(
     Filter(Pred::Commands { prefixes: Prefixes::Strings(prefixes), names: names.names(), case_sensitive: false })
 }
 
+/// Like [`command_with_prefixes`], but the name must have the case it was given: `/Start` isn't `/start`.
+///
+/// # Panics
+///
+/// If `prefixes` is empty or holds an empty string.
+pub fn command_with_prefixes_case_sensitive<T: HasText>(
+    prefixes: impl IntoIterator<Item = impl AsRef<str>>,
+    names: impl CommandNames,
+) -> Filter<T> {
+    let prefixes: Box<[Box<str>]> = prefixes.into_iter().map(|p| p.as_ref().into()).collect();
+    assert!(!prefixes.is_empty(), "command prefixes can't be empty; use [\"/\"] for bot commands");
+    assert!(prefixes.iter().all(|p| !p.is_empty()), "a command prefix can't be an empty string");
+    Filter(Pred::Commands { prefixes: Prefixes::Strings(prefixes), names: names.names(), case_sensitive: true })
+}
+
 /// Like `command_with`, but the name must have the case it was given: `/Start` isn't `/start`.
 ///
 /// # Panics

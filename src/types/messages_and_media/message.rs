@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::Client;
+use crate::commands::{BotCommands, CommandParseError};
 use crate::dispatcher::Entities;
 use crate::enums::{ChatJoinType, ChatType};
 use crate::errors::{Error, Result};
@@ -830,6 +831,14 @@ impl Message {
         let command = Command::parse_prefixed(self.content(), prefixes)?;
         (command.bot.is_none() || command.is_for(self.client.0.me.lock().unwrap().username.as_deref()))
             .then_some(command)
+    }
+
+    /// Parses the text or caption into a command of `C`, checking an `@mention` against this bot's username as
+    /// [`command`](Message::command) does; before the client knows its username, a mention is refused.
+    pub fn parse_command<C: BotCommands>(&self) -> std::result::Result<C, CommandParseError> {
+        // Copied out so the lock isn't held while `C::parse` runs: a panic there would poison it for the client.
+        let username = self.client.0.me.lock().unwrap().username.clone();
+        C::parse(self.content(), username.as_deref())
     }
 
     /// Fetches the message this one replies to, on demand, or takes what `fetch_replies` fetched, or the message
