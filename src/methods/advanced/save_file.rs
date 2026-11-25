@@ -227,7 +227,7 @@ mod tests {
     #[tokio::test]
     async fn uploads_with_regular_limits_when_the_account_lookup_fails() {
         let failed = Err(Error::Rpc(RpcError::parse(500, "INTERNAL")));
-        let (client, mut sent) = Client::scripted(vec![failed, Ok(premium_user())]);
+        let (client, mut sent) = Client::scripted_raw(vec![failed, Ok(premium_user())]);
         client.0.me.lock().unwrap().is_bot = false;
         let get_users = GetUsers::CONSTRUCTOR_ID.to_le_bytes();
         let mut lookups = || std::iter::from_fn(|| sent.try_recv().ok()).filter(|b| b[..4] == get_users).count();
@@ -309,7 +309,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_upload_is_refused_before_any_request() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         {
             let mut me = client.0.me.lock().unwrap();
             (me.is_bot, me.premium) = (false, None);
@@ -323,7 +323,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_upload_waits_for_a_free_slot_but_an_empty_one_does_not() {
-        let (mut client, mut sent) = Client::recording();
+        let (mut client, mut sent) = Client::recording_raw();
         Arc::get_mut(&mut client.0).unwrap().transmissions = Some(Transmissions::new(1));
         {
             let mut me = client.0.me.lock().unwrap();
@@ -393,7 +393,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_bots_parts_go_two_to_a_connection_at_its_pace() {
-        let (client, mut sent) = Client::scripted((0..16).map(|_| Ok(true.to_bytes())).collect());
+        let (client, mut sent) = Client::scripted_raw((0..16).map(|_| Ok(true.to_bytes())).collect());
         // 16 parts in flight on 8 connections.
         assert_eq!(client.upload_limits(20 << 20).await.unwrap(), (40, 16, 8));
         // A part's time at 19.5 MiB/s, about 25.6 ms.
@@ -406,7 +406,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_user_accounts_upload_is_not_paced() {
-        let (client, mut sent) = Client::scripted((0..16).map(|_| Ok(true.to_bytes())).collect());
+        let (client, mut sent) = Client::scripted_raw((0..16).map(|_| Ok(true.to_bytes())).collect());
         {
             let mut me = client.0.me.lock().unwrap();
             (me.is_bot, me.premium) = (false, Some(false));
@@ -416,7 +416,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_bots_small_uploads_at_once_all_go_at_once() {
-        let (client, mut sent) = Client::scripted((0..20).map(|_| Ok(true.to_bytes())).collect());
+        let (client, mut sent) = Client::scripted_raw((0..20).map(|_| Ok(true.to_bytes())).collect());
         on_eight(&client);
         // Under 8 MiB a bot's upload goes as a user's: 2 parts each on 2 connections, unpaced.
         assert_eq!(client.upload_limits(1 << 20).await.unwrap(), (2, 2, 2));
@@ -430,7 +430,7 @@ mod tests {
     }
 
     fn user_client(replies: Vec<crate::Result<Vec<u8>>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, sent) = Client::scripted(replies);
+        let (client, sent) = Client::scripted_raw(replies);
         {
             let mut me = client.0.me.lock().unwrap();
             (me.is_bot, me.premium) = (false, Some(false));

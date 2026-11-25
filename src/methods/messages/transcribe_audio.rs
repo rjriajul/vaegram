@@ -50,7 +50,7 @@ mod tests {
 
     #[tokio::test]
     async fn wait_gets_a_final_text_that_beat_the_reply() {
-        let (client, mut sent) = Client::scripted(vec![Ok(reply(true, "hel"))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply(true, "hel"))]);
         let call = client.transcribe_audio(-5_i64, 9);
         tokio::pin!(call);
         // Poll the call by hand until its request is out. The scripted reply is then waiting, but the call hasn't
@@ -84,7 +84,7 @@ mod tests {
 
     #[tokio::test]
     async fn wait_times_out_and_a_finished_one_returns_at_once() {
-        let (client, _sent) = Client::scripted(vec![Ok(reply(true, "hel")), Ok(reply(false, "done"))]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(reply(true, "hel")), Ok(reply(false, "done"))]);
         let mut pending = client.transcribe_audio(-5_i64, 9).await.unwrap();
         let waited = pending.wait(Duration::from_millis(10)).await;
         assert!(matches!(waited, Err(Error::ListenerTimeout)));

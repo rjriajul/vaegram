@@ -26,7 +26,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_token_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert!(matches!(client.get_statistical_graph("", None).await, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
     }

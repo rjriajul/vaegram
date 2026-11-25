@@ -36,7 +36,7 @@ mod tests {
 
     #[tokio::test]
     async fn links_without_a_slug_are_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         for link in ["", "  ", "https://t.me/giftcode/", "t.me/giftcode", "tg://giftcode?slug="] {
             assert!(matches!(client.check_gift_code(link).await, Err(Error::InvalidArgument(_))), "{link}");
             assert!(matches!(client.apply_gift_code(link).await, Err(Error::InvalidArgument(_))), "{link}");
@@ -54,7 +54,7 @@ mod tests {
             "tg://giftcode?slug=abc",
         ];
         for link in links {
-            let (client, mut rx) = Client::recording();
+            let (client, mut rx) = Client::recording_raw();
             let _ = client.apply_gift_code(link).await;
             let body = rx.try_recv().unwrap();
             assert_eq!(body[body.len() - 4..], [3, b'a', b'b', b'c'], "{link}");

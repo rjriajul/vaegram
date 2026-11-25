@@ -58,7 +58,7 @@ mod tests {
     async fn sigterm_stops_run_until_signal() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
-        let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         // Updates never arrive and the channel stays open, so only the signal can end run.
         let (_updates, rx) = UpdatesRx::channel();

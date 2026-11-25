@@ -255,7 +255,7 @@ mod tests {
 
     /// Copies message 3 with a start time of 15 seconds and returns the sendMedia body.
     async fn copied(video: bool) -> Vec<u8> {
-        let (client, mut rx) = Client::scripted(vec![Ok(found(video))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(found(video))]);
         let _ = client.copy_message(-5, -6, 3).video_start_timestamp(15).await;
         rx.try_recv().expect("no getMessages sent");
         rx.try_recv().expect("no sendMedia sent")
@@ -331,7 +331,7 @@ mod tests {
             users: Vec::new(),
         };
         let response = base::messages::Messages::Messages(Box::new(found)).to_bytes();
-        let (client, mut sent) = Client::scripted(vec![Ok(response)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(response)]);
         let _ = client.copy_message(-5, -6, 3).await;
         sent.try_recv().expect("no getMessages sent");
         let body = sent.try_recv().expect("no sendMedia sent");

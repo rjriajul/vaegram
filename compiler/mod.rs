@@ -626,6 +626,14 @@ pub fn generate(api: &str, mtproto: &str, json: bool) -> String {
     credentials.sort_unstable();
     let mut out = format!("/// The API layer this code was generated from.\npub const LAYER: i32 = {layer};\n");
     writeln!(out, "pub(crate) const CREDENTIALS: [u32; {}] = {credentials:#010x?};", credentials.len()).unwrap();
+    // The TL name of each function by constructor id, without the `json` feature: for a request read back from its
+    // bytes, such as one inside a wrapper.
+    writeln!(out, "pub(crate) fn function_name(id: u32) -> ::std::option::Option<&'static str> {{").unwrap();
+    writeln!(out, "    Some(match id {{").unwrap();
+    for d in defs.iter().filter(|d| d.function) {
+        writeln!(out, "        {:#010x} => {:?},", d.id, d.name).unwrap();
+    }
+    writeln!(out, "        _ => return None,\n    }})\n}}").unwrap();
     if json {
         gen_json_of(&mut out, &defs);
     }

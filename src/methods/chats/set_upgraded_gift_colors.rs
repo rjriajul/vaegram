@@ -44,7 +44,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_collectible_and_the_profile_flag() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
         client.set_upgraded_gift_colors(77).await.unwrap();
         client.set_upgraded_gift_colors(77).for_profile().await.unwrap();
         for for_profile in [false, true] {
@@ -55,7 +55,7 @@ mod tests {
         }
 
         let refused = Err(Error::Rpc(RpcError::parse(400, "PREMIUM_ACCOUNT_REQUIRED")));
-        let (client, _sent) = Client::scripted(vec![refused]);
+        let (client, _sent) = Client::scripted_raw(vec![refused]);
         let result = client.set_upgraded_gift_colors(77).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "PREMIUM_ACCOUNT_REQUIRED"), "{result:?}");
     }

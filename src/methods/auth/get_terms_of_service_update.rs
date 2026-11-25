@@ -28,7 +28,7 @@ mod tests {
         let tos = base::help::TermsOfService::TermsOfService(Box::new(tos));
         let update = types::help::TermsOfServiceUpdate { expires: 1, terms_of_service: tos };
         let none = types::help::TermsOfServiceUpdateEmpty { expires: 1 };
-        let (client, mut sent) = Client::scripted(vec![
+        let (client, mut sent) = Client::scripted_raw(vec![
             Ok(base::help::TermsOfServiceUpdate::TermsOfServiceUpdate(Box::new(update)).to_bytes()),
             Ok(base::help::TermsOfServiceUpdate::TermsOfServiceUpdateEmpty(none).to_bytes()),
             Ok(true.to_bytes()),

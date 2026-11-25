@@ -266,7 +266,7 @@ mod tests {
         use crate::raw::Serializable;
 
         let no_users: Vec<base::User> = Vec::new();
-        let (client, _sent) = Client::scripted(vec![Ok(no_users.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(no_users.to_bytes())]);
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 42, access_hash: 7 }));
         client.0.peers.lock().unwrap().insert(42, peer);
         let text = Text::new().plain("hi ").mention("Bob", 42).plain(" and ").bold(Text::new().mention("Eve", 43));

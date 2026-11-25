@@ -24,7 +24,7 @@ mod tests {
     #[tokio::test]
     async fn notifies_a_screenshot() {
         let updates = types::Updates { updates: Vec::new(), users: Vec::new(), chats: Vec::new(), date: 1, seq: 0 };
-        let (client, mut rx) = Client::scripted(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 2 }));
         client.0.peers.lock().unwrap().insert(7, peer.clone());
 

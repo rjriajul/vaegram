@@ -23,7 +23,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_reason_and_message_are_sent() {
-        let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.report_chat(-5_i64, ReportReason::Fake, "not the real shop").await.unwrap();
         let expected = ReportPeer {
             peer: base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 }),

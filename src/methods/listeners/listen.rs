@@ -142,7 +142,7 @@ mod tests {
     async fn listen_fails_at_once_between_runs() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
-        let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         let (_updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
@@ -154,7 +154,7 @@ mod tests {
 
     #[tokio::test]
     async fn me_resolves_without_a_request() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         client.0.me.lock().unwrap().id = 5;
         let mut listen = client.listen::<Message>().chat("me").user("me").into_future();
         tokio::select! {
@@ -171,7 +171,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_client_alert_answers_no_strangers() {
-        let (mut client, mut sent) = Client::recording();
+        let (mut client, mut sent) = Client::recording_raw();
         Arc::get_mut(&mut client.0).unwrap().unallowed_click_alert = None;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();

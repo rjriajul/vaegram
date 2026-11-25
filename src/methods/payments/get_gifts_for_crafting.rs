@@ -96,7 +96,7 @@ mod tests {
 
     #[tokio::test]
     async fn reads_the_gifts_across_pages() {
-        let (client, mut sent) = Client::scripted(vec![Ok(page(2, 1, Some("next"))), Ok(page(2, 1, None))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(page(2, 1, Some("next"))), Ok(page(2, 1, None))]);
         let gifts = client.get_gifts_for_crafting(1).await.unwrap();
         assert_eq!(ids(&gifts), ["10", "10"]);
         assert_eq!(sent.try_recv().unwrap(), request("", 100));
@@ -106,7 +106,7 @@ mod tests {
 
     #[tokio::test]
     async fn pages_with_offset_and_limit() {
-        let (client, mut sent) = Client::scripted(vec![Ok(empty_page())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(empty_page())]);
         let mut gifts = client.get_gifts_for_crafting(1).offset("x").limit(10);
         assert_eq!(gifts.next().await.unwrap(), None);
         assert_eq!(gifts.total().await.unwrap(), 0);
@@ -116,7 +116,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_zero_limit_sends_nothing() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         assert!(client.get_gifts_for_crafting(1).limit(0).await.unwrap().is_empty());
         assert!(sent.try_recv().is_err());
     }

@@ -41,7 +41,7 @@ mod tests {
 
     #[tokio::test]
     async fn import_sends_the_token_for_the_user() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         let peer = types::InputPeerUser { user_id: 9, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(9, base::InputPeer::InputPeerUser(Box::new(peer)));
         let _ = client.import_no_paid_messages_token(9_i64, "https://t.me/bob?free=abc").await;

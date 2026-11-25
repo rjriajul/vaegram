@@ -134,7 +134,7 @@ mod tests {
 
     async fn opened(mut replies: Vec<Result<Vec<u8>>>) -> (Client, TakeoutSession, UnboundedReceiver<Vec<u8>>) {
         replies.insert(0, takeout_reply(9));
-        let (client, mut sent) = Client::scripted(replies);
+        let (client, mut sent) = Client::scripted_raw(replies);
         let session = client.takeout().contacts().await.unwrap();
         sent.try_recv().unwrap();
         (client, session, sent)
@@ -147,7 +147,7 @@ mod tests {
 
     #[tokio::test]
     async fn takeout_sends_the_chosen_kinds() {
-        let (client, mut sent) = Client::scripted(vec![takeout_reply(9)]);
+        let (client, mut sent) = Client::scripted_raw(vec![takeout_reply(9)]);
         let takeout = client.takeout().contacts().private_chats().basic_groups().supergroups().channels().files(1024);
         let session = takeout.await.unwrap();
         let expected = functions::account::InitTakeoutSession {
@@ -217,7 +217,7 @@ mod tests {
 
     #[tokio::test]
     async fn init_from_a_takeout_client_is_not_nested() {
-        let (client, mut sent) = Client::scripted(vec![takeout_reply(9)]);
+        let (client, mut sent) = Client::scripted_raw(vec![takeout_reply(9)]);
         let session = Client(client.0.clone(), Some(3)).takeout().contacts().await.unwrap();
         let expected = client.takeout().contacts().request;
         assert_eq!(sent.try_recv().unwrap(), expected.to_bytes());
@@ -234,7 +234,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_long_init_delay_reaches_the_caller() {
         let delay = Err(Error::Rpc(RpcError::parse(420, "TAKEOUT_INIT_DELAY_86400")));
-        let (client, mut sent) = Client::scripted(vec![delay]);
+        let (client, mut sent) = Client::scripted_raw(vec![delay]);
         let e = client.takeout().contacts().await.unwrap_err();
         assert_eq!(e.flood_wait(), Some(Duration::from_secs(86400)));
         assert!(sent.try_recv().is_ok());

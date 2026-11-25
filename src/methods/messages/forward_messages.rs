@@ -152,7 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_video_start_timestamp_goes_on_the_wire() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.forward_messages(-5, -6, &[3]).video_start_timestamp(15).await;
         let body = rx.try_recv().expect("no request sent");
         let chat = |chat_id| base::InputPeer::InputPeerChat(crate::raw::types::InputPeerChat { chat_id });

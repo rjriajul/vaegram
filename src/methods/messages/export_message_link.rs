@@ -59,7 +59,7 @@ mod tests {
 
     #[tokio::test]
     async fn only_channels_have_links() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let channel = get_channel_id(9);
         let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));

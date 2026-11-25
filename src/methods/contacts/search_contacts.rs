@@ -36,7 +36,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_keeps_my_and_global_results_apart() {
-        let (client, _rx) = Client::scripted(vec![Ok(found(vec![1, 2], vec![3]))]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(found(vec![1, 2], vec![3]))]);
         let result = client.search_contacts("cat", 10).await.unwrap();
         let ids = |chats: &[crate::types::Chat]| chats.iter().map(|c| c.id).collect::<Vec<_>>();
         assert_eq!(ids(&result.my_results), [1, 2]);

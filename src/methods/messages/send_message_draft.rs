@@ -120,7 +120,7 @@ mod tests {
 
     #[tokio::test]
     async fn rich_drafts_send_the_rich_action() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let draft = client.send_message_draft("me", 42, InputRichMessage::html("<b>…</b>"));
         assert!(draft.message_thread_id(3).can_stop().await.is_err());
         let body = rx.try_recv().expect("no request sent");

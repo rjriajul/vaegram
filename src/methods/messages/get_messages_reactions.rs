@@ -71,7 +71,7 @@ mod tests {
             date: 1,
             seq: 0,
         };
-        let (client, mut sent) = Client::scripted(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(base::Updates::Updates(Box::new(updates)).to_bytes())]);
         let found = client.get_messages_reactions(-5_i64, &[3, 4, 5]).await.unwrap();
         let counts: Vec<_> = found
             .iter()
@@ -86,7 +86,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_ids_send_nothing() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         assert!(client.get_messages_reactions(-5_i64, &[]).await.unwrap().is_empty());
         assert!(sent.try_recv().is_err());
     }

@@ -105,7 +105,7 @@ mod tests {
         let reply = base::messages::BotWidgetQueryAnswer::BotWidgetQueryAnswer(Box::new(
             types::messages::BotWidgetQueryAnswer { result: Some("answer".into()) },
         ));
-        let (client, mut sent) = Client::scripted(vec![Ok(reply.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply.to_bytes())]);
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 42, access_hash: 7 }));
         {
             client.0.peers.lock().unwrap().insert(42, peer.clone());
@@ -125,7 +125,7 @@ mod tests {
     async fn sends_wallet_query_kinds() {
         use crate::types::WidgetQueryWallet;
 
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 42, access_hash: 7 }));
         {
             client.0.peers.lock().unwrap().insert(42, peer.clone());
@@ -167,7 +167,7 @@ mod tests {
         use crate::errors::Error;
         use crate::types::WidgetQueryWallet;
 
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let mut key_only = WidgetQueryWallet::new("w", 1);
         key_only.public_key = Some(vec![1]);
         let mut init_only = WidgetQueryWallet::new("w", 1);

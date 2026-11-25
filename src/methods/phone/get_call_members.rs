@@ -203,7 +203,7 @@ mod tests {
     #[tokio::test]
     async fn walks_pages_until_the_offset_runs_out() {
         let replies = vec![Ok(channel_full()), Ok(page(&[1, 2], "n")), Ok(page(&[3], ""))];
-        let (client, mut rx) = Client::scripted(replies);
+        let (client, mut rx) = Client::scripted_raw(replies);
         let channel = known_channel(&client);
         let mut members = client.get_call_members(channel);
         let mut ids = Vec::new();
@@ -223,7 +223,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_basic_group_uses_get_full_chat() {
-        let (client, mut rx) = Client::scripted(vec![Ok(chat_full(true)), Ok(page(&[1], ""))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(chat_full(true)), Ok(page(&[1], ""))]);
         let member = client.get_call_members(-5_i64).next().await.unwrap();
         assert_eq!(member.map(|m| m.chat.id), Some(1));
         assert_eq!(rx.try_recv().unwrap(), messages::GetFullChat { chat_id: 5 }.to_bytes());
@@ -233,7 +233,7 @@ mod tests {
     #[tokio::test]
     async fn no_active_call_means_no_members() {
         // The group has no video chat, so there's nobody to list.
-        let (client, mut rx) = Client::scripted(vec![Ok(chat_full(false))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(chat_full(false))]);
         let mut members = client.get_call_members(-5_i64);
         assert_eq!(members.next().await.unwrap(), None);
         assert_eq!(members.next().await.unwrap(), None);
@@ -243,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_user_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 7, access_hash: 2 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let result = client.get_call_members(7_i64).next().await;
@@ -253,7 +253,7 @@ mod tests {
 
     #[tokio::test]
     async fn limit_stops_early() {
-        let (client, mut rx) = Client::scripted(vec![Ok(channel_full()), Ok(page(&[1, 2], "n"))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(channel_full()), Ok(page(&[1, 2], "n"))]);
         let channel = known_channel(&client);
         let mut members = client.get_call_members(channel).limit(1);
         assert_eq!(members.next().await.unwrap().map(|m| m.chat.id), Some(1));

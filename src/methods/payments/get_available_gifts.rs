@@ -104,7 +104,7 @@ mod tests {
             users: Vec::new(),
         };
         let reply = base::payments::StarGifts::StarGifts(Box::new(shop)).to_bytes();
-        let (client, mut sent) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply)]);
 
         let gifts = client.get_available_gifts().await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), functions::payments::GetStarGifts { hash: 0 }.to_bytes());

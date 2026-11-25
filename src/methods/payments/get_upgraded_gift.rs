@@ -69,7 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn reads_a_gift_by_its_link() {
-        let (client, mut sent) = Client::scripted(vec![Ok(reply(unique()))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply(unique()))]);
         let gift = client.get_upgraded_gift("https://t.me/nft/PlushPepe-3").await.unwrap();
         assert_eq!((gift.name.as_str(), gift.number, gift.gift_id), ("PlushPepe-3", 3, 2));
         let request = functions::payments::GetUniqueStarGift { slug: "PlushPepe-3".into() };
@@ -78,7 +78,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_link_without_a_name_is_refused_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         assert!(matches!(client.get_upgraded_gift("t.me/nft/").await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
     }
@@ -115,7 +115,7 @@ mod tests {
             upgrade_variants: None,
             background: None,
         };
-        let (client, _sent) = Client::scripted(vec![Ok(reply(base::StarGift::StarGift(Box::new(regular))))]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(reply(base::StarGift::StarGift(Box::new(regular))))]);
         assert!(matches!(client.get_upgraded_gift("PlushPepe-3").await, Err(Error::Unexpected(_))));
     }
 }

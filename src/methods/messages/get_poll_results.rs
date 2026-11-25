@@ -61,7 +61,7 @@ mod tests {
     }
 
     fn setup(replies: Vec<Vec<u8>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(replies.into_iter().map(Ok).collect());
+        let (client, rx) = Client::scripted_raw(replies.into_iter().map(Ok).collect());
         client.0.peers.lock().unwrap().insert(7, user());
         (client, rx)
     }

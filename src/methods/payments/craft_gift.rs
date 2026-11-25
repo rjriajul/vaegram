@@ -135,7 +135,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn returns_the_crafted_gift() {
-        let (client, mut sent) = Client::scripted(vec![Ok(updates(crafted()))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(updates(crafted()))]);
         let result = client.craft_gift(&["9", "10"]).await.unwrap();
         let CraftGiftResult::Crafted(info) = result else { panic!("expected a crafted gift, got {result:?}") };
         assert_eq!((info.origin, info.gift.name.as_str()), (UniqueGiftOrigin::Craft, "PlushPepe-3"));
@@ -147,19 +147,19 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn a_failed_roll_is_failed() {
-        let (client, _sent) = Client::scripted(vec![Ok(updates(base::Update::UpdateStarGiftCraftFail))]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(updates(base::Update::UpdateStarGiftCraftFail))]);
         assert_eq!(client.craft_gift(&["9"]).await.unwrap(), CraftGiftResult::Failed);
     }
 
     #[tokio::test]
     async fn a_reply_without_either_is_unexpected() {
-        let (client, _sent) = Client::scripted(vec![Ok(base::Updates::UpdatesTooLong.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(base::Updates::UpdatesTooLong.to_bytes())]);
         assert!(matches!(client.craft_gift(&["9"]).await, Err(Error::Unexpected(_))));
     }
 
     #[tokio::test]
     async fn no_gifts_is_refused_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         assert!(matches!(client.craft_gift(Vec::<String>::new()).await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
     }

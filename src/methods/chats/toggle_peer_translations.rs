@@ -21,7 +21,7 @@ mod tests {
 
     #[tokio::test]
     async fn disabled_is_the_opposite_of_enabled() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
         client.toggle_peer_translations(-5_i64, false).await.unwrap();
         client.toggle_peer_translations(-5_i64, true).await.unwrap();
         let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });

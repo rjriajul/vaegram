@@ -142,7 +142,7 @@ mod tests {
 
     #[tokio::test]
     async fn total_reuses_the_fetched_page() {
-        let (client, mut rx) = Client::scripted(vec![Ok(slice(&[5, 4], 12))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(slice(&[5, 4], 12))]);
         let mut found = client.search_global("x").limit(1);
         assert_eq!(found.next().await.unwrap().map(|m| m.id), Some(5));
         assert_eq!(found.total().await.unwrap(), 12);
@@ -152,7 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn total_before_next_makes_one_request() {
-        let (client, mut rx) = Client::scripted(vec![Ok(slice(&[5], 12))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(slice(&[5], 12))]);
         let mut found = client.search_global("x");
         assert_eq!(found.total().await.unwrap(), 12);
         assert_eq!(found.total().await.unwrap(), 12);

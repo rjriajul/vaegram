@@ -43,7 +43,7 @@ mod tests {
         ];
         let diff =
             types::LangPackDifference { lang_code: "en".into(), from_version: 3, version: 4, strings: strings.clone() };
-        let (client, mut sent) = Client::scripted(vec![
+        let (client, mut sent) = Client::scripted_raw(vec![
             Ok(base::LangPackLanguage::LangPackLanguage(Box::new(language)).to_bytes()),
             Ok(strings.to_bytes()),
             Ok(base::LangPackDifference::LangPackDifference(Box::new(diff)).to_bytes()),
@@ -81,7 +81,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_keys_are_refused_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         let none: [&str; 0] = [];
         assert!(matches!(client.get_strings("android", "en", none).await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());

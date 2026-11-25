@@ -451,7 +451,7 @@ mod tests {
             entities: None,
             ttl_period: None,
         }));
-        let (mut client, _rx) = Client::scripted(vec![Ok(short.to_bytes())]);
+        let (mut client, _rx) = Client::scripted_raw(vec![Ok(short.to_bytes())]);
         Arc::get_mut(&mut client.0).unwrap().caches = Caches::new(10, 0);
         *client.0.me.lock().unwrap() = Me { id: 42, is_bot: true, premium: None, username: Some("bot".into()) };
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
@@ -539,7 +539,7 @@ mod repeat_tests {
 
     #[tokio::test]
     async fn schedule_repeat_period_reaches_the_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
 

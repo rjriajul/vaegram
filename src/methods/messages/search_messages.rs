@@ -130,7 +130,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_filter() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.search_messages(-5).filter(MessagesFilter::VideoNote).next().await;
         let body = rx.try_recv().expect("no request sent");
         let round_video = 0xb549da53u32.to_le_bytes();
@@ -138,7 +138,7 @@ mod tests {
     }
 
     fn chat_7(replies: Vec<Vec<u8>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(replies.into_iter().map(Ok).collect());
+        let (client, rx) = Client::scripted_raw(replies.into_iter().map(Ok).collect());
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         (client, rx)

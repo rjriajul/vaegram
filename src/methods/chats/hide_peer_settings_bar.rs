@@ -21,7 +21,7 @@ mod tests {
 
     #[tokio::test]
     async fn hides_the_bar_of_the_chat() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.hide_peer_settings_bar(-5_i64).await.unwrap();
         let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
         assert_eq!(sent.try_recv().unwrap(), functions::messages::HidePeerSettingsBar { peer }.to_bytes());

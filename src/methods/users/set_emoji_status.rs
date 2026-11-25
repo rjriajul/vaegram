@@ -71,7 +71,7 @@ mod tests {
 
     #[tokio::test]
     async fn collectibles_become_the_status() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         assert!(client.set_emoji_status(None).collectible_id(4).until(9).await.is_err());
         let collectible = types::InputEmojiStatusCollectible { collectible_id: 4, until: Some(9) };
         let emoji_status = base::EmojiStatus::InputEmojiStatusCollectible(Box::new(collectible));
@@ -80,7 +80,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_emoji_and_a_collectible_together_are_refused_without_a_request() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let both = client.set_emoji_status(Some(1)).collectible_id(4).await;
         assert!(matches!(both, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());

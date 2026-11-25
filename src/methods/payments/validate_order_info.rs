@@ -95,7 +95,7 @@ mod tests {
     #[tokio::test]
     async fn a_rejected_info_returns_the_telegram_error() {
         let refused = Err(Error::Rpc(crate::errors::RpcError::parse(400, "REQUESTED_INFO_INVALID")));
-        let (client, _sent) = crate::Client::scripted(vec![Ok(card_form("USD", 900)), refused]);
+        let (client, _sent) = crate::Client::scripted_raw(vec![Ok(card_form("USD", 900)), refused]);
         let form = client.get_payment_form(InvoiceRef::Link("abc".into())).await.unwrap();
         let result = client.validate_order_info(&form, info()).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "REQUESTED_INFO_INVALID"), "{result:?}");

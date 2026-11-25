@@ -77,7 +77,7 @@ mod tests {
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 5, access_hash: 2 }));
         let group = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 3 });
         let reply = folder(vec![channel(9)], vec![group, user, channel(8)], Vec::new());
-        let (client, mut sent) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply)]);
         let chats = client.get_chats_for_folder_invite_link(4).await.unwrap();
         assert_eq!(sent.recv().await.unwrap(), functions::messages::GetDialogFilters {}.to_bytes());
         assert_eq!(chats, [get_channel_id(9), get_channel_id(8)]);
@@ -86,20 +86,21 @@ mod tests {
     #[tokio::test]
     async fn a_pinned_channel_is_listed_once() {
         let reply = folder(vec![channel(9)], vec![channel(9), channel(8)], Vec::new());
-        let (client, _sent) = Client::scripted(vec![Ok(reply)]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(reply)]);
         let chats = client.get_chats_for_folder_invite_link(4).await.unwrap();
         assert_eq!(chats, [get_channel_id(9), get_channel_id(8)]);
     }
 
     #[tokio::test]
     async fn a_folder_with_exclusions_offers_nothing() {
-        let (client, _sent) = Client::scripted(vec![Ok(folder(vec![channel(9)], vec![channel(8)], vec![channel(7)]))]);
+        let (client, _sent) =
+            Client::scripted_raw(vec![Ok(folder(vec![channel(9)], vec![channel(8)], vec![channel(7)]))]);
         assert_eq!(client.get_chats_for_folder_invite_link(4).await.unwrap(), Vec::<i64>::new());
     }
 
     #[tokio::test]
     async fn an_unknown_folder_is_an_invalid_argument() {
-        let (client, _sent) = Client::scripted(vec![Ok(folder(vec![channel(9)], Vec::new(), Vec::new()))]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(folder(vec![channel(9)], Vec::new(), Vec::new()))]);
         let result = client.get_chats_for_folder_invite_link(5).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
     }

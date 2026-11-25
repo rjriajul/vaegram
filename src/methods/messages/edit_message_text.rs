@@ -150,7 +150,7 @@ mod tests {
     #[tokio::test]
     async fn a_client_default_leaves_caption_edits_alone() {
         let default = LinkPreviewOptions::new().show_above_text(true);
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.set_link_preview_options(Some(default));
         let _ = client.edit_message_caption("me", 5, "cap").await;
         let _ = client.edit_message_text("me", 5, "text").await;
@@ -160,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_text_with_url_sets_media() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let options = LinkPreviewOptions::new().url("https://a.b").show_above_text(true);
         let _ = client.edit_message_text("me", 5, "hi").link_preview_options(options).await;
         let body = rx.try_recv().unwrap();
@@ -175,7 +175,7 @@ mod tests {
 
     #[tokio::test]
     async fn rich_message_replaces_text() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert!(client.edit_message_text("me", 5, InputRichMessage::markdown("_x_")).await.is_err());
         let body = rx.try_recv().expect("no request sent");
         let flags = u32::from_le_bytes(body[4..8].try_into().unwrap());
@@ -191,7 +191,7 @@ mod tests {
 
     #[tokio::test]
     async fn business_edits_go_through_the_connection() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.0.caches.know_business("c", 7, 2);
         assert!(client.edit_message_text("me", 5, "hi").business_connection_id("c").await.is_err());
         let body = rx.try_recv().expect("no request sent");

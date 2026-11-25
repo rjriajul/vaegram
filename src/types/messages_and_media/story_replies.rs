@@ -74,7 +74,7 @@ mod tests {
 
     #[tokio::test]
     async fn story_replies_carry_input_reply_to_story() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, user.clone());
         let story = story(&client);

@@ -210,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_document_music_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         for music in [photo_id(), thumbnail_id(), "not a file id".to_owned()] {
             assert!(matches!(story_music(&music), Err(Error::InvalidArgument(_))), "{music}");
             let edit = client.edit_story_media("me", 4, InputStoryContent::photo("a.jpg")).music(music);

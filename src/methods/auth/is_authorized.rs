@@ -25,7 +25,7 @@ mod tests {
     }
 
     fn logged_in(reply: Result<Vec<u8>>) -> Client {
-        let (client, _sent) = Client::scripted(vec![reply]);
+        let (client, _sent) = Client::scripted_raw(vec![reply]);
         client.0.me.lock().unwrap().id = 1001;
         let peer = types::InputPeerUser { user_id: 7, access_hash: 2 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(peer)));
@@ -34,7 +34,7 @@ mod tests {
 
     #[tokio::test]
     async fn asks_for_the_update_state() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.is_authorized().await;
         assert_eq!(sent.recv().await.unwrap(), functions::updates::GetState {}.to_bytes());
     }

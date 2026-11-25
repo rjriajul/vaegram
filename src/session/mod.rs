@@ -229,7 +229,7 @@ impl UpdatesRx {
         mpsc::channel(capacity.clamp(1, tokio::sync::Semaphore::MAX_PERMITS))
     }
 
-    #[cfg(test)]
+    /// A queue nothing ever arrives on, for a client with no connection.
     pub(crate) fn offline() -> UpdatesRx {
         UpdatesRx { rx: mpsc::channel(1).1, events: Arc::default() }
     }
@@ -239,7 +239,7 @@ impl UpdatesRx {
         UpdatesRx::channel_with(Arc::default())
     }
 
-    #[cfg(test)]
+    /// A queue of 8 batches fed through the sender, for a test client's pushed updates.
     pub(crate) fn channel_with(events: Arc<Events>) -> (mpsc::Sender<Incoming>, UpdatesRx) {
         let (tx, rx) = mpsc::channel(8);
         (tx, UpdatesRx { rx, events })
@@ -435,7 +435,6 @@ impl Session {
         Ok((session, UpdatesRx { rx, events }))
     }
 
-    #[cfg(test)]
     fn local(requests: mpsc::UnboundedSender<Request>) -> Session {
         let (options, learned, control) = (Arc::default(), Arc::default(), Arc::default());
         Session { requests, dc_id: 2, auth_key: [0; 256], key_made: None, options, pfs: None, learned, control }
@@ -446,7 +445,7 @@ impl Session {
         self.options = Arc::new(options);
     }
 
-    #[cfg(test)]
+    /// A session with no connection: every request fails with `Error::Disconnected`.
     pub(crate) fn offline() -> Session {
         Session::local(mpsc::unbounded_channel().0)
     }
@@ -467,18 +466,47 @@ impl Session {
         replies: Vec<Result<Vec<u8>>>,
         seen: fn(&mut Request) -> T,
     ) -> (Session, mpsc::UnboundedReceiver<T>) {
-        let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
         let (log, sent) = mpsc::unbounded_channel();
+        let mut replies = replies.into_iter();
+        let session = Session::driven(move |mut request| {
+            let _ = log.send(seen(&mut request));
+            if let Some(reply) = replies.next() {
+                let _ = request.answer.send(reply);
+            }
+            std::future::ready(())
+        });
+        (session, sent)
+    }
+
+    /// A session whose requests go to `respond` on a spawned task, one at a time in the order they were sent. A
+    /// request whose answer `respond` drops fails.
+    fn driven<F, Fut>(mut respond: F) -> Session
+    where
+        F: FnMut(Request) -> Fut + Send + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
         tokio::spawn(async move {
-            let mut replies = replies.into_iter();
-            while let Some(mut request) = rx.recv().await {
-                let _ = log.send(seen(&mut request));
-                if let Some(reply) = replies.next() {
-                    let _ = request.answer.send(reply);
-                }
+            while let Some(request) = rx.recv().await {
+                respond(request).await;
             }
         });
-        (Session::local(requests), sent)
+        Session::local(requests)
+    }
+
+    /// A session for [`crate::test`] that answers each request with `respond(name, body, tag)`, on a task of its
+    /// own, in the order they were sent; `options` holds its retry policy. Needs a Tokio runtime.
+    pub(crate) fn responding<F>(options: Options, mut respond: F) -> Session
+    where
+        F: FnMut(&'static str, Vec<u8>, Option<u64>) -> Result<Vec<u8>> + Send + 'static,
+    {
+        let mut session = Session::driven(move |request| {
+            let Request { name, body, tag, answer } = request;
+            let _ = answer.send(respond(name, body, tag));
+            std::future::ready(())
+        });
+        session.options = Arc::new(options);
+        session
     }
 
     /// A session that takes requests and never answers them.
@@ -490,19 +518,17 @@ impl Session {
     /// A session that answers the first requests with `replies`, in order, and never answers the ones after.
     #[cfg(test)]
     pub(crate) fn answering(replies: Vec<Result<Vec<u8>>>) -> (Session, mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
         let (bodies, sent) = mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            let (mut replies, mut held) = (replies.into_iter(), Vec::new());
-            while let Some(request) = rx.recv().await {
-                let _ = bodies.send(request.body);
-                match replies.next() {
-                    Some(reply) => drop(request.answer.send(reply)),
-                    None => held.push(request.answer),
-                }
+        let (mut replies, mut held) = (replies.into_iter(), Vec::new());
+        let session = Session::driven(move |request| {
+            let _ = bodies.send(request.body);
+            match replies.next() {
+                Some(reply) => drop(request.answer.send(reply)),
+                None => held.push(request.answer),
             }
+            std::future::ready(())
         });
-        (Session::local(requests), sent)
+        (session, sent)
     }
 
     /// A session that answers each request with `reply()` `delay` after it came, and logs when each came and how
@@ -512,21 +538,19 @@ impl Session {
         delay: Duration,
         reply: fn() -> Result<Vec<u8>>,
     ) -> (Session, mpsc::UnboundedReceiver<(tokio::time::Instant, usize)>) {
-        let (requests, mut rx) = mpsc::unbounded_channel::<Request>();
         let (log, came) = mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            let out = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-            while let Some(request) = rx.recv().await {
-                let _ = log.send((tokio::time::Instant::now(), out.fetch_add(1, Ordering::SeqCst) + 1));
-                let out = out.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(delay).await;
-                    out.fetch_sub(1, Ordering::SeqCst);
-                    let _ = request.answer.send(reply());
-                });
-            }
+        let out = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let session = Session::driven(move |request| {
+            let _ = log.send((tokio::time::Instant::now(), out.fetch_add(1, Ordering::SeqCst) + 1));
+            let out = out.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(delay).await;
+                out.fetch_sub(1, Ordering::SeqCst);
+                let _ = request.answer.send(reply());
+            });
+            std::future::ready(())
         });
-        (Session::local(requests), came)
+        (session, came)
     }
 
     /// A connection for file parts only. The server keeps initConnection's client info with the auth key

@@ -35,7 +35,7 @@ mod tests {
 
     #[tokio::test]
     async fn each_sticker_type_sets_its_flag() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let cases = [
             (StickerType::Regular, false, false),
             (StickerType::Mask, true, false),
@@ -50,7 +50,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_order_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let result = client.reorder_installed_sticker_sets(StickerType::Regular, &[]).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(rx.try_recv().is_err());
@@ -58,7 +58,7 @@ mod tests {
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "STICKERSET_INVALID")))]);
+        let (client, _rx) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "STICKERSET_INVALID")))]);
         let result = client.reorder_installed_sticker_sets(StickerType::Regular, &[1]).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "STICKERSET_INVALID"), "{result:?}");
     }

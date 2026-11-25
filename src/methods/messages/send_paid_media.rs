@@ -95,7 +95,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_other_kinds_and_other_than_1_to_10_items_without_a_request() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let document = client.send_paid_media(-5, 5, [InputMedia::document("a.pdf")]).await.err();
         assert!(matches!(document, Some(Error::InvalidArgument(_))), "{document:?}");
         let eleven = client.send_paid_media(-5, 5, (0..11).map(|_| InputMedia::photo("a.jpg"))).await.err();

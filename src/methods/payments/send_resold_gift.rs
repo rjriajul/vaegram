@@ -81,7 +81,7 @@ mod tests {
     }
 
     fn client(replies: Vec<Vec<u8>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, sent) = Client::scripted(replies.into_iter().map(Ok).collect());
+        let (client, sent) = Client::scripted_raw(replies.into_iter().map(Ok).collect());
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 5, access_hash: 6 }));
         client.0.peers.lock().unwrap().insert(5, peer);
         (client, sent)

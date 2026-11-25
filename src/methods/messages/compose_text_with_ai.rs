@@ -95,7 +95,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn compose_sends_its_options() {
-        let (client, mut rx) = Client::scripted(vec![Ok(composed())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(composed())]);
         let composed = client.compose_text_with_ai("<b>hi</b>").html().to_language_code("de").tone("formal");
         let composed = composed.add_emojis().await.unwrap();
         assert_eq!((composed.text.text.as_str(), composed.diff), ("Hallo", None));
@@ -114,7 +114,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn ai_errors_pass_through() {
         let refused = || Err(Error::Rpc(RpcError::parse(400, "PREMIUM_ACCOUNT_REQUIRED")));
-        let (client, _rx) = Client::scripted(vec![refused(), refused()]);
+        let (client, _rx) = Client::scripted_raw(vec![refused(), refused()]);
         let results = [client.compose_text_with_ai("hi").await, client.fix_text_with_ai("hi").await];
         for result in results {
             assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "PREMIUM_ACCOUNT_REQUIRED"), "{result:?}");

@@ -323,7 +323,7 @@ mod tests {
             users: vec![user],
         };
         let reply = base::stories::Stories::Stories(Box::new(found)).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let _ = client.copy_story("me", "me", 5).await;
         let _ = rx.try_recv().unwrap();
         let body = rx.try_recv().unwrap();
@@ -344,7 +344,7 @@ mod tests {
             users: Vec::new(),
         };
         let reply = base::stories::Stories::Stories(Box::new(found)).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let result = client.copy_story("me", "me", 5).await;
         assert!(matches!(result, Err(Error::Unexpected(_))), "{result:?}");
         let expected = stories::GetStoriesByID { peer: base::InputPeer::InputPeerSelf, id: vec![5] };

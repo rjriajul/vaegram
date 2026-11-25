@@ -145,7 +145,7 @@ mod tests {
     #[tokio::test]
     async fn every_draft_carries_the_whole_source_then_one_rich_message_is_sent() {
         let accepted = || Ok(true.to_bytes());
-        let (client, mut rx) = Client::scripted(vec![accepted(), accepted(), accepted(), Ok(sent())]);
+        let (client, mut rx) = Client::scripted_raw(vec![accepted(), accepted(), accepted(), Ok(sent())]);
         let stream = client.stream_rich_message("me").start();
         let mut source = String::new();
         for chunk in ["# Plan\n\n", "1. **Read** the ", "slice"] {
@@ -165,7 +165,7 @@ mod tests {
     #[tokio::test]
     async fn a_refused_draft_does_not_end_the_stream() {
         let refused = Err(Error::Rpc(RpcError::parse(400, "RICH_MESSAGE_INVALID")));
-        let (client, mut rx) = Client::scripted(vec![refused, Ok(true.to_bytes()), Ok(sent())]);
+        let (client, mut rx) = Client::scripted_raw(vec![refused, Ok(true.to_bytes()), Ok(sent())]);
         let stream = client.stream_rich_message("me").start();
         assert!(stream.push("Some **bo"));
         assert!(is_draft_of(&next(&mut rx).await, "Some **bo"));
@@ -177,7 +177,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_dropped_stream_sends_no_final_message() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let stream = client.stream_rich_message("me").start();
         assert!(stream.push("Some **bold** text"));
         assert!(is_draft_of(&next(&mut rx).await, "Some **bold** text"));
@@ -188,7 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn html_streams_send_html_drafts_and_message() {
-        let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes()), Ok(sent())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(sent())]);
         let stream = client.stream_rich_message("me").html().start();
         assert!(stream.push("<b>hi</b>"));
         let draft = next(&mut rx).await;
@@ -204,7 +204,7 @@ mod tests {
     async fn a_long_source_is_sent_whole_as_one_message() {
         let (first, second) = ("a".repeat(3000), "b".repeat(3000));
         let whole = format!("{first}{second}");
-        let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes()), Ok(sent())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(true.to_bytes()), Ok(sent())]);
         let stream = client.stream_rich_message("me").start();
         assert!(stream.push(&first));
         assert!(is_draft_of(&next(&mut rx).await, &first));
@@ -219,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn finishing_an_empty_stream_sends_nothing() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let stream = client.stream_rich_message("me").start();
         assert!(stream.finish().await.unwrap().is_none());
         assert!(rx.try_recv().is_err());
@@ -228,7 +228,7 @@ mod tests {
     #[tokio::test]
     async fn finish_returns_telegrams_error_for_the_message() {
         let too_long = Err(Error::Rpc(RpcError::parse(400, "MESSAGE_TOO_LONG")));
-        let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes()), too_long]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(true.to_bytes()), too_long]);
         let stream = client.stream_rich_message("me").start();
         assert!(stream.push("Some **bold** text"));
         assert!(is_draft_of(&next(&mut rx).await, "Some **bold** text"));

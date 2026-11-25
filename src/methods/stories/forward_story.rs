@@ -58,7 +58,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_story_as_media() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let channel = known_channel(&client);
         let _ = client.forward_story("me", channel, 5).disable_notification().await;
         let body = rx.try_recv().unwrap();
@@ -73,7 +73,7 @@ mod tests {
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "STORY_ID_INVALID")))]);
+        let (client, _rx) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "STORY_ID_INVALID")))]);
         let result = client.forward_story("me", "me", 5).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "STORY_ID_INVALID"), "{result:?}");
     }

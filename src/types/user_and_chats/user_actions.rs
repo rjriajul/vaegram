@@ -69,7 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn user_helpers_send_their_requests() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let input = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 2 }));
         client.0.peers.lock().unwrap().insert(7, input.clone());
         let (user, rx) = (user(), &mut rx);

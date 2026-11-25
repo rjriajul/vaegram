@@ -23,7 +23,7 @@ mod tests {
     async fn poll_statistics_sends_and_maps() {
         let graph = base::StatsGraph::StatsGraphAsync(Box::new(types::StatsGraphAsync { token: "t".into() }));
         let reply = base::stats::PollStats::PollStats(Box::new(types::stats::PollStats { votes_graph: graph }));
-        let (client, mut rx) = Client::scripted(vec![Ok(reply.to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply.to_bytes())]);
         let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         let peer = base::InputPeer::InputPeerChannel(Box::new(peer));
         client.0.peers.lock().unwrap().insert(get_channel_id(9), peer.clone());

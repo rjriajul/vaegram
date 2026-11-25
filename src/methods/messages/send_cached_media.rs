@@ -73,7 +73,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_cached_photo_goes_as_a_photo() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.send_cached_media(-5, PHOTO).await;
         let body = rx.try_recv().expect("no request sent");
         assert_eq!(body[..4], messages::SendMedia::CONSTRUCTOR_ID.to_le_bytes());
@@ -83,7 +83,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_cached_document_goes_as_a_document() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.send_cached_media(-5, DOCUMENT).await;
         let body = rx.try_recv().expect("no request sent");
         assert!(contains(&body, types::InputMediaDocument::CONSTRUCTOR_ID));
@@ -92,7 +92,7 @@ mod tests {
 
     #[tokio::test]
     async fn caption_spoiler_and_above_media_are_sent() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.send_cached_media(-5, PHOTO).caption("again").has_spoiler().show_caption_above_media().await;
         let body = rx.try_recv().expect("no request sent");
         let word = |at: usize| u32::from_le_bytes(body[at..at + 4].try_into().unwrap());
@@ -105,7 +105,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_bad_file_id_fails_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let result = client.send_cached_media(-5, "AQADAQ*bad").await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(rx.try_recv().is_err());
@@ -113,7 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn cached_media_goes_through_the_business_connection() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.0.caches.know_business("c1", 7, 2);
         let media = client.send_cached_media(-5, DOCUMENT).business_connection_id("c1");
         assert_eq!(sent(&mut rx, media).await, InvokeWithBusinessConnection::<messages::SendMedia>::CONSTRUCTOR_ID);

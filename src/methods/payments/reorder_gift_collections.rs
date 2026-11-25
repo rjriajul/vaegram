@@ -26,7 +26,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_order() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.reorder_gift_collections("me", &[4, 2]).await.unwrap();
         let request =
             functions::payments::ReorderStarGiftCollections { peer: base::InputPeer::InputPeerSelf, order: vec![4, 2] };
@@ -35,7 +35,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_order_is_refused_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         assert!(matches!(client.reorder_gift_collections("me", &[]).await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
     }

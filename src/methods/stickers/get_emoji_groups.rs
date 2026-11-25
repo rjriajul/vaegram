@@ -29,7 +29,7 @@ mod tests {
         let list = types::messages::EmojiGroups { hash: 9, groups };
         let found = base::messages::EmojiGroups::EmojiGroups(Box::new(list));
         let unchanged = base::messages::EmojiGroups::EmojiGroupsNotModified;
-        let (client, mut sent) = Client::scripted(vec![Ok(found.to_bytes()), Ok(unchanged.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(found.to_bytes()), Ok(unchanged.to_bytes())]);
         let groups = client.get_emoji_groups().await.unwrap();
         let titles: Vec<_> = groups.iter().map(|g| (g.title.as_str(), g.is_premium)).collect();
         assert_eq!(titles, [("Animals", false), ("Premium", true)]);

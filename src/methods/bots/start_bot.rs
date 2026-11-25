@@ -34,7 +34,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_start_parameter_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert!(matches!(client.start_bot(42, 42, "").await, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
     }

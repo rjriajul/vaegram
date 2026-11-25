@@ -30,7 +30,7 @@ mod tests {
             stars_amount: 25,
         };
         let reply = base::SearchPostsFlood::SearchPostsFlood(Box::new(flood)).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let flood = client.check_search_posts_flood(Some("rust")).await.unwrap();
         assert_eq!((flood.query_is_free, flood.total_daily, flood.remains), (true, 3, 2));
         assert_eq!((flood.wait_till, flood.stars_amount), (None, 25));

@@ -233,7 +233,7 @@ mod tests {
         first.dialogs.push(base::Dialog::Dialog(Box::new(dialog)));
         first.messages.push(unparsed(2, 7, 90));
         let replies = [base::messages::Dialogs::DialogsSlice(first), whole()];
-        let (client, mut rx) = Client::scripted(replies.iter().map(|r| Ok(r.to_bytes())).collect());
+        let (client, mut rx) = Client::scripted_raw(replies.iter().map(|r| Ok(r.to_bytes())).collect());
 
         let mut dialogs = client.get_dialogs().limit(2);
         while dialogs.next().await.unwrap().is_some() {}
@@ -252,7 +252,7 @@ mod tests {
 
     #[tokio::test]
     async fn total_reuses_the_fetched_page() {
-        let (client, mut rx) = Client::scripted(vec![Ok(slice(1).to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(slice(1).to_bytes())]);
         let mut dialogs = client.get_dialogs().limit(2);
         assert!(dialogs.next().await.unwrap().is_none());
         assert_eq!(dialogs.total().await.unwrap(), 500);
@@ -262,7 +262,7 @@ mod tests {
 
     #[tokio::test]
     async fn total_before_next_makes_one_request() {
-        let (client, mut rx) = Client::scripted(vec![Ok(slice(1).to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(slice(1).to_bytes())]);
         let mut dialogs = client.get_dialogs().chat_list(1);
         assert_eq!(dialogs.total().await.unwrap(), 500);
         assert_eq!(dialogs.total().await.unwrap(), 500);

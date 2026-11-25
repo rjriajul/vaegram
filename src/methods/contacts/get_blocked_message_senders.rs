@@ -103,7 +103,7 @@ mod tests {
 
     #[tokio::test]
     async fn pages_skip_what_was_read_until_the_count() {
-        let (client, mut sent) = Client::scripted(vec![slice(3, &[1, 2]), slice(3, &[3])]);
+        let (client, mut sent) = Client::scripted_raw(vec![slice(3, &[1, 2]), slice(3, &[3])]);
         let chats = client.get_blocked_message_senders().await.unwrap();
         assert_eq!(chats.iter().map(|c| c.id).collect::<Vec<_>>(), [1, 2, 3]);
         assert_eq!(sent.try_recv().unwrap(), request(0, 100));
@@ -113,7 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn offset_and_limit_reach_the_request_and_a_whole_list_ends_it() {
-        let (client, mut sent) = Client::scripted(vec![whole(&[4]), slice(9, &[5, 6])]);
+        let (client, mut sent) = Client::scripted_raw(vec![whole(&[4]), slice(9, &[5, 6])]);
         let chats = client.get_blocked_message_senders().offset(5).limit(10).await.unwrap();
         assert_eq!(chats.iter().map(|c| c.id).collect::<Vec<_>>(), [4]);
         assert_eq!(sent.try_recv().unwrap(), request(5, 10));
@@ -128,7 +128,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_list_sends_one_request() {
-        let (client, mut sent) = Client::scripted(vec![slice(0, &[])]);
+        let (client, mut sent) = Client::scripted_raw(vec![slice(0, &[])]);
         assert!(client.get_blocked_message_senders().await.unwrap().is_empty());
         assert_eq!(sent.try_recv().unwrap(), request(0, 100));
         assert!(sent.try_recv().is_err());

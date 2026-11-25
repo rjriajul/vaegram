@@ -19,13 +19,13 @@ mod tests {
     #[tokio::test]
     async fn reads_the_state() {
         let state = base::WalletState::WalletStateEmpty(types::WalletStateEmpty { creating: true });
-        let (client, _rx) = Client::scripted(vec![Ok(state.to_bytes())]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(state.to_bytes())]);
         assert!(client.get_ton_wallet_state().await.unwrap().is_being_created);
     }
 
     #[tokio::test]
     async fn wallet_unavailable_is_returned_as_rpc() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "WALLET_UNAVAILABLE")))]);
+        let (client, _rx) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "WALLET_UNAVAILABLE")))]);
         let result = client.get_ton_wallet_state().await;
         assert!(matches!(&result, Err(e) if e.is("WALLET_UNAVAILABLE")), "{result:?}");
     }

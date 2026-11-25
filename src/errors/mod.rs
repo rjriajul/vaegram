@@ -365,6 +365,12 @@ impl std::error::Error for Error {
     }
 }
 
+impl From<RpcError> for Error {
+    fn from(e: RpcError) -> Self {
+        Error::Rpc(e)
+    }
+}
+
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Error::Io(e)

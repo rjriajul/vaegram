@@ -27,7 +27,7 @@ mod tests {
 
     #[tokio::test]
     async fn reports_the_reaction_of_a_chat_member() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.report_reaction(-5_i64, 9, -6_i64).await.unwrap();
         let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });
         let reaction_peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 6 });

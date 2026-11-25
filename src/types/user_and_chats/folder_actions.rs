@@ -93,7 +93,7 @@ mod tests {
     use crate::types::Folder;
 
     fn client() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::recording();
+        let (client, rx) = Client::recording_raw();
         for id in [5, 6, 7] {
             let peer = types::InputPeerUser { user_id: id, access_hash: 1 };
             client.0.peers.lock().unwrap().insert(id, base::InputPeer::InputPeerUser(Box::new(peer)));

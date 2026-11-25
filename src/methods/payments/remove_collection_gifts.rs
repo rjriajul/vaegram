@@ -39,14 +39,14 @@ mod tests {
 
     #[tokio::test]
     async fn removes_only() {
-        let (client, mut sent) = Client::scripted(vec![Ok(collection_reply())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(collection_reply())]);
         assert_eq!(client.remove_collection_gifts("me", 4, &["9", "PlushPepe-3"]).await.unwrap(), best());
         assert_eq!(sent.try_recv().unwrap(), update(None, Some(gifts()), None, None));
     }
 
     #[tokio::test]
     async fn no_gifts_is_refused_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         let refused = client.remove_collection_gifts("me", 4, Vec::<String>::new()).await;
         assert!(matches!(refused, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());

@@ -27,7 +27,7 @@ mod tests {
     use crate::utils::get_channel_id;
 
     fn seeded(replies: Vec<Result<Vec<u8>>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, sent) = Client::scripted(replies);
+        let (client, sent) = Client::scripted_raw(replies);
         let mut peers = client.0.peers.lock().unwrap();
         let user = types::InputPeerUser { user_id: 7, access_hash: 2 };
         peers.insert(7, base::InputPeer::InputPeerUser(Box::new(user)));

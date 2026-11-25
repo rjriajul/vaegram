@@ -213,7 +213,7 @@ pub(super) mod tests {
     pub(in crate::methods::utilities) async fn stopped_client() -> (Client, mpsc::Sender<Incoming>) {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
-        let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         let (updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
@@ -223,7 +223,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn run_refuses_without_updates() {
-        let (mut client, mut sent) = Client::recording();
+        let (mut client, mut sent) = Client::recording_raw();
         client.set_options(crate::connection::Options::new().no_updates(true));
         let refused = client.run().await;
         assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
@@ -238,7 +238,7 @@ pub(super) mod tests {
     async fn stop_before_run_returns_at_once_and_saves_the_state() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
-        let (mut client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (mut client, _sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         let engine = Arc::new(MemoryStorage::new());
         Arc::get_mut(&mut client.0).unwrap().set_store(engine.clone());
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
@@ -258,7 +258,7 @@ pub(super) mod tests {
     async fn the_state_stays_in_memory_after_stop() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
-        let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         let (_updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
@@ -271,7 +271,7 @@ pub(super) mod tests {
     async fn stop_waits_for_running_handlers_then_returns_ok() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
-        let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         let (updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
@@ -312,7 +312,7 @@ pub(super) mod tests {
     async fn a_second_run_while_one_is_running_is_refused() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
-        let (client, mut sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         let (_updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
@@ -348,7 +348,7 @@ pub(super) mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
-        let (mut client, mut sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (mut client, mut sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         Arc::get_mut(&mut client.0).unwrap().set_store(Arc::new(FileStorage::new(dir.join("bot"))));
         client.save().await.unwrap();
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
@@ -385,7 +385,7 @@ pub(super) mod tests {
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
         let pong = || Ok(base::Pong::Pong(Box::new(types::Pong { msg_id: 0, ping_id: 1 })).to_bytes());
         let replies = vec![Ok(me.to_bytes()), pong(), Ok(empty.to_bytes()), pong()];
-        let (client, mut sent) = Client::scripted_tags(replies);
+        let (client, mut sent) = Client::scripted_tags_raw(replies);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         let ping = |client: Client| async move { client.invoke(&crate::raw::functions::Ping { ping_id: 1 }).await };
         client.on_start(ping);
@@ -404,7 +404,7 @@ pub(super) mod tests {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = types::updates::DifferenceEmpty { date: 2, seq: 3 };
         let empty = base::updates::Difference::DifferenceEmpty(empty);
-        let (client, mut sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
 
         assert!(client.run().await.is_err());
@@ -425,7 +425,7 @@ pub(super) mod tests {
         let nothing_pending =
             base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 3, seq: 0 });
         let replies = vec![Ok(me.to_bytes()), Ok(now.to_bytes()), Ok(nothing_pending.to_bytes())];
-        let (mut client, mut sent) = Client::scripted(replies);
+        let (mut client, mut sent) = Client::scripted_raw(replies);
         Arc::get_mut(&mut client.0).unwrap().catch_up = false;
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
 
@@ -450,7 +450,7 @@ pub(super) mod tests {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let now = types::updates::State { pts: 50, qts: 0, date: 2, seq: 0, unread_count: 0 };
         let (mut client, mut sent) =
-            Client::scripted(vec![Ok(me.to_bytes()), Ok(base::updates::State::State(Box::new(now)).to_bytes())]);
+            Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(base::updates::State::State(Box::new(now)).to_bytes())]);
         Arc::get_mut(&mut client.0).unwrap().catch_up = false;
         // Test clients are bots; this one is a user.
         *client.0.me.lock().unwrap() = Me { id: 1, is_bot: false, ..Me::default() };
@@ -497,7 +497,7 @@ pub(super) mod tests {
         let pending = base::updates::Difference::Difference(Box::new(pending));
         let confirmed = base::updates::State::State(Box::new(confirmed));
         let replies = vec![Ok(me.to_bytes()), Ok(confirmed.to_bytes()), Ok(pending.to_bytes())];
-        let (mut client, _sent) = Client::scripted(replies);
+        let (mut client, _sent) = Client::scripted_raw(replies);
         Arc::get_mut(&mut client.0).unwrap().catch_up = false;
         let (updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
@@ -563,7 +563,7 @@ pub(super) mod tests {
             Ok(base::updates::State::State(Box::new(state(50))).to_bytes()),
             Ok(base::updates::Difference::Difference(Box::new(pending)).to_bytes()),
         ];
-        let (mut client, _sent) = Client::scripted(replies);
+        let (mut client, _sent) = Client::scripted_raw(replies);
         Arc::get_mut(&mut client.0).unwrap().catch_up = false;
         client.session().set_seen_offset(server_ahead);
         let (updates, rx) = UpdatesRx::channel();
@@ -647,7 +647,7 @@ pub(super) mod tests {
         let confirmed = types::updates::State { pts: 50, qts: 5, date: 2, seq: 0, unread_count: 0 };
         let confirmed = base::updates::State::State(Box::new(confirmed));
         let flood = Err(Error::Rpc(RpcError::parse(420, "FLOOD_WAIT_1")));
-        let (mut client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(confirmed.to_bytes()), flood]);
+        let (mut client, _sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(confirmed.to_bytes()), flood]);
         Arc::get_mut(&mut client.0).unwrap().catch_up = false;
         let (updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
@@ -704,7 +704,7 @@ pub(super) mod tests {
         let confirmed = types::updates::State { pts: 50, qts: 0, date: 2, seq: 0, unread_count: 0 };
         let confirmed = base::updates::State::State(Box::new(confirmed));
         let refused = Err(Error::Rpc(RpcError::parse(400, "X_INVALID")));
-        let (mut client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(confirmed.to_bytes()), refused]);
+        let (mut client, _sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(confirmed.to_bytes()), refused]);
         Arc::get_mut(&mut client.0).unwrap().catch_up = false;
         let (updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
@@ -750,7 +750,7 @@ pub(super) mod tests {
     async fn the_stop_hook_runs_after_running_handlers() {
         let me = vec![base::User::UserEmpty(types::UserEmpty { id: 1 })];
         let empty = base::updates::Difference::DifferenceEmpty(types::updates::DifferenceEmpty { date: 2, seq: 3 });
-        let (client, _sent) = Client::scripted(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(me.to_bytes()), Ok(empty.to_bytes())]);
         *client.0.state.lock().unwrap() = Some(UpdateState { pts: 10, date: 1, ..Default::default() });
         let (updates, rx) = UpdatesRx::channel();
         *client.0.updates.lock().await = rx;
@@ -808,7 +808,8 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn no_hooks_when_run_fails_before_starting() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(401, "AUTH_KEY_UNREGISTERED")))]);
+        let (client, _sent) =
+            Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(401, "AUTH_KEY_UNREGISTERED")))]);
         let log = Log::default();
         client.on_start(log_hook(&log, "start"));
         client.on_stop(log_hook(&log, "stop"));
@@ -819,7 +820,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn a_disconnect_during_the_start_ends_run_with_ok() {
         // `disconnect` stops the client, then fails the start's waiting request with `Disconnected`.
-        let (client, _sent) = Client::scripted(vec![Err(Error::Disconnected)]);
+        let (client, _sent) = Client::scripted_raw(vec![Err(Error::Disconnected)]);
         let log = Log::default();
         client.on_start(log_hook(&log, "start"));
         client.on_stop(log_hook(&log, "stop"));
@@ -830,7 +831,7 @@ pub(super) mod tests {
         assert!(!*client.0.stop.borrow(), "a finished run clears the stop");
 
         // Without a stop, a connection that ends during the start is still an error.
-        let (client, _sent) = Client::scripted(vec![Err(Error::Disconnected)]);
+        let (client, _sent) = Client::scripted_raw(vec![Err(Error::Disconnected)]);
         assert!(matches!(client.run().await, Err(Error::Disconnected)));
     }
 

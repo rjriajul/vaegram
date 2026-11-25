@@ -36,7 +36,7 @@ mod tests {
         let rule = base::PrivacyRule::PrivacyValueAllowUsers(Box::new(rule));
         let reply = types::account::PrivacyRules { rules: vec![rule], chats: Vec::new(), users: vec![user(7, 99)] };
         let reply = base::account::PrivacyRules::PrivacyRules(Box::new(reply));
-        let (client, _sent) = Client::scripted(vec![Ok(reply.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(reply.to_bytes())]);
 
         let rules = client.get_privacy(PrivacyKey::PhoneNumber).await.unwrap();
         assert_eq!(rules, [PrivacyRule::AllowUsers(vec![7])]);

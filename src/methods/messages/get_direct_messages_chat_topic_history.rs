@@ -75,7 +75,7 @@ mod tests {
 
     #[tokio::test]
     async fn topic_history_sends_parent_and_topic() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         for id in [9, 5] {
             client.0.peers.lock().unwrap().insert(id, user(id));
         }

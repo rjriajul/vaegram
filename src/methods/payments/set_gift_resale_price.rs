@@ -57,7 +57,7 @@ mod tests {
     #[tokio::test]
     async fn lists_in_stars_or_ton_and_unlists() {
         let replies = (0..3).map(|_| Ok(base::Updates::UpdatesTooLong.to_bytes())).collect();
-        let (client, mut sent) = Client::scripted(replies);
+        let (client, mut sent) = Client::scripted_raw(replies);
         let in_stars = StarAmount::new(500);
         client.set_gift_resale_price("9", Some(in_stars)).await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), request(stars(500)));
@@ -73,7 +73,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_price_of_nothing_or_no_gift_is_refused_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         for amount in [0, -5] {
             for ton in [false, true] {
                 let price = StarAmount::new(amount).is_ton(ton);

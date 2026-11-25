@@ -33,7 +33,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_privacy_for_the_message() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.toggle_paid_reaction_privacy(-5_i64, 9, PaidReactionPrivacy::Anonymous).await.unwrap();
         let private = base::PaidReactionPrivacy::PaidReactionPrivacyAnonymous;
         let expected = functions::messages::TogglePaidReactionPrivacy { peer: chat(), msg_id: 9, private };
@@ -42,7 +42,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_false_answer_is_an_error() {
-        let (client, _sent) = Client::scripted(vec![Ok(false.to_bytes())]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(false.to_bytes())]);
         let result = client.toggle_paid_reaction_privacy(-5_i64, 9, PaidReactionPrivacy::Default).await;
         assert!(matches!(result, Err(Error::Unexpected(_))), "{result:?}");
     }

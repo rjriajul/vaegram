@@ -42,7 +42,7 @@ mod tests {
     use crate::types::{FileLocation, InputRichMessage, InputRichMessageMedia, Photo, RichBlock, Text};
 
     async fn sent_body(rich: InputRichMessage) -> Vec<u8> {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert!(client.send_rich_message("me", rich).await.is_err());
         rx.try_recv().expect("no request sent")
     }
@@ -95,7 +95,7 @@ mod tests {
             entities: None,
             ttl_period: None,
         }));
-        let (client, _rx) = Client::scripted(vec![Ok(short.to_bytes()), Ok(short.to_bytes())]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(short.to_bytes()), Ok(short.to_bytes())]);
         let blocks =
             InputRichMessage::blocks([RichBlock::heading(1, "Hi"), RichBlock::paragraph(Text::new().bold("there"))]);
         let message = client.send_rich_message("me", blocks).await.unwrap();
@@ -119,7 +119,7 @@ mod tests {
             update: base::Update::UpdateBotNewBusinessMessage(Box::new(update)),
             date: 0,
         }));
-        let (client, _rx) = Client::scripted(vec![Ok(updates.to_bytes())]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(updates.to_bytes())]);
         client.0.caches.know_business("conn", 7, 2);
         let message =
             client.send_rich_message("me", InputRichMessage::html("hi")).business_connection_id("conn").await.unwrap();

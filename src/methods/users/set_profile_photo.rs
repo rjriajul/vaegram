@@ -113,7 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_business_photo_is_uploaded_naming_the_account() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         client.0.caches.know_business("c", 7, 4);

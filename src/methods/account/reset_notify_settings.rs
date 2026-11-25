@@ -21,7 +21,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_reset_and_checks_the_answer() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(false.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(false.to_bytes())]);
         client.reset_notify_settings().await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), account::ResetNotifySettings {}.to_bytes());
         assert!(matches!(client.reset_notify_settings().await, Err(Error::Unexpected(_))));

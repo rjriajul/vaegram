@@ -168,7 +168,7 @@ mod tests {
 
     #[tokio::test]
     async fn reads_the_history_across_pages() {
-        let (client, mut sent) = Client::scripted(vec![status(&["a", "b"], Some("p2")), status(&["c"], None)]);
+        let (client, mut sent) = Client::scripted_raw(vec![status(&["a", "b"], Some("p2")), status(&["c"], None)]);
         let history = client.get_star_transactions().await.unwrap();
         assert_eq!(history.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
         assert_eq!(sent.try_recv().unwrap(), request("", 100));
@@ -178,7 +178,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_later_pager_resumes_from_next_offset() {
-        let (client, mut sent) = Client::scripted(vec![status(&["a", "b"], Some("p2")), status(&["c"], None)]);
+        let (client, mut sent) = Client::scripted_raw(vec![status(&["a", "b"], Some("p2")), status(&["c"], None)]);
         let mut first = client.get_star_transactions().limit(2);
         while first.next().await.unwrap().is_some() {}
         let resume = first.next_offset().map(str::to_owned).unwrap();

@@ -28,7 +28,7 @@ mod tests {
 
     /// The chunks a stream yields and the requests it sent, for a file of one full chunk and a short one.
     async fn streamed(stream_media: bool) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
-        let (client, mut rx) = Client::scripted(vec![file(vec![1; CHUNK]), file(b"hi".into())]);
+        let (client, mut rx) = Client::scripted_raw(vec![file(vec![1; CHUNK]), file(b"hi".into())]);
         client.0.me.lock().unwrap().premium = Some(false);
         let location = types::InputDocumentFileLocation {
             id: 1,

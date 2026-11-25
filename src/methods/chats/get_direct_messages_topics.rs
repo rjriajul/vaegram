@@ -72,7 +72,7 @@ mod tests {
 
     #[tokio::test]
     async fn topics_send_parent_peer_and_exclude_pinned() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 9, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(9, peer.clone());
         let _ = client.get_direct_messages_topics(9_i64).limit(4).exclude_pinned().next().await;

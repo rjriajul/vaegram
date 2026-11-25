@@ -36,7 +36,7 @@ mod tests {
             users: Vec::new(),
         };
         let (client, _rx) =
-            Client::scripted(vec![Ok(base::messages::Messages::Messages(Box::new(messages)).to_bytes())]);
+            Client::scripted_raw(vec![Ok(base::messages::Messages::Messages(Box::new(messages)).to_bytes())]);
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let found = client.get_scheduled_messages(7).await.unwrap();

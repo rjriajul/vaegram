@@ -52,7 +52,7 @@ mod tests {
 
     #[tokio::test]
     async fn marks_done_and_not_done() {
-        let (client, mut rx) = Client::scripted(vec![Ok(updates()), Ok(updates())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(updates()), Ok(updates())]);
         client.0.peers.lock().unwrap().insert(7, user());
         client.mark_checklist_tasks_as_done(7, 5, &[1, 3], &[2]).await.unwrap();
         assert_eq!(rx.try_recv().unwrap(), toggled(vec![1, 3], vec![2]));
@@ -62,7 +62,7 @@ mod tests {
 
     #[tokio::test]
     async fn nothing_to_mark_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.0.peers.lock().unwrap().insert(7, user());
         let result = client.mark_checklist_tasks_as_done(7, 5, &[], &[]).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");

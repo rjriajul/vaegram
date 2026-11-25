@@ -341,7 +341,7 @@ mod tests {
 
     #[tokio::test]
     async fn revoting_shuffling_and_hidden_results_set_their_flags() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let request = client.send_poll(-5, "Lunch?", ["Pizza", "Sushi"]).allows_revoting(false).shuffle_options();
         let _ = request.hide_results_until_closes().await;
         let body = sent.try_recv().expect("no request sent");
@@ -386,7 +386,7 @@ mod tests {
 
     /// Attaches a URL document as description, explanation and first option media; returns the requests sent.
     async fn attach_url_documents() -> Vec<Vec<u8>> {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let document = || InputMedia::document(FileSource::url("https://example.com/a.pdf").unwrap());
         let options = [InputPollOption::new("A").media(document()), "B".into()];
         let mut send =
@@ -412,7 +412,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_built_explanation_keeps_its_entities() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.send_poll(-5, "2 + 2?", ["3", "4"]).quiz([1]).explanation(Text::new().bold("hi")).await;
         let body = sent.try_recv().expect("no request sent");
         let bold = vec![base::MessageEntity::MessageEntityBold(types::MessageEntityBold { offset: 0, length: 2 })];
@@ -423,7 +423,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_question_and_options_keep_their_custom_emoji_on_the_wire() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let options = [InputPollOption::new(Text::new().custom_emoji("⭐", 6).plain(" Pizza")), "Sushi".into()];
         let _ = client.send_poll(-5, Text::new().plain("Lunch ").custom_emoji("⭐", 5), options).await;
         let body = sent.try_recv().expect("no request sent");
@@ -435,7 +435,7 @@ mod tests {
     #[tokio::test]
     async fn the_poll_parse_mode_covers_the_question_and_options() {
         let star = |id: i64| format!("<tg-emoji emoji-id=\"{id}\">⭐</tg-emoji>");
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let options = [format!("{} Pizza", star(6)), "Sushi".into()];
         let _ = client.send_poll(-5, format!("Lunch {}", star(5)), options).parse_mode(ParseMode::Html).await;
         let body = sent.try_recv().expect("no request sent");
@@ -468,7 +468,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_or_oversized_lists_are_refused_before_sending() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let none: [&str; 0] = [];
         let refused = [
             client.send_poll(-5, "Lunch?", none).await.map(drop).err(),

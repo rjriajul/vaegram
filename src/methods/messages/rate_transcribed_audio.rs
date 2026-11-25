@@ -30,7 +30,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_rating_of_the_transcription() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
         client.rate_transcribed_audio(-5_i64, 9, 77, true).await.unwrap();
         client.rate_transcribed_audio(-5_i64, 9, 77, false).await.unwrap();
         let peer = base::InputPeer::InputPeerChat(types::InputPeerChat { chat_id: 5 });

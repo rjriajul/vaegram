@@ -173,7 +173,7 @@ mod tests {
     #[tokio::test]
     async fn sign_up_accepts_the_terms_it_was_shown() {
         for yes in ["y", "Yes"] {
-            let (client, mut rx) = Client::scripted(vec![Ok(signed_up()), Ok(true.to_bytes())]);
+            let (client, mut rx) = Client::scripted_raw(vec![Ok(signed_up()), Ok(true.to_bytes())]);
             let answer = async { Ok::<_, Error>(String::from(yes)) };
             client.finish_sign_up("8801", "hash", "Ada", "", terms(), answer).await.unwrap();
             let accept = functions::help::AcceptTermsOfService { id: id() }.to_bytes();
@@ -185,7 +185,7 @@ mod tests {
     #[tokio::test]
     async fn refused_terms_stay_unaccepted() {
         for no in ["", "n", "yep"] {
-            let (client, mut rx) = Client::scripted(vec![Ok(signed_up())]);
+            let (client, mut rx) = Client::scripted_raw(vec![Ok(signed_up())]);
             let answer = async { Ok::<_, Error>(String::from(no)) };
             let result = client.finish_sign_up("8801", "hash", "Ada", "", terms(), answer).await;
             assert!(matches!(result, Err(Error::InvalidArgument(_))), "{no:?}: {result:?}");
@@ -196,7 +196,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_terms_no_accept() {
-        let (client, mut rx) = Client::scripted(vec![Ok(signed_up())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(signed_up())]);
         // Awaiting it would fail the sign-up, so a passing call proves nobody was asked.
         let never_asked = async { Err::<String, _>(Error::InvalidArgument("nothing to confirm")) };
         client.finish_sign_up("8801", "hash", "Ada", "", None, never_asked).await.unwrap();

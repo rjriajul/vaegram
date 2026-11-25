@@ -78,7 +78,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_story_reply_sends_nothing() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let m = message(&client, 7);
         assert!(m.replied_story().await.unwrap().is_none());
         assert!(rx.try_recv().is_err());
@@ -86,7 +86,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_story_reply_fetches_that_story() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let mut m = message(&client, 7);
         (m.reply_to_story_id, m.reply_to_story_user_id) = (Some(4), Some(0));
         let _ = m.replied_story().await;
@@ -96,7 +96,7 @@ mod tests {
 
     #[tokio::test]
     async fn topic_is_the_thread_or_general_in_a_forum() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         let input = base::InputPeer::InputPeerChannel(Box::new(peer));
         client.0.peers.lock().unwrap().insert(get_channel_id(9), input.clone());

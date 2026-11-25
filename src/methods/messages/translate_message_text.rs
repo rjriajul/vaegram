@@ -35,7 +35,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_ids_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert!(matches!(client.translate_message_text(-5, &[], "es").await, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
     }

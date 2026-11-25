@@ -70,7 +70,7 @@ mod tests {
 
     #[tokio::test]
     async fn exception_sets_flags_and_parent_peer() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         {
             let mut peers = client.0.peers.lock().unwrap();
             peers.insert(

@@ -21,14 +21,14 @@ mod tests {
 
     #[tokio::test]
     async fn asks_about_the_short_name() {
-        let (client, mut rx) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         assert!(client.check_sticker_set_name("my_set").await.unwrap());
         assert_eq!(rx.try_recv().unwrap(), CheckShortName { short_name: "my_set".into() }.to_bytes());
     }
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "SHORT_NAME_OCCUPIED")))]);
+        let (client, _rx) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "SHORT_NAME_OCCUPIED")))]);
         let result = client.check_sticker_set_name("taken").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "SHORT_NAME_OCCUPIED"), "{result:?}");
     }

@@ -139,6 +139,7 @@ fn f(_: vaegram::session::Session) {}
 pub mod session;
 /// Where a client keeps its login, update state and known peers, session strings and recordings.
 pub mod storage;
+pub mod test;
 /// The friendly types: messages, users, chats, media, keyboards and the rest.
 pub mod types;
 /// Bot-API-style chat id conversions, and decoders for the compact thumbnails Telegram inlines.

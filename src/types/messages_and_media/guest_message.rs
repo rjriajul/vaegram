@@ -152,7 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn answer_text_titles_the_article_with_the_first_line() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let guest = parsed_guest(&client);
         let _ = guest.answer_text("\n  first line  \nsecond").await;
         let body = rx.try_recv().expect("no request sent");
@@ -165,7 +165,7 @@ mod tests {
 
     #[tokio::test]
     async fn answer_rich_sends_a_rich_message_with_a_title() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let guest = parsed_guest(&client);
         let _ = guest.answer_rich(InputRichMessage::html("<b>hi</b>")).await;
         let body = rx.try_recv().expect("no request sent");
@@ -188,7 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_titled_article_sets_the_title_flag() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let guest = parsed_guest(&client);
         let _ = guest.answer(InlineQueryResultArticle::new("t", "hi")).await;
         let body = rx.try_recv().expect("no request sent");

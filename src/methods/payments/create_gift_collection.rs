@@ -52,7 +52,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn creates_a_collection() {
-        let (client, mut sent) = Client::scripted(vec![Ok(collection_reply())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(collection_reply())]);
         let created = client.create_gift_collection("me", "Best", &["9", "PlushPepe-3"]).await.unwrap();
         assert_eq!(created, best());
         let request = functions::payments::CreateStarGiftCollection {
@@ -65,7 +65,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn rpc_errors_come_back_unchanged() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "COLLECTIONS_TOO_MANY")))]);
+        let (client, _sent) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "COLLECTIONS_TOO_MANY")))]);
         let result = client.create_gift_collection("me", "Best", Vec::<&str>::new()).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "COLLECTIONS_TOO_MANY"), "{result:?}");
     }

@@ -75,7 +75,7 @@ pub(super) mod tests {
     }
 
     fn seeded(replies: Vec<crate::Result<Vec<u8>>>) -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, sent) = Client::scripted(replies);
+        let (client, sent) = Client::scripted_raw(replies);
         let mut peers = client.0.peers.lock().unwrap();
         let bot = types::InputPeerUser { user_id: 42, access_hash: 7 };
         peers.insert(42, base::InputPeer::InputPeerUser(Box::new(bot)));

@@ -31,7 +31,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_slots_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         assert!(matches!(client.apply_boost(-1_000_000_000_001, []).await, Err(Error::InvalidArgument(_))));
         assert!(rx.try_recv().is_err());
     }

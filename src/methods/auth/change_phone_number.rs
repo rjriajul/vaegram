@@ -32,7 +32,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_code_and_returns_the_account() {
-        let (client, mut sent) = Client::scripted(vec![Ok(user(7).to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(user(7).to_bytes())]);
         client.0.me.lock().unwrap().id = 7;
         let account = client.change_phone_number("8802", "h3", "12345").await.unwrap();
         let expected = functions::account::ChangePhone {
@@ -49,7 +49,7 @@ mod tests {
     #[tokio::test]
     async fn code_errors_come_back_unchanged() {
         for name in ["PHONE_CODE_EXPIRED", "PHONE_CODE_INVALID"] {
-            let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, name)))]);
+            let (client, _sent) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, name)))]);
             let result = client.change_phone_number("8802", "h3", "12345").await;
             assert!(matches!(&result, Err(Error::Rpc(e)) if *e == RpcError::parse(400, name)), "{result:?}");
         }

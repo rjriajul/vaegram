@@ -196,7 +196,7 @@ mod tests {
     }
 
     fn recording() -> (Client, Sent) {
-        let (client, sent) = Client::recording();
+        let (client, sent) = Client::recording_raw();
         seeded(&client);
         client.0.caches.know_business("c", 7, 2);
         (client, sent)
@@ -301,7 +301,7 @@ mod tests {
     async fn pay_reads_the_form_of_this_message_and_pays_up_to_the_cap() {
         let paid = types::payments::PaymentResult { updates: base::Updates::UpdatesTooLong };
         let paid = base::payments::PaymentResult::PaymentResult(Box::new(paid)).to_bytes();
-        let (client, mut sent) = Client::scripted(vec![Ok(stars_form(900)), Ok(paid)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(stars_form(900)), Ok(paid)]);
         seeded(&client);
         message(&client).pay(900).await.unwrap();
         let form = functions::payments::GetPaymentForm { invoice: message_invoice(), theme_params: None };
@@ -312,7 +312,7 @@ mod tests {
 
     #[tokio::test]
     async fn pay_refuses_a_price_above_the_cap() {
-        let (client, mut sent) = Client::scripted(vec![Ok(stars_form(1000))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(stars_form(1000))]);
         seeded(&client);
         assert!(matches!(message(&client).pay(900).await, Err(Error::InvalidArgument(_))));
         let form = functions::payments::GetPaymentForm { invoice: message_invoice(), theme_params: None };

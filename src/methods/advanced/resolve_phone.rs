@@ -51,7 +51,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_known_number_is_resolved_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         crate::dispatcher::Entities::new(&client, vec![user_with_phone(100, "15550001")], Vec::new());
         assert_eq!(client.resolve_phone("+1 555-0001").await.unwrap(), 100);
         assert!(sent.try_recv().is_err(), "a request went out");

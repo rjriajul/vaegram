@@ -78,7 +78,7 @@ mod tests {
     const USER: i64 = 7;
 
     fn recording() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::recording();
+        let (client, rx) = Client::recording_raw();
         let mut peers = client.0.peers.lock().unwrap();
         let user = types::InputPeerUser { user_id: USER, access_hash: 1 };
         peers.insert(USER, base::InputPeer::InputPeerUser(Box::new(user)));

@@ -35,7 +35,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_dialogs_in_order() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
         client.reorder_pinned_saved_dialogs([-6_i64, -5], false).await.unwrap();
         client.reorder_pinned_saved_dialogs(vec![-5_i64], true).await.unwrap();
         let first = functions::messages::ReorderPinnedSavedDialogs { force: false, order: vec![dialog(6), dialog(5)] };

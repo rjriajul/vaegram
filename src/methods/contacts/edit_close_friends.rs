@@ -30,7 +30,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_the_user_ids_and_an_empty_list_clears() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(true.to_bytes())]);
         client.edit_close_friends([9, 10]).await.unwrap();
         assert_eq!(sent.try_recv().unwrap(), contacts::EditCloseFriends { id: vec![9, 10] }.to_bytes());
         client.edit_close_friends(Vec::<i64>::new()).await.unwrap();
@@ -39,7 +39,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_chat_id_is_refused_without_a_request() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let result = client.edit_close_friends([9, -100_123]).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(sent.try_recv().is_err());

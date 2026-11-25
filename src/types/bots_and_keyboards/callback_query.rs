@@ -325,7 +325,7 @@ mod tests {
 
     #[tokio::test]
     async fn answer_ephemeral_sends_to_the_presser_with_the_query_id() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let input_channel = types::InputPeerChannel { channel_id: 42, access_hash: 7 };
         let user = types::InputPeerUser { user_id: 1000, access_hash: 9 };
         {
@@ -359,7 +359,7 @@ mod tests {
 
     #[tokio::test]
     async fn answer_ephemeral_can_replace_the_pressed_message() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let channel = types::InputPeerChannel { channel_id: 42, access_hash: 7 };
         let channel = base::InputPeer::InputPeerChannel(Box::new(channel));
         let user = types::InputPeerUser { user_id: 1000, access_hash: 9 };
@@ -395,7 +395,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_inline_callback_answers_ephemeral_without_a_chat() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 1000, access_hash: 9 };
         client.0.peers.lock().unwrap().insert(1000, base::InputPeer::InputPeerUser(Box::new(user)));
         let id = types::InputBotInlineMessageID64 { dc_id: 2, owner_id: 5, id: 6, access_hash: 7 };
@@ -468,7 +468,7 @@ mod tests {
             chat_instance: 3,
             data: Some(b"buy".to_vec()),
         };
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, peer);
         client.0.caches.know_business("conn", 7, 2);
@@ -491,7 +491,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_and_keyboard_edits_follow_the_origin() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, peer);
         client.0.caches.know_business("conn", 7, 2);
@@ -532,7 +532,7 @@ mod tests {
 
     #[tokio::test]
     async fn business_press_returns_the_carried_message() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let update = types::UpdateBusinessBotCallbackQuery {
             query_id: 1,
             user_id: 7,
@@ -557,7 +557,7 @@ mod tests {
             users: Vec::new(),
         };
         let reply = base::messages::Messages::Messages(Box::new(found)).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let q = crate::dispatcher::listeners::tests::query(&client, 7, 7, 5);
         let message = q.message().await.unwrap().expect("the message exists");
         assert_eq!((message.id, message.chat.id), (5, 7));

@@ -31,7 +31,7 @@ mod tests {
 
     #[tokio::test]
     async fn url_sends_web_page_media() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.send_web_page("me", "look", "https://a.b").await;
         let body = rx.try_recv().unwrap();
         assert_eq!(body_id(&body), SendMedia::CONSTRUCTOR_ID);
@@ -45,7 +45,7 @@ mod tests {
 
     #[tokio::test]
     async fn disabled_ignores_url_and_sends_a_plain_message() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let options = LinkPreviewOptions::new().url("https://a.b").is_disabled(true);
         let _ = client.send_web_page("me", "look", "https://a.b").link_preview_options(options).await;
         let body = rx.try_recv().unwrap();
@@ -57,7 +57,7 @@ mod tests {
     #[tokio::test]
     async fn the_client_default_applies_flags_but_not_its_url() {
         let default = LinkPreviewOptions::new().url("https://x.y").show_above_text(true);
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         client.set_link_preview_options(Some(default));
         let _ = client.send_message("me", "hi").await;
         let body = rx.try_recv().unwrap();

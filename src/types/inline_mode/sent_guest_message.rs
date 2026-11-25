@@ -82,7 +82,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_text_edits_the_inline_message() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let sent = SentGuestMessage::new(client, InlineMessageId(raw_id()));
         let _ = sent.edit_text("hi").await;
         assert_eq!(rx.try_recv().expect("no request sent"), edit(Some("hi")));
@@ -90,7 +90,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_reply_markup_edits_the_inline_message() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let sent = SentGuestMessage::new(client, InlineMessageId(raw_id()));
         let _ = sent.edit_reply_markup(None).await;
         assert_eq!(rx.try_recv().expect("no request sent"), edit(None));

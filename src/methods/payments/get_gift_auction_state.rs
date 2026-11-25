@@ -117,7 +117,7 @@ mod tests {
 
     #[tokio::test]
     async fn maps_an_active_auction_and_the_users_bid() {
-        let (client, mut sent) = Client::scripted(vec![Ok(reply(auction_gift(), active(), true))]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply(auction_gift(), active(), true))]);
         let state = client.get_gift_auction_state(1).await.unwrap();
         let auction = base::InputStarGiftAuction::InputStarGiftAuction(types::InputStarGiftAuction { gift_id: 1 });
         let request = functions::payments::GetStarGiftAuctionState { auction, version: 0 };
@@ -162,7 +162,7 @@ mod tests {
             fragment_listed_url: Some("https://fragment.com".into()),
         };
         let finished = base::StarGiftAuctionState::StarGiftAuctionStateFinished(Box::new(finished));
-        let (client, _sent) = Client::scripted(vec![Ok(reply(auction_gift(), finished, false))]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(reply(auction_gift(), finished, false))]);
         let state = client.get_gift_auction_state(1).await.unwrap();
         let expected = FinishedGiftAuction {
             start_date: 100,
@@ -181,7 +181,7 @@ mod tests {
         let not_modified = base::StarGiftAuctionState::StarGiftAuctionStateNotModified;
         let unique = super::super::craft_gift::tests::unique();
         let replies = vec![Ok(reply(auction_gift(), not_modified, false)), Ok(reply(unique, active(), false))];
-        let (client, _sent) = Client::scripted(replies);
+        let (client, _sent) = Client::scripted_raw(replies);
         for _ in 0..2 {
             assert!(matches!(client.get_gift_auction_state(1).await, Err(Error::Unexpected(_))));
         }

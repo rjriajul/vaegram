@@ -29,7 +29,7 @@ mod tests {
             show_previews: true,
         };
         let reply = base::ReactionsNotifySettings::ReactionsNotifySettings(Box::new(raw)).to_bytes();
-        let (client, mut sent) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply)]);
         let settings = client.get_reactions_notify_settings().await.unwrap();
         let expected = ReactionsNotifySettings {
             messages_from: Some(ReactionNotificationsFrom::All),

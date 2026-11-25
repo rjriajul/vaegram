@@ -45,7 +45,7 @@ mod tests {
     async fn keeps_gifs_and_saves_them_by_document() {
         let gifs = vec![document(1, vec![base::DocumentAttribute::DocumentAttributeAnimated]), document(2, Vec::new())];
         let reply = base::messages::SavedGifs::SavedGifs(Box::new(types::messages::SavedGifs { hash: 9, gifs }));
-        let (client, mut rx) = Client::scripted(vec![Ok(reply.to_bytes())]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply.to_bytes())]);
 
         let gifs = client.get_saved_gifs().await.unwrap();
         assert_eq!(rx.try_recv().unwrap(), messages::GetSavedGifs { hash: 0 }.to_bytes());

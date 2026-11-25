@@ -39,7 +39,7 @@ mod tests {
 
     #[tokio::test]
     async fn every_name_reaches_the_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let contacts = [InputPhoneContact::new("+100", "Ann"), InputPhoneContact::new("+200", "Bo").last_name("Lee")];
         let _ = client.import_contacts(&contacts).await;
         let contact = |client_id, phone: &str, first_name: &str, last_name: &str| {

@@ -48,7 +48,7 @@ mod tests {
 
     #[tokio::test]
     async fn deletes_the_gift() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.delete_gift("PlushPepe-3").await.unwrap();
         let stargift = base::InputSavedStarGift::InputSavedStarGiftSlug(Box::new(types::InputSavedStarGiftSlug {
             slug: "PlushPepe-3".into(),
@@ -58,21 +58,21 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_id_is_refused_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         assert!(matches!(client.delete_gift("").await, Err(Error::InvalidArgument(_))));
         assert!(sent.try_recv().is_err());
     }
 
     #[tokio::test]
     async fn rpc_errors_come_back_unchanged() {
-        let (client, _sent) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "STARGIFT_INVALID")))]);
+        let (client, _sent) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "STARGIFT_INVALID")))]);
         let result = client.delete_gift("9").await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "STARGIFT_INVALID"), "{result:?}");
     }
 
     #[tokio::test]
     async fn delete_gift_on_behalf_wraps_business() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.0.caches.know_business("conn", 7, 2);
         client.delete_gift("PlushPepe-3").business_connection_id("conn").await.unwrap();
         let body = sent.try_recv().unwrap();

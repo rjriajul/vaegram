@@ -24,7 +24,7 @@ mod tests {
 
     #[tokio::test]
     async fn deletes_the_gift_of_the_business_account() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.0.caches.know_business("conn", 7, 2);
         client.delete_business_account_gift("conn", "PlushPepe-3").await.unwrap();
         let body = sent.try_recv().unwrap();
@@ -41,7 +41,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_id_is_refused_without_a_request() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         let refused = client.delete_business_account_gift("conn", "").await;
         assert!(matches!(&refused, Err(Error::InvalidArgument(_))), "{refused:?}");
         assert!(sent.try_recv().is_err());

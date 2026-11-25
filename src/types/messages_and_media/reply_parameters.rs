@@ -149,7 +149,7 @@ mod tests {
     use crate::raw::Serializable;
 
     fn seeded() -> (Client, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>, base::InputPeer) {
-        let (client, rx) = Client::recording();
+        let (client, rx) = Client::recording_raw();
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 1 }));
         client.0.peers.lock().unwrap().insert(7, user.clone());
         (client, rx, user)

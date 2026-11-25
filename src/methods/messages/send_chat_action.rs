@@ -148,7 +148,7 @@ mod tests {
     use crate::raw::{Serializable, base, functions, types};
 
     fn chat(replies: Vec<Result<Vec<u8>>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(replies);
+        let (client, rx) = Client::scripted_raw(replies);
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         (client, rx)
@@ -168,7 +168,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_business_chat_action_goes_through_the_connection() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         client.0.caches.know_business("c", 7, 2);
@@ -274,7 +274,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_tagged_builder_tags_the_first_send_and_every_repeat() {
-        let (client, mut rx) = Client::scripted_tags(vec![ok(), ok(), ok()]);
+        let (client, mut rx) = Client::scripted_tags_raw(vec![ok(), ok(), ok()]);
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         // The builder goes in as it is, without `.into_future()`.

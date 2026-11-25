@@ -90,13 +90,13 @@ pub(super) mod tests {
     }
 
     async fn answer(reply: Result<Vec<u8>>) -> Result<SentCode> {
-        let (client, _sent) = Client::scripted(vec![reply]);
+        let (client, _sent) = Client::scripted_raw(vec![reply]);
         client.send_code("8801").await
     }
 
     #[tokio::test]
     async fn asks_with_the_app_credentials_and_no_code_options() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let _ = client.send_code("8801").await;
         let settings = types::CodeSettings {
             allow_flashcall: false,

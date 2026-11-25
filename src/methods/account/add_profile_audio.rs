@@ -75,7 +75,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn only_uploaded_or_stored_songs_are_accepted() {
-        let (client, mut sent) = Client::recording();
+        let (client, mut sent) = Client::recording_raw();
         let url = FileSource::url("https://example.com/song.mp3").unwrap();
         let refused = [
             InputMedia::document("song.mp3"),
@@ -92,7 +92,7 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn a_stored_song_is_saved_without_an_upload() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         client.add_profile_audio(&InputMedia::audio(&song(1))).await.unwrap();
         assert_eq!(sent.recv().await.unwrap(), save(stored(1)));
         assert!(sent.try_recv().is_err());
@@ -102,7 +102,7 @@ pub(super) mod tests {
     async fn an_upload_goes_through_the_own_chat_before_it_is_saved() {
         let uploaded = document_media("audio/mpeg", vec![audio_attribute()]);
         let (client, mut sent) =
-            Client::scripted(vec![Ok(true.to_bytes()), Ok(uploaded.to_bytes()), Ok(true.to_bytes())]);
+            Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(uploaded.to_bytes()), Ok(true.to_bytes())]);
         client.0.me.lock().unwrap().premium = Some(false);
         client.add_profile_audio(&InputMedia::audio(Upload::bytes("song.mp3", b"x"))).await.unwrap();
         let bodies: Vec<_> = std::iter::from_fn(|| sent.try_recv().ok()).collect();
@@ -119,7 +119,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn an_upload_answer_without_a_document_is_not_saved() {
         let (client, mut sent) =
-            Client::scripted(vec![Ok(true.to_bytes()), Ok(base::MessageMedia::MessageMediaEmpty.to_bytes())]);
+            Client::scripted_raw(vec![Ok(true.to_bytes()), Ok(base::MessageMedia::MessageMediaEmpty.to_bytes())]);
         client.0.me.lock().unwrap().premium = Some(false);
         let result = client.add_profile_audio(&InputMedia::audio(Upload::bytes("song.mp3", b"x"))).await;
         assert!(matches!(result, Err(Error::Unexpected(_))), "{result:?}");

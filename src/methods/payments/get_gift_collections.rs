@@ -26,7 +26,7 @@ mod tests {
     async fn lists_the_collections() {
         let list = types::payments::StarGiftCollections { collections: vec![collection()] };
         let list = base::payments::StarGiftCollections::StarGiftCollections(Box::new(list));
-        let (client, mut sent) = Client::scripted(vec![Ok(list.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(list.to_bytes())]);
         assert_eq!(client.get_gift_collections("me").await.unwrap(), vec![best()]);
         let request = functions::payments::GetStarGiftCollections { peer: base::InputPeer::InputPeerSelf, hash: 0 };
         assert_eq!(sent.try_recv().unwrap(), request.to_bytes());
@@ -35,7 +35,7 @@ mod tests {
     #[tokio::test]
     async fn not_modified_is_an_empty_list() {
         let reply = base::payments::StarGiftCollections::StarGiftCollectionsNotModified.to_bytes();
-        let (client, _sent) = Client::scripted(vec![Ok(reply)]);
+        let (client, _sent) = Client::scripted_raw(vec![Ok(reply)]);
         assert!(client.get_gift_collections("me").await.unwrap().is_empty());
     }
 }

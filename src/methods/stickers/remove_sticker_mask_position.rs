@@ -47,7 +47,7 @@ mod tests {
             attributes: vec![base::DocumentAttribute::DocumentAttributeSticker(Box::new(attribute))],
         };
         let sticker = Sticker::parse(&base::Document::Document(Box::new(document))).unwrap();
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let _ = client.remove_sticker_mask_position(&sticker).await;
         let request = functions::stickers::ChangeSticker {
             sticker: sticker.input_document(),

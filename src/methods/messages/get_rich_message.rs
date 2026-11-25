@@ -50,7 +50,7 @@ mod tests {
         let blocks = vec![base::PageBlock::PageBlockParagraph(Box::new(types::PageBlockParagraph { text: paragraph }))];
         let rich = types::RichMessage { rtl: false, part: false, blocks, photos: vec![], documents: vec![] };
         raw.rich_message = Some(base::RichMessage::RichMessage(Box::new(rich)));
-        let (client, mut rx) = Client::scripted(vec![Ok(found(vec![raw]))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(found(vec![raw]))]);
         client.0.peers.lock().unwrap().insert(7, user());
 
         let message = client.get_rich_message(7, 5).await.unwrap().expect("the message was sent back");
@@ -62,7 +62,7 @@ mod tests {
     #[tokio::test]
     async fn another_chats_message_or_none_is_none() {
         let other_chat = Message::bare(5, get_peer(8), 1);
-        let (client, _rx) = Client::scripted(vec![Ok(found(vec![other_chat])), Ok(found(Vec::new()))]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(found(vec![other_chat])), Ok(found(Vec::new()))]);
         client.0.peers.lock().unwrap().insert(7, user());
         // Outside channels ids are per account, so message 5 of chat 8 isn't the one asked for.
         assert_eq!(client.get_rich_message(7, 5).await.unwrap().map(|m| m.id), None);

@@ -31,7 +31,7 @@ mod tests {
     #[tokio::test]
     async fn pinned_is_one_pinned_search() {
         let pinned = found(vec![Message::bare(5, get_peer(7), 1)]);
-        let (client, mut rx) = Client::scripted(vec![Ok(pinned), Ok(found(Vec::new()))]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(pinned), Ok(found(Vec::new()))]);
         let peer = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 7, access_hash: 2 }));
         client.0.peers.lock().unwrap().insert(7, peer.clone());
 

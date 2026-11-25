@@ -36,7 +36,7 @@ mod tests {
             amount: 1499,
         };
         let reply = vec![base::PremiumGiftCodeOption::PremiumGiftCodeOption(Box::new(raw))];
-        let (client, mut sent) = Client::scripted(vec![Ok(reply.to_bytes()), Ok(reply.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply.to_bytes()), Ok(reply.to_bytes())]);
         let expected = vec![PremiumGiftCodeOption {
             user_count: 5,
             months: 3,

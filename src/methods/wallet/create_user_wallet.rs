@@ -27,7 +27,7 @@ mod tests {
             users: Vec::new(),
         };
         let reply = base::wallet::UserAddresses::UserAddresses(Box::new(list)).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let peer = types::InputPeerUser { user_id: 7, access_hash: 9 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(peer)));
         let found = client.create_user_wallet(7).await.unwrap().unwrap();

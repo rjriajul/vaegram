@@ -22,7 +22,7 @@ mod tests {
         let utc = types::Timezone { id: "UTC".into(), name: "UTC".into(), utc_offset: 3600 };
         let timezones = vec![base::Timezone::Timezone(Box::new(utc))];
         let timezones = types::help::TimezonesList { timezones, hash: 1 };
-        let (client, mut sent) = Client::scripted(vec![
+        let (client, mut sent) = Client::scripted_raw(vec![
             Ok(config.to_bytes()),
             Ok(base::help::CountriesList::CountriesListNotModified.to_bytes()),
             Ok(base::NearestDc::NearestDc(Box::new(dc)).to_bytes()),
@@ -52,8 +52,10 @@ mod tests {
         }));
         let config = J::JsonObject(Box::new(types::JsonObject { value: vec![field] }));
         let config = base::help::AppConfig::AppConfig(Box::new(types::help::AppConfig { hash: 7, config }));
-        let (client, mut sent) =
-            Client::scripted(vec![Ok(config.to_bytes()), Ok(base::help::AppConfig::AppConfigNotModified.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![
+            Ok(config.to_bytes()),
+            Ok(base::help::AppConfig::AppConfigNotModified.to_bytes()),
+        ]);
 
         let first = client.get_app_config().await.unwrap();
         assert_eq!(first.get("reactions_user_max").and_then(Json::as_i64), Some(3));
@@ -130,7 +132,7 @@ mod tests {
             reactions_default: None,
             autologin_token: None,
         };
-        let (client, mut sent) = Client::scripted(vec![Ok(base::Config::Config(Box::new(config)).to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(base::Config::Config(Box::new(config)).to_bytes())]);
 
         let config = client.get_config().await.unwrap();
         assert_eq!(sent.recv().await.unwrap(), functions::help::GetConfig {}.to_bytes());
@@ -168,7 +170,7 @@ mod tests {
             chats: vec![base::Chat::ChannelForbidden(Box::new(channel))],
             users: Vec::new(),
         };
-        let (client, mut sent) = Client::scripted(vec![
+        let (client, mut sent) = Client::scripted_raw(vec![
             Ok(base::help::PromoData::PromoData(Box::new(promo)).to_bytes()),
             Ok(true.to_bytes()),
         ]);

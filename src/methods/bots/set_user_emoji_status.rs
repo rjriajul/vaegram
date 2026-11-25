@@ -59,7 +59,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_expiring_status_is_sent_with_its_end() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         let _ = client.set_user_emoji_status(7).custom_emoji_id(5).until(9).await;

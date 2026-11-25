@@ -122,7 +122,7 @@ mod tests {
     };
     #[tokio::test]
     async fn sends_widget_flags_and_automatic_width() {
-        let (client, mut sent) = Client::scripted(Vec::new());
+        let (client, mut sent) = Client::scripted_raw(Vec::new());
         let _ = client.send_widget(-5, "<p>x</p>").height(25).allow_queries().is_shared().await;
         let body = sent.try_recv().unwrap();
         let media = base::InputMedia::InputMediaWidget(Box::new(types::InputMediaWidget {

@@ -96,7 +96,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn setup(answers: Vec<Vec<u8>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(answers.into_iter().map(Ok).collect());
+        let (client, rx) = Client::scripted_raw(answers.into_iter().map(Ok).collect());
         let user = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: USER, access_hash: 2 }));
         client.0.peers.lock().unwrap().extend([(get_channel_id(CHANNEL_ID), channel()), (USER, user)]);
         (client, rx)

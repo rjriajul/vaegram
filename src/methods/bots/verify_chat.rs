@@ -69,7 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn verify_chat_parses_an_html_description() {
-        let (client, mut sent) = Client::scripted(vec![Ok(true.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(true.to_bytes())]);
         let channel = types::InputPeerChannel { channel_id: 123, access_hash: 456 };
         client.0.peers.lock().unwrap().insert(123, base::InputPeer::InputPeerChannel(Box::new(channel)));
 

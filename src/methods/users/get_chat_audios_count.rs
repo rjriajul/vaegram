@@ -18,7 +18,7 @@ mod tests {
     #[tokio::test]
     async fn counts_from_one_saved_music_slice() {
         let reply = base::users::SavedMusic::SavedMusicNotModified(types::users::SavedMusicNotModified { count: 4 });
-        let (client, mut sent) = Client::scripted(vec![Ok(reply.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply.to_bytes())]);
         let user = types::InputPeerUser { user_id: 7, access_hash: 3 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
         assert_eq!(client.get_chat_audios_count(7).await.unwrap(), 4);

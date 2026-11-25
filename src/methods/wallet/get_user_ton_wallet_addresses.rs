@@ -57,7 +57,7 @@ mod tests {
     #[tokio::test]
     async fn looks_up_the_users_wallets() {
         let replies = vec![Ok(reply(vec![address(Some(7)), address(None)], vec![named_user(7)]))];
-        let (client, mut rx) = Client::scripted(replies);
+        let (client, mut rx) = Client::scripted_raw(replies);
         known_user(&client);
         let found = client.get_user_ton_wallet_addresses([7_i64]).await.unwrap();
         let user = base::InputUser::InputUser(Box::new(types::InputUser { user_id: 7, access_hash: 2 }));
@@ -76,14 +76,14 @@ mod tests {
     #[tokio::test]
     async fn no_wallet_means_an_empty_list() {
         // The user has no wallet, so Telegram lists no address.
-        let (client, _rx) = Client::scripted(vec![Ok(reply(Vec::new(), Vec::new()))]);
+        let (client, _rx) = Client::scripted_raw(vec![Ok(reply(Vec::new(), Vec::new()))]);
         known_user(&client);
         assert!(client.get_user_ton_wallet_addresses([7_i64]).await.unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn no_user_ids_are_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let result = client.get_user_ton_wallet_addresses(Vec::<i64>::new()).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(rx.try_recv().is_err());
@@ -91,7 +91,7 @@ mod tests {
 
     #[tokio::test]
     async fn telegram_errors_come_back_unchanged() {
-        let (client, _rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "WALLET_NOT_AVAILABLE")))]);
+        let (client, _rx) = Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "WALLET_NOT_AVAILABLE")))]);
         known_user(&client);
         let result = client.get_user_ton_wallet_addresses([7_i64]).await;
         assert!(matches!(&result, Err(Error::Rpc(e)) if e.name == "WALLET_NOT_AVAILABLE"), "{result:?}");

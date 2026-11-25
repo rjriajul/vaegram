@@ -54,7 +54,7 @@ mod tests {
             expires: Some(99),
         };
         let reply = base::ExportedNoPaidMessagesToken::ExportedNoPaidMessagesToken(Box::new(raw)).to_bytes();
-        let (client, mut sent) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply)]);
         let token = client.export_no_paid_messages_token().temporary().await.unwrap();
         assert_eq!(
             (token.token.as_str(), token.link.as_str(), token.expiration_date),

@@ -72,7 +72,7 @@ mod tests {
     }
 
     fn setup(replies: usize) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted((0..replies).map(|_| Ok(updates())).collect());
+        let (client, rx) = Client::scripted_raw((0..replies).map(|_| Ok(updates())).collect());
         client.0.peers.lock().unwrap().insert(7, user());
         (client, rx)
     }
@@ -119,7 +119,7 @@ mod tests {
     #[tokio::test]
     async fn telegram_errors_pass_through() {
         let invalid = || Err(Error::Rpc(RpcError::parse(400, "MESSAGE_ID_INVALID")));
-        let (client, _rx) = Client::scripted(vec![invalid(), invalid()]);
+        let (client, _rx) = Client::scripted_raw(vec![invalid(), invalid()]);
         client.0.peers.lock().unwrap().insert(7, user());
         let added = client.add_checklist_tasks(7, 5).task(2, "Visa").await;
         let marked = client.mark_checklist_tasks_as_done(7, 5, &[1], &[]).await;

@@ -38,7 +38,7 @@ mod tests {
 
     #[tokio::test]
     async fn business_links_and_bare_slugs_send_one_slug() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let expected = ResolveBusinessChatLink { slug: "AbC1".into() }.to_bytes();
         for link in [
             "AbC1",

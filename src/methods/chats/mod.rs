@@ -155,7 +155,7 @@ mod creation_tests {
 
     #[tokio::test]
     async fn an_empty_member_list_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let result = client.add_chat_members(GROUP, Vec::<i64>::new(), 100).await;
         assert!(matches!(result, Err(Error::InvalidArgument(_))), "{result:?}");
         assert!(rx.try_recv().is_err());
@@ -167,14 +167,14 @@ mod creation_tests {
             let a = types::messages::AffectedHistory { pts, pts_count: 1, offset };
             Ok(base::messages::AffectedHistory::AffectedHistory(Box::new(a)).to_bytes())
         };
-        let (client, _rx) = Client::scripted(vec![affected(11, 3), affected(12, 0)]);
+        let (client, _rx) = Client::scripted_raw(vec![affected(11, 3), affected(12, 0)]);
         client.delete_chat_history(GROUP).await.unwrap();
         assert_eq!(client.0.events.take_affected(), Some(Affected { channel_id: None, pts: 12, pts_count: 2 }));
     }
 
     #[tokio::test]
     async fn basic_groups_and_channels_use_their_own_methods() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let channel = get_channel_id(9);
         let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
@@ -196,7 +196,7 @@ mod creation_tests {
 
     #[tokio::test]
     async fn channel_only_methods_refuse_basic_groups_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let refused = |r: Result<()>| matches!(r, Err(Error::InvalidArgument(_)));
 
         let slow_mode = refused(client.set_slow_mode(GROUP, None).await);
@@ -289,7 +289,7 @@ mod creation_tests {
             missing_invitees: vec![base::MissingInvitee::MissingInvitee(Box::new(missing))],
         };
         let (client, mut rx) =
-            Client::scripted(vec![Ok(base::messages::InvitedUsers::InvitedUsers(Box::new(invited)).to_bytes())]);
+            Client::scripted_raw(vec![Ok(base::messages::InvitedUsers::InvitedUsers(Box::new(invited)).to_bytes())]);
         let user = types::InputPeerUser { user_id: 7, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(7, base::InputPeer::InputPeerUser(Box::new(user)));
 
@@ -325,7 +325,7 @@ mod dialog_tests {
 
     #[tokio::test]
     async fn dialog_toggles_set_the_right_flags() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let rx = &mut rx;
 
         let pin = sent(rx, client.pin_chat(GROUP)).await;
@@ -347,7 +347,7 @@ mod dialog_tests {
 
     #[tokio::test]
     async fn moving_no_chats_is_refused_without_a_request() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let archived = client.archive_chats(Vec::<i64>::new()).await;
         let unarchived = client.unarchive_chats(Vec::<i64>::new()).await;
         let refused = |r: &Result<()>| matches!(r, Err(Error::InvalidArgument(_)));
@@ -367,7 +367,7 @@ mod statistics_tests {
 
     #[tokio::test]
     async fn statistics_and_admin_log_hit_the_right_calls() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let channel = get_channel_id(9);
         let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
         client.0.peers.lock().unwrap().insert(channel, base::InputPeer::InputPeerChannel(Box::new(peer)));
@@ -415,7 +415,7 @@ mod appearance_tests {
 
     #[tokio::test]
     async fn wallpaper_calls_set_their_flags() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let rx = &mut rx;
         let fill = ChatBackground { background_color: Some(0xffffff), ..Default::default() };
         let id = messages::SetChatWallPaper::CONSTRUCTOR_ID;
@@ -428,7 +428,7 @@ mod appearance_tests {
 
     #[tokio::test]
     async fn accent_colors_go_to_the_account_or_the_channel() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let rx = &mut rx;
         let channel = get_channel_id(9);
         let peer = types::InputPeerChannel { channel_id: 9, access_hash: 1 };
@@ -479,7 +479,7 @@ mod settings_tests {
     }
 
     fn settings_client(replies: Vec<Result<Vec<u8>>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(replies);
+        let (client, rx) = Client::scripted_raw(replies);
         client.0.peers.lock().unwrap().extend([(get_channel_id(9), channel_peer()), (USER, user_peer())]);
         (client, rx)
     }
@@ -686,7 +686,7 @@ mod settings_tests {
 
     #[tokio::test]
     async fn main_profile_tab_goes_to_the_account_or_the_channel() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let other = base::InputPeer::InputPeerUser(Box::new(types::InputPeerUser { user_id: 8, access_hash: 2 }));
         client.0.peers.lock().unwrap().extend([(get_channel_id(9), channel_peer()), (8, other)]);
         client.0.me.lock().unwrap().id = USER;
@@ -822,7 +822,7 @@ mod settings_tests {
     #[tokio::test]
     async fn top_chat_categories_set_their_flags() {
         use TopChatCategory as C;
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let cases = [
             (C::Users, 0x1),
             (C::Bots, 0x2),
@@ -842,7 +842,7 @@ mod settings_tests {
 
     #[tokio::test]
     async fn top_chats_ask_once_and_refuse_a_zero_limit() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         let refused = client.get_top_chats(TopChatCategory::Users, 0).await;
         assert!(matches!(refused, Err(Error::InvalidArgument(_))), "{refused:?}");
         assert!(rx.try_recv().is_err());
@@ -868,7 +868,7 @@ mod settings_tests {
 
     #[tokio::test]
     async fn top_chats_send_a_usize_limit_as_i32_and_saturate_past_i32_max() {
-        let (client, mut rx) = Client::recording();
+        let (client, mut rx) = Client::recording_raw();
         for (limit, wire) in [(10, 10), (usize::MAX, i32::MAX)] {
             let sent = body(&mut rx, client.get_top_chats(TopChatCategory::Users, limit)).await;
             // Constructor id, flags and `offset` take four bytes each, so `limit` starts at byte 12.
@@ -931,7 +931,7 @@ mod forum_topic_tests {
     }
 
     fn topic_client(replies: Vec<Result<Vec<u8>>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (client, rx) = Client::scripted(replies);
+        let (client, rx) = Client::scripted_raw(replies);
         client.0.peers.lock().unwrap().extend([(get_channel_id(9), channel()), (USER, user_peer())]);
         (client, rx)
     }

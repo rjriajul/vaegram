@@ -311,7 +311,7 @@ mod tests {
     const REPLIES: Fetch = Fetch { replies: true, topics: false, stories: false, stickers: false };
 
     fn client(fetch: Fetch, bot: bool, replies: Vec<Result<Vec<u8>>>) -> (Client, UnboundedReceiver<Vec<u8>>) {
-        let (mut client, sent) = Client::scripted(replies);
+        let (mut client, sent) = Client::scripted_raw(replies);
         let inner = Arc::get_mut(&mut client.0).unwrap();
         (inner.fetch, inner.caches) = (fetch, Caches::new(10, 10).with_set_names(10));
         inner.me.get_mut().unwrap().is_bot = bot;

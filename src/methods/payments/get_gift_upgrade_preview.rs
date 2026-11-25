@@ -38,7 +38,7 @@ mod tests {
             next_prices: vec![price(40, 1000)],
         };
         let reply = base::payments::StarGiftUpgradePreview::StarGiftUpgradePreview(Box::new(preview));
-        let (client, mut sent) = Client::scripted(vec![Ok(reply.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(reply.to_bytes())]);
         let preview = client.get_gift_upgrade_preview(42).await.unwrap();
         let at = |date, star_count| GiftUpgradePrice { date, star_count };
         assert_eq!(preview.prices, [at(30, 900), at(10, 500), at(20, 700)]);

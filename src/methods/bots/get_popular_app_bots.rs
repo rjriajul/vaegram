@@ -56,7 +56,7 @@ mod tests {
             Ok(base::bots::PopularAppBots::PopularAppBots(Box::new(page)).to_bytes())
         };
         let empty_user = base::User::UserEmpty(types::UserEmpty { id: 5 });
-        let (client, mut sent) = Client::scripted(vec![page(vec![empty_user], "x"), page(Vec::new(), "y")]);
+        let (client, mut sent) = Client::scripted_raw(vec![page(vec![empty_user], "x"), page(Vec::new(), "y")]);
 
         let mut bots = client.get_popular_app_bots();
         assert_eq!(bots.next().await.unwrap(), None);

@@ -118,7 +118,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn replace_sends_imported_wallet_with_proof() {
         let reply = base::WalletState::WalletStateEmpty(types::WalletStateEmpty { creating: true }).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(reply)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(reply)]);
         let state = client.replace_ton_wallet(proof()).anchor_public_key(vec![9]).await.unwrap();
         assert!(state.is_being_created);
         let imported = types::InputWalletImported {
@@ -140,7 +140,8 @@ pub(super) mod tests {
 
     #[tokio::test]
     async fn password_is_checked_first() {
-        let (client, mut rx) = Client::scripted(vec![Err(Error::Rpc(RpcError::parse(400, "PASSWORD_HASH_INVALID")))]);
+        let (client, mut rx) =
+            Client::scripted_raw(vec![Err(Error::Rpc(RpcError::parse(400, "PASSWORD_HASH_INVALID")))]);
         let result = client.replace_ton_wallet(proof()).password("hunter2").await;
         assert!(matches!(&result, Err(e) if e.is("PASSWORD_HASH_INVALID")), "{result:?}");
         rx.try_recv().unwrap();
@@ -150,7 +151,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn a_password_is_fetched_then_sent_with_the_wallet() {
         let state = base::WalletState::WalletStateEmpty(types::WalletStateEmpty { creating: false }).to_bytes();
-        let (client, mut rx) = Client::scripted(vec![Ok(password_reply()), Ok(state)]);
+        let (client, mut rx) = Client::scripted_raw(vec![Ok(password_reply()), Ok(state)]);
         client.replace_ton_wallet(proof()).password("hunter2").await.unwrap();
         let first = rx.try_recv().unwrap();
         assert_eq!(first, crate::raw::functions::account::GetPassword {}.to_bytes());

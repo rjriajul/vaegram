@@ -27,7 +27,7 @@ mod tests {
         let reactions = types::messages::Reactions { hash: 3, reactions: list };
         let found = base::messages::Reactions::Reactions(Box::new(reactions));
         let unchanged = base::messages::Reactions::ReactionsNotModified;
-        let (client, mut sent) = Client::scripted(vec![Ok(found.to_bytes()), Ok(unchanged.to_bytes())]);
+        let (client, mut sent) = Client::scripted_raw(vec![Ok(found.to_bytes()), Ok(unchanged.to_bytes())]);
         let tags = client.get_default_tag_reactions().await.unwrap();
         assert_eq!(tags, [ReactionType::Emoji("👍".into()), ReactionType::CustomEmoji(7)]);
         assert!(client.get_default_tag_reactions().await.unwrap().is_empty());
