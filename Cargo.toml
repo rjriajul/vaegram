@@ -66,6 +66,8 @@ mongodb = ["dep:mongodb"]
 postgres = ["dep:tokio-postgres"]
 s3 = ["dep:object_store"]
 vault = ["dep:reqwest", "dep:serde_json", "dep:rustls", "dep:webpki-roots"]
+# `dialogue::JsonFileStorage`: dialogue states in a JSON file, for state types with serde's derives.
+dialogue-json = ["dep:serde", "dep:serde_json"]
 # `bot_api::BotApi`: a bot over the Bot API's HTTPS interface instead of MTProto. Experimental in the 0.4.0 nightlies.
 bot-api = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:rustls", "dep:webpki-roots"]
 # `#[derive(BotCommands)]`, the `commands::BotCommands` trait written from an enum.

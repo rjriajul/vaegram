@@ -45,6 +45,7 @@
 //! - Storage engines: `sqlite` (`SqliteStorage`), `redb` (`RedbStorage`), `redis` (`RedisStorage`), `mongodb`
 //!   (`MongoStorage`), `postgres` (`PostgresStorage`), `s3` (`S3Storage`, an S3-compatible object store) and
 //!   `vault` (`VaultStorage`, the login in HashiCorp Vault).
+//! - `dialogue-json`: `dialogue::JsonFileStorage`, dialogue states kept in a JSON file.
 //! - Observability: `metrics` and `opentelemetry`, request observers in the `observe` module.
 //! - `regex`: `filters::regex` and `filters::matches`.
 //! - Transports over TLS: `websocket` (`ClientBuilder::websocket`), `dns-config` (`ClientBuilder::dns_fallback`
@@ -90,6 +91,7 @@ fn f(_: vaegram::connection::Connection) {}
 )]
 pub mod connection;
 pub(crate) mod crypto;
+pub mod dialogue;
 pub(crate) mod dispatcher;
 /// Enumerations of the friendly API, such as chat types, parse modes and client events.
 pub mod enums;
@@ -124,7 +126,9 @@ pub(crate) mod parser;
 /// types ([`Message`](types::Message), [`CallbackQuery`](types::CallbackQuery),
 /// [`InlineQuery`](types::InlineQuery)), [`Text`](types::Text) and [`ParseMode`](enums::ParseMode), peers
 /// ([`PeerRef`](types::PeerRef), [`User`](types::User), [`Chat`](types::Chat), [`ChatType`](enums::ChatType)),
-/// [`InputMedia`](types::InputMedia), [`ReplyParameters`](types::ReplyParameters) and the keyboards. [`Result`]
+/// [`InputMedia`](types::InputMedia), [`ReplyParameters`](types::ReplyParameters), the keyboards,
+/// [`Router`](handlers::Router) and [`Dep`](handlers::Dep), and
+/// [`DialogueRouter`](dialogue::DialogueRouter) with its [`Dialogue`](dialogue::Dialogue). [`Result`]
 /// keeps a second parameter for the error, so `Result<T, E>` still works with it in scope. Names you import
 /// explicitly win over the glob, so `use std::error::Error;` or `use anyhow::Result;` next to it still means that
 /// item.
