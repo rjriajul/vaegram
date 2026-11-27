@@ -11,7 +11,11 @@ use crate::types::{
 
 /// Where a file to send comes from: a local path, an upload, a stored file id or a URL.
 #[derive(Debug, Clone)]
-pub struct FileSource<'a>(pub(crate) Source<'a>);
+pub struct FileSource<'a>(
+    pub(crate) Source<'a>,
+    // The file id a stored file goes by, which a client in Bot API mode sends as it is.
+    #[cfg(feature = "bot-api")] pub(crate) Option<String>,
+);
 
 #[derive(Debug, Clone)]
 pub(crate) enum Source<'a> {
@@ -23,7 +27,21 @@ pub(crate) enum Source<'a> {
     Url(String),
 }
 
-impl FileSource<'_> {
+impl<'a> FileSource<'a> {
+    /// `source`, with the file id it goes by when it is a stored file; the id is kept only with the `bot-api`
+    /// feature, whose clients send it as it is.
+    #[cfg(feature = "bot-api")]
+    pub(crate) fn sourced(source: Source<'a>, file_id: Option<&str>) -> Self {
+        FileSource(source, file_id.map(str::to_owned))
+    }
+
+    /// `source`, with the file id it goes by when it is a stored file; the id is kept only with the `bot-api`
+    /// feature, whose clients send it as it is.
+    #[cfg(not(feature = "bot-api"))]
+    pub(crate) fn sourced(source: Source<'a>, _file_id: Option<&str>) -> Self {
+        FileSource(source)
+    }
+
     /// Sends a file Telegram already stores, by its file id.
     ///
     /// A malformed id, a web id or an id that can only be downloaded, such as a thumbnail or chat photo, fails
@@ -47,10 +65,11 @@ impl FileSource<'_> {
         let (photo, file_reference) = (id.file_type.is_photo(), id.file_reference);
         let (id, access_hash) = (id.media_id, id.access_hash);
         Ok(if photo {
-            stored_photo(base::InputPhoto::InputPhoto(Box::new(types::InputPhoto { id, access_hash, file_reference })))
+            let photo = base::InputPhoto::InputPhoto(Box::new(types::InputPhoto { id, access_hash, file_reference }));
+            stored_photo(photo, file_id)
         } else {
             let document = types::InputDocument { id, access_hash, file_reference };
-            stored_document(base::InputDocument::InputDocument(Box::new(document)))
+            stored_document(base::InputDocument::InputDocument(Box::new(document)), file_id)
         })
     }
 
@@ -66,16 +85,16 @@ impl FileSource<'_> {
         if !valid {
             return Err(Error::InvalidArgument("a file URL must be an http or https link"));
         }
-        Ok(FileSource(Source::Url(url)))
+        Ok(FileSource::sourced(Source::Url(url), None))
     }
 }
 
-fn stored_photo<'a>(id: base::InputPhoto) -> FileSource<'a> {
+fn stored_photo<'a>(id: base::InputPhoto, file_id: &str) -> FileSource<'a> {
     let media = types::InputMediaPhoto { spoiler: false, live_photo: false, id, ttl_seconds: None, video: None };
-    FileSource(Source::Stored(base::InputMedia::InputMediaPhoto(Box::new(media))))
+    FileSource::sourced(Source::Stored(base::InputMedia::InputMediaPhoto(Box::new(media))), Some(file_id))
 }
 
-fn stored_document<'a>(id: base::InputDocument) -> FileSource<'a> {
+fn stored_document<'a>(id: base::InputDocument, file_id: &str) -> FileSource<'a> {
     let media = types::InputMediaDocument {
         spoiler: false,
         id,
@@ -84,43 +103,43 @@ fn stored_document<'a>(id: base::InputDocument) -> FileSource<'a> {
         ttl_seconds: None,
         query: None,
     };
-    FileSource(Source::Stored(base::InputMedia::InputMediaDocument(Box::new(media))))
+    FileSource::sourced(Source::Stored(base::InputMedia::InputMediaDocument(Box::new(media))), Some(file_id))
 }
 
 impl<'a> From<Upload<'a>> for FileSource<'a> {
     fn from(upload: Upload<'a>) -> Self {
-        FileSource(Source::Upload(upload))
+        FileSource::sourced(Source::Upload(upload), None)
     }
 }
 
 impl<'a> From<&'a str> for FileSource<'a> {
     fn from(path: &'a str) -> Self {
-        FileSource(Source::Upload(path.into()))
+        FileSource::sourced(Source::Upload(path.into()), None)
     }
 }
 
 impl<'a> From<&'a Path> for FileSource<'a> {
     fn from(path: &'a Path) -> Self {
-        FileSource(Source::Upload(path.into()))
+        FileSource::sourced(Source::Upload(path.into()), None)
     }
 }
 
 impl<'a> From<&'a PathBuf> for FileSource<'a> {
     fn from(path: &'a PathBuf) -> Self {
-        FileSource(Source::Upload(path.into()))
+        FileSource::sourced(Source::Upload(path.into()), None)
     }
 }
 
 /// Sends a file that is already uploaded, so the send's `.progress(..)` is never called for it.
 impl<'a> From<&'a UploadedFile> for FileSource<'a> {
     fn from(file: &'a UploadedFile) -> Self {
-        FileSource(Source::Uploaded(file))
+        FileSource::sourced(Source::Uploaded(file), None)
     }
 }
 
 impl From<&Photo> for FileSource<'_> {
     fn from(photo: &Photo) -> Self {
-        stored_photo(input_photo(&photo.location))
+        stored_photo(input_photo(&photo.location), &photo.file_id)
     }
 }
 
@@ -128,7 +147,7 @@ macro_rules! from_documents {
     ($($media:ident),*) => {$(
         impl From<&$media> for FileSource<'_> {
             fn from(media: &$media) -> Self {
-                stored_document(input_document(&media.location))
+                stored_document(input_document(&media.location), &media.file_id)
             }
         }
     )*};

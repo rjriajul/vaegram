@@ -26,7 +26,9 @@ fn start_time(started: i64) -> i32 {
 impl Client {
     /// Takes updates and runs the handlers until `stop`, then returns `Ok(())`; it returns `Error::Disconnected`
     /// when the connection ends. Fails at once with `Error::InvalidArgument` while this client is already running,
-    /// here or in [`compose`](Client::compose).
+    /// here or in [`compose`](Client::compose). A client in Bot API mode (feature `bot-api`) whose `getUpdates`
+    /// Telegram refuses for good, for a wrong or revoked token (401, 404) or a webhook or another poller in the way
+    /// (409), stops as after `stop` and returns that error.
     ///
     /// Telegram sends updates to every connected session of an account, bots included, so several clients logged
     /// in as the same bot or user, in one process or several, each get every update and each run their handlers:
@@ -120,7 +122,13 @@ impl Client {
     // `dispatcher` comes after `running`, so a cancelled `drive` drops it first: it hands its state back to the
     // client before `Running` saves it for a disconnected client.
     pub(super) async fn drive(&self, running: Running, mut dispatcher: Dispatcher) -> Result<()> {
+        // A client in Bot API mode has no connection pushing updates: `getUpdates` feeds the queue while this runs.
+        #[cfg(feature = "bot-api")]
+        let polling = crate::bot_api::poll(self);
         let stopped = crate::observe::untagged(dispatcher.run(&mut *self.0.updates.lock().await)).await;
+        // Asked after the dispatcher stopped: a poll refused for good stopped it and left its error.
+        #[cfg(feature = "bot-api")]
+        let failed = polling.and_then(|polling| polling.failure());
         // Dropped first, so the update state is back in the client when the stop hook runs.
         drop(dispatcher);
         crate::observe::untagged(self.lifecycle_hook(UpdateKind::Stop)).await;
@@ -128,6 +136,10 @@ impl Client {
         *self.0.stop_deadline.lock().unwrap_or_else(PoisonError::into_inner) = None;
         self.0.stop.send_replace(false);
         drop(running);
+        #[cfg(feature = "bot-api")]
+        if let Some(error) = failed {
+            return Err(error);
+        }
         if stopped { Ok(()) } else { Err(Error::Disconnected) }
     }
 

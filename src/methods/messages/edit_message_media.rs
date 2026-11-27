@@ -51,6 +51,12 @@ impl EditMessageMedia<'_> {
 
     async fn send(self) -> Result<Message> {
         let client = self.client;
+        // Over the Bot API the file goes in the `editMessageMedia` request: nothing is uploaded first.
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = client.0.bot_api.as_deref() {
+            let (markup, business) = (self.reply_markup.as_ref(), self.business_connection_id.as_deref());
+            return bot.edit_message_media(client, &self.chat_id, self.message_id, self.media, markup, business).await;
+        }
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let business = self.business_connection_id.as_deref();
         let media = client.input_media(&peer, &self.media, None, business).await?;

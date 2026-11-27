@@ -169,6 +169,10 @@ impl<'a> DownloadMedia<'a> {
 
     async fn download(self, sink: &Sink) -> Result<()> {
         let client = self.client;
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = client.0.bot_api.as_deref() {
+            return self.over_bot_api(bot, sink).await;
+        }
         let location = self.location?;
         let size = location.file_size;
         let Some(window) = Window::new(self.offset, self.limit, size.and_then(|s| u64::try_from(s).ok())) else {
@@ -238,6 +242,43 @@ impl<'a> DownloadMedia<'a> {
                 from_cdn(master, *r, &window, size, shape, sink, &progress).await
             }
         }
+    }
+
+    /// A download of a client in Bot API mode: `getFile`, then the file from the Bot API's file server, cut into the
+    /// chunks an MTProto download brings, so every sink takes it the same way.
+    #[cfg(feature = "bot-api")]
+    async fn over_bot_api(self, bot: &crate::bot_api::Transport, sink: &Sink) -> Result<()> {
+        let location = self.location?;
+        // A range with no byte sends nothing, as over MTProto.
+        if Window::new(self.offset, self.limit, location.file_size.and_then(|s| u64::try_from(s).ok())).is_none() {
+            return Ok(());
+        }
+        let (mut file, size) = bot.open_file(&location).await?;
+        let Some(window) = Window::new(self.offset, self.limit, size.and_then(|s| u64::try_from(s).ok())) else {
+            return Ok(());
+        };
+        let _slot = self.client.download_slot().await;
+        let progress = Progress::new(self.progress, window.len());
+        let first = window.first_offset() as u64;
+        if let Sink::Stream { sent, .. } = sink {
+            sent.send_replace(first);
+        }
+        let chunk = CHUNK as usize;
+        // `buf` holds the file from `offset` on, as far as it came.
+        let (mut buf, mut offset, mut more) = (Vec::new(), 0u64, true);
+        while more && offset < window.end {
+            more = file.read_into(&mut buf).await?;
+            while buf.len() >= chunk || (!more && !buf.is_empty()) {
+                let rest = buf.split_off(buf.len().min(chunk));
+                let piece = std::mem::replace(&mut buf, rest);
+                let len = piece.len() as u64;
+                if offset + len > first && offset < window.end {
+                    progress.add(sink.write_at(&window, offset, piece).await?);
+                }
+                offset += len;
+            }
+        }
+        Ok(())
     }
 }
 

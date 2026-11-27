@@ -33,7 +33,7 @@ impl Client {
         let (file, in_set) = match sticker.0 {
             Kind::File(file) => (file, None),
             // Replaced by the sticker itself before sending; a URL sticker would be refused, never sent.
-            Kind::InSet(set, id) => (FileSource(Source::Url(String::new())), Some((set, id))),
+            Kind::InSet(set, id) => (FileSource::sourced(Source::Url(String::new()), None), Some((set, id))),
         };
         let media = InputMedia::sticker(file);
         SendSticker {
@@ -71,6 +71,11 @@ impl Client {
 
 impl SendSticker<'_> {
     async fn send(mut self) -> Result<Message> {
+        // A sticker file goes in the `sendSticker` request; one picked from a set needs the set read first.
+        #[cfg(feature = "bot-api")]
+        if let (None, Some(bot)) = (&self.in_set, self.client.0.bot_api.as_deref()) {
+            return bot.send_media(self.client, &self.chat_id, self.media, self.options).await;
+        }
         let peer = self.client.resolve(&self.chat_id).await?.1;
         let Some((set, id)) = self.in_set.take() else {
             let business = self.options.business_connection_id.as_deref();

@@ -233,6 +233,11 @@ impl Message {
             Some(peer) => (None, Some(Arc::new(Chat::parse(peer, entities, false)))),
             None => (None, None),
         };
+        // Over the Bot API a replied message can't be read later, only taken from the update that brought it along.
+        #[cfg(feature = "bot-api")]
+        let replied = crate::bot_api::carried_reply(client, &raw);
+        #[cfg(not(feature = "bot-api"))]
+        let replied = None;
         Message {
             id: raw.id,
             chat,
@@ -294,7 +299,7 @@ impl Message {
             fact_check: raw.factcheck.as_ref().map(|f| FactCheck::parse(f, entities)),
             raw,
             parsed_entities,
-            replied: None,
+            replied,
             prefetched: None,
             client: client.clone(),
         }
@@ -843,7 +848,8 @@ impl Message {
 
     /// Fetches the message this one replies to, on demand, or takes what `fetch_replies` fetched, or the message
     /// cache's copy when that's on; `None` when it isn't a reply or that message is gone. A business message has
-    /// only the replied message its update carried.
+    /// only the replied message its update carried, and so has a message of a client in Bot API mode: without one
+    /// that fails with `bot_api::Unsupported` (feature `bot-api`).
     pub async fn reply_to_message(&self) -> Result<Option<Message>> {
         if let Some(replied) = &self.replied {
             return Ok(Some((**replied).clone()));
@@ -857,6 +863,10 @@ impl Message {
         let cached = self.client.0.caches.message(self.chat.id, id);
         if let Some(message) = cached.and_then(|c| Message::from_raw(&self.client, c.raw, &c.entities)) {
             return Ok(Some(message));
+        }
+        #[cfg(feature = "bot-api")]
+        if self.client.0.bot_api.is_some() {
+            return Err(crate::bot_api::bridge::unsupported("a replied message its update didn't carry"));
         }
         Ok(self.client.get_messages(self.chat.id, &[id]).await?.pop().flatten())
     }
