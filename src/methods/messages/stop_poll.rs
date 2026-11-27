@@ -20,6 +20,9 @@ impl Client {
     ///
     /// Awaiting the request returns the edited [`Message`], with the final results in [`Message::poll`]. Outside a
     /// business chat it reads the message first, and a message id without a poll fails with `Error::InvalidArgument`.
+    ///
+    /// A client in Bot API mode doesn't read the message: Telegram answers with the closed poll alone, so the message
+    /// returned holds the poll and the keyboard, and no text.
     pub fn stop_poll(&self, chat_id: impl Into<PeerRef>, message_id: i32) -> StopPoll<'_> {
         let chat_id = chat_id.into();
         StopPoll { client: self, chat_id, message_id, reply_markup: None, business_connection_id: None }
@@ -44,9 +47,11 @@ impl StopPoll<'_> {
         let chat_id = client.peer_id(self.chat_id).await?;
         let peer = client.resolve_peer(chat_id).await?;
         // Outside a business chat Telegram closes a poll by its id, which only the message carries. A business
-        // chat's messages can't be read through the connection, and closing there takes no id.
+        // chat's messages can't be read through the connection, and closing there takes no id; nor does the Bot API.
         let read = match self.business_connection_id {
             Some(_) => None,
+            #[cfg(feature = "bot-api")]
+            None if client.0.bot_api.is_some() => None,
             None => {
                 let (found, entities) = client.get_raw_messages(chat_id, &[self.message_id]).await?;
                 let message = found

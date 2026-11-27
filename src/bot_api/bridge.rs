@@ -21,12 +21,18 @@ use crate::session::internals::now;
 use crate::session::{Incoming, Responder};
 use crate::utils::{CHANNEL_OFFSET, channel_id_of, get_channel_id, get_peer, get_peer_id, input_peer_id};
 
+// One module per group of Bot API methods; each answers the TL requests of its group, `None` for any other.
+mod bots;
+mod chats;
+pub(super) mod messages;
+
 /// How many message ids of private chats and basic groups the bridge remembers the chat of, for deletes.
 const SEEN_CHATS: usize = 4096;
 /// How many replied messages the bridge keeps, as the Bot API sent them along with the messages replying to them.
 const CARRIED_REPLIES: usize = 1024;
 
 const WITHOUT_UPDATES: u32 = <f::InvokeWithoutUpdates<()> as Identifiable>::CONSTRUCTOR_ID;
+const WITH_BUSINESS: u32 = <f::InvokeWithBusinessConnection<()> as Identifiable>::CONSTRUCTOR_ID;
 const GET_USERS: u32 = <f::users::GetUsers as Identifiable>::CONSTRUCTOR_ID;
 const GET_FULL_USER: u32 = <f::users::GetFullUser as Identifiable>::CONSTRUCTOR_ID;
 const GET_STATE: u32 = <f::updates::GetState as Identifiable>::CONSTRUCTOR_ID;
@@ -203,8 +209,8 @@ impl Transport {
             }
             // Updates come from `getUpdates`, unnumbered, so there is never a gap to fill.
             Some(GET_DIFFERENCE) => Ok(types::updates::DifferenceEmpty { date: int(now()), seq: 0 }.to_bytes()),
-            Some(SEND_MESSAGE) => self.send_message(f::messages::SendMessage::from_bytes(body)?).await,
-            Some(EDIT_MESSAGE) => self.edit_message(f::messages::EditMessage::from_bytes(body)?).await,
+            Some(SEND_MESSAGE) => self.send_message(f::messages::SendMessage::from_bytes(body)?, None).await,
+            Some(EDIT_MESSAGE) => self.edit_message(f::messages::EditMessage::from_bytes(body)?, None).await,
             Some(DELETE_MESSAGES) => {
                 self.delete_messages(f::messages::DeleteMessages::from_bytes(body)?.id, None).await
             }
@@ -219,7 +225,7 @@ impl Transport {
             Some(SET_INLINE_RESULTS) => {
                 self.answer_inline_query(f::messages::SetInlineBotResults::from_bytes(body)?).await
             }
-            Some(SET_TYPING) => self.send_chat_action(f::messages::SetTyping::from_bytes(body)?).await,
+            Some(SET_TYPING) => self.send_chat_action(f::messages::SetTyping::from_bytes(body)?, None).await,
             Some(GET_CHATS) => {
                 let ids = f::messages::GetChats::from_bytes(body)?.id.into_iter().map(i64::wrapping_neg).collect();
                 self.get_chats(ids).await
@@ -234,15 +240,52 @@ impl Transport {
             Some(GET_FULL_CHANNEL) => {
                 self.get_full(channel_chat_id(&f::channels::GetFullChannel::from_bytes(body)?.channel)?).await
             }
-            Some(UPDATE_PINNED) => self.pin(f::messages::UpdatePinnedMessage::from_bytes(body)?).await,
+            Some(UPDATE_PINNED) => self.pin(f::messages::UpdatePinnedMessage::from_bytes(body)?, None).await,
             Some(UNPIN_ALL) => self.unpin_all(f::messages::UnpinAllMessages::from_bytes(body)?).await,
             Some(SET_COMMANDS) => self.set_commands(f::bots::SetBotCommands::from_bytes(body)?).await,
-            _ => Err(unsupported(name)),
+            Some(id) => {
+                // Sends and edits of text through a business connection are the core's; the groups answer the rest
+                // of what comes wrapped, each reading the wrapper itself.
+                let core = if id == WITH_BUSINESS { self.answer_business_core(body).await } else { None };
+                if let Some(answer) = core {
+                    return answer;
+                }
+                if let Some(answer) = self.answer_chats(id, body).await {
+                    return answer;
+                }
+                if let Some(answer) = self.answer_messages(id, body).await {
+                    return answer;
+                }
+                if let Some(answer) = self.answer_bots(id, body).await {
+                    return answer;
+                }
+                Err(unsupported(name))
+            }
+            None => Err(unsupported(name)),
         }
     }
 
-    /// `InputUserSelf` is `getMe`; any other user is looked up with `getChat`, and left out when the bot can't see
-    /// it, as Telegram leaves out a user it doesn't know.
+    /// What comes inside `invokeWithBusinessConnection` and the core maps (sends and edits of text, chat actions,
+    /// pins), sent with the connection's `business_connection_id`; `None` for any other request inside, or a wrapper
+    /// that can't be read, which the groups then get as it came.
+    async fn answer_business_core(&self, body: &[u8]) -> Option<Result<Vec<u8>>> {
+        let (connection, inner) = business_call(body).ok()?;
+        self.business_core(constructor(inner)?, inner, &connection).await.transpose()
+    }
+
+    async fn business_core(&self, id: u32, body: &[u8], connection: &str) -> Result<Option<Vec<u8>>> {
+        let business = Some(connection);
+        Ok(Some(match id {
+            SEND_MESSAGE => self.send_message(f::messages::SendMessage::from_bytes(body)?, business).await?,
+            EDIT_MESSAGE => self.edit_message(f::messages::EditMessage::from_bytes(body)?, business).await?,
+            SET_TYPING => self.send_chat_action(f::messages::SetTyping::from_bytes(body)?, business).await?,
+            UPDATE_PINNED => self.pin(f::messages::UpdatePinnedMessage::from_bytes(body)?, business).await?,
+            _ => return Ok(None),
+        }))
+    }
+
+    /// `InputUserSelf` is `getMe`; any other user is looked up with `getChat`, and left out when Telegram says it
+    /// doesn't know it, as Telegram leaves out a user it doesn't know. Any other refusal fails the request.
     async fn get_users(&self, r: f::users::GetUsers) -> Result<Vec<u8>> {
         let mut users = Vec::with_capacity(r.id.len());
         for user in &r.id {
@@ -285,11 +328,14 @@ impl Transport {
         Ok(base::User::User(Box::new(user)))
     }
 
-    /// `getChat`, with `None` for a chat the bot can't see.
+    /// `getChat`, with `None` for a chat Telegram says it doesn't know. Any other refusal, such as a chat the bot isn't
+    /// a member of, is an error.
     async fn find_chat(&self, chat_id: i64) -> Result<Option<bot::Chat>> {
         match self.call("getChat", json!({ "chat_id": chat_id })).await {
             Ok(value) => Ok(Some(bot::Chat::deserialize(&value).map_err(invalid)?)),
-            Err(Error::Rpc(e)) if e.code == 400 || e.code == 403 => Ok(None),
+            Err(Error::Rpc(e)) if e.code == 400 && matches!(e.name.as_str(), "CHAT_NOT_FOUND" | "USER_NOT_FOUND") => {
+                Ok(None)
+            }
             Err(e) => Err(e),
         }
     }
@@ -348,16 +394,22 @@ impl Transport {
         Ok(types::messages::ChatFull { full_chat, chats, users: Vec::new() }.to_bytes())
     }
 
-    async fn send_message(&self, r: f::messages::SendMessage) -> Result<Vec<u8>> {
+    async fn send_message(&self, r: f::messages::SendMessage, business: Option<&str>) -> Result<Vec<u8>> {
         if r.schedule_date.is_some() {
             return Err(unsupported("scheduled messages"));
         }
         if r.send_as.is_some() || r.quick_reply_shortcut.is_some() || r.rich_message.is_some() {
             return Err(unsupported("sending as another chat, quick replies or rich messages"));
         }
+        if r.allow_paid_stars.is_some() || r.suggested_post.is_some() {
+            return Err(unsupported("paid messages and suggested posts"));
+        }
         let me = self.me();
         let mut body = Map::new();
         body.insert("chat_id".into(), self.chat_id(&r.peer)?.into());
+        if let Some(id) = business {
+            body.insert("business_connection_id".into(), id.into());
+        }
         body.insert("text".into(), r.message.into());
         if let Some(list) = &r.entities {
             body.insert("entities".into(), convert::entities_json(list, me));
@@ -381,22 +433,28 @@ impl Transport {
     }
 
     /// No text and no media is `editMessageReplyMarkup`; text is `editMessageText`, or `editMessageCaption` when
-    /// the message turns out to be a media one, as the Bot API keeps the two apart.
-    async fn edit_message(&self, r: f::messages::EditMessage) -> Result<Vec<u8>> {
+    /// the message turns out to be a media one, as the Bot API keeps the two apart. Media other than a link preview
+    /// goes to [`edit_media`](Self::edit_media): live locations, checklists and closed polls.
+    async fn edit_message(&self, r: f::messages::EditMessage, business: Option<&str>) -> Result<Vec<u8>> {
+        if r.media.as_ref().is_some_and(|media| !matches!(media, base::InputMedia::InputMediaWebPage(_))) {
+            return Ok(self.edit_media(r, business).await?.to_bytes());
+        }
         if r.schedule_date.is_some() || r.quick_reply_shortcut_id.is_some() || r.rich_message.is_some() {
             return Err(unsupported("editing scheduled, quick reply or rich messages"));
         }
         let me = self.me();
         let mut body = Map::new();
+        if let Some(id) = business {
+            body.insert("business_connection_id".into(), id.into());
+        }
         body.insert("chat_id".into(), self.chat_id(&r.peer)?.into());
         body.insert("message_id".into(), r.id.into());
         if let Some(markup) = &r.reply_markup {
             body.insert("reply_markup".into(), convert::markup_json(markup, me)?);
         }
         let page = match &r.media {
-            None => None,
             Some(base::InputMedia::InputMediaWebPage(page)) => Some(page),
-            Some(_) => return Err(unsupported("editing a message's media")),
+            _ => None,
         };
         let Some(text) = r.message else {
             let edited = self.call("editMessageReplyMarkup", Value::Object(body)).await?;
@@ -471,6 +529,9 @@ impl Transport {
         if r.reply_to.is_some() && !r.drop_author {
             return Err(unsupported("forwards that reply to a message"));
         }
+        if r.allow_paid_stars.is_some() || r.suggested_post.is_some() {
+            return Err(unsupported("paid messages and suggested posts"));
+        }
         let me = self.me();
         let to = self.chat_id(&r.to_peer)?;
         let mut common = Map::new();
@@ -485,6 +546,9 @@ impl Transport {
         }
         if let Some(start) = r.video_timestamp {
             common.insert("video_start_timestamp".into(), start.into());
+        }
+        if let Some(effect) = r.effect {
+            common.insert("message_effect_id".into(), effect.to_string().into());
         }
         let mut peers = Peers::new(me);
         let mut updates = Vec::with_capacity(r.id.len());
@@ -558,7 +622,7 @@ impl Transport {
         Ok(true.to_bytes())
     }
 
-    async fn send_chat_action(&self, r: f::messages::SetTyping) -> Result<Vec<u8>> {
+    async fn send_chat_action(&self, r: f::messages::SetTyping, business: Option<&str>) -> Result<Vec<u8>> {
         use base::SendMessageAction as A;
         let action = match r.action {
             // The Bot API has no cancel: an action ends by itself after 5 seconds or with the next message.
@@ -577,6 +641,9 @@ impl Transport {
             _ => return Err(unsupported("this chat action")),
         };
         let mut body = Map::new();
+        if let Some(id) = business {
+            body.insert("business_connection_id".into(), id.into());
+        }
         body.insert("chat_id".into(), self.chat_id(&r.peer)?.into());
         body.insert("action".into(), action.into());
         if let Some(top) = r.top_msg_id {
@@ -587,13 +654,18 @@ impl Transport {
     }
 
     /// The service message a pin makes isn't returned by the Bot API, so the answer holds no update.
-    async fn pin(&self, r: f::messages::UpdatePinnedMessage) -> Result<Vec<u8>> {
-        let chat_id = self.chat_id(&r.peer)?;
+    async fn pin(&self, r: f::messages::UpdatePinnedMessage, business: Option<&str>) -> Result<Vec<u8>> {
+        let mut body = Map::new();
+        if let Some(id) = business {
+            body.insert("business_connection_id".into(), id.into());
+        }
+        body.insert("chat_id".into(), self.chat_id(&r.peer)?.into());
+        body.insert("message_id".into(), r.id.into());
         if r.unpin {
-            self.call("unpinChatMessage", json!({ "chat_id": chat_id, "message_id": r.id })).await?;
+            self.call("unpinChatMessage", Value::Object(body)).await?;
         } else {
-            let body = json!({ "chat_id": chat_id, "message_id": r.id, "disable_notification": r.silent });
-            self.call("pinChatMessage", body).await?;
+            body.insert("disable_notification".into(), r.silent.into());
+            self.call("pinChatMessage", Value::Object(body)).await?;
         }
         Ok(updates_bytes(Vec::new(), Peers::new(self.me())))
     }
@@ -604,6 +676,11 @@ impl Transport {
         }
         let chat_id = self.chat_id(&r.peer)?;
         match r.top_msg_id {
+            // The General topic has its own method; `unpinAllForumTopicMessages` refuses it.
+            Some(1) => {
+                self.unpin_all_general_forum_topic_messages(chat_id).await?;
+                Value::Null
+            }
             Some(topic) => {
                 let body = json!({ "chat_id": chat_id, "message_thread_id": topic });
                 self.call("unpinAllForumTopicMessages", body).await?
@@ -634,7 +711,14 @@ impl Transport {
         let commands: Vec<Value> = r
             .commands
             .iter()
-            .map(|base::BotCommand::BotCommand(c)| json!({ "command": c.command, "description": c.description }))
+            .map(|base::BotCommand::BotCommand(c)| {
+                let mut command = json!({ "command": c.command, "description": c.description });
+                // Ephemeral commands get replies only the sender sees; leaving the field out makes them ordinary.
+                if c.ephemeral {
+                    command["is_ephemeral"] = true.into();
+                }
+                command
+            })
             .collect();
         let mut body = Map::new();
         body.insert("commands".into(), commands.into());
@@ -656,13 +740,20 @@ impl Transport {
         let mut peers = Peers::new(self.me());
         let mut updates = Vec::with_capacity(messages.len());
         for value in messages {
-            let message = bot::Message::deserialize(&value).map_err(invalid)?;
-            self.carry(&message);
-            let raw = convert::message(message, &mut peers);
-            self.saw(&raw);
+            let raw = self.sent_message(value, &mut peers)?;
             updates.push(convert::message_update(raw, edit));
         }
         Ok(types::Updates { updates, users: peers.users, chats: peers.chats, date: int(now()), seq: 0 })
+    }
+
+    /// One message the Bot API returned, as its TL message, with the users and chats it names added to `peers`. It
+    /// and the message it replies to are kept for replies and deletes.
+    pub(super) fn sent_message(&self, value: Value, peers: &mut Peers) -> Result<types::Message> {
+        let message = bot::Message::deserialize(&value).map_err(invalid)?;
+        self.carry(&message);
+        let raw = convert::message(message, peers);
+        self.saw(&raw);
+        Ok(raw)
     }
 }
 
@@ -676,6 +767,17 @@ pub(crate) fn responder(transport: Arc<Transport>) -> Responder {
 
 fn constructor(body: &[u8]) -> Option<u32> {
     Some(u32::from_le_bytes(body.get(..4)?.try_into().ok()?))
+}
+
+/// The connection id of an `invokeWithBusinessConnection` and the request inside it, past any
+/// `invokeWithoutUpdates`.
+fn business_call(body: &[u8]) -> Result<(String, &[u8])> {
+    let mut rest = body.get(4..).unwrap_or_default();
+    let connection = <String as Deserializable>::deserialize(&mut rest)?;
+    while constructor(rest) == Some(WITHOUT_UPDATES) {
+        rest = rest.get(4..).unwrap_or_default();
+    }
+    Ok((connection, rest))
 }
 
 fn channel_chat_id(channel: &base::InputChannel) -> Result<i64> {
@@ -698,10 +800,21 @@ pub(super) fn options(body: &mut Map<String, Value>, silent: bool, protect: bool
     }
 }
 
+/// A reply as the Bot API's `reply_parameters`, with `message_thread_id` for a reply inside a forum topic.
+///
+/// A plain send to a topic comes as a reply to the topic's id with no `top_msg_id`, which is how MTProto posts in a
+/// topic, and goes out as `reply_parameters.message_id` = the topic id: the reply lands in the topic, as it does over
+/// MTProto. Only a reply to another message in the topic names the topic as `message_thread_id`.
 pub(super) fn reply_parameters(body: &mut Map<String, Value>, reply: &base::InputReplyTo, me: i64) -> Result<()> {
     let base::InputReplyTo::InputReplyToMessage(r) = reply else {
         return Err(unsupported("replies to stories or in direct messages topics"));
     };
+    if r.monoforum_peer_id.is_some() {
+        return Err(unsupported("sends in direct messages topics"));
+    }
+    if r.quote_rich.is_some() {
+        return Err(unsupported("rich quotes in replies"));
+    }
     let mut parameters = Map::new();
     parameters.insert("message_id".into(), r.reply_to_msg_id.into());
     if let Some(chat_id) = r.reply_to_peer_id.as_ref().and_then(|peer| input_peer_id(peer, me)) {
@@ -718,6 +831,11 @@ pub(super) fn reply_parameters(body: &mut Map<String, Value>, reply: &base::Inpu
     }
     if let Some(task) = r.todo_item_id {
         parameters.insert("checklist_task_id".into(), task.into());
+    }
+    // A poll option's TL bytes are the Bot API's persistent option id.
+    if let Some(option) = &r.poll_option {
+        let not_utf8 = Error::InvalidArgument("a poll option id isn't UTF-8");
+        parameters.insert("poll_option_id".into(), std::str::from_utf8(option).map_err(|_| not_utf8)?.into());
     }
     body.insert("reply_parameters".into(), Value::Object(parameters));
     if let Some(top) = r.top_msg_id {

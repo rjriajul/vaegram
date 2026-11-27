@@ -90,7 +90,8 @@ impl ChatMember {
                 joined_date: Some(p.date),
                 privileges: Some(ChatPrivileges::parse(&p.admin_rights)),
                 invited_by: p.inviter_id.map(|id| User::parse(id, entities)),
-                promoted_by: Some(User::parse(p.promoted_by, entities)),
+                // 0 names no one: a client in Bot API mode isn't told who promoted the admin.
+                promoted_by: (p.promoted_by != 0).then(|| User::parse(p.promoted_by, entities)),
                 can_be_edited: p.can_edit,
                 ..Self::new(p.user_id, ChatMemberStatus::Administrator, entities)
             },
@@ -108,7 +109,7 @@ impl ChatMember {
                     permissions,
                     is_member: !p.left && !rights.view_messages,
                     chat: Self::non_user_chat(&p.peer, entities),
-                    restricted_by: Some(User::parse(p.kicked_by, entities)),
+                    restricted_by: (p.kicked_by != 0).then(|| User::parse(p.kicked_by, entities)),
                     ..Self::new(get_peer_id(&p.peer), status, entities)
                 }
             }

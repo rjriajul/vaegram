@@ -12,7 +12,14 @@ impl Client {
         name: &str,
         sticker: InputSticker<'_>,
     ) -> Result<StickerSet> {
-        let sticker = self.input_sticker(&user_id.into(), sticker).await?;
+        let user: PeerRef = user_id.into();
+        // A new file goes in the `addStickerToSet` request itself.
+        #[cfg(feature = "bot-api")]
+        if let Some(api) = self.0.bot_api.as_deref() {
+            let user_id = api.peer_id(self, &user).await?;
+            return StickerSet::parse(api.add_sticker(user_id, name, sticker).await?);
+        }
+        let sticker = self.input_sticker(&user, sticker).await?;
         let request = functions::stickers::AddStickerToSet { stickerset: input_sticker_set(name), sticker };
         StickerSet::parse(self.invoke(&request).await?)
     }

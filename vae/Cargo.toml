@@ -12,3 +12,11 @@ categories = ["api-bindings", "network-programming", "asynchronous"]
 
 [dependencies]
 vaegram = { path = "..", version = "0.4.0-nightly.2" }
+
+[features]
+# `#[derive(BotCommands)]`. Give the enum `#[command(crate = "vae")]` so the code it writes names this crate.
+macros = ["vaegram/macros"]
+
+[[test]]
+name = "command_derive"
+required-features = ["macros"]

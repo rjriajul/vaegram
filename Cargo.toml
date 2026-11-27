@@ -12,7 +12,7 @@ categories = ["api-bindings", "network-programming", "asynchronous"]
 exclude = [".github", "tools", "tests/botapi_coverage.rs"]
 
 [workspace]
-members = ["vae"]
+members = ["vae", "vaegram-macros"]
 
 [dependencies]
 crc32fast = "1"
@@ -26,6 +26,10 @@ tokio = { version = "1", features = ["fs", "net", "io-util", "rt", "signal", "sy
 warpcrypto = "2.2"
 
 # Optional, each behind the feature of the same purpose below.
+# The webhook server: all three already in the dependency graph through reqwest.
+http-body-util = { version = "0.1.2", optional = true }
+hyper = { version = "1.6", optional = true, features = ["server", "http1"] }
+hyper-util = { version = "0.1.10", optional = true, features = ["tokio"] }
 metrics = { version = "0.24", optional = true }
 mongodb = { version = "3.6", optional = true }
 object_store = { version = "0.14", optional = true, default-features = false, features = ["aws"] }
@@ -40,6 +44,8 @@ serde = { version = "1", optional = true, features = ["derive", "rc"] }
 serde_json = { version = "1", optional = true }
 tokio-postgres = { version = "0.7", optional = true }
 tokio-rustls = { version = "0.26.6", optional = true, default-features = false, features = ["ring", "tls12"] }
+# `#[derive(BotCommands)]`. Pinned to this exact version: the code it writes calls `vaegram::commands` helpers.
+vaegram-macros = { path = "vaegram-macros", version = "=0.4.0-nightly.2", optional = true }
 webpki-roots = { version = "1", optional = true }
 
 # `flock` for the session file lock. Already in the dependency graph through tokio on Unix.
@@ -64,8 +70,14 @@ mongodb = ["dep:mongodb"]
 postgres = ["dep:tokio-postgres"]
 s3 = ["dep:object_store"]
 vault = ["dep:reqwest", "dep:serde_json", "dep:rustls", "dep:webpki-roots"]
+# `dialogue::JsonFileStorage`: dialogue states in a JSON file, for state types with serde's derives.
+dialogue-json = ["dep:serde", "dep:serde_json"]
 # `bot_api::BotApi`: a bot over the Bot API's HTTPS interface instead of MTProto. Experimental in the 0.4.0 nightlies.
 bot-api = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:rustls", "dep:webpki-roots"]
+# `bot_api::Webhook::serve`: a built-in HTTP server for the bot's webhook. Experimental in the 0.4.0 nightlies.
+webhook-server = ["bot-api", "dep:hyper", "dep:hyper-util", "dep:http-body-util"]
+# `#[derive(BotCommands)]`, the `commands::BotCommands` trait written from an enum.
+macros = ["dep:vaegram-macros"]
 # Observability.
 metrics = ["dep:metrics"]
 opentelemetry = ["dep:opentelemetry"]
@@ -95,3 +107,7 @@ harness = false
 [[example]]
 name = "dump_recording"
 required-features = ["json"]
+
+[[test]]
+name = "command_derive"
+required-features = ["macros"]

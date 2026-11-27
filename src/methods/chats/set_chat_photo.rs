@@ -36,6 +36,11 @@ impl SetChatPhoto<'_> {
     }
 
     async fn send(self) -> Result<()> {
+        // The Bot API takes the photo in the `setChatPhoto` request itself.
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = self.client.0.bot_api.as_deref() {
+            return bot.set_chat_photo(self.client.peer_id(self.chat_id).await?, self.file, self.video).await;
+        }
         // A wrong-kind chat id fails before anything is uploaded.
         let chat = self.client.resolve_chat(&self.chat_id).await?;
         let (file, video) = uploaded(self.video, self.client.save_file(self.file).await?);

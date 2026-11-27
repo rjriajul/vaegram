@@ -2,6 +2,7 @@ pub(crate) mod cache;
 mod difference;
 mod entities;
 pub(crate) mod listeners;
+mod nested;
 pub(crate) mod router;
 mod tasks;
 mod tracker;
@@ -16,6 +17,7 @@ use tokio::time::Instant;
 pub(crate) use entities::Entities;
 pub(crate) use router::{Router, Routes};
 use tasks::Tasks;
+pub(crate) use tasks::without_slot;
 use tracker::{Key, Tracker};
 
 use crate::Client;

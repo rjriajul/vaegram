@@ -27,14 +27,14 @@ use crate::utils::{get_chat_id, get_peer, get_peer_id};
 /// What `getFile` on `api.telegram.org` refuses: files over 20 MB.
 const TOO_BIG: &str = "the Bot API downloads files of up to 20 MB; use MTProto or a local Bot API server";
 
-/// The uploads of one request, each named by its key.
+/// The uploads of one request, each named by its key. The bridge's ephemeral media edits use it too.
 #[derive(Default)]
-struct Files(Vec<Attachment>);
+pub(super) struct Files(pub(super) Vec<Attachment>);
 
 impl Files {
     /// What names `file` in a request: its file id or URL, or the [`marker`] of bytes that go along as a part of the
     /// request, under `name` when one is set.
-    async fn add(&mut self, file: &FileSource<'_>, name: Option<&str>) -> Result<Value> {
+    pub(super) async fn add(&mut self, file: &FileSource<'_>, name: Option<&str>) -> Result<Value> {
         match &file.0 {
             Source::Url(url) => Ok(url.clone().into()),
             Source::Stored(_) => {

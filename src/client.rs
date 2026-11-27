@@ -100,7 +100,8 @@ impl ClientBuilder {
     /// Talks to Telegram through the HTTP Bot API, as the bot with this token from @BotFather, instead of MTProto
     /// (feature `bot-api`; experimental). No MTProto connection is opened: `start` and `connect` call `getMe`, each
     /// request a friendly method makes goes out as its Bot API counterpart, and `run` takes updates from
-    /// `getUpdates`, so methods, types, filters and handlers stay the same. A request with no counterpart yet fails
+    /// `getUpdates`, or a [`Webhook`](crate::bot_api::Webhook) from [`Client::webhook`] takes them from the bot's
+    /// webhook, so methods, types, filters and handlers stay the same. A request with no counterpart yet fails
     /// with [`Unsupported`](crate::bot_api::Unsupported) in `Error::Other`.
     ///
     /// What the client builds from Bot API answers is partly made up: users and chats come as `min`, with an access

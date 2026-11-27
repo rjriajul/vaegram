@@ -10,6 +10,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
+use super::router::Fallback;
 use crate::Client;
 use crate::enums::ClientEvent;
 use crate::errors::Error;
@@ -38,6 +39,9 @@ pub(crate) struct Tasks {
     running: JoinSet<()>,
     // Handlers `abandon` cancelled, each as the timeout it reports.
     abandoned: Arc<Mutex<Vec<HandlerError>>>,
+    /// The update `dispatch` is routing, for the unhandled-update handlers, while it routes it; a walk that goes on
+    /// in the update's task takes it.
+    pub(crate) fallback: Option<Fallback>,
 }
 
 impl Tasks {
@@ -50,6 +54,7 @@ impl Tasks {
             events: Arc::default(),
             running: JoinSet::new(),
             abandoned: Arc::default(),
+            fallback: None,
         }
     }
 
@@ -155,15 +160,9 @@ impl Tasks {
                 }
                 None => None,
             };
-            let slot = permit(permits).await;
-            let (last, rest) = callbacks.split_last()?;
-            let item = item.prepare().await;
-            for callback in rest {
-                if let Err(error) = callback(item.clone()).await {
-                    return Some((failed(error), (slot, done)));
-                }
-            }
-            last(item).await.err().map(|error| (failed(error), (slot, done)))
+            let slot = Slot::new(permits.clone(), permit(permits).await);
+            let error = SLOT.scope(slot.clone(), handle(item, callbacks)).await?;
+            Some((failed(error), (slot.take(), done)))
         });
     }
 
@@ -186,6 +185,59 @@ impl Drop for Tasks {
 
 async fn permit(permits: Option<Arc<Semaphore>>) -> Option<OwnedSemaphorePermit> {
     Some(permits?.acquire_owned().await.expect("the semaphore is never closed"))
+}
+
+/// Runs the matched handlers of one update in order; the first `Err` ends the run.
+async fn handle<T: Routed>(item: T, callbacks: Vec<Callback<T>>) -> Option<Error> {
+    let (last, rest) = callbacks.split_last()?;
+    let item = item.prepare().await;
+    for callback in rest {
+        if let Err(error) = callback(item.clone()).await {
+            return Some(error);
+        }
+    }
+    last(item).await.err()
+}
+
+tokio::task_local! {
+    /// The slot of `max_concurrent_handlers` the running handler task holds, for `without_slot`.
+    static SLOT: Slot;
+}
+
+/// A handler task's slot, which it can hand back while it waits on another handler.
+#[derive(Clone)]
+struct Slot(Arc<SlotInner>);
+
+struct SlotInner {
+    /// Where a slot handed back is taken again; `None` without a cap.
+    permits: Option<Arc<Semaphore>>,
+    held: Mutex<Option<OwnedSemaphorePermit>>,
+}
+
+impl Slot {
+    fn new(permits: Option<Arc<Semaphore>>, held: Option<OwnedSemaphorePermit>) -> Self {
+        Slot(Arc::new(SlotInner { permits, held: Mutex::new(held) }))
+    }
+
+    fn take(&self) -> Option<OwnedSemaphorePermit> {
+        self.0.held.lock().unwrap_or_else(PoisonError::into_inner).take()
+    }
+
+    fn put(&self, permit: Option<OwnedSemaphorePermit>) {
+        *self.0.held.lock().unwrap_or_else(PoisonError::into_inner) = permit;
+    }
+}
+
+/// Awaits `future` with this handler task's slot of `max_concurrent_handlers` handed back, then waits for a slot
+/// again: for a handler that waits on another handler, such as for its conversation's turn, so the wait holds up no
+/// other chat. Outside a handler task, or without the cap, it just awaits `future`.
+pub(crate) async fn without_slot<F: Future>(future: F) -> F::Output {
+    let Ok(slot) = SLOT.try_with(Slot::clone) else { return future.await };
+    let Some(held) = slot.take() else { return future.await };
+    drop(held);
+    let output = future.await;
+    slot.put(permit(slot.0.permits.clone()).await);
+    output
 }
 
 /// Awaits a lifecycle hook; an `Err` or a panic goes where a handler's would.
@@ -219,7 +271,7 @@ async fn caught<F: Future>(future: F) -> Result<F::Output, Box<dyn Any + Send>> 
     .await
 }
 
-fn panicked(kind: UpdateKind, chat_id: Option<i64>, payload: Box<dyn Any + Send>) -> ClientEvent {
+pub(crate) fn panicked(kind: UpdateKind, chat_id: Option<i64>, payload: Box<dyn Any + Send>) -> ClientEvent {
     let message = match payload.downcast::<String>() {
         Ok(message) => Some(*message),
         Err(payload) => payload.downcast_ref::<&str>().map(|message| (*message).to_owned()),
@@ -227,7 +279,7 @@ fn panicked(kind: UpdateKind, chat_id: Option<i64>, payload: Box<dyn Any + Send>
     ClientEvent::HandlerPanicked { kind, chat_id, message }
 }
 
-async fn report(on_error: Option<ErrorCallback>, events: Arc<Events>, error: HandlerError) {
+pub(crate) async fn report(on_error: Option<ErrorCallback>, events: Arc<Events>, error: HandlerError) {
     match on_error {
         Some(on_error) => on_error(error).await,
         None => events.warn(ClientEvent::HandlerFailed { error: Arc::new(error) }),
@@ -425,6 +477,42 @@ mod tests {
         let dropped = events.try_recv().expect("the dropped update wasn't reported");
         assert!(matches!(dropped, ClientEvent::UpdatesDropped { count: 1, unrecoverable: 1 }), "{dropped:?}");
         assert!(!tasks.full(), "the chats' backlogs filled the room every chat waits in");
+    }
+
+    #[tokio::test]
+    async fn a_handler_waiting_without_its_slot_lets_other_chats_run() {
+        use crate::dispatcher::listeners::tests::query;
+        use crate::types::CallbackQuery;
+
+        let client = Client::offline();
+        let mut tasks = Tasks::new(false, Some(Arc::new(Semaphore::new(1))));
+        let (release, gate) = oneshot::channel::<()>();
+        let gate = Arc::new(Mutex::new(Some(gate)));
+        let (ran, mut got) = tokio::sync::mpsc::unbounded_channel();
+        let waiting = ran.clone();
+        // Takes the only slot, then waits for another handler's turn without it, as a dialogue step waits.
+        let parked: Callback<CallbackQuery> = Arc::new(move |_: CallbackQuery| -> BoxFuture {
+            let (gate, waiting) = (gate.lock().unwrap().take(), waiting.clone());
+            Box::pin(async move {
+                if let Some(gate) = gate {
+                    let _ = without_slot(gate).await;
+                }
+                let _ = waiting.send("parked");
+                Ok(())
+            })
+        });
+        tasks.run(UpdateKind::CallbackQuery, query(&client, 7, 7, 5), vec![parked]);
+        let other: Callback<CallbackQuery> = Arc::new(move |_: CallbackQuery| -> BoxFuture {
+            let _ = ran.send("other");
+            Box::pin(async { Ok(()) })
+        });
+        tasks.run(UpdateKind::CallbackQuery, query(&client, 8, 8, 5), vec![other]);
+        let second = Duration::from_secs(5);
+        let first = tokio::time::timeout(second, got.recv()).await;
+        assert_eq!(first.expect("the other chat waited for the parked handler's slot"), Some("other"));
+        release.send(()).unwrap();
+        let last = tokio::time::timeout(second, got.recv()).await;
+        assert_eq!(last.expect("the parked handler never got a slot back"), Some("parked"));
     }
 
     #[tokio::test]

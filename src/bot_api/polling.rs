@@ -1,4 +1,5 @@
-//! The `getUpdates` long poll that feeds the dispatcher of a client in Bot API mode while it runs.
+//! The `getUpdates` long poll that feeds the dispatcher of a client in Bot API mode while it runs, and the queueing
+//! of one update it shares with the webhook receiver.
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
@@ -21,9 +22,25 @@ use crate::session::internals::now;
 const POLL_TIMEOUT: i64 = 50;
 /// The longest wait after failed polls in a row.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
-/// The kinds of update the bridge turns into TL ones; `getUpdates` leaves the others out.
-const ALLOWED: [&str; 6] =
-    ["message", "edited_message", "channel_post", "edited_channel_post", "callback_query", "inline_query"];
+/// The kinds of update the bridge turns into TL ones; `getUpdates` leaves the others out, and `setWebhook` too unless
+/// told otherwise.
+pub(super) const ALLOWED: [&str; 9] = [
+    "message",
+    "edited_message",
+    "channel_post",
+    "edited_channel_post",
+    "callback_query",
+    "inline_query",
+    "business_connection",
+    "business_message",
+    "edited_business_message",
+];
+
+tokio::task_local! {
+    /// Set in the task of a run a webhook feeds ([`Webhook::run`](super::Webhook::run)), which mustn't poll. Being
+    /// the run's own, it can't make another run, started at the same moment elsewhere, skip polling.
+    pub(super) static WEBHOOK_FED: ();
+}
 
 /// The poll one `run` drives; dropping it stops the poll.
 pub(crate) struct Polling {
@@ -44,11 +61,15 @@ impl Drop for Polling {
     }
 }
 
-/// Starts polling for a client in Bot API mode, until `stop`; `None` for any other client. A poll Telegram refuses
-/// for good leaves its error for [`Polling::failure`] and stops the client, so `run` ends once the handlers already
-/// running are done, as after a `stop`.
+/// Starts polling for a client in Bot API mode, until `stop`; `None` for any other client, and for a run a webhook
+/// feeds ([`Webhook::run`](super::Webhook::run)). A poll Telegram refuses for good leaves its error for
+/// [`Polling::failure`] and stops the client, so `run` ends once the handlers already running are done, as after a
+/// `stop`.
 pub(crate) fn poll(client: &Client) -> Option<Polling> {
     let transport = client.0.bot_api.clone()?;
+    if WEBHOOK_FED.try_with(|_| ()).is_ok() {
+        return None;
+    }
     let stop = client.0.stop.subscribe();
     let catch_up = client.0.catch_up;
     // Weak, so the poll never keeps the client alive.
@@ -149,11 +170,23 @@ fn update_id(value: &Value) -> Option<i64> {
     value.get("update_id")?.as_i64()
 }
 
-/// Queues one update for the dispatcher, as an MTProto connection would push it; `false` once the dispatcher is
-/// gone. An update of a kind the bridge doesn't map, or one that doesn't parse, is confirmed with the others all
-/// the same.
+/// Queues one update for the dispatcher and counts it as handed on; `false` once the dispatcher is gone. An update
+/// of a kind the bridge doesn't map, or one that doesn't parse, is confirmed with the others all the same.
 async fn hand_on(transport: &Transport, value: Value) -> bool {
     let Some(id) = update_id(&value) else { return true };
+    if !queue(transport, value).await {
+        return false;
+    }
+    // Nothing awaited since the send in `queue`, so a poll aborted around here never queues an update it doesn't
+    // count.
+    transport.handed.fetch_max(id.saturating_add(1), Ordering::AcqRel);
+    true
+}
+
+/// Queues one update for the dispatcher, as an MTProto connection would push it; `false` once the dispatcher is
+/// gone. An update of a kind the bridge doesn't map, or one that doesn't parse, is dropped and `true`. The send is
+/// the last thing awaited, so a caller that cancels this future never has the update queued.
+pub(super) async fn queue(transport: &Transport, value: Value) -> bool {
     let mut peers = Peers::new(transport.me());
     let parsed = serde_json::from_value::<bot::Update>(value).ok();
     let carried = parsed.as_ref().and_then(|u| {
@@ -165,7 +198,6 @@ async fn hand_on(transport: &Transport, value: Value) -> bool {
         transport.carry(message);
     }
     let Some(update) = parsed.and_then(|u| convert::update(u, &mut peers)) else {
-        transport.handed.fetch_max(id.saturating_add(1), Ordering::AcqRel);
         return true;
     };
     let message = match &update {
@@ -181,12 +213,7 @@ async fn hand_on(transport: &Transport, value: Value) -> bool {
     let date = int(now());
     let updates = types::Updates { updates: vec![update], users: peers.users, chats: peers.chats, date, seq: 0 };
     let incoming = Incoming { updates: base::Updates::Updates(Box::new(updates)), from_request: false };
-    if transport.updates.send(incoming).await.is_err() {
-        return false;
-    }
-    // Nothing awaited since the send, so a poll aborted around here never queues an update it doesn't count.
-    transport.handed.fetch_max(id.saturating_add(1), Ordering::AcqRel);
-    true
+    transport.updates.send(incoming).await.is_ok()
 }
 
 #[cfg(test)]

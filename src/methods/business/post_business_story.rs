@@ -24,6 +24,9 @@ impl Client {
     /// Posts a story for the business account behind a connection, visible to everyone.
     ///
     /// `active_period` is in seconds and must be 6, 12, 24 or 48 hours.
+    ///
+    /// In Bot API mode (`ClientBuilder::bot_api`) the returned story holds its chat, id, dates, caption text and
+    /// flags, but no media: the Bot API answers with the story's chat and id alone.
     pub fn post_business_story<'a>(
         &'a self,
         business_connection_id: impl Into<String>,
@@ -77,6 +80,14 @@ impl PostBusinessStory<'_> {
 
     async fn send(self) -> Result<Story> {
         let client = self.client;
+        // In Bot API mode the file goes in the `postStory` request, which names the connection, not the account.
+        #[cfg(feature = "bot-api")]
+        if let Some(api) = client.0.bot_api.as_deref() {
+            let (caption, entities) = client.write_text(self.caption, self.parse_mode).await?;
+            let story = (self.content, caption, entities, self.areas.as_slice());
+            let flags = (self.post_to_chat_page, self.protect_content);
+            return api.post_story(client, &self.business_connection_id, story, self.active_period, flags).await;
+        }
         let peer = client.business_user(&self.business_connection_id).await?;
         let (caption, entities) = client.write_text(self.caption, self.parse_mode).await?;
         let request = functions::stories::SendStory {

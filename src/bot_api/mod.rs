@@ -5,7 +5,8 @@
 //!
 //! [`ClientBuilder::bot_api`](crate::ClientBuilder::bot_api) goes further: a whole [`Client`](crate::Client) over
 //! the Bot API, with the same friendly methods, types and handlers as over MTProto. A request it can't map yet
-//! fails with [`Unsupported`].
+//! fails with [`Unsupported`]. Its updates come from a `getUpdates` poll, or from the bot's webhook through a
+//! [`Webhook`].
 //!
 //! Experimental: part of the 0.4.0 nightlies and may change in any of them.
 
@@ -17,6 +18,7 @@ mod media;
 mod polling;
 pub mod raw;
 mod request;
+pub(crate) mod webhook;
 
 pub(crate) use bridge::Transport;
 pub use bridge::Unsupported;
@@ -25,3 +27,4 @@ pub use input_file::InputFile;
 pub(crate) use media::carried_reply;
 pub(crate) use polling::poll;
 pub use request::Request;
+pub use webhook::{Webhook, WebhookInfo, WebhookResponse};

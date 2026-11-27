@@ -21,6 +21,9 @@ impl Client {
     /// Replaces the content of a story posted by the business account behind a connection.
     ///
     /// A caption or areas left unset are cleared, and the story becomes visible to everyone.
+    ///
+    /// In Bot API mode (`ClientBuilder::bot_api`) the returned story holds its chat, id and caption text, but no
+    /// media: the Bot API answers with the story's chat and id alone.
     pub fn edit_business_story<'a>(
         &'a self,
         business_connection_id: impl Into<String>,
@@ -54,6 +57,13 @@ impl EditBusinessStory<'_> {
 
     async fn send(self) -> Result<Story> {
         let client = self.client;
+        // In Bot API mode the new file goes in the `editStory` request, which names the connection.
+        #[cfg(feature = "bot-api")]
+        if let Some(api) = client.0.bot_api.as_deref() {
+            let (caption, entities) = client.write_text(self.caption, self.parse_mode).await?;
+            let story = (self.content, caption, entities, self.areas.as_slice());
+            return api.edit_story(client, &self.business_connection_id, self.story_id, story).await;
+        }
         let peer = client.business_user(&self.business_connection_id).await?;
         let (caption, entities) = client.write_text(self.caption, self.parse_mode).await?;
         let request = functions::stories::EditStory {

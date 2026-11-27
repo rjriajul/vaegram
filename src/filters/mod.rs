@@ -2,6 +2,7 @@ mod facts;
 mod pred;
 #[cfg(feature = "regex")]
 mod regex;
+mod state;
 mod subjects;
 
 use std::ops::{BitAnd, BitOr, Not};
@@ -9,6 +10,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "regex")]
 pub use self::regex::{Searchable, matches, regex};
+pub use self::state::{StateFilter, any_state, no_state, state, state_is};
 pub(crate) use facts::{Facts, PeerKinds};
 use pred::{Pred, Prefixes};
 pub(crate) use subjects::private::Inspect;

@@ -1,16 +1,16 @@
-//! Bot commands as an enum: the [`BotCommands`] trait, its parse error and the `/help` text.
+//! Bot commands as an enum: the [`BotCommands`](trait@BotCommands) trait, its parse error and the `/help` text.
 //!
-//! A type implementing [`BotCommands`] parses message text into one of its commands, gives the dispatcher a
-//! [`Filter`] that matches its commands before any update is parsed, lists its commands for the bot's menu and
-//! renders a help text. The helpers below ([`parse_header`], [`split_args`], [`parse_arg`], [`parse_rest`] and
-//! their variants) are what an implementation calls, so hand-written impls and generated ones read commands the same
-//! way as [`filters::command`](crate::filters::command) and
+//! A type implementing [`BotCommands`](trait@BotCommands) parses message text into one of its commands, gives the
+//! dispatcher a [`Filter`] that matches its commands before any update is parsed, lists its commands for the bot's
+//! menu and renders a help text. The helpers below ([`parse_header`], [`name_matches`], [`split_args`],
+//! [`parse_arg`], [`parse_rest`] and their variants) are what an implementation calls, so hand-written impls and
+//! generated ones read commands the same way as [`filters::command`](crate::filters::command) and
 //! [`Message::command`](crate::types::Message::command).
 //!
 //! ```
 //! use vaegram::commands::{
-//!     BotCommands, CommandDescription, CommandDescriptions, CommandParseError, parse_arg, parse_header,
-//!     parse_opt_rest, split_args,
+//!     BotCommands, CommandDescription, CommandDescriptions, CommandParseError, name_matches, parse_arg,
+//!     parse_header, parse_opt_rest, split_args,
 //! };
 //! use vaegram::filters::HasText;
 //! use vaegram::prelude::*;
@@ -27,9 +27,9 @@
 //! impl BotCommands for Cmd {
 //!     fn parse(text: &str, bot_username: Option<&str>) -> Result<Self, CommandParseError> {
 //!         let command = parse_header(text, &["/"], bot_username)?;
-//!         if command.name.eq_ignore_ascii_case("start") {
+//!         if name_matches(command.name, "start") {
 //!             Ok(Cmd::Start(parse_opt_rest(command.rest(), "payload")?))
-//!         } else if command.name.eq_ignore_ascii_case("ban") {
+//!         } else if name_matches(command.name, "ban") {
 //!             let args = split_args(command.rest(), 1, 1)?;
 //!             Ok(Cmd::Ban(parse_arg(args[0], 0, "user_id")?))
 //!         } else {
@@ -55,6 +55,30 @@
 //! assert!(matches!(Cmd::parse("/ban@other 42", Some("mybot")), Err(CommandParseError::WrongBot(_))));
 //! assert_eq!(Cmd::descriptions().to_string(), "/start - Start the bot\n/ban - Ban a user");
 //! ```
+//!
+//! With the `macros` feature, `#[derive(BotCommands)]` writes the impl from the enum: names from the variants,
+//! descriptions from their doc comments and arguments from their fields, with the menu's rules checked when it
+//! builds. The derive's docs list every setting.
+//!
+//! ```
+//! # #[cfg(feature = "macros")] {
+//! use vaegram::prelude::*;
+//!
+//! #[derive(BotCommands, Debug, PartialEq)]
+//! enum Cmd {
+//!     /// Start the bot
+//!     Start(Option<String>),
+//!     /// Ban a user, with an optional reason
+//!     #[command(alias = "b")]
+//!     Ban { user_id: i64, #[command(rest)] reason: Option<String> },
+//! }
+//!
+//! let ban = Cmd::parse("/b@MyBot 42 spam bot", Some("mybot")).unwrap();
+//! assert_eq!(ban, Cmd::Ban { user_id: 42, reason: Some("spam bot".into()) });
+//! let help = Cmd::descriptions().to_string();
+//! assert_eq!(help, "/start - Start the bot\n/ban, /b - Ban a user, with an optional reason");
+//! # }
+//! ```
 
 use std::error::Error as StdError;
 use std::fmt;
@@ -63,11 +87,15 @@ use std::str::FromStr;
 use crate::filters::{Filter, HasText};
 use crate::types::{BotCommand, BotCommandScope, Command};
 
+// The derive shares the trait's name, so one `use` brings in both.
+#[cfg(feature = "macros")]
+pub use vaegram_macros::BotCommands;
+
 /// A set of bot commands, usually an enum with one variant per command.
 ///
-/// Implementations compare command names with `eq_ignore_ascii_case`, or with `==` only when the set is case
-/// sensitive and its filter is too. The command filters match names in any letter case, so this keeps the filter
-/// taking every text `parse` takes.
+/// Implementations compare command names with [`name_matches`], or with `==` only when the set is case sensitive and
+/// its filter is too. The command filters match names lowercased in any script, so this keeps the filter taking
+/// every text `parse` takes.
 pub trait BotCommands: Sized {
     /// Parses `text` into a command. With `bot_username` set, `/cmd@that_bot` parses and `/cmd@other_bot` is
     /// [`CommandParseError::WrongBot`]; with `None`, as before the client knows its own username, a bare `/cmd`
@@ -92,7 +120,7 @@ pub trait BotCommands: Sized {
     fn descriptions() -> CommandDescriptions<'static>;
 }
 
-/// Why text didn't parse as a command of a [`BotCommands`] set.
+/// Why text didn't parse as a command of a [`BotCommands`](trait@BotCommands) set.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum CommandParseError {
@@ -127,6 +155,18 @@ pub enum CommandParseError {
     },
     /// A custom argument parser failed.
     Custom(Box<dyn StdError + Send + Sync>),
+}
+
+impl CommandParseError {
+    /// The error of a custom argument parser. A [`CommandParseError`] comes back as itself; anything else, such as
+    /// a `String`, a `&str` or another error type, becomes [`CommandParseError::Custom`].
+    pub fn custom<E: Into<Box<dyn StdError + Send + Sync>>>(error: E) -> Self {
+        let error: Box<dyn StdError + Send + Sync> = error.into();
+        match error.downcast::<CommandParseError>() {
+            Ok(error) => *error,
+            Err(error) => CommandParseError::Custom(error),
+        }
+    }
 }
 
 fn arguments(n: usize) -> &'static str {
@@ -185,11 +225,20 @@ pub fn parse_header<'a, S: AsRef<str>>(
 }
 
 /// Like [`parse_header`], but any `@mention` is accepted, for a set that answers commands meant for other bots.
+/// The command filters drop a mention of another bot before the handler runs, so such a set's
+/// [`filter`](BotCommands::filter) can't be one of them: use one that doesn't read mentions, such as
+/// [`filters::text_starts_with`](crate::filters::text_starts_with).
 pub fn parse_header_unchecked<'a, S: AsRef<str>>(
     text: &'a str,
     prefixes: &[S],
 ) -> Result<Command<'a>, CommandParseError> {
     Command::parse_prefixed(text, prefixes).ok_or(CommandParseError::NotACommand)
+}
+
+/// Whether the typed command name `typed` is `name` in any letter case, compared the way the command filters
+/// compare names: lowercased char by char, in any script.
+pub fn name_matches(typed: &str, name: &str) -> bool {
+    typed.chars().flat_map(char::to_lowercase).eq(name.chars().flat_map(char::to_lowercase))
 }
 
 /// Splits `rest` on whitespace into `min` to `max` arguments.
@@ -202,6 +251,28 @@ pub fn split_args(rest: &str, min: usize, max: usize) -> Result<Vec<&str>, Comma
         return Err(CommandParseError::TooManyArguments { expected: max, found: args.len() });
     }
     Ok(args)
+}
+
+/// Splits `rest` into its first `n` arguments and the text after them, trimmed, for a command whose last field
+/// takes the rest of the text: `42 spam bot` with `n = 1` is `["42"]` and `spam bot`. Fewer than `n` arguments,
+/// or no text left when `tail_required`, is [`CommandParseError::TooFewArguments`], counting a required tail as
+/// one more argument.
+pub fn split_args_rest(rest: &str, n: usize, tail_required: bool) -> Result<(Vec<&str>, &str), CommandParseError> {
+    let expected = n + usize::from(tail_required);
+    let mut args = Vec::with_capacity(n);
+    let mut tail = rest.trim();
+    while args.len() < n {
+        if tail.is_empty() {
+            return Err(CommandParseError::TooFewArguments { expected, found: args.len() });
+        }
+        let end = tail.find(char::is_whitespace).unwrap_or(tail.len());
+        args.push(&tail[..end]);
+        tail = tail[end..].trim_start();
+    }
+    if tail_required && tail.is_empty() {
+        return Err(CommandParseError::TooFewArguments { expected, found: n });
+    }
+    Ok((args, tail))
 }
 
 /// Parses the argument at `index` with its [`FromStr`]. `field` names the field it fills, such as `user_id`, and
@@ -223,12 +294,17 @@ where
     arg.map(|arg| parse_arg(arg, index, field)).transpose()
 }
 
-/// Parses everything after the command, `rest`, as the command's one field.
+/// Parses everything after the command, `rest`, without trailing whitespace, as the command's one field. No text
+/// at all is [`CommandParseError::TooFewArguments`], so a required `String` field is never silently empty.
 pub fn parse_rest<T>(rest: &str, field: &'static str) -> Result<T, CommandParseError>
 where
     T: FromStr,
     T::Err: StdError + Send + Sync + 'static,
 {
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return Err(CommandParseError::TooFewArguments { expected: 1, found: 0 });
+    }
     parse_arg(rest, 0, field)
 }
 
@@ -238,6 +314,7 @@ where
     T: FromStr,
     T::Err: StdError + Send + Sync + 'static,
 {
+    let rest = rest.trim();
     parse_opt_arg(Some(rest).filter(|rest| !rest.is_empty()), 0, field)
 }
 
@@ -281,7 +358,7 @@ impl fmt::Display for CommandDescription<'_> {
     }
 }
 
-/// The help text of a [`BotCommands`] set: an optional header, then one line per shown command.
+/// The help text of a [`BotCommands`](trait@BotCommands) set: an optional header, then one line per shown command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CommandDescriptions<'a> {
     /// Text before the command list.
@@ -392,6 +469,13 @@ mod tests {
         assert_eq!(Cmd::parse("/ban 42", None).unwrap(), Cmd::Ban { user_id: 42, minutes: None });
         assert_eq!(Cmd::parse("/B  42   5", None).unwrap(), Cmd::Ban { user_id: 42, minutes: Some(5) });
         assert_eq!(Cmd::parse("/debug a b", None).unwrap(), Cmd::Debug("a b".into()));
+        // One field reads all the text, without trailing whitespace, as the derive reads it.
+        assert_eq!(Cmd::parse("/start a b ", None).unwrap(), Cmd::Start(Some("a b".into())));
+        assert_eq!(Cmd::parse("/debug a b \n", None).unwrap(), Cmd::Debug("a b".into()));
+        assert!(matches!(
+            Cmd::parse("/debug  ", None),
+            Err(CommandParseError::TooFewArguments { expected: 1, found: 0 })
+        ));
     }
 
     #[test]
@@ -477,6 +561,41 @@ mod tests {
         let filter = filters::command_with_prefixes_case_sensitive::<Message>(["/", "!x"], "start");
         let decide = |text| filter.decide(&Facts { text, ..Facts::default() });
         assert_eq!((decide("!xstart"), decide("/start"), decide("!xStart")), (Some(true), Some(true), Some(false)));
+    }
+
+    #[test]
+    fn names_match_the_way_the_filter_matches() {
+        assert!(name_matches("START", "start") && name_matches("Старт", "старт"));
+        assert!(!name_matches("star", "start"));
+        // The Kelvin sign lowercases to `k`, so the filter takes `/Kick` written with it; `parse` must take it too.
+        assert!(name_matches("\u{212A}ick", "kick"));
+        let filter = filters::command::<Message>("kick");
+        assert_eq!(filter.decide(&Facts { text: "/\u{212A}ick", ..Facts::default() }), Some(true));
+    }
+
+    #[test]
+    fn split_args_rest_keeps_the_tail_whole() {
+        assert_eq!(split_args_rest("42  spam  bot ", 1, true).unwrap(), (vec!["42"], "spam  bot"));
+        assert_eq!(split_args_rest("a b", 2, false).unwrap(), (vec!["a", "b"], ""));
+        assert_eq!(split_args_rest("  hi there", 0, true).unwrap(), (vec![], "hi there"));
+        assert_eq!(split_args_rest("", 0, false).unwrap(), (vec![], ""));
+        let err = split_args_rest("42", 1, true).unwrap_err();
+        assert!(matches!(err, CommandParseError::TooFewArguments { expected: 2, found: 1 }), "{err}");
+        let err = split_args_rest(" 1 ", 3, false).unwrap_err();
+        assert!(matches!(err, CommandParseError::TooFewArguments { expected: 3, found: 1 }), "{err}");
+        let err = split_args_rest("", 0, true).unwrap_err();
+        assert!(matches!(err, CommandParseError::TooFewArguments { expected: 1, found: 0 }), "{err}");
+    }
+
+    #[test]
+    fn custom_errors_keep_parse_errors_as_they_are() {
+        let err = CommandParseError::custom(CommandParseError::TooFewArguments { expected: 1, found: 0 });
+        assert!(matches!(err, CommandParseError::TooFewArguments { expected: 1, found: 0 }));
+        let err = CommandParseError::custom("bad duration");
+        assert!(matches!(err, CommandParseError::Custom(_)));
+        assert_eq!(err.to_string(), "bad duration");
+        let err = CommandParseError::custom("x".parse::<u8>().unwrap_err());
+        assert!(err.source().is_some_and(|e| e.is::<std::num::ParseIntError>()));
     }
 
     /// A set whose parse panics, as a buggy hand-written or custom parser might.
