@@ -19,6 +19,9 @@ pub struct GetChatPhotos<'a> {
 
 impl Client {
     /// Lists a user's profile photos, newest first.
+    ///
+    /// A client in Bot API mode reads them with `getUserProfilePhotos`, which gives no upload date: each photo's
+    /// `date` is 0.
     pub fn get_chat_photos(&self, user_id: impl Into<PeerRef>) -> GetChatPhotos<'_> {
         let pages = OffsetPages::starting_at(100, 0);
         GetChatPhotos { client: self, user_id: user_id.into(), user: None, total: None, pages }

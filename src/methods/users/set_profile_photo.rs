@@ -62,6 +62,15 @@ impl<'a> SetProfilePhoto<'a> {
     }
 
     async fn send(self) -> Result<()> {
+        // In Bot API mode the file goes in the request that sets it, for the bot or through the connection.
+        #[cfg(feature = "bot-api")]
+        if let Some(api) = self.client.0.bot_api.as_deref() {
+            if self.bot.is_some() {
+                return Err(crate::bot_api::bridge::unsupported("the profile photo of another bot"));
+            }
+            let connection = self.business_connection_id.as_deref();
+            return api.set_profile_photo(connection, self.file, self.video, self.video_start_ts, self.public).await;
+        }
         // A business account's photo isn't sent through the connection, which may be on another data center than
         // the uploaded parts: the bot uploads it naming the account, as it does for a bot it owns.
         let owner = match &self.business_connection_id {

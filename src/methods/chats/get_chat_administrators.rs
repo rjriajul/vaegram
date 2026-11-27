@@ -28,13 +28,25 @@ impl GetChatAdministrators<'_> {
     }
 
     async fn send(self) -> Result<Vec<ChatMember>> {
-        let mut admins = self.client.get_chat_members(self.chat_id).filter(ChatMembersFilter::Administrators).await?;
-        let me = self.client.0.me.lock().unwrap().id;
+        let (client, return_bots) = (self.client, self.return_bots);
+        let mut admins = self.all().await?;
+        let me = client.0.me.lock().unwrap().id;
         admins.retain(|m| {
             matches!(m.status, ChatMemberStatus::Owner | ChatMemberStatus::Administrator)
-                && (self.return_bots || !m.user.is_bot || m.user.id == me)
+                && (return_bots || !m.user.is_bot || m.user.id == me)
         });
         Ok(admins)
+    }
+
+    /// Every owner and administrator, bots included.
+    async fn all(self) -> Result<Vec<ChatMember>> {
+        let client = self.client;
+        // The Bot API can't list a basic group's members, but `getChatAdministrators` reads them in any chat.
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = client.0.bot_api.as_deref() {
+            return bot.get_chat_administrators(client, client.peer_id(self.chat_id).await?).await;
+        }
+        client.get_chat_members(self.chat_id).filter(ChatMembersFilter::Administrators).await
     }
 }
 

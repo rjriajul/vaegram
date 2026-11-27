@@ -15,8 +15,14 @@ impl Client {
         user_id: impl Into<PeerRef>,
         thumbnail: Option<Upload<'_>>,
     ) -> Result<StickerSet> {
+        let user: PeerRef = user_id.into();
+        #[cfg(feature = "bot-api")]
+        if let Some(api) = self.0.bot_api.as_deref() {
+            let user_id = api.peer_id(self, &user).await?;
+            return StickerSet::parse(api.set_sticker_set_thumbnail(name, user_id, thumbnail).await?);
+        }
         let thumb = match thumbnail {
-            Some(file) => Some(input_document(&self.upload_sticker(&user_id.into(), file).await?.location)),
+            Some(file) => Some(input_document(&self.upload_sticker(&user, file).await?.location)),
             None => None,
         };
         let stickerset = input_sticker_set(name);

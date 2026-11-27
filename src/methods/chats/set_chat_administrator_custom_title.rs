@@ -15,6 +15,13 @@ impl Client {
         user_id: impl Into<PeerRef>,
         custom_title: impl Into<String>,
     ) -> Result<()> {
+        // The Bot API sets the title alone and keeps the rights, with no need to read and resend them.
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = self.0.bot_api.as_deref() {
+            let chat_id = self.peer_id(chat_id.into()).await?;
+            let user_id = self.peer_id(user_id.into()).await?;
+            return bot.set_chat_administrator_custom_title(chat_id, user_id, custom_title.into()).await;
+        }
         let channel = self.resolve_channel(&chat_id.into()).await?;
         let participant = self.resolve_peer(user_id).await?;
         let user_id =

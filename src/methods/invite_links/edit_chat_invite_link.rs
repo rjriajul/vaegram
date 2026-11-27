@@ -20,6 +20,9 @@ impl Client {
     /// Edits an invite link of the chat.
     ///
     /// Awaiting it returns the updated [`ChatInviteLink`].
+    ///
+    /// A client in Bot API mode sends `editChatInviteLink`, which sets every option at once: one left unset goes
+    /// back to none (no name, expiry or member limit, no approval), instead of keeping its value.
     pub fn edit_chat_invite_link(
         &self,
         chat_id: impl Into<PeerRef>,

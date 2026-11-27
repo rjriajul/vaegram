@@ -15,6 +15,12 @@ impl Client {
     }
 
     pub(crate) async fn upload_sticker(&self, user: &PeerRef, file: Upload<'_>) -> Result<Document> {
+        // The file goes in the `uploadStickerFile` request, whose file id stands for the document.
+        #[cfg(feature = "bot-api")]
+        if let Some(api) = self.0.bot_api.as_deref() {
+            let document = api.upload_sticker_file(api.peer_id(self, user).await?, file).await?;
+            return Document::parse(&document).ok_or(Error::Unexpected("uploadStickerFile returned no document"));
+        }
         let peer = self.resolve(user).await?.1;
         let sticker = types::DocumentAttributeSticker {
             mask: false,

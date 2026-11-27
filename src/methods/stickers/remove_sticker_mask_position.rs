@@ -9,7 +9,15 @@ impl Client {
     /// Sends `stickers.changeSticker` with no emoji, mask position or keywords. That this clears the position, rather
     /// than leaving the sticker unchanged, hasn't been checked against Telegram: read `mask_position` in the returned
     /// set to see what it did.
+    ///
+    /// In Bot API mode (`ClientBuilder::bot_api`) this is `setStickerMaskPosition` with no position, and `sticker`
+    /// must name its set, as one from [`get_sticker_set`](Client::get_sticker_set) does.
     pub async fn remove_sticker_mask_position(&self, sticker: &Sticker) -> Result<StickerSet> {
+        // The Bot API's `setStickerMaskPosition` with no position clears it.
+        #[cfg(feature = "bot-api")]
+        if let Some(api) = self.0.bot_api.as_deref() {
+            return StickerSet::parse(api.sticker_mask(sticker, None).await?);
+        }
         let request = functions::stickers::ChangeSticker {
             sticker: sticker.input_document(),
             emoji: None,

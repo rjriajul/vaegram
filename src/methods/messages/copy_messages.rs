@@ -23,6 +23,10 @@ impl Client {
     /// order, leaving out any copy Telegram didn't report. `Error::Unexpected` means the reply held no update list,
     /// so the copies may already exist: check the destination chat before sending again.
     ///
+    /// A client in Bot API mode copies them with one `copyMessages`, which takes no reply, effect or paid broadcast:
+    /// those fail with `bot_api::Unsupported`. When Telegram skips a message it can't copy, the ids that remain come
+    /// in the order of the originals' ids instead of the request's.
+    ///
     /// ```no_run
     /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
     /// let ids = client.copy_messages("me", -1001234567890, &[10, 11]).await?;
@@ -65,6 +69,11 @@ impl CopyMessages<'_> {
         let mut request = request(from_peer, to_peer, self.message_ids, reply_to, self.options);
         request.drop_author = true;
         request.drop_media_captions = self.remove_caption;
+        // Over the Bot API one `copyMessages` copies them all and answers with the copies' ids.
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = client.0.bot_api.as_deref() {
+            return bot.copy_messages(&request).await;
+        }
         let updates = client.invoke_to_chat(chat_id, paid, &request).await?;
         sent_ids(&updates, &request.random_id)
     }

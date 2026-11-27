@@ -10,6 +10,11 @@ impl Client {
     ///
     /// Fails with [`Error::Unexpected`] if Telegram sends no member count.
     pub async fn get_chat_members_count(&self, chat_id: impl Into<PeerRef>) -> Result<i32> {
+        // The Bot API's `getChat` carries no count; `getChatMemberCount` does.
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = self.0.bot_api.as_deref() {
+            return bot.get_chat_member_count(self.peer_id(chat_id.into()).await?).await;
+        }
         let count = match self.resolve_chat(&chat_id.into()).await? {
             ChatPeer::Group(chat_id) => {
                 let chats = chats_of(self.invoke(&functions::messages::GetChats { id: vec![chat_id] }).await?);

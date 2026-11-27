@@ -52,6 +52,14 @@ impl CreateNewStickerSet<'_> {
 
     async fn send(self) -> Result<StickerSet> {
         let client = self.client;
+        // New files go in the `createNewStickerSet` request itself.
+        #[cfg(feature = "bot-api")]
+        if let Some(api) = client.0.bot_api.as_deref() {
+            let user_id = api.peer_id(client, &self.user).await?;
+            let names = (self.name.as_str(), self.title.as_str());
+            let set = api.create_sticker_set(user_id, names, self.stickers, self.sticker_type, self.needs_repainting);
+            return StickerSet::parse(set.await?);
+        }
         let mut stickers = Vec::with_capacity(self.stickers.len());
         for sticker in self.stickers {
             stickers.push(client.input_sticker(&self.user, sticker).await?);

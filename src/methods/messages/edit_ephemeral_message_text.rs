@@ -110,6 +110,12 @@ impl<'a> EditEphemeralMessage<'a> {
         };
         let (chat_id, peer) = client.resolve(&self.chat_id).await?;
         let receiver_id = client.resolve_user(&self.receiver_user_id).await?;
+        // Over the Bot API the file goes in the `editEphemeralMessageMedia` request: nothing is uploaded first.
+        #[cfg(feature = "bot-api")]
+        if let (Some(bot), Some(media)) = (client.0.bot_api.as_deref(), media.as_deref()) {
+            let request = self.request(peer, receiver_id, message, entities, None, None).await?;
+            return EphemeralMessage::from_updates(client, bot.edit_ephemeral_media(request, media).await?);
+        }
         let media = match media {
             Some(media) => Some(client.input_media(&peer, &media, None, None).await?),
             None => None,

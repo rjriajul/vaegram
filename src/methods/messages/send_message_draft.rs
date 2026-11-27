@@ -105,6 +105,11 @@ impl SendMessageDraft<'_> {
             }
         };
         let request = functions::messages::SetTyping { peer, top_msg_id: options.message_thread_id, action };
+        // Over the Bot API a draft has methods of its own, not `sendChatAction`.
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = client.0.bot_api.as_deref() {
+            return bot.send_message_draft(request).await;
+        }
         accepted(client.invoke(&request).await?)
     }
 }

@@ -20,6 +20,9 @@ impl Client {
     /// Reposts a story to the business account behind a connection, visible to everyone.
     ///
     /// The account the story comes from must be connected to the same bot.
+    ///
+    /// In Bot API mode (`ClientBuilder::bot_api`) the returned story holds its chat, id, dates and the reposted
+    /// story's id: the Bot API answers with the story's chat and id alone.
     pub fn repost_business_story(
         &self,
         business_connection_id: impl Into<String>,
@@ -54,6 +57,12 @@ impl RepostBusinessStory<'_> {
 
     async fn send(self) -> Result<Story> {
         let client = self.client;
+        #[cfg(feature = "bot-api")]
+        if let Some(api) = client.0.bot_api.as_deref() {
+            let from = (api.peer_id(client, &self.from_chat_id).await?, self.from_story_id);
+            let flags = (self.post_to_chat_page, self.protect_content);
+            return api.repost_story(client, &self.business_connection_id, from, self.active_period, flags).await;
+        }
         let request = functions::stories::SendStory {
             pinned: self.post_to_chat_page,
             noforwards: self.protect_content,

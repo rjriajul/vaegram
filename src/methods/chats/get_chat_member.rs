@@ -9,7 +9,9 @@ use crate::types::{ChatMember, PeerRef};
 impl Client {
     /// Returns one member of a chat.
     ///
-    /// A user who is not in the chat comes back with the `Left` status instead of an error.
+    /// A user who is not in the chat comes back with the `Left` status instead of an error. A client in Bot API mode
+    /// reads the member with `getChatMember`, which gives no join date, inviter, promoter or restrictor:
+    /// `joined_date` is `Some(0)`, and `invited_by`, `promoted_by` and `restricted_by` are `None`.
     ///
     /// ```no_run
     /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
@@ -21,6 +23,13 @@ impl Client {
         chat_id: impl Into<PeerRef>,
         user_id: impl Into<PeerRef>,
     ) -> Result<ChatMember> {
+        // The Bot API reads one member of any chat, where TL lists a basic group's members whole.
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = self.0.bot_api.as_deref() {
+            let chat_id = self.peer_id(chat_id.into()).await?;
+            let user_id = self.peer_id(user_id.into()).await?;
+            return bot.get_chat_member(self, chat_id, user_id).await;
+        }
         match self.resolve_chat(&chat_id.into()).await? {
             ChatPeer::Group(chat_id) => {
                 let user_id = self.peer_id(user_id.into()).await?;

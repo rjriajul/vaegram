@@ -210,10 +210,16 @@ async fn friendly_methods_go_out_as_bot_api_methods() {
     assert_eq!(method, "answerCallbackQuery");
     assert_eq!((&body["callback_query_id"], &body["text"]), (&json!("5"), &json!("done")));
 
-    client.set_bot_commands([BotCommand::new("start", "Start the bot")]).await.unwrap();
+    let commands =
+        [BotCommand::new("start", "Start the bot"), BotCommand::new("status", "Check the bot").is_ephemeral(true)];
+    client.set_bot_commands(commands).await.unwrap();
     let (method, body) = stub.next().await;
     assert_eq!(method, "setMyCommands");
-    assert_eq!(body["commands"], json!([{ "command": "start", "description": "Start the bot" }]));
+    let sent = json!([
+        { "command": "start", "description": "Start the bot" },
+        { "command": "status", "description": "Check the bot", "is_ephemeral": true },
+    ]);
+    assert_eq!(body["commands"], sent);
     assert_eq!(body["scope"], json!({ "type": "default" }));
 
     // A private chat's message names no chat in TL: the bridge knows it from the send above.

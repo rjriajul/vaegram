@@ -5,9 +5,10 @@
 
 use serde_json::{Map, Value, json};
 
+use super::bridge::messages::content;
 use super::bridge::unsupported;
 use super::raw::types as bot;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::file_id::{FileId, ThumbnailSource};
 use crate::raw::{base, types};
 use crate::types::{ButtonStyle, InlineMessageId};
@@ -118,7 +119,8 @@ pub(crate) fn message(m: bot::Message, peers: &mut Peers) -> types::Message {
         m.from.as_ref().map(|u| get_peer(u.id))
     };
     let out = m.from.as_ref().is_some_and(|u| u.id == peers.me);
-    let media = media(&m);
+    // Files are turned here; places, contacts, dice, polls, checklists and games next to the bridge's sends of them.
+    let media = media(&m).or_else(|| content::media(&m, peers));
     let reply_to = reply_header(&m, peers);
     let fwd_from = m.forward_origin.as_ref().map(|origin| fwd_header(origin, peers));
     let via_bot_id = m.via_bot.as_ref().map(|bot| {
@@ -178,7 +180,8 @@ pub(crate) fn message_update(raw: types::Message, edit: bool) -> base::Update {
 }
 
 /// The TL of one `getUpdates` update, for the kinds the client handles: messages and channel posts, new or edited,
-/// callback queries and inline queries. `None` for the other kinds.
+/// callback queries, inline queries, business connections and business messages, new or edited. `None` for the other
+/// kinds.
 pub(crate) fn update(u: bot::Update, peers: &mut Peers) -> Option<base::Update> {
     if let Some(m) = u.message.or(u.channel_post) {
         return Some(message_update(message(*m, peers), false));
@@ -192,7 +195,61 @@ pub(crate) fn update(u: bot::Update, peers: &mut Peers) -> Option<base::Update> 
     if let Some(query) = u.inline_query {
         return inline_query(query, peers);
     }
+    if let Some(connection) = u.business_connection {
+        return Some(business_connection(connection, peers));
+    }
+    if let Some(m) = u.business_message {
+        return business_message(*m, peers, false);
+    }
+    if let Some(m) = u.edited_business_message {
+        return business_message(*m, peers, true);
+    }
     None
+}
+
+/// A connection as Telegram tells of it. Its data center is the client's own (0 in Bot API mode), so the requests
+/// made through it come back to the bridge.
+fn business_connection(c: bot::BusinessConnection, peers: &mut Peers) -> base::Update {
+    peers.user(&c.user);
+    let mut connection = types::BotBusinessConnection::new(c.id, c.user.id, 0, int(c.date));
+    connection.disabled = !c.is_enabled;
+    connection.rights = c.rights.map(|r| {
+        let on = |right: Option<bool>| right.unwrap_or(false);
+        base::BusinessBotRights::BusinessBotRights(Box::new(types::BusinessBotRights {
+            reply: on(r.can_reply),
+            read_messages: on(r.can_read_messages),
+            delete_sent_messages: on(r.can_delete_sent_messages),
+            delete_received_messages: on(r.can_delete_all_messages),
+            edit_name: on(r.can_edit_name),
+            edit_bio: on(r.can_edit_bio),
+            edit_profile_photo: on(r.can_edit_profile_photo),
+            edit_username: on(r.can_edit_username),
+            view_gifts: on(r.can_view_gifts_and_stars),
+            sell_gifts: on(r.can_convert_gifts_to_stars),
+            change_gift_settings: on(r.can_change_gift_settings),
+            transfer_and_upgrade_gifts: on(r.can_transfer_and_upgrade_gifts),
+            transfer_stars: on(r.can_transfer_stars),
+            manage_stories: on(r.can_manage_stories),
+        }))
+    });
+    let connection = base::BotBusinessConnection::BotBusinessConnection(Box::new(connection));
+    base::Update::UpdateBotBusinessConnect(Box::new(types::UpdateBotBusinessConnect { connection, qts: 0 }))
+}
+
+/// A message of a connected business account's chat, with the connection it came through and the message it replies
+/// to. `None` without a connection, which the Bot API always names.
+fn business_message(mut m: bot::Message, peers: &mut Peers, edit: bool) -> Option<base::Update> {
+    let connection_id = m.business_connection_id.take()?;
+    let reply_to_message =
+        m.reply_to_message.clone().map(|reply| base::Message::Message(Box::new(message(*reply, peers))));
+    let raw = base::Message::Message(Box::new(message(m, peers)));
+    Some(if edit {
+        let update = types::UpdateBotEditBusinessMessage { connection_id, message: raw, reply_to_message, qts: 0 };
+        base::Update::UpdateBotEditBusinessMessage(Box::new(update))
+    } else {
+        let update = types::UpdateBotNewBusinessMessage { connection_id, message: raw, reply_to_message, qts: 0 };
+        base::Update::UpdateBotNewBusinessMessage(Box::new(update))
+    })
 }
 
 /// `None` when the query or chat instance id isn't a number, as the Bot API always sends them, or the message is
@@ -751,7 +808,11 @@ fn inline_button_json(button: &base::KeyboardInlineButton, me: i64) -> Result<Va
         T::InlineButtonTypeCallback(t) if t.requires_password => {
             return Err(unsupported("callback buttons behind the cloud password"));
         }
-        T::InlineButtonTypeCallback(t) => ("callback_data", String::from_utf8_lossy(&t.data).into_owned().into()),
+        // The Bot API takes text; replacing bad bytes would change what comes back in the callback query.
+        T::InlineButtonTypeCallback(t) => match std::str::from_utf8(&t.data) {
+            Ok(data) => ("callback_data", data.into()),
+            Err(_) => return Err(Error::InvalidArgument("callback data must be UTF-8 over the Bot API")),
+        },
         T::InlineButtonTypeWebView(t) => ("web_app", json!({ "url": t.url })),
         T::InlineButtonTypeUrlAuth(t) => ("login_url", json!({ "url": t.url, "forward_text": t.fwd_text })),
         T::InputInlineButtonTypeUrlAuth(t) => {
@@ -871,6 +932,11 @@ pub(crate) fn inline_result_json(result: &base::InputBotInlineResult, me: i64) -
         _ => return Err(unsupported("this kind of inline result")),
     };
     out.insert("type".into(), kind.into());
+    // An article is its message; a media result is its file, by URL. Without them Telegram refuses the whole answer
+    // with a bare 400, so the answer fails here instead, naming what's missing.
+    if kind == "article" && content.is_none() {
+        return Err(unsupported("article inline results that send anything but text"));
+    }
     let content_key = match kind {
         "article" => None,
         "photo" => Some("photo_url"),
@@ -881,8 +947,12 @@ pub(crate) fn inline_result_json(result: &base::InputBotInlineResult, me: i64) -
         "voice" => Some("voice_url"),
         _ => Some("document_url"),
     };
-    if let (Some(key), Some(url)) = (content_key, content_url) {
-        out.insert(key.into(), url.into());
+    match (content_key, content_url) {
+        (Some(key), Some(url)) => {
+            out.insert(key.into(), url.into());
+        }
+        (Some(_), None) => return Err(unsupported("inline media results without a content URL")),
+        (None, _) => {}
     }
     if let (true, Some(mime_type)) = (matches!(kind, "video" | "document"), mime_type) {
         out.insert("mime_type".into(), mime_type.into());
@@ -1069,5 +1139,113 @@ mod tests {
                 }
             ])
         );
+    }
+
+    fn inline_result(kind: &str, content: Option<&str>, send_message: base::InputBotInlineMessage) -> Result<Value> {
+        let content = content.map(|url| {
+            let document = types::InputWebDocument {
+                url: url.into(),
+                size: 0,
+                mime_type: "image/jpeg".into(),
+                attributes: Vec::new(),
+            };
+            base::InputWebDocument::InputWebDocument(Box::new(document))
+        });
+        let result = types::InputBotInlineResult {
+            id: "r".into(),
+            r#type: kind.into(),
+            title: Some("T".into()),
+            description: None,
+            url: None,
+            thumb: None,
+            content,
+            send_message,
+        };
+        inline_result_json(&base::InputBotInlineResult::InputBotInlineResult(Box::new(result)), 99)
+    }
+
+    fn media_auto(caption: &str) -> base::InputBotInlineMessage {
+        let m = types::InputBotInlineMessageMediaAuto {
+            invert_media: false,
+            message: caption.into(),
+            entities: None,
+            reply_markup: None,
+        };
+        base::InputBotInlineMessage::InputBotInlineMessageMediaAuto(Box::new(m))
+    }
+
+    fn refusal(result: Result<Value>) -> &'static str {
+        let error = result.expect_err("an invalid result went out");
+        error.downcast_ref::<super::super::bridge::Unsupported>().expect("not an Unsupported").what()
+    }
+
+    #[test]
+    fn inline_results_missing_what_the_bot_api_requires_fail_by_name() {
+        const URL: &str = "https://e.x/a.jpg";
+        const NO_URL: &str = "inline media results without a content URL";
+        // A photo by URL with its caption sends the photo itself.
+        let photo = inline_result("photo", Some(URL), media_auto("look")).unwrap();
+        let fields = (&photo["type"], &photo["photo_url"], &photo["caption"], &photo["thumbnail_url"]);
+        assert_eq!(fields, (&json!("photo"), &json!(URL), &json!("look"), &json!(URL)));
+        assert!(photo.get("input_message_content").is_none());
+        // An article has no file to send, so it needs a text message.
+        let article = refusal(inline_result("article", None, media_auto("x")));
+        assert_eq!(article, "article inline results that send anything but text");
+        // A media result names its file by URL.
+        assert_eq!(refusal(inline_result("photo", None, media_auto("x"))), NO_URL);
+        assert_eq!(refusal(inline_result("video", None, media_auto(""))), NO_URL);
+    }
+
+    #[test]
+    fn callback_data_goes_out_as_is_or_not_at_all() {
+        let button = |data: &[u8]| {
+            let callback = types::InlineButtonTypeCallback { requires_password: false, data: data.to_vec() };
+            let r#type = base::InlineButtonType::InlineButtonTypeCallback(Box::new(callback));
+            let button = types::KeyboardInlineButton { style: None, text: "Go".into(), r#type };
+            inline_button_json(&base::KeyboardInlineButton::KeyboardInlineButton(Box::new(button)), 99)
+        };
+        assert_eq!(button("go ✓".as_bytes()).unwrap()["callback_data"], json!("go ✓"));
+        // Replacing the bad byte would hand the handler data it never sent.
+        assert!(matches!(button(&[0x67, 0xff]), Err(Error::InvalidArgument(_))));
+    }
+
+    #[tokio::test]
+    async fn polled_messages_carry_places_contacts_dice_polls_checklists_and_games() {
+        let client = crate::Client::offline();
+        let read = |content: Value| {
+            let chat = json!({ "id": 7, "type": "private", "first_name": "Ann" });
+            let mut message = json!({ "message_id": 4, "date": 5, "from": user_json(7), "chat": chat });
+            message.as_object_mut().unwrap().extend(content.as_object().unwrap().clone());
+            let parsed: bot::Update = serde_json::from_value(json!({ "update_id": 1, "message": message })).unwrap();
+            let mut peers = Peers::new(99);
+            let update = update(parsed, &mut peers).expect("a message update");
+            let updates =
+                types::Updates { updates: vec![update], users: peers.users, chats: peers.chats, date: 5, seq: 0 };
+            let updates = base::Updates::Updates(Box::new(updates));
+            crate::types::Message::all_from_updates(&client, updates).next().expect("a message")
+        };
+        let location = || json!({ "latitude": 1.5, "longitude": 2.5 });
+
+        let m = read(json!({ "location": location() }));
+        let place = m.location().expect("a location");
+        assert_eq!((place.latitude, place.longitude), (1.5, 2.5));
+        // A venue comes with its location set too; the venue wins.
+        let venue = json!({ "location": location(), "title": "Cafe", "address": "St" });
+        let m = read(json!({ "location": location(), "venue": venue }));
+        assert_eq!(m.venue().map(|v| v.title.as_str()), Some("Cafe"));
+        let m = read(json!({ "contact": { "phone_number": "+100", "first_name": "Bo" } }));
+        assert_eq!(m.contact().map(|c| c.phone_number.as_str()), Some("+100"));
+        let m = read(json!({ "dice": { "emoji": "🎲", "value": 6 } }));
+        assert_eq!(m.dice().map(|d| (d.emoji.as_str(), d.value)), Some(("🎲", 6)));
+        let m = read(json!({ "poll": {
+            "id": "55", "question": "Lunch?", "total_voter_count": 0, "is_closed": false, "is_anonymous": true,
+            "type": "regular", "allows_multiple_answers": false, "allows_revoting": false, "members_only": false,
+            "options": [{ "persistent_id": "a", "text": "Yes", "voter_count": 0 }],
+        }}));
+        assert_eq!(m.poll().map(|p| p.question.as_str()), Some("Lunch?"));
+        let m = read(json!({ "checklist": { "title": "Trip", "tasks": [{ "id": 1, "text": "Bags" }] } }));
+        assert_eq!(m.checklist().map(|c| (c.title.as_str(), c.tasks.len())), Some(("Trip", 1)));
+        let m = read(json!({ "game": { "title": "Snake", "description": "Eat", "photo": [] } }));
+        assert_eq!(m.game().map(|g| g.title.as_str()), Some("Snake"));
     }
 }

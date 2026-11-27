@@ -17,6 +17,9 @@ impl Client {
     /// user account with `RICH_MESSAGE_UNSUPPORTED`.
     ///
     /// Awaiting the request returns the sent [`Message`].
+    ///
+    /// A client in Bot API mode sends HTML and Markdown without embedded files; blocks and files fail with
+    /// `bot_api::Unsupported`.
     pub fn send_rich_message(
         &self,
         chat_id: impl Into<PeerRef>,
@@ -28,8 +31,13 @@ impl Client {
 
 impl SendRichMessage<'_> {
     async fn send(self) -> Result<Message> {
-        let rich_message = Some(self.rich_message.write(self.client).await?);
-        self.client.send_parsed(self.chat_id, None, (String::new(), None), rich_message, self.options).await
+        let rich_message = self.rich_message.write(self.client).await?;
+        // Over the Bot API a rich message has its own send method, which the bridge's `sendMessage` doesn't use.
+        #[cfg(feature = "bot-api")]
+        if let Some(bot) = self.client.0.bot_api.as_deref() {
+            return bot.send_rich_message(self.client, &self.chat_id, rich_message, self.options).await;
+        }
+        self.client.send_parsed(self.chat_id, None, (String::new(), None), Some(rich_message), self.options).await
     }
 }
 

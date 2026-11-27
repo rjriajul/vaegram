@@ -28,6 +28,12 @@ pub struct GetChatMembers<'a> {
 impl Client {
     /// Lists the members of a chat. Basic groups ignore `query` and `filter`.
     ///
+    /// The Bot API has no member list: a client in Bot API mode lists only a supergroup's or channel's
+    /// administrators ([`ChatMembersFilter::Administrators`]) and fails with
+    /// [`Unsupported`](crate::bot_api::Unsupported) for any other filter or a basic group. Use
+    /// [`get_chat_administrators`](Client::get_chat_administrators) or [`get_chat_member`](Client::get_chat_member)
+    /// there.
+    ///
     /// ```no_run
     /// # async fn f(client: &vaegram::Client) -> vaegram::Result<()> {
     /// let members = client.get_chat_members(-1001234567890).limit(50).await?;
@@ -95,6 +101,11 @@ impl GetChatMembers<'_> {
                 Some(request) => request,
                 None => match client.resolve_chat(&self.chat_id).await? {
                     ChatPeer::Group(chat_id) => {
+                        // The Bot API's `getChat` carries no member list, so it would read as an empty group.
+                        #[cfg(feature = "bot-api")]
+                        if client.0.bot_api.is_some() {
+                            return Err(crate::bot_api::bridge::unsupported("listing a basic group's members"));
+                        }
                         let members = client.basic_group_members(chat_id).await?;
                         let skip = usize::try_from(offset).unwrap_or(0);
                         self.pages.push(members.into_iter().skip(skip).collect(), None);
