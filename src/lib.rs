@@ -92,6 +92,7 @@ fn f(_: vaegram::connection::Connection) {}
 "#
 )]
 pub mod connection;
+pub mod conversation;
 pub(crate) mod crypto;
 pub mod dialogue;
 pub(crate) mod dispatcher;

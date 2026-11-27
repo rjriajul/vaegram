@@ -1,4 +1,5 @@
 pub use crate::commands::BotCommands;
+pub use crate::conversation::Conversation;
 pub use crate::dialogue::{Dialogue, DialogueRouter};
 pub use crate::enums::{ChatType, ParseMode};
 pub use crate::filters::{self, Filter};

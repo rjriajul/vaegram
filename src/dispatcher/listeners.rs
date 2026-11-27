@@ -2,6 +2,7 @@ use std::mem;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock};
 
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::time::Instant;
 
@@ -240,7 +241,15 @@ enum Sink<T> {
     /// Keeps the updates it matches until [`Book::release`], oldest first and at most [`MAX_HELD`]; the entry stays
     /// on the shelf meanwhile.
     Hold(Vec<T>),
+    /// Hands every update it matches to a conversation through its [`Feeder`]; the entry stays on the shelf until its
+    /// owner removes it. With the conversation's inbox full, the update goes on to the next listener and the
+    /// handlers.
+    Feed(Feeder<T>),
 }
+
+/// Where a feeding listener sends what it takes: a conversation's inbox. `Full` and `Closed` give the update back;
+/// `Closed` also removes the listener.
+pub(crate) type Feeder<T> = Box<dyn Fn(T) -> std::result::Result<(), TrySendError<T>> + Send + Sync>;
 
 /// The most updates one hold keeps; past it the oldest goes back to the dispatcher. A hold lasts one request, but
 /// that request can sleep off flood waits for minutes while a busy chat keeps talking.
@@ -385,6 +394,12 @@ impl<T> Book<T> {
         }
     }
 
+    /// Hands an update a listener took back to the dispatcher, to offer the listeners and then the handlers again, as
+    /// if it had just arrived: for a conversation that took it and passes it on.
+    pub(crate) fn hand_back(&self, item: T) {
+        self.give_back([item], false);
+    }
+
     /// What listeners gave back, in the order they gave it.
     pub(crate) fn take_returned(&self) -> Vec<Returned<T>> {
         mem::take(&mut *self.returned.lock().unwrap())
@@ -400,6 +415,13 @@ impl<T> Book<T> {
         self.add(Entry { id, criteria, sink: Sink::Call(callback) })
     }
 
+    /// Starts a listener that hands every update it matches to `feeder` until it is removed by `id`, so a
+    /// conversation misses nothing between its waits and holds no handler slot meanwhile. It never expires, and
+    /// [`stop`](Self::stop) leaves it alone: only its owner ends it.
+    pub(crate) fn feed(&self, id: u64, criteria: Criteria<T>, feeder: Feeder<T>) -> Result<()> {
+        self.add(Entry { id, criteria, sink: Sink::Feed(feeder) })
+    }
+
     /// Starts a listener that keeps every update it matches instead of ending with the first, so none is missed
     /// while the caller does something else first; [`release`](Self::release) ends the hold. Dropping the guard
     /// removes the listener and gives back what it held, in the order it arrived.
@@ -408,12 +430,13 @@ impl<T> Book<T> {
         Ok(Holding { book: self, id })
     }
 
-    /// Stops every listener `pattern` covers and returns how many; waiters fail with `Error::ListenerStopped`.
+    /// Stops every listener `pattern` covers and returns how many; waiters fail with `Error::ListenerStopped`. A
+    /// conversation's feeds aren't stopped: `Client::exit_conversation` ends a conversation.
     pub(crate) fn stop(&self, pattern: &Criteria<T>) -> usize {
         let stopped: Vec<Entry<T>> = {
             let mut shelf = self.shelf();
-            let (stopped, kept) =
-                mem::take(&mut shelf.entries).into_iter().partition(|e| pattern.includes(&e.criteria));
+            let covered = |e: &Entry<T>| !matches!(e.sink, Sink::Feed(_)) && pattern.includes(&e.criteria);
+            let (stopped, kept) = mem::take(&mut shelf.entries).into_iter().partition(covered);
             shelf.entries = kept;
             self.count(&shelf);
             stopped
@@ -540,6 +563,23 @@ impl<T: Listened> Book<T> {
                     self.give_back(oldest, true);
                     return Offer::Claimed;
                 }
+                if let Sink::Feed(feed) = &entry.sink {
+                    // The feeder only moves the update into a channel: no user code runs under the lock.
+                    match feed(item) {
+                        Ok(()) => return Offer::Claimed,
+                        // The conversation's inbox is full: the next listener or the handlers get it.
+                        Err(TrySendError::Full(back)) => item = back,
+                        // The conversation ended without removing its listener: it goes, outside the lock.
+                        Err(TrySendError::Closed(back)) => {
+                            item = back;
+                            let gone = shelf.entries.remove(at);
+                            self.count(&shelf);
+                            drop(shelf);
+                            drop(gone);
+                        }
+                    }
+                    continue;
+                }
                 let entry = shelf.entries.remove(at);
                 self.count(&shelf);
                 entry
@@ -551,6 +591,7 @@ impl<T: Listened> Book<T> {
                 },
                 Sink::Call(callback) => return Offer::Call(callback, item),
                 Sink::Hold(_) => unreachable!("a holding entry stays on the shelf"),
+                Sink::Feed(_) => unreachable!("a feeding entry stays on the shelf"),
             }
         }
         match stranger {
@@ -561,7 +602,8 @@ impl<T: Listened> Book<T> {
 }
 
 // Waiters and holders remove themselves when their timer fires or their owner drops them; expired next-step handlers
-// have nobody to do that. They are handed back, so the caller drops their callbacks after unlocking.
+// and feeds (none has a deadline today) have nobody to do that. They are handed back, so the caller drops their
+// callbacks after unlocking.
 fn prune<T>(shelf: &mut Shelf<T>, now: Instant) -> Vec<Entry<T>> {
     let keep = |e: &Entry<T>| matches!(e.sink, Sink::Wait(_) | Sink::Hold(_)) || e.criteria.live(now);
     if shelf.entries.iter().all(keep) {
@@ -1034,5 +1076,47 @@ pub(crate) mod tests {
         assert_eq!(read.unwrap().id, 6);
         listeners.close();
         assert!(listeners.messages.take_returned().is_empty());
+    }
+
+    /// A feeder into `tx`, as a conversation's.
+    // The error hands the update itself back, as a conversation's feeder does; boxing it would only copy it.
+    #[allow(clippy::result_large_err)]
+    fn feeder(tx: tokio::sync::mpsc::Sender<Message>) -> Feeder<Message> {
+        Box::new(move |item| tx.try_send(item))
+    }
+
+    #[test]
+    fn stop_leaves_feeds_alone_and_a_full_feed_passes_the_update_on() {
+        let (client, book) = (Client::offline(), Book::<Message>::default());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        book.feed(1, Criteria::default(), feeder(tx)).unwrap();
+        let mut waiter = book.wait(2, Criteria::default()).unwrap();
+
+        // Only the waiter stops: a conversation ends with `exit_conversation`, never with `stop_listening`.
+        assert_eq!(book.stop(&Criteria::default()), 1);
+        assert!(waiter.try_recv().is_err());
+        assert!(claimed(book.offer(message(&client, 1, 7, None, false), &me())));
+        assert_eq!(rx.try_recv().unwrap().id, 1);
+
+        // Full: the update goes on, and the feed stays.
+        assert!(claimed(book.offer(message(&client, 2, 7, None, false), &me())));
+        assert!(matches!(book.offer(message(&client, 3, 7, None, false), &me()), Offer::Unclaimed(m) if m.id == 3));
+        assert!(book.waiting());
+
+        // Closed: the update goes on, and the feed goes.
+        drop(rx);
+        assert!(matches!(book.offer(message(&client, 4, 7, None, false), &me()), Offer::Unclaimed(_)));
+        assert!(!book.waiting());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_feed_with_a_deadline_is_pruned_once_it_passes() {
+        let book = Book::<Message>::default();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let deadline = Some(Instant::now() + Duration::from_secs(1));
+        book.feed(1, Criteria { deadline, ..Criteria::default() }, feeder(tx)).unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        book.sweep();
+        assert!(!book.waiting());
     }
 }

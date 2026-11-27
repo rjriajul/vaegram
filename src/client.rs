@@ -858,6 +858,7 @@ pub(crate) struct InnerFields {
     pub(crate) fetch: Fetch,
     // The last app config `get_app_config` got; its hash lets Telegram answer "not modified".
     pub(crate) app_config: Mutex<Option<AppConfig>>,
+    pub(crate) conversations: crate::conversation::Registry,
 }
 
 /// [`InnerFields`] with `Send` and `Sync` stated rather than worked out: every friendly type holds a `Client`, and
@@ -1000,6 +1001,7 @@ impl Inner {
             caches: Caches::default(),
             fetch: Fetch::default(),
             app_config: Mutex::new(None),
+            conversations: Default::default(),
         })
     }
 }

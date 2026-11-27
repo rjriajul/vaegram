@@ -19,7 +19,8 @@ impl Client {
     ///
     /// Each criterion set here must share a value with the listener's own; a listener without that criterion
     /// isn't covered, and with no criteria every listener of `T` stops. Waiting listeners fail with
-    /// `Error::ListenerStopped`; next-step handlers are removed.
+    /// `Error::ListenerStopped`; next-step handlers are removed. Running conversations are never stopped here, and
+    /// don't count: end one with [`exit_conversation`](Self::exit_conversation).
     pub fn stop_listening<T: Listenable>(&self) -> StopListening<'_, T> {
         StopListening { client: self, spec: Spec::new(self) }
     }
