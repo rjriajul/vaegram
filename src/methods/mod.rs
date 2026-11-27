@@ -64,6 +64,8 @@ mod stories;
 mod users;
 mod utilities;
 mod wallet;
+#[cfg(feature = "bot-api")]
+mod webhooks;
 
 pub use account::*;
 pub(crate) use advanced::invoke_sleeping_floods;
@@ -87,3 +89,5 @@ pub use stories::*;
 pub use users::*;
 pub use utilities::*;
 pub use wallet::*;
+#[cfg(feature = "bot-api")]
+pub use webhooks::*;

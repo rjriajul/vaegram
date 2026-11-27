@@ -4,9 +4,9 @@
 
 ## Getting updates
 getUpdates                         n/a: updates arrive over the MTProto session; run() hands them to the on_* handlers
-setWebhook                         n/a: webhooks are a Bot API server feature; MTProto pushes updates over the session
-deleteWebhook                      n/a: webhooks are a Bot API server feature; MTProto pushes updates over the session
-getWebhookInfo                     n/a: webhooks are a Bot API server feature; MTProto pushes updates over the session
+setWebhook                         set_webhook
+deleteWebhook                      delete_webhook
+getWebhookInfo                     get_webhook_info
 
 ## Available methods
 getMe                              get_me

@@ -52,7 +52,9 @@
 //!   to Telegram's DNS config) and `web-proxy` (`Proxy::Web`, an MTProxy behind an HTTPS relay).
 //! - `bot-api`: the HTTP Bot API, as a raw client (`bot_api::BotApi`) and as a transport for the whole
 //!   [`Client`] (`ClientBuilder::bot_api`), where friendly methods go out as Bot API methods and `run` takes
-//!   updates from `getUpdates`. Experimental: may change in any 0.4.0 nightly.
+//!   updates from `getUpdates`, or from a webhook (`Client::webhook`). Experimental: may change in any 0.4.0 nightly.
+//! - `webhook-server`: a built-in HTTP server for that webhook (`bot_api::Webhook::serve`).
+//! - `macros`: `#[derive(BotCommands)]`, which writes `commands::BotCommands` for an enum.
 
 #![warn(missing_docs)]
 #![warn(clippy::return_self_not_must_use)]

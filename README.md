@@ -142,6 +142,44 @@ file. `.in_memory()` keeps nothing on disk, `.storage_engine(..)` stores the ses
 > A session file or string is the login itself. Anyone who has it is logged in as that account, so never commit or
 > share it.
 
+## Bot API
+
+With the `bot-api` feature (experimental in the 0.4.0 nightlies), a bot can talk to Telegram over the HTTP Bot API
+instead of MTProto. Swap `.bot_token(..)` for `.bot_api(..)`; methods, types, filters and handlers stay the same:
+
+```rust
+let app = Client::builder("my_bot", api_id, api_hash).bot_api(token).start().await?;
+```
+
+Updates come one of two ways, never both: Telegram refuses `getUpdates` while a webhook is set.
+
+- **Polling** (the default): `app.run()` long-polls `getUpdates`. It needs no public address. If a webhook is set,
+  `run` ends with Telegram's 409 error; it never removes the webhook itself. Call `app.delete_webhook()` to switch.
+- **Webhook**: Telegram posts each update to your HTTPS URL. `app.webhook(secret)` makes a receiver that refuses
+  any request without that secret token, and answers as soon as the update is queued, so slow handlers don't cause
+  retries. It also drops an update Telegram delivers again, if that receiver (or a clone of it) queued it among the
+  last 4096 in the same process; a restart or a second receiver doesn't remember it. `register(url)` sets the
+  webhook with the same secret.
+
+The built-in server (feature `webhook-server`) listens over plain HTTP and serves at most 256 connections at once.
+Keep it behind a reverse proxy that terminates TLS, reachable only from that proxy:
+
+```rust
+let webhook = app.webhook(std::env::var("WEBHOOK_SECRET")?)?;
+webhook.register("https://bot.example.com/telegram").await?;
+webhook.serve("127.0.0.1:8080").await?; // runs the handlers until `app.stop()`
+```
+
+To use your own HTTP server, pass each request's body and headers to `handle`, answer with the status it returns,
+and run the handlers with `webhook.run()`:
+
+```rust
+// Inside your POST route, with `body: Bytes` and `headers: HeaderMap`:
+let status = webhook.handle(&body, &headers).await.status();
+```
+
+`app.get_webhook_info()` shows the webhook's URL, the updates waiting and the last delivery error.
+
 ## Testing offline
 
 `.record("bot.rec")` writes everything a client sends and receives, and `session::Replay` serves that file back on
