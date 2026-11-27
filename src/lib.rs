@@ -100,7 +100,9 @@ pub(crate) mod file_id;
 pub mod filters;
 #[cfg(test)]
 mod fuzz;
-/// Handler registration: groups, stopping propagation and removing a handler.
+/// Handler registration: groups, stopping propagation and removing a handler; [`Router`](handlers::Router)s that
+/// group handlers into modules and nest, their outer and inner middleware, and values provided to handlers as
+/// [`Dep`](handlers::Dep) arguments.
 ///
 /// Updates that come back inside the answer to this client's own request, such as the message `send_message` sent
 /// or the edit `edit_message_text` made, reach no handler, raw handler or listener: they only move the update state,

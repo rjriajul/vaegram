@@ -1,3 +1,4 @@
+mod include_router;
 mod on_bot_subscription_updated;
 mod on_business_connection;
 mod on_business_message;
@@ -51,3 +52,4 @@ mod on_unhandled_update;
 mod on_user_status;
 mod on_widget_data_updated;
 mod on_widget_query;
+mod provide;

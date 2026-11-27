@@ -1,15 +1,19 @@
 use std::ops::ControlFlow;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use super::Entities;
 use super::listeners::{Listeners, Offer};
+use super::nested::{self, Flow, Layer};
 pub(crate) use super::tasks::run_hook;
-use super::tasks::{Tasks, guard};
+use super::tasks::{Tasks, guard, report};
 use crate::Client;
 use crate::client::Me;
 use crate::filters::{Facts, Filter, Inspect, PeerKinds, Subject};
-use crate::handlers::{Callback, ErrorCallback, HandlerId, HandlerInfo, RawCallback, Registered, Routed, callback};
+use crate::handlers::{
+    BoxFuture, Callback, Endpoint, ErrorCallback, HandlerError, HandlerId, HandlerInfo, RawCallback, Registered,
+    Routed, callback,
+};
 use crate::raw::base;
 use crate::types::messages_and_media::transcription::Transcriptions;
 use crate::types::{
@@ -26,73 +30,205 @@ use crate::types::{
 type Scan = (Vec<usize>, Option<usize>);
 const PARSED: Scan = (Vec::new(), Some(0));
 
+static NEXT_ID: AtomicU32 = AtomicU32::new(0);
+
+/// A new route or router id. Ids are shared by every client and router in the process, so a route registered on a
+/// [`Router`](crate::handlers::Router) before it is included keeps its id, and are never reused.
+pub(crate) fn next_id() -> u32 {
+    // A compare-exchange loop rather than `fetch_update`, which newer Rust deprecates and 1.85 has no successor for.
+    let mut id = NEXT_ID.load(Ordering::Relaxed);
+    loop {
+        let next = id.checked_add(1).expect("more than 4 billion handlers were registered");
+        match NEXT_ID.compare_exchange_weak(id, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return next,
+            Err(current) => id = current,
+        }
+    }
+}
+
 pub(crate) struct Route<T> {
-    group: i32,
-    stop: bool,
-    id: u32,
-    filter: Filter<T>,
-    callback: Callback<T>,
+    pub(crate) group: i32,
+    pub(crate) stop: bool,
+    pub(crate) id: u32,
+    pub(crate) filter: Filter<T>,
+    pub(crate) target: Target<T>,
 }
 
 impl<T> Clone for Route<T> {
     fn clone(&self) -> Self {
-        let (filter, callback) = (self.filter.clone(), self.callback.clone());
-        Route { group: self.group, stop: self.stop, id: self.id, filter, callback }
+        let (filter, target) = (self.filter.clone(), self.target.clone());
+        Route { group: self.group, stop: self.stop, id: self.id, filter, target }
     }
 }
 
-pub(crate) struct Handlers<T>(Vec<Route<T>>);
+/// What a route runs once its filter matches.
+pub(crate) enum Target<T> {
+    /// A handler from a `Client::on_*` or `Router::on_*` method.
+    Call(Callback<T>),
+    /// A handler that takes values from the update's context, from `Observer::handle`. It only runs in the update's
+    /// task, after the update is parsed.
+    Handle(Endpoint),
+    /// An included router: its own routes for this kind decide. Its filter is unused.
+    Router(Mount<T>),
+}
+
+impl<T> Clone for Target<T> {
+    fn clone(&self) -> Self {
+        match self {
+            Target::Call(callback) => Target::Call(callback.clone()),
+            Target::Handle(endpoint) => Target::Handle(endpoint.clone()),
+            Target::Router(mount) => Target::Router(mount.clone()),
+        }
+    }
+}
+
+/// An included router, as one route in its parent's list for a kind.
+pub(crate) struct Mount<T> {
+    pub(crate) node: Arc<Router>,
+    /// The router's list for this route's kind.
+    pub(crate) list: fn(&Router) -> &Handlers<T>,
+    /// Whether an outer middleware runs for this kind in the router or in one included in it, so its routes can't be
+    /// tested before the update is parsed.
+    pub(crate) deferred: bool,
+}
+
+impl<T> Clone for Mount<T> {
+    fn clone(&self) -> Self {
+        Mount { node: self.node.clone(), list: self.list, deferred: self.deferred }
+    }
+}
+
+impl<T> Mount<T> {
+    pub(crate) fn handlers(&self) -> &Handlers<T> {
+        (self.list)(&self.node)
+    }
+}
+
+impl<T: Routed + Subject + Inspect> Mount<T> {
+    /// `Some(false)` when the raw update's facts show nothing in the router can match it, so it is never parsed for
+    /// the router; `None` when only the parsed update can tell.
+    fn decide(&self, facts: &Facts<'_>) -> Option<bool> {
+        let handlers = self.handlers();
+        if handlers.filter.as_ref().is_some_and(|filter| filter.decide(facts) == Some(false)) {
+            return Some(false);
+        }
+        if self.deferred || handlers.scan(facts).is_some() { None } else { Some(false) }
+    }
+}
+
+impl<T: Routed + Subject + Inspect> Route<T> {
+    /// The route's verdict on the raw update's facts, for the walk before parsing.
+    fn decide(&self, facts: &Facts<'_>) -> Option<bool> {
+        match &self.target {
+            Target::Call(_) => self.filter.decide(facts),
+            // A match needs the parsed update, since the handler only runs in the update's task.
+            Target::Handle(_) => self.filter.decide(facts).filter(|&matched| !matched),
+            Target::Router(mount) => mount.decide(facts),
+        }
+    }
+}
+
+pub(crate) struct Handlers<T> {
+    pub(crate) routes: Arc<Vec<Route<T>>>,
+    /// A router's own filter for this kind, which an update must pass before the router's routes see it. Only
+    /// included routers have one.
+    pub(crate) filter: Option<Filter<T>>,
+}
 
 impl<T> Default for Handlers<T> {
     fn default() -> Self {
-        Handlers(Vec::new())
+        Handlers { routes: Arc::default(), filter: None }
     }
 }
 
 impl<T> Clone for Handlers<T> {
     fn clone(&self) -> Self {
-        Handlers(self.0.clone())
+        Handlers { routes: self.routes.clone(), filter: self.filter.clone() }
     }
 }
 
 impl<T> Handlers<T> {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.routes.is_empty()
+    }
+
     fn remove(&mut self, id: u32) -> bool {
-        let before = self.0.len();
-        self.0.retain(|r| r.id != id);
-        self.0.len() != before
+        if !self.routes.iter().any(|r| r.id == id) {
+            return false;
+        }
+        Arc::make_mut(&mut self.routes).retain(|r| r.id != id);
+        true
     }
 
+    /// Removes the route or included router `id` from this list, or, through `inner`, from the router included here
+    /// that holds it.
+    fn remove_deep(&mut self, id: u32, inner: impl FnOnce(&mut Router) -> bool) -> bool {
+        if self.remove(id) {
+            return true;
+        }
+        let holder = |r: &Route<T>| matches!(&r.target, Target::Router(mount) if mount.handlers().contains(id));
+        let Some(at) = self.routes.iter().position(holder) else { return false };
+        match &mut Arc::make_mut(&mut self.routes)[at].target {
+            Target::Router(mount) => inner(Arc::make_mut(&mut mount.node)),
+            Target::Call(_) | Target::Handle(_) => false,
+        }
+    }
+
+    fn contains(&self, id: u32) -> bool {
+        self.routes
+            .iter()
+            .any(|r| r.id == id || matches!(&r.target, Target::Router(mount) if mount.handlers().contains(id)))
+    }
+
+    /// Whether an included router here can't be tested before the update is parsed.
+    fn deferred(&self) -> bool {
+        self.routes.iter().any(|r| matches!(&r.target, Target::Router(mount) if mount.deferred))
+    }
+
+    /// Lists the routes in run order; an included router's routes take its place.
     fn describe(&self, kind: UpdateKind, list: &mut Vec<HandlerInfo>) {
-        list.extend(self.0.iter().map(|r| HandlerInfo::new(kind, r.id, Some(r.group), r.stop)));
+        for route in self.routes.iter() {
+            match &route.target {
+                Target::Router(mount) => mount.handlers().describe(kind, list),
+                Target::Call(_) | Target::Handle(_) => {
+                    list.push(HandlerInfo::new(kind, route.id, Some(route.group), route.stop));
+                }
+            }
+        }
     }
-}
 
-impl<T: Routed + Subject + Inspect> Handlers<T> {
     pub(crate) fn push(&mut self, id: u32, filter: Filter<T>, callback: Callback<T>) {
-        self.insert(Route { group: 0, stop: false, id, filter, callback });
+        self.add(id, filter, Target::Call(callback));
+    }
+
+    pub(crate) fn add(&mut self, id: u32, filter: Filter<T>, target: Target<T>) {
+        self.insert(Route { group: 0, stop: false, id, filter, target });
     }
 
     fn insert(&mut self, route: Route<T>) {
-        let at = self.0.partition_point(|r| (r.group, r.id) < (route.group, route.id));
-        self.0.insert(at, route);
+        let routes = Arc::make_mut(&mut self.routes);
+        let at = routes.partition_point(|r| (r.group, r.id) < (route.group, route.id));
+        routes.insert(at, route);
     }
 
     fn configure(&mut self, id: u32, group: Option<i32>, stop: bool) {
-        if let Some(at) = self.0.iter().position(|r| r.id == id) {
-            let mut route = self.0.remove(at);
+        if let Some(at) = self.routes.iter().position(|r| r.id == id) {
+            let mut route = Arc::make_mut(&mut self.routes).remove(at);
             route.group = group.unwrap_or(route.group);
             route.stop |= stop;
             self.insert(route);
         }
     }
+}
 
-    fn walk(&self, start: usize, matched: &mut Vec<usize>, test: impl Fn(&Filter<T>) -> Option<bool>) -> Option<usize> {
-        let mut group = matched.last().map(|&i| self.0[i].group);
-        for (i, route) in self.0.iter().enumerate().skip(start) {
+impl<T: Routed + Subject + Inspect> Handlers<T> {
+    fn walk(&self, start: usize, matched: &mut Vec<usize>, test: impl Fn(&Route<T>) -> Option<bool>) -> Option<usize> {
+        let mut group = matched.last().map(|&i| self.routes[i].group);
+        for (i, route) in self.routes.iter().enumerate().skip(start) {
             if group == Some(route.group) {
                 continue;
             }
-            match test(&route.filter) {
+            match test(route) {
                 None => return Some(i),
                 Some(false) => continue,
                 Some(true) => matched.push(i),
@@ -109,23 +245,85 @@ impl<T: Routed + Subject + Inspect> Handlers<T> {
     /// allocates nothing.
     fn scan(&self, facts: &Facts<'_>) -> Option<Scan> {
         let mut matched = Vec::new();
-        let resume = self.walk(0, &mut matched, |f| f.decide(facts));
+        let resume = self.walk(0, &mut matched, |r| r.decide(facts));
         (!matched.is_empty() || resume.is_some()).then_some((matched, resume))
     }
 
-    /// `true` if a handler's filter matched, so a handler runs.
-    fn finish(&self, kind: UpdateKind, tasks: &mut Tasks, me: &Me, (mut matched, resume): Scan, item: T) -> bool {
+    /// `true` if a handler's filter matched, so a handler runs, or the update reached an included router or a
+    /// handler that takes values, which decide in the update's task. In that last case, with nothing matched before,
+    /// the task takes the unhandled-update fallback `dispatch` left in `tasks`, for when nothing there takes it either.
+    fn finish(&self, kind: UpdateKind, tasks: &mut Tasks, me: &Me, (mut matched, mut resume): Scan, item: T) -> bool {
         if let Some(start) = resume {
             let facts = item.facts(me);
             let events = &tasks.events;
-            let test = |f: &Filter<T>| guard(events, kind, item.chat_id(), || f.eval(&facts, &item)).unwrap_or(false);
-            self.walk(start, &mut matched, |f| Some(test(f)));
+            let test = |r: &Route<T>| match &r.target {
+                Target::Call(_) => {
+                    Some(guard(events, kind, item.chat_id(), || r.filter.eval(&facts, &item)).unwrap_or(false))
+                }
+                // Middleware may wait, so these are left to the update's task, with the rest of the walk.
+                Target::Handle(_) | Target::Router(_) => None,
+            };
+            resume = self.walk(start, &mut matched, test);
         }
-        if matched.is_empty() {
+        if matched.is_empty() && resume.is_none() {
             return false;
         }
-        tasks.run(kind, item, matched.iter().map(|&i| self.0[i].callback.clone()).collect());
+        // Only plain handlers match before the task starts: the walk stops at any other route.
+        let mut callbacks: Vec<Callback<T>> = matched
+            .iter()
+            .filter_map(|&i| match &self.routes[i].target {
+                Target::Call(callback) => Some(callback.clone()),
+                Target::Handle(_) | Target::Router(_) => None,
+            })
+            .collect();
+        if let Some(at) = resume {
+            let group = matched.last().map(|&i| self.routes[i].group);
+            let fallback = if matched.is_empty() { tasks.fallback.take() } else { None };
+            callbacks.push(self.rest(kind, at, group, fallback));
+        }
+        tasks.run(kind, item, callbacks);
         true
+    }
+
+    /// The walk from route `at` on, as a handler that runs it in the update's task, after the plain handlers that
+    /// matched before it. `group` is the group a handler already took. When the walk ends with nothing having taken
+    /// the update, `fallback` gets it.
+    fn rest(&self, kind: UpdateKind, at: usize, group: Option<i32>, fallback: Option<Fallback>) -> Callback<T> {
+        let handlers = self.clone();
+        Arc::new(move |item: T| {
+            let client = Inspect::client(&item).clone();
+            let walk = nested::resume(handlers.clone(), kind, at, group, item);
+            let fallback = fallback.clone();
+            Box::pin(async move {
+                if let (Flow::Unhandled, Some(fallback)) = (walk.await?, fallback) {
+                    fallback.run(client).await;
+                }
+                Ok(())
+            }) as BoxFuture
+        })
+    }
+}
+
+/// What `on_unhandled_update` handlers get when the update's walk ends in its task with nothing having taken it.
+#[derive(Clone)]
+pub(crate) struct Fallback {
+    handlers: Handlers<Update>,
+    update: base::Update,
+    entities: Arc<Entities>,
+}
+
+impl Fallback {
+    /// Runs the unhandled-update handlers. Their `Err` goes to `on_error` as theirs, not as the walk's kind.
+    async fn run(self, client: Client) {
+        let item = Update::parse(&client, self.update, &self.entities);
+        let (chat_id, message_id) = (item.chat_id(), item.message_id());
+        let (user_id, query_id) = (item.user_id(), item.query_id());
+        let kind = UpdateKind::Unhandled;
+        if let Err(error) = nested::resume(self.handlers, kind, 0, None, item).await {
+            let error = HandlerError { kind, chat_id, message_id, user_id, query_id, error };
+            let on_error = client.0.handlers.current().on_error.clone();
+            report(on_error, client.0.events.clone(), error).await;
+        }
     }
 }
 
@@ -154,7 +352,7 @@ impl Handlers<Message> {
         // Only new messages reach listeners: never edits, and never business messages.
         let listening =
             kind == UpdateKind::Message && business.is_none() && client.0.handlers.listeners.messages.waiting();
-        if self.0.is_empty() && !listening {
+        if self.is_empty() && !listening {
             return false;
         }
         let me = client.0.me.lock().unwrap().clone();
@@ -186,7 +384,7 @@ impl Handlers<Message> {
         let messages = &client.0.handlers.listeners.messages;
         let offer = if evicted { messages.offer_evicted(message, &me) } else { messages.offer(message, &me) };
         let Some(message) = listened(UpdateKind::Message, tasks, offer) else { return };
-        if !self.0.is_empty() {
+        if !self.is_empty() {
             self.finish(UpdateKind::Message, tasks, &me, PARSED, message);
         }
     }
@@ -261,14 +459,16 @@ impl Hooks {
     }
 }
 
-/// Each kind line gives its `UpdateKind`, `Router` list, `configure` arm and `Update` variant; its routes get the
-/// standard arm.
+/// Each kind line gives its `UpdateKind`, `Router` list, `configure` arm and `Update` variant, and the names of its
+/// [`Router`](crate::handlers::Router) methods; its routes get the standard arm.
 /// A parse may return `T` or `Option<T>` (`.into()` turns both into `Option<T>`); `None` skips the update.
 /// Kinds without routes are dispatched by hand in `dispatch`, and parsed by hand in `Update::by_hand`.
 macro_rules! update_kinds {
     (
         |$client:ident, $entities:ident, $me:ident|
-        $($(#[$doc:meta])* $field:ident: $kind:ident => $ty:ty { $($variant:ident($u:ident) => $parse:expr),* $(,)? })*
+        $($(#[$doc:meta])* $field:ident / $on:ident: $kind:ident => $ty:ty {
+            $($variant:ident($u:ident) => $parse:expr),* $(,)?
+        })*
     ) => {
         /// Which handler route an update or a handler belongs to; [`HandlerError::kind`] says which one failed.
         /// Each variant names the `Client::on_*` method that registers it.
@@ -391,9 +591,11 @@ macro_rules! update_kinds {
             $(pub(crate) $field: Handlers<$ty>,)*
             pub(crate) unhandled: Handlers<Update>,
             pub(crate) raw: Vec<(u32, RawCallback)>,
+            /// The client's `on_error`, or an included router's own.
             pub(crate) on_error: Option<ErrorCallback>,
             pub(crate) hooks: Hooks,
-            next_id: u32,
+            /// The client's provided values, or an included router's middleware and values.
+            pub(crate) layer: Layer,
         }
 
         impl Router {
@@ -409,9 +611,10 @@ macro_rules! update_kinds {
                 }
             }
 
+            /// Removes a route here or in an included router.
             pub(crate) fn remove(&mut self, kind: UpdateKind, id: u32) -> bool {
                 match kind {
-                    $(UpdateKind::$kind => self.$field.remove(id),)*
+                    $(UpdateKind::$kind => self.$field.remove_deep(id, |r| r.remove(kind, id)),)*
                     UpdateKind::Unhandled => self.unhandled.remove(id),
                     UpdateKind::Raw => {
                         let before = self.raw.len();
@@ -424,8 +627,33 @@ macro_rules! update_kinds {
                 }
             }
 
-            /// Every route by kind, each in the order it runs; then the unhandled-update handlers, the raw handlers
-            /// and the hooks.
+            /// Includes `child` as the route `id` of every kind it has a route, or an outer middleware of its own,
+            /// for. Its routes keep their ids.
+            pub(crate) fn mount(&mut self, id: u32, child: Router) {
+                let child = Arc::new(child);
+                $(
+                    if !child.$field.is_empty() || child.layer.scoped_outer(UpdateKind::$kind) {
+                        let deferred = child.layer.outer(UpdateKind::$kind) || child.$field.deferred();
+                        let mount = Mount::<$ty> { node: child.clone(), list: |r| &r.$field, deferred };
+                        self.$field.add(id, crate::filters::all(), Target::Router(mount));
+                    }
+                )*
+            }
+
+            /// Sets the group, or `stop`, of the included router `id`, in every kind it is in.
+            pub(crate) fn configure_mount(&mut self, id: u32, group: Option<i32>, stop: bool) {
+                $(self.$field.configure(id, group, stop);)*
+            }
+
+            /// Takes the included router `id` out, here or in an included router.
+            pub(crate) fn unmount(&mut self, id: u32) -> bool {
+                let mut removed = false;
+                $(removed |= self.$field.remove_deep(id, |r| r.unmount(id));)*
+                removed
+            }
+
+            /// Every route by kind, each in the order it runs, an included router's in its place; then the
+            /// unhandled-update handlers, the raw handlers and the hooks.
             pub(crate) fn list(&self) -> Vec<HandlerInfo> {
                 let mut list = Vec::new();
                 $(self.$field.describe(UpdateKind::$kind, &mut list);)*
@@ -445,7 +673,7 @@ macro_rules! update_kinds {
             ) -> ControlFlow<bool, base::Update> {
                 let $me = || $client.0.me.lock().unwrap().clone();
                 match update {
-                    $($(base::Update::$variant($u) if !self.$field.0.is_empty() => {
+                    $($(base::Update::$variant($u) if !self.$field.is_empty() => {
                         let item: Option<$ty> = $parse.into();
                         ControlFlow::Break(match item {
                             Some(item) => self.$field.finish(UpdateKind::$kind, tasks, &$me(), PARSED, item),
@@ -456,6 +684,32 @@ macro_rules! update_kinds {
                 }
             }
         }
+
+        impl crate::handlers::Router {
+            $(
+                #[doc = concat!(
+                    "Registers a handler on this router, as [`Client::", stringify!($on), "`](crate::Client::",
+                    stringify!($on), ") does on the client: it runs for the updates that pass `filter` and reach this ",
+                    "router. Returns a [`RouteRef`](crate::handlers::RouteRef) that sets its group within this router, ",
+                    "makes it stop later groups, or gives its id."
+                )]
+                pub fn $on<F, Fut, R>(&mut self, filter: Filter<$ty>, f: F) -> crate::handlers::RouteRef<'_>
+                where
+                    F: Fn($ty) -> Fut + Send + Sync + 'static,
+                    Fut: Future<Output = crate::Result<R>> + Send + 'static,
+                {
+                    self.$field().route(filter, Target::Call(callback(f)))
+                }
+
+                $(#[$doc])*
+                ///
+                /// This router's side of that kind: handlers that take values from the update's context, and a filter
+                /// or middleware for this kind alone.
+                pub fn $field(&mut self) -> crate::handlers::Observer<'_, $ty> {
+                    crate::handlers::Observer::new(&mut self.0, UpdateKind::$kind, |r| &mut r.$field)
+                }
+            )*
+        }
     };
 }
 
@@ -463,144 +717,144 @@ update_kinds! {
     |client, entities, me|
     // Messages and plain callback queries are pre-filtered on `Facts` in `dispatch`, before they are parsed.
     /// New messages: [`on_message`](crate::Client::on_message).
-    message: Message => Message {}
+    message / on_message: Message => Message {}
     /// Edited messages: [`on_edited_message`](crate::Client::on_edited_message).
-    edited_message: EditedMessage => Message {}
+    edited_message / on_edited_message: EditedMessage => Message {}
     /// Presses of inline keyboard buttons: [`on_callback_query`](crate::Client::on_callback_query).
-    callback_query: CallbackQuery => CallbackQuery {
+    callback_query / on_callback_query: CallbackQuery => CallbackQuery {
         UpdateEphemeralBotCallbackQuery(u) => CallbackQuery::parse_ephemeral(client, *u, entities),
         UpdateInlineBotCallbackQuery(u) => CallbackQuery::parse_inline(client, *u, entities),
         UpdateBusinessBotCallbackQuery(u) => CallbackQuery::parse_business(client, *u, entities),
     }
     /// Queries from widgets: [`on_widget_query`](crate::Client::on_widget_query).
-    widget_query: WidgetQuery => WidgetQuery {
+    widget_query / on_widget_query: WidgetQuery => WidgetQuery {
         UpdateBotWidgetQuery(u) => WidgetQuery::parse(client, &u, entities),
         UpdateInlineBotWidgetQuery(u) => WidgetQuery::parse_inline(client, *u, entities),
     }
     /// Queries from shared widget copies: [`on_shared_widget_query`](crate::Client::on_shared_widget_query).
-    shared_widget_query: SharedWidgetQuery => SharedWidgetQuery {
+    shared_widget_query / on_shared_widget_query: SharedWidgetQuery => SharedWidgetQuery {
         UpdateBotWidgetCopyQuery(u) => SharedWidgetQuery::parse(client, &u, entities),
     }
     /// Changes to widget data: [`on_widget_data_updated`](crate::Client::on_widget_data_updated).
-    widget_data_updated: WidgetDataUpdated => WidgetDataUpdated {
+    widget_data_updated / on_widget_data_updated: WidgetDataUpdated => WidgetDataUpdated {
         UpdateMessageWidgetData(u) => WidgetDataUpdated::parse(client, &u, entities),
     }
     /// Queries typed after the bot's username: [`on_inline_query`](crate::Client::on_inline_query).
-    inline_query: InlineQuery => InlineQuery {
+    inline_query / on_inline_query: InlineQuery => InlineQuery {
         UpdateBotInlineQuery(u) => InlineQuery::parse(client, &u, entities),
     }
     /// Inline results a user picked: [`on_chosen_inline_result`](crate::Client::on_chosen_inline_result).
-    chosen_inline_result: ChosenInlineResult => ChosenInlineResult {
+    chosen_inline_result / on_chosen_inline_result: ChosenInlineResult => ChosenInlineResult {
         UpdateBotInlineSend(u) => ChosenInlineResult::parse(client, &u, entities),
     }
     /// Requests to join a chat: [`on_chat_join_request`](crate::Client::on_chat_join_request).
-    chat_join_request: ChatJoinRequest => ChatJoinRequest {
+    chat_join_request / on_chat_join_request: ChatJoinRequest => ChatJoinRequest {
         UpdateBotChatInviteRequester(u) => ChatJoinRequest::parse(client, &u, entities),
     }
     /// Messages sent through the bot in chats it isn't in: [`on_guest_message`](crate::Client::on_guest_message).
-    guest_message: GuestMessage => GuestMessage {
+    guest_message / on_guest_message: GuestMessage => GuestMessage {
         UpdateBotGuestChatQuery(u) => GuestMessage::parse(client, *u, entities),
     }
     /// Changes to Star subscriptions to the bot:
     /// [`on_bot_subscription_updated`](crate::Client::on_bot_subscription_updated).
-    bot_subscription_updated: BotSubscriptionUpdated => BotSubscriptionUpdated {
+    bot_subscription_updated / on_bot_subscription_updated: BotSubscriptionUpdated => BotSubscriptionUpdated {
         UpdateBotStarsSubscription(u) => BotSubscriptionUpdated::parse(client, &u, entities),
     }
     // A private chat's typing update may also be a stopped draft, so `dispatch` routes it to both kinds.
     /// Streamed message drafts that were stopped:
     /// [`on_message_generation_stopped`](crate::Client::on_message_generation_stopped).
-    message_generation_stopped: MessageGenerationStopped => MessageGenerationStopped {}
+    message_generation_stopped / on_message_generation_stopped: MessageGenerationStopped => MessageGenerationStopped {}
     /// Typing and other activities shown in a chat: [`on_chat_action`](crate::Client::on_chat_action).
-    chat_action: ChatAction => ChatActionUpdated {
+    chat_action / on_chat_action: ChatAction => ChatActionUpdated {
         UpdateChatUserTyping(u) => ChatActionUpdated::parse_chat(client, &u, entities),
         UpdateChannelUserTyping(u) => ChatActionUpdated::parse_channel(client, &u, entities),
     }
     /// Updates to bots this account manages: [`on_managed_bot`](crate::Client::on_managed_bot).
-    managed_bot: ManagedBot => ManagedBotUpdated {
+    managed_bot / on_managed_bot: ManagedBot => ManagedBotUpdated {
         UpdateManagedBot(u) => ManagedBotUpdated::parse(client, &u, entities),
     }
     /// New ephemeral messages: [`on_ephemeral_message`](crate::Client::on_ephemeral_message).
-    ephemeral_message: EphemeralMessage => EphemeralMessage {
+    ephemeral_message / on_ephemeral_message: EphemeralMessage => EphemeralMessage {
         UpdateNewEphemeralMessage(u) => EphemeralMessage::parse(client, u.message, entities),
     }
     /// Edited ephemeral messages: [`on_edited_ephemeral_message`](crate::Client::on_edited_ephemeral_message).
-    edited_ephemeral_message: EditedEphemeralMessage => EphemeralMessage {
+    edited_ephemeral_message / on_edited_ephemeral_message: EditedEphemeralMessage => EphemeralMessage {
         UpdateEditEphemeralMessage(u) => EphemeralMessage::parse(client, u.message, entities),
     }
     /// Deleted ephemeral messages: [`on_deleted_ephemeral_messages`](crate::Client::on_deleted_ephemeral_messages).
-    deleted_ephemeral_messages: DeletedEphemeralMessages => DeletedEphemeralMessages {
+    deleted_ephemeral_messages / on_deleted_ephemeral_messages: DeletedEphemeralMessages => DeletedEphemeralMessages {
         UpdateDeleteEphemeralMessages(u) => DeletedEphemeralMessages::parse(client, *u, entities),
     }
     /// A user's or chat's reactions to a message changed: [`on_message_reaction`](crate::Client::on_message_reaction).
-    message_reaction: MessageReaction => MessageReactionUpdated {
+    message_reaction / on_message_reaction: MessageReaction => MessageReactionUpdated {
         UpdateBotMessageReaction(u) => MessageReactionUpdated::parse(client, &u, entities),
     }
     /// Anonymous reaction counts on a message changed:
     /// [`on_message_reaction_count`](crate::Client::on_message_reaction_count).
-    message_reaction_count: MessageReactionCount => MessageReactionCountUpdated {
+    message_reaction_count / on_message_reaction_count: MessageReactionCount => MessageReactionCountUpdated {
         UpdateBotMessageReactions(u) => MessageReactionCountUpdated::parse(client, &u, entities),
     }
     /// The reactions on a message changed, as user accounts see them:
     /// [`on_reactions`](crate::Client::on_reactions).
-    reactions: Reactions => ReactionsUpdated {
+    reactions / on_reactions: Reactions => ReactionsUpdated {
         UpdateMessageReactions(u) => ReactionsUpdated::parse(client, &u, entities),
     }
     /// A business connection of the bot changed: [`on_business_connection`](crate::Client::on_business_connection).
-    business_connection: BusinessConnection => BusinessConnection {
+    business_connection / on_business_connection: BusinessConnection => BusinessConnection {
         UpdateBotBusinessConnect(u) => BusinessConnection::parse(client, u.connection, entities),
     }
     /// New messages through a business connection: [`on_business_message`](crate::Client::on_business_message).
-    business_message: BusinessMessage => Message {}
+    business_message / on_business_message: BusinessMessage => Message {}
     /// Edited messages through a business connection:
     /// [`on_edited_business_message`](crate::Client::on_edited_business_message).
-    edited_business_message: EditedBusinessMessage => Message {}
+    edited_business_message / on_edited_business_message: EditedBusinessMessage => Message {}
     /// Messages deleted through a business connection:
     /// [`on_deleted_business_messages`](crate::Client::on_deleted_business_messages).
-    deleted_business_messages: DeletedBusinessMessages => DeletedBusinessMessages {
+    deleted_business_messages / on_deleted_business_messages: DeletedBusinessMessages => DeletedBusinessMessages {
         UpdateBotDeleteBusinessMessage(u) => DeletedBusinessMessages::parse(client, *u, entities),
     }
     /// Shipping queries for invoices with a flexible price: [`on_shipping_query`](crate::Client::on_shipping_query).
-    shipping_query: ShippingQuery => ShippingQuery {
+    shipping_query / on_shipping_query: ShippingQuery => ShippingQuery {
         UpdateBotShippingQuery(u) => ShippingQuery::parse(client, &u, entities),
     }
     /// Queries sent before a payment completes: [`on_pre_checkout_query`](crate::Client::on_pre_checkout_query).
-    pre_checkout_query: PreCheckoutQuery => PreCheckoutQuery {
+    pre_checkout_query / on_pre_checkout_query: PreCheckoutQuery => PreCheckoutQuery {
         UpdateBotPrecheckoutQuery(u) => PreCheckoutQuery::parse(client, &u, entities),
     }
     /// Purchases of paid media: [`on_purchased_paid_media`](crate::Client::on_purchased_paid_media).
-    purchased_paid_media: PurchasedPaidMedia => PurchasedPaidMedia {
+    purchased_paid_media / on_purchased_paid_media: PurchasedPaidMedia => PurchasedPaidMedia {
         UpdateBotPurchasedPaidMedia(u) => PurchasedPaidMedia::parse(client, &u, entities),
     }
     // One boost update parses into either kind, so `dispatch` routes both.
     /// Boosts added to or changed in a chat: [`on_chat_boost`](crate::Client::on_chat_boost).
-    chat_boost: ChatBoost => ChatBoostUpdated {}
+    chat_boost / on_chat_boost: ChatBoost => ChatBoostUpdated {}
     /// Boosts removed from a chat: [`on_removed_chat_boost`](crate::Client::on_removed_chat_boost).
-    removed_chat_boost: RemovedChatBoost => ChatBoostRemoved {}
+    removed_chat_boost / on_removed_chat_boost: RemovedChatBoost => ChatBoostRemoved {}
     // A member update goes to exactly one of these, depending on whose membership changed; `dispatch` routes both.
     /// Another member's status in a chat changed: [`on_chat_member_updated`](crate::Client::on_chat_member_updated).
-    chat_member_updated: ChatMemberUpdated => ChatMemberUpdated {}
+    chat_member_updated / on_chat_member_updated: ChatMemberUpdated => ChatMemberUpdated {}
     /// This account's own membership changed: [`on_my_chat_member`](crate::Client::on_my_chat_member).
-    my_chat_member: MyChatMember => ChatMemberUpdated {}
+    my_chat_member / on_my_chat_member: MyChatMember => ChatMemberUpdated {}
     /// A poll's results changed or it closed: [`on_poll`](crate::Client::on_poll).
-    poll: Poll => PollUpdated {
+    poll / on_poll: Poll => PollUpdated {
         UpdateMessagePoll(u) => PollUpdated::parse(client, &u, entities),
     }
     /// Votes in a poll: [`on_poll_answer`](crate::Client::on_poll_answer).
-    poll_answer: PollAnswer => PollAnswer {
+    poll_answer / on_poll_answer: PollAnswer => PollAnswer {
         UpdateMessagePollVote(u) => PollAnswer::parse(client, *u, entities),
     }
     /// Deleted messages: [`on_deleted_messages`](crate::Client::on_deleted_messages).
-    deleted_messages: DeletedMessages => DeletedMessages {
+    deleted_messages / on_deleted_messages: DeletedMessages => DeletedMessages {
         UpdateDeleteMessages(u) => DeletedMessages::parse(client, *u),
         UpdateDeleteChannelMessages(u) => DeletedMessages::parse_channel(client, *u, entities),
     }
     /// Messages pinned or unpinned in a chat: [`on_pinned_messages`](crate::Client::on_pinned_messages).
-    pinned_messages: PinnedMessages => PinnedMessagesUpdated {
+    pinned_messages / on_pinned_messages: PinnedMessages => PinnedMessagesUpdated {
         UpdatePinnedMessages(u) => PinnedMessagesUpdated::parse(client, *u, entities),
         UpdatePinnedChannelMessages(u) => PinnedMessagesUpdated::parse_channel(client, *u, entities),
     }
     /// Read receipts: [`on_read_history`](crate::Client::on_read_history).
-    read_history: ReadHistory => ReadHistoryUpdated {
+    read_history / on_read_history: ReadHistory => ReadHistoryUpdated {
         UpdateReadHistoryInbox(u) => ReadHistoryUpdated::parse_inbox(client, &u, entities),
         UpdateReadHistoryOutbox(u) => ReadHistoryUpdated::parse_outbox(client, &u, entities),
         UpdateReadChannelInbox(u) => ReadHistoryUpdated::parse_channel_inbox(client, &u, entities),
@@ -610,24 +864,24 @@ update_kinds! {
     }
     /// The number of pending join requests in a chat changed:
     /// [`on_pending_join_requests`](crate::Client::on_pending_join_requests).
-    pending_join_requests: PendingJoinRequests => PendingJoinRequestsUpdated {
+    pending_join_requests / on_pending_join_requests: PendingJoinRequests => PendingJoinRequestsUpdated {
         UpdatePendingJoinRequests(u) => PendingJoinRequestsUpdated::parse(client, &u, entities),
     }
     /// A user's online status changed: [`on_user_status`](crate::Client::on_user_status).
-    user_status: UserStatus => UserStatusUpdated {
+    user_status / on_user_status: UserStatus => UserStatusUpdated {
         UpdateUserStatus(u) => UserStatusUpdated::parse(client, &u, entities),
     }
     /// This account's TON wallet state changed: [`on_ton_wallet_state`](crate::Client::on_ton_wallet_state).
-    ton_wallet_state: TonWalletState => TonWalletState {
+    ton_wallet_state / on_ton_wallet_state: TonWalletState => TonWalletState {
         UpdateWalletState(u) => TonWalletState::parse(client, &u.state),
     }
     /// This account's Stars balance changed: [`on_stars_balance`](crate::Client::on_stars_balance).
-    stars_balance: StarsBalance => StarsBalanceUpdated {
+    stars_balance / on_stars_balance: StarsBalance => StarsBalanceUpdated {
         UpdateStarsBalance(u) => StarsBalanceUpdated::parse(client, &u),
     }
     // A deleted story parses to `None`, so it never reaches a handler.
     /// Stories, apart from deleted ones: [`on_story`](crate::Client::on_story).
-    story: Story => Story {
+    story / on_story: Story => Story {
         UpdateStory(u) => {
             let u = *u;
             Story::parse(client, &u.peer, u.story, entities)
@@ -635,20 +889,20 @@ update_kinds! {
     }
     /// Speech-to-text results for voice and video notes, step by step:
     /// [`on_transcription`](crate::Client::on_transcription).
-    transcription: Transcription => TranscriptionUpdated {
+    transcription / on_transcription: Transcription => TranscriptionUpdated {
         UpdateTranscribedAudio(u) => TranscriptionUpdated::parse(client, &u, entities),
     }
     /// Logins to this account from a new device, and their confirmations:
     /// [`on_new_login`](crate::Client::on_new_login).
-    new_login: NewLogin => NewLogin {
+    new_login / on_new_login: NewLogin => NewLogin {
         UpdateNewAuthorization(u) => NewLogin::parse(client, &u),
     }
     /// Notices from Telegram itself: [`on_service_notification`](crate::Client::on_service_notification).
-    service_notification: ServiceNotification => ServiceNotification {
+    service_notification / on_service_notification: ServiceNotification => ServiceNotification {
         UpdateServiceNotification(u) => ServiceNotification::parse(client, &u, entities),
     }
     /// Drafts saved or cleared on any of the account's devices: [`on_draft`](crate::Client::on_draft).
-    draft: Draft => DraftUpdated {
+    draft / on_draft: Draft => DraftUpdated {
         UpdateDraftMessage(u) => DraftUpdated::parse(client, &u, entities),
     }
 }
@@ -710,9 +964,18 @@ impl Update {
 }
 
 impl Router {
+    /// A new id for a route registered here; see the free function `next_id`.
     pub(crate) fn next_id(&mut self) -> u32 {
-        self.next_id += 1;
-        self.next_id
+        next_id()
+    }
+
+    /// Sets the group, or `stop`, of a route or an included router.
+    pub(crate) fn configure_registered(&mut self, handler: Registered, group: Option<i32>, stop: bool) {
+        match handler {
+            Registered::Route(kind, id) => self.configure(kind, id, group, stop),
+            Registered::Router(id) => self.configure_mount(id, group, stop),
+            Registered::Listener(_) => {}
+        }
     }
 
     pub(crate) fn dispatch(&self, client: &Client, update: base::Update, entities: &Arc<Entities>, tasks: &mut Tasks) {
@@ -725,12 +988,20 @@ impl Router {
                 tasks.raw(future);
             }
         }
-        // Kept only while an `on_unhandled_update` handler is registered.
-        let unhandled = (!self.unhandled.0.is_empty()).then(|| update.clone());
+        // Kept only while an `on_unhandled_update` handler is registered. A walk that goes on in an update's task
+        // takes it, to decide there; otherwise it is decided here.
+        tasks.fallback = (!self.unhandled.is_empty()).then(|| Fallback {
+            handlers: self.unhandled.clone(),
+            update: update.clone(),
+            entities: entities.clone(),
+        });
         let handled = self.deliver(client, update, entities, tasks);
-        let Some(update) = unhandled.filter(|_| !handled) else { return };
+        let Some(fallback) = tasks.fallback.take() else { return };
+        if handled {
+            return;
+        }
         let me = client.0.me.lock().unwrap().clone();
-        let item = Update::parse(client, update, entities);
+        let item = Update::parse(client, fallback.update, entities);
         self.unhandled.finish(UpdateKind::Unhandled, tasks, &me, PARSED, item);
     }
 
@@ -759,7 +1030,7 @@ impl Router {
             U::UpdateEditChannelMessage(u) => {
                 self.edited_message.run(UpdateKind::EditedMessage, tasks, client, u.message, entities)
             }
-            U::UpdateBotCallbackQuery(u) if !self.callback_query.0.is_empty() => {
+            U::UpdateBotCallbackQuery(u) if !self.callback_query.is_empty() => {
                 let (me, kinds) = (me(), PeerKinds::callback(&u, entities));
                 let Some(scan) = self.callback_query.scan(&Facts::callback(&u, kinds, &me)) else { return false };
                 let query = CallbackQuery::parse(client, &u, entities);
@@ -775,7 +1046,7 @@ impl Router {
                 let business = Some((u.connection_id, u.reply_to_message));
                 self.edited_business_message.run_business(kind, tasks, client, u.message, entities, business)
             }
-            U::UpdateBotChatBoost(u) if !self.chat_boost.0.is_empty() || !self.removed_chat_boost.0.is_empty() => {
+            U::UpdateBotChatBoost(u) if !self.chat_boost.is_empty() || !self.removed_chat_boost.is_empty() => {
                 match BoostUpdate::parse(client, *u, entities) {
                     Some(BoostUpdate::Updated(item)) => {
                         self.chat_boost.finish(UpdateKind::ChatBoost, tasks, &me(), PARSED, item)
@@ -800,13 +1071,13 @@ impl Router {
             }
             U::UpdateUserTyping(u) => {
                 let mut handled = false;
-                if !self.message_generation_stopped.0.is_empty() {
+                if !self.message_generation_stopped.is_empty() {
                     if let Some(item) = MessageGenerationStopped::parse(client, &u, entities) {
                         let kind = UpdateKind::MessageGenerationStopped;
                         handled |= self.message_generation_stopped.finish(kind, tasks, &me(), PARSED, item);
                     }
                 }
-                if !self.chat_action.0.is_empty() {
+                if !self.chat_action.is_empty() {
                     if let Some(item) = ChatActionUpdated::parse_user(client, &u, entities) {
                         handled |= self.chat_action.finish(UpdateKind::ChatAction, tasks, &me(), PARSED, item);
                     }
@@ -847,7 +1118,7 @@ impl Router {
                 tasks.run(kind, query, vec![callback]);
                 true
             }
-            Offer::Unclaimed(query) if !self.callback_query.0.is_empty() => {
+            Offer::Unclaimed(query) if !self.callback_query.is_empty() => {
                 self.callback_query.finish(kind, tasks, &me, PARSED, query)
             }
             Offer::Unclaimed(_) => false,
@@ -887,7 +1158,7 @@ impl Router {
         } else {
             (&self.chat_member_updated, UpdateKind::ChatMemberUpdated)
         };
-        !handlers.0.is_empty() && handlers.finish(kind, tasks, me, PARSED, parse())
+        !handlers.is_empty() && handlers.finish(kind, tasks, me, PARSED, parse())
     }
 }
 
@@ -916,10 +1187,12 @@ impl Routes {
         self.router.read().unwrap().clone()
     }
 
-    /// A route or a next-step handler. Only a route change makes running dispatchers take a new router.
+    /// A route, an included router or a next-step handler. Only a route change makes running dispatchers take a new
+    /// router.
     pub(crate) fn remove(&self, handler: HandlerId) -> bool {
         match handler.0 {
             Registered::Route(kind, id) => self.add(|r| r.remove(kind, id)),
+            Registered::Router(id) => self.add(|r| r.unmount(id)),
             Registered::Listener(id) => self.listeners.remove(id),
         }
     }
@@ -2117,5 +2390,28 @@ mod tests {
         let update = base::Update::UpdateTranscribedAudio(Box::new(update));
         router_of(&client).dispatch(&client, update, &Arc::default(), &mut Tasks::default());
         assert_eq!(transcription.wait(std::time::Duration::from_secs(5)).await.unwrap(), "done");
+    }
+
+    #[test]
+    fn included_routers_are_tested_on_facts_unless_an_outer_middleware_needs_the_update() {
+        let included = |outer: bool| {
+            let mut child = crate::handlers::Router::new();
+            child.on_message(filters::command("other"), |_| async { Ok(()) });
+            if outer {
+                child.outer_middleware(|ctx, next| next.run(ctx));
+            }
+            let mut root = Router::default();
+            root.mount(next_id(), child.0);
+            root
+        };
+        let mut raw = Message::bare(1, get_peer(1), 0);
+        raw.message = "/start".into();
+        let raw = base::Message::Message(Box::new(raw));
+        let me = Me::default();
+        let facts = Facts::message(&raw, PeerKinds::message(&raw, &Entities::default()), &me);
+        // Nothing in the router can match "/start": the message is never parsed for it.
+        assert!(included(false).message.scan(&facts).is_none());
+        // Its outer middleware must see every message, so it is parsed.
+        assert!(included(true).message.scan(&facts).is_some());
     }
 }

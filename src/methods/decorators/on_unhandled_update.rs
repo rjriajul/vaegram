@@ -9,7 +9,9 @@ use crate::types::Update;
 impl Client {
     /// Registers a handler for the updates no other handler took, that pass `filter`: no listener claimed them and
     /// no typed `on_*` handler's filter matched. [`on_raw_update`](Client::on_raw_update) handlers see every update
-    /// and don't count. A message a listener claims and later gives back counts as taken.
+    /// and don't count. A message a listener claims and later gives back counts as taken. An update that reaches an
+    /// included [`Router`](crate::handlers::Router) is decided once the router is done with it, in the update's own
+    /// task: it counts as taken when a handler ran or an outer middleware kept it.
     ///
     /// The [`Update`] holds the typed event, or [`Update::Other`] when vaegram has none for it yet. Updates move out
     /// of `Other` as typed events are added, so match the variants you need and keep a `_` arm.
