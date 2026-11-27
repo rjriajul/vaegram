@@ -80,6 +80,10 @@ macro_rules! listener_setters {
 }
 
 mod ask;
+mod conversation;
+mod enter_conversation;
+mod exit_conversation;
+mod is_conversation_active;
 mod listen;
 mod register_next_step_handler;
 mod stop_listening;

@@ -17,7 +17,7 @@ use tokio::time::Instant;
 pub(crate) use entities::Entities;
 pub(crate) use router::{Router, Routes};
 use tasks::Tasks;
-pub(crate) use tasks::without_slot;
+pub(crate) use tasks::{panicked, report, without_slot};
 use tracker::{Key, Tracker};
 
 use crate::Client;
