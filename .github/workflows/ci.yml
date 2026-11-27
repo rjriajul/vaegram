@@ -48,7 +48,8 @@ jobs:
 
       - name: Package
         if: matrix.toolchain == 'stable' && matrix.os == 'ubuntu-latest'
-        run: cargo publish --dry-run -p vaegram
+        # Together: vaegram depends on vaegram-macros, which isn't on crates.io until both are published; vae on both.
+        run: cargo publish --dry-run -p vaegram-macros -p vaegram -p vae
 
       - name: Disk space
         if: always() && runner.os != 'Windows'

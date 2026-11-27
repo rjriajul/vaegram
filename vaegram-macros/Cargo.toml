@@ -1,0 +1,18 @@
+[package]
+name = "vaegram-macros"
+description = "Derive macros for vaegram, a Telegram MTProto client library; use them through vaegram's `macros` feature"
+version = "0.4.0-nightly.2"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/rjriajul/vaegram"
+keywords = ["telegram", "bot", "commands", "derive"]
+categories = ["api-bindings"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = "2"
